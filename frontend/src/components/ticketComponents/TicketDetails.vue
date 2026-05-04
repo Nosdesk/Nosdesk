@@ -236,6 +236,8 @@ const schedulingHasValue = computed<boolean>(() => {
   return !!(props.ticket.due_date || props.ticket.recurrence_rule);
 });
 
+const schedulingOpen = ref<boolean>(schedulingHasValue.value);
+
 /** Inline preview rendered in the Scheduling summary line so the
  * user can read state without expanding. Empty string falls back
  * to "None" in the template. */
@@ -539,24 +541,33 @@ watchEffect(async () => {
           </div>
 
           <!-- Scheduling group: due date + recurrence collapsed
-               by default. Most tickets don't carry either; folding
-               them keeps the form short for the common case while
-               preserving discoverability. The summary line shows
-               an inline preview ("Due Jan 14 · Weekly") so users
-               can read the state without expanding. -->
-          <details
-            class="rounded-lg border border-subtle bg-surface-alt"
-            :open="schedulingHasValue"
-          >
-            <summary
-              class="flex items-center justify-between cursor-pointer px-3 py-2 text-xs font-medium text-tertiary uppercase tracking-wide select-none"
-            >
-              <span>Scheduling</span>
-              <span class="text-[11px] normal-case tracking-normal text-secondary font-normal">
+               by default. The SectionCard chrome matches every
+               other card-with-header in the app so the form
+               composition stays uniform; the headerActions slot
+               carries the inline preview ("Due Jan 14 · Weekly")
+               so the value reads without an open. -->
+          <SectionCard content-padding="">
+            <template #title>
+              <button
+                type="button"
+                class="flex items-center gap-1.5 text-[13px] font-semibold text-primary"
+                :aria-expanded="schedulingOpen"
+                @click="schedulingOpen = !schedulingOpen"
+              >
+                <Icon
+                  name="chevronDown"
+                  class="w-3 h-3 text-tertiary transition-transform"
+                  :class="{ '-rotate-90': !schedulingOpen }"
+                />
+                Scheduling
+              </button>
+            </template>
+            <template #headerActions>
+              <span class="text-[11px] text-tertiary truncate">
                 {{ schedulingPreview || 'None' }}
               </span>
-            </summary>
-            <div class="px-3 pb-3 pt-1 flex flex-col gap-3 border-t border-subtle">
+            </template>
+            <div v-if="schedulingOpen" class="px-3 py-3 flex flex-col gap-3 border-t border-default">
               <label class="flex flex-col gap-1">
                 <span class="text-[11px] text-tertiary">Due date</span>
                 <div class="flex items-center bg-app rounded-md border border-subtle">
@@ -596,7 +607,7 @@ watchEffect(async () => {
                 >Closing this ticket spawns the next occurrence.</span>
               </label>
             </div>
-          </details>
+          </SectionCard>
 
           <!-- Category Section -->
           <div v-if="categoryOptions && categoryOptions.length > 0" class="flex flex-col gap-1.5">

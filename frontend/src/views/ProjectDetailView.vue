@@ -18,6 +18,7 @@ import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useAggregate } from '@/sync/composables'
 import KanbanBoard from '@/sync/views/KanbanBoard.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import { toCardData } from '@/sync/views/cardData'
 import type { CardData } from '@/sync/views/types'
 
@@ -67,8 +68,17 @@ function openCard(cardId: number): void {
 type SecondaryAxis = 'assignee_uuid' | 'priority'
 const secondaryAxis = ref<SecondaryAxis | null>(null)
 
-function setSecondaryAxis(axis: SecondaryAxis | null): void {
-  secondaryAxis.value = axis
+const groupByOptions = [
+  { value: '', label: 'Status only' },
+  { value: 'assignee_uuid', label: 'Status × Assignee' },
+  { value: 'priority', label: 'Status × Priority' },
+]
+
+const groupByValue = computed<string>(() => secondaryAxis.value ?? '')
+
+function onGroupByChange(value: string | string[]): void {
+  const v = Array.isArray(value) ? value[0] : value
+  secondaryAxis.value = v === '' ? null : (v as SecondaryAxis)
 }
 </script>
 
@@ -92,19 +102,20 @@ function setSecondaryAxis(axis: SecondaryAxis | null): void {
     <ProjectTabBar :project-id="projectId" />
 
     <!-- Kanban toolbar — view-shape controls live with the
-         surface they affect, not in the page header. -->
+         surface they affect, not in the page header. Uses the
+         same BaseDropdown the rest of the app reaches for so the
+         control reads as a peer of every other dropdown. -->
     <div class="flex items-center justify-end gap-2 px-6 py-2 border-b border-subtle bg-surface">
       <label class="flex items-center gap-2 text-xs text-secondary">
         <span>Group by</span>
-        <select
-          class="bg-app border border-subtle rounded-md text-xs px-2 py-1 text-primary"
-          :value="secondaryAxis ?? ''"
-          @change="setSecondaryAxis(($event.target as HTMLSelectElement).value as 'assignee_uuid' | 'priority' | '' || null)"
-        >
-          <option value="">Status only</option>
-          <option value="assignee_uuid">Status × Assignee</option>
-          <option value="priority">Status × Priority</option>
-        </select>
+        <div class="w-44">
+          <BaseDropdown
+            :model-value="groupByValue"
+            :options="groupByOptions"
+            size="xs"
+            @update:model-value="onGroupByChange"
+          />
+        </div>
       </label>
     </div>
 

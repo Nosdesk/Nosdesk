@@ -18,6 +18,7 @@ import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useCyclesStore } from '@/stores/cycles'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
+import SectionCard from '@/components/common/SectionCard.vue'
 
 const props = defineProps<{ id: string }>()
 
@@ -94,97 +95,103 @@ function formatCycleDate(iso: string | null): string {
 
     <ProjectTabBar :project-id="projectId" />
 
-    <div class="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col gap-6">
+    <div class="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col gap-4">
       <CycleBurndown v-if="activeCycle" :cycle="activeCycle" />
 
-      <form
-        v-if="showCreate"
-        class="rounded-md border border-subtle bg-app p-4 flex items-end gap-3"
-        @submit.prevent="createCycle"
-      >
-        <label class="flex flex-col gap-1 text-[11px] text-tertiary flex-1">
-          <span>Name</span>
-          <input
-            v-model="newCycleName"
-            type="text"
-            placeholder="e.g. Sprint 14"
-            class="bg-surface border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-[11px] text-tertiary">
-          <span>Start</span>
-          <input
-            v-model="newCycleStart"
-            type="date"
-            class="bg-surface border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-[11px] text-tertiary">
-          <span>End</span>
-          <input
-            v-model="newCycleEnd"
-            type="date"
-            class="bg-surface border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
-          />
-        </label>
-        <button
-          type="submit"
-          class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 disabled:opacity-50"
-          :disabled="!newCycleName.trim()"
-        >Create</button>
-      </form>
-
-      <div
-        v-if="cycles.length === 0 && !showCreate"
-        class="text-tertiary text-sm italic text-center py-12"
-      >
-        No cycles yet. Click <strong class="text-secondary">New cycle</strong> to start an iteration.
-      </div>
-
-      <ul v-else-if="cycles.length" class="flex flex-col gap-1.5">
-        <li
-          v-for="cycle in cycles"
-          :key="cycle.uuid"
-          class="flex items-center gap-3 rounded-md border border-subtle bg-app px-3 py-2 hover:border-default transition-colors"
-        >
-          <span
-            class="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 shrink-0"
-            :class="{
-              'bg-accent text-on-accent': cycle.state === 'active',
-              'bg-surface-hover text-tertiary': cycle.state === 'planned',
-              'bg-surface text-tertiary opacity-70': cycle.state === 'completed',
-            }"
-          >{{ cycle.state }}</span>
+      <SectionCard v-if="showCreate" content-padding="p-4">
+        <template #title>New cycle</template>
+        <form class="flex items-end gap-3" @submit.prevent="createCycle">
+          <label class="flex flex-col gap-1 text-[11px] text-tertiary flex-1">
+            <span>Name</span>
+            <input
+              v-model="newCycleName"
+              type="text"
+              placeholder="e.g. Sprint 14"
+              class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-tertiary">
+            <span>Start</span>
+            <input
+              v-model="newCycleStart"
+              type="date"
+              class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-tertiary">
+            <span>End</span>
+            <input
+              v-model="newCycleEnd"
+              type="date"
+              class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
+            />
+          </label>
           <button
-            type="button"
-            class="text-sm text-primary flex-1 truncate text-left hover:text-accent"
-            @click="router.push(`/cycles/${cycle.uuid}`)"
-          >{{ cycle.name }}</button>
-          <span class="text-[11px] text-tertiary tabular-nums shrink-0">
-            {{ formatCycleDate(cycle.start_at) }} → {{ formatCycleDate(cycle.end_at) }}
-          </span>
-          <div class="flex items-center gap-0.5 shrink-0">
+            type="submit"
+            class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 disabled:opacity-50"
+            :disabled="!newCycleName.trim()"
+          >Create</button>
+        </form>
+      </SectionCard>
+
+      <SectionCard content-padding="">
+        <template #title>All cycles</template>
+        <template #headerActions>
+          <span class="text-[11px] text-tertiary tabular-nums">{{ cycles.length }}</span>
+        </template>
+
+        <div
+          v-if="cycles.length === 0"
+          class="text-tertiary text-xs italic text-center py-8 px-4"
+        >
+          No cycles yet. Click <strong class="text-secondary">New cycle</strong> to start an iteration.
+        </div>
+
+        <ul v-else class="divide-y divide-subtle">
+          <li
+            v-for="cycle in cycles"
+            :key="cycle.uuid"
+            class="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors"
+          >
+            <span
+              class="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 shrink-0"
+              :class="{
+                'bg-accent text-on-accent': cycle.state === 'active',
+                'bg-surface-hover text-tertiary': cycle.state === 'planned',
+                'bg-surface text-tertiary opacity-70': cycle.state === 'completed',
+              }"
+            >{{ cycle.state }}</span>
             <button
-              v-if="cycle.state === 'planned'"
               type="button"
-              class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover"
-              @click="promoteToActive(cycle.uuid)"
-            >Promote</button>
-            <button
-              v-if="cycle.state === 'active'"
-              type="button"
-              class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover"
-              @click="completeCycle(cycle.uuid)"
-            >Complete</button>
-            <button
-              v-if="cycle.state !== 'completed'"
-              type="button"
-              class="text-[11px] text-tertiary hover:text-rose-600 px-2 py-1 rounded hover:bg-surface-hover"
-              @click="archiveCycle(cycle.uuid)"
-            >Archive</button>
-          </div>
-        </li>
-      </ul>
+              class="text-sm text-primary flex-1 truncate text-left hover:text-accent"
+              @click="router.push(`/cycles/${cycle.uuid}`)"
+            >{{ cycle.name }}</button>
+            <span class="text-[11px] text-tertiary tabular-nums shrink-0">
+              {{ formatCycleDate(cycle.start_at) }} → {{ formatCycleDate(cycle.end_at) }}
+            </span>
+            <div class="flex items-center gap-0.5 shrink-0">
+              <button
+                v-if="cycle.state === 'planned'"
+                type="button"
+                class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover"
+                @click="promoteToActive(cycle.uuid)"
+              >Promote</button>
+              <button
+                v-if="cycle.state === 'active'"
+                type="button"
+                class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover"
+                @click="completeCycle(cycle.uuid)"
+              >Complete</button>
+              <button
+                v-if="cycle.state !== 'completed'"
+                type="button"
+                class="text-[11px] text-tertiary hover:text-rose-600 px-2 py-1 rounded hover:bg-surface-hover"
+                @click="archiveCycle(cycle.uuid)"
+              >Archive</button>
+            </div>
+          </li>
+        </ul>
+      </SectionCard>
     </div>
   </div>
 </template>
