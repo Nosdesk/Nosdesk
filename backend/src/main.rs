@@ -1360,6 +1360,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/devices/paginated/excluding", web::get().to(handlers::get_paginated_devices_excluding))
                     .route("/devices/bulk", web::post().to(handlers::bulk_devices))
                     .route("/devices/calendar-overlay", web::get().to(handlers::devices::calendar_overlay))
+                    .route("/assets/planner", web::get().to(handlers::devices::asset_planner))
                     .route("/devices", web::post().to(handlers::create_device))
                     .route("/devices/{id}", web::get().to(handlers::get_device_by_id))
                     .route("/devices/{id}", web::put().to(handlers::update_device))

@@ -15,6 +15,7 @@ import WorkspaceCyclesView from '../views/WorkspaceCyclesView.vue'
 import CycleDetailView from '../views/CycleDetailView.vue'
 import ProjectGanttView from '../views/ProjectGanttView.vue'
 import SlaAdminView from '../views/SlaAdminView.vue'
+import AssetPlannerView from '../views/AssetPlannerView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
@@ -273,6 +274,15 @@ const router = createRouter({
         requiresAuth: true,
         requiresAdmin: true,
         title: 'SLA',
+      }
+    },
+    {
+      path: '/assets',
+      name: 'asset-planner',
+      component: AssetPlannerView,
+      meta: {
+        requiresAuth: true,
+        title: 'Assets',
       }
     },
     {

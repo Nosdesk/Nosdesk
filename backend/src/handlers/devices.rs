@@ -270,6 +270,96 @@ pub async fn calendar_overlay(
     }
 }
 
+/// One asset row as the rollout-planner consumes it. Derived
+/// fields (os_family / warranty_bucket) are bucketed at the
+/// boundary so the renderer can group / filter without a second
+/// pass over every row.
+#[derive(Debug, Serialize)]
+pub struct AssetPlannerRow {
+    pub id: i32,
+    pub name: String,
+    pub hostname: Option<String>,
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
+    pub operating_system: Option<String>,
+    pub os_version: Option<String>,
+    /// Bucketed os: 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other'.
+    pub os_family: &'static str,
+    pub warranty_end_date: Option<String>,
+    /// 'expired' | 'expiring_30d' | 'expiring_90d' | 'active' | 'unknown'.
+    pub warranty_bucket: &'static str,
+    pub compliance_state: Option<String>,
+    pub primary_user_uuid: Option<Uuid>,
+    pub asset_tag: Option<String>,
+}
+
+fn classify_os(raw: Option<&str>) -> &'static str {
+    let s = raw.unwrap_or("").to_lowercase();
+    if s.contains("windows") { return "windows"; }
+    if s.contains("mac") || s.contains("os x") || s.contains("darwin") { return "macos"; }
+    if s.contains("linux") || s.contains("ubuntu") || s.contains("fedora") || s.contains("debian") {
+        return "linux";
+    }
+    if s.contains("ios") || s.contains("iphone") || s.contains("ipad") { return "ios"; }
+    if s.contains("android") { return "android"; }
+    "other"
+}
+
+fn classify_warranty(end: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> &'static str {
+    let Some(end) = end else { return "unknown"; };
+    let days = (end - today).num_days();
+    if days < 0 { "expired" }
+    else if days <= 30 { "expiring_30d" }
+    else if days <= 90 { "expiring_90d" }
+    else { "active" }
+}
+
+/// `GET /api/assets/planner` — returns every device shaped for the
+/// asset rollout planner view. Bucketing happens server-side so
+/// the renderer doesn't repeat the OS-string heuristics.
+pub async fn asset_planner(pool: web::Data<Pool>, _auth: crate::extractors::AuthContext) -> impl Responder {
+    use crate::schema::devices;
+    use diesel::prelude::*;
+
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    let rows: Result<Vec<Device>, Error> = devices::table
+        .order(devices::name.asc())
+        .load(&mut conn);
+
+    match rows {
+        Ok(devices) => {
+            let today = chrono::Utc::now().date_naive();
+            let payload: Vec<AssetPlannerRow> = devices
+                .into_iter()
+                .map(|d| AssetPlannerRow {
+                    id: d.id,
+                    name: d.name.clone(),
+                    hostname: d.hostname.clone(),
+                    manufacturer: d.manufacturer.clone(),
+                    model: d.model.clone(),
+                    os_family: classify_os(d.operating_system.as_deref()),
+                    warranty_bucket: classify_warranty(d.warranty_end_date, today),
+                    operating_system: d.operating_system,
+                    os_version: d.os_version,
+                    warranty_end_date: d.warranty_end_date.map(|dt| dt.format("%Y-%m-%d").to_string()),
+                    compliance_state: d.compliance_state,
+                    primary_user_uuid: d.primary_user_uuid,
+                    asset_tag: d.asset_tag,
+                })
+                .collect();
+            HttpResponse::Ok().json(payload)
+        }
+        Err(e) => {
+            error!(error = ?e, "asset planner load failed");
+            errors::internal("Failed to load assets")
+        }
+    }
+}
+
 /// Get all devices
 pub async fn get_all_devices(pool: web::Data<Pool>) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
