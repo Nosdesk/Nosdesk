@@ -1023,23 +1023,54 @@ async fn find_or_create_oauth_user(
 
                     match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
                         Ok(_) => {
-                            // Identity created, now add the OAuth email to user_emails if not already present
-                            if let Err(_) = crate::repository::user_emails::find_user_by_any_email(conn, &email) {
-                                let new_email = crate::models::NewUserEmail {
-                                    user_uuid: user.uuid,
-                                    email: email.to_lowercase(),
-                                    email_type: "work".to_string(),
-                                    is_primary: false,
-                                    is_verified: true,
-                                    source: Some(provider.provider_type.clone()),
-                                };
-
-                                if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
-                                    .values(&new_email)
-                                    .execute(conn)
-                                {
-                                    warn!(provider = %provider.provider_type, error = ?e, "Failed to add email to user_emails");
-                                }
+                            // Identity created. Now mirror the OAuth-provided
+                            // email into user_emails so MFA, recovery, and
+                            // search can find the user by it later. Only
+                            // insert when the lookup explicitly returns
+                            // NotFound — any other error means we couldn't
+                            // tell whether the email exists, and treating
+                            // every error as "not found" would either
+                            // duplicate rows (on transient errors) or
+                            // mask a real DB problem.
+                            match crate::repository::user_emails::find_user_by_any_email(conn, &email) {
+                                Err(diesel::result::Error::NotFound) => {
+                                    let new_email = crate::models::NewUserEmail {
+                                        user_uuid: user.uuid,
+                                        email: email.to_lowercase(),
+                                        email_type: "work".to_string(),
+                                        is_primary: false,
+                                        is_verified: true,
+                                        source: Some(provider.provider_type.clone()),
+                                    };
+                                    if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
+                                        .values(&new_email)
+                                        .execute(conn)
+                                    {
+                                        // Surface to ERROR (not WARN) — the
+                                        // user can still log in but their
+                                        // email row is missing, which silently
+                                        // breaks MFA-by-email and recovery.
+                                        // Loud log gives operators a chance
+                                        // to manually fix.
+                                        error!(
+                                            provider = %provider.provider_type,
+                                            user_uuid = %user.uuid,
+                                            error = ?e,
+                                            "Failed to insert OAuth email into user_emails; user can log in but email-based flows will not find them",
+                                        );
+                                    }
+                                },
+                                Ok(_) => {
+                                    // Email already linked to a user; no insert needed.
+                                },
+                                Err(e) => {
+                                    error!(
+                                        provider = %provider.provider_type,
+                                        user_uuid = %user.uuid,
+                                        error = ?e,
+                                        "Failed to look up OAuth email in user_emails; skipping insert",
+                                    );
+                                },
                             }
 
                             return Ok(user);
@@ -1146,27 +1177,43 @@ async fn add_oauth_identity_to_user(
         Err(e) => return Err(format!("Failed to create auth identity: {e:?}")),
     }
 
-    // Also add the OAuth provider email to user_emails table if present
+    // Also add the OAuth provider email to user_emails table if
+    // present. Only insert on explicit NotFound — see the matched
+    // sister branch above for why "any error == not found" is the
+    // wrong check (it can either duplicate rows on transient errors
+    // or mask real DB problems).
     if let Some(email_address) = email {
-        // Check if email already exists in user_emails table
-        if let Err(_) = crate::repository::user_emails::find_user_by_any_email(conn, &email_address) {
-            // Email doesn't exist, add it
-            let new_email = crate::models::NewUserEmail {
-                user_uuid: user.uuid,
-                email: email_address.to_lowercase(),
-                email_type: "work".to_string(), // OAuth emails are typically work emails
-                is_primary: false, // Don't make it primary automatically
-                is_verified: true, // OAuth providers verify emails
-                source: Some(provider.provider_type.clone()),
-            };
-
-            if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
-                .values(&new_email)
-                .execute(conn)
-            {
-                warn!(error = ?e, "Failed to add OAuth provider email to user_emails");
-                // Don't fail the whole operation if email insert fails
-            }
+        match crate::repository::user_emails::find_user_by_any_email(conn, &email_address) {
+            Err(diesel::result::Error::NotFound) => {
+                let new_email = crate::models::NewUserEmail {
+                    user_uuid: user.uuid,
+                    email: email_address.to_lowercase(),
+                    email_type: "work".to_string(),
+                    is_primary: false,
+                    is_verified: true,
+                    source: Some(provider.provider_type.clone()),
+                };
+                if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
+                    .values(&new_email)
+                    .execute(conn)
+                {
+                    error!(
+                        provider = %provider.provider_type,
+                        user_uuid = %user.uuid,
+                        error = ?e,
+                        "Failed to insert OAuth email into user_emails; user can log in but email-based flows will not find them",
+                    );
+                }
+            },
+            Ok(_) => {},
+            Err(e) => {
+                error!(
+                    provider = %provider.provider_type,
+                    user_uuid = %user.uuid,
+                    error = ?e,
+                    "Failed to look up OAuth email in user_emails; skipping insert",
+                );
+            },
         }
     }
 

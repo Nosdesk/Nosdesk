@@ -198,25 +198,30 @@ const activeFilterCount = computed<number>(() =>
 
 <template>
   <div class="flex flex-col h-full">
-    <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
+    <!-- Header. On md+ everything sits on one row; below md the
+         title stacks above the controls and the search expands to
+         full width so it's tappable on a phone. -->
+    <header
+      class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-4 md:px-6 py-3 md:py-4 border-b border-subtle bg-app"
+    >
       <div>
         <h1 class="text-xl font-semibold text-primary">Assets</h1>
         <p class="text-xs text-tertiary mt-0.5">
           Plan rollouts by OS, warranty, or compliance state.
         </p>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
         <input
           v-model="search"
           type="text"
           placeholder="Search by name, hostname, model…"
-          class="bg-surface border border-subtle rounded-md text-sm px-3 py-1.5 text-primary w-64"
+          class="bg-surface border border-subtle rounded-md text-sm px-3 py-1.5 text-primary w-full sm:w-64"
         />
         <label class="flex items-center gap-2 text-xs text-secondary">
-          <span>Group by</span>
+          <span class="shrink-0">Group by</span>
           <select
             v-model="axis"
-            class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary"
+            class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary flex-1 sm:flex-initial"
           >
             <option value="os_family">OS family</option>
             <option value="warranty_bucket">Warranty</option>
@@ -232,9 +237,21 @@ const activeFilterCount = computed<number>(() =>
     <div v-else-if="error" class="flex-1 flex items-center justify-center text-rose-500 text-sm">
       {{ error }}
     </div>
-    <div v-else class="flex-1 min-h-0 grid" style="grid-template-columns: 14rem 1fr">
+    <!-- Body. md+ uses the side-by-side grid (filter sidebar then
+         planner). Below md the sidebar stacks above the planner
+         with a capped height so it doesn't dominate the viewport.
+         The planner itself horizontally-scrolls within whatever
+         column space is left, which is what we want — kanban
+         columns stay readable rather than crushing. -->
+    <div
+      v-else
+      class="flex-1 min-h-0 flex flex-col md:grid"
+      style="grid-template-columns: 14rem 1fr"
+    >
       <!-- Filter sidebar -->
-      <aside class="border-r border-subtle bg-surface overflow-y-auto p-4 flex flex-col gap-5">
+      <aside
+        class="border-b md:border-b-0 md:border-r border-subtle bg-surface overflow-y-auto p-4 flex flex-col gap-5 md:flex-col max-h-48 md:max-h-none"
+      >
         <div class="flex items-center justify-between">
           <h2 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">Filters</h2>
           <button

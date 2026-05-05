@@ -137,7 +137,15 @@ async function createPolicy(): Promise<void> {
 }
 
 async function deletePolicy(id: number): Promise<void> {
-  if (!window.confirm('Delete this policy?')) return
+  // Confirm wording calls out the side effect: any tickets the
+  // policy currently covers stop having an SLA. Without this the
+  // operator might delete "Standard SLA" thinking they can recreate
+  // it later and not realise tickets in flight lose their pill
+  // until the new policy lands.
+  if (!window.confirm(
+    'Delete this policy? Tickets that currently match it will lose their SLA pill until another policy matches them. ' +
+    'This cannot be undone.',
+  )) return
   try {
     await slaService.deletePolicy(id)
     policies.value = policies.value.filter((p) => p.id !== id)

@@ -7,19 +7,18 @@ use actix_web::{HttpResponse, HttpRequest};
 use actix_web::http::header::{CONTENT_TYPE, CACHE_CONTROL, ACCEPT_RANGES};
 use tracing::error;
 
-/// Storage configuration for different backends
+/// Storage configuration for different backends.
+///
+/// Only `Local` exists today. An S3 variant lived here as a stub
+/// for several months and was removed because every operation
+/// returned "S3 storage not implemented yet" — a footgun for any
+/// self-hoster who configured `STORAGE_TYPE=s3` and watched their
+/// uploads silently fail. When S3 is implemented for real, it
+/// returns as a new variant on a dedicated branch with tests.
 #[derive(Debug, Clone)]
 pub enum StorageConfig {
     Local {
         base_path: String,
-    },
-    #[allow(dead_code)]
-    S3 {
-        bucket: String,
-        region: String,
-        access_key: String,
-        secret_key: String,
-        endpoint: Option<String>, // For S3-compatible services like MinIO
     },
 }
 
@@ -183,72 +182,6 @@ impl Storage for LocalStorage {
     }
 }
 
-/// Future S3 storage implementation (placeholder)
-pub struct S3Storage {
-    _bucket: String,
-    _region: String,
-    _access_key: String,
-    _secret_key: String,
-    _endpoint: Option<String>,
-}
-
-impl S3Storage {
-    pub fn new(
-        bucket: String,
-        region: String,
-        access_key: String,
-        secret_key: String,
-        endpoint: Option<String>,
-    ) -> Self {
-        Self {
-            _bucket: bucket,
-            _region: region,
-            _access_key: access_key,
-            _secret_key: secret_key,
-            _endpoint: endpoint,
-        }
-    }
-}
-
-#[async_trait]
-impl Storage for S3Storage {
-    async fn store_file(
-        &self,
-        _data: &[u8],
-        _filename: &str,
-        _content_type: &str,
-        _folder: &str,
-    ) -> Result<StoredFile, StorageError> {
-        // TODO: Implement S3 upload
-        Err(StorageError::ConfigError("S3 storage not implemented yet".to_string()))
-    }
-
-    async fn get_file(&self, _path: &str) -> Result<Vec<u8>, StorageError> {
-        // TODO: Implement S3 download
-        Err(StorageError::ConfigError("S3 storage not implemented yet".to_string()))
-    }
-
-    async fn delete_file(&self, _path: &str) -> Result<(), StorageError> {
-        // TODO: Implement S3 delete
-        Err(StorageError::ConfigError("S3 storage not implemented yet".to_string()))
-    }
-
-    async fn file_exists(&self, _path: &str) -> Result<bool, StorageError> {
-        // TODO: Implement S3 exists check
-        Err(StorageError::ConfigError("S3 storage not implemented yet".to_string()))
-    }
-
-    fn get_public_url(&self, _path: &str) -> String {
-        // TODO: Implement S3 public URL generation
-        String::new()
-    }
-
-    async fn move_file(&self, _from_path: &str, _to_path: &str) -> Result<(), StorageError> {
-        // TODO: Implement S3 move (copy + delete)
-        Err(StorageError::ConfigError("S3 storage not implemented yet".to_string()))
-    }
-}
-
 /// Storage factory to create storage instances based on configuration
 pub fn create_storage(config: StorageConfig) -> Arc<dyn Storage> {
     match config {
@@ -257,22 +190,24 @@ pub fn create_storage(config: StorageConfig) -> Arc<dyn Storage> {
             // The public_url_base should match the route pattern used in main.rs: /uploads/users/{path:.*}
             Arc::new(LocalStorage::new(base_path, "/uploads".to_string()))
         }
-        StorageConfig::S3 {
-            bucket,
-            region,
-            access_key,
-            secret_key,
-            endpoint,
-        } => Arc::new(S3Storage::new(bucket, region, access_key, secret_key, endpoint)),
     }
 }
 
-/// Get storage configuration from environment variables
+/// Get storage configuration from environment variables.
+///
+/// Today only `local` is supported. We refuse to boot if the
+/// caller asked for anything else — a misconfigured `STORAGE_TYPE`
+/// should fail loudly at startup, not silently swallow uploads
+/// later.
 pub fn get_storage_config() -> StorageConfig {
-    // For now, always use local storage
-    // Later, check env vars like STORAGE_TYPE, S3_BUCKET, etc.
-    StorageConfig::Local {
-        base_path: "/app/uploads".to_string(), // Use Docker volume mount point
+    match std::env::var("STORAGE_TYPE").as_deref() {
+        Ok("local") | Err(_) => StorageConfig::Local {
+            base_path: "/app/uploads".to_string(),
+        },
+        Ok(other) => panic!(
+            "STORAGE_TYPE='{other}' is not supported. Only 'local' is implemented. \
+             Set STORAGE_TYPE=local or unset it.",
+        ),
     }
 }
 

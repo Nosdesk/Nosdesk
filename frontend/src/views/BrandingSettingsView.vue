@@ -9,6 +9,8 @@ import ColorHueSlider from '@/components/common/ColorHueSlider.vue'
 import brandingService, { type BrandingConfig } from '@/services/brandingService'
 import uploadService from '@/services/uploadService'
 import { useBrandingStore } from '@/stores/branding'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import { extractErrorMessage } from '@/utils/errors'
 
 // Get the branding store to update it when settings change
 const brandingStore = useBrandingStore()
@@ -216,8 +218,29 @@ const handleFaviconUpload = async (event: Event) => {
   }
 }
 
-// Delete branding image
-const deleteBrandingImage = async (type: 'logo' | 'logo_light' | 'favicon') => {
+// Delete branding image. Wrapped with a confirmation modal —
+// branding assets are easy to lose accidentally (one stray click on
+// "Remove") and re-uploading is friction the operator wouldn't
+// expect from a single button click.
+type BrandingImageType = 'logo' | 'logo_light' | 'favicon'
+
+const pendingDelete = ref<BrandingImageType | null>(null)
+
+const pendingDeleteLabel = computed(() => {
+  if (!pendingDelete.value) return ''
+  if (pendingDelete.value === 'logo_light') return 'light theme logo'
+  return pendingDelete.value
+})
+
+function requestDeleteBrandingImage(type: BrandingImageType): void {
+  pendingDelete.value = type
+}
+
+async function confirmDeleteBrandingImage(): Promise<void> {
+  const type = pendingDelete.value
+  if (!type) return
+  pendingDelete.value = null
+
   errorMessage.value = ''
   successMessage.value = ''
 
@@ -236,8 +259,7 @@ const deleteBrandingImage = async (type: 'logo' | 'logo_light' | 'favicon') => {
     }, 3000)
   } catch (error) {
     console.error(`Failed to delete ${type}:`, error)
-    const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || `Failed to delete ${type}`
+    errorMessage.value = extractErrorMessage(error, `Failed to delete ${type}`)
   }
 }
 
@@ -342,7 +364,7 @@ onMounted(() => {
                   </button>
                   <button
                     v-if="brandingConfig?.logo_url"
-                    @click="deleteBrandingImage('logo')"
+                    @click="requestDeleteBrandingImage('logo')"
                     class="px-3 py-1.5 text-sm text-status-error hover:bg-status-error-muted rounded-lg transition-colors"
                   >
                     Remove
@@ -390,7 +412,7 @@ onMounted(() => {
                   </button>
                   <button
                     v-if="brandingConfig?.logo_light_url"
-                    @click="deleteBrandingImage('logo_light')"
+                    @click="requestDeleteBrandingImage('logo_light')"
                     class="px-3 py-1.5 text-sm text-status-error hover:bg-status-error-muted rounded-lg transition-colors"
                   >
                     Remove
@@ -436,7 +458,7 @@ onMounted(() => {
                 </button>
                 <button
                   v-if="brandingConfig?.favicon_url"
-                  @click="deleteBrandingImage('favicon')"
+                  @click="requestDeleteBrandingImage('favicon')"
                   class="px-3 py-1.5 text-sm text-status-error hover:bg-status-error-muted rounded-lg transition-colors"
                 >
                   Remove
@@ -499,5 +521,15 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <ConfirmModal
+      :show="pendingDelete !== null"
+      variant="danger"
+      :title="`Remove ${pendingDeleteLabel}?`"
+      message="This removes the uploaded image. You can re-upload at any time, but the previous file is not recoverable."
+      confirm-label="Remove"
+      @confirm="confirmDeleteBrandingImage"
+      @close="pendingDelete = null"
+    />
   </div>
 </template>

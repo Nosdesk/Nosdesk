@@ -2,6 +2,7 @@
 import { computed, ref, useTemplateRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMutation, useQueryCache } from '@pinia/colada'
+import { extractErrorMessage } from '@/utils/errors'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -121,7 +122,7 @@ const bulkActionMutation = useMutation({
   onSettled: () => queryCache.invalidateQueries({ key: usersKeys.root }),
   onError: (err) => {
     console.error('Bulk action failed:', err)
-    alert('Failed to perform bulk action. Please try again.')
+    alert(extractErrorMessage(err, 'Failed to perform bulk action. Please try again.'))
   },
 })
 

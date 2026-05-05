@@ -121,6 +121,26 @@ interface AxiosLikeError {
   message?: string;
 }
 
+/**
+ * Extract a user-facing message from any error shape. Tries the
+ * server-provided body first (`response.data.message` / `.error`),
+ * falls back to the supplied default. Use this everywhere you'd
+ * otherwise show a generic "Please try again" — the server almost
+ * always knows more about what went wrong than the frontend does,
+ * and surfacing its message lets operators self-debug instead of
+ * retrying a doomed action.
+ */
+export function extractErrorMessage(error: unknown, fallback: string): string {
+  if (!error) return fallback
+  const e = error as AxiosLikeError
+  const fromBody = e.response?.data?.message ?? (e.response?.data as { error?: string } | undefined)?.error
+  if (typeof fromBody === 'string' && fromBody.trim().length > 0) return fromBody
+  if (typeof e.message === 'string' && e.message.trim().length > 0 && e.message !== 'Request failed') {
+    return e.message
+  }
+  return fallback
+}
+
 export function createErrorFromResponse(error: unknown): AppError {
   const axiosError = error as AxiosLikeError;
   if (!axiosError.response) {
