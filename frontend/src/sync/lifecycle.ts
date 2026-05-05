@@ -16,6 +16,7 @@ import * as pool from './pool'
 import * as idb from './idb'
 import * as queue from './queue'
 import { setReferenceFetcher } from './composables'
+import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import type {
   BootstrapLine,
   BootstrapMeta,
@@ -248,6 +249,9 @@ async function runBootstrap(groups: string[]): Promise<void> {
             client: state.schemaHash,
           })
         }
+        // Surface workspace-level capability flags into the
+        // shared composable so any UI component can read them.
+        applyWorkspaceCapabilities(meta)
       } else if ('__model__' in line) {
         const { __model__: aggregate, ...payload } = line
         const id = (payload.id ?? payload.uuid) as string | number | undefined

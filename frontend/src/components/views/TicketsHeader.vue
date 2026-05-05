@@ -34,7 +34,7 @@ import {
   type FilterOption,
 } from '@/components/views/filterFacets'
 import { useDataStore } from '@/stores/dataStore'
-import type { ColumnId } from '@/sync/views/ticketColumns'
+import type { ColumnId, ListColumn } from '@/sync/views/ticketColumns'
 import type { Density } from '@/composables/useTicketsDensity'
 import type { GroupBy } from '@/composables/useTicketsGrouping'
 import type {
@@ -70,6 +70,15 @@ const props = defineProps<{
   /** Whether the right preview pane is open. Drives the
    * split-view toggle's active state. */
   splitViewEnabled: boolean
+  /** Filter facets the AddFilterMenu offers. Pre-filtered by the
+   * shell against workspace capabilities so disabled features
+   * (eg. SLA when no policies exist) never appear in the picker. */
+  facetOrder: FilterFacet[]
+  /** Columns the DisplayMenu offers in the Properties checkbox
+   * list. Same gating principle as facetOrder: shell pre-filters
+   * by capabilities so togglable properties for disabled features
+   * never appear. */
+  availableColumns: readonly ListColumn[]
 }>()
 
 const emit = defineEmits<{
@@ -271,6 +280,7 @@ defineExpose({ openAddFilter })
         :group-by="groupBy"
         :can-save-to-view="canSaveLayoutToView"
         :layout-dirty="layoutDirty"
+        :available-columns="availableColumns"
         @toggle-column="(id) => emit('toggle-column', id)"
         @set-density="(v) => emit('set-density', v)"
         @set-group-by="(v) => emit('set-group-by', v)"
@@ -292,6 +302,7 @@ defineExpose({ openAddFilter })
     <div class="flex items-center gap-2">
       <AddFilterMenu
         ref="addFilterRef"
+        :facet-order="facetOrder"
         :active-facets="activeFacets"
         :options-for="optionsFor"
         :selected-for="selectedFor"

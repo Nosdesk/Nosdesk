@@ -63,6 +63,10 @@ export interface BootstrapMeta {
   last_sync_id: number
   /** The intersection of requested groups and the caller's permitted set. */
   groups_granted: string[]
+  /** Workspace capability flags. Read once per bootstrap. The
+   * frontend uses these to gate optional UI surfaces — feature
+   * chrome is hidden entirely when the workspace hasn't opted in. */
+  sla_enabled?: boolean
 }
 
 /**

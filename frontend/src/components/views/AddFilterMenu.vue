@@ -39,12 +39,19 @@ import {
   type FilterOption,
 } from '@/components/views/filterFacets'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   activeFacets: FilterFacet[]
   optionsFor: (facet: FilterFacet) => FilterOption[]
   selectedFor: (facet: FilterFacet) => Set<string>
   textValueFor: (facet: FilterFacet) => string
-}>()
+  /** Facets the menu offers. Consumer can pass a filtered subset
+   * (eg. omit 'sla' when the workspace has no SLA policies) so
+   * inapplicable filters never appear in the picker. Defaults to
+   * the full registry order. */
+  facetOrder?: FilterFacet[]
+}>(), {
+  facetOrder: () => FACET_ORDER,
+})
 
 const emit = defineEmits<{
   (e: 'toggle', facet: FilterFacet, value: string): void
@@ -77,7 +84,7 @@ interface FacetNavItem extends KeyboardNavItem {
 }
 
 const facetItems = computed<FacetNavItem[]>(() =>
-  FACET_ORDER.map((f) => ({ label: FACET_META[f].label, facet: f })),
+  props.facetOrder.map((f) => ({ label: FACET_META[f].label, facet: f })),
 )
 
 const facetNav = useMenuKeyboardNav<FacetNavItem>((item) => pickFacet(item.facet))
@@ -222,7 +229,7 @@ const stageMeta = computed(() =>
             @keydown="onFacetListKeydown"
           >
             <button
-              v-for="(facet, i) in FACET_ORDER"
+              v-for="(facet, i) in facetOrder"
               :key="facet"
               type="button"
               role="menuitem"

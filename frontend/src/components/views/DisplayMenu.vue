@@ -24,7 +24,7 @@ import {
 import type { Density } from '@/composables/useTicketsDensity'
 import type { GroupBy } from '@/composables/useTicketsGrouping'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: ColumnId[]
   density: Density
   groupBy: GroupBy
@@ -35,7 +35,14 @@ const props = defineProps<{
   /** True when the local choice differs from the saved view's
    * canonical layout; drives the Save button enabled state. */
   layoutDirty?: boolean
-}>()
+  /** Columns offered in the Properties checkbox list. The shell
+   * pre-filters this against workspace capabilities so disabled
+   * features (eg. SLA when no policies exist) never appear as
+   * a togglable property. Defaults to the full registry. */
+  availableColumns?: readonly ListColumn[]
+}>(), {
+  availableColumns: () => TICKET_COLUMNS,
+})
 
 const emit = defineEmits<{
   (e: 'toggle-column', id: ColumnId): void
@@ -157,7 +164,7 @@ const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
           </h3>
           <div class="max-h-[20rem] overflow-y-auto">
             <button
-              v-for="col in TICKET_COLUMNS"
+              v-for="col in availableColumns"
               :key="col.id"
               type="button"
               role="menuitemcheckbox"

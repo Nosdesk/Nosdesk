@@ -93,13 +93,33 @@ fn stream_bootstrap(
         .first(&mut conn)?;
     let last_sync_id = last_sync_id.unwrap_or(0);
 
-    // Header: schema hash, cursor, and the granted-groups echo so
-    // the client knows what its subsequent delta calls should pass.
+    // Workspace capability flags. These are simple booleans the
+    // frontend uses to gate optional UI surfaces (filter chips,
+    // default visible columns, summary segments). Adding a flag
+    // here is the right place when the client should treat a
+    // feature as "exists for this workspace" vs "available
+    // everywhere" — eg. SLA chrome should hide entirely until
+    // an admin sets up at least one policy. Counts (rather than
+    // "any non-archived") are fine for v1: a workspace either
+    // has policies or it doesn't.
+    let sla_enabled: bool = {
+        use diesel::dsl::count_star;
+        let n: i64 = crate::schema::sla_policies::table
+            .select(count_star())
+            .first(&mut conn)
+            .unwrap_or(0);
+        n > 0
+    };
+
+    // Header: schema hash, cursor, granted groups, and capability
+    // flags. Clients read this once at the start of every
+    // bootstrap and cache the values for the session.
     send(tx, json!({
         "__meta__": {
             "server_schema": SERVER_SCHEMA_HASH,
             "last_sync_id": last_sync_id,
             "groups_granted": granted,
+            "sla_enabled": sla_enabled,
         }
     }))?;
 

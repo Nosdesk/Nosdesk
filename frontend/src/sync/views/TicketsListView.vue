@@ -54,6 +54,9 @@ import { useTicketsGrouping } from '@/composables/useTicketsGrouping'
 import { useTicketsSummary } from '@/composables/useTicketsSummary'
 import { useSplitView } from '@/composables/useSplitView'
 import { useTicketSelection } from '@/composables/useTicketSelection'
+import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
+import { FACET_ORDER } from '@/components/views/filterFacets'
+import { TICKET_COLUMNS } from '@/sync/views/ticketColumns'
 
 const router = useRouter()
 const ticketsStore = useSyncTicketsStore()
@@ -82,6 +85,24 @@ const { density, setDensity, rowClass, cellPadding } = useTicketsDensity()
 const filters = useTicketsFilters()
 const grouping = useTicketsGrouping(() => activeView.value.id)
 const splitView = useSplitView()
+const capabilities = useWorkspaceCapabilities()
+
+// Filter facet list, gated by workspace capabilities. Currently
+// this just hides 'sla' when no policies exist; future flags
+// (eg. 'cycle' if cycles are disabled per-workspace) join the
+// same filter chain.
+const facetOrder = computed(() =>
+  FACET_ORDER.filter((f) => f !== 'sla' || capabilities.slaEnabled.value),
+)
+
+// Columns the DisplayMenu's Properties picker offers. Same gating
+// principle as facetOrder. We don't filter the active visible set
+// here; useTicketsColumns owns that. The picker simply doesn't
+// list disabled-feature columns so the user can't toggle them on
+// only to see "—" in every row.
+const availableColumns = computed(() =>
+  TICKET_COLUMNS.filter((c) => c.id !== 'sla' || capabilities.slaEnabled.value),
+)
 
 // ---------------------------------------------------------------
 // Card pipeline.
@@ -416,6 +437,8 @@ function startPaneResize(e: PointerEvent): void {
       :filter-sla="filters.sla.value"
       :filter-cycle="filters.cycle.value"
       :split-view-enabled="splitView.enabled.value"
+      :facet-order="facetOrder"
+      :available-columns="availableColumns"
       @select-view="selectViewById"
       @rename-view="renameById"
       @archive-view="archiveById"
