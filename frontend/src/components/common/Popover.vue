@@ -5,65 +5,73 @@
  * needs: teleport to body, click-outside dismiss, escape
  * dismiss, focus on mount, scroll/resize behaviour.
  *
+ * Architecture — wrapper / inner separation:
+ *
+ *   <wrapper>           <- positioned by usePopover (left/top)
+ *     <inner>           <- transitions (transform, opacity, shadow)
+ *       <slot />
+ *     </inner>
+ *   </wrapper>
+ *
+ * The wrapper owns `position: fixed; left: <x>px; top: <y>px;`
+ * and never animates. The inner element owns the transforms /
+ * opacity / shadow / backdrop blur and never moves layout. This
+ * is the pattern floating-ui's docs recommend specifically to
+ * avoid transform conflicts between positioning and animation
+ * (https://floating-ui.com/docs/vue) — and as a side-effect it
+ * gives us a stable reference frame for `transform-origin` so
+ * the scale/translate animation appears to grow out of the
+ * trigger corner cleanly.
+ *
+ * Mount sequence — measured-then-animated:
+ *
+ *   1. props.open flips true
+ *   2. `rendered.value = true` mounts the wrapper + inner in
+ *      their initial (invisible) state
+ *   3. `nextTick()` — DOM updated, refs populated
+ *   4. `update()` measures + positions the wrapper
+ *   5. Two rAFs — let the browser commit the initial state so
+ *      the transition isn't elided as a "no animation needed"
+ *   6. `visible.value = true` flips a class on the inner;
+ *      CSS transition runs to the final state
+ *
+ * The two-rAF defer is the cross-browser standard for "I just
+ * inserted an element, now I want a CSS transition to play."
+ * Without it Chromium and Safari sometimes batch the two state
+ * changes and skip the animation entirely.
+ *
  * Two scroll strategies, picked per use case:
  *   - `'reposition'` — track the anchor across page scroll
  *     (good for trigger-anchored dropdowns where the trigger
  *     stays in the layout)
  *   - `'close'` — dismiss instead of repositioning (good for
  *     click-anchored menus where the anchor is a stale point)
- *
- * The component owns the chrome — positioning, dismiss, focus,
- * ARIA. Content is the consumer's job, passed as default slot.
  */
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import {
   usePopover,
   type PopoverAnchor,
   type PopoverPlacement,
 } from '@/composables/usePopover'
+import { useEventListener } from '@/composables/useEventListener'
 
 interface Props {
-  /** Open state. The parent owns it; we render conditionally on
-   * truthy. Watching it lets us re-position on each open and
-   * focus the popover for keyboard users. */
+  /** Open state. Parent owns it; we render conditionally on
+   * truthy. Watching it triggers the measure-then-animate
+   * sequence. */
   open: boolean
   /** What we anchor against. Reactively re-read on each update. */
   anchor: PopoverAnchor
   /** Preferred placement; flips vertically if it doesn't fit. */
   placement?: PopoverPlacement
-  /** What happens when the page scrolls. Click-anchored popovers
-   * almost always want `'close'`; element-anchored dropdowns want
-   * `'reposition'`. */
   reactToScroll?: 'close' | 'reposition'
-  /** Match anchor's width — for select-style dropdowns. */
   matchAnchorWidth?: boolean
-  /** Minimum width when `matchAnchorWidth` is on. */
   minWidth?: number
-  /** Pixel gap between anchor and popover. */
   offset?: number
-  /** ARIA role applied to the popover root. Pick one that
-   * matches the content: `menu` for action lists, `listbox` for
-   * select-style options, `dialog` for arbitrary panels. */
   role?: 'menu' | 'listbox' | 'dialog'
-  /** Accessible name. Required for `dialog`; optional for menu /
-   * listbox where the trigger usually labels them via
-   * `aria-controls`. */
   ariaLabel?: string
-  /** Tailwind / arbitrary class on the floating element. Lets the
-   * consumer pick the surface chrome (border, shadow, padding)
-   * without baking it into the primitive. */
   popoverClass?: string
-  /** Move keyboard focus to the popover root on open. Right
-   * default for context menus and dialogs (focus trap-style:
-   * arrows/escape are handled inside the popover). Wrong for
-   * dropdowns where focus should stay on the trigger so the
-   * trigger's keydown handler keeps owning arrow navigation —
-   * pass `false` in that case. */
   autoFocus?: boolean
-  /** Disable the default fade-scale enter/leave transition. The
-   * primitive includes a tasteful default so consumers don't
-   * each reinvent one; this escape hatch is for cases where the
-   * caller wants no animation (tests, motion-reduced overrides). */
   noTransition?: boolean
 }
 
@@ -79,7 +87,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-const { popoverRef, x, y, width, update } = usePopover({
+const { popoverRef, x, y, width, update, placement } = usePopover({
   anchor: () => props.anchor,
   placement: props.placement,
   matchAnchorWidth: props.matchAnchorWidth,
@@ -87,11 +95,44 @@ const { popoverRef, x, y, width, update } = usePopover({
   offset: props.offset,
 })
 
-// -----------------------------------------------------------------
-// Dismiss handlers — wired up only while open so the listeners
-// don't leak when the popover is closed.
-// -----------------------------------------------------------------
-function onMousedownOutside(event: MouseEvent) {
+// shallowRef — these point at DOM elements, not reactive data.
+// Wrapping them in a deep ref would have Vue walk the element
+// tree on every update for no benefit.
+const innerEl = shallowRef<HTMLDivElement | null>(null)
+
+// Two-stage open state. `rendered` controls v-if (DOM presence);
+// `visible` controls the CSS class that triggers the transition.
+// Splitting them lets us mount, measure, paint, then animate —
+// the canonical "transition an inserted element" pattern.
+const rendered = ref(false)
+const visible = ref(false)
+const previouslyFocused = shallowRef<HTMLElement | null>(null)
+const isOpen = computed(() => props.open)
+
+// Map placement to transform-origin. The fade-scale-translate
+// origin should be the corner nearest the anchor so the popover
+// appears to emerge from the trigger rather than always from
+// the top-left.
+const transformOrigin = computed<string>(() => {
+  const p = placement.value
+  if (p.startsWith('top')) {
+    if (p.endsWith('end')) return 'bottom right'
+    if (p.endsWith('start')) return 'bottom left'
+    return 'bottom center'
+  }
+  if (p.startsWith('bottom')) {
+    if (p.endsWith('end')) return 'top right'
+    if (p.endsWith('start')) return 'top left'
+    return 'top center'
+  }
+  return 'top left'
+})
+
+// ---------------------------------------------------------------
+// Dismiss handlers — gated by `isOpen` via useEventListener so
+// listeners only exist while the popover is open.
+// ---------------------------------------------------------------
+function onMousedownOutside(event: MouseEvent): void {
   if (!popoverRef.value) return
   const target = event.target as Node
   if (popoverRef.value.contains(target)) return
@@ -108,19 +149,16 @@ function onMousedownOutside(event: MouseEvent) {
   emit('close')
 }
 
-function onKeydown(event: KeyboardEvent) {
+function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') emit('close')
 }
 
-function onScroll() {
-  if (props.reactToScroll === 'close') {
-    emit('close')
-  } else {
-    update()
-  }
+function onScroll(): void {
+  if (props.reactToScroll === 'close') emit('close')
+  else update()
 }
 
-function onResize() {
+function onResize(): void {
   // Resize is always disruptive enough to warrant a reposition
   // even for click-anchored popovers; the click point is still
   // valid (it was a viewport coordinate), the popover dims may
@@ -128,104 +166,167 @@ function onResize() {
   update()
 }
 
-function attachListeners() {
-  document.addEventListener('mousedown', onMousedownOutside)
-  document.addEventListener('keydown', onKeydown)
-  // capture: true so we catch scrolls inside any ancestor
-  // scroll container, not just the document.
-  window.addEventListener('scroll', onScroll, true)
-  window.addEventListener('resize', onResize)
-}
+useEventListener(document, 'mousedown', onMousedownOutside, { when: isOpen })
+useEventListener(document, 'keydown', onKeydown, { when: isOpen })
+useEventListener(window, 'scroll', onScroll, { when: isOpen, capture: true })
+useEventListener(window, 'resize', onResize, { when: isOpen })
 
-function detachListeners() {
-  document.removeEventListener('mousedown', onMousedownOutside)
-  document.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('scroll', onScroll, true)
-  window.removeEventListener('resize', onResize)
-}
+// ---------------------------------------------------------------
+// Open / close lifecycle. Watcher kicks off the measure-then-
+// animate sequence on open and the leave transition on close.
+// ---------------------------------------------------------------
+let leaveTimer: ReturnType<typeof setTimeout> | null = null
 
-const previouslyFocused = ref<HTMLElement | null>(null)
+const LEAVE_MS = 180  // matches longest leave transition + safety
 
 watch(
   () => props.open,
   async (open) => {
     if (open) {
-      // Save the current focus owner so we can return to it on
-      // close — keyboard users land back where they started.
+      if (leaveTimer) {
+        clearTimeout(leaveTimer)
+        leaveTimer = null
+      }
       previouslyFocused.value = (document.activeElement as HTMLElement) ?? null
-      attachListeners()
+      rendered.value = true
+      visible.value = false
+      // Wait for the wrapper + inner to mount.
       await nextTick()
+      // Position the wrapper now, while the inner is still in
+      // its enter-from state. By the time visible flips true the
+      // wrapper is already in the right place — the transition
+      // only animates the inner's transform / opacity / shadow.
       update()
-      if (props.autoFocus) {
-        popoverRef.value?.focus()
+      if (props.noTransition) {
+        visible.value = true
+        if (props.autoFocus) popoverRef.value?.focus()
+        return
       }
+      // Two requestAnimationFrame ticks: the canonical pattern
+      // for "I just inserted an element, force the browser to
+      // commit the initial state, then change to the target so
+      // a CSS transition runs." A single rAF batches both state
+      // changes in some engines and the transition is skipped.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          visible.value = true
+          if (props.autoFocus) popoverRef.value?.focus()
+        })
+      })
     } else {
-      detachListeners()
+      // Don't unmount immediately — let the leave transition
+      // play first, then drop the v-if.
+      visible.value = false
       if (props.autoFocus) {
-        // Only return focus if we took it. Dropdowns leave focus
-        // on the trigger throughout, so the explicit return would
-        // be a no-op (or worse, blur-then-refocus a control the
-        // user is actively typing into).
         previouslyFocused.value?.focus?.()
+        previouslyFocused.value = null
       }
-      previouslyFocused.value = null
+      if (leaveTimer) clearTimeout(leaveTimer)
+      leaveTimer = setTimeout(() => {
+        rendered.value = false
+        leaveTimer = null
+      }, props.noTransition ? 0 : LEAVE_MS)
     }
   },
   { immediate: true },
 )
-
-onBeforeUnmount(detachListeners)
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition
-      :name="noTransition ? '' : 'popover-fade-scale'"
-      :duration="noTransition ? 0 : undefined"
+    <!-- Wrapper: positioned by usePopover. Stays static during
+         transition so the inner element has a stable reference
+         frame for its scale/translate. usePopover measures
+         against this element via popoverRef. -->
+    <div
+      v-if="rendered"
+      ref="popoverRef"
+      class="popover-wrapper fixed z-overlay outline-none"
+      :role="role"
+      :aria-label="ariaLabel"
+      :tabindex="-1"
+      :style="{
+        left: `${x}px`,
+        top: `${y}px`,
+        width: width !== null ? `${width}px` : undefined,
+      }"
     >
+      <!-- Inner: animated. Owns the transform / opacity / shadow
+           transitions. Class flip on `visible` triggers the
+           CSS transition from initial to settled state. -->
       <div
-        v-if="open"
-        ref="popoverRef"
-        :role="role"
-        :aria-label="ariaLabel"
-        :tabindex="-1"
-        class="fixed z-overlay outline-none"
-        :class="popoverClass"
-        :style="{
-          left: `${x}px`,
-          top: `${y}px`,
-          width: width !== null ? `${width}px` : undefined,
-        }"
+        ref="innerEl"
+        class="popover-inner"
+        :class="[popoverClass, visible && 'popover-inner--visible']"
+        :style="{ transformOrigin }"
       >
         <slot />
       </div>
-    </Transition>
+    </div>
   </Teleport>
 </template>
 
 <style>
-/* Global rather than scoped: the Transition class names need to
-   apply to the popover root which is teleported out of the
-   component's scoped-style context. The transform-origin uses
-   the top-left corner so the popover appears to grow out of its
-   anchor point — feels right for both dropdowns (anchored to
-   the trigger's top-left) and click-anchored menus (anchored
-   to the click point). */
-.popover-fade-scale-enter-active {
-  transition:
-    opacity 100ms ease-out,
-    transform 100ms ease-out;
-  transform-origin: top left;
-}
-.popover-fade-scale-leave-active {
-  transition:
-    opacity 75ms ease-in,
-    transform 75ms ease-in;
-  transform-origin: top left;
-}
-.popover-fade-scale-enter-from,
-.popover-fade-scale-leave-to {
+/* Global rather than scoped: these classes apply to the popover
+   root which is teleported out of the component's scoped-style
+   context.
+
+   Why two transitions per property pair:
+   - opacity moves on a faster, simpler curve (120/100ms ease)
+     so the popover registers as "appearing" quickly
+   - transform moves on a slower, more shaped curve (220ms
+     cubic-bezier(0.32, 0.72, 0, 1) — the same family Apple's
+     SwiftUI uses for sheet presentations) so the motion settles
+     gracefully without overshooting
+   - box-shadow grows in lockstep with the transform so the
+     popover gains depth as it moves into place
+
+   The leave transition is shorter and uses an ease-in curve
+   ("appear graceful, dismiss snappy") — standard rhythm for
+   transient surfaces. */
+
+.popover-inner {
+  /* Settled state. The class flip animates from --enter-from
+     values (set in popover-inner:not(.popover-inner--visible))
+     to these. */
   opacity: 0;
-  transform: scale(0.95);
+  transform: translateY(-6px) scale(0.97);
+  /* Subtle frosted-glass effect over scrolling content. The
+     consumer's popover-class still owns background colour
+     (usually bg-surface) — backdrop-filter just adds a hint of
+     blur for content behind a partially transparent surface. */
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    0 4px 12px -2px rgba(0, 0, 0, 0.08),
+    0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  transition:
+    opacity 100ms cubic-bezier(0.4, 0, 1, 1),
+    transform 140ms cubic-bezier(0.4, 0, 1, 1),
+    box-shadow 140ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.popover-inner--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  box-shadow:
+    0 16px 48px -8px rgba(0, 0, 0, 0.18),
+    0 6px 16px -4px rgba(0, 0, 0, 0.10),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition:
+    opacity 120ms ease-out,
+    transform 220ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover-inner {
+    transition: opacity 100ms linear !important;
+    transform: none !important;
+  }
+  .popover-inner--visible {
+    transition: opacity 100ms linear !important;
+    transform: none !important;
+  }
 }
 </style>

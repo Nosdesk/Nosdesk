@@ -39,6 +39,23 @@ const displayName = computed(() => {
   return '' // Empty for UUID without userName - will show '?' initials
 })
 
+/**
+ * "Loading" state: caller passed a UUID (so they're identifying
+ * a user by id) but neither the resolved name nor an avatar URL
+ * has arrived yet. Without this gate we'd render the initials
+ * fallback with `getBackgroundColor(uuid)` — which produces a
+ * UUID-derived hue (typically purple, since hex-prefixed UUIDs
+ * land in the same bucket of the HSL colour wheel) that then
+ * jumps to a name-derived hue once the user resolves. The
+ * skeleton state hides that flash.
+ *
+ * Once `userName` arrives the colour stays stable: it's derived
+ * from the actual display name, not the uuid.
+ */
+const isLoading = computed<boolean>(
+  () => isUuid(props.name) && !props.userName && !props.avatar,
+)
+
 // Generate initials from name
 const getInitials = (name: string) => {
   if (!name) return '?'
@@ -116,34 +133,78 @@ watch(() => props.avatar, () => {
   >
     <!-- Avatar wrapper for theme effects -->
     <div class="avatar-themed rounded-full flex-shrink-0" :class="sizeClasses.base">
-      <!-- Avatar with image -->
-      <!-- :key forces element recreation when URL changes, bypassing browser cache -->
-      <img
-        v-if="avatar && !imageFailed"
-        :key="avatar"
-        :src="avatar"
-        :alt="displayName || 'User'"
-        :title="displayName || 'User'"
-        class="w-full h-full rounded-full object-cover"
-        loading="lazy"
-        @error="imageFailed = true"
-      />
-
-      <!-- Avatar with initials fallback -->
-      <div
-        v-else
-        :class="sizeClasses.text"
-        class="w-full h-full rounded-full flex items-center justify-center font-medium text-white"
-        :style="{ backgroundColor: getBackgroundColor(displayName || name) }"
-        :title="displayName || 'User'"
-      >
-        {{ getInitials(displayName) }}
-      </div>
+      <!-- Three-state crossfade. mode="out-in" prevents stacked
+           overlap during the swap so the circle stays a single
+           silhouette. The skeleton pulses on a neutral surface
+           tone — never a UUID-derived hue — so the resolve
+           doesn't flash a different colour into place. -->
+      <Transition name="avatar-resolve" mode="out-in">
+        <!-- Loading: skeleton pulse. Same pattern the rest of
+             the app uses (TicketRowSkeleton, etc.). -->
+        <div
+          v-if="isLoading"
+          key="loading"
+          class="w-full h-full rounded-full bg-surface-alt animate-pulse"
+          aria-hidden="true"
+        />
+        <!-- Resolved + has image. :key on the URL forces element
+             recreation when URL changes, bypassing browser cache. -->
+        <img
+          v-else-if="avatar && !imageFailed"
+          :key="`img:${avatar}`"
+          :src="avatar"
+          :alt="displayName || 'User'"
+          :title="displayName || 'User'"
+          class="w-full h-full rounded-full object-cover"
+          loading="lazy"
+          @error="imageFailed = true"
+        />
+        <!-- Resolved without image: coloured initials fallback. -->
+        <div
+          v-else
+          key="initials"
+          :class="sizeClasses.text"
+          class="w-full h-full rounded-full flex items-center justify-center font-medium text-white"
+          :style="{ backgroundColor: getBackgroundColor(displayName || name) }"
+          :title="displayName || 'User'"
+        >
+          {{ getInitials(displayName) }}
+        </div>
+      </Transition>
     </div>
 
-    <!-- Name text -->
+    <!-- Name text. While loading, render a width-matched
+         skeleton bar instead of the eventual name so the row
+         doesn't shift width when the user resolves. -->
     <span v-if="showName && displayName" :class="nameTextClasses">
       {{ displayName }}
     </span>
+    <span
+      v-else-if="showName && isLoading"
+      class="h-3 w-20 rounded bg-surface-alt animate-pulse"
+      aria-hidden="true"
+    />
   </div>
 </template>
+
+<style scoped>
+/* Crossfade between loading skeleton, image, and initials so
+   the circle morphs in place rather than snap-replacing. Short
+   enough to feel responsive (the data is usually local cache);
+   long enough that a quick resolve doesn't look like a glitch. */
+.avatar-resolve-enter-active,
+.avatar-resolve-leave-active {
+  transition: opacity 160ms ease-out;
+}
+.avatar-resolve-enter-from,
+.avatar-resolve-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-resolve-enter-active,
+  .avatar-resolve-leave-active {
+    transition: opacity 80ms linear;
+  }
+}
+</style>

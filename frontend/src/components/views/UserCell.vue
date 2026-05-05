@@ -59,13 +59,22 @@ const avatarSrc = computed<string | null>(
       :show-name="false"
       :clickable="clickable"
     />
-    <span
-      v-if="!avatarOnly"
-      class="truncate text-[11px]"
-      :class="userName ? 'text-secondary' : 'text-tertiary italic'"
-    >
-      {{ userName ?? 'Loading…' }}
-    </span>
+    <template v-if="!avatarOnly">
+      <!-- Skeleton bar while the user is resolving — matches the
+           UserAvatar skeleton's tone so the cell reads as one
+           loading affordance rather than two. Width fixed to
+           ~10ch so the row doesn't reflow when the real name
+           lands. -->
+      <span
+        v-if="!userName"
+        class="h-2.5 w-20 rounded bg-surface-alt animate-pulse shrink-0"
+        aria-hidden="true"
+      />
+      <span
+        v-else
+        class="truncate text-[11px] text-secondary"
+      >{{ userName }}</span>
+    </template>
   </div>
   <span v-else class="text-xs text-tertiary italic">—</span>
 </template>

@@ -30,10 +30,17 @@ export interface ViewSwitcherItem {
   editable?: boolean
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   items: ViewSwitcherItem[]
   activeId: string
-}>()
+  /** 'sm' is the original toolbar trigger; 'lg' renders as a
+   * page-title button (text-lg + larger chevron) so the same
+   * component can serve both the small inline switcher and the
+   * dominant header title on the tickets list. */
+  size?: 'sm' | 'lg'
+}>(), {
+  size: 'sm',
+})
 
 const emit = defineEmits<{
   (e: 'select', id: string): void
@@ -106,13 +113,23 @@ function handleSelect(id: string): void {
     <button
       ref="triggerRef"
       type="button"
-      class="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:bg-surface-hover rounded-md px-2 py-1 -ml-2 transition-colors"
+      class="inline-flex items-center text-primary rounded-md transition-colors"
+      :class="[
+        open ? 'bg-surface-hover' : 'hover:bg-surface-hover',
+        props.size === 'lg'
+          ? 'gap-2 text-lg font-semibold px-2 py-1 -ml-2'
+          : 'gap-1.5 text-sm font-medium px-2 py-1 -ml-2',
+      ]"
       :aria-expanded="open"
       aria-haspopup="menu"
       @click="open = !open"
     >
       <span>{{ active?.name ?? 'View' }}</span>
-      <Icon name="chevronDown" class="w-3.5 h-3.5 text-tertiary" />
+      <Icon
+        name="chevronDown"
+        class="text-tertiary"
+        :class="props.size === 'lg' ? 'w-4 h-4' : 'w-3.5 h-3.5'"
+      />
     </button>
 
     <ResponsiveMenu

@@ -96,6 +96,14 @@ export const ICON_REGISTRY = {
   chevronUp: {
     d: 'M4.5 15.75l7.5-7.5 7.5 7.5',
   },
+  /** Outer ring with a centered dot — GitHub's "issue opened"
+   * convention. Reads as a timestamp marker ("this came into
+   * being on this date"), distinct from `clock` (time-elapsed-
+   * since) and `add` (action: create new). Use for created /
+   * opened / origin-point timestamps. */
+  circleDot: {
+    d: 'M21 12a9 9 0 11-18 0 9 9 0 0118 0zM14.5 12a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z',
+  },
   /** Plain clock face, "time / scheduled / last-synced". Distinct
    * from `history` (timeline checkmark) which means "an event log
    * exists for this thing"; clock means "this is time-related". */
