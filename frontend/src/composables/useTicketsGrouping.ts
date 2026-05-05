@@ -11,7 +11,7 @@
  * persisted with the same key so reload survives.
  */
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { useDataStore } from '@/stores/dataStore'
+import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import type { CardData } from '@/sync/views/types'
 
 export type GroupBy = 'none' | 'status' | 'priority' | 'assignee' | 'sla' | 'cycle'
@@ -65,7 +65,7 @@ export interface UseTicketsGrouping {
 }
 
 export function useTicketsGrouping(getViewId: () => string): UseTicketsGrouping {
-  const dataStore = useDataStore()
+  const { getUser } = useUsersDirectory()
 
   const groupBy = ref<GroupBy>(loadGroupBy(getViewId()))
   const collapsed = ref<Set<string>>(loadCollapsed(getViewId()))
@@ -130,7 +130,7 @@ export function useTicketsGrouping(getViewId: () => string): UseTicketsGrouping 
     }
     if (by === 'assignee') {
       const uuid = card.assignee_uuid ?? '__unassigned'
-      const u = card.assignee_uuid ? dataStore.getCachedUserByUuid(card.assignee_uuid) : null
+      const u = card.assignee_uuid ? getUser(card.assignee_uuid).value : null
       return {
         key: `assignee:${uuid}`,
         label: u?.name ?? (card.assignee_uuid ? 'Loading…' : 'Unassigned'),

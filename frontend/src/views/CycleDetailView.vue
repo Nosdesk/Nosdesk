@@ -129,7 +129,7 @@ void ticketIdSet
     <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
       Loading cycle…
     </div>
-    <div v-else-if="error" class="flex-1 flex items-center justify-center text-rose-500 text-sm">
+    <div v-else-if="error" class="flex-1 flex items-center justify-center text-status-error text-sm">
       {{ error }}
     </div>
     <template v-else-if="cycle">

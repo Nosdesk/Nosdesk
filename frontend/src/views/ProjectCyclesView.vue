@@ -185,7 +185,7 @@ function formatCycleDate(iso: string | null): string {
               <button
                 v-if="cycle.state !== 'completed'"
                 type="button"
-                class="text-[11px] text-tertiary hover:text-rose-600 px-2 py-1 rounded hover:bg-surface-hover"
+                class="text-[11px] text-tertiary hover:text-status-error px-2 py-1 rounded hover:bg-surface-hover"
                 @click="archiveCycle(cycle.uuid)"
               >Archive</button>
             </div>

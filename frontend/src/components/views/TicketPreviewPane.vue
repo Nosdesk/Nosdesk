@@ -26,11 +26,22 @@
  * Cross-fade transition on `card.id` so arrow-scrubbing through
  * rows feels continuous rather than snap-replacing the panel.
  */
-import { computed } from 'vue'
+import { toRef } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserCell from '@/components/views/UserCell.vue'
 import { paletteForColor } from '@/utils/workflowColors'
+import {
+  priorityForBadge,
+  priorityLabel,
+  priorityToneClass,
+} from '@/utils/priorityHelpers'
+import { useSlaState } from '@/composables/useSlaState'
+import {
+  formatCleanRelativeTime,
+  formatDateTime,
+  formatDate,
+} from '@/utils/dateUtils'
 import type { CardData } from '@/sync/views/types'
 
 const props = defineProps<{
@@ -42,136 +53,19 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-function priorityForBadge(p: CardData['priority']): 'low' | 'medium' | 'high' | null {
-  if (p === 'urgent') return 'high'
-  if (p === 'low' || p === 'medium' || p === 'high') return p
-  return null
-}
-
-function priorityLabel(p: CardData['priority']): string {
-  if (p === 'urgent') return 'Urgent'
-  if (p === 'high') return 'High'
-  if (p === 'medium') return 'Medium'
-  if (p === 'low') return 'Low'
-  return 'No priority'
-}
-
-function priorityToneClass(p: CardData['priority']): string {
-  if (p === 'urgent') return 'text-rose-600 dark:text-rose-400'
-  if (p === 'high') return 'text-orange-600 dark:text-orange-400'
-  return 'text-secondary'
-}
-
 function shortDate(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  return formatDate(iso) || '—'
 }
 
 function relativeOrAbsolute(iso: string): string {
-  const d = new Date(iso)
-  const seconds = Math.round((Date.now() - d.getTime()) / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.round(hours / 24)
-  if (days < 7) return `${days}d ago`
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatCleanRelativeTime(iso)
 }
 
 function fullDateTime(iso: string | null | undefined): string {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  return formatDateTime(iso)
 }
 
-interface SlaState {
-  toneClass: string
-  barClass: string
-  label: string
-  detail: string
-  /** 0..1 fraction filled — used for the bar. We don't have a
-   * `started_at` field in CardData so the fraction is best-
-   * effort: derived from time-remaining vs an assumed 24h
-   * window. The bar is more an "urgency indicator" than a
-   * literal progress bar, which is consistent with how Linear
-   * / Plain present SLA pills. */
-  fraction: number
-  target: string
-}
-
-const slaState = computed<SlaState | null>(() => {
-  const card = props.card
-  if (!card?.sla) return null
-  const sla = card.sla
-  const target = fullDateTime(sla.target_at)
-
-  if (sla.breached) {
-    return {
-      toneClass: 'text-rose-600 dark:text-rose-400',
-      barClass: 'bg-rose-500',
-      label: 'Breached',
-      detail: `Past target · ${target}`,
-      fraction: 1,
-      target,
-    }
-  }
-  if (sla.paused) {
-    return {
-      toneClass: 'text-zinc-500 dark:text-zinc-400',
-      barClass: 'bg-zinc-400',
-      label: 'Paused',
-      detail: `Target ${target}`,
-      fraction: 0.5,
-      target,
-    }
-  }
-  const remaining = sla.seconds_remaining ?? 0
-  let detailText: string
-  if (remaining < 3600) detailText = `${Math.ceil(remaining / 60)} min remaining`
-  else if (remaining < 86_400) detailText = `${Math.ceil(remaining / 3600)} hours remaining`
-  else detailText = `${Math.ceil(remaining / 86_400)} days remaining`
-
-  // Map remaining time to a fill fraction. 24h or more remaining
-  // = 25% filled (mostly empty bar = lots of time). Less than 1h
-  // = 90% filled (almost full = urgent). The exact mapping is
-  // pedagogical — meant to communicate urgency, not measure
-  // SLA progress precisely.
-  let fraction: number
-  if (remaining > 86_400) fraction = 0.25
-  else if (remaining > 14_400) fraction = 0.45
-  else if (remaining > 3600) fraction = 0.65
-  else fraction = 0.85
-
-  if (sla.pill_color === 'amber') {
-    return {
-      toneClass: 'text-amber-600 dark:text-amber-400',
-      barClass: 'bg-amber-500',
-      label: 'At risk',
-      detail: `${detailText} · target ${target}`,
-      fraction,
-      target,
-    }
-  }
-  return {
-    toneClass: 'text-emerald-600 dark:text-emerald-400',
-    barClass: 'bg-emerald-500',
-    label: 'On track',
-    detail: `${detailText} · target ${target}`,
-    fraction,
-    target,
-  }
-})
+const slaState = useSlaState(toRef(props, 'card'))
 
 function onOpen(): void {
   if (props.card) emit('open', props.card.id)
@@ -271,7 +165,7 @@ function onOpen(): void {
                 :class="slaState.toneClass"
               >
                 <Icon name="clock" class="w-3 h-3" />
-                {{ slaState.label }}
+                {{ slaState.statusLabel }}
               </span>
               <span
                 v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
@@ -361,7 +255,7 @@ function onOpen(): void {
             </h3>
             <div class="space-y-2">
               <div class="flex items-center justify-between text-xs">
-                <span class="font-medium" :class="slaState.toneClass">{{ slaState.label }}</span>
+                <span class="font-medium" :class="slaState.toneClass">{{ slaState.statusLabel }}</span>
                 <span class="text-tertiary tabular-nums">{{ slaState.target }}</span>
               </div>
               <!-- Time bar. Width animates between cards via the

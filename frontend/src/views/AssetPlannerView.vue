@@ -234,7 +234,7 @@ const activeFilterCount = computed<number>(() =>
     <div v-if="loading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
       Loading assets…
     </div>
-    <div v-else-if="error" class="flex-1 flex items-center justify-center text-rose-500 text-sm">
+    <div v-else-if="error" class="flex-1 flex items-center justify-center text-status-error text-sm">
       {{ error }}
     </div>
     <!-- Body. md+ uses the side-by-side grid (filter sidebar then

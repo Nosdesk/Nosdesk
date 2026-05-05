@@ -36,6 +36,16 @@ import Icon from '@/components/common/Icon.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserCell from '@/components/views/UserCell.vue'
 import { paletteForColor } from '@/utils/workflowColors'
+import {
+  priorityForBadge,
+  inlinePriorityClass,
+  rowSlaToneClass,
+} from '@/utils/priorityHelpers'
+import { deriveSlaState } from '@/composables/useSlaState'
+import {
+  formatCompactRelativeTime,
+  formatCompactDate,
+} from '@/utils/dateUtils'
 import { rowMemoKey, type ListColumn } from '@/sync/views/ticketColumns'
 import type { useColumnLayout } from '@/composables/useColumnLayout'
 import type { CardData } from '@/sync/views/types'
@@ -82,34 +92,12 @@ function onRowClick(id: number): void {
 
 const grouped = computed<boolean>(() => props.buckets.length > 0)
 
-function priorityForBadge(p: CardData['priority']): 'low' | 'medium' | 'high' | null {
-  if (p === 'urgent') return 'high'
-  if (p === 'low' || p === 'medium' || p === 'high') return p
-  return null
-}
-
-function inlinePriorityClass(p: CardData['priority']): string | null {
-  if (p === 'urgent') return 'text-rose-500'
-  if (p === 'high') return 'text-orange-500'
-  return null
-}
-
 function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime()
-  const seconds = Math.max(1, Math.round((Date.now() - then) / 1000))
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  const days = Math.round(hours / 24)
-  if (days < 30) return `${days}d`
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatCompactRelativeTime(iso)
 }
 
 function shortDate(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatCompactDate(iso) || '—'
 }
 
 function recurrenceLabel(rule: string): string {
@@ -127,34 +115,18 @@ function recurrenceLabel(rule: string): string {
 }
 
 function slaToneClass(card: CardData): string {
-  const sla = card.sla
-  if (!sla) return 'text-tertiary'
-  if (sla.breached) return 'text-rose-600 dark:text-rose-400'
-  if (sla.pill_color === 'amber') return 'text-amber-600 dark:text-amber-400'
-  if (sla.pill_color === 'green') return 'text-emerald-600 dark:text-emerald-400'
-  return 'text-tertiary'
+  return deriveSlaState(card)?.toneClass ?? 'text-tertiary'
 }
 
 function slaLabel(card: CardData): string {
-  const sla = card.sla
-  if (!sla) return '—'
-  if (sla.breached) return 'Breached'
-  if (sla.paused) return 'Paused'
-  const remaining = sla.seconds_remaining ?? 0
-  if (remaining < 3600) return `${Math.ceil(remaining / 60)}m`
-  if (remaining < 86_400) return `${Math.ceil(remaining / 3600)}h`
-  return `${Math.ceil(remaining / 86_400)}d`
+  return deriveSlaState(card)?.compactLabel ?? '—'
 }
 
-/** Leading 3px row stripe encoding SLA urgency. Returns the bg
- * class for the strip cell — empty string when the row has no
- * SLA tone to communicate. */
+/** Leading 3px row stripe encoding SLA urgency. Empty string
+ * when the row has no SLA tone to communicate so we don't burn
+ * visual budget on a transparent strip. */
 function rowToneClass(card: CardData): string {
-  const sla = card.sla
-  if (!sla) return ''
-  if (sla.breached) return 'bg-rose-500'
-  if (sla.pill_color === 'amber') return 'bg-amber-500'
-  return ''
+  return rowSlaToneClass(card)
 }
 </script>
 
