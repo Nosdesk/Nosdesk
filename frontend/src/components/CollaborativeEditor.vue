@@ -1787,7 +1787,7 @@ let originalYXmlFragment: Y.XmlFragment | null = null;
 let originalEditorState: EditorState | null = null;
 
 // Revision viewing methods
-function viewSnapshot(snapshotData: { snapshot: string; prevSnapshot: string; revision_number: number; yjs_document_content: string }) {
+function viewSnapshot(snapshotData: { revision_number: number; yjs_document_content: string }) {
     if (!editorView || !ydoc || !yXmlFragment) {
         log.error("Cannot view snapshot: editor not initialized");
         return;
@@ -1893,16 +1893,49 @@ function exitRevisionView() {
     }
 }
 
-// Handle revision selection from RevisionHistory component
-const handleRevisionSelect = (revisionNumber: number | null) => {
+// Handle revision selection from RevisionList.
+//   null         -> user exited the revision view; restore live editor
+//   revision_no  -> fetch that revision's Yjs snapshot, swap editor
+//                   into read-only mode showing the historical doc
+//
+// Endpoint differs by surface: tickets vs documentation share the
+// same response shape (ArticleRevisionDetail) but live under
+// different paths. We pick based on docId prefix — same heuristic
+// the rest of the editor uses.
+const handleRevisionSelect = async (revisionNumber: number | null) => {
     if (revisionNumber === null) {
-        // User exited revision view
         log.info("Exiting revision view");
-        // TODO: Reload current document state
-    } else {
-        // User selected a revision to view
-        log.info(`User selected revision ${revisionNumber}`);
-        // TODO: Load and display the revision (read-only mode)
+        try {
+            exitRevisionView();
+        } catch (error) {
+            log.error("Failed to exit revision view:", error);
+        }
+        return;
+    }
+
+    log.info(`User selected revision ${revisionNumber}`);
+    try {
+        const isTicket = props.docId.startsWith('ticket-');
+        const isDoc = props.docId.startsWith('doc-');
+        let endpoint: string | null = null;
+        if (isTicket) {
+            const id = ticketId.value;
+            if (id > 0) endpoint = `/collaboration/tickets/${id}/revisions/${revisionNumber}`;
+        } else if (isDoc) {
+            const id = parseInt(props.docId.replace('doc-', ''), 10);
+            if (Number.isFinite(id) && id > 0) endpoint = `/collaboration/docs/${id}/revisions/${revisionNumber}`;
+        }
+        if (!endpoint) {
+            log.error(`Unable to derive revision endpoint for docId=${props.docId}`);
+            return;
+        }
+        const response = await apiClient.get<{
+            revision_number: number;
+            yjs_document_content: string;
+        }>(endpoint);
+        viewSnapshot(response.data);
+    } catch (error) {
+        log.error(`Failed to load revision ${revisionNumber}:`, error);
     }
 };
 

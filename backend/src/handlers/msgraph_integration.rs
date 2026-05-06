@@ -794,11 +794,25 @@ pub async fn get_connection_status(
         });
     }
 
-    // Configuration looks good
+    // Look up the most recent sync_history row to populate the
+    // last_sync field. The row is recorded per sync run by
+    // sync_history_repo::create_sync_history (see the scheduled
+    // delta-sync path); here we just surface its completed_at so
+    // admins can see when sync last ran without having to grep
+    // logs. Treat lookup failure as "no sync yet" rather than an
+    // error — a brand-new install has nothing to report.
+    let last_sync = match db_pool.get() {
+        Ok(mut conn) => crate::repository::sync_history::get_last_completed_sync(&mut conn)
+            .ok()
+            .and_then(|h| h.completed_at)
+            .map(|naive| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc)),
+        Err(_) => None,
+    };
+
     HttpResponse::Ok().json(ConnectionStatus {
         status: "connected".to_string(),
         message: "Microsoft Graph connection is configured and ready".to_string(),
-        last_sync: None, // TODO: Track actual sync times
+        last_sync,
         available_entities: vec!["users".to_string(), "devices".to_string(), "groups".to_string()],
     })
 }

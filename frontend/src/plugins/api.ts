@@ -21,6 +21,7 @@ import pluginService from '@/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket } from '@/services/ticketService';
 import { getDeviceById, getDevices } from '@/services/deviceService';
 import { logger } from '@/utils/logger';
+import { useToastStore } from '@/stores/toast';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@/types/plugin';
 import type { Ticket } from '@/types/ticket';
 import type { Device } from '@/types/device';
@@ -439,9 +440,16 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     },
 
     // === NOTIFY: User feedback ===
+    // Surface plugin notifications through the same toast store
+    // the rest of the app uses. Plugin name is the toast title so
+    // users can tell which plugin is talking; message is the body.
+    // We intentionally don't expose toast actions / undo from the
+    // plugin API surface — keeps the affordance simple and prevents
+    // a plugin from re-implementing its own confirm flow.
     notify(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info'): void {
-      // TODO: Integrate with notification toast system
       logger.info(`Plugin notification [${type}]: ${message}`, { plugin: plugin.name });
+      const toast = useToastStore();
+      toast[type](plugin.name, message);
     },
 
     // === UI: UI state helpers ===
