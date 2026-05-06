@@ -94,7 +94,6 @@ use crate::services::notifications::{
     types::{NotificationTypeCode, NotificationPayload, NotificationEntity, NotificationActor},
 };
 use crate::services::search::SearchService;
-use crate::services::search::indexing_tasks;
 
 use once_cell::sync::Lazy;
 use regex::Regex;

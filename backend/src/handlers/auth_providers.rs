@@ -884,6 +884,54 @@ fn verify_oauth_state(token: &str) -> Result<OAuthState, String> {
     }
 }
 
+/// Send an HTTP request with bounded retries on transport-level
+/// failures only (connection refused, DNS error, request-build
+/// error, timeout). Once the server has responded with anything —
+/// even a 5xx — we return that response without retrying. For
+/// OAuth this is the only safe behaviour: the auth code is
+/// consumed atomically when the server validates it, and a retry
+/// after partial failure would either waste the code or, worse,
+/// double-spend it if the original call actually succeeded server-
+/// side.
+///
+/// Backoff is short and capped: 250ms, 500ms, 1000ms before the
+/// final attempt. Total wait of ~1.75s is small compared with the
+/// alternative of asking the user to re-trigger the entire OAuth
+/// flow on a transient blip.
+async fn retry_transport<F>(
+    _client: &reqwest::Client,
+    max_attempts: u32,
+    mut build: F,
+) -> Result<reqwest::Response, reqwest::Error>
+where
+    F: FnMut() -> reqwest::RequestBuilder,
+{
+    let mut attempt: u32 = 0;
+    loop {
+        attempt += 1;
+        match build().send().await {
+            Ok(res) => return Ok(res),
+            Err(e) if attempt >= max_attempts => return Err(e),
+            Err(e) if !(e.is_connect() || e.is_timeout() || e.is_request()) => {
+                // Other reqwest errors (eg. body decode) shouldn't
+                // happen before send() returns, but if they do
+                // they're not worth retrying.
+                return Err(e);
+            }
+            Err(e) => {
+                let delay_ms = 250u64.saturating_mul(1 << (attempt - 1));
+                warn!(
+                    attempt,
+                    delay_ms,
+                    error = %e,
+                    "Transient HTTP failure during auth flow; retrying",
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+        }
+    }
+}
+
 // Helper function to exchange Microsoft code for token
 async fn exchange_microsoft_code_for_token(
     _provider: &AuthProvider,
@@ -902,7 +950,7 @@ async fn exchange_microsoft_code_for_token(
 
     let redirect_uri_config = config_utils::get_microsoft_redirect_uri()
         .map_err(|e| format!("Failed to get redirect_uri: {e}"))?;
-    
+
     // Prepare the token request
     let params = [
         ("client_id", client_id.as_str()),
@@ -911,19 +959,21 @@ async fn exchange_microsoft_code_for_token(
         ("redirect_uri", redirect_uri_config.as_str()),
         ("grant_type", "authorization_code"),
     ];
-    
-    // Make the token request
+
+    // Make the token request, retrying on transport-level failures
+    // only. We never retry once we've received a response: OAuth
+    // codes are single-use, and if Microsoft validated the code
+    // before the network failed we'd get `invalid_grant` on retry
+    // anyway. Safer to bail and let the user re-trigger the flow
+    // than to silently consume a code twice.
     let client = reqwest::Client::new();
-    let res = match client
-        .post(format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"))
-        .form(&params)
-        .send()
-        .await
-    {
-        Ok(res) => res,
-        Err(e) => return Err(format!("Failed to send token request: {e}")),
-    };
-    
+    let token_url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
+    let res = retry_transport(&client, 3, || {
+        client.post(&token_url).form(&params)
+    })
+    .await
+    .map_err(|e| format!("Failed to send token request: {e}"))?;
+
     // Parse the response
     let token_response = match res.json::<serde_json::Value>().await {
         Ok(json) => json,
@@ -944,18 +994,18 @@ async fn exchange_microsoft_code_for_token(
     Ok((access_token, refresh_token))
 }
 
-// Helper function to get user info from Microsoft Graph API
+// Helper function to get user info from Microsoft Graph API.
+// Safe to retry transport failures here since GET /me is
+// idempotent and the access token is valid for ~1 hour.
 async fn get_microsoft_user_info(access_token: &str) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
-    let res = match client
-        .get("https://graph.microsoft.com/v1.0/me")
-        .header("Authorization", format!("Bearer {access_token}"))
-        .send()
-        .await
-    {
-        Ok(res) => res,
-        Err(e) => return Err(format!("Failed to get user info: {e}")),
-    };
+    let res = retry_transport(&client, 3, || {
+        client
+            .get("https://graph.microsoft.com/v1.0/me")
+            .header("Authorization", format!("Bearer {access_token}"))
+    })
+    .await
+    .map_err(|e| format!("Failed to get user info: {e}"))?;
     
     match res.json::<serde_json::Value>().await {
         Ok(json) => Ok(json),
