@@ -152,9 +152,6 @@ fn truncate_preview(text: &str, max_len: usize) -> String {
     }
 }
 
-// Re-export validation utilities
-// pub use crate::utils::validation;
-
 // Placeholders for handlers that haven't been implemented in dedicated modules yet
 
 // Ticket comments and attachments

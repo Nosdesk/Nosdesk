@@ -2018,7 +2018,7 @@ async fn update_existing_microsoft_user_optimized(
     };
 
     // Update user if there are changes
-    if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
+    if user_update.name.is_some() || user_update.microsoft_uuid.is_some() {
         user_repo::update_user(&user.uuid, user_update, conn, None)
             .map_err(|e| format!("Failed to update user: {e}"))?;
         debug!(user_name = %user.name, "Updated user information");
@@ -4203,7 +4203,7 @@ async fn update_existing_microsoft_user_no_photos(
             dashboard_layout: None,
     };
 
-    if user_update.name.is_some() || false /* email removed */ || user_update.microsoft_uuid.is_some() {
+    if user_update.name.is_some() || user_update.microsoft_uuid.is_some() {
         user_repo::update_user(&user.uuid, user_update, conn, None)
             .map_err(|e| format!("Failed to update user: {e}"))?;
     }
