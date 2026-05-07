@@ -80,7 +80,7 @@ onUnmounted(() => {
     <div
       v-if="showTooltip && !disabled && (position.x !== 0 || position.y !== 0)"
       ref="tooltipRef"
-      class="fixed z-50 bg-surface border border-default rounded-lg shadow-lg p-3 min-w-[200px] max-w-[300px]"
+      class="fixed z-overlay bg-surface border border-default rounded-lg shadow-lg p-3 min-w-[200px] max-w-[300px]"
       :style="{
         left: `${position.x}px`,
         top: `${position.y}px`

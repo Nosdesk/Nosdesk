@@ -73,7 +73,7 @@ const CATEGORY_LABELS: Record<string, string> = {
     </header>
 
     <div v-if="isLoading" class="text-xs text-tertiary italic">Loading…</div>
-    <div v-else-if="error" class="text-xs text-rose-500">{{ error }}</div>
+    <div v-else-if="error" class="text-xs text-status-error">{{ error }}</div>
 
     <div v-else-if="stats" class="flex flex-col gap-3">
       <!-- Headline numbers -->

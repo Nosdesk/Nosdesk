@@ -340,7 +340,7 @@ onMounted(async () => {
 
   <!-- Add Passkey Modal -->
   <Teleport to="body">
-    <div v-if="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center">
+    <div v-if="showAddModal" class="fixed inset-0 z-overlay flex items-center justify-center">
       <div class="absolute inset-0 bg-black/50" @click="closeModals"></div>
       <div class="relative bg-surface rounded-xl border border-default shadow-xl max-w-md w-full mx-4 p-6">
         <h3 class="text-lg font-medium text-primary mb-4">Add Passkey</h3>
@@ -379,7 +379,7 @@ onMounted(async () => {
 
   <!-- Rename Modal -->
   <Teleport to="body">
-    <div v-if="showRenameModal" class="fixed inset-0 z-50 flex items-center justify-center">
+    <div v-if="showRenameModal" class="fixed inset-0 z-overlay flex items-center justify-center">
       <div class="absolute inset-0 bg-black/50" @click="closeModals"></div>
       <div class="relative bg-surface rounded-xl border border-default shadow-xl max-w-md w-full mx-4 p-6">
         <h3 class="text-lg font-medium text-primary mb-4">Rename Passkey</h3>
@@ -414,7 +414,7 @@ onMounted(async () => {
 
   <!-- Delete Modal -->
   <Teleport to="body">
-    <div v-if="showDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center">
+    <div v-if="showDeleteModal" class="fixed inset-0 z-overlay flex items-center justify-center">
       <div class="absolute inset-0 bg-black/50" @click="closeModals"></div>
       <div class="relative bg-surface rounded-xl border border-default shadow-xl max-w-md w-full mx-4 p-6">
         <h3 class="text-lg font-medium text-primary mb-4">Delete Passkey</h3>
@@ -453,7 +453,7 @@ onMounted(async () => {
 
   <!-- Admin Delete Passkey Modal -->
   <Teleport to="body">
-    <div v-if="showAdminDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center">
+    <div v-if="showAdminDeleteModal" class="fixed inset-0 z-overlay flex items-center justify-center">
       <div class="absolute inset-0 bg-black/50" @click="closeModals"></div>
       <div class="relative bg-surface rounded-xl border border-default shadow-xl max-w-md w-full mx-4 p-6">
         <h3 class="text-lg font-medium text-primary mb-4">Delete Passkey</h3>

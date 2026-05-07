@@ -685,7 +685,7 @@ onMounted(() => {
             v-model="categoryForm.is_active"
             class="sr-only peer"
           />
-          <div class="w-11 h-6 bg-surface-alt peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
+          <div class="w-11 h-6 bg-surface-alt peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white dark:after:bg-zinc-200 after:border-gray-300 dark:after:border-zinc-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-transform peer-checked:bg-accent"></div>
         </label>
         <span class="text-sm text-primary">Active</span>
       </div>
@@ -779,7 +779,7 @@ onMounted(() => {
   <Teleport to="body">
     <div
       v-if="canDrag && draggedCategory"
-      class="fixed pointer-events-none z-50"
+      class="fixed pointer-events-none z-cursor"
       :style="{
         left: (dragState.pointerX - dragState.offsetX) + 'px',
         top: (dragState.pointerY - dragState.offsetY) + 'px',

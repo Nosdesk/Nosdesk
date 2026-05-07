@@ -1171,7 +1171,7 @@ const debugMeta = computed(() => ({
     </div>
   </div>
   <!-- Debug Panel -->
-  <div v-if="showDebug" class="fixed top-4 right-4 bg-surface/90 text-sm text-secondary p-4 rounded-lg max-h-[90vh] overflow-auto flex flex-col gap-3 z-50 shadow-lg">
+  <div v-if="showDebug" class="fixed top-4 right-4 bg-surface/90 text-sm text-secondary p-4 rounded-lg max-h-[90vh] overflow-auto flex flex-col gap-3 z-overlay shadow-lg">
     <h3 class="font-semibold mb-2">Debug Controls (press 'd' to toggle)</h3>
     
     <!-- Master Toggle -->

@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted, onActivated, onDeactivated, type Ref } from 'vue'
-import { useSSE } from '@/services/sseService'
+import { useSSE, type SSEEventType } from '@/services/sseService'
 import { useAuthStore } from '@/stores/auth'
 import {
   unwrapEventData,
@@ -68,7 +68,7 @@ export function useProjectSSE(
   }
 
   type SSEHandler = (data: unknown) => void
-  const eventHandlers: [string, SSEHandler][] = [
+  const eventHandlers: [SSEEventType, SSEHandler][] = [
     ['project-assigned', handleProjectAssigned],
     ['project-unassigned', handleProjectUnassigned],
     ['ticket-updated', handleTicketUpdated],
@@ -77,13 +77,13 @@ export function useProjectSSE(
 
   function setupListeners() {
     for (const [event, handler] of eventHandlers) {
-      addEventListener(event as any, handler)
+      addEventListener(event, handler)
     }
   }
 
   function cleanupListeners() {
     for (const [event, handler] of eventHandlers) {
-      removeEventListener(event as any, handler)
+      removeEventListener(event, handler)
     }
   }
 

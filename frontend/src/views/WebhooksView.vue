@@ -56,11 +56,18 @@ const editForm = ref<UpdateWebhookRequest>({
   headers: {},
 });
 
-// Custom headers for create form
-const customHeaders = ref<{ key: string; value: string }[]>([]);
+// Custom headers for create / edit forms. Each row carries a
+// stable monotonic `_uid` so the v-for key survives row deletion
+// — index keys would let stale form state bleed into the row
+// that takes the deleted row's slot.
+interface HeaderRow { _uid: number; key: string; value: string }
+let nextHeaderUid = 1
+function newHeaderRow(key = '', value = ''): HeaderRow {
+  return { _uid: nextHeaderUid++, key, value }
+}
 
-// Custom headers for edit form
-const editCustomHeaders = ref<{ key: string; value: string }[]>([]);
+const customHeaders = ref<HeaderRow[]>([]);
+const editCustomHeaders = ref<HeaderRow[]>([]);
 
 // Computed - categorized webhooks
 const enabledWebhooks = computed(() =>
@@ -91,9 +98,9 @@ const getErrorMessage = (error: unknown, defaultMsg: string): string => {
   return axiosError.response?.data || defaultMsg;
 };
 
-// Convert headers object to array format
-const objectToHeaders = (obj: Record<string, string> | null): { key: string; value: string }[] => {
-  return obj ? Object.entries(obj).map(([key, value]) => ({ key, value })) : [];
+// Convert headers object to array format with stable row uids.
+const objectToHeaders = (obj: Record<string, string> | null): HeaderRow[] => {
+  return obj ? Object.entries(obj).map(([key, value]) => newHeaderRow(key, value)) : [];
 };
 
 // Get webhook status
@@ -180,9 +187,9 @@ const toggleCategory = (category: string, formEvents: string[], isCreate: boolea
 // Add custom header
 const addHeader = (isCreate: boolean) => {
   if (isCreate) {
-    customHeaders.value.push({ key: '', value: '' });
+    customHeaders.value.push(newHeaderRow());
   } else {
-    editCustomHeaders.value.push({ key: '', value: '' });
+    editCustomHeaders.value.push(newHeaderRow());
   }
 };
 
@@ -680,7 +687,7 @@ onMounted(() => {
             </button>
           </div>
           <div v-if="customHeaders.length > 0" class="flex flex-col gap-2">
-            <div v-for="(header, index) in customHeaders" :key="index" class="flex items-center gap-2">
+            <div v-for="(header, index) in customHeaders" :key="header._uid" class="flex items-center gap-2">
               <input
                 v-model="header.key"
                 type="text"
@@ -882,7 +889,7 @@ onMounted(() => {
             </button>
           </div>
           <div v-if="editCustomHeaders.length > 0" class="flex flex-col gap-2">
-            <div v-for="(header, index) in editCustomHeaders" :key="index" class="flex items-center gap-2">
+            <div v-for="(header, index) in editCustomHeaders" :key="header._uid" class="flex items-center gap-2">
               <input
                 v-model="header.key"
                 type="text"

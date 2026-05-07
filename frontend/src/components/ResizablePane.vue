@@ -35,7 +35,11 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['heightChange', 'resize-start', 'resize-end']);
+const emit = defineEmits<{
+  (e: 'heightChange', size: number): void
+  (e: 'resize-start', payload: { size: number }): void
+  (e: 'resize-end', payload: { size: number }): void
+}>();
 
 // Refs
 const containerRef = ref<HTMLElement | null>(null);
