@@ -123,6 +123,33 @@ pub fn try_bearer_auth(
         warn!("Failed to update token last_used_at: {}", e);
     }
 
+    // Project the token's stored scopes into a single space-
+    // separated `scope` string (OAuth2 / RFC 6749 convention) so
+    // downstream scope-checking middleware can split it without a
+    // schema-aware parse. Token-stored scopes is `Vec<Option<String>>`
+    // (Diesel's quirky nullable-array shape); we flatten the Some()
+    // variants and drop nulls. Empty / unset scopes default to
+    // "full" — matching the prior behaviour for tokens created
+    // before the scope column was populated. Tokens issued WITH
+    // explicit scopes now carry only those scopes, closing the gap
+    // where any API token previously bypassed scope enforcement.
+    let scope = api_token
+        .scopes
+        .as_ref()
+        .map(|raw| {
+            let collected: Vec<&str> = raw
+                .iter()
+                .filter_map(|s| s.as_deref())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if collected.is_empty() {
+                "full".to_string()
+            } else {
+                collected.join(" ")
+            }
+        })
+        .unwrap_or_else(|| "full".to_string());
+
     // Create claims from API token (no session — API tokens don't have sessions)
     let now = chrono::Utc::now();
     let claims = Claims {
@@ -130,7 +157,7 @@ pub fn try_bearer_auth(
         name: user.name,
         email,
         role: user.role.as_str().to_string(),
-        scope: "full".to_string(),
+        scope,
         sid: None,
         exp: (now + chrono::Duration::hours(24)).timestamp() as usize,
         iat: now.timestamp() as usize,

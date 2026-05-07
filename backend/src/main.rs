@@ -271,36 +271,48 @@ async fn main() -> std::io::Result<()> {
     };
     info!("JWT_SECRET validated");
 
-    // Validate that MFA_ENCRYPTION_KEY is set for production
-    if environment == "production" {
-        match std::env::var("MFA_ENCRYPTION_KEY") {
-            Ok(key) => {
-                if looks_like_placeholder(&key) {
-                    error!("MFA_ENCRYPTION_KEY appears to be the docker.env.example placeholder");
-                    error!("Refusing to start in production with a placeholder MFA_ENCRYPTION_KEY");
-                    error!("Generate a secure key with: openssl rand -hex 32");
-                    std::process::exit(1);
-                }
-                if key.len() != 64 {
-                    error!("MFA_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)");
-                    error!("Generate a secure key with: openssl rand -hex 32");
-                    std::process::exit(1);
-                }
-                if hex::decode(&key).is_err() {
-                    error!("MFA_ENCRYPTION_KEY must be valid hexadecimal");
-                    error!("Generate a secure key with: openssl rand -hex 32");
-                    std::process::exit(1);
-                }
-            },
-            Err(e) => {
-                error!(error = %e, "MFA_ENCRYPTION_KEY environment variable must be set in production");
+    // Validate the at-rest encryption key (used by MFA, SLA secrets,
+    // any future BYOK-style storage). Surfaces a misconfigured or
+    // missing key at boot rather than as a 500 the first time the
+    // user hits an MFA / encrypted-secret code path. Accepts either
+    // ENCRYPTION_KEY or MFA_ENCRYPTION_KEY (legacy name) — whichever
+    // is set must be valid 64-char hex.
+    //
+    // Production refuses to boot on missing / placeholder / malformed
+    // keys. Dev tolerates a missing key (logs a warning and disables
+    // MFA features) but still validates the format if one is set.
+    let encryption_key_set = std::env::var("ENCRYPTION_KEY").is_ok()
+        || std::env::var("MFA_ENCRYPTION_KEY").is_ok();
+    if let Some(placeholder_key) = std::env::var("MFA_ENCRYPTION_KEY")
+        .ok()
+        .or_else(|| std::env::var("ENCRYPTION_KEY").ok())
+        .filter(|k| looks_like_placeholder(k))
+    {
+        if environment == "production" {
+            error!("Encryption key appears to be the docker.env.example placeholder");
+            error!("Refusing to start in production with a placeholder encryption key");
+            error!("Generate a secure key with: openssl rand -hex 32");
+            std::process::exit(1);
+        } else {
+            warn!(?placeholder_key, "Encryption key looks like a placeholder; MFA / encrypted-secret flows will use it as-is in dev");
+        }
+    }
+    match crate::utils::encryption::validate_at_startup() {
+        Ok(()) => info!("Encryption key validated"),
+        Err(e) => {
+            if environment == "production" {
+                error!(error = %e, "Encryption key validation failed in production");
                 error!("Generate a secure key with: openssl rand -hex 32");
                 std::process::exit(1);
+            } else if encryption_key_set {
+                error!(error = %e, "Encryption key is set but invalid; MFA / encrypted-secret flows will fail");
+                error!("Fix or unset ENCRYPTION_KEY / MFA_ENCRYPTION_KEY");
+                std::process::exit(1);
+            } else {
+                warn!("ENCRYPTION_KEY / MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
+                warn!("Generate with: openssl rand -hex 32");
             }
         }
-    } else if std::env::var("MFA_ENCRYPTION_KEY").is_err() {
-        warn!("MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
-        warn!("Generate with: openssl rand -hex 32");
     }
 
     // NOSDESK_ROOT_PUBKEY is baked into the binary at build time

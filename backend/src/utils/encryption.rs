@@ -27,6 +27,17 @@ fn get_encryption_key() -> Result<[u8; 32]> {
     Ok(key)
 }
 
+/// Validate the encryption key configuration at startup. Call from
+/// `main()` after env load — surfaces a misconfigured key as a boot
+/// failure instead of a 500 the first time MFA / API tokens / SLA
+/// secrets need decryption mid-request. The "user is locked out
+/// of MFA setup three days after deploy because the env var was
+/// truncated" failure mode is far worse than refusing to boot.
+pub fn validate_at_startup() -> Result<()> {
+    let _ = get_encryption_key()?;
+    Ok(())
+}
+
 /// Encrypt a string using AES-256-GCM
 ///
 /// Returns hex-encoded ciphertext with prepended nonce.

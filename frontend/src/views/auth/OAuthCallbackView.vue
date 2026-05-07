@@ -134,7 +134,18 @@ onMounted(async () => {
         authStore.user = data.user
       }
 
-      let redirectPath = sessionStorage.getItem('authRedirect') || '/'
+      // Only honour same-origin relative paths from sessionStorage.
+      // The pre-auth code stuffs window.location.pathname in there,
+      // but sessionStorage is XSS-readable and could be poisoned to
+      // bounce users to a phishing site after login. Reject anything
+      // that's not a leading-single-slash relative path: protocol-
+      // relative ("//attacker.com"), absolute URLs ("https://..."),
+      // and javascript: URIs all collapse to '/'.
+      const stored = sessionStorage.getItem('authRedirect')
+      let redirectPath = '/'
+      if (stored && stored.startsWith('/') && !stored.startsWith('//') && !stored.includes('://')) {
+        redirectPath = stored
+      }
       if (redirectPath.includes(`/auth/${provider.value}/callback`)) {
         redirectPath = '/'
       }
