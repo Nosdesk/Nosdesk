@@ -70,3 +70,29 @@ pub async fn ensure_sync_partitions(pool: Pool) -> Result<()> {
 pub async fn msgraph_delta_sync(pool: Pool) -> Result<()> {
     crate::handlers::msgraph_integration::run_scheduled_delta_sync(&pool).await
 }
+
+/// Prune CSP violation reports older than the configured retention
+/// window. Reports are useful for triaging policy regressions soon
+/// after they happen but lose value quickly — month-old reports
+/// rarely surface anything actionable. Without pruning the table
+/// would grow unbounded under a noisy reporter (eg. a single
+/// browser-extension injection that fires on every page load).
+///
+/// Retention defaults to 30 days; configurable via
+/// `CSP_REPORT_RETENTION_DAYS` env var so deployments with stricter
+/// audit / compliance requirements can dial it up or down.
+pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
+    let days: i32 = std::env::var("CSP_REPORT_RETENTION_DAYS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|d: &i32| *d > 0)
+        .unwrap_or(30);
+
+    let mut conn = pool.get().context("db pool")?;
+    let removed = crate::repository::csp_reports::prune_older_than(&mut conn, days)
+        .context("prune CSP reports")?;
+    if removed > 0 {
+        info!(count = removed, retention_days = days, "scheduler: CSP reports pruned");
+    }
+    Ok(())
+}

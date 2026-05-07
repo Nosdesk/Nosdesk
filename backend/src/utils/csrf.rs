@@ -158,7 +158,13 @@ where
             // Public guest surface: unauthenticated, no session cookie, so
             // no CSRF surface to protect. Rate limiting is handled by the
             // scope's dedicated limiter + per-handler Redis counters.
-            || path.starts_with("/api/public/");
+            || path.starts_with("/api/public/")
+            // CSP violation reports are sent by browsers without
+            // credentials, so there's no session to forge against.
+            // Browsers also don't include arbitrary headers, so we
+            // can't require an X-CSRF-Token here. Reports are
+            // rate-limited and deduplicated server-side.
+            || path == "/api/csp-report";
 
         if is_public_endpoint {
             // Skip CSRF validation for public auth endpoints

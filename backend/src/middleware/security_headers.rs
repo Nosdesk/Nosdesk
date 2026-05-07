@@ -145,6 +145,12 @@ pub struct Csp {
     /// Flag-style entries (eg. `upgrade-insecure-requests`) that
     /// have no source list.
     flags: Vec<&'static str>,
+    /// `report-uri` target. Browsers POST violation reports here.
+    /// Spec-deprecated in favour of `report-to` + the Reporting
+    /// API, but `report-uri` is still honoured by every browser
+    /// in production while `report-to` adoption is uneven, so
+    /// we emit `report-uri` for now.
+    report_uri: Option<String>,
 }
 
 impl Csp {
@@ -164,8 +170,17 @@ impl Csp {
         self
     }
 
+    /// Configure the `report-uri` directive. Same-origin path is
+    /// the recommended target; reports are delivered via POST
+    /// without credentials by default.
+    pub fn report_uri(mut self, uri: impl Into<String>) -> Self {
+        self.report_uri = Some(uri.into());
+        self
+    }
+
     pub fn render(&self) -> String {
-        let mut parts: Vec<String> = Vec::with_capacity(self.directives.len() + self.flags.len());
+        let extras = self.flags.len() + self.report_uri.is_some() as usize;
+        let mut parts: Vec<String> = Vec::with_capacity(self.directives.len() + extras);
         for (dir, sources) in &self.directives {
             let toks: Vec<String> = sources.iter().map(|s| s.token().into_owned()).collect();
             if toks.is_empty() {
@@ -179,6 +194,9 @@ impl Csp {
         }
         for f in &self.flags {
             parts.push((*f).to_string());
+        }
+        if let Some(uri) = &self.report_uri {
+            parts.push(format!("report-uri {uri}"));
         }
         parts.join("; ")
     }
@@ -229,7 +247,12 @@ fn production_policy(plugin_sandbox_origin: Option<&str>) -> Csp {
         // Force any http:// subresource fetch to upgrade to https://
         // before sending. Defence-in-depth against mixed content
         // and old hardcoded http URLs in seeded data.
-        .flag("upgrade-insecure-requests");
+        .flag("upgrade-insecure-requests")
+        // Browser-submitted violation reports land at the public
+        // /api/csp-report endpoint. Same-origin path means no
+        // CORS dance and reports go through the same TLS as the
+        // page that triggered them.
+        .report_uri("/api/csp-report");
 
     // frame-src defaults to 'self' for first-party iframes
     // (DocumentView email rendering, etc) plus an optional
@@ -283,7 +306,10 @@ fn development_policy(plugin_sandbox_origin: Option<&str>) -> Csp {
         .add(Directive::FrameAncestors, vec![Source::None_])
         .add(Directive::ObjectSrc, vec![Source::None_])
         .add(Directive::BaseUri, vec![Source::SelfOrigin])
-        .add(Directive::FormAction, vec![Source::SelfOrigin]);
+        .add(Directive::FormAction, vec![Source::SelfOrigin])
+        // Reports go to the same endpoint in dev — useful when
+        // testing policy changes locally.
+        .report_uri("/api/csp-report");
 
     let mut frame_sources = vec![Source::SelfOrigin];
     if let Some(origin) = plugin_sandbox_origin {

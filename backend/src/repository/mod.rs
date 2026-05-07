@@ -49,6 +49,9 @@ pub mod backup;
 // Webhooks
 pub mod webhooks;
 
+// CSP violation reports
+pub mod csp_reports;
+
 // Plugins
 pub mod plugins;
 pub mod plugin_collections;

@@ -824,7 +824,19 @@ async fn main() -> std::io::Result<()> {
             move || jobs::ensure_sync_partitions(p.clone()),
         );
 
-        info!("scheduler: 4 periodic jobs spawned");
+        // Daily: prune CSP violation reports past the retention
+        // window so a noisy reporter (browser extension etc.) can't
+        // grow the table unbounded. Retention defaults to 30 days.
+        let p = pool.clone();
+        spawn_periodic(
+            "csp_reports.prune",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::prune_csp_reports(p.clone()),
+        );
+
+        info!("scheduler: 5 periodic jobs spawned");
     }
     let scheduler_status_data = web::Data::new(scheduler_status);
 
@@ -939,6 +951,21 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api/collaboration")
                     .configure(handlers::collaboration::config)
+            )
+
+            // Public CSP violation report intake. Browsers POST
+            // here without credentials when the page's CSP blocks
+            // a subresource. Body is small (<8 KB in practice) but
+            // we cap at 16 KB to absorb chunky `original-policy`
+            // strings without becoming a DoS surface. Rate-limited
+            // through the public limiter; reports are deduplicated
+            // server-side by the handler so a misbehaving page
+            // can't blow up the table either.
+            .service(
+                web::resource("/api/csp-report")
+                    .app_data(web::PayloadConfig::new(16 * 1024))
+                    .wrap(RateLimiter::default())
+                    .route(web::post().to(handlers::csp_reports::report_violation))
             )
             
             // Public file serving with token-based auth for attachments
@@ -1058,6 +1085,12 @@ async fn main() -> std::io::Result<()> {
 
                     // Periodic-task scheduler status (read-only).
                     .route("/admin/scheduler/status", web::get().to(handlers::scheduler::get_status))
+
+                    // CSP violation reports — admins inspect what's
+                    // being blocked under the live policy. Drives
+                    // safe rollouts: tighten in report-only mode,
+                    // observe here, then enforce.
+                    .route("/admin/csp-reports", web::get().to(handlers::csp_reports::list_violations))
 
                     // Consolidated dashboard stats. The frontend's
                     // widget registry derives an `include` set

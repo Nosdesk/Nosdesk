@@ -293,6 +293,32 @@ diesel::table! {
 }
 
 diesel::table! {
+    csp_reports (id) {
+        id -> Int8,
+        #[max_length = 64]
+        dedup_hash -> Bpchar,
+        #[max_length = 64]
+        effective_directive -> Varchar,
+        blocked_uri -> Nullable<Text>,
+        source_file -> Nullable<Text>,
+        line_number -> Nullable<Int4>,
+        column_number -> Nullable<Int4>,
+        document_uri -> Text,
+        referrer -> Nullable<Text>,
+        #[max_length = 64]
+        violated_directive -> Nullable<Varchar>,
+        original_policy -> Nullable<Text>,
+        #[max_length = 16]
+        disposition -> Varchar,
+        user_agent -> Nullable<Text>,
+        user_uuid -> Nullable<Uuid>,
+        occurrence_count -> Int4,
+        first_seen_at -> Timestamptz,
+        last_seen_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     cycle_tickets (cycle_id, ticket_id) {
         cycle_id -> Int4,
         ticket_id -> Int4,
@@ -609,6 +635,21 @@ diesel::table! {
 }
 
 diesel::table! {
+    llm_config (id) {
+        id -> Int4,
+        #[max_length = 32]
+        provider -> Varchar,
+        encrypted_api_key -> Nullable<Text>,
+        #[max_length = 120]
+        model_name -> Varchar,
+        enabled -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        updated_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     notification_preferences (id) {
         id -> Int4,
         user_uuid -> Uuid,
@@ -910,49 +951,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    working_calendars (id) {
-        id -> Int4,
-        #[max_length = 120]
-        name -> Varchar,
-        #[max_length = 64]
-        timezone -> Varchar,
-        schedule -> Jsonb,
-        is_default -> Bool,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        created_by -> Nullable<Uuid>,
-    }
-}
-
-diesel::table! {
-    working_calendar_holidays (id) {
-        id -> Int4,
-        calendar_id -> Int4,
-        date -> Date,
-        #[max_length = 120]
-        label -> Nullable<Varchar>,
-    }
-}
-
-diesel::table! {
-    sla_policies (id) {
-        id -> Int4,
-        #[max_length = 120]
-        name -> Varchar,
-        target_response_minutes -> Nullable<Int4>,
-        target_resolution_minutes -> Nullable<Int4>,
-        working_calendar_id -> Nullable<Int4>,
-        #[max_length = 20]
-        priority_filter -> Nullable<Varchar>,
-        category_id_filter -> Nullable<Int4>,
-        is_default -> Bool,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        created_by -> Nullable<Uuid>,
-    }
-}
-
-diesel::table! {
     search_query_log (id) {
         id -> Int8,
         query_raw -> Text,
@@ -1010,6 +1008,24 @@ diesel::table! {
         channel_auto_ack_enabled -> Bool,
         channel_auto_ack_template -> Nullable<Text>,
         feature_flags -> Jsonb,
+    }
+}
+
+diesel::table! {
+    sla_policies (id) {
+        id -> Int4,
+        #[max_length = 120]
+        name -> Varchar,
+        target_response_minutes -> Nullable<Int4>,
+        target_resolution_minutes -> Nullable<Int4>,
+        working_calendar_id -> Nullable<Int4>,
+        #[max_length = 20]
+        priority_filter -> Nullable<Varchar>,
+        category_id_filter -> Nullable<Int4>,
+        is_default -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -1294,6 +1310,31 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    working_calendar_holidays (id) {
+        id -> Int4,
+        calendar_id -> Int4,
+        date -> Date,
+        #[max_length = 120]
+        label -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    working_calendars (id) {
+        id -> Int4,
+        #[max_length = 120]
+        name -> Varchar,
+        #[max_length = 64]
+        timezone -> Varchar,
+        schedule -> Jsonb,
+        is_default -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
 diesel::joinable!(active_sessions -> users (user_uuid));
 diesel::joinable!(article_content_revisions -> article_contents (article_content_id));
 diesel::joinable!(article_contents -> tickets (ticket_id));
@@ -1317,6 +1358,7 @@ diesel::joinable!(channel_messages -> tickets (ticket_id));
 diesel::joinable!(channel_messages -> users (author_user_uuid));
 diesel::joinable!(comments -> tickets (ticket_id));
 diesel::joinable!(comments -> users (user_uuid));
+diesel::joinable!(csp_reports -> users (user_uuid));
 diesel::joinable!(cycle_tickets -> cycles (cycle_id));
 diesel::joinable!(cycle_tickets -> tickets (ticket_id));
 diesel::joinable!(cycle_tickets -> users (added_by));
@@ -1347,6 +1389,7 @@ diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(knowledge_gap_signals -> knowledge_gaps (gap_id));
 diesel::joinable!(knowledge_gaps -> documentation_pages (resolved_page_id));
 diesel::joinable!(linked_tickets -> users (created_by));
+diesel::joinable!(llm_config -> users (updated_by));
 diesel::joinable!(notification_preferences -> notification_types (notification_type_id));
 diesel::joinable!(notification_preferences -> users (user_uuid));
 diesel::joinable!(notification_rate_limits -> notification_types (notification_type_id));
@@ -1371,6 +1414,9 @@ diesel::joinable!(saved_views -> users (created_by));
 diesel::joinable!(security_events -> active_sessions (session_id));
 diesel::joinable!(security_events -> users (user_uuid));
 diesel::joinable!(site_settings -> users (updated_by));
+diesel::joinable!(sla_policies -> ticket_categories (category_id_filter));
+diesel::joinable!(sla_policies -> users (created_by));
+diesel::joinable!(sla_policies -> working_calendars (working_calendar_id));
 diesel::joinable!(sync_history -> users (initiated_by));
 diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_devices -> devices (device_id));
@@ -1385,6 +1431,8 @@ diesel::joinable!(user_ticket_views -> users (user_uuid));
 diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
 diesel::joinable!(webhooks -> users (created_by));
 diesel::joinable!(workflow_states -> users (created_by));
+diesel::joinable!(working_calendar_holidays -> working_calendars (calendar_id));
+diesel::joinable!(working_calendars -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,cycle_tickets,cycles,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sla_policies,sync_actions,sync_delta_tokens,sync_history,system_meta,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,working_calendar_holidays,working_calendars,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,csp_reports,cycle_tickets,cycles,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,llm_config,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sla_policies,sync_actions,sync_delta_tokens,sync_history,system_meta,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,working_calendar_holidays,working_calendars,);

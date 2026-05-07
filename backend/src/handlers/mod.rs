@@ -46,6 +46,7 @@ pub mod cycles;
 pub mod sla;
 pub mod sync;
 pub mod workflow_states;
+pub mod csp_reports;
 
 // Import all handlers from modules
 pub use auth::*;
