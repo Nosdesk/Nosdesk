@@ -95,6 +95,48 @@ pub fn delete_category(conn: &mut DbConnection, category_id: i32) -> QueryResult
         .get_result(conn)
 }
 
+/// First-run seeder: insert a small starter set of categories so a
+/// fresh install isn't faced with an empty category dropdown when
+/// creating the first ticket. No-ops if any rows already exist
+/// (active or archived) so re-running setup never trashes admin
+/// edits or doubles up the defaults.
+pub fn seed_defaults_if_empty(
+    conn: &mut DbConnection,
+    created_by: Option<Uuid>,
+) -> QueryResult<usize> {
+    use diesel::dsl::count_star;
+
+    let existing: i64 = ticket_categories::table
+        .select(count_star())
+        .first(conn)?;
+    if existing > 0 {
+        return Ok(0);
+    }
+
+    let defaults = [
+        ("Support", Some("General help requests"), Some("#3b82f6"), Some("life-buoy"), 0),
+        ("Bug", Some("Defect reports"), Some("#ef4444"), Some("bug"), 1),
+        ("Feature request", Some("Enhancement ideas"), Some("#8b5cf6"), Some("sparkles"), 2),
+    ];
+
+    let rows: Vec<NewTicketCategory> = defaults
+        .into_iter()
+        .map(|(name, description, color, icon, display_order)| NewTicketCategory {
+            name: name.to_string(),
+            description: description.map(|s| s.to_string()),
+            color: color.map(|s| s.to_string()),
+            icon: icon.map(|s| s.to_string()),
+            display_order,
+            is_active: true,
+            created_by,
+        })
+        .collect();
+
+    diesel::insert_into(ticket_categories::table)
+        .values(&rows)
+        .execute(conn)
+}
+
 /// Get the next display order value
 pub fn get_next_display_order(conn: &mut DbConnection) -> QueryResult<i32> {
     let max_order: Option<i32> = ticket_categories::table
@@ -295,6 +337,52 @@ mod tests {
         TestFixtures::set_category_visibility(&mut conn, cat.id, &[group.id]);
         // admin not in group but passes is_admin=true
         assert!(can_user_see_category(&mut conn, &admin.uuid, cat.id, true).unwrap());
+    }
+
+    #[test]
+    fn seed_defaults_inserts_three_when_empty() {
+        let mut conn = setup_test_connection();
+        // Test fixture starts with no categories.
+        let inserted = seed_defaults_if_empty(&mut conn, None).unwrap();
+        assert_eq!(inserted, 3);
+
+        let all: Vec<TicketCategory> = ticket_categories::table.load(&mut conn).unwrap();
+        let names: Vec<&str> = all.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"Support"));
+        assert!(names.contains(&"Bug"));
+        assert!(names.contains(&"Feature request"));
+        // Display order is preserved.
+        let mut sorted = all.clone();
+        sorted.sort_by_key(|c| c.display_order);
+        assert_eq!(sorted[0].name, "Support");
+        assert_eq!(sorted[1].name, "Bug");
+        assert_eq!(sorted[2].name, "Feature request");
+    }
+
+    #[test]
+    fn seed_defaults_is_noop_when_categories_exist() {
+        let mut conn = setup_test_connection();
+        // Pre-existing category: any further seed call should be a no-op.
+        TestFixtures::create_category(&mut conn, "Pre-existing");
+        let inserted = seed_defaults_if_empty(&mut conn, None).unwrap();
+        assert_eq!(inserted, 0);
+
+        let count: i64 = ticket_categories::table
+            .select(diesel::dsl::count_star())
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn seed_defaults_records_creator_when_provided() {
+        let mut conn = setup_test_connection();
+        let admin = TestFixtures::create_user(&mut conn, "admin", UserRole::Admin);
+        seed_defaults_if_empty(&mut conn, Some(admin.uuid)).unwrap();
+        let all: Vec<TicketCategory> = ticket_categories::table.load(&mut conn).unwrap();
+        for cat in all {
+            assert_eq!(cat.created_by, Some(admin.uuid));
+        }
     }
 
     #[test]

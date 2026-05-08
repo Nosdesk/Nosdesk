@@ -1015,6 +1015,23 @@ pub async fn setup_initial_admin(
 
             info!(user_name = %created_user.name, "Initial admin user created successfully");
 
+            // Seed workspace defaults so the first ticket creation
+            // experience isn't faced with an empty category dropdown.
+            // Workflow states + SLA policy already seed via migration.
+            // Failures here are logged but never fail the admin setup
+            // since the admin can always create categories manually.
+            match repository::categories::seed_defaults_if_empty(&mut conn, Some(created_user.uuid)) {
+                Ok(0) => {
+                    debug!("Default categories already present, skipping seed");
+                }
+                Ok(n) => {
+                    info!(seeded = n, "Seeded default ticket categories");
+                }
+                Err(e) => {
+                    tracing::warn!(error = ?e, "Failed to seed default categories; admin can create them manually");
+                }
+            }
+
             let response = crate::models::AdminSetupResponse {
                 success: true,
                 message: "Initial admin user created successfully".to_string(),
