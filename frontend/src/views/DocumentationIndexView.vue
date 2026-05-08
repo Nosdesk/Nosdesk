@@ -7,6 +7,7 @@ import { useDocumentationNavStore } from '@/stores/documentationNav'
 import DocumentationCardGrid from '@/components/documentationComponents/DocumentationCardGrid.vue'
 import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue'
 import CollectionBrowser from '@/components/documentationComponents/CollectionBrowser.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
 import { getArchivedPages, getTrashedPages } from '@/services/documentationService'
 import { getUncollectedPages } from '@/services/collectionService'
@@ -99,8 +100,25 @@ usePageCreateAction(handleCreatePage)
     <div class="flex flex-col flex-1 overflow-auto">
       <div class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-8">
 
+        <!--
+          Page-level empty state for the first-run experience.
+          When there are zero pages, the per-section "No pages yet"
+          / "Star a page" copy reads as broken; replace the hub with
+          a single guiding EmptyState that points at the create
+          action. CollectionBrowser still shows below so an admin
+          can set up collections before drafting.
+        -->
+        <EmptyState
+          v-if="!showSkeleton && totalPages === 0"
+          icon="document"
+          title="Start your knowledge base"
+          description="Documentation pages are how your team captures runbooks, FAQs, and policies. Create the first page to get going."
+          action-label="New page"
+          @action="handleCreatePage"
+        />
+
         <!-- Hub: Recently updated + Starred -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div v-else class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <!-- Recently updated -->
           <section class="lg:col-span-2 flex flex-col gap-3">
             <header class="flex items-center justify-between gap-3 pb-2 border-b border-default">
@@ -136,7 +154,13 @@ usePageCreateAction(handleCreatePage)
               </li>
             </ul>
 
-            <p v-else class="text-sm text-tertiary py-4">No pages yet.</p>
+            <!--
+              Reachable when totalPages > 0 but every page is
+              archived (recentlyUpdated filters status !== 'archived').
+              The page-level EmptyState above covers the truly-empty
+              first-run case.
+            -->
+            <p v-else class="text-sm text-tertiary py-4">No recent activity.</p>
           </section>
 
           <!-- Starred -->
