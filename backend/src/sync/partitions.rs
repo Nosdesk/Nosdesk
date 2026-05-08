@@ -13,26 +13,140 @@
 //! enough for the cadence we need.
 //!
 //! Behaviour: on every call, ensure both tables have partitions for
-//! the next 60 days. Idempotent — `CREATE TABLE IF NOT EXISTS` is
-//! used so re-running the task doesn't error if the partition is
-//! already there. The `partition_max_provisioned` system_meta key is
+//! the next 60 days. Idempotent — uses `pg_inherits` to detect
+//! already-attached partitions and skips the create/attach when
+//! they exist. The `partition_max_provisioned` system_meta key is
 //! advanced once new partitions are created.
+//!
+//! ## Lock-friendly attach
+//!
+//! `CREATE TABLE x PARTITION OF parent FOR VALUES ...` takes
+//! `ACCESS EXCLUSIVE` on `parent` for the duration, blocking every
+//! concurrent INSERT and SELECT (Postgres docs §5.12.2.2). On a hot
+//! audit_log / sync_actions parent that's a rolling freeze every
+//! daily rotation tick — fine in dev, real at hosted-SaaS load.
+//!
+//! Two-step LIKE + ATTACH avoids it:
+//! 1. `CREATE TABLE child (LIKE parent INCLUDING ALL)` — no parent
+//!    lock; child is a free-standing table at this point.
+//! 2. `ALTER TABLE child ADD CONSTRAINT … CHECK (time_col >= … AND
+//!    time_col < …)` — pre-adds the matching range constraint so
+//!    Postgres can skip the validation scan during attach.
+//! 3. `ALTER TABLE parent ATTACH PARTITION child FOR VALUES …`
+//!    takes only `SHARE UPDATE EXCLUSIVE` on parent; doesn't block
+//!    concurrent reads / writes.
+//! 4. `ALTER TABLE child DROP CONSTRAINT …` — the redundant CHECK is
+//!    no longer needed once the partition bound enforces the same
+//!    invariant.
+//!
+//! Reference: [Supabase: Dynamic Table Partitioning in Postgres](https://supabase.com/blog/postgres-dynamic-table-partitioning).
 
 use chrono::{Datelike, NaiveDate, Utc};
 use diesel::prelude::*;
+use diesel::sql_types::Bool;
 use serde_json::Value;
 use tracing::info;
 
 use crate::db::DbConnection;
 use crate::sync::system_meta;
 
+#[derive(QueryableByName)]
+struct AttachCheck {
+    #[diesel(sql_type = Bool)]
+    attached: bool,
+}
+
+/// Returns true if `child` is already attached as a partition of
+/// `parent`. Uses `to_regclass` so the lookup gracefully returns
+/// false when either table doesn't exist yet.
+fn is_attached(
+    conn: &mut DbConnection,
+    parent: &str,
+    child: &str,
+) -> Result<bool, diesel::result::Error> {
+    let stmt = format!(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM pg_inherits \
+            WHERE inhparent = to_regclass('{parent}') \
+              AND inhrelid  = to_regclass('{child}') \
+         ) AS attached"
+    );
+    let rows: Vec<AttachCheck> = diesel::sql_query(stmt).load(conn)?;
+    Ok(rows.first().map(|r| r.attached).unwrap_or(false))
+}
+
+/// Lock-friendly attach of a single monthly partition. No-op when the
+/// partition is already attached. Wraps the four-step LIKE + ATTACH
+/// dance in one transaction so a mid-sequence failure rolls back to a
+/// clean state (next call sees an unattached child and proceeds).
+fn ensure_one_partition(
+    conn: &mut DbConnection,
+    parent: &str,
+    child: &str,
+    time_col: &str,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Result<(), diesel::result::Error> {
+    if is_attached(conn, parent, child)? {
+        return Ok(());
+    }
+
+    let from_iso = from.format("%Y-%m-%d").to_string();
+    let to_iso = to.format("%Y-%m-%d").to_string();
+    let constraint = format!("{child}_range_check");
+
+    conn.transaction(|conn| {
+        // 1. Free-standing table cloning the parent's structure.
+        //    No lock on parent.
+        diesel::sql_query(format!(
+            "CREATE TABLE IF NOT EXISTS {child} (LIKE {parent} INCLUDING ALL)"
+        ))
+        .execute(conn)?;
+
+        // 2. Make sure no leftover constraint from a prior partial
+        //    run trips the ADD below. DROP IF EXISTS is idempotent.
+        diesel::sql_query(format!(
+            "ALTER TABLE {child} DROP CONSTRAINT IF EXISTS {constraint}"
+        ))
+        .execute(conn)?;
+
+        // 3. Pre-add the matching CHECK so the subsequent ATTACH
+        //    skips the partition validation scan (otherwise Postgres
+        //    scans every row in the table to prove it fits the
+        //    range).
+        diesel::sql_query(format!(
+            "ALTER TABLE {child} ADD CONSTRAINT {constraint} \
+             CHECK ({time_col} >= '{from_iso}' AND {time_col} < '{to_iso}')"
+        ))
+        .execute(conn)?;
+
+        // 4. Lock-friendly attach. SHARE UPDATE EXCLUSIVE on parent;
+        //    doesn't block concurrent INSERT/SELECT.
+        diesel::sql_query(format!(
+            "ALTER TABLE {parent} ATTACH PARTITION {child} \
+             FOR VALUES FROM ('{from_iso}') TO ('{to_iso}')"
+        ))
+        .execute(conn)?;
+
+        // 5. The CHECK is now redundant with the partition bound;
+        //    drop it so future schema introspection is clean.
+        diesel::sql_query(format!(
+            "ALTER TABLE {child} DROP CONSTRAINT {constraint}"
+        ))
+        .execute(conn)?;
+
+        Ok(())
+    })
+}
+
 /// Provision partitions for both event tables out to `lookahead_days`
-/// past today. Idempotent — uses `CREATE TABLE IF NOT EXISTS`, so
-/// re-runs over already-provisioned months are no-ops at the DB
-/// level. Returns the list of partition names this call touched
-/// (the union of "newly created" and "already existed"); telling the
-/// two apart would require a pre-check against `pg_class` for every
-/// name, which isn't worth the extra round-trips.
+/// past today. Idempotent: a `pg_inherits` lookup short-circuits
+/// already-attached partitions, and the create/attach sequence is
+/// transactional so partial failures don't leave half-attached
+/// orphans. Returns the list of partition names considered (the union
+/// of "newly created" and "already existed"); telling the two apart
+/// would require an extra round-trip per partition for marginal
+/// telemetry value.
 pub fn ensure_partitions(
     conn: &mut DbConnection,
     lookahead_days: i64,
@@ -44,18 +158,10 @@ pub fn ensure_partitions(
     let mut month = first_of_month(today);
     while month <= target {
         let next = next_month(month);
+        // Both event tables partition on `occurred_at`.
         for parent in &["sync_actions", "audit_log"] {
             let name = format!("{}_{:04}_{:02}", parent, month.year(), month.month());
-            let stmt = format!(
-                "CREATE TABLE IF NOT EXISTS {name} \
-                 PARTITION OF {parent} \
-                 FOR VALUES FROM ('{from}') TO ('{to}')",
-                name = name,
-                parent = parent,
-                from = month.format("%Y-%m-%d"),
-                to = next.format("%Y-%m-%d"),
-            );
-            diesel::sql_query(&stmt).execute(conn)?;
+            ensure_one_partition(conn, parent, &name, "occurred_at", month, next)?;
             touched.push(name);
         }
         month = next;
@@ -130,6 +236,56 @@ mod tests {
         assert!(
             watermark.is_some(),
             "watermark should be readable after ensure_partitions"
+        );
+    }
+
+    /// Newly-provisioned partitions actually attach to their parents
+    /// (rather than landing as free-standing tables that the
+    /// substrate would never route writes to). Catches regressions
+    /// in the LIKE + ATTACH sequence.
+    #[test]
+    fn ensured_partitions_are_attached_to_parent() {
+        let mut conn = setup_test_connection();
+        let _ = ensure_partitions(&mut conn, 30).expect("ensure");
+        // Whatever month the test runs in, both parents must have
+        // an attached partition for it.
+        let today = Utc::now().date_naive();
+        let month = first_of_month(today);
+        for parent in &["sync_actions", "audit_log"] {
+            let name = format!("{}_{:04}_{:02}", parent, month.year(), month.month());
+            assert!(
+                is_attached(&mut conn, parent, &name).expect("is_attached"),
+                "{name} should be attached as a partition of {parent}"
+            );
+        }
+    }
+
+    /// The redundant CHECK constraint added during the lock-friendly
+    /// attach should be dropped before the function returns. A
+    /// lingering constraint would clutter schema introspection and
+    /// add a small cost to every row insert.
+    #[test]
+    fn no_residual_range_check_constraints() {
+        use diesel::sql_types::BigInt;
+
+        #[derive(QueryableByName)]
+        struct Count {
+            #[diesel(sql_type = BigInt)]
+            n: i64,
+        }
+
+        let mut conn = setup_test_connection();
+        let _ = ensure_partitions(&mut conn, 30).expect("ensure");
+        let rows: Vec<Count> = diesel::sql_query(
+            "SELECT count(*) AS n FROM pg_constraint \
+             WHERE conname LIKE '%_range_check'",
+        )
+        .load(&mut conn)
+        .expect("count constraints");
+        assert_eq!(
+            rows.first().map(|r| r.n).unwrap_or(-1),
+            0,
+            "no range_check constraints should remain after partition attach"
         );
     }
 }
