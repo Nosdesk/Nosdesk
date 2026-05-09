@@ -97,9 +97,16 @@ pub fn delete_category(conn: &mut DbConnection, category_id: i32) -> QueryResult
 
 /// First-run seeder: insert a small starter set of categories so a
 /// fresh install isn't faced with an empty category dropdown when
-/// creating the first ticket. No-ops if any rows already exist
-/// (active or archived) so re-running setup never trashes admin
-/// edits or doubles up the defaults.
+/// creating the first ticket. No-ops if any rows exist (regardless
+/// of `is_active`) so re-running setup never trashes admin edits or
+/// doubles up the defaults. The UNIQUE constraint on `name` plus
+/// `ON CONFLICT DO NOTHING` makes a concurrent setup race idempotent
+/// at the database level too — losing INSERTs are dropped silently
+/// rather than producing duplicate rows.
+///
+/// Icon names map to the frontend icon registry in
+/// `CategoriesManagementView.vue::iconOptions` — keep them in sync
+/// when the registry changes.
 pub fn seed_defaults_if_empty(
     conn: &mut DbConnection,
     created_by: Option<Uuid>,
@@ -114,9 +121,9 @@ pub fn seed_defaults_if_empty(
     }
 
     let defaults = [
-        ("Support", Some("General help requests"), Some("#3b82f6"), Some("life-buoy"), 0),
+        ("Support", Some("General help requests"), Some("#3b82f6"), Some("question"), 0),
         ("Bug", Some("Defect reports"), Some("#ef4444"), Some("bug"), 1),
-        ("Feature request", Some("Enhancement ideas"), Some("#8b5cf6"), Some("sparkles"), 2),
+        ("Feature request", Some("Enhancement ideas"), Some("#8b5cf6"), Some("lightbulb"), 2),
     ];
 
     let rows: Vec<NewTicketCategory> = defaults
@@ -134,6 +141,8 @@ pub fn seed_defaults_if_empty(
 
     diesel::insert_into(ticket_categories::table)
         .values(&rows)
+        .on_conflict(ticket_categories::name)
+        .do_nothing()
         .execute(conn)
 }
 
