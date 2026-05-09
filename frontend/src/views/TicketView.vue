@@ -49,7 +49,7 @@ import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
 import { getActionRegistrations } from "@/plugins/loader";
-import { usePageCreateAction } from "@/composables/usePageCreateAction";
+import { useCreateTicketAction } from "@/composables/useCreateTicketAction";
 
 
 const route = useRoute();
@@ -444,18 +444,7 @@ watch(
     },
 );
 
-// Create ticket handler for SiteHeader button
-const handleCreateTicket = async () => {
-    try {
-        const newTicket = await ticketService.createEmptyTicket();
-        router.push(`/tickets/${newTicket.id}`);
-    } catch (error) {
-        console.error("Failed to create empty ticket:", error);
-    }
-};
-
-// Expose methods for parent component access (SiteHeader create button)
-usePageCreateAction(handleCreateTicket);
+useCreateTicketAction();
 </script>
 
 <template>

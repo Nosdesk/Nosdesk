@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, provide, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardGreeting } from '@/composables/useDashboardGreeting'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
@@ -8,13 +7,11 @@ import {
   DASHBOARD_STATS_KEY,
   useDashboardStats,
 } from '@/composables/useDashboardStats'
-import ticketService from '@/services/ticketService'
-import { usePageCreateAction } from '@/composables/usePageCreateAction'
+import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
 import DashboardGrid from './dashboard/DashboardGrid.vue'
 import DashboardEditBar from './dashboard/DashboardEditBar.vue'
 import Icon from '@/components/common/Icon.vue'
 
-const router = useRouter()
 const authStore = useAuthStore()
 const dashboardLayout = useDashboardLayoutStore()
 
@@ -41,19 +38,7 @@ function enterEditMode() {
   dashboardLayout.editMode = true
 }
 
-// SiteHeader's "Create Ticket" button looks up its handler via the
-// usePageActionsStore registry; usePageCreateAction wires the
-// register/unregister lifecycle hooks.
-async function handleCreateTicket() {
-  try {
-    const newTicket = await ticketService.createEmptyTicket()
-    router.push(`/tickets/${newTicket.id}`)
-  } catch (error) {
-    console.error('Failed to create empty ticket:', error)
-  }
-}
-
-usePageCreateAction(handleCreateTicket)
+useCreateTicketAction()
 </script>
 
 <template>

@@ -25,7 +25,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { usePageCreateAction } from '@/composables/usePageCreateAction'
+import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useAuthStore } from '@/stores/auth'
@@ -240,16 +240,7 @@ function open(cardId: number): void {
   router.push(`/tickets/${cardId}`)
 }
 
-function newTicket(): void {
-  router.push('/tickets/new')
-}
-
-// Register `newTicket` with the global page-actions store so the
-// site-header's "Create Ticket" button works on this route. The
-// previous in-header `+ New ticket` button was a local fallback
-// that masked this missing wire-up; it's been removed in favour
-// of the single canonical site-header affordance.
-usePageCreateAction(newTicket)
+useCreateTicketAction()
 
 // ---------------------------------------------------------------
 // Filter mutation adapters. The header speaks in (facet, value)
