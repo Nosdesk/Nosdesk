@@ -901,6 +901,35 @@ pub struct CompleteTicket {
     pub article_content: Option<String>,
     pub linked_tickets: Vec<i32>,
     pub projects: Vec<Project>,
+    /// Cycle membership, when the ticket belongs to one. Embeds
+    /// the cycle's name + state so the detail sidebar can render
+    /// the chip without a separate `/api/cycles` round-trip
+    /// (the frontend cycles store is per-project keyed and the
+    /// detail view doesn't necessarily know the cycle's project
+    /// up-front). `None` for tickets not in any cycle.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cycle: Option<TicketCycleSummary>,
+    /// SLA pill payload — same shape `services::sla::compute_pill`
+    /// produces for the bootstrap stream. Null when no policy /
+    /// calendar matches the ticket. Lets the detail sidebar
+    /// render the countdown / breach state without a second
+    /// round-trip to recompute.
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
+    pub sla: serde_json::Value,
+}
+
+/// Trimmed cycle projection for embedding inside a ticket detail
+/// response. Carries the fields the sidebar pill renders (name +
+/// state) plus the ids needed for navigation. Mirrors what the
+/// frontend's `Cycle` type exposes minus the heavy fields
+/// (snapshots, holiday lists) the pill never reads.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TicketCycleSummary {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub project_id: i32,
+    pub name: String,
+    pub state: String,
 }
 
 // Simplified ticket for lists - includes user info but not heavy data like comments

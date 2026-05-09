@@ -339,19 +339,19 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
     // Get the main ticket first
     let ticket = get_ticket_by_id(conn, ticket_id)?;
     debug!(id = ticket.id, title = %ticket.title, "Found ticket");
-    
+
     // Look up complete user data for requester and assignee
     let requester_user = ticket.requester_uuid.as_ref()
         .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
         .map(crate::models::UserInfoWithAvatar::from);
-    
+
     let assignee_user = ticket.assignee_uuid.as_ref()
         .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
         .map(UserInfoWithAvatar::from);
-    
+
     // Get devices associated with this ticket through the junction table
     let devices = get_devices_for_ticket(conn, ticket_id).unwrap_or_default();
-    
+
     // Delegate to the enriched assembler so the comments embedded in
     // a `CompleteTicket` carry the same `from_address`, attachments
     // and user payload as the standalone `/tickets/:id/comments`
@@ -361,18 +361,83 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
         crate::repository::comments::get_comments_with_attachments_by_ticket_id(
             conn, ticket_id,
         )?;
-    
+
     // Get article content (now handled by Yjs collaborative editing)
     let article_content: Option<String> = None;
-    
+
     // Get linked tickets
     let linked_tickets = crate::repository::linked_tickets::get_linked_tickets(conn, ticket_id).unwrap_or_default();
     debug!(ticket_id, count = linked_tickets.len(), "Found linked tickets");
-    
+
     // Get projects for this ticket
     let projects = crate::repository::projects::get_projects_for_ticket(conn, ticket_id).unwrap_or_default();
     debug!(ticket_id, count = projects.len(), "Found projects for ticket");
-    
+
+    // Cycle membership for the sidebar pill. Embed the cycle row
+    // (name + state + ids) so the frontend renders the chip
+    // without a separate fetch — the cycles store is per-project
+    // keyed and the detail view doesn't know the cycle's project
+    // up-front. Best-effort: a query failure here shouldn't fail
+    // the whole detail load.
+    let cycle = crate::repository::cycles::cycle_id_for_ticket(conn, ticket_id)
+        .ok()
+        .flatten()
+        .and_then(|cid| {
+            use crate::schema::cycles;
+            cycles::table
+                .find(cid)
+                .select((
+                    cycles::id,
+                    cycles::uuid,
+                    cycles::project_id,
+                    cycles::name,
+                    cycles::state,
+                ))
+                .first::<(i32, Uuid, i32, String, String)>(conn)
+                .ok()
+                .map(|(id, uuid, project_id, name, state)| crate::models::TicketCycleSummary {
+                    id,
+                    uuid,
+                    project_id,
+                    name,
+                    state,
+                })
+        });
+
+    // SLA pill — mirrors the bootstrap stream's per-ticket
+    // computation so the detail sidebar shows the same Breached /
+    // At Risk / On Track / Paused state the list view does. The
+    // SLA context (policies + calendars + holidays) is small, so
+    // loading the full set for one ticket is cheap; the alternative
+    // (a per-ticket policy lookup) would still need the calendar
+    // and holiday rows.
+    let sla = crate::repository::sla::load_for_pill_computation(conn)
+        .ok()
+        .and_then(|ctx| {
+            let policy = crate::services::sla::pick_policy(&ctx.policies, &ticket)?;
+            let cal_id = policy.working_calendar_id?;
+            let calendar = ctx.calendars_by_id.get(&cal_id)?;
+            let holidays = ctx.holidays_by_calendar.get(&cal_id).cloned().unwrap_or_default();
+            // Resolve the ticket's workflow state category for the
+            // pause-state computation. Backlog default matches the
+            // bootstrap fallback so a missing state row degrades
+            // gracefully rather than panicking.
+            let category = crate::schema::workflow_states::table
+                .find(ticket.workflow_state_id)
+                .select(crate::schema::workflow_states::category)
+                .first::<crate::models::WorkflowStateCategory>(conn)
+                .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+            Some(crate::services::sla::compute_pill(
+                &ticket,
+                category,
+                policy,
+                calendar,
+                &holidays,
+                chrono::Utc::now(),
+            ))
+        })
+        .unwrap_or(serde_json::Value::Null);
+
     Ok(CompleteTicket {
         ticket,
         requester_user,
@@ -382,6 +447,8 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
         article_content,
         linked_tickets,
         projects,
+        cycle,
+        sla,
     })
 }
 

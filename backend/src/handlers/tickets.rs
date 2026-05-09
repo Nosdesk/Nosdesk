@@ -1,4 +1,5 @@
 use actix_web::{web, HttpResponse, Responder, HttpRequest, HttpMessage};
+use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -272,6 +273,116 @@ pub async fn get_paginated_tickets(
             errors::internal("Failed to get paginated tickets")
         }
     }
+}
+
+// ---- Activity timeline -------------------------------------------
+//
+// Per-ticket changelog backed by the `sync_actions` event log. Used
+// by the detail view's TicketActivity component to render a
+// chronological "who did what when" feed without an extra mutation
+// table — every state change, comment, and assignment already lands
+// in `sync_actions` via `sync::emit::record`.
+//
+// The query filters by the GIN-indexed `groups` column rather than
+// by `(aggregate, aggregate_id) = ('ticket', N)` so it picks up
+// child events too: comments emit with `ticket:N` in their groups
+// (see `sync::groups::for_ticket`), as do assignments and any
+// future child aggregates. One filter, one index, all events for
+// the ticket.
+
+#[derive(Debug, Deserialize)]
+pub struct TicketActivityQuery {
+    /// Cursor — return rows with `sync_id < before` (descending
+    /// pagination). Omit to fetch the most recent page.
+    pub before: Option<i64>,
+    /// Page size. Defaults to 50, hard-capped at 200 — bigger pages
+    /// are pointless for a UI timeline (the user scrolls a window
+    /// at a time).
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Queryable)]
+pub struct TicketActivityRow {
+    pub sync_id: i64,
+    pub aggregate: crate::models::SyncAggregate,
+    pub aggregate_id: String,
+    pub op: crate::models::SyncOp,
+    pub event_type: String,
+    pub data: serde_json::Value,
+    pub actor_uuid: Option<uuid::Uuid>,
+    pub actor_kind: String,
+    pub actor_ref: Option<String>,
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TicketActivityResponse {
+    pub events: Vec<TicketActivityRow>,
+    /// Cursor for the next page — pass back as `?before=`. `None`
+    /// when the current page is the last.
+    pub next_cursor: Option<i64>,
+}
+
+const DEFAULT_ACTIVITY_LIMIT: i64 = 50;
+const MAX_ACTIVITY_LIMIT: i64 = 200;
+
+pub async fn get_ticket_activity(
+    pool: web::Data<crate::db::Pool>,
+    params: web::Path<i32>,
+    query: web::Query<TicketActivityQuery>,
+    _claims: web::ReqData<Claims>,
+) -> impl Responder {
+    use crate::schema::sync_actions;
+
+    let ticket_id = params.into_inner();
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    let limit = query.limit.unwrap_or(DEFAULT_ACTIVITY_LIMIT).clamp(1, MAX_ACTIVITY_LIMIT);
+    let group_marker = format!("ticket:{}", ticket_id);
+
+    // Fetch limit + 1 so we can detect the boundary without a
+    // separate count query — same trick `delta` uses.
+    let mut q = sync_actions::table
+        .filter(sync_actions::groups.contains(vec![Some(group_marker)]))
+        .order((sync_actions::occurred_at.desc(), sync_actions::sync_id.desc()))
+        .limit(limit + 1)
+        .select((
+            sync_actions::sync_id,
+            sync_actions::aggregate,
+            sync_actions::aggregate_id,
+            sync_actions::op,
+            sync_actions::event_type,
+            sync_actions::data,
+            sync_actions::actor_uuid,
+            sync_actions::actor_kind,
+            sync_actions::actor_ref,
+            sync_actions::occurred_at,
+        ))
+        .into_boxed();
+
+    if let Some(before) = query.before {
+        q = q.filter(sync_actions::sync_id.lt(before));
+    }
+
+    let mut events: Vec<TicketActivityRow> = match q.load(&mut conn) {
+        Ok(rows) => rows,
+        Err(e) => {
+            error!(error = %e, ticket_id, "ticket activity query failed");
+            return errors::internal("Failed to load ticket activity");
+        }
+    };
+
+    let next_cursor = if events.len() > limit as usize {
+        events.truncate(limit as usize);
+        events.last().map(|e| e.sync_id)
+    } else {
+        None
+    };
+
+    HttpResponse::Ok().json(TicketActivityResponse { events, next_cursor })
 }
 
 // Get a ticket by ID with comments and related info

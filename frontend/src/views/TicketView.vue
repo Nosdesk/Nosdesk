@@ -25,6 +25,7 @@ import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
 // Components
 import CollaborativeTicketArticle from "@/components/ticketComponents/CollaborativeTicketArticle.vue";
 import TicketDetails from "@/components/ticketComponents/TicketDetails.vue";
+import TicketActivity from "@/components/ticketComponents/TicketActivity.vue";
 import DeviceDetails from "@/components/ticketComponents/DeviceDetails.vue";
 import DeviceSelectionModal from "@/components/ticketComponents/DeviceSelectionModal.vue";
 import CommentsAndAttachments from "@/components/ticketComponents/CommentsAndAttachments.vue";
@@ -790,6 +791,20 @@ usePageCreateAction(handleCreateTicket);
                                 @delete-attachment="deleteAttachment"
                                 @delete-comment="deleteComment"
                             />
+                        </div>
+
+                        <!-- Activity timeline. Sourced from the
+                             sync_actions event log; surfaces every
+                             status / assignee / priority / category
+                             change + comment events. Lives below
+                             the comments thread because comments are
+                             the primary scan target for an open
+                             ticket; activity is a reference surface
+                             techs consult when they need to answer
+                             "who did this and when". Hidden on print
+                             — not useful in offline export. -->
+                        <div v-if="ticket" class="print:hidden">
+                            <TicketActivity :ticket-id="ticket.id" />
                         </div>
                     </div>
                 </div>

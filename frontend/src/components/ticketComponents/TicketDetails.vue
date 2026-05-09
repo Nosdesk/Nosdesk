@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue';
+import { useRouter } from 'vue-router';
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
 import { useWorkflowStatesStore } from '@/stores/workflowStates';
 import {
@@ -15,9 +16,12 @@ import ContentEditable from "@/components/ticketComponents/ContentEditable.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import Icon from "@/components/common/Icon.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
+import UserCell from "@/components/views/UserCell.vue";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
 import { useAuthStore } from "@/stores/auth";
+import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
+import { formatCompactDate } from "@/utils/dateUtils";
 
 // Refs for user picker components
 const requesterRef = ref<InstanceType<typeof UserPicker> | null>(null);
@@ -80,6 +84,27 @@ const props = defineProps<{
     due_date?: string | null;
     /** RFC 5545 RRULE string for recurring tickets, or null. */
     recurrence_rule?: string | null;
+    /** Actor uuids — populated by the detail handler. The
+     *  sidebar's audit block resolves these to a user avatar
+     *  via the directory composable (sync engine pool). */
+    created_by?: string | null;
+    closed_by?: string | null;
+    closed_at?: string | null;
+    /** SLA pill payload mirrored from the list view. The detail
+     *  handler computes the same shape on read so this sidebar
+     *  can render the countdown without a second round-trip. */
+    sla?: SlaPayload | null;
+    /** Cycle membership embedded by the detail handler. The chip
+     *  is clickable, navigates to /cycles/:projectId / cycle uuid
+     *  if/when that route exists; today the navigation just lands
+     *  on the project's cycles surface. */
+    cycle?: {
+      id: number;
+      uuid: string;
+      project_id: number;
+      name: string;
+      state: string;
+    } | null;
   };
   createdDate: string;
   modifiedDate: string;
@@ -271,6 +296,60 @@ function handleRecurrenceChange(event: Event): void {
   emit('update:recurrenceRule', value || null);
 }
 
+// ---- Source / channel readout ----------------------------------
+//
+// Promotes the inline "via email" pill out of the title section
+// into a dedicated metadata row. The pill in the title compressed
+// the channel into a 4-char glyph, which read fine for power users
+// but cost first-time clarity. A proper row with icon + provider
+// + clarification text reads as a real metadata field rather than
+// a header badge.
+const sourceLabel = computed<string | null>(() => {
+  if (!props.ticket.origin_channel_id) return null;
+  const provider = props.ticket.submitted_via ?? 'channel';
+  if (provider === 'email_imap') return 'Email';
+  if (provider === 'email_smtp') return 'Email';
+  if (provider === 'slack') return 'Slack';
+  if (provider === 'teams') return 'Microsoft Teams';
+  // Fall through to the raw provider name for channels we
+  // haven't pretty-named yet — better than masking the source.
+  return provider;
+});
+
+// ---- SLA pill ---------------------------------------------------
+//
+// Same `deriveSlaState` the list view uses. The detail sidebar
+// renders the longer `statusLabel` ("Breached" / "At risk" / "On
+// track" / "Paused") + the compact countdown so the pill carries
+// the same operational urgency as the table column without
+// duplicating the logic.
+const slaState = computed(() => deriveSlaState(props.ticket.sla ?? null));
+
+// ---- Cycle pill -------------------------------------------------
+
+const router = useRouter();
+
+function openCycle() {
+  // The cycles surface lives at /cycles for the workspace overview;
+  // a per-cycle detail route hasn't shipped, so the chip currently
+  // navigates to the workspace cycles board. Wired here so the
+  // chip's affordance reads as actionable today and the destination
+  // can swap to a cycle-specific URL without touching this file.
+  if (props.ticket.cycle) {
+    void router.push('/cycles');
+  }
+}
+
+// ---- Audit timestamps -------------------------------------------
+//
+// `formatCompactDate` returns a short relative-or-date string the
+// list view's date cells use. Pairing with the actor uuid (via
+// `<UserCell>` which already exists for the table) gives the audit
+// block a consistent feel with the rest of the app.
+const closedDateLabel = computed<string>(() =>
+  props.ticket.closed_at ? formatCompactDate(props.ticket.closed_at) : ''
+);
+
 // Generate QR code for ticket URL (for print)
 const ticketUrl = computed(() => {
   if (typeof window === 'undefined') return '';
@@ -389,31 +468,47 @@ watchEffect(async () => {
 
       <template #default>
         <div class="flex flex-col gap-3">
-          <!-- Title Section -->
+          <!-- Title Section.
+               The origin-channel hint that lived here as a header
+               badge moved to a dedicated `Source` metadata row
+               (below) so the title cell stays focused on the title
+               and the channel reads as a proper field rather than
+               a header decoration. -->
           <div class="flex flex-col gap-1.5">
-            <div class="flex items-center justify-between gap-2">
-              <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Title</h3>
-              <!-- Origin-channel hint: small badge when the ticket was
-                   opened via the email / chat ingestion pipeline. Lets
-                   techs spot at a glance that a reply will be relayed
-                   back to the requester's inbox. -->
-              <span
-                v-if="ticket.origin_channel_id"
-                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent"
-                :title="`Opened via ${ticket.submitted_via ?? 'channel'} — replies are relayed back through the thread`"
-              >
-                <Icon name="email" size="xs" />
-                via {{ ticket.submitted_via === 'email_imap' ? 'email' : ticket.submitted_via ?? 'channel' }}
-              </span>
-            </div>
+            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Title</h3>
             <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
+              <!-- 255 mirrors the backend's `tickets.title
+                   VARCHAR(255) NOT NULL` cap. Enforcing it
+                   client-side means the user sees the limit at
+                   typing-time rather than getting a 500 on save. -->
               <ContentEditable
                 :modelValue="ticket.title || ''"
+                :max-length="255"
                 @update:modelValue="handleTitleUpdate"
                 @focus="emit('titleFocus')"
                 @blur="emit('titleBlur')"
               />
             </div>
+          </div>
+
+          <!-- Source / channel row. Only rendered for tickets
+               opened via an ingestion pipeline (email / chat /
+               integration); UI- or API-created tickets stay
+               unmarked. The icon + provider name signal that any
+               reply gets relayed back to the originating thread,
+               which is operationally meaningful for techs. -->
+          <div
+            v-if="sourceLabel"
+            class="flex items-center justify-between gap-2 text-xs"
+          >
+            <span class="text-tertiary uppercase tracking-wide font-medium">Source</span>
+            <span
+              class="inline-flex items-center gap-1.5 text-secondary"
+              :title="`Opened via ${ticket.submitted_via ?? 'channel'} — replies are relayed back through the thread`"
+            >
+              <Icon name="email" class="w-3.5 h-3.5" />
+              {{ sourceLabel }}
+            </span>
           </div>
 
           <!-- Assignment Section -->
@@ -540,6 +635,29 @@ watchEffect(async () => {
             </div>
           </div>
 
+          <!-- SLA pill — only when the ticket has a policy +
+               calendar applied. Mirrors the list view's column so
+               the operational urgency reads on the detail surface
+               without a context switch. The countdown / breach
+               state comes from `services::sla::compute_pill` on
+               the backend; the visual mapping comes from
+               `deriveSlaState` (shared with the list cell). -->
+          <div
+            v-if="slaState"
+            class="flex items-center justify-between gap-2 text-xs"
+            :title="slaState.detail"
+          >
+            <span class="text-tertiary uppercase tracking-wide font-medium">SLA</span>
+            <span class="inline-flex items-center gap-1.5" :class="slaState.toneClass">
+              <Icon name="clock" class="w-3.5 h-3.5" />
+              <span class="font-medium">{{ slaState.statusLabel }}</span>
+              <span
+                v-if="!slaState.breached && !slaState.paused"
+                class="text-tertiary tabular-nums"
+              >· {{ slaState.compactLabel }}</span>
+            </span>
+          </div>
+
           <!-- Scheduling group: due date + recurrence collapsed
                by default. The SectionCard chrome matches every
                other card-with-header in the app so the form
@@ -624,20 +742,63 @@ watchEffect(async () => {
             </div>
           </div>
 
-          <!-- Timestamps Section -->
-          <div class="pt-2 border-t border-default">
+          <!-- Cycle membership chip. Only rendered when the ticket
+               belongs to one. Click navigates to the cycles surface
+               (per-cycle detail route hasn't shipped; the click
+               target stays today so the hook is in place when the
+               route lands). -->
+          <div
+            v-if="ticket.cycle"
+            class="flex items-center justify-between gap-2 text-xs"
+          >
+            <span class="text-tertiary uppercase tracking-wide font-medium">Cycle</span>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-accent-muted text-accent hover:bg-accent/20 transition-colors"
+              :title="`Cycle ${ticket.cycle.name} (${ticket.cycle.state})`"
+              @click="openCycle"
+            >
+              {{ ticket.cycle.name }}
+            </button>
+          </div>
+
+          <!-- Audit / timestamps. Pairs each timestamp with the
+               actor who effected it (UserCell renders avatar +
+               name from the sync engine pool). Closed row is
+               conditional — only present once the ticket has
+               actually been closed. The audit section grew from a
+               single Created/Modified row pair so consumers can
+               answer "who did this last and when" without opening
+               the activity timeline. -->
+          <div class="pt-2 border-t border-default flex flex-col gap-2">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <!-- Created Date -->
               <div class="flex flex-col gap-1">
                 <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Created</span>
                 <span class="text-secondary text-sm font-medium">{{ createdDate }}</span>
+                <UserCell
+                  v-if="ticket.created_by"
+                  :uuid="ticket.created_by"
+                  size="xxs"
+                />
               </div>
 
-              <!-- Modified Date -->
               <div class="flex flex-col gap-1">
                 <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Last Modified</span>
                 <span class="text-secondary text-sm font-medium">{{ modifiedDate }}</span>
               </div>
+            </div>
+
+            <div
+              v-if="ticket.closed_at"
+              class="flex flex-col gap-1"
+            >
+              <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Closed</span>
+              <span class="text-secondary text-sm font-medium">{{ closedDateLabel }}</span>
+              <UserCell
+                v-if="ticket.closed_by"
+                :uuid="ticket.closed_by"
+                size="xxs"
+              />
             </div>
           </div>
         </div>

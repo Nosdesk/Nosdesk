@@ -274,6 +274,47 @@ export const bulkAction = async (request: BulkActionRequest): Promise<{ affected
   return response.data;
 };
 
+// ---- Activity timeline -----------------------------------------
+//
+// Backed by `GET /api/tickets/:id/activity`, which scans the
+// sync_actions event log filtered to the ticket's group. Cursor-
+// paginated descending by sync_id; pass the previous response's
+// `next_cursor` as `before` to fetch the next page.
+
+/** One row from the ticket activity timeline. Mirrors the
+ *  Rust-side `TicketActivityRow` shape — keep these in lockstep
+ *  when fields are added on either side. */
+export interface TicketActivityEvent {
+  sync_id: number
+  aggregate: string
+  aggregate_id: string
+  op: 'I' | 'U' | 'D' | 'A'
+  event_type: string
+  data: Record<string, unknown>
+  actor_uuid: string | null
+  actor_kind: string
+  actor_ref: string | null
+  occurred_at: string
+}
+
+export interface TicketActivityResponse {
+  events: TicketActivityEvent[]
+  next_cursor: number | null
+}
+
+export const getTicketActivity = async (
+  ticketId: number,
+  options: { before?: number; limit?: number } = {},
+): Promise<TicketActivityResponse> => {
+  const response = await apiClient.get(`/tickets/${ticketId}/activity`, {
+    params: {
+      before: options.before,
+      limit: options.limit,
+    },
+  })
+  return response.data
+}
+
 // Export default object with all functions
 export default {
   getTickets,
@@ -296,5 +337,6 @@ export default {
   recordTicketView,
   removeRecentTicket,
   bulkAction,
+  getTicketActivity,
   cancelAllRequests
 }; 

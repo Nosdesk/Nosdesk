@@ -9,6 +9,7 @@ import type { Comment, Attachment } from './comment'
 import type { Project } from './project'
 import type { UserInfo } from './user'
 import type { WorkflowState } from './workflow'
+import type { SlaPayload } from '@/composables/useSlaState'
 
 // Re-export for convenience
 export type { Device, Comment, Attachment, Project }
@@ -64,6 +65,33 @@ export interface Ticket {
    * occurrence on the backend. */
   recurrence_rule?: string | null
   recurrence_template_id?: number | null
+  /** UUID of the user who created the ticket. May be null for
+   *  guest-portal submissions where the requester wasn't a
+   *  registered user at create-time. */
+  created_by?: string | null
+  /** UUID of the user who closed the ticket — only meaningful
+   *  alongside `closed_at`. Both populated together by the
+   *  status-transition handler when a ticket lands in a terminal
+   *  workflow state. */
+  closed_by?: string | null
+  /** Cycle membership, when the ticket belongs to one. The detail
+   *  view renders a clickable pill that navigates to the cycle.
+   *  Backend embeds the cycle row (name + state + ids) so the
+   *  pill renders without a separate fetch — the cycles store is
+   *  per-project keyed and the detail view doesn't necessarily
+   *  know the cycle's project up-front. */
+  cycle?: {
+    id: number
+    uuid: string
+    project_id: number
+    name: string
+    state: string
+  } | null
+  /** SLA pill payload — same shape the list view consumes. The
+   *  detail handler computes this on read so the sidebar can show
+   *  the same Breached / At Risk / On Track / Paused state as
+   *  the list. Null when no policy / calendar applies. */
+  sla?: SlaPayload | null
 }
 
 export interface RecentTicket {

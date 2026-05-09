@@ -75,9 +75,29 @@ function urgencyFraction(seconds: number): number {
   return 0.85
 }
 
-export function deriveSlaState(card: CardData | null): SlaState | null {
-  if (!card?.sla) return null
-  const sla = card.sla
+/**
+ * Standalone SLA shape, decoupled from CardData. Used by the
+ * ticket detail view (whose payload carries the same SLA pill
+ * the bootstrap streamer emits, but without the full CardData
+ * envelope around it).
+ */
+export type SlaPayload = NonNullable<CardData['sla']>
+
+export function deriveSlaState(card: CardData | null): SlaState | null
+export function deriveSlaState(sla: SlaPayload | null | undefined): SlaState | null
+export function deriveSlaState(
+  source: CardData | SlaPayload | null | undefined,
+): SlaState | null {
+  if (!source) return null
+  // Discriminate on shape: CardData carries an `sla` field;
+  // SlaPayload has `target_at` directly. Treat both as a single
+  // entry point so callers don't need to know which one they
+  // hold.
+  const sla =
+    'target_at' in source
+      ? (source as SlaPayload)
+      : ((source as CardData).sla as SlaPayload | null | undefined)
+  if (!sla) return null
   const target = fullDateTime(sla.target_at)
 
   if (sla.breached) {

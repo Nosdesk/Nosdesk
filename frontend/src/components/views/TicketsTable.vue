@@ -90,8 +90,18 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
        crowd the page edge. The container's overflow-auto still
        handles horizontal scroll on narrow viewports; the padding
        just sits inside that scroll area. -->
+  <!-- The table is `min-w-full` (not `w-full`) so it can grow PAST
+       the container's width when the sum of explicit column widths
+       exceeds it — at which point the wrapper's `overflow-auto`
+       triggers horizontal scroll. Without this, `table-fixed`
+       honours the column `width` declarations against a width-
+       capped table, which proportionally squeezes everything
+       (including the title flex's 280px floor) and reads as a
+       broken layout. The user is responsible for the layout when
+       they enable many optional columns; we'd rather give them
+       a horizontal scrollbar than a squashed title. -->
   <div class="tickets-table-container flex-1 min-h-0 overflow-auto pr-2">
-    <table class="w-full text-sm border-separate border-spacing-0 table-fixed">
+    <table class="min-w-full text-sm border-separate border-spacing-0 table-fixed">
       <thead>
         <tr class="sticky top-0 z-10 bg-surface">
           <!-- Leading state-cell header: empty content, matches the
