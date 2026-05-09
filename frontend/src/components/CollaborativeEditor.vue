@@ -82,7 +82,7 @@ import {
     type MentionUser,
 } from "@/plugins/prosemirror-mentions";
 import { createMentionViewPlugin } from "@/plugins/prosemirror-mention-view";
-import { useDataStore } from "@/stores/dataStore";
+import userService from "@/services/userService";
 
 // Yjs awareness user state structure
 interface AwarenessUser {
@@ -105,7 +105,6 @@ const props = withDefaults(defineProps<Props>(), {
 
 // Get auth store for user info
 const authStore = useAuthStore();
-const dataStore = useDataStore();
 
 // Set up Vue Router navigation for ticket link cards
 const router = useRouter();
@@ -313,7 +312,7 @@ const mentionDropdownStyle = computed<Partial<Record<string, string>>>(() => {
 const searchMentionUsers = async (query: string) => {
     isMentionSearching.value = true;
     try {
-        const result = await dataStore.getPaginatedUsers({
+        const result = await userService.getPaginatedUsers({
             page: 1,
             pageSize: 8,
             search: query || undefined,

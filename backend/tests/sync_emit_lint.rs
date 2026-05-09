@@ -72,7 +72,6 @@ const AUDIT_ONLY: &[&str] = &[
     "repository/sync_history.rs::delete_delta_token",
     "repository/sync_history.rs::update_sync_history",
     "repository/sync_history.rs::upsert_delta_token",
-    "repository/user_helpers.rs::create_user_with_email",
     "repository/user_ticket_views.rs::delete_view",
     "repository/user_ticket_views.rs::record_view",
 
@@ -87,6 +86,16 @@ const AUDIT_ONLY: &[&str] = &[
     "repository/feature_flags.rs::set_all_workspace_flags",
     "repository/feature_flags.rs::set_user_override",
     "repository/feature_flags.rs::set_workspace_flag",
+
+    // User MFA mutations — sensitive fields, not in the sync user
+    // projection. Coverage lives in security_events / audit_log.
+    "repository/users.rs::clear_user_mfa",
+    "repository/users.rs::update_user_mfa",
+    // Vestigial low-level helper: handlers all use
+    // `user_helpers::create_user_with_email` (which IS sync-wired).
+    // Kept here so a future stray caller still passes the lint, but
+    // new code should reach for the wired helper.
+    "repository/users.rs::create_user",
 
     // Plugin local storage / activity log — covered by the audit_log
     // trigger on plugin_data and plugin_collection_rows.
@@ -182,11 +191,13 @@ const PENDING_WIRE: &[&str] = &[
     "repository/user_auth_identities.rs::update_local_password_hash",
     "repository/user_emails.rs::add_multiple_emails",
     "repository/user_emails.rs::cleanup_obsolete_emails",
-    "repository/users.rs::clear_user_mfa",
-    "repository/users.rs::create_user",
-    "repository/users.rs::delete_user",
-    "repository/users.rs::update_user",
-    "repository/users.rs::update_user_mfa",
+    // MFA-only writes don't touch the user projection (uuid / name /
+    // email / role / avatar / pronouns), so the sync stream stays
+    // quiet. Recorded under audit_log instead. See AUDIT_ONLY.
+    // The bare `users::create_user` helper is unused — handlers all
+    // use `user_helpers::create_user_with_email` (sync-wired).
+    // Listed here so the lint test stays green if a future caller
+    // appears, but the answer is "use the wired helper".
     "repository/webhooks.rs::create_delivery",
     "repository/webhooks.rs::create_webhook",
     "repository/webhooks.rs::delete_webhook_by_uuid",

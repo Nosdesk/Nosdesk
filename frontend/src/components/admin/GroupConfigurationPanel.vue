@@ -12,7 +12,7 @@ import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import { groupService } from '@/services/groupService';
 import { getPaginatedDevices } from '@/services/deviceService';
-import { useDataStore } from '@/stores/dataStore';
+import userService from '@/services/userService';
 import { useColorFilter } from '@/composables/useColorFilter';
 import type { GroupDetails, GroupWithMemberCount, UpdateGroupRequest } from '@/types/group';
 import type { User } from '@/types/user';
@@ -28,7 +28,6 @@ const emit = defineEmits<{
   updated: [];
 }>();
 
-const dataStore = useDataStore();
 const { colorFilterStyle } = useColorFilter();
 
 // State
@@ -267,7 +266,7 @@ const loadGroup = async (silent = false) => {
 // Load available users
 const loadUsers = async () => {
   try {
-    const response = await dataStore.getPaginatedUsers({ page: 1, pageSize: 1000 });
+    const response = await userService.getPaginatedUsers({ page: 1, pageSize: 1000 });
     availableUsers.value = response.data;
   } catch (error) {
     console.error('Failed to load users:', error);

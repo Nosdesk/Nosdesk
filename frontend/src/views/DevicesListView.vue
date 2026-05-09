@@ -18,7 +18,6 @@ import { useBulkSelection } from '@/composables/useBulkSelection'
 import { useBulkSelectionForDataTable } from '@/composables/useBulkSelectionForDataTable'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { useDataStore } from '@/stores/dataStore'
 import { getPaginatedDevices, bulkAction } from '@/services/deviceService'
 import { devicesKeys } from '@/queries/devices'
 import type { Device } from '@/types/device'
@@ -26,7 +25,6 @@ import type { Device } from '@/types/device'
 defineOptions({ name: 'DevicesListView' })
 
 const router = useRouter()
-const dataStore = useDataStore()
 const queryCache = useQueryCache()
 const { isMobile } = useMobileDetection()
 
@@ -44,26 +42,6 @@ const navigateToCreateDevice = () => {
 }
 const navigateToDevice = (device: Device) => {
   void router.push(`/devices/${device.id}`)
-}
-
-// Pre-warm user cache with primary users from the loaded device
-// pages so avatar rendering doesn't fan out to N requests.
-async function preWarmUserCache(devices: Device[]) {
-  try {
-    const userUuids = [
-      ...new Set(
-        devices
-          .map((d) => d.primary_user?.uuid)
-          .filter((uuid): uuid is string => typeof uuid === 'string' && uuid.length === 36),
-      ),
-    ]
-    if (userUuids.length === 0) return
-    const uncached = userUuids.filter((uuid) => !dataStore.getUserName(uuid))
-    if (uncached.length === 0) return
-    await dataStore.getUsersByUuids(uncached)
-  } catch (err) {
-    console.warn('Failed to pre-warm user cache:', err)
-  }
 }
 
 const controls = useListControls<Device>({
@@ -85,7 +63,9 @@ const page = useListPage({
     onCreate: navigateToCreateDevice,
   },
   urlSync: { paramKeys: ['warranty'] },
-  onPageLoaded: preWarmUserCache,
+  // No per-page user prewarm: primary_user uuids are already in
+  // the sync engine's user pool (workspace:1 bootstrap), so the
+  // avatar cells resolve from there without an extra round trip.
 })
 
 usePageCreateAction(navigateToCreateDevice)

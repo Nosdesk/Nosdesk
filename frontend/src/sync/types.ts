@@ -19,6 +19,7 @@ export type SyncAggregate =
   | 'assignment'
   | 'group_membership'
   | 'plugin'
+  | 'user'
 
 export type SyncOp = 'I' | 'U' | 'D' | 'A'
 

@@ -38,7 +38,7 @@ import {
   ellipsis,
 } from 'prosemirror-inputrules';
 import { DOMSerializer, DOMParser } from 'prosemirror-model';
-import { useDataStore } from '@/stores/dataStore';
+import userService from '@/services/userService';
 import UserAvatar from '@/components/UserAvatar.vue';
 
 const props = withDefaults(defineProps<{
@@ -59,7 +59,6 @@ const emit = defineEmits<{
   (e: 'submit'): void;
 }>();
 
-const dataStore = useDataStore();
 
 const editorElement = ref<HTMLElement | null>(null);
 const editorWrapper = ref<HTMLElement | null>(null);
@@ -111,7 +110,7 @@ const dropdownStyle = computed<Partial<Record<string, string>>>(() => {
 const searchUsers = async (query: string) => {
   isSearching.value = true;
   try {
-    const result = await dataStore.getPaginatedUsers({
+    const result = await userService.getPaginatedUsers({
       page: 1,
       pageSize: 8,
       search: query || undefined,

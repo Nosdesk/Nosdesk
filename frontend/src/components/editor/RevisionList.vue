@@ -22,7 +22,7 @@ import type { ArticleRevision } from '@/services/versionHistoryService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Icon from '@/components/common/Icon.vue'
-import { useDataStore } from '@/stores/dataStore'
+import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import apiClient from '@/services/apiConfig'
 
 interface DocumentationRevisionResponse {
@@ -48,7 +48,7 @@ const emit = defineEmits<{
   (e: 'restored', revisionNumber: number): void
 }>()
 
-const dataStore = useDataStore()
+const { getUserHandle } = useUsersDirectory()
 
 const effectiveId = computed(() => {
   if (props.type === 'documentation') {
@@ -146,28 +146,12 @@ async function restoreToRevision(revisionNumber: number): Promise<boolean> {
   return ticketHistory?.restoreToRevision(revisionNumber) || false
 }
 
-watch(revisions, async (newRevisions) => {
-  if (!newRevisions || newRevisions.length === 0) return
-
-  const userUuids = new Set<string>()
-  newRevisions.forEach(revision => {
-    if (revision.contributed_by && Array.isArray(revision.contributed_by)) {
-      revision.contributed_by.forEach(uuid => {
-        if (uuid) userUuids.add(uuid)
-      })
-    }
-  })
-
-  if (userUuids.size > 0) {
-    await Promise.all(
-      Array.from(userUuids).map(uuid => dataStore.getUserByUuid(uuid))
-    )
-  }
-}, { immediate: true })
-
+// Each `getUserHandle(uuid)` call lazily fires a fetch on first
+// access; the directory's batch scheduler coalesces concurrent
+// uuids from one render pass into a single /users/batch call,
+// so we don't need an explicit prefetch step here.
 const getUserName = (uuid: string): string | undefined => {
-  const user = dataStore.getCachedUserByUuid(uuid)
-  return user?.name
+  return getUserHandle(uuid).user.value?.name
 }
 
 const selectedRevision = ref<ArticleRevision | null>(null)

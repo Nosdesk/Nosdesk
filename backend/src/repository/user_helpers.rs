@@ -54,6 +54,11 @@ pub fn create_user_with_email(
     conn: &mut DbConnection,
     observer: Option<&dyn UserCreatedObserver>,
 ) -> Result<(User, UserEmail), diesel::result::Error> {
+    use crate::sync::emit::{self, SyncEmit};
+    use crate::sync::groups;
+    use crate::models::{SyncAggregate, SyncOp};
+    use serde_json::json;
+
     let result = conn.transaction::<_, diesel::result::Error, _>(|conn| {
         // Create user first
         let user: User = diesel::insert_into(crate::schema::users::table)
@@ -73,6 +78,33 @@ pub fn create_user_with_email(
         let user_email: UserEmail = diesel::insert_into(crate::schema::user_emails::table)
             .values(&new_email)
             .get_result(conn)?;
+
+        // Emit the sync action carrying the user projection. The
+        // primary email is the one we just inserted, so we don't
+        // round-trip through `get_primary_email` — use it directly.
+        // Same shape that `users::emit_user_event` writes for
+        // updates / deletes; keep them in lockstep when fields are
+        // added.
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::User,
+                aggregate_id: user.uuid.to_string(),
+                op: SyncOp::Insert,
+                event_type: "user.created",
+                data: json!({
+                    "uuid": user.uuid,
+                    "name": user.name,
+                    "email": user_email.email,
+                    "role": user.role,
+                    "pronouns": user.pronouns,
+                    "avatar_url": user.avatar_url,
+                    "avatar_thumb": user.avatar_thumb,
+                }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
 
         Ok((user, user_email))
     })?;

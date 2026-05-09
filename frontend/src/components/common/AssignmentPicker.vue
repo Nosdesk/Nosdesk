@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { useDataStore } from '@/stores/dataStore'
+import userService from '@/services/userService'
 import { groupService } from '@/services/groupService'
 import Icon from '@/components/common/Icon.vue'
 
@@ -22,7 +22,6 @@ const emit = defineEmits<{
   (e: 'update:selectedItems', items: SelectedPrincipal[]): void
 }>()
 
-const dataStore = useDataStore()
 
 const searchQuery = ref('')
 const showDropdown = ref(false)
@@ -88,7 +87,7 @@ const hasResults = computed(() => filteredGroups.value.length > 0 || filteredUse
 const searchUsers = async (query: string) => {
   loading.value = true
   try {
-    const result = await dataStore.getPaginatedUsers({
+    const result = await userService.getPaginatedUsers({
       page: 1,
       pageSize: 20,
       search: query || undefined,

@@ -238,7 +238,8 @@ fn apply_transaction(
         | SyncAggregate::GroupMembership
         | SyncAggregate::Plugin
         | SyncAggregate::Cycle
-        | SyncAggregate::CycleTicket => Err(TxReject(
+        | SyncAggregate::CycleTicket
+        | SyncAggregate::User => Err(TxReject(
             "unsupported_aggregate",
             format!(
                 "push for aggregate `{}` is not yet wired",

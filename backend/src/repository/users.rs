@@ -1,10 +1,50 @@
 use diesel::prelude::*;
 use diesel::result::Error;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
+
+/// Emit a `user.updated` sync_action carrying the projection the
+/// frontend's `useReference('user', uuid)` consumes. Called from
+/// inside the same transaction as the SQL write so the event row
+/// appears atomically with the changed row. Pulls the primary
+/// email from `user_emails` since the canonical address lives
+/// outside the `users` table.
+fn emit_user_event(
+    conn: &mut DbConnection,
+    user: &User,
+    op: SyncOp,
+    event_type: &'static str,
+) -> QueryResult<()> {
+    let email = crate::repository::user_helpers::get_primary_email(&user.uuid, conn)
+        .unwrap_or_default();
+    emit::record(
+        conn,
+        SyncEmit {
+            aggregate: SyncAggregate::User,
+            aggregate_id: user.uuid.to_string(),
+            op,
+            event_type,
+            data: json!({
+                "uuid": user.uuid,
+                "name": user.name,
+                "email": email,
+                "role": user.role,
+                "pronouns": user.pronouns,
+                "avatar_url": user.avatar_url,
+                "avatar_thumb": user.avatar_thumb,
+            }),
+            groups: groups::workspace(),
+            causation_id: None,
+        },
+    )?;
+    Ok(())
+}
 
 /// Observer fired after a user's row is updated. Mirrors
 /// `UserCreatedObserver` so the search service can keep its index
@@ -134,9 +174,16 @@ pub fn update_user(
     conn: &mut DbConnection,
     observer: Option<&dyn UserUpdatedObserver>,
 ) -> Result<User, Error> {
-    let result: User = diesel::update(users::table.find(user_uuid))
-        .set(user)
-        .get_result(conn)?;
+    // Wrap the UPDATE + sync emit in a single transaction so a
+    // crash between the two never leaves the row updated without
+    // a corresponding sync_actions event (or vice versa).
+    let result: User = conn.transaction::<User, Error, _>(|conn| {
+        let updated: User = diesel::update(users::table.find(user_uuid))
+            .set(user)
+            .get_result(conn)?;
+        emit_user_event(conn, &updated, SyncOp::Update, "user.updated")?;
+        Ok(updated)
+    })?;
 
     if let Some(observer) = observer {
         // Fetch the primary email for the index doc; best-effort,
@@ -284,7 +331,16 @@ pub fn delete_user(
             .execute(conn)?;
 
         // === Phase 4: Delete the user ===
+        // Capture the row before delete so the sync emit carries
+        // the projection (name / role / avatar) for clients that
+        // want to display "Foo Bar (deleted)" in historical
+        // contexts. After the row is gone we'd only have the uuid.
+        let user_row: User = users::table.find(user_uuid).first(conn)?;
         let deleted_count = diesel::delete(users::table.find(user_uuid)).execute(conn)?;
+
+        if deleted_count > 0 {
+            emit_user_event(conn, &user_row, SyncOp::Delete, "user.deleted")?;
+        }
 
         Ok(deleted_count)
     }).inspect(|count| {

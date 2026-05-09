@@ -65,6 +65,7 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   assignment: 1,
   group_membership: 1,
   plugin: 1,
+  user: 1,
 }
 
 /** Warm the engine for an authenticated user. Idempotent —
@@ -320,10 +321,48 @@ async function referenceFetcher(aggregate: SyncAggregate, ids: string[]): Promis
   // and the lazy-fetch pluggable lets aggregates ship sync support
   // before they ship a typed bootstrap loader.
   //
-  // Phase 3 ships a stub: we log the request and don't fetch.
-  // Phase 4+ wires per-aggregate fetchers through registered
-  // resolvers.
+  // Per-aggregate dispatch. For aggregates without a dedicated
+  // fetcher we log and bail; the bootstrap covered the snapshot
+  // and SSE keeps it current, so a missed lazy fetch only matters
+  // for entities created strictly between bootstrap and the first
+  // SSE frame — vanishingly rare.
+  if (aggregate === 'user') {
+    await fetchMissingUsers(ids)
+    return
+  }
   logger.debug('useReference fetch (stub)', { aggregate, ids })
+}
+
+/**
+ * Lazy reference fetcher for the `user` aggregate. Bootstrap loads
+ * the full workspace user set up-front, so this only fires when an
+ * unknown uuid is referenced (e.g. a comment whose author was
+ * created mid-session before that user.created SSE arrived).
+ *
+ * Lives in lifecycle.ts (rather than the directory composable) so
+ * it's installed once at hydrate-time, before any UserCell mounts.
+ */
+async function fetchMissingUsers(uuids: string[]): Promise<void> {
+  if (uuids.length === 0) return
+  // Lazy import: keeps the userService bundle out of the sync
+  // engine's hot path until the lazy fetcher actually fires.
+  const { default: userService } = await import('@/services/userService')
+  try {
+    const users = await userService.getUsersBatch(uuids)
+    for (const user of users) {
+      pool.upsert('user', user.uuid, {
+        uuid: user.uuid,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        pronouns: user.pronouns ?? null,
+        avatar_url: user.avatar_url ?? null,
+        avatar_thumb: user.avatar_thumb ?? null,
+      })
+    }
+  } catch (err) {
+    logger.warn('Lazy user fetch failed', { ids: uuids, error: err })
+  }
 }
 
 /** SSE handler: applies actions, advances the cursor, persists. */

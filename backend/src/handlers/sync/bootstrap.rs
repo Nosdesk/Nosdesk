@@ -26,8 +26,8 @@ use tracing::error;
 
 use crate::db::Pool;
 use crate::extractors::SyncContext;
-use crate::models::{Project, ProjectTicket, Ticket, WorkflowState};
-use crate::schema::{project_tickets, projects, tickets, workflow_states};
+use crate::models::{Project, ProjectTicket, Ticket, User, WorkflowState};
+use crate::schema::{project_tickets, projects, tickets, user_emails, users, workflow_states};
 
 #[derive(Debug, Deserialize)]
 pub struct BootstrapQuery {
@@ -147,6 +147,46 @@ fn stream_bootstrap(
     }
     for state in states {
         states_by_id.insert(state.id, state);
+    }
+
+    // Users: workspace-wide set, streamed once at the start of the
+    // bootstrap. Mirrors workflow_states — small finite roster, every
+    // ticket / comment / assignment carries a uuid the frontend needs
+    // to resolve to a name + avatar, so shipping them up-front lets
+    // the table render assignee / requester cells with no follow-up
+    // round-trip.
+    //
+    // Single-workspace deployment means "all users" in practice — the
+    // permission check happens upstream in
+    // `sync::groups::allowed_for_user`, but every member of
+    // `workspace:1` can see the user list (it's the same set the
+    // mention picker / assignee picker already query without scope).
+    //
+    // Email lives in `user_emails` (canonical address; the
+    // `users.email` column is gone); load the primary-email lookup
+    // table once into a HashMap rather than joining per-row, since
+    // the `User` model is `Queryable` but not `Selectable` and tuple
+    // joins would force a refactor.
+    let user_rows: Vec<User> = users::table
+        .order(users::name.asc())
+        .load(&mut conn)?;
+    let primary_email_rows: Vec<(uuid::Uuid, String)> = user_emails::table
+        .filter(user_emails::is_primary.eq(true))
+        .select((user_emails::user_uuid, user_emails::email))
+        .load(&mut conn)?;
+    let primary_email_by_uuid: std::collections::HashMap<uuid::Uuid, String> =
+        primary_email_rows.into_iter().collect();
+    for user in user_rows {
+        send(tx, json!({
+            "__model__": "user",
+            "uuid": user.uuid,
+            "name": user.name,
+            "email": primary_email_by_uuid.get(&user.uuid).cloned().unwrap_or_default(),
+            "role": user.role,
+            "pronouns": user.pronouns,
+            "avatar_url": user.avatar_url,
+            "avatar_thumb": user.avatar_thumb,
+        }))?;
     }
 
     // Two project-loading paths:

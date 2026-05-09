@@ -1,0 +1,21 @@
+{
+  "name": "user",
+  "schema_version": 1,
+  "fields": {
+    "uuid": { "rust": "Uuid", "ts": "string", "primary": true },
+    "name": { "rust": "String", "ts": "string" },
+    "email": { "rust": "String", "ts": "string" },
+    "role": { "rust": "UserRole", "ts": "UserRole" },
+    "pronouns": { "rust": "Option<String>", "ts": "string | null" },
+    "avatar_url": { "rust": "Option<String>", "ts": "string | null" },
+    "avatar_thumb": { "rust": "Option<String>", "ts": "string | null" }
+  },
+  "events": [
+    { "type": "user.created", "op": "I" },
+    { "type": "user.updated", "op": "U" },
+    { "type": "user.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}

@@ -342,6 +342,8 @@ pub enum SyncAggregate {
     Cycle,
     #[serde(rename = "cycle_ticket")]
     CycleTicket,
+    #[serde(rename = "user")]
+    User,
 }
 
 impl SyncAggregate {
@@ -358,6 +360,7 @@ impl SyncAggregate {
             Self::Plugin => "plugin",
             Self::Cycle => "cycle",
             Self::CycleTicket => "cycle_ticket",
+            Self::User => "user",
         }
     }
 }
@@ -383,6 +386,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"plugin" => Ok(Self::Plugin),
             b"cycle" => Ok(Self::Cycle),
             b"cycle_ticket" => Ok(Self::CycleTicket),
+            b"user" => Ok(Self::User),
             other => Err(
                 format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into(),
             ),

@@ -7,10 +7,10 @@
  * called, what options it offers, and how to summarise its
  * current selection.
  */
-import type { useDataStore } from '@/stores/dataStore'
 import { paletteForColor } from '@/utils/workflowColors'
 import type { CardData, Priority } from '@/sync/views/types'
 import type { FilterFacet, SlaFilter } from '@/composables/useTicketsFilters'
+import type { User } from '@/types/user'
 
 export interface FilterOption {
   value: string
@@ -56,10 +56,16 @@ const SLA_OPTIONS: FilterOption[] = [
   { value: 'none', label: 'No SLA' },
 ]
 
+/** Resolver for assignee uuid → user row. Reactive sources should
+ * pass a getter that reads from a reactive cache (the directory
+ * composable's `getUserHandle(uuid).user.value`) so option labels
+ * update when the underlying user data lands. */
+export type UserResolver = (uuid: string) => User | null | undefined
+
 export function getOptionsFor(
   facet: FilterFacet,
   sourceCards: CardData[],
-  dataStore: ReturnType<typeof useDataStore>,
+  resolveUser: UserResolver,
 ): FilterOption[] {
   if (facet === 'priority') return PRIORITY_OPTIONS
   if (facet === 'sla') return SLA_OPTIONS
@@ -86,7 +92,7 @@ export function getOptionsFor(
         seen.set('', { value: '', label: 'Unassigned' })
         continue
       }
-      const u = dataStore.getCachedUserByUuid(uuid)
+      const u = resolveUser(uuid)
       seen.set(uuid, { value: uuid, label: u?.name ?? 'Loading…', hint: u?.email ?? undefined })
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))

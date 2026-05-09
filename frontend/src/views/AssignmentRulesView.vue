@@ -10,7 +10,7 @@ import Modal from '@/components/Modal.vue'
 import { assignmentRuleService } from '@/services/assignmentRuleService'
 import { groupService } from '@/services/groupService'
 import { categoryService } from '@/services/categoryService'
-import { useDataStore } from '@/stores/dataStore'
+import userService from '@/services/userService'
 import type {
   AssignmentRuleWithDetails,
   CreateAssignmentRuleRequest,
@@ -21,7 +21,6 @@ import type { GroupWithMemberCount } from '@/types/group'
 import type { TicketCategory } from '@/types/category'
 import type { User } from '@/types/user'
 
-const dataStore = useDataStore()
 
 // State
 const isLoading = ref(false)
@@ -93,7 +92,7 @@ const loadSupportingData = async () => {
     const [groupsData, categoriesData, usersData] = await Promise.all([
       groupService.getGroups(),
       categoryService.getCategories(),
-      dataStore.getPaginatedUsers({ page: 1, pageSize: 1000 })
+      userService.getPaginatedUsers({ page: 1, pageSize: 1000 })
     ])
     groups.value = groupsData
     categories.value = categoriesData

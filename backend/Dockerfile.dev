@@ -41,9 +41,18 @@ WORKDIR /app
 # source goes stale fast, but that's fine — watch keeps the
 # running container in sync with the host every dev session.
 COPY backend/Cargo.toml backend/Cargo.lock ./
+# build.rs computes the NOSDESK_SCHEMA_HASH env var that `db.rs`
+# stamps into bootstrap responses; without it the lib fails to
+# compile (`env!("NOSDESK_SCHEMA_HASH") not defined at compile
+# time`). Bake it into the image so cold starts work.
+COPY backend/build.rs ./build.rs
 COPY backend/src ./src
 COPY backend/migrations ./migrations
 COPY backend/tests ./tests
+# sync-models manifests are read by `tests/sync_model_registry.rs`
+# (validates manifest ↔ Rust enum drift). Bake them in so
+# `cargo test` works without a separate sync step.
+COPY backend/sync-models ./sync-models
 COPY backend/diesel.toml ./diesel.toml
 
 # Note: We don't pre-build here because target/ is mounted as a volume.

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue'
 import UserAvatar from './UserAvatar.vue'
-import { useDataStore } from '@/stores/dataStore'
+import { useUsersDirectory } from '@/composables/useUsersDirectory'
 
 const props = defineProps<{
   text: string
@@ -27,22 +27,20 @@ const tooltipVisible = ref(false)
 const hoverTimer = ref<number | null>(null)
 const hideTimer = ref<number | null>(null)
 
-// Use the data store for user name lookups
-const dataStore = useDataStore()
+// Reactive name resolution via the directory composable. Each
+// uuid lookup creates a shared handle whose `.user` computed
+// updates when the underlying Pinia Colada cache lands.
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const { getUserHandle } = useUsersDirectory()
 
-// Get user name from UUID
-const getDisplayName = (uuid: string | undefined) => {
-  if (!uuid) return 'Unassigned'
-
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-  if (!uuidPattern.test(uuid)) return uuid
-
-  return dataStore.getUserName(uuid) || uuid
+function resolveDisplayName(value: string | undefined): string {
+  if (!value) return 'Unassigned'
+  if (!uuidPattern.test(value)) return value
+  return getUserHandle(value).user.value?.name || value
 }
 
-// Computed properties for user names
-const requesterName = computed(() => getDisplayName(props.details?.requester))
-const assigneeName = computed(() => getDisplayName(props.details?.assignee))
+const requesterName = computed(() => resolveDisplayName(props.details?.requester))
+const assigneeName = computed(() => resolveDisplayName(props.details?.assignee))
 
 watch(isHovering, (newValue) => {
   if (newValue) {

@@ -1,10 +1,13 @@
 /**
- * Users list query layer. Owns the cache-key family the view
- * (`useInfiniteQuery` in `UsersListView.vue`) subscribes to.
+ * Users list query-key family. Owns the cache key the
+ * `UsersListView`'s `useInfiniteQuery` (via useListPage)
+ * subscribes to.
  *
- * No data loader yet, but the same key-builder convention is in
- * place so the moment one is added it can call `usersKeys.list(...)`
- * directly without rolling its own array.
+ * Individual user lookups (`byUuid`) are NOT here — they're owned
+ * by the sync engine's user pool (`backend/sync-models/user.json`),
+ * read via `useUsersDirectory` / `useReference('user', uuid)`. The
+ * Pinia Colada cache only owns the paginated/searched LIST shape,
+ * which is independent of the per-row sync.
  */
 import { listKeys } from './listKeys'
 

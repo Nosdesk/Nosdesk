@@ -1,6 +1,8 @@
 import { computed, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { useDataStore } from '@/stores/dataStore'
+import userService from '@/services/userService'
+import * as syncPool from '@/sync/pool'
 import { useAuthStore } from '@/stores/auth'
+import type { User } from '@/types/user'
 import { useRecentUsersStore, type RecentScope } from '@/stores/recentUsers'
 import { useDebouncedRef } from '@/composables/useDebouncedRef'
 
@@ -106,9 +108,15 @@ const PAGE_SIZE = 50
 const DEBOUNCE_MS = 200
 
 export function useUserPicker(opts: Options): Result {
-  const dataStore = useDataStore()
   const authStore = useAuthStore()
   const recentStore = useRecentUsersStore()
+
+  /** Sync-pool peek for a uuid. Synchronous read (no fetch
+   *  triggered); used inside computeds where we want the cached
+   *  row if present and a graceful null otherwise. */
+  function peekPoolUser(uuid: string): Pick<User, 'uuid' | 'name' | 'email' | 'role' | 'avatar_thumb' | 'avatar_url'> | undefined {
+    return syncPool.get('user', uuid)
+  }
 
   const query = ref('')
   // Debounced query drives the server-side requester search; the input
@@ -151,7 +159,7 @@ export function useUserPicker(opts: Options): Result {
     const fromEligible = eligible.value.find((u) => u.uuid === uuid)
     if (fromEligible) return fromEligible
 
-    const cached = dataStore.getCachedUserByUuid(uuid)
+    const cached = peekPoolUser(uuid)
     if (cached) {
       return {
         uuid: cached.uuid,
@@ -212,7 +220,7 @@ export function useUserPicker(opts: Options): Result {
         // the cached user store so we have an avatar / email to render.
         const fromEligible = eligible.value.find((u) => u.uuid === r.uuid)
         if (fromEligible) return fromEligible
-        const cached = dataStore.getCachedUserByUuid(r.uuid)
+        const cached = peekPoolUser(r.uuid)
         if (cached) {
           // Drop ineligible cached users — a recents entry from before
           // tighter role enforcement could otherwise surface a regular
@@ -264,7 +272,7 @@ export function useUserPicker(opts: Options): Result {
   // ---- Loading ----
 
   async function fetchEligible(searchTerm: string | undefined): Promise<PickerUser[]> {
-    const response = await dataStore.getPaginatedUsers({
+    const response = await userService.getPaginatedUsers({
       page: 1,
       pageSize: PAGE_SIZE,
       search: searchTerm ?? '',

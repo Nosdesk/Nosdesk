@@ -10,7 +10,7 @@
  * - Click outside to close
  */
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
-import { useDataStore } from '@/stores/dataStore';
+import userService from '@/services/userService';
 import UserAvatar from '@/components/UserAvatar.vue';
 import Spinner from '@/components/common/Spinner.vue';
 
@@ -32,7 +32,6 @@ const emit = defineEmits<{
   (e: 'submit'): void;
 }>();
 
-const dataStore = useDataStore();
 
 // Refs
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
@@ -64,7 +63,7 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null;
 const searchUsers = async (query: string) => {
   isSearching.value = true;
   try {
-    const result = await dataStore.getPaginatedUsers({
+    const result = await userService.getPaginatedUsers({
       page: 1,
       pageSize: 10,
       search: query || undefined,

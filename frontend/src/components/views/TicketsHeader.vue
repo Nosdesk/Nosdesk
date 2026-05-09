@@ -33,7 +33,7 @@ import {
   summariseSelected,
   type FilterOption,
 } from '@/components/views/filterFacets'
-import { useDataStore } from '@/stores/dataStore'
+import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import type { ColumnId, ListColumn } from '@/sync/views/ticketColumns'
 import type { Density } from '@/composables/useTicketsDensity'
 import type { GroupBy } from '@/composables/useTicketsGrouping'
@@ -97,7 +97,7 @@ const emit = defineEmits<{
   (e: 'toggle-split-view'): void
 }>()
 
-const dataStore = useDataStore()
+const { getUserHandle } = useUsersDirectory()
 const addFilterRef = ref<InstanceType<typeof AddFilterMenu> | null>(null)
 
 // ---------------------------------------------------------------
@@ -105,8 +105,17 @@ const addFilterRef = ref<InstanceType<typeof AddFilterMenu> | null>(null)
 // in `filterFacets.ts`, so the +Add menu and the click-to-edit
 // flow stay in lockstep.
 // ---------------------------------------------------------------
+function resolveUser(uuid: string) {
+  // Reading through the directory's handle keeps the pills computed
+  // reactive on user-data arrival: when the sync engine's user pool
+  // gains a row for this uuid (bootstrap or user.created SSE), the
+  // handle's `user` computed updates and any computed that touched
+  // `.value` re-evaluates.
+  return getUserHandle(uuid).user.value
+}
+
 function optionsFor(facet: FilterFacet): FilterOption[] {
-  return getOptionsFor(facet, props.sourceCards, dataStore)
+  return getOptionsFor(facet, props.sourceCards, resolveUser)
 }
 
 function selectedFor(facet: FilterFacet): Set<string> {

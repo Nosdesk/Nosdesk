@@ -20,7 +20,6 @@ import { useBulkSelection } from '@/composables/useBulkSelection'
 import { useBulkSelectionForDataTable } from '@/composables/useBulkSelectionForDataTable'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { useDataStore } from '@/stores/dataStore'
 import userService from '@/services/userService'
 import { usersKeys } from '@/queries/users'
 import type { User } from '@/types/user'
@@ -28,7 +27,6 @@ import type { User } from '@/types/user'
 defineOptions({ name: 'UsersListView' })
 
 const router = useRouter()
-const dataStore = useDataStore()
 const queryCache = useQueryCache()
 const { isMobile } = useMobileDetection()
 
@@ -51,14 +49,15 @@ const controls = useListControls<User>({
   defaultPageSize: 0,
 })
 
-// Goes through `dataStore.getPaginatedUsers` rather than the raw
-// userService so the dashboard's user-name lookups (used by
-// avatar rendering across other widgets) continue to share the
-// same in-memory cache. Pinia Colada wraps that for us.
+// Avatar / cell consumers subscribe to the sync engine's user
+// pool (workspace:1 bootstrap streams every user up-front), so the
+// list view doesn't need to warm a separate by-uuid cache. The
+// list-only Pinia Colada cache is still useful for pagination /
+// search state independent of the pool.
 const page = useListPage({
   controls,
   keys: usersKeys,
-  fetchPage: (params) => dataStore.getPaginatedUsers(params),
+  fetchPage: (params) => userService.getPaginatedUsers(params),
   scrollContainerRef,
   sseEvents: ['user-updated', 'user-created', 'user-deleted'],
   mobileSearch: {

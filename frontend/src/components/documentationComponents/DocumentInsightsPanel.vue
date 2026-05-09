@@ -19,7 +19,8 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
-import { useDataStore } from '@/stores/dataStore'
+import * as syncPool from '@/sync/pool'
+import type { User } from '@/types/user'
 import apiClient from '@/services/apiConfig'
 
 interface ContributorInfo {
@@ -46,7 +47,6 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const dataStore = useDataStore()
 const contributors = ref<ContributorInfo[]>([])
 const loadingContributors = ref(false)
 
@@ -110,7 +110,10 @@ async function loadContributors() {
       if (rev.created_by) ids.add(rev.created_by)
     }
     const idList = Array.from(ids)
-    const users = await dataStore.getUsersByUuids(idList)
+    // Workspace:1 user bootstrap means every contributor uuid is
+    // already in the sync pool. Map directly rather than rounding
+    // through a fetch the pool would dedupe to a no-op anyway.
+    const users = idList.map((uuid) => syncPool.get<User>('user', uuid) ?? null)
     contributors.value = idList.map((uuid, i) => {
       const u = users[i]
       return {

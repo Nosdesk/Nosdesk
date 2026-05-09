@@ -4,7 +4,7 @@ import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import { useDataStore } from '@/stores/dataStore';
+import userService from '@/services/userService';
 import type { UserInfo } from '@/types/user';
 
 const props = defineProps<{
@@ -17,7 +17,6 @@ const emit = defineEmits<{
   (e: 'select-user', user: { uuid: string; name: string; email: string; role: string }): void;
 }>();
 
-const dataStore = useDataStore();
 
 // State management
 const searchQuery = ref('');
@@ -35,7 +34,7 @@ const loadUsers = async (query: string = '') => {
   error.value = null;
 
   try {
-    const response = await dataStore.getPaginatedUsers({
+    const response = await userService.getPaginatedUsers({
       page: 1,
       pageSize: 50,
       search: query,
