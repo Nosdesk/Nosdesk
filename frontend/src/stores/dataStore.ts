@@ -36,6 +36,32 @@ const batchTimeout = ref<number | null>(null)
 const BATCH_DELAY_MS = 50 // Wait 50ms to collect multiple requests
 const MAX_BATCH_SIZE = 20 // Maximum users per batch request
 
+/**
+ * Per-uuid waiter resolvers. `getUserByUuid` enqueues a uuid and
+ * registers a resolver here; `processBatchRequests` calls each
+ * resolver when it writes the corresponding cache entry. Replaces
+ * the earlier polling pattern (setTimeout(checkCache, 10) loop)
+ * which added 10-50ms latency on every individual user call and
+ * burned CPU per uncached uuid in flight. Multiple waiters per
+ * uuid (concurrent callers for the same UUID) get the same
+ * resolved value via fan-out.
+ */
+type UserResolver = (user: User | null) => void
+const pendingUserResolvers = new Map<string, UserResolver[]>()
+
+function registerUserWaiter(uuid: string, resolve: UserResolver): void {
+  const arr = pendingUserResolvers.get(uuid) ?? []
+  arr.push(resolve)
+  pendingUserResolvers.set(uuid, arr)
+}
+
+function settleUserWaiters(uuid: string, user: User | null): void {
+  const arr = pendingUserResolvers.get(uuid)
+  if (!arr || arr.length === 0) return
+  pendingUserResolvers.delete(uuid)
+  for (const resolve of arr) resolve(user)
+}
+
 export const useDataStore = defineStore('data', () => {
   // Users cache
   const usersCache = ref(new Map<string, PaginatedCacheEntry>())
@@ -229,26 +255,11 @@ export const useDataStore = defineStore('data', () => {
       batchTimeout.value = null
     }, BATCH_DELAY_MS)
     
-    // Create a promise that resolves when the user is loaded
+    // Promise resolved by processBatchRequests when the cache
+    // entry for this uuid lands. Replaces the earlier polling
+    // pattern — see pendingUserResolvers comment above.
     const requestPromise = new Promise<User | null>((resolve) => {
-      // Poll the cache until the user is loaded or error occurs
-      const checkCache = () => {
-        const currentCached = individualUsersCache.value.get(uuid)
-        
-        if (currentCached && !currentCached.loading) {
-          if (currentCached.error) {
-            resolve(null)
-          } else {
-            resolve(currentCached.data)
-          }
-        } else {
-          // Continue polling
-          setTimeout(checkCache, 10)
-        }
-      }
-      
-      // Start polling after a short delay to allow batch processing
-      setTimeout(checkCache, BATCH_DELAY_MS + 10)
+      registerUserWaiter(uuid, resolve)
     })
     
     activeUserRequests.set(requestKey, requestPromise)
@@ -490,12 +501,26 @@ export const useDataStore = defineStore('data', () => {
     const uuidsToFetch = Array.from(pendingBatchRequests)
     pendingBatchRequests.clear()
     
-    // Filter to only UUIDs that aren't already cached or loading
+    // Filter to only UUIDs that aren't already cached or loading.
+    // Two skip paths need to settle their waiters here so the
+    // Promises don't hang:
+    //   - "fresh" cache: another path (addUserToCache, optimistic
+    //     update) populated the row between enqueue and now —
+    //     settle with the cached value, skip the network.
+    //   - "loading" cache: another in-flight batch is fetching
+    //     this uuid — its processBatchRequests will settle our
+    //     waiter when it lands. Leave alone.
     const uncachedUuids = uuidsToFetch.filter(uuid => {
       const cached = individualUsersCache.value.get(uuid)
-      return !cached || (!cached.loading && isDataStale(cached.timestamp))
+      if (!cached) return true
+      if (cached.loading) return false  // other batch handles it
+      if (isDataStale(cached.timestamp)) return true  // refresh
+      // Fresh cache: settle waiters with the cached value.
+      const real = cached.data?.uuid ? cached.data : null
+      settleUserWaiters(uuid, real)
+      return false
     })
-    
+
     if (uncachedUuids.length === 0) return
     
     // Only log batching in development mode
@@ -538,6 +563,7 @@ export const useDataStore = defineStore('data', () => {
             loading: false,
             error: null
           })
+          settleUserWaiters(uuid, user)
         } else {
           // User not found
           individualUsersCache.value.set(uuid, {
@@ -546,13 +572,15 @@ export const useDataStore = defineStore('data', () => {
             loading: false,
             error: 'User not found'
           })
+          settleUserWaiters(uuid, null)
         }
       })
-      
+
     } catch (error) {
       logger.error('Batch user request failed:', error)
-      
-      // Mark all as error
+
+      // Mark all as error AND settle their waiters with null so the
+      // Promises returned by getUserByUuid don't hang indefinitely.
       uncachedUuids.forEach(uuid => {
         individualUsersCache.value.set(uuid, {
           data: individualUsersCache.value.get(uuid)?.data || {} as User,
@@ -560,6 +588,7 @@ export const useDataStore = defineStore('data', () => {
           loading: false,
           error: error instanceof Error ? error.message : 'Unknown error'
         })
+        settleUserWaiters(uuid, null)
       })
     }
   }
