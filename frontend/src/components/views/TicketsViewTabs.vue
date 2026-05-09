@@ -19,10 +19,13 @@
  * tabs are for the well-known set everyone uses; the dropdown is
  * for the tail (user-curated subsets, project-scoped views).
  *
- * Mobile: hides below `sm:` because four 90px tabs don't fit on
- * a phone-width header. Below that breakpoint the parent should
- * render `<ViewSwitcher>` instead, which collapses everything
- * (built-ins + saved) into one popover.
+ * Visibility: only on `lg:+` (1024px). Tabs are a desktop-class
+ * affordance; tablet and narrow-laptop widths (sm-md, 640-1024)
+ * have enough chrome competing in the header that four labelled
+ * tabs end up wrapping their labels or pushing other controls
+ * onto a second row. Below lg the parent renders a single
+ * `<ViewSwitcher>` dropdown that combines built-ins + saved
+ * views into one popover — much cleaner at narrow widths.
  */
 import Icon from '@/components/common/Icon.vue'
 import type { IconName } from '@/components/common/icons'
@@ -47,13 +50,13 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <!-- Hidden on phones (sm: shows the dropdown fallback in the
-       parent). On tablet+ it's a horizontal strip with active-
-       state accent painting. Inline-flex so the row doesn't
-       force a min-height; the parent header controls vertical
-       rhythm. -->
+  <!-- Hidden below lg: (1024px) — narrower viewports use the
+       parent's consolidated dropdown instead. `whitespace-nowrap`
+       on each label is belt-and-braces against the strip getting
+       compressed by sibling header content; without it, "My Open"
+       wraps to two lines the moment the row gets tight. -->
   <div
-    class="hidden sm:inline-flex items-center gap-0.5 rounded-md bg-surface-alt p-0.5"
+    class="hidden lg:inline-flex items-center gap-0.5 rounded-md bg-surface-alt p-0.5"
     role="tablist"
     aria-label="View"
   >
@@ -63,13 +66,13 @@ const emit = defineEmits<{
       type="button"
       role="tab"
       :aria-selected="item.id === activeId"
-      class="inline-flex items-center gap-1.5 px-2.5 h-7 rounded text-sm font-medium transition-colors"
+      class="inline-flex items-center gap-1.5 px-2.5 h-7 rounded text-sm font-medium transition-colors whitespace-nowrap shrink-0"
       :class="item.id === activeId
         ? 'bg-surface text-primary shadow-sm'
         : 'text-secondary hover:text-primary hover:bg-surface/60'"
       @click="emit('select', item.id)"
     >
-      <Icon :name="item.icon" class="w-3.5 h-3.5" aria-hidden="true" />
+      <Icon :name="item.icon" class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
       <span>{{ item.name }}</span>
     </button>
   </div>

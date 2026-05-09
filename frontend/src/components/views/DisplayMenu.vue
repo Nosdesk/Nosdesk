@@ -197,11 +197,22 @@ const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
       </div>
 
       <footer class="border-t border-subtle px-3 py-2 flex items-center justify-between gap-2">
+        <!-- "Reset" reverts visibility, order, and widths to the
+             active view's canonical layout in one click — pulls
+             the user back to a known-good shape after they've
+             reordered / hidden columns into a corner. Footer
+             placement is intentional: it's a recovery affordance,
+             not a primary action; just discoverable enough that
+             you can find it when you need it. -->
         <button
           type="button"
-          class="text-[11px] text-tertiary hover:text-primary"
+          class="inline-flex items-center gap-1 text-[11px] text-tertiary hover:text-primary px-1.5 py-0.5 rounded hover:bg-surface-hover transition-colors"
           @click="emit('reset')"
-        >Reset to view</button>
+          title="Restore the view's default column order, widths, and visibility"
+        >
+          <Icon name="refresh" class="w-3 h-3" />
+          Reset columns
+        </button>
         <button
           v-if="canSaveToView"
           type="button"

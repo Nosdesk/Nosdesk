@@ -25,7 +25,16 @@ const baseListShape: Omit<ListViewShape, 'columns'> = {
   type: 'list',
   group_by: { primary: 'workflow_state.category' },
   sort: [{ field: 'last_activity_at', dir: 'desc' }],
+  // Ticket id leads — it's the row's reference handle (people
+  // say "looking at #1234" in chat / email / commits) and a
+  // short, scannable anchor that aligns flush left for quick
+  // scanning. Title sits second as the primary content. Bug
+  // history: leaving `id` out of this list meant `Reset
+  // columns` returned to a no-id layout, and re-toggling id
+  // through the picker appended it to the rightmost slot —
+  // contradicting the registry's `defaultVisible: true` for id.
   visible_card_fields: [
+    'id',
     'title',
     'workflow_state',
     'priority',

@@ -27,6 +27,15 @@
  * actually renders, so an SSE burst that touches N tickets
  * re-renders N rows, not the whole visible list.
  *
+ * The memo key includes `visibleColumns` (the array reference,
+ * not its length). Length stays the same when columns are
+ * reordered, so a length-only key would silently skip the row
+ * re-render after a header drag — a bug that lived briefly.
+ * Vue's `Object.is` comparison on the array reference is
+ * stable: the upstream `visibleColumns` computed returns the
+ * same array until its deps (visibility / order / view) change,
+ * at which point the new reference invalidates the memo.
+ *
  * `table-layout: fixed` makes the inline column widths
  * authoritative — cells respect them even when content overflows,
  * keeping the resize / reorder interactions predictable. Title
@@ -199,7 +208,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
           <TicketRow
             v-for="card in cards"
             :key="card.id"
-            v-memo="[...rowMemoKey(card), visibleColumns.length, cellPadding, rowClass, selectedId === card.id]"
+            v-memo="[...rowMemoKey(card), visibleColumns, cellPadding, rowClass, selectedId === card.id]"
             :card="card"
             :visible-columns="visibleColumns"
             :row-class="rowClass"
@@ -238,7 +247,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
               <TicketRow
                 v-for="card in bucket.cards"
                 :key="`${bucket.key}:${card.id}`"
-                v-memo="[...rowMemoKey(card), visibleColumns.length, cellPadding, rowClass, selectedId === card.id]"
+                v-memo="[...rowMemoKey(card), visibleColumns, cellPadding, rowClass, selectedId === card.id]"
                 :card="card"
                 :visible-columns="visibleColumns"
                 :row-class="rowClass"

@@ -3,8 +3,25 @@
  * Tickets page header. Two-row layout matching the reference
  * design (Linear / Plain conventions):
  *
- *   Row 1: [View name ▾]   12 open · 3 paused · 2 breached   [Pill] [Pill]   ░ ░ ░   [+ New]
- *   Row 2: [+ Add filter]
+ * Layout has two sizes:
+ *
+ *   lg+ (1024px and up):
+ *     Row 1: [View tabs] [View ▾ when saved views exist]
+ *            [Pill] [Pill]   ░ ░ ░   [Split] [Display]
+ *     Row 2: [+ Add filter] [Save as view]
+ *            12 open · 3 paused · 2 breached
+ *
+ *   below lg (phones, tablets, narrow laptops):
+ *     Row 1: [View ▾]   [Pill] [Pill]   ░ ░ ░   [Split] [Display]
+ *     Row 2: [+ Add filter] [Save as view]
+ *     (summary stats render inline in row 1 on mobile, row 2 on sm+)
+ *
+ * Exactly one dropdown affordance for view selection at any
+ * viewport. Tabs are a desktop-class quick-access for the four
+ * built-ins; the dropdown is the canonical full picker. At lg+
+ * with no user-curated saved views, the dropdown hides — tabs
+ * alone are enough. At narrower widths the dropdown is the only
+ * view affordance because the four-tab strip doesn't fit.
  *
  * The toolbar stays quiet by default — when no filters are
  * applied, the chip strip is empty and only the dashed "+ Add
@@ -101,7 +118,6 @@ const emit = defineEmits<{
   (e: 'toggle-column', id: ColumnId): void
   (e: 'reset-layout'): void
   (e: 'save-layout-to-view'): void
-  (e: 'new-ticket'): void
   (e: 'toggle-filter', facet: FilterFacet, value: string): void
   (e: 'clear-filter', facet: FilterFacet): void
   (e: 'set-filter-text', facet: FilterFacet, value: string): void
@@ -262,24 +278,23 @@ defineExpose({ openAddFilter })
         :active-id="activeViewId"
         @select="(id) => emit('select-view', id)"
       />
-      <!-- Saved-views-only dropdown next to the tabs. Hidden when
-           the workspace has no saved views (the tab strip already
-           covers everything). When the active view IS a saved one,
-           the dropdown's trigger label flips to that view's name
-           so the active state stays visible somewhere on screen. -->
+      <!-- Single canonical view switcher carrying built-ins +
+           saved + private views together. Always one dropdown
+           affordance for view selection, regardless of viewport.
+           - Below lg: this is the only view affordance, since the
+             tab strip is hidden on narrow viewports.
+           - At lg+: only renders when the workspace has saved or
+             private views — tabs already cover the four built-ins,
+             so the dropdown would be redundant chrome otherwise.
+             When saved views exist, the dropdown stays as the
+             access path to them.
+           Earlier design split this into a saved-only `Saved ▾`
+           dropdown next to the tabs at lg+ and a separate
+           consolidated mobile fallback. Two dropdowns reading as
+           "two ways to switch view" was clutter — collapsed into
+           one. -->
       <ViewSwitcher
-        v-if="savedItems.length > 0"
-        class="hidden sm:inline-flex"
-        :items="savedItems"
-        :active-id="activeViewId"
-        size="sm"
-        placeholder="Saved"
-        @select="(id) => emit('select-view', id)"
-        @edit="(id) => emit('edit-view', id)"
-      />
-      <!-- Mobile fallback: full switcher (built-ins + saved). -->
-      <ViewSwitcher
-        class="sm:hidden"
+        :class="savedItems.length === 0 ? 'lg:hidden' : ''"
         :items="mobileSwitcherItems"
         :active-id="activeViewId"
         size="lg"
@@ -287,12 +302,16 @@ defineExpose({ openAddFilter })
         @edit="(id) => emit('edit-view', id)"
       />
 
-      <!-- Summary stats. Inline · separators between non-zero
-           categories. Empty when no tickets, so we don't render
-           a lonely "0 open" tail. -->
+      <!-- Summary stats — mobile only on row 1. Desktop has them
+           in row 2 right-aligned (see footer block below) so the
+           tabs row stays focused on navigation chrome rather than
+           competing with a status readout that's quieter and
+           secondary. Inline · separators between non-zero
+           categories; empty when no tickets so we don't render a
+           lonely "0 open" tail. -->
       <div
         v-if="summarySegments.length > 0"
-        class="flex items-center gap-2 text-xs"
+        class="sm:hidden flex items-center gap-2 text-xs"
       >
         <template v-for="(seg, i) in summarySegments" :key="i">
           <span
@@ -397,21 +416,16 @@ defineExpose({ openAddFilter })
         @save="emit('save-layout-to-view')"
       />
 
-      <!-- New ticket — icon-only below sm: to free header space
-           when the toolbar is already crowded; full label everywhere
-           else so the primary CTA stays unambiguous. -->
-      <button
-        type="button"
-        class="inline-flex items-center gap-1 text-xs font-medium px-2 sm:px-2.5 h-9 sm:h-7 rounded-md bg-accent text-on-accent hover:bg-accent/90 transition-colors"
-        :title="'New ticket'"
-        @click="emit('new-ticket')"
-      >
-        <Icon name="add" class="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-        <span class="hidden sm:inline">New ticket</span>
-      </button>
+      <!-- The local "New ticket" button used to live here as a
+           fallback for the (broken) site-header Create button.
+           Removed: TicketsListView now registers `newTicket` via
+           `usePageCreateAction`, so the canonical site-header
+           Create button does the right thing on this route. Two
+           identical CTAs in the same field of view was duplicate
+           chrome. -->
     </div>
 
-    <!-- Row 2: + Add filter (always visible) + Save as view (small) -->
+    <!-- Row 2: + Add filter (left) · Save as view · summary stats (far right on desktop) -->
     <div class="flex items-center gap-2">
       <AddFilterMenu
         ref="addFilterRef"
@@ -432,6 +446,33 @@ defineExpose({ openAddFilter })
       >
         Save as view
       </button>
+
+      <!-- Spacer between the left cluster (Add filter / Save as
+           view) and the right cluster (summary stats). Same
+           pattern row 1 uses to separate filter pills from the
+           density / display chrome — explicit flex-grow rather
+           than `ml-auto` so the gap reads as intentional layout
+           rather than a magic-margin trick, and the right cluster
+           lands flush against the row's right edge inside the
+           header's px-4 padding. -->
+      <div class="flex-1 min-w-2" />
+
+      <!-- Desktop summary stats. Hidden on mobile because the
+           same data renders in row 1 there instead (row 2 doesn't
+           have horizontal room for it on phones). -->
+      <div
+        v-if="summarySegments.length > 0"
+        class="hidden sm:flex items-center gap-2 text-xs shrink-0"
+      >
+        <template v-for="(seg, i) in summarySegments" :key="i">
+          <span
+            v-if="i > 0"
+            class="text-tertiary/40"
+            aria-hidden="true"
+          >·</span>
+          <span :class="toneClass(seg.tone)">{{ seg.label }}</span>
+        </template>
+      </div>
     </div>
   </header>
 </template>

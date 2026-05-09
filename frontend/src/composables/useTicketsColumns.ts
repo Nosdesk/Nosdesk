@@ -189,10 +189,38 @@ export function useTicketsColumns(activeView: ComputedRef<ResolvedView>): UseTic
     const current = visibleColumnIds.value
     const next = current.includes(id)
       ? current.filter((c) => c !== id)
-      : [...current, id]
+      : insertAtCanonicalPosition(current, id)
     if (!next.includes('title')) next.unshift('title')
     localOverride.value = next
     persistColumns(activeView.value.id, next)
+  }
+
+  /** When re-enabling a previously-hidden column, slot it at the
+   * position it'd hold in the registry's canonical order rather
+   * than appending to the right edge. Concretely: walk the
+   * current visible list and find the first column whose
+   * registry index is greater than the new column's; insert
+   * before it. So re-enabling `id` (registry index 0) lands it
+   * at position 0 (leftmost), matching the original default and
+   * the user's mental model.
+   *
+   * User-driven reorders of OTHER columns are preserved — only
+   * the newly-added column is positioned canonically. */
+  function insertAtCanonicalPosition(
+    current: ColumnId[],
+    newId: ColumnId,
+  ): ColumnId[] {
+    const registryOrder = TICKET_COLUMNS.map((c) => c.id)
+    const newIdx = registryOrder.indexOf(newId)
+    if (newIdx === -1) return [...current, newId]
+    for (let i = 0; i < current.length; i++) {
+      const idx = registryOrder.indexOf(current[i])
+      if (idx === -1) continue
+      if (idx > newIdx) {
+        return [...current.slice(0, i), newId, ...current.slice(i)]
+      }
+    }
+    return [...current, newId]
   }
 
   function resetColumns(): void {
