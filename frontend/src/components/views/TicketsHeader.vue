@@ -172,8 +172,12 @@ defineExpose({ openAddFilter })
   <header
     class="flex flex-col gap-1.5 px-4 py-3 border-b border-subtle bg-surface shrink-0"
   >
-    <!-- Row 1: title + summary stats + filter pills + display + new -->
-    <div class="flex items-center gap-3 flex-wrap">
+    <!-- Row 1: title + summary stats + filter pills + display + new
+         Mobile: power-user chrome (density toggle, split-view, display
+         menu) hides below md: to keep the toolbar reachable on phones.
+         Title + summary + filter pills + New ticket stay across all
+         widths. -->
+    <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
       <ViewSwitcher
         :items="switcherItems"
         :active-id="activeViewId"
@@ -227,9 +231,10 @@ defineExpose({ openAddFilter })
 
       <div class="flex-1 min-w-2" />
 
-      <!-- Density quick-toggle. Three icon buttons. -->
+      <!-- Density quick-toggle. Three icon buttons. Hidden below
+           md: — phones don't have meaningful row density choices. -->
       <div
-        class="inline-flex items-center rounded-md border border-subtle overflow-hidden h-7"
+        class="hidden md:inline-flex items-center rounded-md border border-subtle overflow-hidden h-7"
         role="group"
         aria-label="Row density"
       >
@@ -252,10 +257,12 @@ defineExpose({ openAddFilter })
       </div>
 
       <!-- Split-view toggle. Two-pane SVG so the icon reads as
-           "list + preview" not just generic 'split'. -->
+           "list + preview" not just generic 'split'. Hidden below
+           md: — split-view doesn't fit on phones, the list view
+           collapses to single-pane on small screens regardless. -->
       <button
         type="button"
-        class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors"
+        class="hidden md:inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors"
         :class="splitViewEnabled
           ? 'bg-accent/15 text-accent'
           : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
@@ -272,7 +279,10 @@ defineExpose({ openAddFilter })
         </svg>
       </button>
 
+      <!-- Column / density / grouping controls. Power-user chrome,
+           hidden below md: to keep the mobile toolbar shallow. -->
       <DisplayMenu
+        class="hidden md:inline-flex"
         :visible="visibleColumns"
         :density="density"
         :group-by="groupBy"
@@ -286,13 +296,17 @@ defineExpose({ openAddFilter })
         @save="emit('save-layout-to-view')"
       />
 
+      <!-- New ticket — icon-only below sm: to free header space
+           when the toolbar is already crowded; full label everywhere
+           else so the primary CTA stays unambiguous. -->
       <button
         type="button"
-        class="inline-flex items-center gap-1 text-xs font-medium px-2.5 h-7 rounded-md bg-accent text-on-accent hover:bg-accent/90 transition-colors"
+        class="inline-flex items-center gap-1 text-xs font-medium px-2 sm:px-2.5 h-9 sm:h-7 rounded-md bg-accent text-on-accent hover:bg-accent/90 transition-colors"
+        :title="'New ticket'"
         @click="emit('new-ticket')"
       >
-        <Icon name="add" class="w-3.5 h-3.5" />
-        New ticket
+        <Icon name="add" class="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+        <span class="hidden sm:inline">New ticket</span>
       </button>
     </div>
 

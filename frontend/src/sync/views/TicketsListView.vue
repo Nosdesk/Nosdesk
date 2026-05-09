@@ -40,6 +40,7 @@ import {
 import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
 import TicketsHeader from '@/components/views/TicketsHeader.vue'
 import TicketsTable from '@/components/views/TicketsTable.vue'
+import TicketsCardList from '@/components/views/TicketsCardList.vue'
 import TicketPreviewPane from '@/components/views/TicketPreviewPane.vue'
 import SavedViewEditorModal from '@/components/views/SavedViewEditorModal.vue'
 import type { SavedView } from '@/services/savedViewsService'
@@ -55,6 +56,7 @@ import {
 import { useTicketsGrouping } from '@/composables/useTicketsGrouping'
 import { useTicketsSummary } from '@/composables/useTicketsSummary'
 import { useSplitView } from '@/composables/useSplitView'
+import { onScopeDispose } from 'vue'
 import { useTicketSelection } from '@/composables/useTicketSelection'
 import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { FACET_ORDER } from '@/components/views/filterFacets'
@@ -171,12 +173,33 @@ const { segments } = useTicketsSummary(afterViewFilter)
 
 const selection = useTicketSelection(sortedCards)
 
+// Viewport-aware split-view gate. Per the useSplitView doc
+// comment, the composable doesn't enforce viewport-aware
+// clamping — the consumer falls back to single-pane below the
+// `md` breakpoint (768px) so phones don't try to render a
+// 360px-min preview pane next to the table. The user-toggled
+// `splitView.enabled` value persists; we just hide the layout
+// when there isn't room for it.
+const isWideViewport = ref<boolean>(true)
+{
+  const mql = typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)') : null
+  if (mql) {
+    isWideViewport.value = mql.matches
+    const onChange = (e: MediaQueryListEvent) => {
+      isWideViewport.value = e.matches
+    }
+    mql.addEventListener('change', onChange)
+    onScopeDispose(() => mql.removeEventListener('change', onChange))
+  }
+}
+const splitViewActive = computed(() => splitView.enabled.value && isWideViewport.value)
+
 // Auto-select the first row whenever split-view turns on so the
 // preview pane has something to render. Reconcile when the
 // visible card set shifts (filter / sort change drops the
 // selection if its row vanished).
 watch(
-  () => splitView.enabled.value,
+  splitViewActive,
   (on) => {
     if (on) selection.selectFirstIfNone()
     else selection.clearSelected()
@@ -275,7 +298,10 @@ function onKey(e: KeyboardEvent): void {
   // Split-view keyboard nav. Arrow keys + Enter operate on the
   // selection when the preview pane is open and the user isn't
   // typing into an input.
-  if (!splitView.enabled.value || inField) return
+  // Use the viewport-aware splitViewActive — keyboard nav for
+  // selected-row arrow keys only makes sense when the preview pane
+  // is actually visible.
+  if (!splitViewActive.value || inField) return
   if (e.key === 'ArrowDown' || e.key === 'j') {
     e.preventDefault()
     selection.move(1)
@@ -560,11 +586,22 @@ function startPaneResize(e: PointerEvent): void {
       </template>
     </div>
 
-    <!-- Split-view layout: table on the left, divider, preview
-         on the right. The table becomes the flex-1 element so
-         it gobbles available space; the preview is a fixed-width
-         column the user can resize. When split-view is off the
-         table renders standalone (single-pane). -->
+    <!-- Mobile: card list. Stacks each ticket's attributes
+         vertically so a phone shows ~5-6 facts per row without
+         horizontal scroll. Same `sortedCards` source so sort /
+         filter state matches the desktop table exactly. -->
+    <TicketsCardList
+      v-else-if="!isWideViewport"
+      :cards="sortedCards"
+      class="flex-1 min-h-0"
+      @open="open"
+    />
+
+    <!-- Desktop: split-view layout. Table on the left, divider,
+         preview on the right. The table becomes the flex-1
+         element so it gobbles available space; the preview is a
+         fixed-width column the user can resize. When split-view
+         is off the table renders standalone (single-pane). -->
     <div
       v-else
       class="flex-1 flex min-h-0 min-w-0"
@@ -580,7 +617,7 @@ function startPaneResize(e: PointerEvent): void {
         :col-style="colStyle"
         :buckets="buckets"
         :is-collapsed="grouping.isCollapsed"
-        :selected-id="splitView.enabled.value ? selection.selectedId.value : undefined"
+        :selected-id="splitViewActive ? selection.selectedId.value : undefined"
         class="flex-1 min-w-0"
         @open="open"
         @select="selection.setSelected"
@@ -596,7 +633,7 @@ function startPaneResize(e: PointerEvent): void {
            subtle fade). -->
       <Transition name="split-pane">
         <div
-          v-if="splitView.enabled.value"
+          v-if="splitViewActive"
           class="flex shrink-0"
         >
           <div
