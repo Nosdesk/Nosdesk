@@ -131,6 +131,45 @@ function pillValueSummary(facet: FilterFacet): string {
   return summariseSelected(facet, selectedFor(facet), optionsFor(facet))
 }
 
+/**
+ * Pre-computed pill descriptors. Each entry materialises options
+ * + selected + summary + text value per active facet exactly once
+ * per change of any underlying dep (`activeFacets`, `sourceCards`,
+ * the per-facet filter values), rather than re-running the four
+ * resolver functions inline on every parent re-render.
+ *
+ * Why it matters here: `optionsFor(facet)` reads `dataStore` which
+ * holds reactive caches of users / categories / cycles; an SSE
+ * burst that touches the user cache used to re-run every facet's
+ * option resolution on every TicketsHeader render even when the
+ * facet's value hadn't changed. Pinning the materialisation to a
+ * single computed lets Vue's tracking collapse the redundant work
+ * and re-renders only when the dep set actually changes.
+ *
+ * Keep `optionsFor` / `selectedFor` / `textValueFor` as standalone
+ * functions because AddFilterMenu receives them as prop functions
+ * and calls them in its own render scope — that surface stays a
+ * function-based API.
+ */
+const pills = computed(() => {
+  return props.activeFacets.map((facet) => {
+    const options = optionsFor(facet)
+    const selected = selectedFor(facet)
+    const textValue = textValueFor(facet)
+    const valueSummary = facet === 'title'
+      ? summariseSelected(facet, props.filterTitle, [])
+      : summariseSelected(facet, selected, options)
+    return {
+      facet,
+      label: FACET_META[facet].label,
+      options,
+      selected,
+      textValue,
+      valueSummary,
+    }
+  })
+})
+
 const toneClass = computed<(tone: 'default' | 'amber' | 'red') => string>(() => (tone) => {
   if (tone === 'red') return 'text-rose-600 dark:text-rose-400 font-medium'
   if (tone === 'amber') return 'text-amber-600 dark:text-amber-400'
@@ -214,18 +253,18 @@ defineExpose({ openAddFilter })
         class="flex items-center gap-1.5 flex-wrap"
       >
         <FilterPill
-          v-for="facet in activeFacets"
-          :key="facet"
-          :facet="facet"
-          :label="FACET_META[facet].label"
-          :value-summary="pillValueSummary(facet)"
-          :options="optionsFor(facet)"
-          :selected="selectedFor(facet)"
-          :text-value="textValueFor(facet)"
-          @toggle="(v) => emit('toggle-filter', facet, v)"
-          @clear="emit('clear-filter', facet)"
-          @set-text="(v) => emit('set-filter-text', facet, v)"
-          @remove="emit('clear-filter', facet)"
+          v-for="pill in pills"
+          :key="pill.facet"
+          :facet="pill.facet"
+          :label="pill.label"
+          :value-summary="pill.valueSummary"
+          :options="pill.options"
+          :selected="pill.selected"
+          :text-value="pill.textValue"
+          @toggle="(v) => emit('toggle-filter', pill.facet, v)"
+          @clear="emit('clear-filter', pill.facet)"
+          @set-text="(v) => emit('set-filter-text', pill.facet, v)"
+          @remove="emit('clear-filter', pill.facet)"
         />
       </TransitionGroup>
 
