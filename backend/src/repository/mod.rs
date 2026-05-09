@@ -21,6 +21,8 @@ pub mod passkey_credentials;
 pub mod saved_views;
 pub mod sla;
 pub mod sla_admin;
+pub mod tags;
+pub mod ticket_watchers;
 pub mod search_query_log;
 pub mod projects;
 pub mod sync_history;

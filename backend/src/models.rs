@@ -394,6 +394,91 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
     }
 }
 
+// === Ticket watchers =========================================
+//
+// Lets a user opt into notifications for a ticket without being
+// the requester or assignee. See migration
+// `2026-05-09-320000_ticket_watchers`.
+
+#[derive(Debug, Clone, Serialize, Deserialize, Insertable, Queryable)]
+#[diesel(table_name = crate::schema::ticket_watchers)]
+pub struct TicketWatcher {
+    pub ticket_id: i32,
+    pub user_uuid: Uuid,
+    pub created_at: DateTime<Utc>,
+    /// `true` when the watcher was added implicitly (e.g.
+    /// auto-watch on first comment), `false` when the user
+    /// explicitly toggled the bell. Used by the future "stop
+    /// auto-watching" preference.
+    pub auto_added: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::ticket_watchers)]
+pub struct NewTicketWatcher {
+    pub ticket_id: i32,
+    pub user_uuid: Uuid,
+    pub auto_added: bool,
+}
+
+// === Tags ====================================================
+//
+// Free-form, multi-valued labels on tickets — flexible second
+// axis to the fixed `category_id`. Workspace-scoped namespace;
+// admin / staff can create + assign. See migration
+// `2026-05-09-310000_ticket_tags`.
+
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::tags)]
+pub struct Tag {
+    pub id: i32,
+    pub name: String,
+    /// Display colour token. Same vocabulary as workflow_states
+    /// (slate / gray / blue / purple / green / amber / rose /
+    /// subtle). NULL means "use the neutral default."
+    pub color: Option<String>,
+    pub description: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub archived_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Insertable, AsChangeset)]
+#[diesel(table_name = crate::schema::tags)]
+pub struct NewTag {
+    pub name: String,
+    pub color: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::tags)]
+pub struct TagUpdate {
+    pub name: Option<String>,
+    pub color: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+}
+
+/// One row of the `ticket_tags` join. The repository never
+/// returns these directly — it returns either `Tag` rows for a
+/// ticket (via a join) or just the tag-id list.
+#[derive(Debug, Clone, Serialize, Deserialize, Insertable, Queryable)]
+#[diesel(table_name = crate::schema::ticket_tags)]
+pub struct TicketTag {
+    pub ticket_id: i32,
+    pub tag_id: i32,
+    pub created_by: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::ticket_tags)]
+pub struct NewTicketTag {
+    pub ticket_id: i32,
+    pub tag_id: i32,
+    pub created_by: Option<Uuid>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::workflow_states)]
 pub struct WorkflowState {
@@ -587,6 +672,13 @@ pub struct Ticket {
     /// occurrences point back at the template so the audit reads
     /// "this ticket was generated from #N".
     pub recurrence_template_id: Option<i32>,
+    /// Free-text "what fixed this?" capture. Surfaced prominently
+    /// on the detail view once the ticket lands in a terminal
+    /// workflow state. Separate from the comment thread because
+    /// the resolution is a structured fact, not a discussion. Empty
+    /// string normalises to NULL at the API boundary so the UI can
+    /// use a single null-check.
+    pub resolution_notes: Option<String>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -613,6 +705,7 @@ pub struct NewTicket {
     pub due_date: Option<NaiveDateTime>,
     pub recurrence_rule: Option<String>,
     pub recurrence_template_id: Option<i32>,
+    pub resolution_notes: Option<String>,
 }
 
 // Add a new struct for partial ticket updates
@@ -633,6 +726,11 @@ pub struct TicketUpdate {
     pub due_date: Option<Option<NaiveDateTime>>,
     pub recurrence_rule: Option<Option<String>>,
     pub recurrence_template_id: Option<Option<i32>>,
+    /// `Option<Option<String>>` semantics — outer None = leave as-is,
+    /// `Some(None)` = clear, `Some(Some(s))` = set. Empty string
+    /// normalises to `Some(None)` at the handler boundary so the
+    /// UI can post a single shape regardless of intent.
+    pub resolution_notes: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
@@ -916,6 +1014,17 @@ pub struct CompleteTicket {
     /// round-trip to recompute.
     #[serde(skip_serializing_if = "serde_json::Value::is_null")]
     pub sla: serde_json::Value,
+    /// Tag ids attached to the ticket. Frontend resolves each
+    /// id to a `Tag` row via the workspace tag store. Empty
+    /// array when no tags are attached. Sorted ascending for
+    /// stable rendering.
+    pub tag_ids: Vec<i32>,
+    /// Uuids of users watching the ticket. Drives the watch /
+    /// unwatch toggle button + the watchers list in the sidebar.
+    /// Sorted by watch-creation time so the list reads
+    /// chronologically. Comment notifications fan out to this
+    /// set in addition to the requester / assignee.
+    pub watcher_uuids: Vec<uuid::Uuid>,
 }
 
 /// Trimmed cycle projection for embedding inside a ticket detail

@@ -45,6 +45,8 @@ pub mod saved_views;
 pub mod cycles;
 pub mod sla;
 pub mod sync;
+pub mod tags;
+pub mod ticket_watchers;
 pub mod workflow_states;
 pub mod csp_reports;
 
@@ -307,7 +309,24 @@ pub async fn add_comment_to_ticket(
     match create_result {
         Ok(comment) => {
             debug!(comment_id = comment.id, "Created comment");
-            
+
+            // Auto-watch on first comment. Industry default
+            // (GitHub, Linear) — once a user engages with a
+            // ticket they probably want to hear about replies.
+            // `auto_added: true` distinguishes this implicit
+            // watch from an explicit bell-toggle so a future
+            // "stop auto-watching" preference can drop only the
+            // implicit ones. Errors here are non-fatal: a failed
+            // watch insert shouldn't fail the comment write.
+            if let Err(e) = crate::repository::ticket_watchers::add_watcher(
+                &mut conn,
+                ticket_id,
+                user_uuid_parsed,
+                true,
+            ) {
+                debug!(error = %e, "auto-watch on comment failed (non-fatal)");
+            }
+
             // Now associate any attachments with this comment
             let mut attachments = Vec::new();
             let mut attachment_errors = Vec::new();
@@ -541,6 +560,10 @@ pub async fn add_comment_to_ticket(
                 debug!(mentioned_users = ?mentioned_users, "Parsed @mentions from comment");
 
                 let notification_service = notification_service.clone();
+                // Cloned pool for the watchers lookup inside the
+                // spawned notification task. The outer `pool` is a
+                // web::Data Arc so the clone is cheap.
+                let pool_for_watchers = pool.clone();
                 tokio::spawn(async move {
                     let actor = NotificationActor {
                         uuid: commenter_uuid,
@@ -548,7 +571,18 @@ pub async fn add_comment_to_ticket(
                         avatar_thumb: commenter_avatar,
                     };
 
-                    // Collect recipients for CommentAdded (requester and assignee, excluding commenter and mentioned users)
+                    // Collect recipients for CommentAdded.
+                    // Three sources, deduped + filtered to exclude the
+                    // commenter and anyone already getting a Mention
+                    // notification from this same comment:
+                    //   1. Requester  — original ticket reporter.
+                    //   2. Assignee   — currently responsible.
+                    //   3. Watchers   — explicit subscribers via the
+                    //      bell toggle, plus any past commenter who
+                    //      was auto-watched.
+                    // Watchers ship in Phase C4 — this is the
+                    // notification fan-out that closes the feature
+                    // loop ("subscribe and get notified").
                     let mut comment_recipients = Vec::new();
                     if let Some(requester) = ticket_requester {
                         if requester != commenter_uuid && !mentioned_users.contains(&requester) {
@@ -559,6 +593,30 @@ pub async fn add_comment_to_ticket(
                         if assignee != commenter_uuid && !comment_recipients.contains(&assignee) && !mentioned_users.contains(&assignee) {
                             comment_recipients.push(assignee);
                         }
+                    }
+                    // Watchers — fan-out target for the bell-toggle
+                    // feature. Open a short-lived connection inside
+                    // the spawned task to keep the synchronous handler
+                    // path cheap. Failure here downgrades to "no
+                    // watcher notifications this round" rather than
+                    // blocking the comment.
+                    let watchers: Vec<Uuid> = (|| -> Result<Vec<Uuid>, ()> {
+                        let mut conn = pool_for_watchers.get().map_err(|_| ())?;
+                        crate::repository::ticket_watchers::watcher_uuids(&mut conn, ticket_id)
+                            .map_err(|_| ())
+                    })()
+                    .unwrap_or_default();
+                    for watcher in watchers {
+                        if watcher == commenter_uuid {
+                            continue;
+                        }
+                        if comment_recipients.contains(&watcher) {
+                            continue;
+                        }
+                        if mentioned_users.contains(&watcher) {
+                            continue;
+                        }
+                        comment_recipients.push(watcher);
                     }
 
                     // Send CommentAdded notification to requester/assignee

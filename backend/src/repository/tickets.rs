@@ -174,6 +174,8 @@ pub fn update_ticket_partial(
             "ticket.category_changed"
         } else if ticket_update.verification_state.is_some() {
             "ticket.verification_changed"
+        } else if ticket_update.resolution_notes.is_some() {
+            "ticket.resolution_notes_changed"
         } else {
             "ticket.updated"
         };
@@ -194,6 +196,7 @@ pub fn update_ticket_partial(
                     "category_id": result.category_id,
                     "verification_state": result.verification_state,
                     "due_date": result.due_date,
+                    "resolution_notes": result.resolution_notes,
                 }),
                 groups,
                 causation_id: None,
@@ -438,6 +441,10 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
         })
         .unwrap_or(serde_json::Value::Null);
 
+    let tag_ids = crate::repository::tags::tag_ids_for_ticket(conn, ticket_id).unwrap_or_default();
+    let watcher_uuids =
+        crate::repository::ticket_watchers::watcher_uuids(conn, ticket_id).unwrap_or_default();
+
     Ok(CompleteTicket {
         ticket,
         requester_user,
@@ -449,6 +456,8 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
         projects,
         cycle,
         sla,
+        tag_ids,
+        watcher_uuids,
     })
 }
 

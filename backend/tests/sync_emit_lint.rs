@@ -96,6 +96,13 @@ const AUDIT_ONLY: &[&str] = &[
     // Kept here so a future stray caller still passes the lint, but
     // new code should reach for the wired helper.
     "repository/users.rs::create_user",
+    // Tag CRUD — tags are NOT a sync aggregate (workspace config
+    // changes infrequently, picker re-fetches on demand). Ticket↔
+    // tag assignment IS sync-wired via the `ticket.tags_changed`
+    // event in `tags::set_tags_for_ticket`.
+    "repository/tags.rs::archive_tag",
+    "repository/tags.rs::create_tag",
+    "repository/tags.rs::update_tag",
 
     // Plugin local storage / activity log — covered by the audit_log
     // trigger on plugin_data and plugin_collection_rows.

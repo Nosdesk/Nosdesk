@@ -1098,6 +1098,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    tags (id) {
+        id -> Int4,
+        #[max_length = 64]
+        name -> Varchar,
+        #[max_length = 32]
+        color -> Nullable<Varchar>,
+        description -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        archived_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     ticket_categories (id) {
         id -> Int4,
         uuid -> Uuid,
@@ -1122,6 +1136,24 @@ diesel::table! {
         device_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    ticket_tags (ticket_id, tag_id) {
+        ticket_id -> Int4,
+        tag_id -> Int4,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    ticket_watchers (ticket_id, user_uuid) {
+        ticket_id -> Int4,
+        user_uuid -> Uuid,
+        created_at -> Timestamptz,
+        auto_added -> Bool,
     }
 }
 
@@ -1154,6 +1186,7 @@ diesel::table! {
         due_date -> Nullable<Timestamptz>,
         recurrence_rule -> Nullable<Text>,
         recurrence_template_id -> Nullable<Int4>,
+        resolution_notes -> Nullable<Text>,
     }
 }
 
@@ -1420,6 +1453,11 @@ diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_devices -> devices (device_id));
 diesel::joinable!(ticket_devices -> tickets (ticket_id));
 diesel::joinable!(ticket_devices -> users (created_by));
+diesel::joinable!(ticket_tags -> tags (tag_id));
+diesel::joinable!(ticket_tags -> tickets (ticket_id));
+diesel::joinable!(ticket_tags -> users (created_by));
+diesel::joinable!(ticket_watchers -> tickets (ticket_id));
+diesel::joinable!(ticket_watchers -> users (user_uuid));
 diesel::joinable!(tickets -> channels (origin_channel_id));
 diesel::joinable!(tickets -> ticket_categories (category_id));
 diesel::joinable!(tickets -> workflow_states (workflow_state_id));
@@ -1433,4 +1471,4 @@ diesel::joinable!(working_calendar_holidays -> working_calendars (calendar_id));
 diesel::joinable!(working_calendars -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,csp_reports,cycle_tickets,cycles,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,llm_config,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sla_policies,sync_actions,sync_delta_tokens,sync_history,system_meta,ticket_categories,ticket_devices,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,working_calendar_holidays,working_calendars,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,csp_reports,cycle_tickets,cycles,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,llm_config,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sla_policies,sync_actions,sync_delta_tokens,sync_history,system_meta,tags,ticket_categories,ticket_devices,ticket_tags,ticket_watchers,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,working_calendar_holidays,working_calendars,);

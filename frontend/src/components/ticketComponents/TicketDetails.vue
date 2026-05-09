@@ -17,6 +17,8 @@ import SectionCard from "@/components/common/SectionCard.vue";
 import Icon from "@/components/common/Icon.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import UserCell from "@/components/views/UserCell.vue";
+import TicketTagsField from "@/components/ticketComponents/TicketTagsField.vue";
+import TicketWatchersField from "@/components/ticketComponents/TicketWatchersField.vue";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
 import { useAuthStore } from "@/stores/auth";
@@ -105,6 +107,19 @@ const props = defineProps<{
       name: string;
       state: string;
     } | null;
+    /** Free-text "what fixed this?" capture. Surfaced as a
+     *  dedicated section in the sidebar; styled prominently
+     *  when the ticket has landed in a terminal workflow state
+     *  (done / cancelled). */
+    resolution_notes?: string | null;
+    /** Tag ids attached to this ticket. The TicketTagsField
+     *  component resolves each id to a Tag row via the workspace
+     *  tag store and renders the chip + picker. */
+    tag_ids?: number[];
+    /** Uuids of users watching this ticket. The TicketWatchersField
+     *  surface renders the bell toggle for the current user plus
+     *  an avatar row for the broader watcher set. */
+    watcher_uuids?: string[];
   };
   createdDate: string;
   modifiedDate: string;
@@ -131,6 +146,13 @@ const emit = defineEmits<{
   (e: "update:dueDate", value: string | null): void;
   /** RRULE string or null when cleared. */
   (e: "update:recurrenceRule", value: string | null): void;
+  /** Resolution notes — empty string normalises to null upstream
+   *  in `useTicketData` so this emit can use either shape. */
+  (e: "update:resolutionNotes", value: string | null): void;
+  /** Replace the ticket's tag set. Backend computes the diff. */
+  (e: "update:tag-ids", value: number[]): void;
+  /** Toggle the current user's watch status on this ticket. */
+  (e: "toggle-watch"): void;
 }>();
 
 const workflowStatesStore = useWorkflowStatesStore();
@@ -339,6 +361,39 @@ function openCycle() {
     void router.push('/cycles');
   }
 }
+
+// ---- Resolution notes -------------------------------------------
+//
+// Local mirror of the prop so the textarea can be controlled
+// without firing an emit per keystroke. We commit on blur (and
+// debounce naturally there) — same pattern Linear / Plain use
+// for free-text fields. Watching the prop keeps the local state
+// in sync when the ticket reloads (e.g. after a different actor's
+// update lands via SSE).
+const localResolutionNotes = ref<string>(props.ticket.resolution_notes ?? '');
+watchEffect(() => {
+  localResolutionNotes.value = props.ticket.resolution_notes ?? '';
+});
+
+function handleResolutionBlur() {
+  const next = localResolutionNotes.value.trim();
+  const current = (props.ticket.resolution_notes ?? '').trim();
+  if (next === current) return;
+  emit('update:resolutionNotes', next.length > 0 ? next : null);
+}
+
+// Terminal state lookup for the visual treatment. Workflow states
+// are workspace-configurable; their `category` (one of the six
+// system categories) tells us whether the state is terminal.
+// Falls back to "not terminal" when the workflow store hasn't
+// loaded yet — the user just gets the muted styling until the
+// store warms.
+const isTerminalState = computed<boolean>(() => {
+  const id = props.selectedWorkflowStateId;
+  if (id == null) return false;
+  const cat = workflowStatesStore.findById(id)?.category;
+  return cat === 'done' || cat === 'cancelled';
+});
 
 // ---- Audit timestamps -------------------------------------------
 //
@@ -760,6 +815,59 @@ watchEffect(async () => {
             >
               {{ ticket.cycle.name }}
             </button>
+          </div>
+
+          <!-- Tags. Workspace-scoped multi-valued labels — the
+               flexible second axis to the fixed Category. Always
+               render the section so the "Add tag" affordance is
+               discoverable; empty state shows just the trigger. -->
+          <TicketTagsField
+            :ticket-id="ticket.id"
+            :tag-ids="ticket.tag_ids ?? []"
+            @update:tag-ids="(v) => emit('update:tag-ids', v)"
+          />
+
+          <!-- Watchers. The "I want to be told about this without
+               owning it" affordance. Bell toggle for the current
+               user; avatar row for the broader set. Notifications
+               fan out server-side on each new comment. -->
+          <TicketWatchersField
+            :watcher-uuids="ticket.watcher_uuids ?? []"
+            @toggle="emit('toggle-watch')"
+          />
+
+          <!-- Resolution notes. Free-text "what fixed this?"
+               capture, distinct from the comment thread because
+               the resolution is a structured fact rather than
+               a discussion. Always render the section so techs
+               can pre-fill notes mid-investigation; visual
+               treatment elevates when the ticket has landed in a
+               terminal workflow state (done / cancelled) so the
+               closure surface reads as a finished record. -->
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center justify-between gap-2">
+              <h3
+                class="text-xs font-medium uppercase tracking-wide"
+                :class="isTerminalState ? 'text-primary' : 'text-tertiary'"
+              >Resolution</h3>
+              <span
+                v-if="isTerminalState"
+                class="text-[10px] uppercase tracking-wide font-semibold text-status-closed"
+              >Closed</span>
+            </div>
+            <textarea
+              v-model="localResolutionNotes"
+              :placeholder="isTerminalState
+                ? 'Capture what fixed this — the answer the next person will need.'
+                : 'Notes on the fix can be drafted here while you work the ticket.'"
+              rows="3"
+              maxlength="4000"
+              class="w-full bg-surface-alt rounded-lg border text-sm text-primary px-2.5 py-2 outline-none transition-colors resize-y min-h-[3.5rem] focus:border-accent"
+              :class="isTerminalState
+                ? 'border-default'
+                : 'border-subtle hover:border-default'"
+              @blur="handleResolutionBlur"
+            />
           </div>
 
           <!-- Audit / timestamps. Pairs each timestamp with the

@@ -294,6 +294,12 @@ fn stream_bootstrap(
         crate::repository::tickets::devices_summary_for_tickets(&mut conn, &ticket_ids)?;
     let cycle_membership =
         crate::repository::cycles::cycle_ids_for_tickets(&mut conn, &ticket_ids)?;
+    // Tag id list per ticket. Same batched-lookup pattern the
+    // cycle membership uses; empty Vec when a ticket has no tags.
+    let tag_membership =
+        crate::repository::tags::tag_ids_for_tickets(&mut conn, &ticket_ids)?;
+    let watcher_membership =
+        crate::repository::ticket_watchers::watcher_uuids_for_tickets(&mut conn, &ticket_ids)?;
     // Load every SLA policy + working calendar once; the
     // pill-computation loop below resolves each ticket against
     // them in memory.
@@ -360,6 +366,8 @@ fn stream_bootstrap(
             "cycle_id": cycle_membership.get(&t.id),
             "sla": sla,
             "recurrence_rule": t.recurrence_rule,
+            "tag_ids": tag_membership.get(&t.id).cloned().unwrap_or_default(),
+            "watcher_uuids": watcher_membership.get(&t.id).cloned().unwrap_or_default(),
             "recurrence_template_id": t.recurrence_template_id,
             "created_at": t.created_at,
             "updated_at": t.updated_at,

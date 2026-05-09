@@ -92,6 +92,22 @@ export interface Ticket {
    *  the same Breached / At Risk / On Track / Paused state as
    *  the list. Null when no policy / calendar applies. */
   sla?: SlaPayload | null
+  /** Free-text "what fixed this?" capture. Surfaced prominently
+   *  on the detail view once the ticket lands in a terminal
+   *  workflow state. Distinct from the comment thread because
+   *  the resolution is a structured fact, not a discussion.
+   *  Backend treats empty string and null both as "no notes". */
+  resolution_notes?: string | null
+  /** Tag ids attached to the ticket. Frontend resolves each id
+   *  to a `Tag` row via the workspace tag store. Empty array
+   *  when no tags are attached. */
+  tag_ids?: number[]
+  /** Uuids of users watching this ticket. Drives the watch /
+   *  unwatch toggle button + the watchers list in the sidebar.
+   *  The current user's presence in this array flips the bell
+   *  to "watching"; comment notifications fan out to every uuid
+   *  in this set (in addition to requester / assignee). */
+  watcher_uuids?: string[]
 }
 
 export interface RecentTicket {

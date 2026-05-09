@@ -304,6 +304,62 @@ export function useTicketData() {
     await updateTicketField("recurrence_rule", newRule);
   }
 
+  // Update resolution_notes. Empty string normalises to null at
+  // this boundary so the API + DB only see one shape for "no
+  // notes" — matches how the backend treats the column. The
+  // sidebar's textarea debounces saves, so we don't need to here.
+  async function updateResolutionNotes(value: string | null): Promise<void> {
+    const normalised = value && value.trim().length > 0 ? value : null;
+    await updateTicketField("resolution_notes", normalised);
+  }
+
+  // Update the ticket's tag set. Routes through a dedicated
+  // PUT endpoint (`/api/tickets/:id/tags`) rather than the
+  // generic update_ticket_partial path because tags live in a
+  // separate junction table — the backend transactionally
+  // computes the diff, applies it, and emits one
+  // `ticket.tags_changed` event with the new id list.
+  async function updateTags(tagIds: number[]): Promise<void> {
+    if (!ticket.value) return;
+    const ticketId = ticket.value.id;
+    try {
+      const { tagService } = await import("@/services/tagService");
+      const next = await tagService.setForTicket(ticketId, tagIds);
+      // Optimistic-mirror onto the local ticket ref so the chip
+      // row repaints without waiting for a refetch.
+      ticket.value = { ...ticket.value, tag_ids: next };
+    } catch (err) {
+      console.error("Failed to update tags", err);
+    }
+  }
+
+  // Toggle whether the current user is watching the ticket.
+  // Optimistic local update so the bell flips immediately;
+  // rolls back on network failure. The backend emits
+  // `ticket.watcher_added` / `.watcher_removed` so other tabs
+  // see the change via the sync stream.
+  async function toggleWatch(currentUserUuid: string): Promise<void> {
+    if (!ticket.value) return;
+    const ticketId = ticket.value.id;
+    const current = ticket.value.watcher_uuids ?? [];
+    const isWatching = current.includes(currentUserUuid);
+    const optimistic = isWatching
+      ? current.filter((u) => u !== currentUserUuid)
+      : [...current, currentUserUuid];
+    ticket.value = { ...ticket.value, watcher_uuids: optimistic };
+    try {
+      const { watcherService } = await import("@/services/watcherService");
+      if (isWatching) await watcherService.unwatch(ticketId);
+      else await watcherService.watch(ticketId);
+    } catch (err) {
+      console.error("Failed to toggle watch", err);
+      // Revert on error.
+      if (ticket.value) {
+        ticket.value = { ...ticket.value, watcher_uuids: current };
+      }
+    }
+  }
+
   // Update category
   async function updateCategory(newCategory: string): Promise<void> {
     const categoryId = newCategory ? parseInt(newCategory, 10) : null;
@@ -349,6 +405,9 @@ export function useTicketData() {
     updateTitle,
     updateDueDate,
     updateRecurrenceRule,
+    updateResolutionNotes,
+    updateTags,
+    toggleWatch,
     deleteTicket,
   };
 }

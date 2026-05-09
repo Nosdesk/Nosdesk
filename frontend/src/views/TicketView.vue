@@ -79,8 +79,20 @@ const {
     updateAssignee,
     updateDueDate,
     updateRecurrenceRule,
+    updateResolutionNotes,
+    updateTags,
+    toggleWatch,
     deleteTicket,
 } = useTicketData();
+
+// Sidebar's bell toggle emits without arguments — the composable
+// needs the current user uuid to know whose watch flag to flip.
+// Wrapping here keeps that lookup out of the child component.
+function handleToggleWatch() {
+    const uuid = authStore.user?.uuid;
+    if (!uuid) return;
+    void toggleWatch(uuid);
+}
 
 // Categories
 const categories = ref<TicketCategory[]>([]);
@@ -591,6 +603,9 @@ usePageCreateAction(handleCreateTicket);
                             @update:assignee="updateAssignee"
                             @update:dueDate="updateDueDate"
                             @update:recurrenceRule="updateRecurrenceRule"
+                            @update:resolutionNotes="updateResolutionNotes"
+                            @update:tag-ids="updateTags"
+                            @toggle-watch="handleToggleWatch"
                             @update:title="handleTitleUpdate"
                             @titleFocus="handleTitleFocus"
                             @titleBlur="handleTitleBlur"

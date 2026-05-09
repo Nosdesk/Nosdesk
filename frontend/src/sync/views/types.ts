@@ -99,6 +99,12 @@ export interface CardData {
    * pattern is visible at a glance. */
   recurrence_rule?: string | null
   recurrence_template_id?: number | null
+  /** Tag ids attached to the ticket. Frontend resolves each id
+   *  to a `Tag` row via the workspace tag store. Empty array
+   *  when no tags are attached. The list view doesn't render
+   *  these inline by default (saves horizontal space); detail
+   *  view + filter pills are the primary consumers. */
+  tag_ids?: number[]
 }
 
 // ===================== ViewShape =====================
