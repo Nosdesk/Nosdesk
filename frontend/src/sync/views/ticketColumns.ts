@@ -116,7 +116,13 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     defaultWidthPx: 140,
     minWidthPx: 90,
     maxWidthPx: 240,
-    defaultVisible: true,
+    // Default-hidden because the always-present 24px state-cell
+    // (rendered by every TicketRow as a leading colour-coded dot)
+    // already carries the workflow-state signal at-a-glance. Users
+    // who want the explicit text label can re-enable via the
+    // column-visibility menu — Linear's "icon-only" mode default,
+    // text label is opt-in.
+    defaultVisible: false,
     sortKey: 'workflow_state.name',
     align: 'left',
     description: 'Workflow state',

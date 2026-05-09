@@ -603,10 +603,34 @@ export const useDataStore = defineStore('data', () => {
     // Direct batch API call (bypasses cache)
     getUsersBatchDirect: userService.getUsersBatch,
 
-    // Synchronous getter for cached user (returns undefined if not in cache)
+    // Synchronous getter for cached user. Returns the user only
+    // when a real row was loaded — entries that completed with
+    // an error (most commonly "User not found", which fires when
+    // the assignee_uuid references a deleted or never-existed
+    // user) get a placeholder `{} as User` written into `data` by
+    // processBatchRequests; returning that to consumers used to
+    // leave the UserCell skeleton stuck forever because `name`
+    // resolved to undefined and the cell couldn't tell loading
+    // from missing apart. The `data.uuid` check narrows to "this
+    // is a real user row," not a TypeScript-cast empty placeholder.
     getCachedUserByUuid: (uuid: string): User | undefined => {
       const cached = individualUsersCache.value.get(uuid)
-      return cached?.data
+      if (!cached || cached.error || !cached.data?.uuid) return undefined
+      return cached.data
+    },
+
+    // Loading state for a user. Lets consumers distinguish:
+    //   'loading'  — request in flight, show a skeleton
+    //   'resolved' — user is in the cache and renderable
+    //   'missing'  — request completed but no user (deleted /
+    //                permission denied / orphan reference); show
+    //                a fallback rather than an indefinite skeleton
+    getUserStatus: (uuid: string): 'loading' | 'resolved' | 'missing' => {
+      const cached = individualUsersCache.value.get(uuid)
+      if (!cached) return 'loading'
+      if (cached.loading) return 'loading'
+      if (cached.error || !cached.data?.uuid) return 'missing'
+      return 'resolved'
     },
 
     // Stats

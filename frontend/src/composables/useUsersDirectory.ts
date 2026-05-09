@@ -29,33 +29,58 @@ import { computed, type ComputedRef } from 'vue'
 import { useDataStore } from '@/stores/dataStore'
 import type { User } from '@/types/user'
 
-const computedCache = new Map<string, ComputedRef<User | null>>()
+export type UserStatus = 'loading' | 'resolved' | 'missing'
+
+export interface UserHandle {
+  user: ComputedRef<User | null>
+  status: ComputedRef<UserStatus>
+}
+
+const handleCache = new Map<string, UserHandle>()
 const requested = new Set<string>()
 
 export function useUsersDirectory() {
   const dataStore = useDataStore()
 
-  function getUser(uuid: string): ComputedRef<User | null> {
-    let entry = computedCache.get(uuid)
-    if (!entry) {
-      // Reading from the dataStore's reactive Map inside this
-      // computed wires the dep automatically — when the fetch
-      // finishes and the row lands in the cache, this computed
-      // re-evaluates and any consuming render updates in place.
-      entry = computed<User | null>(
-        () => dataStore.getCachedUserByUuid(uuid) ?? null,
-      )
-      computedCache.set(uuid, entry)
+  /** Reactive handle for a uuid: `user` resolves to the User row
+   * when the cache has it (null otherwise), and `status`
+   * distinguishes `loading` / `resolved` / `missing`. Consumers
+   * should bind on `status` to decide between rendering a
+   * skeleton (loading) vs a fallback (missing) vs the user
+   * (resolved). Without the status split, a fetch that completes
+   * with "user not found" leaves consumers stuck in a skeleton
+   * forever because `user` stays null indistinguishably from
+   * the in-flight state. */
+  function getUserHandle(uuid: string): UserHandle {
+    let handle = handleCache.get(uuid)
+    if (!handle) {
+      // Both computeds read from the dataStore's reactive Map,
+      // so they re-evaluate when the fetch lands without any
+      // explicit subscription dance.
+      handle = {
+        user: computed<User | null>(
+          () => dataStore.getCachedUserByUuid(uuid) ?? null,
+        ),
+        status: computed<UserStatus>(() => dataStore.getUserStatus(uuid)),
+      }
+      handleCache.set(uuid, handle)
     }
     if (!requested.has(uuid)) {
       requested.add(uuid)
       void dataStore.getUserByUuid(uuid).catch(() => {
-        // Errors logged inside the store; nothing useful to do
-        // here besides letting the cell render its '?' state.
+        // Errors logged inside the store; the handle's `status`
+        // composable surfaces the missing state to callers.
       })
     }
-    return entry
+    return handle
   }
 
-  return { getUser }
+  /** Back-compat: original API returned just the user computed.
+   * New call sites should prefer `getUserHandle` so they can
+   * distinguish loading from missing. */
+  function getUser(uuid: string): ComputedRef<User | null> {
+    return getUserHandle(uuid).user
+  }
+
+  return { getUser, getUserHandle }
 }

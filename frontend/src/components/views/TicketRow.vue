@@ -1,0 +1,300 @@
+<script setup lang="ts">
+/**
+ * Single ticket row inside the desktop tickets table. Extracted
+ * from TicketsTable.vue to eliminate the ~230 LOC duplication
+ * between the flat-list and grouped-list paths — they used to
+ * inline the same cell-rendering switch twice, which silently
+ * caused a column-rendering tweak in one path to skip the other
+ * (the recent priority-helper refactor missed an import here for
+ * exactly that reason).
+ *
+ * Presentational. Holds no state of its own; takes the card and
+ * the column definitions, emits a click. The parent decides
+ * whether the click should select (split-view) or navigate
+ * (single-pane) — see TicketsTable's onRowClick.
+ *
+ * v-memo lives at the parent's <TicketRow> invocation, not
+ * inside this component, because v-memo only works on the same
+ * element as the v-for (per Vue's performance guide). The
+ * parent's `rowMemoKey(card)` array stays the source of truth
+ * for which field changes trigger a re-render of which row.
+ */
+import Icon from '@/components/common/Icon.vue'
+import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
+import UserCell from '@/components/views/UserCell.vue'
+import { paletteForColor } from '@/utils/workflowColors'
+import { priorityForBadge, rowSlaToneClass } from '@/utils/priorityHelpers'
+import { deriveSlaState } from '@/composables/useSlaState'
+import {
+  formatCompactRelativeTime,
+  formatCompactDate,
+} from '@/utils/dateUtils'
+import type { ListColumn } from '@/sync/views/ticketColumns'
+import type { CardData } from '@/sync/views/types'
+
+const props = defineProps<{
+  card: CardData
+  visibleColumns: ListColumn[]
+  rowClass: string
+  cellPadding: string
+  colStyle: (col: ListColumn) => Record<string, string>
+  /** True when this row is the currently-selected ticket in
+   * split-view mode. Drives the selected-row visual treatment.
+   * Parent computes the boolean rather than passing the
+   * selected id so this component never re-renders just because
+   * a sibling row got selected. */
+  selected?: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'click', id: number): void
+}>()
+
+function relativeTime(iso: string): string {
+  return formatCompactRelativeTime(iso)
+}
+
+function shortDate(iso: string | null | undefined): string {
+  return formatCompactDate(iso) || '—'
+}
+
+function slaToneClass(card: CardData): string {
+  return deriveSlaState(card)?.toneClass ?? 'text-tertiary'
+}
+
+function slaLabel(card: CardData): string {
+  return deriveSlaState(card)?.compactLabel ?? '—'
+}
+
+function rowToneClass(card: CardData): string {
+  return rowSlaToneClass(card)
+}
+
+/** Single-letter RRULE frequency code for the dense Recur
+ * column. Matches the abbreviated treatment used in the
+ * surrounding columns (1w, 3h, etc.) — the column is narrow
+ * and a one-character glyph reads as a chip without crowding. */
+function recurrenceLabel(rule: string | null | undefined): string {
+  if (!rule) return ''
+  const freq = rule
+    .split(';')
+    .map((p) => p.trim())
+    .find((p) => p.toUpperCase().startsWith('FREQ='))
+    ?.split('=')[1]
+    ?.toUpperCase()
+  if (freq === 'DAILY') return 'D'
+  if (freq === 'WEEKLY') return 'W'
+  if (freq === 'MONTHLY') return 'M'
+  if (freq === 'YEARLY') return 'Y'
+  return '↻'
+}
+</script>
+
+<template>
+  <tr
+    class="cursor-pointer transition-colors group relative"
+    :class="[
+      rowClass,
+      selected ? 'bg-accent/10 hover:bg-accent/15' : 'hover:bg-surface-hover',
+    ]"
+    @click="emit('click', card.id)"
+  >
+    <!--
+      Leading state cell. Always-present 24px-wide indicator that
+      encodes workflow state via a colour-coded dot + carries the
+      conditional SLA tone strip as a left-edge overlay. Lives
+      outside the column-customisation v-for because (a) it's
+      non-removable — the row's identity-anchor across all column
+      configs — and (b) the user can hide the labelled Status
+      column without losing the at-a-glance state cue. Linear's
+      "icon-only" mode pattern.
+
+      Pattern recognition: advanced users learn the colour →
+      state mapping the same way they learn keyboard shortcuts;
+      the dedicated leading position makes it the row's
+      identifying anchor when scanning a 30-row queue.
+
+      The 3px SLA stripe layers on the cell's left edge as the
+      urgency overlay, only present when rowToneClass returns a
+      class. Two visual channels in 24px: peripheral (stripe at
+      the very edge) for urgency, foveal (centred dot) for
+      identity.
+    -->
+    <td
+      class="col-state border-b border-subtle/40 align-middle relative p-0"
+      style="width: 24px; min-width: 24px; max-width: 24px"
+    >
+      <span
+        v-if="rowToneClass(card)"
+        class="absolute left-0 top-0 bottom-0 w-[3px]"
+        :class="rowToneClass(card)"
+        aria-hidden="true"
+      />
+      <span class="flex items-center justify-center h-full">
+        <span
+          class="inline-block w-3 h-3 rounded-full"
+          :class="paletteForColor(card.workflow_state.color).solid"
+          :title="card.workflow_state.name"
+          aria-hidden="true"
+        />
+      </span>
+    </td>
+
+    <td
+      v-for="col in visibleColumns"
+      :key="col.id"
+      class="border-b border-subtle/40 align-middle relative"
+      :class="[
+        `col-${col.id}`,
+        cellPadding,
+        col.align === 'center' && 'text-center',
+        col.align === 'right' && 'text-right',
+      ]"
+      :style="colStyle(col)"
+    >
+      <template v-if="col.id === 'id'">
+        <span class="text-tertiary font-mono text-[11px] tabular-nums">#{{ card.id }}</span>
+      </template>
+
+      <template v-else-if="col.id === 'title'">
+        <!-- Title cell is title. Workflow state lives in the
+             Status column, priority in the Priority column —
+             duplicating them as inline leading indicators created
+             visual redundancy AND misaligned the title text from
+             row to row (and from the header label) depending on
+             which optionals were present. Trailing position keeps
+             the rare recurrence + SLA signals visible without
+             disturbing the primary scan target. -->
+        <div class="flex items-center gap-2 min-w-0">
+          <span
+            class="truncate min-w-0 font-medium text-primary flex-1"
+            :title="card.title"
+          >{{ card.title }}</span>
+          <span
+            v-if="card.recurrence_rule"
+            class="text-tertiary text-xs leading-none shrink-0"
+            title="Recurring ticket"
+          >↻</span>
+          <span
+            v-if="card.sla?.breached"
+            class="text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
+            title="SLA breached"
+          >SLA</span>
+        </div>
+      </template>
+
+      <template v-else-if="col.id === 'workflow_state'">
+        <span class="inline-flex items-center gap-1.5 text-xs text-secondary">
+          <span
+            class="inline-block w-2 h-2 rounded-full shrink-0"
+            :class="paletteForColor(card.workflow_state.color).solid"
+            aria-hidden="true"
+          />
+          <span class="truncate">{{ card.workflow_state.name }}</span>
+        </span>
+      </template>
+
+      <template v-else-if="col.id === 'priority'">
+        <PriorityIndicator
+          v-if="priorityForBadge(card.priority)"
+          :priority="priorityForBadge(card.priority)!"
+          size="xs"
+        />
+        <span v-else class="text-xs text-tertiary">—</span>
+      </template>
+
+      <template v-else-if="col.id === 'assignee'">
+        <UserCell :uuid="card.assignee_uuid" />
+      </template>
+
+      <template v-else-if="col.id === 'requester'">
+        <UserCell :uuid="card.requester_uuid" />
+      </template>
+
+      <template v-else-if="col.id === 'category'">
+        <span
+          v-if="card.category_id != null"
+          class="text-[11px] text-secondary bg-surface-hover rounded px-1.5 py-0.5"
+        >#{{ card.category_id }}</span>
+        <span v-else class="text-xs text-tertiary">—</span>
+      </template>
+
+      <template v-else-if="col.id === 'cycle'">
+        <span
+          v-if="card.cycle_id != null"
+          class="text-[11px] text-accent bg-accent/10 rounded px-1.5 py-0.5"
+          title="Belongs to a cycle"
+        >cycle #{{ card.cycle_id }}</span>
+        <span v-else class="text-xs text-tertiary">—</span>
+      </template>
+
+      <template v-else-if="col.id === 'due_date'">
+        <span
+          class="text-[11px] tabular-nums"
+          :class="card.due_date ? 'text-secondary' : 'text-tertiary'"
+          :title="card.due_date ? new Date(card.due_date).toLocaleString() : 'No due date'"
+        >{{ shortDate(card.due_date) }}</span>
+      </template>
+
+      <template v-else-if="col.id === 'last_activity'">
+        <span
+          class="text-[11px] text-tertiary tabular-nums"
+          :title="new Date(card.last_activity_at).toLocaleString()"
+        >{{ relativeTime(card.last_activity_at) }}</span>
+      </template>
+
+      <template v-else-if="col.id === 'created_at'">
+        <span
+          class="text-[11px] text-tertiary tabular-nums"
+          :title="new Date(card.created_at).toLocaleString()"
+        >{{ relativeTime(card.created_at) }}</span>
+      </template>
+
+      <template v-else-if="col.id === 'sla'">
+        <span
+          v-if="card.sla"
+          class="inline-flex items-center gap-1 text-[11px] tabular-nums"
+          :class="slaToneClass(card)"
+          :title="card.sla.breached ? 'Breached' : (card.sla.paused ? 'Paused' : 'On track')"
+        >
+          <Icon name="clock" class="w-3 h-3" />
+          {{ slaLabel(card) }}
+        </span>
+        <span v-else class="text-xs text-tertiary">—</span>
+      </template>
+
+      <template v-else-if="col.id === 'kb_gap'">
+        <span
+          v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
+          class="text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
+          :class="card.kb_gap_signal === 'strong'
+            ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+            : 'bg-surface-hover text-secondary'"
+          :title="`${card.kb_gap_signal} knowledge gap signal`"
+        >KB</span>
+        <span v-else class="text-xs text-tertiary">—</span>
+      </template>
+
+      <template v-else-if="col.id === 'devices'">
+        <span
+          v-if="card.affected_devices && card.affected_devices.count > 0"
+          class="text-[11px] text-secondary tabular-nums inline-flex items-center gap-1"
+          :title="card.affected_devices.first?.name ?? `${card.affected_devices.count} device(s)`"
+        >
+          <Icon name="device" class="w-3 h-3" />
+          {{ card.affected_devices.count }}
+        </span>
+        <span v-else class="text-xs text-tertiary">—</span>
+      </template>
+
+      <template v-else-if="col.id === 'recurrence'">
+        <span
+          v-if="card.recurrence_rule"
+          class="text-[10px] font-medium rounded px-1.5 py-0.5 bg-violet-500/15 text-violet-700 dark:text-violet-300"
+          :title="card.recurrence_rule"
+        >{{ recurrenceLabel(card.recurrence_rule) }}</span>
+        <span v-else class="text-xs text-tertiary">—</span>
+      </template>
+    </td>
+  </tr>
+</template>

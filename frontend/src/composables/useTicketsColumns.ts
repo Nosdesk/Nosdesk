@@ -226,7 +226,19 @@ export function useTicketsColumns(activeView: ComputedRef<ResolvedView>): UseTic
 
   function colStyle(col: ListColumn): Record<string, string> {
     if (col.flex) {
-      return { width: 'auto', 'min-width': '160px', 'max-width': '60ch' }
+      // Title (the only flex column today) absorbs leftover width
+      // and clamps at a hard 280px floor — below that ticket
+      // titles stop being readable. The earlier 160px floor was
+      // the original bug-in-miniature: title was the only column
+      // that *could* shrink, and the floor was too low to stop
+      // it. The 60ch max-cap is dropped — there's no good reason
+      // to throttle title width on wide monitors.
+      //
+      // The truncation lives on an inner span that needs its
+      // own `min-width: 0` (see TicketsTable.vue's title cell)
+      // because flex / table cells with a min-width otherwise
+      // refuse to ellipsis their text content.
+      return { width: 'auto', 'min-width': '280px' }
     }
     const w = layout.widthFor(col)
     return { width: `${w}px`, 'min-width': `${w}px`, 'max-width': `${w}px` }

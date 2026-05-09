@@ -38,9 +38,11 @@ const props = withDefaults(defineProps<{
   clickable: false,
 })
 
-const { getUser } = useUsersDirectory()
+const { getUserHandle } = useUsersDirectory()
 
-const user = computed(() => (props.uuid ? getUser(props.uuid).value : null))
+const handle = computed(() => (props.uuid ? getUserHandle(props.uuid) : null))
+const user = computed(() => handle.value?.user.value ?? null)
+const status = computed(() => handle.value?.status.value ?? 'loading')
 
 const userName = computed<string | undefined>(() => user.value?.name ?? undefined)
 
@@ -60,20 +62,25 @@ const avatarSrc = computed<string | null>(
       :clickable="clickable"
     />
     <template v-if="!avatarOnly">
-      <!-- Skeleton bar while the user is resolving — matches the
-           UserAvatar skeleton's tone so the cell reads as one
-           loading affordance rather than two. Width fixed to
-           ~10ch so the row doesn't reflow when the real name
-           lands. -->
+      <!-- Three rendering states keyed off the directory's status,
+           not just the presence of a name. Without this split, a
+           fetch that completes with "user not found" left the cell
+           in skeleton forever because `userName` stayed undefined
+           and the cell couldn't distinguish loading from missing. -->
       <span
-        v-if="!userName"
+        v-if="status === 'loading'"
         class="h-2.5 w-20 rounded bg-surface-alt animate-pulse shrink-0"
         aria-hidden="true"
       />
       <span
-        v-else
+        v-else-if="status === 'resolved'"
         class="truncate text-[11px] text-secondary"
       >{{ userName }}</span>
+      <span
+        v-else
+        class="text-[11px] text-tertiary italic shrink-0"
+        title="This user no longer exists"
+      >Unknown</span>
     </template>
   </div>
   <span v-else class="text-xs text-tertiary italic">—</span>
