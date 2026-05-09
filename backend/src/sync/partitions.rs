@@ -56,6 +56,41 @@ struct AttachCheck {
     attached: bool,
 }
 
+/// Postgres identifiers are formatted directly into DDL strings here
+/// (binds don't apply to identifiers), so any caller that hands user
+/// input to these helpers becomes a SQL-injection vector. Today every
+/// caller passes static literals (`"sync_actions"`, `"audit_log"`,
+/// `"occurred_at"`, plus the chrono-formatted partition name), but
+/// the type signature is just `&str`. This validator forecloses the
+/// foot-gun: identifiers must match `^[a-z_][a-z0-9_]{0,62}$`. The
+/// 63-char limit matches Postgres' `NAMEDATALEN - 1` truncation
+/// boundary.
+fn validate_identifier(s: &str) -> Result<(), diesel::result::Error> {
+    use diesel::result::{DatabaseErrorKind, Error};
+
+    if s.is_empty() || s.len() > 63 {
+        return Err(Error::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new(format!("invalid identifier length: {:?}", s)),
+        ));
+    }
+    let mut chars = s.chars();
+    let first = chars.next().unwrap();
+    if !(first.is_ascii_lowercase() || first == '_') {
+        return Err(Error::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new(format!("invalid identifier first char: {:?}", s)),
+        ));
+    }
+    if !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+        return Err(Error::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new(format!("invalid identifier chars: {:?}", s)),
+        ));
+    }
+    Ok(())
+}
+
 /// Returns true if `child` is already attached as a partition of
 /// `parent`. Uses `to_regclass` so the lookup gracefully returns
 /// false when either table doesn't exist yet.
@@ -87,6 +122,10 @@ fn ensure_one_partition(
     from: NaiveDate,
     to: NaiveDate,
 ) -> Result<(), diesel::result::Error> {
+    validate_identifier(parent)?;
+    validate_identifier(child)?;
+    validate_identifier(time_col)?;
+
     if is_attached(conn, parent, child)? {
         return Ok(());
     }
@@ -258,6 +297,30 @@ mod tests {
                 "{name} should be attached as a partition of {parent}"
             );
         }
+    }
+
+    #[test]
+    fn validate_identifier_accepts_table_names_used_in_practice() {
+        assert!(validate_identifier("sync_actions").is_ok());
+        assert!(validate_identifier("audit_log").is_ok());
+        assert!(validate_identifier("occurred_at").is_ok());
+        assert!(validate_identifier("sync_actions_2026_05").is_ok());
+        assert!(validate_identifier("_leading_underscore").is_ok());
+    }
+
+    #[test]
+    fn validate_identifier_rejects_injection_attempts() {
+        // Each of these would, if format!'d into DDL, land in a
+        // place a real attacker would target.
+        assert!(validate_identifier("").is_err());
+        assert!(validate_identifier("Capitalised").is_err());
+        assert!(validate_identifier("with-dash").is_err());
+        assert!(validate_identifier("with space").is_err());
+        assert!(validate_identifier("trailing;DROP TABLE").is_err());
+        assert!(validate_identifier("'quoted'").is_err());
+        assert!(validate_identifier("9_leading_digit").is_err());
+        // 64 chars: just past the Postgres NAMEDATALEN-1 boundary.
+        assert!(validate_identifier(&"a".repeat(64)).is_err());
     }
 
     /// The redundant CHECK constraint added during the lock-friendly
