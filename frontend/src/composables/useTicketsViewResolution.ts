@@ -7,8 +7,13 @@
  * Resolution precedence:
  *   1. `?view=` matches a built-in view id           -> built-in
  *   2. `?view=` matches a saved-view uuid            -> saved
- *   3. Workspace default saved view (is_default)     -> saved
- *   4. MY_QUEUE_VIEW                                 -> built-in
+ *   3. MY_OPEN_VIEW                                  -> built-in
+ *
+ * The earlier "workspace default saved view (is_default)" tier was
+ * removed 2026-05-09 along with the `is_default` column itself —
+ * see `models::SavedView` for the rationale. There is now exactly
+ * one default (MY_OPEN, with smart fall-through to ALL_ACTIVE in
+ * TicketsListView when empty), no per-saved-view default-promotion.
  *
  * Saved views the user can switch into are filtered to list /
  * calendar shapes only — board / gantt / cycles live on
@@ -20,7 +25,7 @@ import { useSavedViewsStore } from '@/stores/savedViews'
 import {
   BUILTIN_VIEWS,
   findBuiltinView,
-  MY_QUEUE_VIEW,
+  MY_OPEN_VIEW,
   type BuiltInView,
 } from '@/sync/views/builtinViews'
 import type { ViewSwitcherItem } from '@/components/views/ViewSwitcher.vue'
@@ -85,21 +90,13 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     }),
   )
 
-  const workspaceDefault = computed<SavedView | null>(
-    () =>
-      savedViewsRef.value.find(
-        (v) => v.scope === 'workspace' && v.is_default && v.archived_at == null,
-      ) ?? null,
-  )
-
   const activeView = computed<ResolvedView>(() => {
     const requested = (route.query.view as string | undefined) ?? ''
     const builtin = findBuiltinView(requested)
     if (builtin) return fromBuiltin(builtin)
     const saved = savedViews.value.find((v) => v.uuid === requested)
     if (saved) return fromSaved(saved)
-    if (workspaceDefault.value) return fromSaved(workspaceDefault.value)
-    return fromBuiltin(MY_QUEUE_VIEW)
+    return fromBuiltin(MY_OPEN_VIEW)
   })
 
   const switcherItems = computed<ViewSwitcherItem[]>(() => {
@@ -113,9 +110,7 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
       private: 'Private',
     } as const
     for (const scope of ['workspace', 'project', 'private'] as const) {
-      const subset = savedViewsRef.value.filter(
-        (v) => v.scope === scope && v.archived_at == null,
-      )
+      const subset = savedViewsRef.value.filter((v) => v.scope === scope)
       for (const v of subset) {
         items.push({
           id: v.uuid,

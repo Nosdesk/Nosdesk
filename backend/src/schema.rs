@@ -928,10 +928,8 @@ diesel::table! {
         shape -> Jsonb,
         filter -> Jsonb,
         created_by -> Uuid,
-        is_default -> Bool,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        archived_at -> Nullable<Timestamptz>,
     }
 }
 

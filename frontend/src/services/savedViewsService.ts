@@ -10,10 +10,8 @@ export interface SavedView {
   shape: ViewShape
   filter: FilterState
   created_by: string
-  is_default: boolean
   created_at: string
   updated_at: string
-  archived_at: string | null
 }
 
 export interface CreateSavedViewBody {
@@ -22,17 +20,12 @@ export interface CreateSavedViewBody {
   name: string
   shape: ViewShape
   filter: FilterState
-  is_default?: boolean
 }
 
 export interface UpdateSavedViewBody {
   name?: string
   shape?: ViewShape
   filter?: FilterState
-  /** Only `true` is meaningful here. The backend rejects `false` —
-   * unsetting a default means promoting a different view, not
-   * flipping this one off. */
-  is_default?: true
 }
 
 export const savedViewsService = {
@@ -57,7 +50,7 @@ export const savedViewsService = {
     return data
   },
 
-  async archive(uuid: string): Promise<void> {
+  async delete(uuid: string): Promise<void> {
     await apiClient.delete(`/saved-views/${uuid}`)
   },
 }

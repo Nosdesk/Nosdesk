@@ -8,10 +8,10 @@
  * app's menus use (commands palette, dashboard widget menus,
  * etc.).
  *
- * Per-view edit affordances (rename / archive) live as menu
- * items prefixed by the view name when `editable` is set —
- * exposes them without a custom hover-row pattern that wouldn't
- * survive on touch devices.
+ * Per-view edit affordances live as a single "Edit view…" menu
+ * item under the active row when `editable` is set — opens the
+ * SavedViewEditorModal where rename + delete are concentrated.
+ * Touch-friendly without a hover-row pattern.
  */
 import { computed, ref } from 'vue'
 import Icon from '@/components/common/Icon.vue'
@@ -25,8 +25,8 @@ export interface ViewSwitcherItem {
   /** Optional grouping label; consecutive items with the same
    * group key render under a shared heading. */
   group?: string
-  /** When true, rename / archive entries surface in the menu
-   * tail. Built-in views set this false. */
+  /** When true, an "Edit view…" entry surfaces in the menu tail
+   * when this row is active. Built-in views set this false. */
   editable?: boolean
 }
 
@@ -44,8 +44,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: 'select', id: string): void
-  (e: 'rename', id: string): void
-  (e: 'archive', id: string): void
+  (e: 'edit', id: string): void
 }>()
 
 const triggerRef = ref<HTMLElement | null>(null)
@@ -61,9 +60,8 @@ const active = computed<ViewSwitcherItem | undefined>(() =>
 )
 
 /** Flatten the grouped item list into the MenuItem array
- * MenuList expects, inserting headings as group changes and
- * trailing rename / archive entries for editable rows under
- * a divider. */
+ * MenuList expects, inserting headings as group changes and a
+ * single trailing "Edit view…" entry for the active editable row. */
 const menuItems = computed<MenuItem[]>(() => {
   const out: MenuItem[] = []
   let lastGroup: string | undefined
@@ -82,8 +80,11 @@ const menuItems = computed<MenuItem[]>(() => {
     (i) => i.id === props.activeId && i.editable,
   )
   if (editableActive) {
-    out.push({ id: `__rename:${editableActive.id}`, label: `Rename "${editableActive.name}"`, divider: true })
-    out.push({ id: `__archive:${editableActive.id}`, label: `Archive "${editableActive.name}"`, danger: true })
+    out.push({
+      id: `__edit:${editableActive.id}`,
+      label: 'Edit view…',
+      divider: true,
+    })
   }
   return out
 })
@@ -94,13 +95,8 @@ function handleSelect(id: string): void {
     open.value = false
     return
   }
-  if (id.startsWith('__rename:')) {
-    emit('rename', id.slice('__rename:'.length))
-    open.value = false
-    return
-  }
-  if (id.startsWith('__archive:')) {
-    emit('archive', id.slice('__archive:'.length))
+  if (id.startsWith('__edit:')) {
+    emit('edit', id.slice('__edit:'.length))
     open.value = false
     return
   }

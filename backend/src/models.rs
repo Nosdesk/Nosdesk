@@ -101,6 +101,16 @@ impl FromSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowSt
 /// bundling a `ViewShape` and `FilterState`. The two JSON columns
 /// are validated client-side; the server treats them as opaque so
 /// plugin-defined view shapes round-trip without a wire change.
+///
+/// History note: earlier revisions carried `is_default` (with a
+/// partial unique index enforcing one per scope) and `archived_at`
+/// (soft delete). Both dropped 2026-05-09 in favour of: the single
+/// built-in `MY_OPEN_VIEW` fallback for "what shows by default,"
+/// and hard `DELETE` for "delete a view." Neither column had a
+/// user-facing surface (no admin UI to set the default; no archived-
+/// views browser or restore flow), and the `is_default` mechanism
+/// invited the bug where a user could accidentally promote a view
+/// to default and then have no way to find or change that setting.
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::saved_views)]
 pub struct SavedView {
@@ -112,10 +122,8 @@ pub struct SavedView {
     pub shape: serde_json::Value,
     pub filter: serde_json::Value,
     pub created_by: Uuid,
-    pub is_default: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub archived_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -127,7 +135,6 @@ pub struct NewSavedView {
     pub shape: serde_json::Value,
     pub filter: serde_json::Value,
     pub created_by: Uuid,
-    pub is_default: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -136,8 +143,6 @@ pub struct SavedViewUpdate {
     pub name: Option<String>,
     pub shape: Option<serde_json::Value>,
     pub filter: Option<serde_json::Value>,
-    pub is_default: Option<bool>,
-    pub archived_at: Option<Option<DateTime<Utc>>>,
 }
 
 /// Cycle: project-scoped, time-boxed bucket of tickets. Tickets

@@ -31,7 +31,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useSavedViewsStore } from '@/stores/savedViews'
 import { buildPredicate } from './filter'
 import { toCardData } from './cardData'
-import { MY_QUEUE_VIEW } from './builtinViews'
+import { ALL_ACTIVE_VIEW, MY_OPEN_VIEW } from './builtinViews'
 import type { CardData, Priority } from './types'
 import {
   calendarOverlaysService,
@@ -41,6 +41,8 @@ import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
 import TicketsHeader from '@/components/views/TicketsHeader.vue'
 import TicketsTable from '@/components/views/TicketsTable.vue'
 import TicketPreviewPane from '@/components/views/TicketPreviewPane.vue'
+import SavedViewEditorModal from '@/components/views/SavedViewEditorModal.vue'
+import type { SavedView } from '@/services/savedViewsService'
 import { useTicketsViewResolution } from '@/composables/useTicketsViewResolution'
 import { useTicketsSort } from '@/composables/useTicketsSort'
 import { useTicketsColumns } from '@/composables/useTicketsColumns'
@@ -118,10 +120,44 @@ const allCards = computed<CardData[]>(() => {
   return out
 })
 
-const afterViewFilter = computed<CardData[]>(() => {
-  const predicate = buildPredicate(activeView.value.filter, {
+/**
+ * Smart fall-through: when the resolved view is `MY_OPEN` and
+ * produces zero rows, but `ALL_ACTIVE` does have rows, render
+ * ALL_ACTIVE's filter instead. The active-view picker / URL
+ * doesn't change — this is purely a render-time deflection so an
+ * agent with no assignments yet never lands on a blank screen
+ * for an established workspace. NN/G empty-state guidance:
+ * "communicate system status; never let a primary nav surface
+ * read as broken." The banner below tells the user what swap
+ * happened so the fall-through is transparent rather than
+ * surprising.
+ */
+const myOpenPredicate = computed(() =>
+  buildPredicate(MY_OPEN_VIEW.filter, {
     currentUserUuid: authStore.user?.uuid ?? null,
-  })
+  }),
+)
+const allActivePredicate = computed(() =>
+  buildPredicate(ALL_ACTIVE_VIEW.filter, {
+    currentUserUuid: authStore.user?.uuid ?? null,
+  }),
+)
+const fallThroughActive = computed(() => {
+  if (activeView.value.id !== MY_OPEN_VIEW.id) return false
+  const myOpenCount = allCards.value.filter(myOpenPredicate.value).length
+  if (myOpenCount > 0) return false
+  return allCards.value.some(allActivePredicate.value)
+})
+
+const afterViewFilter = computed<CardData[]>(() => {
+  const view = fallThroughActive.value ? ALL_ACTIVE_VIEW : null
+  const predicate = view
+    ? buildPredicate(view.filter, {
+        currentUserUuid: authStore.user?.uuid ?? null,
+      })
+    : buildPredicate(activeView.value.filter, {
+        currentUserUuid: authStore.user?.uuid ?? null,
+      })
   return allCards.value.filter(predicate)
 })
 
@@ -304,22 +340,31 @@ async function saveAsView(): Promise<void> {
   }
 }
 
-async function renameById(uuid: string): Promise<void> {
+// ---------------------------------------------------------------
+// Saved-view editor modal. Replaces the earlier window.prompt /
+// window.confirm pair with a single focused surface where rename
+// and delete live together. Open state is the editing view itself
+// (null = closed) so the modal naturally re-renders if the user
+// opens a different view's editor without closing first.
+// ---------------------------------------------------------------
+const editingView = ref<SavedView | null>(null)
+
+function openEditor(uuid: string): void {
   const view = savedViewsRef.value.find((v) => v.uuid === uuid)
-  if (!view) return
-  const next = window.prompt('Rename view', view.name)
-  if (!next || next.trim() === view.name) return
-  await savedViewsStore.update(uuid, { name: next.trim() })
+  editingView.value = view ?? null
 }
 
-async function archiveById(uuid: string): Promise<void> {
-  const view = savedViewsRef.value.find((v) => v.uuid === uuid)
-  if (!view) return
-  if (!window.confirm(`Archive "${view.name}"?`)) return
-  const ok = await savedViewsStore.archive(uuid)
+async function handleRename(uuid: string, name: string): Promise<boolean> {
+  const result = await savedViewsStore.update(uuid, { name })
+  return result !== null
+}
+
+async function handleDelete(uuid: string): Promise<boolean> {
+  const ok = await savedViewsStore.deleteView(uuid)
   if (ok && activeView.value.uuid === uuid) {
-    router.push({ query: { view: MY_QUEUE_VIEW.id } })
+    router.push({ query: { view: MY_OPEN_VIEW.id } })
   }
+  return ok
 }
 
 // ---------------------------------------------------------------
@@ -440,8 +485,7 @@ function startPaneResize(e: PointerEvent): void {
       :facet-order="facetOrder"
       :available-columns="availableColumns"
       @select-view="selectViewById"
-      @rename-view="renameById"
-      @archive-view="archiveById"
+      @edit-view="openEditor"
       @save-as-view="saveAsView"
       @set-density="setDensity"
       @set-group-by="grouping.setGroupBy"
@@ -454,6 +498,18 @@ function startPaneResize(e: PointerEvent): void {
       @set-filter-text="setFilterText"
       @toggle-split-view="splitView.toggle"
     />
+
+    <!-- Fall-through banner: My Open was empty, we transparently
+         swapped to All Active so the surface isn't blank. Inline,
+         dismissable-by-navigation (clicking another view clears
+         the swap). -->
+    <div
+      v-if="fallThroughActive"
+      class="px-4 py-2 text-xs text-secondary bg-surface-alt border-b border-default flex items-center gap-2"
+    >
+      <span class="font-medium text-primary">No tickets assigned to you.</span>
+      <span>Showing all active tickets instead.</span>
+    </div>
 
     <div
       v-if="isInitiallyLoading"
@@ -472,12 +528,36 @@ function startPaneResize(e: PointerEvent): void {
       @visible-range="onCalendarVisibleRange"
     />
 
+    <!-- Contextual empty states. Affirmation copy ("clear" / "caught
+         up") on per-view empties so the surface reads as success not
+         broken; "no tickets match" stays as the fallback for
+         user-applied filters that produce no rows. NN/G empty-state
+         guidance §3: communicate system status, never let a primary
+         nav surface look broken. -->
     <div
       v-else-if="sortedCards.length === 0"
-      class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm"
+      class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm gap-1"
     >
-      <p class="mb-1 font-medium">No tickets match.</p>
-      <p class="text-xs">Pick a different view or remove some filters.</p>
+      <template v-if="filters.activeFacets.value.length > 0">
+        <p class="font-medium text-primary">No tickets match.</p>
+        <p class="text-xs">Remove some filters to see more.</p>
+      </template>
+      <template v-else-if="activeView.id === 'triage'">
+        <p class="font-medium text-primary">Triage is clear.</p>
+        <p class="text-xs">New tickets awaiting categorisation will appear here.</p>
+      </template>
+      <template v-else-if="activeView.id === MY_OPEN_VIEW.id">
+        <p class="font-medium text-primary">All caught up.</p>
+        <p class="text-xs">You have no open tickets assigned to you.</p>
+      </template>
+      <template v-else-if="activeView.id === ALL_ACTIVE_VIEW.id">
+        <p class="font-medium text-primary">No active tickets.</p>
+        <p class="text-xs">Every ticket has been resolved or cancelled.</p>
+      </template>
+      <template v-else>
+        <p class="font-medium text-primary">No tickets in this view.</p>
+        <p class="text-xs">Adjust the view filter or pick a different view.</p>
+      </template>
     </div>
 
     <!-- Split-view layout: table on the left, divider, preview
@@ -537,6 +617,13 @@ function startPaneResize(e: PointerEvent): void {
         </div>
       </Transition>
     </div>
+
+    <SavedViewEditorModal
+      :view="editingView"
+      @close="editingView = null"
+      @rename="handleRename"
+      @delete="handleDelete"
+    />
   </div>
 </template>
 

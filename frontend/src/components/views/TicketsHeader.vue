@@ -83,8 +83,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'select-view', id: string): void
-  (e: 'rename-view', id: string): void
-  (e: 'archive-view', id: string): void
+  (e: 'edit-view', id: string): void
   (e: 'save-as-view'): void
   (e: 'set-density', value: Density): void
   (e: 'set-group-by', value: GroupBy): void
@@ -180,8 +179,7 @@ defineExpose({ openAddFilter })
         :active-id="activeViewId"
         size="lg"
         @select="(id) => emit('select-view', id)"
-        @rename="(id) => emit('rename-view', id)"
-        @archive="(id) => emit('archive-view', id)"
+        @edit="(id) => emit('edit-view', id)"
       />
 
       <!-- Summary stats. Inline · separators between non-zero

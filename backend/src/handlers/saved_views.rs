@@ -5,9 +5,8 @@
 //!   project if `project_id` is set + the caller's private views).
 //! - `GET    /api/saved-views/{uuid}` — fetch one.
 //! - `POST   /api/saved-views` — create.
-//! - `PATCH  /api/saved-views/{uuid}` — rename / re-shape /
-//!   re-filter / promote-to-default.
-//! - `DELETE /api/saved-views/{uuid}` — soft archive.
+//! - `PATCH  /api/saved-views/{uuid}` — rename / re-shape / re-filter.
+//! - `DELETE /api/saved-views/{uuid}` — hard delete.
 //!
 //! Permission model:
 //! - `workspace` scope writes require admin; reads open to any
@@ -48,8 +47,6 @@ pub struct CreateBody {
     pub name: String,
     pub shape: Value,
     pub filter: Value,
-    #[serde(default)]
-    pub is_default: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,12 +54,6 @@ pub struct PatchBody {
     pub name: Option<String>,
     pub shape: Option<Value>,
     pub filter: Option<Value>,
-    /// `Some(true)` promotes this view to default for its scope
-    /// (demoting the previous default in the same transaction).
-    /// `Some(false)` is rejected: per-scope defaults are positive
-    /// statements only — to "unset" the default, promote a
-    /// different view instead.
-    pub is_default: Option<bool>,
 }
 
 pub async fn list(
@@ -166,7 +157,6 @@ pub async fn create(
         shape: body.shape,
         filter: body.filter,
         created_by: auth.user_uuid,
-        is_default: body.is_default,
     };
 
     match repo::create(&mut conn, new) {
@@ -195,11 +185,6 @@ pub async fn patch(
             return errors::bad_request(msg);
         }
     }
-    if matches!(body.is_default, Some(false)) {
-        return errors::bad_request(
-            "Setting is_default to false directly is not allowed; promote a different view instead",
-        );
-    }
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -223,8 +208,6 @@ pub async fn patch(
         name: body.name.map(|s| s.trim().to_string()),
         shape: body.shape,
         filter: body.filter,
-        is_default: body.is_default,
-        archived_at: None,
     };
     match repo::update(&mut conn, uuid, patch) {
         Ok(updated) => HttpResponse::Ok().json(updated),
@@ -235,7 +218,7 @@ pub async fn patch(
     }
 }
 
-pub async fn archive(
+pub async fn delete(
     pool: web::Data<Pool>,
     path: web::Path<Uuid>,
     auth: AuthContext,
@@ -250,19 +233,19 @@ pub async fn archive(
         Ok(Some(v)) => v,
         Ok(None) => return errors::not_found_msg("Saved view not found"),
         Err(e) => {
-            error!(error = %e, %uuid, "failed to look up saved view for archive");
-            return errors::internal("Failed to archive saved view");
+            error!(error = %e, %uuid, "failed to look up saved view for delete");
+            return errors::internal("Failed to delete saved view");
         }
     };
     let claims = req.extensions().get::<Claims>().cloned();
     if !user_can_write_view(&view, &claims, &auth) {
         return errors::forbidden(write_denied_message(&view.scope));
     }
-    match repo::archive(&mut conn, uuid) {
+    match repo::delete(&mut conn, uuid) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
-            error!(error = %e, %uuid, "failed to archive saved view");
-            errors::internal("Failed to archive saved view")
+            error!(error = %e, %uuid, "failed to delete saved view");
+            errors::internal("Failed to delete saved view")
         }
     }
 }

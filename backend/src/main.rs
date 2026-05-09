@@ -1121,7 +1121,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/saved-views", web::post().to(handlers::saved_views::create))
                     .route("/saved-views/{uuid}", web::get().to(handlers::saved_views::get_one))
                     .route("/saved-views/{uuid}", web::patch().to(handlers::saved_views::patch))
-                    .route("/saved-views/{uuid}", web::delete().to(handlers::saved_views::archive))
+                    .route("/saved-views/{uuid}", web::delete().to(handlers::saved_views::delete))
 
                     // Cycles. Project-scoped list + create live under
                     // /projects/{id}/cycles; per-cycle ops use the

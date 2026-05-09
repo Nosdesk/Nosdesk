@@ -11,8 +11,8 @@
 import type { CalendarViewShape, FilterState, ListViewShape } from './types'
 
 export interface BuiltInView {
-  /** Stable id used in the URL (`?view=triage`). */
-  id: 'triage' | 'my-queue' | 'calendar'
+  /** Stable id used in the URL (`?view=my-open`). */
+  id: 'my-open' | 'all-active' | 'triage' | 'calendar'
   name: string
   description: string
   /** Built-ins ship list and calendar shapes today. The TicketsList
@@ -56,10 +56,57 @@ const baseFilter: Omit<FilterState, 'predicate' | 'quick_filters'> = {
   },
 }
 
+/** Default landing view for an active agent. Shows tickets the
+ * current user owns. Resolution chain falls back to ALL_ACTIVE_VIEW
+ * inline when this is empty (TicketsListView handles the swap), so
+ * an agent with no assignments never lands on a blank screen.
+ *
+ * Naming: peer helpdesks (Zendesk "Your unsolved", Help Scout
+ * "Mine", Front "Assigned to me") all use "Mine"-style language.
+ * "My Open" is the most explicit since it scopes to non-resolved
+ * by virtue of the ALL_ACTIVE fall-through. */
+export const MY_OPEN_VIEW: BuiltInView = {
+  id: 'my-open',
+  name: 'My Open',
+  description: 'Open tickets assigned to you',
+  shape: { ...baseListShape, columns: defaultColumns },
+  filter: {
+    ...baseFilter,
+    predicate: { combinator: 'AND', children: [] },
+    // `mine` quick filter pulls the current user's UUID from the
+    // evaluator context, so this view round-trips through URL
+    // serialization without baking a specific UUID in.
+    quick_filters: ['mine'],
+  },
+}
+
+/** Workspace-wide active queue: every ticket that isn't done or
+ * cancelled. Industry equivalent: GitHub Issues' default
+ * `is:open` filter, JSM's "All open queue", HubSpot's pipeline
+ * board. Used as the smart-fall-through target when MY_OPEN is
+ * empty so the default landing surface is never blank for an
+ * established workspace. */
+export const ALL_ACTIVE_VIEW: BuiltInView = {
+  id: 'all-active',
+  name: 'All Active',
+  description: 'Every ticket that hasn\'t been resolved or cancelled',
+  shape: { ...baseListShape, columns: defaultColumns },
+  filter: {
+    ...baseFilter,
+    predicate: {
+      combinator: 'AND',
+      children: [
+        { field: 'workflow_state.category', op: 'not_in', value: ['done', 'cancelled'] },
+      ],
+    },
+    quick_filters: [],
+  },
+}
+
 export const TRIAGE_VIEW: BuiltInView = {
   id: 'triage',
   name: 'Triage',
-  description: 'Tickets in the triage category, awaiting initial sort',
+  description: 'Tickets awaiting initial categorisation',
   shape: { ...baseListShape, columns: defaultColumns },
   filter: {
     ...baseFilter,
@@ -78,20 +125,10 @@ export const TRIAGE_VIEW: BuiltInView = {
   },
 }
 
-export const MY_QUEUE_VIEW: BuiltInView = {
-  id: 'my-queue',
-  name: 'My Queue',
-  description: 'Tickets assigned to you',
-  shape: { ...baseListShape, columns: defaultColumns },
-  filter: {
-    ...baseFilter,
-    predicate: { combinator: 'AND', children: [] },
-    // `mine` quick filter pulls the current user's UUID from the
-    // evaluator context, so this view round-trips through URL
-    // serialization without baking a specific UUID in.
-    quick_filters: ['mine'],
-  },
-}
+/** @deprecated use MY_OPEN_VIEW. Kept as a transitional alias so
+ * any in-flight URL with `?view=my-queue` still resolves; remove
+ * once telemetry shows zero hits over a 30-day window. */
+export const MY_QUEUE_VIEW = MY_OPEN_VIEW
 
 /** Calendar view of every ticket with a due_date. Anchors on
  * `due_date` because that's what calendars are for; created_at /
@@ -121,8 +158,20 @@ export const CALENDAR_VIEW: BuiltInView = {
   },
 }
 
-export const BUILTIN_VIEWS: BuiltInView[] = [TRIAGE_VIEW, MY_QUEUE_VIEW, CALENDAR_VIEW]
+/** Order matters: the first item is the visual default in the
+ * sidebar / view-switcher, and the resolution chain falls back to
+ * MY_OPEN_VIEW (also the first entry) when nothing else matches.
+ * Re-ordering changes the perceived front door of the product. */
+export const BUILTIN_VIEWS: BuiltInView[] = [
+  MY_OPEN_VIEW,
+  ALL_ACTIVE_VIEW,
+  TRIAGE_VIEW,
+  CALENDAR_VIEW,
+]
 
 export function findBuiltinView(id: string): BuiltInView | null {
+  // Accept the legacy `my-queue` id so bookmarks / shared URLs
+  // from before the rename keep working. Resolves to MY_OPEN_VIEW.
+  if (id === 'my-queue') return MY_OPEN_VIEW
   return BUILTIN_VIEWS.find((v) => v.id === id) ?? null
 }

@@ -6,7 +6,7 @@
  * route reuses the prior fetch and switching projects loads a
  * fresh set.
  *
- * Optimistic on create / update / archive: the cache mutates
+ * Optimistic on create / update / delete: the cache mutates
  * immediately, the network call settles after. On rejection we
  * revert and surface the error through the store's `lastError`
  * field; the UI checks that field to flash a toast.
@@ -54,9 +54,7 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
 
   /** Loader-side cache prime. Used by route loaders so the view's
    * first render sees the saved-view list synchronously instead
-   * of racing against a background fetch (otherwise the active-view
-   * computed snaps from the fallback to the workspace default a
-   * frame later — visible as a content jump on /tickets). */
+   * of racing against a background fetch. */
   function prime(projectId: number | null | undefined, rows: SavedView[]): void {
     cache.value.set(keyFor(projectId), rows)
   }
@@ -74,20 +72,25 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
     return undefined
   }
 
-  /** Local invalidation that also re-applies a per-key dedupe pass.
-   * Used after create / update / archive to keep the cache shape
-   * consistent without a refetch. */
+  /** Local invalidation. Called after create / update so the cache
+   * shape stays consistent without a refetch. Delete uses
+   * `removeFromCache` since there's no row to merge in. */
   function applyMutation(view: SavedView): void {
     for (const [key, rows] of cache.value) {
       const idx = rows.findIndex((v) => v.uuid === view.uuid)
-      if (view.archived_at != null) {
-        if (idx >= 0) rows.splice(idx, 1)
-      } else if (idx >= 0) {
+      if (idx >= 0) {
         rows[idx] = view
       } else if (cacheKeyMatches(key, view)) {
         rows.push(view)
         rows.sort((a, b) => a.name.localeCompare(b.name))
       }
+    }
+  }
+
+  function removeFromCache(uuid: string): void {
+    for (const rows of cache.value.values()) {
+      const idx = rows.findIndex((v) => v.uuid === uuid)
+      if (idx >= 0) rows.splice(idx, 1)
     }
   }
 
@@ -115,16 +118,6 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
     try {
       const view = await savedViewsService.update(uuid, body)
       applyMutation(view)
-      // Promoting a default demotes any sibling that was the
-      // previous default; refetch the affected scope so the cache
-      // reflects that without a second mutation event.
-      if (body.is_default && cacheNeedsRefresh(view)) {
-        const projectId = view.scope === 'project' && view.scope_id
-          ? Number(view.scope_id)
-          : null
-        cache.value.delete(keyFor(projectId))
-        await ensureLoaded(projectId)
-      }
       return view
     } catch (e) {
       logger.warn('Saved view update failed', { uuid, body, error: e })
@@ -133,25 +126,16 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
     }
   }
 
-  function cacheNeedsRefresh(view: SavedView): boolean {
-    const key = view.scope === 'project' && view.scope_id
-      ? `project:${view.scope_id}`
-      : 'workspace-only'
-    return cache.value.has(key)
-  }
-
-  async function archive(uuid: string): Promise<boolean> {
-    const existing = findByUuid(uuid)
+  /** Hard delete. Removes the view's row from the DB; no
+   * un-delete affordance — recreate the view if needed. */
+  async function deleteView(uuid: string): Promise<boolean> {
     try {
-      await savedViewsService.archive(uuid)
-      if (existing) {
-        existing.archived_at = new Date().toISOString()
-        applyMutation(existing)
-      }
+      await savedViewsService.delete(uuid)
+      removeFromCache(uuid)
       return true
     } catch (e) {
-      logger.warn('Saved view archive failed', { uuid, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to archive view'
+      logger.warn('Saved view delete failed', { uuid, error: e })
+      lastError.value = e instanceof Error ? e.message : 'Failed to delete view'
       return false
     }
   }
@@ -171,7 +155,7 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
     findByUuid,
     create,
     update,
-    archive,
+    deleteView,
     reset,
   }
 })
