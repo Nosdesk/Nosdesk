@@ -22,8 +22,8 @@
 import Icon from '@/components/common/Icon.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserCell from '@/components/views/UserCell.vue'
-import { paletteForColor } from '@/utils/workflowColors'
-import { priorityForBadge, rowSlaToneClass } from '@/utils/priorityHelpers'
+import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
+import { priorityForBadge } from '@/utils/priorityHelpers'
 import { deriveSlaState } from '@/composables/useSlaState'
 import {
   formatCompactRelativeTime,
@@ -66,10 +66,6 @@ function slaLabel(card: CardData): string {
   return deriveSlaState(card)?.compactLabel ?? '—'
 }
 
-function rowToneClass(card: CardData): string {
-  return rowSlaToneClass(card)
-}
-
 /** Single-letter RRULE frequency code for the dense Recur
  * column. Matches the abbreviated treatment used in the
  * surrounding columns (1w, 3h, etc.) — the column is narrow
@@ -101,41 +97,43 @@ function recurrenceLabel(rule: string | null | undefined): string {
   >
     <!--
       Leading state cell. Always-present 24px-wide indicator that
-      encodes workflow state via a colour-coded dot + carries the
-      conditional SLA tone strip as a left-edge overlay. Lives
-      outside the column-customisation v-for because (a) it's
-      non-removable — the row's identity-anchor across all column
-      configs — and (b) the user can hide the labelled Status
-      column without losing the at-a-glance state cue. Linear's
-      "icon-only" mode pattern.
+      encodes the ticket's workflow-state CATEGORY as a glyph
+      (not just a hue). Lives outside the column-customisation
+      v-for because (a) it's non-removable — the row's identity
+      anchor across all column configs — and (b) the user can
+      hide the labelled Status column without losing the at-a-
+      glance state cue. Linear's "icon-only" mode pattern.
 
-      Pattern recognition: advanced users learn the colour →
-      state mapping the same way they learn keyboard shortcuts;
-      the dedicated leading position makes it the row's
-      identifying anchor when scanning a 30-row queue.
+      The glyph encodes meaning in shape (dashed ring → triage,
+      empty ring → backlog, half-pie → active, three-quarter pie
+      → in review, filled disc + check → done, filled disc + X
+      → cancelled). Hue still carries the workspace-configured
+      colour — admins keep their colour control. The shape adds
+      a parallel channel so:
+        - colour-blind users can read state without colour;
+        - users new to the workspace don't need to memorise the
+          colour-to-state mapping;
+        - the glyph forms a visual family across all six
+          categories rather than six interchangeable dots.
 
-      The 3px SLA stripe layers on the cell's left edge as the
-      urgency overlay, only present when rowToneClass returns a
-      class. Two visual channels in 24px: peripheral (stripe at
-      the very edge) for urgency, foveal (centred dot) for
-      identity.
+      The earlier design layered a 3px SLA tone stripe on the
+      cell's left edge. It was removed because the title cell
+      already carries the same signal as a trailing "SLA" tag
+      (line below) and the SLA column does it again when the
+      column is enabled — three indicators for the same fact
+      crowded the leading edge. The stripe was the weakest of
+      the three (peripheral, low contrast, easy to miss) so it
+      went.
     -->
     <td
-      class="col-state border-b border-subtle/40 align-middle relative p-0"
+      class="col-state border-b border-subtle/40 align-middle p-0"
       style="width: 24px; min-width: 24px; max-width: 24px"
     >
-      <span
-        v-if="rowToneClass(card)"
-        class="absolute left-0 top-0 bottom-0 w-[3px]"
-        :class="rowToneClass(card)"
-        aria-hidden="true"
-      />
       <span class="flex items-center justify-center h-full">
-        <span
-          class="inline-block w-3 h-3 rounded-full"
-          :class="paletteForColor(card.workflow_state.color).solid"
-          :title="card.workflow_state.name"
-          aria-hidden="true"
+        <WorkflowStateGlyph
+          :category="card.workflow_state.category"
+          :color="card.workflow_state.color"
+          :name="card.workflow_state.name"
         />
       </span>
     </td>
@@ -184,11 +182,16 @@ function recurrenceLabel(rule: string | null | undefined): string {
       </template>
 
       <template v-else-if="col.id === 'workflow_state'">
+        <!-- Same glyph the leading state cell uses, downsized to
+             match the row text. Reusing the component keeps the
+             two surfaces in lockstep visually — the column is the
+             "labelled" version of what the leading cell says. -->
         <span class="inline-flex items-center gap-1.5 text-xs text-secondary">
-          <span
-            class="inline-block w-2 h-2 rounded-full shrink-0"
-            :class="paletteForColor(card.workflow_state.color).solid"
-            aria-hidden="true"
+          <WorkflowStateGlyph
+            :category="card.workflow_state.category"
+            :color="card.workflow_state.color"
+            :name="card.workflow_state.name"
+            :size="12"
           />
           <span class="truncate">{{ card.workflow_state.name }}</span>
         </span>

@@ -38,8 +38,13 @@ const props = withDefaults(defineProps<{
    * component can serve both the small inline switcher and the
    * dominant header title on the tickets list. */
   size?: 'sm' | 'lg'
+  /** Trigger label fallback when the active id matches none of
+   * the items (e.g. saved-only switcher rendered while a built-in
+   * view is active in a sibling tab strip). Defaults to "View". */
+  placeholder?: string
 }>(), {
   size: 'sm',
+  placeholder: 'View',
 })
 
 const emit = defineEmits<{
@@ -120,7 +125,7 @@ function handleSelect(id: string): void {
       aria-haspopup="menu"
       @click="open = !open"
     >
-      <span>{{ active?.name ?? 'View' }}</span>
+      <span>{{ active?.name ?? props.placeholder }}</span>
       <Icon
         name="chevronDown"
         class="text-tertiary"
@@ -131,7 +136,7 @@ function handleSelect(id: string): void {
     <ResponsiveMenu
       :open="open"
       :anchor="anchor"
-      :title="active?.name ?? 'Views'"
+      :title="active?.name ?? props.placeholder"
       placement="bottom-start"
       react-to-scroll="reposition"
       :offset="4"

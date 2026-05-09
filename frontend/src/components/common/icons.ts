@@ -73,6 +73,14 @@ export const ICON_REGISTRY = {
   bell: {
     d: 'M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0',
   },
+  /** Calendar grid with day-tick marks. Used wherever a surface
+   * places tickets onto specific days (the Calendar built-in view,
+   * due-date picker headers). Distinct from `clock` (a generic
+   * time/duration metaphor); calendar always means "this is on a
+   * date". */
+  calendar: {
+    d: 'M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5',
+  },
   /** Checkmark, used for "mark as read" affordances and confirm
    * states. Reserved for the "this is now done / acknowledged"
    * meaning so it doesn't get confused with selection (which
@@ -176,6 +184,14 @@ export const ICON_REGISTRY = {
   insights: {
     d: 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z',
   },
+  /** Open inbox tray with a sort divider — "incoming items
+   * awaiting categorisation". Used for the Triage built-in view
+   * tab, and any future "incoming queue" surface. Distinct from
+   * `list` (a flat list of resolved items) and from `bell`
+   * (a notification arrival, not a queue). */
+  inbox: {
+    d: 'M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.252 2.252 0 00-.1.661z',
+  },
   /** Modern key with rounded grip, "passkey / API token / signing
    * key". Reserved for credential-grade objects; for the access-
    * control concept (locked, has an ACL) use `lock`. */
@@ -185,12 +201,31 @@ export const ICON_REGISTRY = {
   link: {
     d: 'M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244',
   },
+  /** Three horizontal rules with leading bullets — "rows of items
+   * displayed sequentially". Used for the list-shape view tab in
+   * the tickets header, and anywhere else a "render as a flat
+   * list" choice surfaces. Distinct from `account` (sliders, three
+   * horizontal lines without bullets) which represents adjustable
+   * preferences, and from `more` (three vertical dots) which is a
+   * menu trigger. */
+  list: {
+    d: 'M8.25 6.75h12M8.25 12h12M8.25 17.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 17.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z',
+  },
   /** Closed padlock, used wherever an item is restricted, secured,
    * or its access is being managed. Single icon for "this is
    * gated" semantics across permissions panels, locked records,
    * and password/auth surfaces. */
   lock: {
     d: 'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z',
+  },
+  /** Single user silhouette (head + shoulders) — "me / mine". The
+   * first-person variant of `team` (multiple silhouettes); used
+   * for surfaces scoped to the current user (My Open built-in
+   * view tab, "Assigned to me" filters). Distinct from `account`
+   * (sliders representing personal preferences) and from `team`
+   * (the multi-user / group concept). */
+  me: {
+    d: 'M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z',
   },
   /** Three vertical dots — used for "more actions" affordances.
    * Filled circles at r=1.5 on the 24-viewbox so the visual

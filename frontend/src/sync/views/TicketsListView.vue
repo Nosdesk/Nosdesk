@@ -72,7 +72,7 @@ onMounted(async () => {
   await savedViewsStore.ensureLoaded(null)
 })
 
-const { activeView, switcherItems, selectViewById } = useTicketsViewResolution()
+const { activeView, tabItems, savedItems, selectViewById } = useTicketsViewResolution()
 const { sortField, sortDir, toggleSort, applySort } = useTicketsSort(activeView)
 const {
   visibleColumnIds,
@@ -514,7 +514,8 @@ function startPaneResize(e: PointerEvent): void {
   <div class="flex flex-col h-full bg-app">
     <TicketsHeader
       ref="headerRef"
-      :switcher-items="switcherItems"
+      :tab-items="tabItems"
+      :saved-items="savedItems"
       :active-view-id="activeView.id"
       :source-cards="afterViewFilter"
       :density="density"

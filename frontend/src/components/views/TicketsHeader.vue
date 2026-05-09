@@ -22,6 +22,9 @@ import { computed, ref } from 'vue'
 import ViewSwitcher, {
   type ViewSwitcherItem,
 } from '@/components/views/ViewSwitcher.vue'
+import TicketsViewTabs, {
+  type ViewTabItem,
+} from '@/components/views/TicketsViewTabs.vue'
 import DisplayMenu from '@/components/views/DisplayMenu.vue'
 import FilterPill from '@/components/views/FilterPill.vue'
 import AddFilterMenu from '@/components/views/AddFilterMenu.vue'
@@ -44,7 +47,15 @@ import type {
 import type { CardData, Priority } from '@/sync/views/types'
 
 const props = defineProps<{
-  switcherItems: ViewSwitcherItem[]
+  /** Built-in views (My Open / All Active / Triage / Calendar)
+   * rendered as a primary tab strip on tablet+. The same items
+   * also slot into the mobile dropdown so phone users still
+   * reach them. */
+  tabItems: ViewTabItem[]
+  /** Saved / project / private views — rendered behind a smaller
+   * `Saved ▾` dropdown next to the tabs. Empty array hides the
+   * dropdown. */
+  savedItems: ViewSwitcherItem[]
   activeViewId: string
   /** Source set used to derive option lists for status / assignee
    * / cycle pickers — should be the post-view, pre-filter card
@@ -96,6 +107,15 @@ const emit = defineEmits<{
   (e: 'set-filter-text', facet: FilterFacet, value: string): void
   (e: 'toggle-split-view'): void
 }>()
+
+// Mobile fallback: the dropdown carries the full set (built-ins
+// + saved) so phone users still reach every view from one
+// affordance. The desktop split (tabs + saved-only dropdown)
+// would crowd phone-width headers.
+const mobileSwitcherItems = computed<ViewSwitcherItem[]>(() => [
+  ...props.tabItems.map((t) => ({ id: t.id, name: t.name, group: 'Built-in' })),
+  ...props.savedItems,
+])
 
 const { getUserHandle } = useUsersDirectory()
 const addFilterRef = ref<InstanceType<typeof AddFilterMenu> | null>(null)
@@ -226,8 +246,41 @@ defineExpose({ openAddFilter })
          Title + summary + filter pills + New ticket stay across all
          widths. -->
     <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
+      <!-- Desktop (sm:+): primary tab strip for built-in views.
+           Calendar in particular needed first-class access — it's
+           a different shape (CalendarBoard vs the list table) and
+           used often enough that one click should land it. The
+           saved-view dropdown sits alongside as the secondary
+           affordance for user-curated subsets.
+
+           Mobile: collapse to one dropdown carrying the full set
+           (built-ins + saved). Four 90px tabs don't fit on a
+           phone-width header, and the dropdown is the convention
+           every other surface uses there too. -->
+      <TicketsViewTabs
+        :items="tabItems"
+        :active-id="activeViewId"
+        @select="(id) => emit('select-view', id)"
+      />
+      <!-- Saved-views-only dropdown next to the tabs. Hidden when
+           the workspace has no saved views (the tab strip already
+           covers everything). When the active view IS a saved one,
+           the dropdown's trigger label flips to that view's name
+           so the active state stays visible somewhere on screen. -->
       <ViewSwitcher
-        :items="switcherItems"
+        v-if="savedItems.length > 0"
+        class="hidden sm:inline-flex"
+        :items="savedItems"
+        :active-id="activeViewId"
+        size="sm"
+        placeholder="Saved"
+        @select="(id) => emit('select-view', id)"
+        @edit="(id) => emit('edit-view', id)"
+      />
+      <!-- Mobile fallback: full switcher (built-ins + saved). -->
+      <ViewSwitcher
+        class="sm:hidden"
+        :items="mobileSwitcherItems"
         :active-id="activeViewId"
         size="lg"
         @select="(id) => emit('select-view', id)"

@@ -29,6 +29,8 @@ import {
   type BuiltInView,
 } from '@/sync/views/builtinViews'
 import type { ViewSwitcherItem } from '@/components/views/ViewSwitcher.vue'
+import type { ViewTabItem } from '@/components/views/TicketsViewTabs.vue'
+import type { IconName } from '@/components/common/icons'
 import type { SavedView } from '@/services/savedViewsService'
 import type {
   CalendarViewShape,
@@ -50,7 +52,15 @@ export interface ResolvedView {
 export interface UseTicketsViewResolution {
   activeView: ComputedRef<ResolvedView>
   savedViews: ComputedRef<SavedView[]>
-  switcherItems: ComputedRef<ViewSwitcherItem[]>
+  /** Built-in views, surfaced as a tab strip in the header. The
+   * shape-icon hint (`list` / `calendar`) makes the calendar tab
+   * visually distinct so users don't have to learn that "Calendar"
+   * is a different renderer from the list views. */
+  tabItems: ComputedRef<ViewTabItem[]>
+  /** User-curated saved views (workspace / project / private),
+   * grouped for the secondary `<ViewSwitcher>` dropdown. Empty
+   * when the workspace hasn't created any. */
+  savedItems: ComputedRef<ViewSwitcherItem[]>
   selectViewById: (id: string) => void
 }
 
@@ -99,11 +109,35 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     return fromBuiltin(MY_OPEN_VIEW)
   })
 
-  const switcherItems = computed<ViewSwitcherItem[]>(() => {
+  // Each built-in tab gets a slice-specific icon, not a shape
+  // hint. Three list-shape views all painted with the same `list`
+  // glyph defeats the differentiation icons are supposed to
+  // provide; the goal is at-a-glance recognition of WHICH slice
+  // you're on, not what renderer it uses.
+  //
+  //   me      — single user silhouette ("mine")
+  //   list    — queue of items ("everything in motion")
+  //   inbox   — unsorted incoming tray
+  //   calendar— tickets placed on dates
+  const TAB_ICON: Record<string, IconName> = {
+    'my-open': 'me',
+    'all-active': 'list',
+    'triage': 'inbox',
+    'calendar': 'calendar',
+  }
+
+  const tabItems = computed<ViewTabItem[]>(() =>
+    BUILTIN_VIEWS.map((v) => ({
+      id: v.id,
+      name: v.name,
+      // Fallback to a shape hint for any future built-in that
+      // ships before we pick a bespoke icon for it.
+      icon: TAB_ICON[v.id] ?? (v.shape.type === 'calendar' ? 'calendar' : 'list'),
+    })),
+  )
+
+  const savedItems = computed<ViewSwitcherItem[]>(() => {
     const items: ViewSwitcherItem[] = []
-    for (const v of BUILTIN_VIEWS) {
-      items.push({ id: v.id, name: v.name, group: 'Built-in' })
-    }
     const groupLabel = {
       workspace: 'Workspace',
       project: 'Project',
@@ -136,5 +170,5 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     }
   })
 
-  return { activeView, savedViews, switcherItems, selectViewById }
+  return { activeView, savedViews, tabItems, savedItems, selectViewById }
 }
