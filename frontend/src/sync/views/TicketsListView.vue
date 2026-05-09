@@ -133,33 +133,41 @@ const allCards = computed<CardData[]>(() => {
  * read as broken." The banner below tells the user what swap
  * happened so the fall-through is transparent rather than
  * surprising.
+ *
+ * Predicate construction is unified through `buildViewPredicate`
+ * so the three places that need a predicate (the two fall-through
+ * candidates + the actual render filter) all read from one
+ * source. The two built-in predicates stay as separate computeds
+ * because fallThroughActive needs both at the same time; the
+ * render predicate reuses them when the active view matches.
  */
-const myOpenPredicate = computed(() =>
-  buildPredicate(MY_OPEN_VIEW.filter, {
+function buildViewPredicate(view: { filter: typeof MY_OPEN_VIEW.filter }) {
+  return buildPredicate(view.filter, {
     currentUserUuid: authStore.user?.uuid ?? null,
-  }),
-)
-const allActivePredicate = computed(() =>
-  buildPredicate(ALL_ACTIVE_VIEW.filter, {
-    currentUserUuid: authStore.user?.uuid ?? null,
-  }),
-)
+  })
+}
+
+const myOpenPredicate = computed(() => buildViewPredicate(MY_OPEN_VIEW))
+const allActivePredicate = computed(() => buildViewPredicate(ALL_ACTIVE_VIEW))
+
 const fallThroughActive = computed(() => {
   if (activeView.value.id !== MY_OPEN_VIEW.id) return false
-  const myOpenCount = allCards.value.filter(myOpenPredicate.value).length
-  if (myOpenCount > 0) return false
+  // .some() short-circuits on the first match instead of
+  // materialising a full filtered array just to read its length.
+  if (allCards.value.some(myOpenPredicate.value)) return false
   return allCards.value.some(allActivePredicate.value)
 })
 
 const afterViewFilter = computed<CardData[]>(() => {
-  const view = fallThroughActive.value ? ALL_ACTIVE_VIEW : null
-  const predicate = view
-    ? buildPredicate(view.filter, {
-        currentUserUuid: authStore.user?.uuid ?? null,
-      })
-    : buildPredicate(activeView.value.filter, {
-        currentUserUuid: authStore.user?.uuid ?? null,
-      })
+  // Reuse the cached built-in predicates when the active view
+  // matches one of them; build fresh for saved views and other
+  // built-ins. Saves a buildPredicate() per render of the most
+  // common case (MY_OPEN as default landing).
+  const view = fallThroughActive.value ? ALL_ACTIVE_VIEW : activeView.value
+  const predicate =
+    view.id === MY_OPEN_VIEW.id ? myOpenPredicate.value
+    : view.id === ALL_ACTIVE_VIEW.id ? allActivePredicate.value
+    : buildViewPredicate(view)
   return allCards.value.filter(predicate)
 })
 
@@ -195,9 +203,21 @@ const isWideViewport = ref<boolean>(true)
 const splitViewActive = computed(() => splitView.enabled.value && isWideViewport.value)
 
 // Auto-select the first row whenever split-view turns on so the
-// preview pane has something to render. Reconcile when the
-// visible card set shifts (filter / sort change drops the
-// selection if its row vanished).
+// preview pane has something to render. Two distinct triggers
+// share one effect:
+//
+//   1. splitViewActive flips on → try to select the first row.
+//      No-op if sortedCards is still empty (initial mount, sync
+//      subscription not yet resolved); the cards-arrive trigger
+//      below picks it up when the data lands.
+//   2. sortedCards changes → reconcile (drop selection if the
+//      selected row vanished from the filter/sort) and, if
+//      split-view is on, ensure first row is selected. Catches
+//      the initial-mount race where splitViewActive fired with
+//      empty cards and selectFirstIfNone was a no-op.
+//
+// selectFirstIfNone is idempotent (only acts when no selection),
+// so calling it from both triggers is safe.
 watch(
   splitViewActive,
   (on) => {
@@ -206,7 +226,10 @@ watch(
   },
   { immediate: true },
 )
-watch(sortedCards, () => selection.reconcile())
+watch(sortedCards, () => {
+  selection.reconcile()
+  if (splitViewActive.value) selection.selectFirstIfNone()
+})
 
 const isInitiallyLoading = computed(
   () => allTickets.value.length === 0 && allCards.value.length === 0,
