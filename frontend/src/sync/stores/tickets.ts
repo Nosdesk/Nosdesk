@@ -174,6 +174,39 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     ),
   )
 
+  /**
+   * Bulk variant of `patchKanbanFields` — applies the same patch
+   * to every ticket id in turn. Skips tickets the patch would be
+   * a no-op for. Returns the count of dispatched patches so
+   * callers can report partial-success copy ("12 of 15 updated").
+   * Used by the tickets list view's bulk-action bar.
+   */
+  async function bulkPatchKanbanFields(
+    ticketIds: number[],
+    patch: KanbanPatch,
+  ): Promise<number> {
+    let dispatched = 0
+    for (const id of ticketIds) {
+      const current = useEntity<SyncTicket>('ticket', id).value
+      if (!current) continue
+      const inverse: KanbanPatch = {}
+      let dirty = false
+      for (const k of Object.keys(patch) as KanbanPatchableField[]) {
+        if (current[k] === patch[k]) continue
+        ;(inverse[k] as SyncTicket[KanbanPatchableField]) =
+          current[k] as SyncTicket[KanbanPatchableField]
+        dirty = true
+      }
+      if (!dirty) continue
+      await dispatchOptimistic<SyncTicket>('ticket', id, {
+        forward: { ...patch, last_activity_at: new Date().toISOString() },
+        inverse,
+      })
+      dispatched++
+    }
+    return dispatched
+  }
+
   return {
     byId,
     all,
@@ -181,5 +214,6 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     moveToWorkflowState,
     bulkMoveToWorkflowState,
     patchKanbanFields,
+    bulkPatchKanbanFields,
   }
 })

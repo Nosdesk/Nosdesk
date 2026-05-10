@@ -45,11 +45,13 @@
  */
 import { computed } from 'vue'
 import Icon from '@/components/common/Icon.vue'
+import Checkbox from '@/components/common/Checkbox.vue'
 import TicketRow from '@/components/views/TicketRow.vue'
 import { rowMemoKey, type ListColumn } from '@/sync/views/ticketColumns'
 import type { useColumnLayout } from '@/composables/useColumnLayout'
 import type { CardData } from '@/sync/views/types'
 import type { GroupBucket } from '@/composables/useTicketsGrouping'
+import type { BulkSelection } from '@/composables/useBulkSelection'
 
 const props = defineProps<{
   cards: CardData[]
@@ -68,6 +70,10 @@ const props = defineProps<{
    * "selected row" visual treatment — distinct from hover so
    * users can see the row that's powering the preview pane. */
   selectedId?: number | null
+  /** Bulk selection state (multi-row checkbox model). Optional
+   * — when omitted the leading state cell stays as the
+   * workflow-state glyph and no checkboxes render. */
+  bulkSelection?: BulkSelection<CardData>
 }>()
 
 const emit = defineEmits<{
@@ -76,6 +82,32 @@ const emit = defineEmits<{
   (e: 'toggle-sort', field: string): void
   (e: 'toggle-bucket', key: string): void
 }>()
+
+/** True when at least one row is in the bulk-selection set. Pins
+ * checkbox visibility across all rows + the header cell so the
+ * affordance feels solid once a selection exists. */
+const bulkActive = computed<boolean>(
+  () => (props.bulkSelection?.selectedCount.value ?? 0) > 0,
+)
+
+/** True when some — but not all — visible rows are selected.
+ *  Drives the header checkbox's `indeterminate` state, the
+ *  conventional cue for "partial selection" that lets the user
+ *  click once to select all visible (toggleAllOnPage handles the
+ *  switch from partial → full). */
+const bulkIndeterminate = computed<boolean>(() => {
+  const sel = props.bulkSelection
+  if (!sel) return false
+  return sel.selectedCount.value > 0 && !sel.areAllOnPageSelected.value
+})
+
+function onLeadingHeaderClick(): void {
+  props.bulkSelection?.toggleAllOnPage()
+}
+
+function onRowToggleBulk(id: number, shiftKey: boolean): void {
+  props.bulkSelection?.toggle(String(id), { shiftKey })
+}
 
 /** When split-view is on, single-click selects (preview).
  * When off, single-click opens (full route navigation).
@@ -113,16 +145,31 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
     <table class="min-w-full text-sm border-separate border-spacing-0 table-fixed">
       <thead>
         <tr class="sticky top-0 z-10 bg-surface">
-          <!-- Leading state-cell header: empty content, matches the
-               24px-wide non-removable state cell rendered by every
-               TicketRow. The dot itself is the column "label" — once
-               users learn the colour-state mapping, the header text
-               adds nothing. -->
+          <!-- Leading state-cell header. Empty by default — the
+               row-level dot is the column "label" once users
+               learn the colour-state mapping. When bulk
+               selection is active, hosts the
+               select-all-on-page checkbox so the user can
+               extend the selection to every visible row in one
+               click. -->
           <th
             class="col-state border-b border-subtle bg-surface select-none p-0"
             style="width: 24px; min-width: 24px; max-width: 24px"
-            aria-hidden="true"
-          />
+            :aria-hidden="bulkActive ? undefined : true"
+          >
+            <span
+              v-if="bulkActive && bulkSelection"
+              class="flex items-center justify-center h-full"
+            >
+              <Checkbox
+                :model-value="bulkSelection.areAllOnPageSelected.value"
+                :indeterminate="bulkIndeterminate"
+                size="sm"
+                aria-label="Select all visible tickets"
+                @change="onLeadingHeaderClick"
+              />
+            </span>
+          </th>
           <!--
             The <th> hosts visual layout + drop-target listeners,
             but is NOT itself draggable. Reorder drags are
@@ -222,14 +269,25 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
           <TicketRow
             v-for="card in cards"
             :key="card.id"
-            v-memo="[...rowMemoKey(card), visibleColumns, cellPadding, rowClass, selectedId === card.id]"
+            v-memo="[
+              ...rowMemoKey(card),
+              visibleColumns,
+              cellPadding,
+              rowClass,
+              selectedId === card.id,
+              bulkActive,
+              bulkSelection?.isSelected(String(card.id)) ?? false,
+            ]"
             :card="card"
             :visible-columns="visibleColumns"
             :row-class="rowClass"
             :cell-padding="cellPadding"
             :col-style="colStyle"
             :selected="selectedId === card.id"
+            :bulk-active="bulkActive"
+            :bulk-selected="bulkSelection?.isSelected(String(card.id)) ?? false"
             @click="onRowClick"
+            @toggle-bulk="onRowToggleBulk"
           />
         </template>
 
@@ -261,14 +319,25 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
               <TicketRow
                 v-for="card in bucket.cards"
                 :key="`${bucket.key}:${card.id}`"
-                v-memo="[...rowMemoKey(card), visibleColumns, cellPadding, rowClass, selectedId === card.id]"
+                v-memo="[
+                  ...rowMemoKey(card),
+                  visibleColumns,
+                  cellPadding,
+                  rowClass,
+                  selectedId === card.id,
+                  bulkActive,
+                  bulkSelection?.isSelected(String(card.id)) ?? false,
+                ]"
                 :card="card"
                 :visible-columns="visibleColumns"
                 :row-class="rowClass"
                 :cell-padding="cellPadding"
                 :col-style="colStyle"
                 :selected="selectedId === card.id"
+                :bulk-active="bulkActive"
+                :bulk-selected="bulkSelection?.isSelected(String(card.id)) ?? false"
                 @click="onRowClick"
+                @toggle-bulk="onRowToggleBulk"
               />
             </template>
           </template>

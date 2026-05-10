@@ -23,6 +23,7 @@ import Icon from '@/components/common/Icon.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserCell from '@/components/views/UserCell.vue'
 import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
+import Checkbox from '@/components/common/Checkbox.vue'
 import { priorityForBadge } from '@/utils/priorityHelpers'
 import { deriveSlaState } from '@/composables/useSlaState'
 import {
@@ -44,11 +45,34 @@ const props = defineProps<{
    * selected id so this component never re-renders just because
    * a sibling row got selected. */
   selected?: boolean
+  /** True when this row is in the bulk-selection set. Drives
+   * a separate visual treatment (left accent stripe + tinted
+   * background) so it reads as distinct from the split-view
+   * "preview is open on this row" highlight. */
+  bulkSelected?: boolean
+  /** True when *any* row is bulk-selected. Pins the leading
+   * cell into checkbox mode (instead of showing the workflow
+   * glyph) so the user can keep adding to the selection without
+   * having to hover each row to find the checkbox. */
+  bulkActive?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'click', id: number): void
+  /** Toggle bulk-selection for this row. The parent handles
+   * range-select via shiftKey; we just forward the modifier so
+   * the parent knows whether to extend or single-toggle. */
+  (e: 'toggle-bulk', id: number, shiftKey: boolean): void
 }>()
+
+function onLeadingClick(event: MouseEvent): void {
+  // The leading cell's checkbox handles its own click via the
+  // input element. Keeping the cell as a separate click target
+  // means the user can also click the dot-glyph area to toggle
+  // selection — discoverable when no items are selected yet.
+  event.stopPropagation()
+  emit('toggle-bulk', props.card.id, event.shiftKey)
+}
 
 function relativeTime(iso: string): string {
   return formatCompactRelativeTime(iso)
@@ -91,7 +115,11 @@ function recurrenceLabel(rule: string | null | undefined): string {
     class="cursor-pointer transition-colors group relative"
     :class="[
       rowClass,
-      selected ? 'bg-accent/10 hover:bg-accent/15' : 'hover:bg-surface-hover',
+      bulkSelected
+        ? 'bg-accent/10 hover:bg-accent/15'
+        : selected
+          ? 'bg-accent/5 hover:bg-accent/10'
+          : 'hover:bg-surface-hover',
     ]"
     @click="emit('click', card.id)"
   >
@@ -126,14 +154,47 @@ function recurrenceLabel(rule: string | null | undefined): string {
       went.
     -->
     <td
-      class="col-state border-b border-subtle/40 align-middle p-0"
+      class="col-state border-b border-subtle/40 align-middle p-0 cursor-pointer"
       style="width: 24px; min-width: 24px; max-width: 24px"
+      @click="onLeadingClick"
     >
-      <span class="flex items-center justify-center h-full">
+      <!-- Two visual modes:
+           - Default: workflow-state glyph (the row's identity
+             anchor across all column configs).
+           - Bulk-active OR row-hover OR this row already
+             bulk-selected: a checkbox swap. Bulk-active pins
+             checkbox visibility across all rows so a user
+             building a selection doesn't have to hover-track
+             each row. The hover swap on a single row gives the
+             "I can also select this" hint when no selection
+             exists yet. The bulk-selected case keeps the
+             checkbox visible after the cursor moves away.
+
+           Both elements are stacked via display swap rather
+           than absolute positioning so the cell's intrinsic
+           width stays the same (the table is `table-fixed`
+           and the column is locked at 24px). -->
+      <span
+        v-if="!bulkActive && !bulkSelected"
+        class="flex items-center justify-center h-full group-hover:hidden"
+      >
         <WorkflowStateGlyph
           :category="card.workflow_state.category"
           :color="card.workflow_state.color"
           :name="card.workflow_state.name"
+        />
+      </span>
+      <span
+        :class="[
+          'flex items-center justify-center h-full',
+          bulkActive || bulkSelected ? '' : 'hidden group-hover:flex',
+        ]"
+      >
+        <Checkbox
+          :model-value="!!bulkSelected"
+          size="sm"
+          :aria-label="`Select ticket #${card.id}`"
+          @change="(e: Event) => onLeadingClick(e as unknown as MouseEvent)"
         />
       </span>
     </td>

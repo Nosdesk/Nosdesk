@@ -10,6 +10,13 @@ interface Props {
   indeterminate?: boolean
   size?: 'sm' | 'md' | 'lg'
   label?: string
+  /** Screen-reader-only label. Use this when the checkbox is
+   *  presented in a context that already carries the meaning
+   *  visually (e.g. a row checkbox in a data table) so the
+   *  visible `label` slot doesn't render duplicate text but
+   *  assistive tech still announces the right name. Falls back
+   *  to `label` if omitted. */
+  ariaLabel?: string
   id?: string
 }
 
@@ -51,7 +58,7 @@ const checkboxStyle = computed(() =>
       type="button"
       role="checkbox"
       :aria-checked="indeterminate ? 'mixed' : modelValue"
-      :aria-label="label"
+      :aria-label="ariaLabel ?? label"
       :disabled="disabled"
       :id="id"
       @click="toggle"

@@ -58,6 +58,9 @@ import { useTicketsGrouping } from '@/composables/useTicketsGrouping'
 import { useTicketsSummary } from '@/composables/useTicketsSummary'
 import { useSplitView } from '@/composables/useSplitView'
 import { useDragGesture } from '@/composables/useDragGesture'
+import { useBulkSelection } from '@/composables/useBulkSelection'
+import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import TicketsBulkBar from '@/components/views/TicketsBulkBar.vue'
 import { onScopeDispose } from 'vue'
 import { useTicketSelection } from '@/composables/useTicketSelection'
 import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
@@ -89,6 +92,7 @@ const {
 } = useTicketsColumns(activeView)
 const { density, setDensity, rowClass, cellPadding } = useTicketsDensity()
 const filters = useTicketsFilters()
+const workflowStatesStore = useWorkflowStatesStore()
 const grouping = useTicketsGrouping(() => activeView.value.id)
 const splitView = useSplitView()
 const capabilities = useWorkspaceCapabilities()
@@ -182,6 +186,77 @@ const buckets = grouping.buckets(sortedCards)
 const { segments } = useTicketsSummary(afterViewFilter)
 
 const selection = useTicketSelection(sortedCards)
+
+// ---------------------------------------------------------------
+// Bulk selection (multi-row checkbox model). Coexists with the
+// single-row split-view selection above — `selection` drives the
+// preview pane, `bulkSelection` drives the floating action bar.
+//
+// `cacheKey` is a stable string fingerprint of "what does the
+// current view show". When it changes (user switches saved view,
+// applies a new filter chip, changes sort), useBulkSelection
+// clears its picks because the previous selection no longer
+// matches the new query — keeping stale ids around would let a
+// bulk action target rows the user can no longer see.
+// ---------------------------------------------------------------
+const bulkCacheKey = computed<string>(() =>
+  JSON.stringify({
+    view: activeView.value.id,
+    sortField: sortField.value,
+    sortDir: sortDir.value,
+    title: filters.title.value,
+    statuses: Array.from(filters.status.value),
+    priorities: Array.from(filters.priority.value),
+    assignees: Array.from(filters.assignee.value),
+    sla: Array.from(filters.sla.value),
+    cycles: Array.from(filters.cycle.value),
+  }),
+)
+const bulkSelection = useBulkSelection<CardData>({
+  items: sortedCards,
+  cacheKey: bulkCacheKey,
+  totalCount: computed(() => sortedCards.value.length),
+})
+
+// Esc clears the selection. Doesn't conflict with split-view's
+// keyboard shortcuts because they're scoped to ArrowUp/Down/Enter.
+function onKeydownClearBulk(e: KeyboardEvent): void {
+  if (e.key !== 'Escape') return
+  if (bulkSelection.selectedCount.value === 0) return
+  const target = e.target as HTMLElement | null
+  if (
+    target &&
+    (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+  ) {
+    return
+  }
+  bulkSelection.clear()
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', onKeydownClearBulk)
+  onScopeDispose(() => window.removeEventListener('keydown', onKeydownClearBulk))
+}
+
+// Bulk action dispatchers. Each delegates to the sync store's
+// bulk variant; the store handles per-ticket optimistic updates
+// + rollback. We close the bulk selection on success so the
+// user gets the visual confirmation of "your action landed".
+async function handleBulkSetStatus(stateId: number, ticketIds: number[]): Promise<void> {
+  const target = workflowStatesStore.findById(stateId)
+  if (!target) return
+  await ticketsStore.bulkMoveToWorkflowState(ticketIds, target)
+  bulkSelection.clear()
+}
+async function handleBulkSetPriority(priority: string, ticketIds: number[]): Promise<void> {
+  await ticketsStore.bulkPatchKanbanFields(ticketIds, {
+    priority: priority as CardData['priority'],
+  })
+  bulkSelection.clear()
+}
+async function handleBulkSetAssignee(uuid: string, ticketIds: number[]): Promise<void> {
+  await ticketsStore.bulkPatchKanbanFields(ticketIds, { assignee_uuid: uuid })
+  bulkSelection.clear()
+}
 
 // Viewport-aware split-view gate. Per the useSplitView doc
 // comment, the composable doesn't enforce viewport-aware
@@ -645,6 +720,7 @@ function startPaneResize(event: PointerEvent): void {
         :buckets="buckets"
         :is-collapsed="grouping.isCollapsed"
         :selected-id="splitViewActive ? selection.selectedId.value : undefined"
+        :bulk-selection="bulkSelection"
         class="flex-1 min-w-0"
         @open="open"
         @select="selection.setSelected"
@@ -687,6 +763,20 @@ function startPaneResize(event: PointerEvent): void {
       @close="editingView = null"
       @rename="handleRename"
       @delete="handleDelete"
+    />
+
+    <!-- Floating bulk-action bar. Renders only when at least one
+         row is checked (the component handles its own visibility
+         via the selection count). Sits at the bottom-center of
+         the viewport over the table — fixed positioning so it
+         floats above the split-pane preview when active. -->
+    <TicketsBulkBar
+      :selected-ids="bulkSelection.selectedIds.value"
+      :total-count="sortedCards.length"
+      @clear="bulkSelection.clear"
+      @set-status="handleBulkSetStatus"
+      @set-priority="handleBulkSetPriority"
+      @set-assignee="handleBulkSetAssignee"
     />
   </div>
 </template>
