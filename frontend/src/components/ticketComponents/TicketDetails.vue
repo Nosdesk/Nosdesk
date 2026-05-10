@@ -19,6 +19,11 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import UserCell from "@/components/views/UserCell.vue";
 import TicketTagsField from "@/components/ticketComponents/TicketTagsField.vue";
 import TicketWatchersField from "@/components/ticketComponents/TicketWatchersField.vue";
+import TicketDevicesField from "@/components/ticketComponents/TicketDevicesField.vue";
+import TicketLinkedTicketsField from "@/components/ticketComponents/TicketLinkedTicketsField.vue";
+import TicketProjectsField from "@/components/ticketComponents/TicketProjectsField.vue";
+import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
+import type { Device } from "@/types/device";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
 import { useAuthStore } from "@/stores/auth";
@@ -120,6 +125,12 @@ const props = defineProps<{
      *  surface renders the bell toggle for the current user plus
      *  an avatar row for the broader watcher set. */
     watcher_uuids?: string[];
+    /** Project membership. Backend returns either a list of ids
+     *  or a list of full project objects depending on the
+     *  endpoint; the field component normalises to ids. */
+    projects?: string[] | { id: number | string }[];
+    /** Linked-ticket ids. */
+    linkedTickets?: number[];
   };
   createdDate: string;
   modifiedDate: string;
@@ -130,6 +141,13 @@ const props = defineProps<{
   statusOptions: { value: string; label: string }[];
   priorityOptions: { value: string; label: string }[];
   categoryOptions?: { value: string; label: string; color?: string }[];
+  /** Devices attached to the ticket. Renders as a property-row of
+   *  device chips below the standard properties. */
+  devices?: Device[];
+  /** Drag-to-link affordance state for the linked-tickets row. */
+  showLinkDropAffordance?: boolean;
+  isLinkDropTarget?: boolean;
+  linkDropDragLabel?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -153,6 +171,21 @@ const emit = defineEmits<{
   (e: "update:tag-ids", value: number[]): void;
   /** Toggle the current user's watch status on this ticket. */
   (e: "toggle-watch"): void;
+  /** Open the device-attach modal. Modal state lives in the
+   *  parent (TicketView) since the modal renders at page scope. */
+  (e: "add-device"): void;
+  /** Detach a device from the ticket. */
+  (e: "remove-device", deviceId: number): void;
+  /** Open the link-ticket modal. */
+  (e: "add-linked-ticket"): void;
+  /** Unlink a ticket. */
+  (e: "remove-linked-ticket", ticketId: number): void;
+  /** Open the project-attach modal. */
+  (e: "add-project"): void;
+  /** Detach this ticket from a project. */
+  (e: "remove-project", projectId: string): void;
+  /** Promote this ticket to a documentation page. */
+  (e: "save-as-doc"): void;
 }>();
 
 const workflowStatesStore = useWorkflowStatesStore();
@@ -202,6 +235,18 @@ function handleStatusDropdownChange(v: string) {
   }
   emit('update:selectedStatus', v as TicketStatus);
 }
+
+// Project membership comes through as either ids (string[]) or
+// full project rows depending on the upstream call. Normalise to
+// a string id list so the property-row chip resolver gets one
+// shape to work with.
+const normalisedProjectIds = computed<string[]>(() => {
+  const raw = props.ticket.projects;
+  if (!raw) return [];
+  if (raw.length === 0) return [];
+  if (typeof raw[0] === 'string') return raw as string[];
+  return (raw as { id: number | string }[]).map((p) => String(p.id));
+});
 
 // Computed values - single source of truth from props
 const selectedRequester = computed(() =>
@@ -530,7 +575,7 @@ watchEffect(async () => {
                and the channel reads as a proper field rather than
                a header decoration. -->
           <div class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Title</h3>
+            <h3 class="text-xs font-medium text-tertiary">Title</h3>
             <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
               <!-- 255 mirrors the backend's `tickets.title
                    VARCHAR(255) NOT NULL` cap. Enforcing it
@@ -556,7 +601,7 @@ watchEffect(async () => {
             v-if="sourceLabel"
             class="flex items-center justify-between gap-2 text-xs"
           >
-            <span class="text-tertiary uppercase tracking-wide font-medium">Source</span>
+            <span class="text-tertiary font-medium">Source</span>
             <span
               class="inline-flex items-center gap-1.5 text-secondary"
               :title="`Opened via ${ticket.submitted_via ?? 'channel'} — replies are relayed back through the thread`"
@@ -571,7 +616,7 @@ watchEffect(async () => {
             <!-- Requester -->
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
-                <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Requester</h3>
+                <h3 class="text-xs font-medium text-tertiary">Requester</h3>
                 <div class="print:hidden flex items-center gap-0.5">
                   <button
                     v-if="selectedRequester"
@@ -609,7 +654,7 @@ watchEffect(async () => {
             <!-- Assignee -->
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
-                <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Assignee</h3>
+                <h3 class="text-xs font-medium text-tertiary">Assignee</h3>
                 <div class="print:hidden flex items-center gap-1">
                   <!-- One-click self-assign for staff. Only surfaced
                        on unassigned tickets — taking an unassigned
@@ -663,7 +708,7 @@ watchEffect(async () => {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <!-- Status -->
             <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Status</h3>
+              <h3 class="text-xs font-medium text-tertiary">Status</h3>
               <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
                 <CustomDropdown
                   :value="workflowDropdownValue"
@@ -677,7 +722,7 @@ watchEffect(async () => {
 
             <!-- Priority -->
             <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Priority</h3>
+              <h3 class="text-xs font-medium text-tertiary">Priority</h3>
               <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
                 <CustomDropdown
                   :value="selectedPriority"
@@ -702,7 +747,7 @@ watchEffect(async () => {
             class="flex items-center justify-between gap-2 text-xs"
             :title="slaState.detail"
           >
-            <span class="text-tertiary uppercase tracking-wide font-medium">SLA</span>
+            <span class="text-tertiary font-medium">SLA</span>
             <span class="inline-flex items-center gap-1.5" :class="slaState.toneClass">
               <Icon name="clock" class="w-3.5 h-3.5" />
               <span class="font-medium">{{ slaState.statusLabel }}</span>
@@ -784,7 +829,7 @@ watchEffect(async () => {
 
           <!-- Category Section -->
           <div v-if="categoryOptions && categoryOptions.length > 0" class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Category</h3>
+            <h3 class="text-xs font-medium text-tertiary">Category</h3>
             <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
               <CustomDropdown
                 :value="selectedCategory?.toString() || ''"
@@ -806,7 +851,7 @@ watchEffect(async () => {
             v-if="ticket.cycle"
             class="flex items-center justify-between gap-2 text-xs"
           >
-            <span class="text-tertiary uppercase tracking-wide font-medium">Cycle</span>
+            <span class="text-tertiary font-medium">Cycle</span>
             <button
               type="button"
               class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-accent-muted text-accent hover:bg-accent/20 transition-colors"
@@ -836,6 +881,43 @@ watchEffect(async () => {
             @toggle="emit('toggle-watch')"
           />
 
+          <!-- Attached collections rendered as property-list rows
+               (chips + add). Folds Devices, Linked Tickets,
+               Projects, and Documentation into the same idiom as
+               Tags and Watchers above so the sidebar reads as one
+               cohesive property list. Modals for picking new
+               attachments live in the parent. -->
+          <TicketDevicesField
+            :devices="devices ?? []"
+            @add="emit('add-device')"
+            @remove="(id) => emit('remove-device', id)"
+          />
+
+          <div
+            @dragenter.prevent
+            @dragover.prevent
+          >
+            <TicketLinkedTicketsField
+              :linked-ticket-ids="ticket.linkedTickets ?? []"
+              :show-drop-affordance="!!showLinkDropAffordance"
+              :is-drop-target="!!isLinkDropTarget"
+              :drag-label="linkDropDragLabel"
+              @add="emit('add-linked-ticket')"
+              @remove="(id) => emit('remove-linked-ticket', id)"
+            />
+          </div>
+
+          <TicketProjectsField
+            :project-ids="normalisedProjectIds"
+            @add="emit('add-project')"
+            @remove="(id) => emit('remove-project', id)"
+          />
+
+          <TicketLinkedDocs
+            :ticket-id="ticket.id"
+            @add="emit('save-as-doc')"
+          />
+
           <!-- Resolution notes. Free-text "what fixed this?"
                capture, distinct from the comment thread because
                the resolution is a structured fact rather than
@@ -847,12 +929,12 @@ watchEffect(async () => {
           <div class="flex flex-col gap-1.5">
             <div class="flex items-center justify-between gap-2">
               <h3
-                class="text-xs font-medium uppercase tracking-wide"
+                class="text-xs font-medium"
                 :class="isTerminalState ? 'text-primary' : 'text-tertiary'"
               >Resolution</h3>
               <span
                 v-if="isTerminalState"
-                class="text-[10px] uppercase tracking-wide font-semibold text-status-closed"
+                class="text-[10px] font-semibold text-status-closed"
               >Closed</span>
             </div>
             <textarea
@@ -881,7 +963,7 @@ watchEffect(async () => {
           <div class="pt-2 border-t border-default flex flex-col gap-2">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="flex flex-col gap-1">
-                <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Created</span>
+                <span class="text-xs text-tertiary font-medium">Created</span>
                 <span class="text-secondary text-sm font-medium">{{ createdDate }}</span>
                 <UserCell
                   v-if="ticket.created_by"
@@ -891,7 +973,7 @@ watchEffect(async () => {
               </div>
 
               <div class="flex flex-col gap-1">
-                <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Last Modified</span>
+                <span class="text-xs text-tertiary font-medium">Last Modified</span>
                 <span class="text-secondary text-sm font-medium">{{ modifiedDate }}</span>
               </div>
             </div>
@@ -900,7 +982,7 @@ watchEffect(async () => {
               v-if="ticket.closed_at"
               class="flex flex-col gap-1"
             >
-              <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Closed</span>
+              <span class="text-xs text-tertiary font-medium">Closed</span>
               <span class="text-secondary text-sm font-medium">{{ closedDateLabel }}</span>
               <UserCell
                 v-if="ticket.closed_by"

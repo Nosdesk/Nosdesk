@@ -219,11 +219,15 @@ defineExpose({
 
       <!-- Right side -->
       <div class="flex items-center gap-3 sm:gap-2 md:gap-4 flex-shrink-0">
-        <!-- Create Button -->
+        <!-- Create button: ghost-styled global affordance. The
+             brand-orange treatment is reserved for the page's
+             single primary action (e.g. "Add reply" on a ticket)
+             so a navigation utility doesn't out-shout the page
+             content. Hover lifts to a soft accent background. -->
         <button
           v-if="props.showCreateButton"
           @click="handleCreateClick"
-          class="group flex create-button px-2.5 py-2 sm:px-4 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors items-center gap-2"
+          class="group flex create-button px-2.5 py-1.5 sm:px-3 text-sm font-medium text-secondary border border-default rounded-lg hover:text-primary hover:border-accent hover:bg-accent-muted transition-colors items-center gap-2"
           :aria-label="`Create ${props.createButtonText}`"
         >
           <CreateActionIcon :icon="props.createButtonIcon" />

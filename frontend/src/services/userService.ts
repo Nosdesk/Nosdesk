@@ -1,3 +1,4 @@
+import axios from 'axios';
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
@@ -102,9 +103,11 @@ const userService = {
       
       return response.data;
     } catch (error) {
-      // Don't throw if request was cancelled
-      const errorWithName = error as { name?: string };
-      if (errorWithName.name === 'AbortError' || errorWithName.name === 'CanceledError') {
+      // Cancellations short-circuit. RequestManager aborts the
+      // prior request when a new one shares this key, and Vue
+      // components abort on unmount; both surface here as axios
+      // cancels and aren't real errors.
+      if (axios.isCancel(error)) {
         logger.debug('Request cancelled', { requestKey });
         throw new Error('REQUEST_CANCELLED');
       }

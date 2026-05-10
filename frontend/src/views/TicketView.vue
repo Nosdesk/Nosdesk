@@ -9,7 +9,6 @@ import { stripHtml } from "@/composables/useSanitise";
 import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
 import type { Ticket } from "@/types/ticket";
-import Icon from "@/components/common/Icon.vue";
 
 // Composables
 import { useTicketData } from "@/composables/useTicketData";
@@ -26,25 +25,21 @@ import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
 import CollaborativeTicketArticle from "@/components/ticketComponents/CollaborativeTicketArticle.vue";
 import TicketDetails from "@/components/ticketComponents/TicketDetails.vue";
 import TicketActivity from "@/components/ticketComponents/TicketActivity.vue";
-import DeviceDetails from "@/components/ticketComponents/DeviceDetails.vue";
 import DeviceSelectionModal from "@/components/ticketComponents/DeviceSelectionModal.vue";
 import CommentsAndAttachments from "@/components/ticketComponents/CommentsAndAttachments.vue";
 import LinkedTicketModal from "@/components/ticketComponents/LinkedTicketModal.vue";
-import LinkedTicketPreview from "@/components/ticketComponents/LinkedTicketPreview.vue";
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
-import ProjectInfo from "@/components/ticketComponents/ProjectInfo.vue";
-import SidebarSection from "@/components/ticketComponents/SidebarSection.vue";
-import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
 import TicketGapFlag from "@/components/ticketComponents/TicketGapFlag.vue";
 import documentationService from "@/services/documentationService";
 import { docUrl } from "@/utils/docUrl";
 import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
 import { useFlagTicketMutation } from "@/composables/useKnowledgeGaps";
 import { useQueryCache } from "@pinia/colada";
-import SidebarAddMenu from "@/components/ticketComponents/SidebarAddMenu.vue";
-import type { SidebarAddMenuItem } from "@/components/ticketComponents/SidebarAddMenu.vue";
 import BackButton from "@/components/common/BackButton.vue";
-import DeleteButton from "@/components/common/DeleteButton.vue";
+import Popover from "@/components/common/Popover.vue";
+import MenuList, { type MenuItem } from "@/components/common/MenuList.vue";
+import Icon from "@/components/common/Icon.vue";
+import Modal from "@/components/Modal.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
@@ -167,24 +162,49 @@ const pluginActionActivatedMap = computed(() =>
         : new Map<string, number>()
 );
 
-const sidebarAddItems = computed<SidebarAddMenuItem[]>(() => {
-    const items: SidebarAddMenuItem[] = [
-        { id: 'device', label: 'Add device', type: 'native', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
-        { id: 'linked-ticket', label: 'Link ticket', type: 'native', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
-        { id: 'project', label: 'Add to project', type: 'native', icon: 'M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z' },
-        { id: 'save-as-doc', label: 'Save as doc', type: 'native', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-        { id: 'flag-for-docs', label: 'Flag for documentation', type: 'native', icon: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9' },
+// Overflow menu state: trigger sits in the page header next to
+// the connection-status indicator. Hosts ticket-level actions
+// (Flag for documentation, plugin-contributed actions) plus the
+// destructive Delete option. Centralising these here keeps the
+// sidebar focused on properties and removes the standalone
+// red-Delete button from prime real estate.
+const overflowMenuOpen = ref(false);
+const overflowTriggerRef = ref<HTMLElement | null>(null);
+const overflowAnchor = computed(() => ({
+    type: 'element' as const,
+    element: () => overflowTriggerRef.value,
+}));
+const showDeleteConfirm = ref(false);
+
+const overflowMenuItems = computed<MenuItem[]>(() => {
+    const items: MenuItem[] = [
+        {
+            id: 'flag-for-docs',
+            label: 'Flag for documentation',
+            icon: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9',
+        },
     ];
 
-    for (const action of getActionRegistrations('ticket-sidebar')) {
+    const pluginActions = getActionRegistrations('ticket-sidebar');
+    pluginActions.forEach((action, idx) => {
         items.push({
             id: `plugin:${action.pluginUuid}:${action.componentName}`,
             label: action.label,
-            type: 'plugin',
-            pluginName: action.componentLabel || action.pluginName,
-            icon: action.icon,
+            iconUrl: action.icon,
+            trailing: action.componentLabel || action.pluginName,
+            // Divider above the first plugin item so plugin
+            // contributions read as a distinct group.
+            divider: idx === 0,
         });
-    }
+    });
+
+    items.push({
+        id: 'delete',
+        label: 'Delete ticket',
+        icon: 'M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z',
+        danger: true,
+        divider: true,
+    });
 
     return items;
 });
@@ -221,21 +241,23 @@ const handleSaveAsDoc = async () => {
     router.push(docUrl({ slug: created.slug, id: created.id as number }));
 };
 
-const handleSidebarAddAction = (itemId: string) => {
-    if (itemId === 'device') {
-        showDeviceModal.value = true;
-    } else if (itemId === 'linked-ticket') {
-        showLinkedTicketModal.value = true;
-    } else if (itemId === 'project') {
-        showProjectModal.value = true;
-    } else if (itemId === 'save-as-doc') {
-        handleSaveAsDoc();
-    } else if (itemId === 'flag-for-docs') {
+const handleOverflowSelect = (itemId: string) => {
+    overflowMenuOpen.value = false;
+    if (itemId === 'flag-for-docs') {
         handleFlagForDocs();
+    } else if (itemId === 'delete') {
+        // Two-step destructive flow: opening the modal is the
+        // first click, the modal's confirm button is the second.
+        showDeleteConfirm.value = true;
     } else if (itemId.startsWith('plugin:') && ticketId.value !== undefined) {
         const key = itemId.replace('plugin:', '');
         ticketUi.activatePluginAction(ticketId.value, key);
     }
+};
+
+const confirmDeleteTicket = () => {
+    showDeleteConfirm.value = false;
+    deleteTicket();
 };
 
 // Check if there are any comments with actual content (for print visibility)
@@ -413,18 +435,6 @@ watch(
     { immediate: true, deep: true }, // deep: true to watch nested property changes
 );
 
-// Navigation
-function navigateToDeviceView(deviceId: number): void {
-    router.push({
-        path: `/devices/${deviceId}`,
-        query: { fromTicket: String(ticket.value?.id) },
-    });
-}
-
-function viewProject(projectId: string): void {
-    router.push(`/projects/${projectId}`);
-}
-
 // Load ticket on mount and route change
 onMounted(async () => {
     // Load categories in parallel with ticket
@@ -489,12 +499,32 @@ useCreateTicketAction();
                     <div v-else class="h-8 w-24 bg-surface-alt rounded-lg animate-pulse"></div>
                 </div>
 
-                <DeleteButton
+                <button
                     v-if="ticket"
-                    fallbackRoute="/tickets"
-                    itemName="Ticket"
-                    @delete="deleteTicket"
-                />
+                    ref="overflowTriggerRef"
+                    type="button"
+                    class="inline-flex items-center justify-center w-8 h-8 rounded-md text-tertiary hover:text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+                    :aria-expanded="overflowMenuOpen"
+                    aria-haspopup="menu"
+                    title="More actions"
+                    aria-label="More actions"
+                    @click="overflowMenuOpen = !overflowMenuOpen"
+                >
+                    <Icon name="more" class="w-5 h-5" />
+                </button>
+
+                <Popover
+                    :open="overflowMenuOpen"
+                    :anchor="overflowAnchor"
+                    placement="bottom-end"
+                    react-to-scroll="reposition"
+                    :auto-focus="false"
+                    role="menu"
+                    popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[224px]"
+                    @close="overflowMenuOpen = false"
+                >
+                    <MenuList :items="overflowMenuItems" @select="handleOverflowSelect" />
+                </Popover>
             </div>
 
             <div class="flex flex-col gap-4 px-4 py-4 sm:px-6 mx-auto w-full max-w-8xl">
@@ -572,138 +602,65 @@ useCreateTicketAction();
                             </div>
                         </SectionCard>
 
-                        <TicketDetails
+                        <!-- Drag-to-link wrapper. Drop events bubble from the
+                             Linked Tickets row inside TicketDetails — wrapping
+                             the whole sidebar means the user can release
+                             anywhere in the sidebar and still link the
+                             ticket, which matches the existing affordance. -->
+                        <div
                             v-else
-                            :ticket="ticket"
-                            :created-date="formattedCreatedDate"
-                            :modified-date="formattedModifiedDate"
-                            :selected-status="selectedStatus"
-                            :selected-priority="selectedPriority"
-                            :selected-category="selectedCategory"
-                            :selected-workflow-state-id="selectedWorkflowStateId"
-                            :status-options="STATUS_OPTIONS"
-                            :priority-options="PRIORITY_OPTIONS"
-                            :category-options="categoryOptions"
-                            @update:selectedStatus="updateStatus"
-                            @update:selectedWorkflowStateId="updateWorkflowState"
-                            @update:selectedPriority="updatePriority"
-                            @update:selectedCategory="updateCategory"
-                            @update:requester="updateRequester"
-                            @update:assignee="updateAssignee"
-                            @update:dueDate="updateDueDate"
-                            @update:recurrenceRule="updateRecurrenceRule"
-                            @update:resolutionNotes="updateResolutionNotes"
-                            @update:tag-ids="updateTags"
-                            @toggle-watch="handleToggleWatch"
-                            @update:title="handleTitleUpdate"
-                            @titleFocus="handleTitleFocus"
-                            @titleBlur="handleTitleBlur"
-                        />
-
-                        <!-- Sidebar sections (hidden during loading) -->
-                        <template v-if="ticket">
-                            <!-- Unified "+ Add" menu -->
-                            <SidebarAddMenu
-                                :items="sidebarAddItems"
-                                @select="handleSidebarAddAction"
+                            @dragenter.prevent="setDropTargetActive"
+                            @dragover.prevent="setDropTargetActive"
+                            @dragleave.prevent="setDropTargetInactive"
+                            @drop.prevent="handleLinkDrop"
+                            class="contents"
+                        >
+                            <TicketDetails
+                                :ticket="ticket"
+                                :created-date="formattedCreatedDate"
+                                :modified-date="formattedModifiedDate"
+                                :selected-status="selectedStatus"
+                                :selected-priority="selectedPriority"
+                                :selected-category="selectedCategory"
+                                :selected-workflow-state-id="selectedWorkflowStateId"
+                                :status-options="STATUS_OPTIONS"
+                                :priority-options="PRIORITY_OPTIONS"
+                                :category-options="categoryOptions"
+                                :devices="devices"
+                                :show-link-drop-affordance="showDropAffordance"
+                                :is-link-drop-target="isLinkDropTarget"
+                                :link-drop-drag-label="dragState.ticket ? `#${dragState.ticket.id} ${dragState.ticket.title}` : null"
+                                @update:selectedStatus="updateStatus"
+                                @update:selectedWorkflowStateId="updateWorkflowState"
+                                @update:selectedPriority="updatePriority"
+                                @update:selectedCategory="updateCategory"
+                                @update:requester="updateRequester"
+                                @update:assignee="updateAssignee"
+                                @update:dueDate="updateDueDate"
+                                @update:recurrenceRule="updateRecurrenceRule"
+                                @update:resolutionNotes="updateResolutionNotes"
+                                @update:tag-ids="updateTags"
+                                @toggle-watch="handleToggleWatch"
+                                @update:title="handleTitleUpdate"
+                                @titleFocus="handleTitleFocus"
+                                @titleBlur="handleTitleBlur"
+                                @add-device="showDeviceModal = true"
+                                @remove-device="removeDevice"
+                                @add-linked-ticket="showLinkedTicketModal = true"
+                                @remove-linked-ticket="unlinkTicket"
+                                @add-project="showProjectModal = true"
+                                @remove-project="removeFromProject"
+                                @save-as-doc="handleSaveAsDoc"
                             />
+                        </div>
 
-                            <!-- Devices -->
-                            <SidebarSection
-                                title="Devices"
-                                add-label="Add device"
-                                :has-items="devices.length > 0"
-                                hide-empty-state
-                                @add="showDeviceModal = true"
-                            >
-                                <div class="flex flex-col gap-2">
-                                    <DeviceDetails
-                                        v-for="device in devices"
-                                        :key="device.id"
-                                        :device="device"
-                                        @remove="() => removeDevice(device.id)"
-                                        @view="navigateToDeviceView"
-                                    />
-                                </div>
-                            </SidebarSection>
-
-                            <!-- Linked Tickets (drop zone) - hidden on print when no linked tickets -->
-                            <div
-                                @dragenter.prevent="setDropTargetActive"
-                                @dragover.prevent="setDropTargetActive"
-                                @dragleave.prevent="setDropTargetInactive"
-                                @drop.prevent="handleLinkDrop"
-                                class="flex flex-col gap-2"
-                                :class="{ 'print:hidden': !ticket.linkedTickets?.length }"
-                            >
-                                <!-- Header (only when has tickets) -->
-                                <div v-if="ticket.linkedTickets?.length" class="flex items-center justify-between">
-                                    <h3 class="text-sm font-medium text-secondary">Linked Tickets</h3>
-                                    <button
-                                        @click="showLinkedTicketModal = true"
-                                        class="print:hidden flex items-center gap-1 text-xs font-medium text-tertiary hover:text-accent transition-colors"
-                                    >
-                                        <Icon name="add" />
-                                        Add
-                                    </button>
-                                </div>
-
-                                <!-- Drop zone (single instance, shown when dragging) - hidden on print -->
-                                <div
-                                    v-if="showDropAffordance || isLinkDropTarget"
-                                    class="print:hidden rounded-lg border-2 border-dashed p-3 text-center text-sm transition-colors"
-                                    :class="isLinkDropTarget
-                                        ? 'border-accent bg-accent/10 text-accent'
-                                        : 'border-accent/40 text-accent/70'"
-                                >
-                                    <template v-if="isLinkDropTarget && dragState.ticket">
-                                        <span class="font-mono">#{{ dragState.ticket.id }}</span>
-                                        {{ dragState.ticket.title }}
-                                    </template>
-                                    <template v-else>Drop to link ticket</template>
-                                </div>
-
-                                <!-- Existing linked tickets -->
-                                <LinkedTicketPreview
-                                    v-for="linkedId in ticket.linkedTickets"
-                                    :key="linkedId"
-                                    :linked-ticket-id="linkedId"
-                                    :current-ticket-id="ticket.id"
-                                    @unlink="() => unlinkTicket(linkedId)"
-                                    @view="() => {}"
-                                />
-
-                            </div>
-
-                            <!-- Projects -->
-                            <SidebarSection
-                                title="Projects"
-                                add-label="Add to project"
-                                :has-items="!!ticket.projects?.length"
-                                hide-empty-state
-                                @add="showProjectModal = true"
-                            >
-                                <div class="flex flex-col gap-2">
-                                    <ProjectInfo
-                                        v-for="projectId in ticket.projects as string[] | undefined"
-                                        :key="projectId"
-                                        :project-id="projectId"
-                                        @view="viewProject(projectId)"
-                                        @remove="() => removeFromProject(projectId)"
-                                    />
-                                </div>
-                            </SidebarSection>
-
-                            <!-- Knowledge gap flag (only renders when flagged) -->
+                        <!-- Sidebar surfaces that aren't part of the
+                             property list: knowledge-gap pill plus
+                             the plugin component slot. Page-level
+                             actions live in the header overflow menu. -->
+                        <template v-if="ticket">
                             <TicketGapFlag :ticket-id="ticket.id" />
 
-                            <!-- Documentation links -->
-                            <TicketLinkedDocs
-                                :ticket-id="ticket.id"
-                                @add="handleSaveAsDoc"
-                            />
-
-                            <!-- Plugin Components -->
                             <PluginSlot slot-name="ticket-sidebar" :ticket="ticket" :actionActivatedMap="pluginActionActivatedMap" />
                         </template>
                         </div>
@@ -845,6 +802,55 @@ useCreateTicketAction();
                 @close="showProjectModal = false"
                 @select-project="addToProject"
             />
+
+            <!-- Delete confirmation. Triggered from the page-header
+                 overflow menu; two-step flow keeps a destructive
+                 action behind an explicit confirm gesture. -->
+            <Modal
+                :show="showDeleteConfirm"
+                title="Delete ticket"
+                @close="showDeleteConfirm = false"
+            >
+                <div class="flex flex-col items-center gap-4">
+                    <div
+                        class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-status-error/20 mb-4"
+                    >
+                        <svg
+                            class="h-6 w-6 text-status-error"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                            />
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-medium text-primary mb-2">Delete this ticket?</h3>
+                    <p class="text-base text-secondary mb-6">
+                        This action cannot be undone. The ticket and its history will be removed.
+                    </p>
+                    <div class="flex justify-center gap-4">
+                        <button
+                            type="button"
+                            class="px-4 py-2 bg-surface text-primary rounded-lg hover:bg-surface-hover transition-colors"
+                            @click="showDeleteConfirm = false"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors"
+                            @click="confirmDeleteTicket"
+                        >
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     </div>
 </template>

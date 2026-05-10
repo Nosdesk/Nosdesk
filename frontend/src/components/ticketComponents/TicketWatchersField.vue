@@ -58,7 +58,7 @@ function handleToggle() {
 <template>
   <div class="flex flex-col gap-1.5">
     <div class="flex items-center justify-between gap-2">
-      <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">
+      <h3 class="text-xs font-medium text-tertiary">
         Watchers
         <span v-if="watcherCount > 0" class="text-tertiary tabular-nums">({{ watcherCount }})</span>
       </h3>

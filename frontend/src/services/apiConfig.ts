@@ -158,6 +158,17 @@ apiClient.interceptors.response.use(
     return response;
   },
   async (error) => {
+    // Cancellations short-circuit. RequestManager aborts in-flight
+    // requests when a new one shares the same key (the routine
+    // cancel-prior-and-replace pattern), and Vue components abort
+    // their fetches on unmount. Both surface here as axios cancels.
+    // They aren't errors — logging them as such fills the console
+    // with red text that masks real failures, and the auth /
+    // refresh path below should also skip cancellations.
+    if (axios.isCancel(error)) {
+      return Promise.reject(error);
+    }
+
     const correlationId = error.response?.headers['x-correlation-id'] || currentCorrelationId;
 
     // Create typed error

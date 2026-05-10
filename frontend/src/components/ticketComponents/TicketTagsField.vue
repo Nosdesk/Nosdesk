@@ -166,7 +166,7 @@ function chipClass(tag: Tag): string {
 <template>
   <div class="flex flex-col gap-1.5">
     <div class="flex items-center justify-between gap-2">
-      <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Tags</h3>
+      <h3 class="text-xs font-medium text-tertiary">Tags</h3>
       <button
         type="button"
         class="p-1 text-tertiary hover:text-accent hover:bg-accent-muted rounded transition-colors"

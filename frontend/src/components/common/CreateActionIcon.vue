@@ -38,13 +38,19 @@ const showBadge = computed(() => props.icon !== 'plus' && !props.loading)
       <path stroke-linecap="round" stroke-linejoin="round" :d="currentPath" />
     </svg>
 
-    <!-- Plus badge -->
+    <!-- "Add" badge: small plus glyph anchored to the domain
+         icon's top-right. Sized to feel like an indicator rather
+         than a competing graphic, with a theme-aware surface bg
+         + hairline ring so it reads as a separate element against
+         either light or dark backgrounds (the prior hardcoded
+         white bg punched through dark surfaces). -->
     <span
       v-if="showBadge"
-      class="absolute -top-1 -right-1.5 size-3 flex items-center justify-center rounded-full bg-white shadow-sm"
+      class="absolute -top-1 -right-1.5 size-3.5 flex items-center justify-center rounded-full bg-surface ring-1 ring-default"
+      aria-hidden="true"
     >
-      <svg class="size-2 text-accent" viewBox="0 0 10 10" fill="none">
-        <path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      <svg class="size-2.5 text-accent" viewBox="0 0 10 10" fill="none">
+        <path d="M5 2.5v5M2.5 5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
       </svg>
     </span>
   </span>

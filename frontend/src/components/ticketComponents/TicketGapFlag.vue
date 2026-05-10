@@ -3,7 +3,7 @@
   as a knowledge gap.
 
   Renders nothing when the ticket isn't flagged. The "Flag for
-  documentation" action lives in the unified SidebarAddMenu and
+  documentation" action lives in the sidebar Actions section and
   is idempotent on the server side, so this component is purely
   the *flagged* state surface — link to the gap + unflag.
 

@@ -105,6 +105,7 @@ watch(() => props.ticketId, () => {
 
 interface PhraseContext {
   workflowName: (id: number) => string | null
+  userName: (uuid: string) => string | null
 }
 
 function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
@@ -139,6 +140,39 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
       return 'changed the category'
     case 'ticket.verification_changed':
       return 'updated verification state'
+    case 'ticket.tags_changed': {
+      const added = (data.added as number[] | undefined)?.length ?? 0
+      const removed = (data.removed as number[] | undefined)?.length ?? 0
+      if (added > 0 && removed === 0) {
+        return added === 1 ? 'added a tag' : `added ${added} tags`
+      }
+      if (removed > 0 && added === 0) {
+        return removed === 1 ? 'removed a tag' : `removed ${removed} tags`
+      }
+      return 'updated the tags'
+    }
+    case 'ticket.resolution_notes_changed':
+      return 'updated the resolution notes'
+    case 'ticket.watcher_added': {
+      const target = data.user_uuid as string | undefined
+      const isSelf = !!target && !!ev.actor_uuid && target === ev.actor_uuid
+      if (isSelf) {
+        return data.auto_added
+          ? 'started watching (auto-subscribed on first reply)'
+          : 'started watching this ticket'
+      }
+      if (!target) return 'added a watcher'
+      const name = ctx.userName(target)
+      return name ? `added ${name} as a watcher` : 'added a watcher'
+    }
+    case 'ticket.watcher_removed': {
+      const target = data.user_uuid as string | undefined
+      const isSelf = !!target && !!ev.actor_uuid && target === ev.actor_uuid
+      if (isSelf) return 'stopped watching this ticket'
+      if (!target) return 'removed a watcher'
+      const name = ctx.userName(target)
+      return name ? `removed ${name} as a watcher` : 'removed a watcher'
+    }
     case 'ticket.updated':
       return 'updated the ticket'
     case 'comment.created':
@@ -156,6 +190,7 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
 // every event since it's just an array find.
 const ctx = computed<PhraseContext>(() => ({
   workflowName: (id: number) => workflowStatesStore.findById(id)?.name ?? null,
+  userName: (uuid: string) => getUserHandle(uuid).user.value?.name ?? null,
 }))
 
 // Resolve the assignee handle for the assignee_changed events so
