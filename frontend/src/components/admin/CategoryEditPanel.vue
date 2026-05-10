@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
 import Icon from '@/components/common/Icon.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
+import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import type { CategoryWithVisibility } from '@/types/category';
 import type { GroupWithMemberCount } from '@/types/group';
 
@@ -173,17 +174,12 @@ const handleSubmit = () => {
         <ColorHueSlider v-model="categoryForm.color" label="Color" />
 
         <!-- Active status (only for editing) -->
-        <div v-if="isEditMode()" class="flex items-center gap-3">
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              v-model="categoryForm.is_active"
-              class="sr-only peer"
-            />
-            <div class="w-11 h-6 bg-surface-alt peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white dark:after:bg-zinc-200 after:border-gray-300 dark:after:border-zinc-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-transform peer-checked:bg-accent"></div>
-          </label>
-          <span class="text-sm text-primary">Active</span>
-        </div>
+        <ToggleSwitch
+          v-if="isEditMode()"
+          v-model="categoryForm.is_active"
+          size="sm"
+          label="Active"
+        />
 
         <!-- Group visibility -->
         <div>
