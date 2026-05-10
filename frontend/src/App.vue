@@ -250,10 +250,22 @@ onMounted(async () => {
               stateful composables (collab session, ticket SSE) tear
               down and rebuild against the new id, instead of being
               left wired to the first id.
+
+              The fallback uses the *top-level* matched route's path
+              instead of the leaf `fullPath`. Routes that share a
+              parent layout (e.g. every admin child sits under the
+              `/admin` parent that mounts AdminLayout) collapse to a
+              single key — the parent layout stays mounted across
+              child navigations, only the nested RouterView inside
+              the layout re-renders. Without this, navigating from
+              `/admin/groups` to `/admin/categories` would unmount
+              the entire AdminLayout (sidebar included) and run it
+              through the `page` transition, which reads as the
+              sidebar flashing in and out.
             -->
             <component
               :is="Component"
-              :key="viewRoute.meta.key ?? viewRoute.fullPath"
+              :key="viewRoute.meta.key ?? viewRoute.matched[0]?.path ?? viewRoute.fullPath"
               class="h-full overflow-auto"
             />
           </Transition>

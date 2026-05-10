@@ -44,7 +44,20 @@ const activeItem = computed(() => {
     </div>
 
     <div class="flex-1 min-w-0 h-full overflow-auto">
-      <RouterView />
+      <!-- Inner page transition. The top-level RouterView in
+           App.vue keys by the parent route's path, so AdminLayout
+           (and its sidebar) stays mounted across admin sub-route
+           navigations. The transition here lives on the inner
+           RouterView so the *content area* still gets the same
+           page fade — sidebar persists, content swaps. -->
+      <RouterView v-slot="{ Component, route: childRoute }">
+        <Transition name="page" mode="out-in">
+          <component
+            :is="Component"
+            :key="childRoute.fullPath"
+          />
+        </Transition>
+      </RouterView>
     </div>
   </div>
 </template>
