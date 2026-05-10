@@ -307,8 +307,7 @@ const isRouteActive = (path: string, exact = false) => {
                 <div
                     ref="resizerRef"
                     class="resizer-handle group relative mx-1 flex items-center justify-center select-none"
-                    @mousedown="startResize"
-                    @touchstart.prevent="startResize"
+                    @pointerdown="startResize"
                     :class="{ active: isResizing }"
                 >
                     <!-- Equalize button removed -->

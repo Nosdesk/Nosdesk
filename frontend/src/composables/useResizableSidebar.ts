@@ -1,163 +1,91 @@
+/**
+ * useResizableSidebar — drag-to-resize for the left navbar's
+ * Tickets/Docs split. Surfaces the same `startResize` /
+ * `equalizeHeights` / `ticketsHeight` API the original module
+ * exposed; the gesture mechanics now live in `useDragGesture`
+ * (shared with column resize and the split-pane divider).
+ *
+ * Strategy: LIVE update — the affected element is one sidebar
+ * panel, so writing `style.maxHeight` on each rAF tick is
+ * cheap and gives instant feedback. The composable handles
+ * pointer capture, rAF coalescing, will-change hints, and
+ * cleanup; this file owns the constraint math (min height per
+ * section, max derived from the navbar's total height).
+ */
 import { ref, onMounted, onBeforeUnmount, type Ref, type ComputedRef } from 'vue'
+import { useDragGesture } from '@/composables/useDragGesture'
 
-// Min/max heights constants
-const MIN_SECTION_HEIGHT = 60;
-const MIN_OTHER_SECTION_HEIGHT = 60;
-const RESIZER_HEIGHT = 8;
+const MIN_SECTION_HEIGHT = 60
+const MIN_OTHER_SECTION_HEIGHT = 60
+const RESIZER_HEIGHT = 8
+const STORAGE_KEY = 'ticketsHeight'
 
 export function useResizableSidebar(
   navbarRef: Ref<HTMLElement | null>,
   ticketsSectionRef: Ref<HTMLElement | null> | ComputedRef<HTMLElement | null>,
   _docsSectionRef: Ref<HTMLElement | null> | ComputedRef<HTMLElement | null>,
-  _resizerRef: Ref<HTMLElement | null>
+  _resizerRef: Ref<HTMLElement | null>,
 ) {
-  const ticketsHeight = ref(200);
-  const isResizing = ref(false);
-  let dragStartY = 0;
-  let initialHeight = 0;
-  let rafId: number | null = null;
-  
-  // Load initial state
+  const ticketsHeight = ref(200)
+  const drag = useDragGesture()
+
   onMounted(() => {
-    const storedHeight = localStorage.getItem('ticketsHeight');
-    if (storedHeight) {
-      ticketsHeight.value = parseInt(storedHeight, 10);
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored) {
+      const parsed = parseInt(stored, 10)
+      if (Number.isFinite(parsed)) ticketsHeight.value = parsed
     }
-  });
-  
-  // Apply changes with hardware acceleration
-  const applyResize = (newHeight: number) => {
-    if (!ticketsSectionRef.value) return;
-    
-    // Update both the reactive state and directly set the style for immediate feedback
-    ticketsHeight.value = newHeight;
-    ticketsSectionRef.value.style.maxHeight = `${newHeight}px`;
-  };
-  
-  // Start resize operation
-  const startResize = (event: MouseEvent | TouchEvent) => {
-    event.preventDefault();
-    
-    if (!ticketsSectionRef.value) return;
-    
-    // Enable hardware acceleration
+  })
+
+  function applyHeight(newHeight: number): void {
+    ticketsHeight.value = newHeight
     if (ticketsSectionRef.value) {
-      ticketsSectionRef.value.style.willChange = 'max-height';
+      ticketsSectionRef.value.style.maxHeight = `${newHeight}px`
     }
-    
-    // Get current height directly from the DOM for accuracy
-    initialHeight = ticketsSectionRef.value.offsetHeight;
-    
-    // Get cursor position
-    const clientY = 'touches' in event ? event.touches[0].clientY : event.clientY;
-    dragStartY = clientY;
-    
-    // Set resizing state
-    isResizing.value = true;
-    
-    // Add event listeners with capture phase for immediate response
-    document.addEventListener('mousemove', handleResize, { passive: false, capture: true });
-    document.addEventListener('mouseup', stopResize, { capture: true });
-    document.addEventListener('touchmove', handleResize, { passive: false, capture: true });
-    document.addEventListener('touchend', stopResize, { capture: true });
-    document.addEventListener('touchcancel', stopResize, { capture: true });
-    
-    document.body.classList.add('resize-active');
-  };
-  
-  // Handle resize movement with requestAnimationFrame for smooth performance
-  const handleResize = (event: MouseEvent | TouchEvent) => {
-    if (!isResizing.value) return;
-    
-    event.preventDefault();
-    
-    // Cancel any pending animation frame
-    if (rafId !== null) {
-      cancelAnimationFrame(rafId);
-    }
-    
-    // Use requestAnimationFrame to optimize visual updates
-    rafId = requestAnimationFrame(() => {
-      if (!navbarRef.value || !ticketsSectionRef.value) return;
-      
-      // Get current cursor position
-      const clientY = 'touches' in event ? event.touches[0].clientY : event.clientY;
-      
-      // Calculate delta from initial position
-      const deltaY = clientY - dragStartY;
-      
-      // Calculate new height
-      let newHeight = initialHeight + deltaY;
-      
-      // Apply constraints
-      const totalHeight = navbarRef.value.offsetHeight;
-      const maxHeight = totalHeight - MIN_OTHER_SECTION_HEIGHT - RESIZER_HEIGHT;
-      
-      // Constrain within min/max bounds
-      newHeight = Math.max(MIN_SECTION_HEIGHT, Math.min(newHeight, maxHeight));
-      
-      // Apply the new height
-      applyResize(newHeight);
-    });
-  };
-  
-  // Stop resize operation
-  const stopResize = () => {
-    if (!isResizing.value) return;
-    
-    // Cancel any pending animation frame
-    if (rafId !== null) {
-      cancelAnimationFrame(rafId);
-      rafId = null;
-    }
-    
-    isResizing.value = false;
-    
-    // Disable hardware acceleration hints
-    if (ticketsSectionRef.value) {
-      ticketsSectionRef.value.style.willChange = 'auto';
-    }
-    
-    // Clean up listeners - make sure to use same options when removing
-    document.removeEventListener('mousemove', handleResize, { capture: true });
-    document.removeEventListener('mouseup', stopResize, { capture: true });
-    document.removeEventListener('touchmove', handleResize, { capture: true });
-    document.removeEventListener('touchend', stopResize, { capture: true });
-    document.removeEventListener('touchcancel', stopResize, { capture: true });
-    document.body.classList.remove('resize-active');
-    
-    // Save preference
-    localStorage.setItem('ticketsHeight', ticketsHeight.value.toString());
-  };
-  
-  // Utility to equalize heights
-  const equalizeHeights = () => {
-    if (!navbarRef.value || !ticketsSectionRef.value) return;
-    
-    const navbarRect = navbarRef.value.getBoundingClientRect();
-    const totalHeight = navbarRect.height;
-    
-    // Calculate equal distribution
-    const equalHeight = Math.floor((totalHeight - RESIZER_HEIGHT) / 2);
-    const finalHeight = Math.max(MIN_SECTION_HEIGHT, equalHeight);
-    
-    // Apply the height
-    applyResize(finalHeight);
-    localStorage.setItem('ticketsHeight', finalHeight.toString());
-  };
-  
-  // Cleanup
+  }
+
+  function startResize(event: PointerEvent): void {
+    if (!ticketsSectionRef.value || !navbarRef.value) return
+
+    const startHeight = ticketsSectionRef.value.offsetHeight
+    document.body.classList.add('resize-active')
+
+    drag.begin(event, {
+      axis: 'y',
+      startValue: startHeight,
+      optimizationTarget: ticketsSectionRef.value,
+      clamp: (raw) => {
+        if (!navbarRef.value) return raw
+        const totalHeight = navbarRef.value.offsetHeight
+        const maxHeight = totalHeight - MIN_OTHER_SECTION_HEIGHT - RESIZER_HEIGHT
+        return Math.max(MIN_SECTION_HEIGHT, Math.min(raw, maxHeight))
+      },
+      onUpdate: applyHeight,
+      onCommit: (finalHeight) => {
+        applyHeight(finalHeight)
+        localStorage.setItem(STORAGE_KEY, String(finalHeight))
+        document.body.classList.remove('resize-active')
+      },
+    })
+  }
+
+  function equalizeHeights(): void {
+    if (!navbarRef.value || !ticketsSectionRef.value) return
+    const totalHeight = navbarRef.value.getBoundingClientRect().height
+    const equalHeight = Math.floor((totalHeight - RESIZER_HEIGHT) / 2)
+    const finalHeight = Math.max(MIN_SECTION_HEIGHT, equalHeight)
+    applyHeight(finalHeight)
+    localStorage.setItem(STORAGE_KEY, String(finalHeight))
+  }
+
   onBeforeUnmount(() => {
-    if (rafId !== null) {
-      cancelAnimationFrame(rafId);
-    }
-    stopResize();
-  });
-  
+    document.body.classList.remove('resize-active')
+  })
+
   return {
     ticketsHeight,
-    isResizing,
+    isResizing: drag.isDragging,
     startResize,
-    equalizeHeights
-  };
-} 
+    equalizeHeights,
+  }
+}

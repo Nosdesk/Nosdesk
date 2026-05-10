@@ -253,26 +253,28 @@ export function useTicketsColumns(activeView: ComputedRef<ResolvedView>): UseTic
   }
 
   function colStyle(col: ListColumn): Record<string, string> {
-    if (col.flex) {
-      // Title (the only flex column today) absorbs leftover width
-      // and clamps between 280px (lower) and the registry
-      // `maxWidthPx` (upper). Without the upper cap a single
-      // pathologically long title (we ship a 255-char hard
-      // backend limit, but any 200-char title is enough) would
-      // grow the cell to fit, push the table past the container
-      // width, and trigger a horizontal scrollbar just for one
-      // row — the rest of the cells then need to be panned to
-      // see. The cap forces the inner span's `truncate` to kick
-      // in on the long title rather than pushing siblings out
-      // of view.
-      //
-      // The truncation lives on an inner span that needs its
-      // own `min-width: 0` (see TicketsTable.vue's title cell)
-      // because flex / table cells with a min-width otherwise
-      // refuse to ellipsis their text content.
+    // Flex column (title) defaults to absorbing leftover width:
+    // `width: auto` with min/max clamps. Without the upper cap a
+    // pathologically long title would push the table past the
+    // container and trigger horizontal scroll just for one row.
+    // The truncation lives on an inner span that needs its own
+    // `min-width: 0` (see TicketsTable.vue's title cell) because
+    // flex / table cells with a min-width otherwise refuse to
+    // ellipsis their text content.
+    //
+    // The flex behavior only kicks in while no width override
+    // exists. Once the user grabs the resize handle and sets an
+    // explicit width, the column pins to that width like every
+    // other column — same min/max clamps from the registry. This
+    // way "title flexes by default" and "title is resizable"
+    // coexist: don't touch it and it absorbs leftover space, drag
+    // it once and it stays where you put it. `Reset columns`
+    // clears the override and restores flex behavior.
+    const override = layout.widthOverrides.value.get(col.id)
+    if (col.flex && override === undefined) {
       return {
         width: 'auto',
-        'min-width': '280px',
+        'min-width': `${Math.max(280, col.minWidthPx)}px`,
         'max-width': `${col.maxWidthPx}px`,
       }
     }

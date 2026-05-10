@@ -57,6 +57,7 @@ import {
 import { useTicketsGrouping } from '@/composables/useTicketsGrouping'
 import { useTicketsSummary } from '@/composables/useTicketsSummary'
 import { useSplitView } from '@/composables/useSplitView'
+import { useDragGesture } from '@/composables/useDragGesture'
 import { onScopeDispose } from 'vue'
 import { useTicketSelection } from '@/composables/useTicketSelection'
 import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
@@ -481,31 +482,35 @@ const mergedCalendarOverlays = computed<CalendarOverlay[]>(() => [
 ])
 
 // ---------------------------------------------------------------
-// Split-view resize. Pointer-capture loop on the divider; drag
-// left grows the right pane, drag right shrinks it. Persisted
-// per-user via useSplitView.setPaneWidth which clamps to
-// min/max so the table stays readable at any extreme.
+// Split-view resize. Uses the shared `useDragGesture`
+// composable for the gesture mechanics (pointer capture, rAF
+// coalescing, will-change, cleanup). Strategy is LIVE: the
+// preview pane is one element, so writing the new pixel width
+// each rAF tick is cheap. We skip `setPaneWidth` during the
+// drag (it persists to localStorage on every call) and only
+// commit through it on pointerup.
+//
+// `direction: -1` because the divider sits on the LEFT edge of
+// a right-anchored pane: dragging left should grow the pane.
 // ---------------------------------------------------------------
-function startPaneResize(e: PointerEvent): void {
-  e.preventDefault()
-  const startX = e.clientX
-  const startWidth = splitView.paneWidth.value
-  const target = e.currentTarget as HTMLElement
-  target.setPointerCapture(e.pointerId)
-
-  const onMove = (ev: PointerEvent) => {
-    const delta = startX - ev.clientX  // dragging left => positive
-    splitView.setPaneWidth(startWidth + delta)
-  }
-  const onUp = (ev: PointerEvent) => {
-    target.releasePointerCapture?.(ev.pointerId)
-    target.removeEventListener('pointermove', onMove)
-    target.removeEventListener('pointerup', onUp)
-    target.removeEventListener('pointercancel', onUp)
-  }
-  target.addEventListener('pointermove', onMove)
-  target.addEventListener('pointerup', onUp)
-  target.addEventListener('pointercancel', onUp)
+const paneDrag = useDragGesture()
+function startPaneResize(event: PointerEvent): void {
+  paneDrag.begin(event, {
+    axis: 'x',
+    direction: -1,
+    startValue: splitView.paneWidth.value,
+    clamp: (raw) =>
+      Math.max(splitView.minPaneWidth, Math.min(splitView.maxPaneWidth, raw)),
+    onUpdate: (value) => {
+      // Direct ref mutation: skips the localStorage write that
+      // setPaneWidth would do every frame.
+      splitView.paneWidth.value = Math.round(value)
+    },
+    onCommit: (value) => {
+      // setPaneWidth re-clamps + persists. Final source of truth.
+      splitView.setPaneWidth(value)
+    },
+  })
 }
 </script>
 

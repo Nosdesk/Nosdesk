@@ -30,6 +30,7 @@ import {
   type ColumnId,
   type ListColumn,
 } from '@/sync/views/ticketColumns'
+import { useDragGesture } from '@/composables/useDragGesture'
 
 const COLUMN_WIDTHS_PREFIX = 'tickets-column-widths:'
 
@@ -103,46 +104,151 @@ export function useColumnLayout(
   }
 
   // ---------------------------------------------------------------
-  // Resize. The view renders a 4px hit-area inside each <th>;
-  // pointerdown on the handle calls beginResize() to wire up the
-  // pointer-capture loop.
+  // Resize. LIVE strategy: write `widthOverrides` directly on
+  // each rAF tick so the table reflows in step with the cursor
+  // (the conventional spreadsheet feel). The shared
+  // `useDragGesture` rAF-coalesces the writes so we get at most
+  // one per frame regardless of pointer event frequency.
+  //
+  // Double-click on the handle auto-fits the column to its
+  // widest content. Detected here (not via @dblclick on the
+  // template) because `useDragGesture` calls preventDefault on
+  // pointerdown, which suppresses the synthetic click /
+  // dblclick chain — so we count successive pointerdowns
+  // within a short window instead.
   // ---------------------------------------------------------------
   const resizingId = ref<ColumnId | null>(null)
+  const drag = useDragGesture()
+
+  const DOUBLE_CLICK_MS = 350
+  let lastClickAt = 0
+  let lastClickColId: ColumnId | null = null
 
   function beginResize(colId: ColumnId, event: PointerEvent): void {
     const col = TICKET_COLUMNS.find((c) => c.id === colId)
     if (!col) return
-    event.preventDefault()
     event.stopPropagation()
-    const startX = event.clientX
+
+    const now = performance.now()
+    if (lastClickColId === colId && now - lastClickAt < DOUBLE_CLICK_MS) {
+      lastClickAt = 0
+      lastClickColId = null
+      const handle = event.currentTarget as HTMLElement | null
+      autoFitColumn(colId, handle)
+      return
+    }
+    lastClickAt = now
+    lastClickColId = colId
+
     const startWidth = widthFor(col)
-    const target = event.currentTarget as HTMLElement
-    target.setPointerCapture(event.pointerId)
     resizingId.value = colId
 
-    const onMove = (e: PointerEvent) => {
-      const delta = e.clientX - startX
-      let next = startWidth + delta
-      if (next < col.minWidthPx) next = col.minWidthPx
-      if (next > col.maxWidthPx) next = col.maxWidthPx
-      // Mutate the Map in place + reassign so Vue tracks the change.
+    // Bare write helper: mutates the Map and reassigns so Vue
+    // tracks the change. Used by both onUpdate (live) and the
+    // pointerup commit (final). Persisted only on commit so the
+    // localStorage write doesn't run 60×/second.
+    const writeWidth = (px: number): void => {
       const map = new Map(widthOverrides.value)
-      map.set(colId, Math.round(next))
+      map.set(colId, Math.round(px))
       widthOverrides.value = map
     }
 
-    const onUp = (e: PointerEvent) => {
-      target.releasePointerCapture?.(e.pointerId)
-      target.removeEventListener('pointermove', onMove)
-      target.removeEventListener('pointerup', onUp)
-      target.removeEventListener('pointercancel', onUp)
-      resizingId.value = null
-      persistWidths(getViewId())
-    }
+    drag.begin(event, {
+      axis: 'x',
+      startValue: startWidth,
+      clamp: (raw) => Math.min(col.maxWidthPx, Math.max(col.minWidthPx, raw)),
+      onUpdate: writeWidth,
+      onCommit: (finalWidth) => {
+        writeWidth(finalWidth)
+        resizingId.value = null
+        persistWidths(getViewId())
+      },
+    })
+  }
 
-    target.addEventListener('pointermove', onMove)
-    target.addEventListener('pointerup', onUp)
-    target.addEventListener('pointercancel', onUp)
+  /** Fit a column to its widest visible content.
+   *
+   *  Measurement strategy: the table is rendered with
+   *  `table-layout: fixed` and explicit per-cell widths, which
+   *  means a cell's `scrollWidth` reports the *constrained*
+   *  width — not the natural content width. Reading it directly
+   *  gives the column's current width back, which is useless.
+   *
+   *  Workaround: temporarily switch the table to `table-layout:
+   *  auto` and clear this column's per-cell width styles. With
+   *  no constraint the browser computes each cell's natural
+   *  content width on the next layout pass. We force that pass
+   *  by reading `offsetWidth`, capture the values, then
+   *  restore. Because the mutate → measure → restore happens
+   *  inside a single synchronous task, the browser doesn't
+   *  paint the intermediate state — the user sees one
+   *  transition from old width to new width.
+   *
+   *  Result is clamped to the column's registry min/max bounds
+   *  and persisted like a manual resize. */
+  function autoFitColumn(colId: ColumnId, handle: HTMLElement | null): void {
+    const col = TICKET_COLUMNS.find((c) => c.id === colId)
+    if (!col) return
+
+    // Scope to the same table the handle lives in so multiple
+    // tables on a page (split view, modals) don't pollute each
+    // other.
+    const container = handle?.closest('.tickets-table-container') as HTMLElement | null
+    if (!container) return
+    const table = container.querySelector<HTMLTableElement>('table')
+    if (!table) return
+    const cells = container.querySelectorAll<HTMLElement>(`.col-${colId}`)
+    if (cells.length === 0) return
+
+    // Snapshot every style we're about to mutate so we can
+    // restore the exact prior state — the originals come from
+    // Vue's `:style` binding and we don't want to surprise the
+    // next render.
+    const savedTableLayout = table.style.tableLayout
+    const savedCellStyles = Array.from(cells).map((cell) => ({
+      el: cell,
+      width: cell.style.width,
+      minWidth: cell.style.minWidth,
+      maxWidth: cell.style.maxWidth,
+    }))
+
+    // Mutate: drop the layout constraint and clear this column's
+    // per-cell widths so the browser sizes them to content.
+    table.style.tableLayout = 'auto'
+    cells.forEach((cell) => {
+      cell.style.width = 'auto'
+      cell.style.minWidth = '0'
+      cell.style.maxWidth = 'none'
+    })
+
+    // Measure: reading offsetWidth on each cell forces the
+    // browser to lay out with the new (unconstrained) styles.
+    let naturalMax = col.minWidthPx
+    cells.forEach((cell) => {
+      const w = cell.offsetWidth
+      if (w > naturalMax) naturalMax = w
+    })
+
+    // Restore — synchronous within the same JS task, so the
+    // intermediate auto-layout never paints.
+    table.style.tableLayout = savedTableLayout
+    savedCellStyles.forEach((s) => {
+      s.el.style.width = s.width
+      s.el.style.minWidth = s.minWidth
+      s.el.style.maxWidth = s.maxWidth
+    })
+
+    // Small breathing-room margin so content isn't flush
+    // against the column edge, then clamp to registry bounds.
+    const target = Math.min(
+      col.maxWidthPx,
+      Math.max(col.minWidthPx, naturalMax + 8),
+    )
+
+    const map = new Map(widthOverrides.value)
+    map.set(colId, Math.round(target))
+    widthOverrides.value = map
+    persistWidths(getViewId())
   }
 
   // ---------------------------------------------------------------
@@ -160,6 +266,16 @@ export function useColumnLayout(
   }
 
   function onDragStart(colId: ColumnId, event: DragEvent): void {
+    // Resize and reorder both initiate from a mousedown inside
+    // the same draggable <th>. The resize handle's pointerdown
+    // fires synchronously and sets `resizingId` before this
+    // dragstart can fire. If that flag is set, the user grabbed
+    // the resize handle; cancel the drag so the pointer-driven
+    // resize loop owns the gesture.
+    if (resizingId.value !== null) {
+      event.preventDefault()
+      return
+    }
     if (!isReorderable(colId)) {
       event.preventDefault()
       return
@@ -218,6 +334,7 @@ export function useColumnLayout(
     // Resize
     resizingId,
     beginResize,
+    autoFitColumn,
     // Reorder
     dragSourceId,
     dragTargetId,

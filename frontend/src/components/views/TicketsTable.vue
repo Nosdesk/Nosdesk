@@ -123,46 +123,51 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
             style="width: 24px; min-width: 24px; max-width: 24px"
             aria-hidden="true"
           />
+          <!--
+            The <th> hosts visual layout + drop-target listeners,
+            but is NOT itself draggable. Reorder drags are
+            initiated by the inner label area (button / div),
+            which carries `:draggable`. The resize handle is a
+            sibling of the label, so a mousedown on it physically
+            cannot bubble through the draggable element and
+            kicks off pointer-driven resize cleanly. (Earlier
+            iterations had `:draggable` on the <th>; mousedown on
+            the resize handle would race the browser's HTML5 DnD
+            initiation and reorder always won.)
+          -->
           <th
             v-for="col in visibleColumns"
             :key="col.id"
-            :draggable="layout.isReorderable(col.id)"
             class="relative text-left text-[10px] font-semibold text-tertiary uppercase tracking-wider border-b border-subtle bg-surface select-none p-0"
             :class="[
               `col-${col.id}`,
               col.align === 'center' && 'text-center',
               col.align === 'right' && 'text-right',
-              layout.isReorderable(col.id) && 'cursor-grab',
-              layout.dragSourceId.value === col.id && 'opacity-50',
               layout.dragTargetId.value === col.id && 'bg-accent/10',
             ]"
             :style="colStyle(col)"
-            @dragstart="layout.onDragStart(col.id, $event)"
             @dragover="layout.onDragOver(col.id, $event)"
             @dragleave="layout.onDragLeave(col.id)"
             @drop="layout.onDrop(col.id, $event)"
-            @dragend="layout.onDragEnd"
           >
             <!--
               Sortable column: the entire cell area is the click
-              target. The button is a block-level element that
-              fills the cell (the th drops its own padding via
-              p-0; padding moves to the button so the click target
-              matches the visual cell). This way "click anywhere
-              on the Title header" toggles sort, not just the
-              ~40px of label text. Drag-to-reorder still fires
-              on the th itself; mousedown that becomes a drag
-              wins over the click before the button's @click can
-              fire.
+              target AND the drag handle. Drag-to-reorder fires
+              on the button via :draggable; the resize span sits
+              outside the button so its pointerdown can't trigger
+              a drag.
             -->
             <button
               v-if="col.sortKey"
               type="button"
+              :draggable="layout.isReorderable(col.id)"
               class="flex items-center gap-1 w-full h-full text-left hover:bg-surface-hover/60 hover:text-primary transition-colors"
               :class="[
                 cellPadding,
                 col.align === 'center' && 'justify-center text-center',
                 col.align === 'right' && 'justify-end text-right',
+                layout.isReorderable(col.id) && 'cursor-grab',
+                layout.dragSourceId.value === col.id && 'opacity-50',
               ]"
               :aria-sort="
                 sortField === col.sortKey
@@ -170,6 +175,8 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
                   : 'none'
               "
               @click="emit('toggle-sort', col.sortKey!)"
+              @dragstart="layout.onDragStart(col.id, $event)"
+              @dragend="layout.onDragEnd"
             >
               <span>{{ col.label }}</span>
               <span v-if="sortField === col.sortKey" class="text-[10px] leading-none" aria-hidden="true">
@@ -177,26 +184,33 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
               </span>
             </button>
             <!-- Non-sortable columns get the same cell-filling
-                 div so visual cell padding stays consistent. -->
+                 div + drag handle treatment. -->
             <div
               v-else
+              :draggable="layout.isReorderable(col.id)"
               class="flex items-center w-full h-full"
               :class="[
                 cellPadding,
                 col.align === 'center' && 'justify-center text-center',
                 col.align === 'right' && 'justify-end text-right',
+                layout.isReorderable(col.id) && 'cursor-grab',
+                layout.dragSourceId.value === col.id && 'opacity-50',
               ]"
+              @dragstart="layout.onDragStart(col.id, $event)"
+              @dragend="layout.onDragEnd"
             >
               {{ col.label }}
             </div>
             <span
-              class="absolute top-0 right-0 h-full w-1.5 cursor-col-resize touch-none group/resize z-10"
+              class="absolute top-0 right-0 h-full w-2 cursor-col-resize touch-none group/resize z-10"
               :class="layout.resizingId.value === col.id && 'bg-accent/50'"
+              title="Drag to resize · double-click to fit"
               @pointerdown="layout.beginResize(col.id, $event)"
               @click.stop
             >
               <span
                 class="absolute inset-y-1 right-0.5 w-px bg-transparent group-hover/resize:bg-accent/40 transition-colors"
+                :class="layout.resizingId.value === col.id && '!bg-accent/60'"
               />
             </span>
           </th>
