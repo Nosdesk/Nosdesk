@@ -143,7 +143,7 @@ walkdir = "2.5"            # Directory walking for file backup
 sanitize-filename = "0.5"  # Filename sanitization for uploads
 
 # Full-text search
-tantivy = "0.22"           # Fast full-text search engine (Rust equivalent of Lucene)
+tantivy = "0.26"           # Fast full-text search engine (Rust equivalent of Lucene)
 
 # Channel adapter: IMAP ingestion
 async-imap = { version = "0.11", default-features = false, features = ["runtime-tokio"] }  # Async IMAP client for pull-based email ingestion

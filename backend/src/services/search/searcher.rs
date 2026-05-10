@@ -30,7 +30,10 @@ pub fn execute_search(
     let query = build_search_query(schema, query_str, entity_types);
 
     // Execute the search
-    let top_docs = searcher.search(&query, &TopDocs::with_limit(limit))?;
+    // tantivy 0.26 split TopDocs from the Collector trait; you now pick a
+    // sort axis explicitly. order_by_score reproduces the previous default
+    // (BM25 score, descending).
+    let top_docs = searcher.search(&query, &TopDocs::with_limit(limit).order_by_score())?;
 
     let total = top_docs.len();
 
@@ -176,24 +179,21 @@ fn regex_escape(input: &str) -> String {
 
 /// Convert a Tantivy document to a SearchResult
 fn document_to_result(doc: &TantivyDocument, schema: &SearchSchema, score: f32) -> SearchResult {
-    use tantivy::schema::OwnedValue;
+    // tantivy 0.26: get_first returns CompactDocValue<'_>, whose typed
+    // accessors live on the Value trait. Importing it brings as_str /
+    // as_i64 / as_u64 into scope and replaces the previous OwnedValue
+    // match dance.
+    use tantivy::schema::Value;
 
     let get_text = |field: tantivy::schema::Field| -> String {
         doc.get_first(field)
-            .and_then(|v: &OwnedValue| match v {
-                OwnedValue::Str(s) => Some(s.clone()),
-                _ => None,
-            })
+            .and_then(|v| v.as_str().map(str::to_owned))
             .unwrap_or_default()
     };
 
     let get_i64 = |field: tantivy::schema::Field| -> i64 {
         doc.get_first(field)
-            .and_then(|v: &OwnedValue| match v {
-                OwnedValue::I64(i) => Some(*i),
-                OwnedValue::U64(u) => Some(*u as i64),
-                _ => None,
-            })
+            .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|u| u as i64)))
             .unwrap_or(0)
     };
 
