@@ -5,6 +5,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
+import Checkbox from '@/components/common/Checkbox.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue';
@@ -697,16 +698,18 @@ onMounted(() => {
           <span class="text-tertiary font-normal ml-1">(leave empty for public)</span>
         </label>
         <div v-if="availableGroups.length > 0" class="max-h-40 overflow-y-auto border border-default rounded-lg divide-y divide-default">
-          <label
+          <div
             v-for="group in availableGroups"
             :key="group.id"
             class="flex items-center gap-3 p-2.5 hover:bg-surface-hover cursor-pointer transition-colors"
+            @click="toggleGroupVisibility(group.id)"
           >
-            <input
-              type="checkbox"
-              :checked="categoryForm.visible_to_group_ids.includes(group.id)"
+            <Checkbox
+              :model-value="categoryForm.visible_to_group_ids.includes(group.id)"
+              size="sm"
+              :aria-label="`Toggle visibility for ${group.name}`"
               @change="toggleGroupVisibility(group.id)"
-              class="w-4 h-4 text-accent bg-surface-alt border-default rounded focus:ring-accent focus:ring-offset-0"
+              @click.stop
             />
             <div
               class="w-3 h-3 rounded-full flex-shrink-0"
@@ -714,7 +717,7 @@ onMounted(() => {
             />
             <span class="text-sm text-primary">{{ group.name }}</span>
             <span class="text-xs text-tertiary ml-auto">{{ group.member_count }} members</span>
-          </label>
+          </div>
         </div>
         <p v-else class="text-sm text-tertiary py-2">
           No groups available. <router-link to="/admin/groups" class="text-accent hover:underline">Create groups</router-link> first.

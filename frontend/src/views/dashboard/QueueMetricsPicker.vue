@@ -8,6 +8,7 @@ widgets without touching the dashboard store.
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import Modal from '@/components/Modal.vue'
+import Checkbox from '@/components/common/Checkbox.vue'
 
 interface CatalogItem {
   id: string
@@ -86,11 +87,12 @@ function save() {
               atCap && !draft.has(item.id) ? 'opacity-50 cursor-not-allowed' : '',
             ]"
           >
-            <input
-              type="checkbox"
-              class="mt-0.5 accent-accent"
-              :checked="draft.has(item.id)"
+            <Checkbox
+              :model-value="draft.has(item.id)"
               :disabled="atCap && !draft.has(item.id)"
+              size="sm"
+              :aria-label="`Toggle ${item.label}`"
+              class="mt-0.5"
               @change="toggle(item.id)"
             />
             <div class="flex-1 min-w-0">

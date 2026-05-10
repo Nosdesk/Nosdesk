@@ -5,6 +5,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
+import Checkbox from '@/components/common/Checkbox.vue';
 import Modal from '@/components/Modal.vue';
 import apiTokenService from '@/services/apiTokenService';
 import userService from '@/services/userService';
@@ -340,15 +341,13 @@ onMounted(() => {
         <!-- Expiration -->
         <div>
           <label class="block text-sm font-medium text-primary mb-1">Expiration</label>
-          <div class="flex items-center gap-2 mb-2">
-            <input
-              type="checkbox"
-              id="no-expiration"
-              v-model="noExpiration"
-              class="rounded border-default text-accent focus:ring-accent"
-            />
-            <label for="no-expiration" class="text-sm text-secondary">No expiration</label>
-          </div>
+          <Checkbox
+            v-model="noExpiration"
+            id="no-expiration"
+            size="sm"
+            label="No expiration"
+            class="mb-2"
+          />
           <div v-if="!noExpiration" class="flex items-center gap-2">
             <input
               v-model.number="tokenForm.expires_in_days"

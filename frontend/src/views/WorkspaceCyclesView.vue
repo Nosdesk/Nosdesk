@@ -17,6 +17,7 @@ import { cyclesService, type Cycle } from '@/services/cyclesService'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { subscribe } from '@/sync/lifecycle'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
+import Checkbox from '@/components/common/Checkbox.vue'
 
 const router = useRouter()
 const projectsStore = useSyncProjectsStore()
@@ -102,14 +103,11 @@ function openCycle(uuid: string): void {
         <h1 class="text-xl font-semibold text-primary">Cycles</h1>
         <p class="text-xs text-tertiary mt-0.5">In-flight iterations across every project</p>
       </div>
-      <label class="flex items-center gap-2 text-xs text-secondary">
-        <input
-          v-model="includeCompleted"
-          type="checkbox"
-          class="rounded border-subtle"
-        />
-        <span>Show completed</span>
-      </label>
+      <Checkbox
+        v-model="includeCompleted"
+        size="sm"
+        label="Show completed"
+      />
     </header>
 
     <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary text-sm">

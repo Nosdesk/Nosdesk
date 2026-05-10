@@ -18,6 +18,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import Checkbox from '@/components/common/Checkbox.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import PluginIcon from '@/components/plugins/PluginIcon.vue';
 import PluginStateBadge from '@/components/plugins/PluginStateBadge.vue';
@@ -402,15 +403,14 @@ async function executeUninstall() {
               class="w-full rounded-lg border border-default bg-surface-alt px-3 py-2 text-primary focus:border-transparent focus:ring-2 focus:ring-accent focus:outline-none"
             />
 
-            <label v-else-if="def.type === 'boolean'" class="flex items-center gap-2">
-              <input
-                :id="`setting-${def.key}`"
-                v-model="settingValues[def.key]"
-                type="checkbox"
-                class="rounded border-default text-accent focus:ring-accent"
-              />
-              <span class="text-sm text-secondary">Enabled</span>
-            </label>
+            <Checkbox
+              v-else-if="def.type === 'boolean'"
+              :model-value="!!settingValues[def.key]"
+              :id="`setting-${def.key}`"
+              size="sm"
+              label="Enabled"
+              @update:model-value="(v: boolean) => (settingValues[def.key] = v)"
+            />
 
             <select
               v-else-if="def.type === 'select' && def.options"

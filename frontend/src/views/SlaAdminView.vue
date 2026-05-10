@@ -20,6 +20,7 @@ import {
   type WorkingCalendarBody,
   type SlaPolicyBody,
 } from '@/services/slaService'
+import Checkbox from '@/components/common/Checkbox.vue'
 
 const policies = ref<SlaPolicy[]>([])
 const calendars = ref<WorkingCalendar[]>([])
@@ -372,10 +373,13 @@ function fmtMinutes(m: number | null): string {
                 <option value="high">high</option>
               </select>
             </label>
-            <label class="flex items-center gap-2 text-[11px] text-tertiary mt-5">
-              <input v-model="policyDraft.is_default" type="checkbox" />
-              Workspace default
-            </label>
+            <Checkbox
+              :model-value="!!policyDraft.is_default"
+              size="sm"
+              label="Workspace default"
+              class="mt-5"
+              @update:model-value="(v: boolean) => (policyDraft.is_default = v)"
+            />
           </div>
           <button
             type="submit"

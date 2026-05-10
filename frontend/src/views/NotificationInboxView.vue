@@ -31,6 +31,7 @@ import {
 } from '@/composables/useNotificationFeed'
 import { formatInboxTime, parseDate } from '@/utils/dateUtils'
 import Icon from '@/components/common/Icon.vue'
+import Checkbox from '@/components/common/Checkbox.vue'
 import PageScroll from '@/components/common/PageScroll.vue'
 import AsyncBoundary from '@/components/common/AsyncBoundary.vue'
 import { useInboxLoader } from '@/loaders/inboxLoader'
@@ -476,13 +477,12 @@ onBeforeUnmount(() => {
             v-if="filteredNotifications.length > 0"
             class="flex items-center gap-3 border-b border-default px-4 py-2"
           >
-            <input
-              type="checkbox"
-              :checked="isAllSelected"
-              :indeterminate.prop="hasSelection && !isAllSelected"
-              @change="toggleSelectAll"
-              class="h-4 w-4 cursor-pointer rounded border-default accent-accent"
+            <Checkbox
+              :model-value="isAllSelected"
+              :indeterminate="hasSelection && !isAllSelected"
+              size="sm"
               aria-label="Select all notifications"
+              @change="toggleSelectAll"
             />
             <span class="text-xs text-tertiary">
               {{ filteredNotifications.length }}
@@ -544,12 +544,13 @@ onBeforeUnmount(() => {
                   'bg-accent/10 hover:bg-accent/15': selectedIds.has(notification.id),
                 }"
               >
-                <input
-                  type="checkbox"
-                  :checked="selectedIds.has(notification.id)"
-                  @click.stop.prevent="toggleSelected(notification.id, $event)"
-                  class="mt-1 h-4 w-4 cursor-pointer rounded border-default accent-accent"
+                <Checkbox
+                  :model-value="selectedIds.has(notification.id)"
+                  size="sm"
                   :aria-label="`Select: ${notification.title}`"
+                  class="mt-1"
+                  @click.stop
+                  @change="(e: Event) => toggleSelected(notification.id, e as MouseEvent)"
                 />
 
                 <div
