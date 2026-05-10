@@ -306,7 +306,13 @@ pub async fn process_graph_request(
     // Execute the request
     match request_builder.send().await {
         Ok(response) => {
-            let status = response.status();
+            // reqwest 0.13 bumped its bundled `http` crate, so
+            // `response.status()` returns a `reqwest::StatusCode` that
+            // is nominally identical to but type-distinct from
+            // `actix_web::http::StatusCode`. Round-trip through u16 to
+            // get the actix-flavored value `HttpResponse::build` wants.
+            let status = actix_web::http::StatusCode::from_u16(response.status().as_u16())
+                .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
 
             // Handle permission errors with helpful messages
             if status == 403 {
