@@ -106,53 +106,87 @@ onBeforeUnmount(() => {
     cleanupNavbarState();
 });
 
-// Navigation links data - colors removed, will use theme accent
-const navLinks = [
+// Navigation grouped into two sections — Work (active task
+// surfaces) and Resources (reference / inventory). The grouping
+// only renders when the sidebar is expanded; in collapsed
+// (icon-only) and compact-nav (grid) modes the items render as
+// a flat list because section headers don't fit / would just
+// fragment a visual icon row. The flat `navLinks` computed
+// below preserves that path.
+interface NavLink {
+    to: string;
+    icon: string;
+    text: string;
+    /** True for paths whose `route.path === path` should be the
+     *  only "active" trigger. Without this, e.g. `/` would
+     *  match every route (since every path starts with `/`). */
+    exact?: boolean;
+}
+interface NavGroup {
+    label: string;
+    links: NavLink[];
+}
+const navGroups: NavGroup[] = [
     {
-        to: "/",
-        icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
-        text: "Dashboard",
-        exact: true,
+        label: "Work",
+        links: [
+            {
+                to: "/",
+                icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
+                text: "Dashboard",
+                exact: true,
+            },
+            {
+                to: "/tickets",
+                icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
+                text: "Tickets",
+            },
+            {
+                to: "/cycles",
+                // Calendar / iteration glyph: small block with a marker line.
+                icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
+                text: "Cycles",
+            },
+            {
+                to: "/projects",
+                icon: "M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z",
+                text: "Projects",
+            },
+        ],
     },
     {
-        to: "/tickets",
-        icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
-        text: "Tickets",
-    },
-    {
-        to: "/projects",
-        icon: "M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z",
-        text: "Projects",
-    },
-    {
-        to: "/cycles",
-        // Calendar / iteration glyph: small block with a marker line.
-        icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
-        text: "Cycles",
-    },
-    {
-        to: "/users",
-        icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z",
-        text: "Users",
-    },
-    {
-        to: "/devices",
-        icon: "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
-        text: "Devices",
-    },
-    {
-        to: "/assets",
-        // Stacked-layers / planning glyph distinct from the
-        // single-monitor Devices icon above.
-        icon: "M3 7l9-4 9 4-9 4-9-4zm0 5l9 4 9-4M3 17l9 4 9-4",
-        text: "Assets",
-    },
-    {
-        to: "/documentation",
-        icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
-        text: "Documentation",
+        label: "Resources",
+        links: [
+            {
+                to: "/devices",
+                icon: "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
+                text: "Devices",
+            },
+            {
+                to: "/assets",
+                // Stacked-layers / planning glyph distinct from the
+                // single-monitor Devices icon above.
+                icon: "M3 7l9-4 9 4-9 4-9-4zm0 5l9 4 9-4M3 17l9 4 9-4",
+                text: "Assets",
+            },
+            {
+                to: "/users",
+                icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z",
+                text: "Users",
+            },
+            {
+                to: "/documentation",
+                icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
+                text: "Documentation",
+            },
+        ],
     },
 ];
+
+/** Flat list used by the collapsed / compact-nav layouts where
+ *  section headers wouldn't fit. Kept derived so adding a new
+ *  link only ever requires editing the grouped source. */
+const navLinks: NavLink[] = navGroups.flatMap((g) => g.links);
 
 // Helper function to check if a route is active
 const isRouteActive = (path: string, exact = false) => {
@@ -225,41 +259,42 @@ const isRouteActive = (path: string, exact = false) => {
                 </kbd>
             </button>
 
-            <div
-                :class="[
-                    isCompactNav && !isCollapsed
-                        ? 'grid grid-cols-6 gap-0.5'
-                        : 'flex flex-col gap-0.5'
-                ]"
-            >
+            <!--
+              Three rendering modes for the nav links:
+
+              1. Collapsed sidebar (w-16, icon-only): flat
+                 vertical list of icons. Headers wouldn't fit
+                 horizontally and would just steal vertical
+                 space from the link icons themselves.
+              2. Compact nav (a 6-column icon grid that fires on
+                 short viewports — see useNavbarState): also
+                 flat. The grid is the visual rhythm; section
+                 headers would fragment it into two rows of 3
+                 columns each, which reads as broken.
+              3. Expanded sidebar (default): grouped sections
+                 with small uppercase headers (`Work` /
+                 `Resources`). One step of visual hierarchy,
+                 matching Linear / Notion / GitHub sidebar
+                 conventions.
+            -->
+            <div v-if="isCompactNav && !isCollapsed" class="grid grid-cols-6 gap-0.5">
                 <RouterLink
                     v-for="link in navLinks"
                     :key="link.to"
                     :to="link.to"
-                    class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden"
-                    :class="[
+                    class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2 py-1.5 justify-center"
+                    :class="
                         isRouteActive(link.to, link.exact)
                             ? 'bg-surface-alt/80 text-primary font-medium'
-                            : 'text-secondary hover:bg-surface-hover hover:text-primary',
-                        isCollapsed || isCompactNav
-                            ? 'px-2 py-1.5 justify-center'
-                            : 'px-2.5 py-1 gap-2.5',
-                    ]"
-                    :title="isCollapsed || isCompactNav ? link.text : ''"
+                            : 'text-secondary hover:bg-surface-hover hover:text-primary'
+                    "
+                    :title="link.text"
                 >
-                    <!-- Active indicator bar - uses theme accent color -->
                     <div
                         v-if="isRouteActive(link.to, link.exact)"
-                        class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
-                        :class="{ 'w-full h-0.5 top-auto': isCompactNav && !isCollapsed }"
+                        class="absolute left-0 top-0 bottom-0 w-1 bg-accent w-full h-0.5 top-auto"
                     ></div>
-
-                    <svg
-                        class="w-4 h-4"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                    >
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                         <path
                             stroke-linecap="round"
                             stroke-linejoin="round"
@@ -267,12 +302,74 @@ const isRouteActive = (path: string, exact = false) => {
                             :d="link.icon"
                         />
                     </svg>
-                    <span
-                        v-if="!isCollapsed && !isCompactNav"
-                        class="text-sm whitespace-nowrap"
-                        >{{ link.text }}</span
-                    >
                 </RouterLink>
+            </div>
+
+            <div v-else-if="isCollapsed" class="flex flex-col gap-0.5">
+                <RouterLink
+                    v-for="link in navLinks"
+                    :key="link.to"
+                    :to="link.to"
+                    class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2 py-1.5 justify-center"
+                    :class="
+                        isRouteActive(link.to, link.exact)
+                            ? 'bg-surface-alt/80 text-primary font-medium'
+                            : 'text-secondary hover:bg-surface-hover hover:text-primary'
+                    "
+                    :title="link.text"
+                >
+                    <div
+                        v-if="isRouteActive(link.to, link.exact)"
+                        class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
+                    ></div>
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            :d="link.icon"
+                        />
+                    </svg>
+                </RouterLink>
+            </div>
+
+            <div v-else class="flex flex-col gap-2.5">
+                <div
+                    v-for="group in navGroups"
+                    :key="group.label"
+                    class="flex flex-col gap-0.5"
+                >
+                    <h3
+                        class="px-2.5 text-[10px] font-semibold text-tertiary tracking-wide uppercase select-none"
+                    >
+                        {{ group.label }}
+                    </h3>
+                    <RouterLink
+                        v-for="link in group.links"
+                        :key="link.to"
+                        :to="link.to"
+                        class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2.5 py-1 gap-2.5"
+                        :class="
+                            isRouteActive(link.to, link.exact)
+                                ? 'bg-surface-alt/80 text-primary font-medium'
+                                : 'text-secondary hover:bg-surface-hover hover:text-primary'
+                        "
+                    >
+                        <div
+                            v-if="isRouteActive(link.to, link.exact)"
+                            class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
+                        ></div>
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                :d="link.icon"
+                            />
+                        </svg>
+                        <span class="text-sm whitespace-nowrap">{{ link.text }}</span>
+                    </RouterLink>
+                </div>
             </div>
         </div>
 
