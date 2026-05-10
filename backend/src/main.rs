@@ -9,7 +9,7 @@ use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Erro
 use actix_web::dev::{ServiceRequest, ServiceResponse, fn_service};
 use actix_files::Files;
 use actix_limitation::{Limiter, RateLimiter};
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use std::env;
 use std::time::Duration;
 use tracing::{info, warn, error, debug};

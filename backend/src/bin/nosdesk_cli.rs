@@ -161,7 +161,7 @@ enum AdminCommand {
 fn main() -> ExitCode {
     // Best-effort .env load, same as the server binary. Missing
     // .env is fine — env vars may be supplied by docker compose.
-    let _ = dotenv::dotenv();
+    let _ = dotenvy::dotenv();
 
     let cli = Cli::parse();
     let result = match cli.command {

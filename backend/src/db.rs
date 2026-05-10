@@ -2,7 +2,7 @@ use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use diesel::RunQueryDsl;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use std::env;
 use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};

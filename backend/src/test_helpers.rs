@@ -21,7 +21,7 @@ use crate::schema::*;
 /// and `setup_test_pool` use the same precedence: dedicated test DB
 /// preferred, fall back to the dev DB only when explicitly configured.
 fn test_database_url() -> String {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
     std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("TEST_DATABASE_URL or DATABASE_URL must be set for tests")
