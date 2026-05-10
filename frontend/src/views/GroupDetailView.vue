@@ -109,12 +109,12 @@ onMounted(() => {
             <div class="px-4 py-3 bg-surface-alt border-b border-default">
               <div class="h-5 w-32 bg-surface rounded animate-pulse"></div>
             </div>
-            <div class="p-4 space-y-4">
-              <div class="space-y-2">
+            <div class="flex flex-col gap-4 p-4">
+              <div class="flex flex-col gap-2">
                 <div class="h-3 w-16 bg-surface-alt rounded animate-pulse"></div>
                 <div class="h-4 w-24 bg-surface-alt rounded animate-pulse"></div>
               </div>
-              <div class="space-y-2">
+              <div class="flex flex-col gap-2">
                 <div class="h-3 w-20 bg-surface-alt rounded animate-pulse"></div>
                 <div class="h-4 w-32 bg-surface-alt rounded animate-pulse"></div>
               </div>

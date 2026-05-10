@@ -104,7 +104,7 @@ onMounted(() => {
         />
 
         <!-- Page list -->
-        <div v-else class="space-y-2">
+        <div v-else class="flex flex-col gap-2">
           <div
             v-for="page in pages"
             :key="page.id"

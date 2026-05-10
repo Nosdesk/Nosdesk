@@ -292,7 +292,7 @@ onMounted(() => {
           >
             <Icon name="bell" size="md" />
           </div>
-          <div class="max-w-[14rem] space-y-0.5">
+          <div class="flex flex-col gap-0.5 max-w-[14rem]">
             <p class="text-sm font-medium text-primary">{{ emptyContent.title }}</p>
             <p class="text-xs text-tertiary">{{ emptyContent.subtitle }}</p>
           </div>
@@ -305,14 +305,14 @@ onMounted(() => {
           :pending-delay="300"
         >
           <template #pending>
-            <div class="space-y-px p-2" aria-hidden="true">
+            <div class="flex flex-col gap-px p-2" aria-hidden="true">
               <div
                 v-for="i in 4"
                 :key="i"
                 class="flex animate-pulse items-start gap-3 rounded-md p-2 motion-reduce:animate-none"
               >
                 <div class="h-8 w-8 flex-shrink-0 rounded-full bg-surface-alt"></div>
-                <div class="flex-1 space-y-2 py-1">
+                <div class="flex-1 flex flex-col gap-2 py-1">
                   <div class="h-3 w-3/4 rounded bg-surface-alt"></div>
                   <div class="h-3 w-1/2 rounded bg-surface-alt"></div>
                 </div>

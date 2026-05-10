@@ -158,7 +158,7 @@ onMounted(() => {
 
     <LoadingSpinner v-if="isLoading && store.states.length === 0" />
 
-    <div v-else class="space-y-6">
+    <div v-else class="flex flex-col gap-6">
       <section
         v-for="cat in WORKFLOW_CATEGORIES"
         :key="cat"

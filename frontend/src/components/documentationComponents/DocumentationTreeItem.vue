@@ -120,7 +120,7 @@ const authorName = computed(() => {
       v-if="hasChildren && isExpanded"
       class="doc-children"
     >
-      <TransitionGroup name="tree-expand" tag="div" class="space-y-0.5">
+      <TransitionGroup name="tree-expand" tag="div" class="flex flex-col gap-0.5">
         <DocumentationTreeItem
           v-for="(child, index) in page.children"
           :key="child.id"

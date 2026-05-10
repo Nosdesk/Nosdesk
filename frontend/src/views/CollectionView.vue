@@ -259,14 +259,14 @@ on('documentation-updated', (data) => {
             </div>
           </div>
         </div>
-        <div class="space-y-6">
+        <div class="flex flex-col gap-6">
           <div class="h-4 w-24 bg-surface-alt animate-pulse rounded"></div>
-          <div class="space-y-2">
+          <div class="flex flex-col gap-2">
             <div class="h-3 w-full bg-surface-alt animate-pulse rounded"></div>
             <div class="h-3 w-3/4 bg-surface-alt animate-pulse rounded"></div>
           </div>
           <div class="h-4 w-16 bg-surface-alt animate-pulse rounded mt-8"></div>
-          <div class="space-y-1">
+          <div class="flex flex-col gap-1">
             <div v-for="i in 5" :key="i" class="flex items-center gap-2.5 py-2 px-3">
               <div class="w-5 h-5 rounded-md bg-surface-alt animate-pulse"></div>
               <div class="flex-1 h-3.5 rounded bg-surface-alt animate-pulse" :style="{ maxWidth: `${35 + (i % 3) * 15}%`, animationDelay: `${i * 60}ms` }"></div>
@@ -360,7 +360,7 @@ on('documentation-updated', (data) => {
             <span>{{ pageOverrides.length }} page{{ pageOverrides.length !== 1 ? 's' : '' }} with custom permissions</span>
           </button>
 
-          <div v-if="overridesExpanded" class="border-t border-status-warning/20 px-3 py-2 space-y-1.5">
+          <div v-if="overridesExpanded" class="flex flex-col gap-1.5 border-t border-status-warning/20 px-3 py-2">
             <RouterLink
               v-for="override in pageOverrides"
               :key="override.page_id"

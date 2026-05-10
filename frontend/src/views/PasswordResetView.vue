@@ -82,7 +82,7 @@
               </div>
 
               <!-- Password Requirements -->
-              <div class="mt-2 text-xs space-y-1">
+              <div class="flex flex-col gap-1 mt-2 text-xs">
                 <p
                   class="flex items-center gap-2 transition-colors"
                   :class="passwordValidation.length ? 'text-status-success' : 'text-tertiary'"

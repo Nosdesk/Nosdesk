@@ -460,7 +460,7 @@ onBeforeUnmount(() => {
         >
           <Icon name="bell" size="lg" />
         </div>
-        <div class="max-w-sm space-y-1">
+        <div class="flex flex-col gap-1 max-w-sm">
           <h3 class="text-base font-semibold text-primary">
             {{ emptyContent.title }}
           </h3>
@@ -507,14 +507,14 @@ onBeforeUnmount(() => {
                    `prefers-reduced-motion` support on
                    `animate-pulse`, the previous "skeleton flash"
                    pathology is gone. -->
-              <div class="space-y-px p-2" aria-hidden="true">
+              <div class="flex flex-col gap-px p-2" aria-hidden="true">
                 <div
                   v-for="i in 6"
                   :key="i"
                   class="flex animate-pulse items-start gap-3 rounded-md p-3 motion-reduce:animate-none"
                 >
                   <div class="h-8 w-8 flex-shrink-0 rounded-full bg-surface-alt"></div>
-                  <div class="flex-1 space-y-2 py-1">
+                  <div class="flex-1 flex flex-col gap-2 py-1">
                     <div class="h-3 w-3/4 rounded bg-surface-alt"></div>
                     <div class="h-3 w-1/2 rounded bg-surface-alt"></div>
                   </div>

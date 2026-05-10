@@ -196,7 +196,7 @@ function onOpen(): void {
             <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-3">
               Properties
             </h3>
-            <div class="space-y-3 text-xs">
+            <div class="flex flex-col gap-3 text-xs">
               <div class="flex items-center gap-3">
                 <span class="flex items-center gap-1.5 w-24 text-tertiary shrink-0">
                   <Icon name="user" class="w-3 h-3" />
@@ -253,7 +253,7 @@ function onOpen(): void {
             <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-3">
               SLA
             </h3>
-            <div class="space-y-2">
+            <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between text-xs">
                 <span class="font-medium" :class="slaState.toneClass">{{ slaState.statusLabel }}</span>
                 <span class="text-tertiary tabular-nums">{{ slaState.target }}</span>
@@ -283,7 +283,7 @@ function onOpen(): void {
             <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-3">
               Activity
             </h3>
-            <div class="space-y-3 text-xs">
+            <div class="flex flex-col gap-3 text-xs">
               <div class="flex items-center gap-3">
                 <Icon name="clock" class="w-3.5 h-3.5 text-tertiary shrink-0" />
                 <span class="text-secondary flex-1">Last activity</span>

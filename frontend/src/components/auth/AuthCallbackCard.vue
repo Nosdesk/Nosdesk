@@ -85,7 +85,7 @@ const toggleTechnicalDetails = () => {
         </div>
 
         <!-- Error Content -->
-        <div class="text-center space-y-2">
+        <div class="flex flex-col gap-2 text-center">
           <h2 class="text-lg font-medium text-primary">{{ errorInfo.title }}</h2>
           <p class="text-sm text-secondary">{{ errorInfo.message }}</p>
           <p class="text-xs text-tertiary">{{ errorInfo.suggestion }}</p>

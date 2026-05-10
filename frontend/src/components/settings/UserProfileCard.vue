@@ -726,7 +726,7 @@ const getRoleDisplayName = (role: string) => {
                 </div>
 
                 <!-- Custom content slot for additional information -->
-                <div v-if="$slots.default" class="mt-6 space-y-4">
+                <div v-if="$slots.default" class="flex flex-col gap-4 mt-6">
                     <slot></slot>
                 </div>
             </template>

@@ -170,7 +170,7 @@ onMounted(async () => {
 <template>
   <div class="h-full flex flex-col">
     <!-- Loading (only on initial load) -->
-    <div v-if="showLoading" class="p-1 space-y-0.5">
+    <div v-if="showLoading" class="flex flex-col gap-0.5 p-1">
       <div v-for="i in 8" :key="i" class="h-7 bg-surface-hover rounded animate-pulse"></div>
     </div>
 

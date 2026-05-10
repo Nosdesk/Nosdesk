@@ -100,7 +100,7 @@ onMounted(async () => {
 
       <!-- Content -->
       <div class="flex-1 overflow-y-auto p-4">
-        <div v-if="loading" class="space-y-3">
+        <div v-if="loading" class="flex flex-col gap-3">
           <div v-for="i in 4" :key="i" class="h-10 rounded-lg bg-surface-alt animate-pulse"></div>
         </div>
 

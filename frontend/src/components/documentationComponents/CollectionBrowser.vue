@@ -182,7 +182,7 @@ onMounted(loadCollections)
       >
         <div class="flex items-start gap-3">
           <SkeletonBar class="w-7 h-7 rounded flex-shrink-0" />
-          <div class="flex-1 space-y-2">
+          <div class="flex-1 flex flex-col gap-2">
             <SkeletonBar class="h-3.5 w-3/4" />
             <SkeletonBar class="h-3 w-full" />
           </div>

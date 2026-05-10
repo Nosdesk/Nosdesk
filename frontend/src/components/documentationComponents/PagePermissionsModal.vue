@@ -122,7 +122,7 @@ onMounted(async () => {
 
       <!-- Content -->
       <div class="flex-1 overflow-y-auto p-4">
-        <div v-if="loading" class="space-y-3">
+        <div v-if="loading" class="flex flex-col gap-3">
           <div v-for="i in 4" :key="i" class="h-10 rounded-lg bg-surface-alt animate-pulse"></div>
         </div>
 
@@ -150,14 +150,14 @@ onMounted(async () => {
           </div>
 
           <!-- Inherit Mode -->
-          <div v-if="mode === 'inherit'" class="space-y-3">
+          <div v-if="mode === 'inherit'" class="flex flex-col gap-3">
             <p class="text-xs text-tertiary">
               This page inherits visibility from its collections. Users who can access any of the page's collections can see this page.
             </p>
             <div v-if="pageCollections.length === 0" class="p-3 rounded-lg bg-surface-alt text-xs text-tertiary text-center">
               Not in any collection -- visible to everyone.
             </div>
-            <div v-else class="space-y-1.5">
+            <div v-else class="flex flex-col gap-1.5">
               <div
                 v-for="collection in pageCollections"
                 :key="collection.id"
@@ -170,7 +170,7 @@ onMounted(async () => {
           </div>
 
           <!-- Custom Mode -->
-          <div v-if="mode === 'custom'" class="space-y-3">
+          <div v-if="mode === 'custom'" class="flex flex-col gap-3">
             <p class="text-xs text-tertiary">
               Select which groups and users can access this page. This overrides collection-level permissions.
             </p>

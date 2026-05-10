@@ -23,7 +23,7 @@
           </div>
 
           <!-- Export options -->
-          <div class="space-y-3">
+          <div class="flex flex-col gap-3">
             <ToggleSwitch
               v-model="includeSensitive"
               label="Include sensitive data"
@@ -38,7 +38,7 @@
                 </p>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div class="space-y-1.5">
+                <div class="flex flex-col gap-1.5">
                   <label class="block text-xs sm:text-sm font-medium text-secondary">Encryption Password</label>
                   <PasswordInput
                     v-model="exportPassword"
@@ -46,7 +46,7 @@
                     input-class="text-sm"
                   />
                 </div>
-                <div class="space-y-1.5">
+                <div class="flex flex-col gap-1.5">
                   <label class="block text-xs sm:text-sm font-medium text-secondary">Confirm Password</label>
                   <PasswordInput
                     v-model="exportPasswordConfirm"
@@ -240,7 +240,7 @@
           </div>
 
           <!-- Restore preview -->
-          <div v-if="restorePreview" class="space-y-3 sm:space-y-4">
+          <div v-if="restorePreview" class="flex flex-col gap-3 sm:gap-4">
             <div class="p-3 bg-surface-alt rounded-lg">
               <h4 class="text-xs sm:text-sm font-medium text-primary mb-2">Backup Details</h4>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-xs sm:text-sm">
@@ -274,7 +274,7 @@
             </div>
 
             <!-- Password for encrypted backup -->
-            <div v-if="restorePreview.has_encrypted_sensitive" class="space-y-1.5">
+            <div v-if="restorePreview.has_encrypted_sensitive" class="flex flex-col gap-1.5">
               <label class="block text-xs sm:text-sm font-medium text-secondary">Decryption Password</label>
               <div class="max-w-full sm:max-w-md">
                 <PasswordInput

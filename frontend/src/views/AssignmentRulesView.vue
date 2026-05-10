@@ -424,7 +424,7 @@ onMounted(() => {
       size="lg"
       @close="showRuleModal = false"
     >
-      <form @submit.prevent="saveRule" class="space-y-4">
+      <form @submit.prevent="saveRule" class="flex flex-col gap-4">
         <!-- Name -->
         <div>
           <label class="block text-sm font-medium text-primary mb-1">Rule Name</label>
@@ -511,7 +511,7 @@ onMounted(() => {
         <!-- Triggers -->
         <div>
           <label class="block text-sm font-medium text-primary mb-2">Triggers</label>
-          <div class="space-y-3">
+          <div class="flex flex-col gap-3">
             <Checkbox
               :model-value="ruleForm.trigger_on_create ?? false"
               @update:model-value="ruleForm.trigger_on_create = $event"

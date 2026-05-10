@@ -144,11 +144,11 @@ onMounted(async () => {
 
       <!-- Page Tree -->
       <div class="flex-1 overflow-y-auto p-2">
-        <div v-if="loading" class="space-y-2 p-2">
+        <div v-if="loading" class="flex flex-col gap-2 p-2">
           <div v-for="i in 5" :key="i" class="h-8 rounded-lg bg-surface-alt animate-pulse"></div>
         </div>
 
-        <div v-else class="space-y-0.5">
+        <div v-else class="flex flex-col gap-0.5">
           <!-- Root level option -->
           <button
             @click="selectDestination(null)"

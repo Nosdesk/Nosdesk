@@ -518,16 +518,16 @@ onMounted(() => {
           <div class="px-4 py-3 bg-surface-alt border-b border-default">
             <div class="h-5 w-40 bg-surface rounded animate-pulse"></div>
           </div>
-          <div class="p-4 space-y-4">
-            <div class="space-y-2">
+          <div class="flex flex-col gap-4 p-4">
+            <div class="flex flex-col gap-2">
               <div class="h-4 w-16 bg-surface-alt rounded animate-pulse"></div>
               <div class="h-10 w-full bg-surface-alt rounded-lg animate-pulse"></div>
             </div>
-            <div class="space-y-2">
+            <div class="flex flex-col gap-2">
               <div class="h-4 w-24 bg-surface-alt rounded animate-pulse"></div>
               <div class="h-20 w-full bg-surface-alt rounded-lg animate-pulse"></div>
             </div>
-            <div class="space-y-2">
+            <div class="flex flex-col gap-2">
               <div class="h-4 w-12 bg-surface-alt rounded animate-pulse"></div>
               <div class="flex gap-2">
                 <div v-for="i in 5" :key="i" class="w-8 h-8 bg-surface-alt rounded-lg animate-pulse"></div>
@@ -541,7 +541,7 @@ onMounted(() => {
           <div class="px-4 py-3 bg-surface-alt border-b border-default">
             <div class="h-5 w-24 bg-surface rounded animate-pulse"></div>
           </div>
-          <div class="p-4 space-y-3">
+          <div class="flex flex-col gap-3 p-4">
             <div class="h-10 w-full bg-surface-alt rounded-lg animate-pulse"></div>
             <div v-for="i in 4" :key="i" class="flex items-center gap-3">
               <div class="w-5 h-5 bg-surface-alt rounded animate-pulse"></div>

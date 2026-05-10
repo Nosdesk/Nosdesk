@@ -68,7 +68,7 @@ onMounted(async () => {
 
       <!-- Collection List -->
       <div class="flex-1 overflow-y-auto p-2">
-        <div v-if="loading" class="space-y-2 p-2">
+        <div v-if="loading" class="flex flex-col gap-2 p-2">
           <div v-for="i in 4" :key="i" class="h-10 rounded-lg bg-surface-alt animate-pulse"></div>
         </div>
 
@@ -76,7 +76,7 @@ onMounted(async () => {
           No collections available.
         </div>
 
-        <div v-else class="space-y-1">
+        <div v-else class="flex flex-col gap-1">
           <button
             v-for="collection in allCollections"
             :key="collection.id"
