@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { AdminIcons, isBrandIcon, getIconBgClass } from '@/components/admin/AdminIcons';
-import { getAdminIconHtml } from '@/components/admin/adminNavData';
+import Icon from '@/components/common/Icon.vue';
+import type { IconName } from '@/components/common/icons';
 
 interface ImportOption {
   title: string;
   description: string;
-  icon: string;
+  icon: IconName;
   route: string;
   status: 'available' | 'coming-soon' | 'beta';
 }
@@ -21,7 +21,7 @@ const importOptions: ImportOption[] = [
   {
     title: 'CSV Import',
     description: 'Import data from CSV files, including devices, users, and other resources',
-    icon: 'file',
+    icon: 'document',
     route: '/admin/data-import/csv',
     status: 'available'
   },
@@ -69,11 +69,9 @@ const statusBadges: Record<string, { text: string; class: string }> = {
             : 'opacity-60'"
         >
           <div
-            class="flex-shrink-0 h-10 w-10 rounded-lg flex items-center justify-center"
-            :class="getIconBgClass(item.icon)"
+            class="flex-shrink-0 h-10 w-10 rounded-lg flex items-center justify-center bg-accent/15 text-accent"
           >
-            <span v-if="isBrandIcon(item.icon)" v-html="AdminIcons[item.icon as keyof typeof AdminIcons]"></span>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="getAdminIconHtml(item.icon)"></svg>
+            <Icon :name="item.icon" size="md" />
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2">
@@ -87,14 +85,11 @@ const statusBadges: Record<string, { text: string; class: string }> = {
             </div>
             <p class="text-xs text-secondary mt-0.5 line-clamp-2 sm:line-clamp-1">{{ item.description }}</p>
           </div>
-          <svg
+          <Icon
             v-if="item.status === 'available'"
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4 text-tertiary group-hover:text-secondary transition-colors flex-shrink-0"
-            fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
+            name="chevronRight"
+            class="text-tertiary group-hover:text-secondary transition-colors flex-shrink-0"
+          />
         </component>
       </div>
 

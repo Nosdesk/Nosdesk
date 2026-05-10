@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { getIconBgClass } from '@/components/admin/AdminIcons';
 import {
   adminNavGroups,
-  getAdminIconHtml,
   filterAdminNavGroups
 } from '@/components/admin/adminNavData';
 import Icon from '@/components/common/Icon.vue';
@@ -68,10 +66,9 @@ const filteredGroups = computed(() => filterAdminNavGroups(adminNavGroups, searc
               class="flex items-center gap-3 px-4 py-3.5 hover:bg-surface-hover transition-colors group"
             >
               <div
-                class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center"
-                :class="getIconBgClass(item.icon)"
+                class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center bg-accent/15 text-accent"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="getAdminIconHtml(item.icon)"></svg>
+                <Icon :name="item.icon" size="md" />
               </div>
               <div class="flex-1 min-w-0">
                 <h3 class="text-sm font-medium text-primary">{{ item.title }}</h3>

@@ -4,7 +4,6 @@ import { useRoute } from 'vue-router';
 import {
   adminNavGroups,
   isAdminRouteActive,
-  getAdminIconHtml,
   filterAdminNavGroups
 } from '@/components/admin/adminNavData';
 import Icon from '@/components/common/Icon.vue';
@@ -83,7 +82,7 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
               class="flex-shrink-0 h-6 w-6 rounded flex items-center justify-center"
               :class="isActive(item.route) ? 'text-accent' : 'text-secondary'"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="getAdminIconHtml(item.icon)"></svg>
+              <Icon :name="item.icon" />
             </div>
             <span class="truncate">{{ item.title }}</span>
           </RouterLink>

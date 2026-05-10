@@ -6,8 +6,11 @@ import { allAdminNavItems, isAdminRouteActive } from '@/components/admin/adminNa
 
 const route = useRoute();
 
-// Whether we're on the admin index page (not a sub-page)
-const isIndexPage = computed(() => route.path === '/admin' || route.path === '/admin/');
+// Index-page check via the named route, not a string compare.
+// The router resolves trailing slashes, query strings, hashes, and
+// future path renames into the same `route.name`, so a name check
+// is more robust than `route.path === '/admin'`.
+const isIndexPage = computed(() => route.name === 'admin-index');
 
 // Current active nav item for the mobile breadcrumb
 const activeItem = computed(() => {

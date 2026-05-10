@@ -1,9 +1,9 @@
-import { AdminIcons } from '@/components/admin/AdminIcons';
+import type { IconName } from '@/components/common/icons';
 
 export interface AdminNavItem {
   title: string;
   description: string;
-  icon: string;
+  icon: IconName;
   route: string;
   keywords: string[];
 }
@@ -20,7 +20,7 @@ export const adminNavGroups: AdminNavGroup[] = [
       {
         title: 'Groups',
         description: 'Manage user groups and memberships',
-        icon: 'users',
+        icon: 'team',
         route: '/admin/groups',
         keywords: ['groups', 'teams', 'members', 'membership']
       },
@@ -44,6 +44,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         icon: 'tag',
         route: '/admin/workflow',
         keywords: ['workflow', 'states', 'status', 'kanban', 'categories']
+      },
+      {
+        title: 'SLA',
+        description: 'Service-level policies and working-hours calendars',
+        icon: 'clock',
+        route: '/admin/sla',
+        keywords: ['sla', 'service level', 'response time', 'resolution time', 'breach', 'policies', 'calendars', 'working hours']
       }
     ]
   },
@@ -81,7 +88,7 @@ export const adminNavGroups: AdminNavGroup[] = [
       {
         title: 'Email Ingestion',
         description: 'Poll a support mailbox over IMAP and turn messages into tickets',
-        icon: 'mail',
+        icon: 'email',
         route: '/admin/channels/email',
         keywords: ['email', 'imap', 'ingestion', 'inbox', 'mailbox', 'channel', 'pipeline', 'tickets']
       }
@@ -100,7 +107,7 @@ export const adminNavGroups: AdminNavGroup[] = [
       {
         title: 'Email Configuration',
         description: 'Configure SMTP settings and send test emails',
-        icon: 'mail',
+        icon: 'email',
         route: '/admin/email-settings',
         keywords: ['email', 'smtp', 'mail', 'notifications', 'configuration']
       }
@@ -133,7 +140,7 @@ export const adminNavGroups: AdminNavGroup[] = [
       {
         title: 'System Settings',
         description: 'Manage storage, cleanup stale files, and system maintenance',
-        icon: 'cog',
+        icon: 'settings',
         route: '/admin/system-settings',
         keywords: ['system', 'settings', 'storage', 'maintenance', 'cleanup', 'configuration']
       },
@@ -157,11 +164,6 @@ export function isAdminRouteActive(currentPath: string, itemRoute: string): bool
   if (currentPath.startsWith(itemRoute + '/')) return true;
   if (itemRoute === '/admin/groups' && /^\/admin\/groups\/[^/]+\/configure/.test(currentPath)) return true;
   return false;
-}
-
-/** Get the SVG inner HTML for a nav icon */
-export function getAdminIconHtml(iconName: string): string {
-  return AdminIcons[iconName as keyof typeof AdminIcons] || AdminIcons.plus;
 }
 
 /** Filter nav groups by a search query (matches title, description, keywords) */

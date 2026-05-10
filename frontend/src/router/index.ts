@@ -15,7 +15,6 @@ import WorkspaceCyclesView from '../views/WorkspaceCyclesView.vue'
 import CycleDetailView from '../views/CycleDetailView.vue'
 import ProjectGanttView from '../views/ProjectGanttView.vue'
 import ProjectCyclesView from '../views/ProjectCyclesView.vue'
-import SlaAdminView from '../views/SlaAdminView.vue'
 import AssetPlannerView from '../views/AssetPlannerView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
@@ -280,16 +279,6 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Cycles',
-      }
-    },
-    {
-      path: '/admin/sla',
-      name: 'sla-admin',
-      component: SlaAdminView,
-      meta: {
-        requiresAuth: true,
-        requiresAdmin: true,
-        title: 'SLA',
       }
     },
     {
@@ -586,6 +575,19 @@ const router = createRouter({
           name: 'admin-webhooks',
           component: () => import('../views/WebhooksView.vue'),
           meta: { title: 'Webhooks' }
+        },
+        {
+          // Was previously a top-level `/admin/sla` route, which
+          // unmounted AdminLayout (and its sidebar) on every visit
+          // and silently bypassed the admin gate (the standalone
+          // route used `requiresAdmin` instead of `adminRequired`,
+          // so the nav guard never triggered). Nesting under
+          // `/admin` inherits both the layout shell and the
+          // parent's `adminRequired: true` meta.
+          path: 'sla',
+          name: 'admin-sla',
+          component: () => import('../views/SlaAdminView.vue'),
+          meta: { title: 'SLA' }
         },
         {
           path: 'plugins',

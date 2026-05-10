@@ -5,7 +5,9 @@ import axios from 'axios';
 import EnvConfigNotice from '@/components/admin/EnvConfigNotice.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
-import { AdminIcons } from '@/components/admin/AdminIcons';
+import Icon from '@/components/common/Icon.vue';
+import BrandIcon from '@/components/common/BrandIcon.vue';
+import type { IconName } from '@/components/common/icons';
 
 // Define types for our data structures
 interface Provider {
@@ -81,17 +83,18 @@ const validateAllProviders = async () => {
   }
 };
 
-// Helper function to render SVG icons
-const getProviderIcon = (providerType: string) => {
-  // Map provider types to icon names
-  const iconMap: Record<string, string> = {
+/**
+ * Provider type → icon registry name. Brand icons (`google`)
+ * fall through this map and render via `<BrandIcon>` instead;
+ * `getProviderIcon` only owns the monochrome-stroke side.
+ */
+const getProviderIcon = (providerType: string): IconName => {
+  const iconMap: Record<string, IconName> = {
     microsoft: 'microsoft',
-    google: 'google',
     local: 'user',
-    oidc: 'key'
+    oidc: 'key',
   };
-  const iconName = iconMap[providerType] || 'lock';
-  return AdminIcons[iconName as keyof typeof AdminIcons] || AdminIcons.lock;
+  return iconMap[providerType] ?? 'lock';
 };
 
 // Helper to get icon background class
@@ -108,11 +111,6 @@ const getProviderIconBgClass = (providerType: string) => {
     default:
       return 'bg-accent/20 text-accent';
   }
-};
-
-// Check if provider uses brand icon
-const isProviderBrandIcon = (providerType: string) => {
-  return ['google'].includes(providerType);
 };
 
 // Helper to get configuration requirements
@@ -179,8 +177,8 @@ onMounted(async () => {
                 class="flex-shrink-0 h-9 w-9 rounded-lg flex items-center justify-center"
                 :class="getProviderIconBgClass(provider.provider_type)"
               >
-                <span v-if="isProviderBrandIcon(provider.provider_type)" v-html="getProviderIcon(provider.provider_type)"></span>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="getProviderIcon(provider.provider_type)"></svg>
+                <BrandIcon v-if="provider.provider_type === 'google'" brand="google" />
+                <Icon v-else :name="getProviderIcon(provider.provider_type)" size="md" />
               </div>
 
               <!-- Title and badges -->

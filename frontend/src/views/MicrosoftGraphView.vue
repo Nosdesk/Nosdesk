@@ -8,7 +8,6 @@ import AlertMessage from "@/components/common/AlertMessage.vue";
 import Checkbox from "@/components/common/Checkbox.vue";
 import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";
-import { AdminIcons } from "@/components/admin/AdminIcons";
 import type {
   ConfigValidation,
   SyncResult,
@@ -402,7 +401,7 @@ onMounted(async () => {
             <!-- Header row with icon -->
             <div class="flex items-center gap-3">
               <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" v-html="AdminIcons.microsoft"></svg>
+                <Icon name="microsoft" size="md" />
               </div>
 
               <div class="flex-1 flex items-center gap-2 flex-wrap">
