@@ -110,7 +110,8 @@ fn parse_priority(s: Option<&str>) -> Option<TicketPriority> {
 /// authoritative "can we reach this address" check.
 async fn email_domain_has_mx(email: &str) -> bool {
     use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-    use hickory_resolver::TokioAsyncResolver;
+    use hickory_resolver::net::{DnsError, NetError, runtime::TokioRuntimeProvider};
+    use hickory_resolver::TokioResolver;
 
     let Some(domain) = email.rsplit('@').next() else {
         return false;
@@ -125,18 +126,39 @@ async fn email_domain_has_mx(email: &str) -> bool {
     opts.timeout = std::time::Duration::from_secs(2);
     opts.attempts = 1;
 
-    let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), opts);
+    // hickory 0.26 replaced `TokioAsyncResolver::tokio(config, opts)`
+    // with a builder pattern that takes the runtime provider
+    // explicitly and chains options before `.build()`. The build can
+    // fail (e.g. invalid TLS config), but the default
+    // `TokioRuntimeProvider` + `ResolverConfig` combination doesn't
+    // hit any of those paths — fail-open if it ever does.
+    let resolver = match TokioResolver::builder_with_config(
+        ResolverConfig::default(),
+        TokioRuntimeProvider::default(),
+    )
+    .with_options(opts)
+    .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, "DNS resolver build failed; allowing submission");
+            return true;
+        }
+    };
 
-    // MX record presence is the strong signal.
+    // hickory 0.26 also reshaped error kinds: the NXDOMAIN
+    // discriminant moved to `NetError::Dns(DnsError::NoRecordsFound(_))`,
+    // a tuple-struct variant rather than the prior brace-style. Same
+    // semantics, different match shape.
+
+    // MX record presence is the strong signal. `Lookup::answers()`
+    // is the new accessor in 0.26 (the prior `iter()` shorthand
+    // moved to `LookupIp` only).
     match resolver.mx_lookup(domain).await {
-        Ok(mx) if mx.iter().next().is_some() => return true,
+        Ok(mx) if !mx.answers().is_empty() => return true,
         // Explicit NXDOMAIN means the domain itself doesn't exist.
         Err(e) => {
-            let kind = e.kind();
-            if matches!(
-                kind,
-                hickory_resolver::error::ResolveErrorKind::NoRecordsFound { .. }
-            ) {
+            if matches!(&e, NetError::Dns(DnsError::NoRecordsFound(_))) {
                 // Fall through to A/AAAA check — some tiny domains serve
                 // mail via A record per RFC 5321 §5.1.
             } else {
@@ -152,11 +174,7 @@ async fn email_domain_has_mx(email: &str) -> bool {
     match resolver.lookup_ip(domain).await {
         Ok(ips) => ips.iter().next().is_some(),
         Err(e) => {
-            let kind = e.kind();
-            if matches!(
-                kind,
-                hickory_resolver::error::ResolveErrorKind::NoRecordsFound { .. }
-            ) {
+            if matches!(&e, NetError::Dns(DnsError::NoRecordsFound(_))) {
                 false
             } else {
                 warn!(error = %e, %domain, "A lookup errored; allowing submission");

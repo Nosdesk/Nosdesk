@@ -124,7 +124,7 @@ html2text = "0.12"
 html-escape = "0.2"
 # DNS resolver for pre-flight MX lookup on guest-submitted email addresses.
 # Catches `random@nonexistentdomain.tld` before we waste an invitation email on it.
-hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }
+hickory-resolver = { version = "0.26", features = ["tokio"] }
 
 # File validation - MIME type detection via magic numbers
 infer = "0.16"             # Detect file types from magic numbers for secure upload validation
