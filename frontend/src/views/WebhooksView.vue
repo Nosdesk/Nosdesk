@@ -653,21 +653,26 @@ onMounted(() => {
                   {{ events.filter(e => createForm.events.includes(e.value)).length }}/{{ events.length }}
                 </span>
               </div>
+              <!-- Toggle-chip selector: each chip is a single
+                   <button> with role="checkbox" + aria-checked, so
+                   keyboard activation (Space / Enter) and screen-
+                   reader semantics come for free without an
+                   sr-only hidden input. The visible chip is the
+                   affordance; its bg-accent / bg-surface-alt swap
+                   communicates the selection state. -->
               <div class="px-3 py-2 flex flex-wrap gap-2">
-                <label
+                <button
                   v-for="event in events"
                   :key="event.value"
-                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors"
+                  type="button"
+                  role="checkbox"
+                  :aria-checked="createForm.events.includes(event.value)"
+                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                   :class="createForm.events.includes(event.value) ? 'bg-accent/10 text-accent' : 'bg-surface-alt text-secondary hover:bg-surface-hover'"
+                  @click="toggleEvent(event.value, createForm.events)"
                 >
-                  <input
-                    type="checkbox"
-                    :checked="createForm.events.includes(event.value)"
-                    @change="toggleEvent(event.value, createForm.events)"
-                    class="sr-only"
-                  />
                   <span class="text-xs">{{ event.label }}</span>
-                </label>
+                </button>
               </div>
             </div>
           </div>
@@ -857,20 +862,18 @@ onMounted(() => {
                 </span>
               </div>
               <div class="px-3 py-2 flex flex-wrap gap-2">
-                <label
+                <button
                   v-for="event in events"
                   :key="event.value"
-                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors"
+                  type="button"
+                  role="checkbox"
+                  :aria-checked="(editForm.events || []).includes(event.value)"
+                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                   :class="(editForm.events || []).includes(event.value) ? 'bg-accent/10 text-accent' : 'bg-surface-alt text-secondary hover:bg-surface-hover'"
+                  @click="toggleEvent(event.value, editForm.events || [])"
                 >
-                  <input
-                    type="checkbox"
-                    :checked="(editForm.events || []).includes(event.value)"
-                    @change="toggleEvent(event.value, editForm.events || [])"
-                    class="sr-only"
-                  />
                   <span class="text-xs">{{ event.label }}</span>
-                </label>
+                </button>
               </div>
             </div>
           </div>
