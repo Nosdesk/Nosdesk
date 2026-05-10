@@ -22,11 +22,8 @@ use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::extractors::SyncContext;
-use crate::handlers::sse::{SseEvent, SseState};
-use crate::handlers::sync::delta::ActionRow;
 use crate::handlers::{errors, helpers};
 use crate::models::{Project, ProjectUpdate, SyncAggregate, SyncOp, TicketUpdate};
-use crate::schema::sync_actions;
 use crate::sync::actor::{ActorContext, ActorKind};
 use crate::sync::session;
 
@@ -71,7 +68,6 @@ pub async fn push(
     pool: web::Data<Pool>,
     body: web::Json<Vec<PushTransaction>>,
     ctx: SyncContext,
-    sse_state: web::Data<SseState>,
 ) -> impl Responder {
     let body = body.into_inner();
     if body.len() > MAX_BATCH {
@@ -88,7 +84,6 @@ pub async fn push(
     let mut applied: Vec<String> = Vec::with_capacity(body.len());
     let mut rejected: Vec<RejectedTx> = Vec::new();
     let mut last_sync_id: i64 = 0;
-    let mut applied_sync_ids: Vec<i64> = Vec::new();
 
     for tx in body {
         let tx_id = tx.tx_id.clone();
@@ -103,7 +98,6 @@ pub async fn push(
         match apply_transaction(&mut conn, &tx, &actor) {
             Ok(sync_id) => {
                 last_sync_id = sync_id.max(last_sync_id);
-                applied_sync_ids.push(sync_id);
                 applied.push(tx_id.clone());
                 info!(
                     user = %ctx.user.uuid,
@@ -130,72 +124,19 @@ pub async fn push(
         }
     }
 
-    // Outbox bridge: re-fetch the inserted action rows post-commit and
-    // broadcast them to SSE subscribers. Doing the fetch + broadcast
-    // outside the per-tx loop means a slow SSE consumer never blocks
-    // a write — the broadcaster is fire-and-forget through
-    // `tokio::broadcast`, falling back to delta polling when a
-    // consumer's buffer fills.
-    if !applied_sync_ids.is_empty() {
-        match load_action_rows(&mut conn, &applied_sync_ids) {
-            Ok(rows) if !rows.is_empty() => {
-                let payload = match serde_json::to_value(&rows) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        warn!(error = %e, "could not serialise sync_actions for SSE broadcast");
-                        return HttpResponse::Ok().json(PushResponse {
-                            applied,
-                            rejected,
-                            last_sync_id,
-                        });
-                    }
-                };
-                sse_state
-                    .broadcast_event(SseEvent::SyncActions {
-                        actions: payload,
-                        last_sync_id,
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
-            }
-            Ok(_) => {}
-            Err(e) => {
-                warn!(error = %e, "failed to load applied sync_actions for SSE outbox");
-            }
-        }
-    }
+    // Broadcast happens elsewhere: every committed sync_actions row
+    // fires the `sync_actions_notify_trigger` Postgres trigger
+    // post-commit, which the `services::sync_outbox` listener
+    // picks up and broadcasts as `SseEvent::SyncActions`. The
+    // listener path covers HTTP push, channel-pipeline ingest,
+    // background jobs, and any future write site uniformly — no
+    // per-handler SSE plumbing required.
 
     HttpResponse::Ok().json(PushResponse {
         applied,
         rejected,
         last_sync_id,
     })
-}
-
-fn load_action_rows(
-    conn: &mut DbConnection,
-    ids: &[i64],
-) -> diesel::QueryResult<Vec<ActionRow>> {
-    sync_actions::table
-        .filter(sync_actions::sync_id.eq_any(ids))
-        .order(sync_actions::sync_id.asc())
-        .select((
-            sync_actions::sync_id,
-            sync_actions::aggregate,
-            sync_actions::aggregate_id,
-            sync_actions::op,
-            sync_actions::event_type,
-            sync_actions::schema_version,
-            sync_actions::data,
-            sync_actions::groups,
-            sync_actions::actor_uuid,
-            sync_actions::actor_kind,
-            sync_actions::actor_ref,
-            sync_actions::correlation_id,
-            sync_actions::causation_id,
-            sync_actions::occurred_at,
-        ))
-        .load::<ActionRow>(conn)
 }
 
 struct TxReject(&'static str, String);

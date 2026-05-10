@@ -563,11 +563,25 @@ watchEffect(async () => {
     </div>
 
     <!-- Screen-only interactive layout -->
-    <SectionCard class="print:hidden">
+    <!--
+      Padding split: SectionCard's content area uses `px-1 py-3`
+      instead of the default `p-3`, then the property-list
+      container adds `px-2` back. Net horizontal inset to plain
+      labels (Title / Status / Resolution / etc.) is 4 + 8 = 12px,
+      identical to the original `p-3`. The 8px in the property
+      list's `px-2` is the breathing area that interactive
+      headers (PropertyChipRow / TicketTagsField buttons) extend
+      into via their own `-mx-2 px-2`. The math cancels at every
+      level so every label's text aligns at exactly the same x,
+      and button hover backgrounds get visible padding without
+      shifting the visible label text away from where plain
+      labels sit.
+    -->
+    <SectionCard class="print:hidden" content-padding="px-1 py-3">
       <template #title>Ticket Details</template>
 
       <template #default>
-        <div class="flex flex-col gap-3">
+        <div class="flex flex-col gap-3 px-2">
           <!-- Title Section.
                The origin-channel hint that lived here as a header
                badge moved to a dedicated `Source` metadata row
@@ -927,7 +941,12 @@ watchEffect(async () => {
                terminal workflow state (done / cancelled) so the
                closure surface reads as a finished record. -->
           <div class="flex flex-col gap-1.5">
-            <div class="flex items-center justify-between gap-2">
+            <!-- Heading row uses the same `-mx-2 px-2` outer
+                 extent as PropertyChipRow / TicketTagsField
+                 buttons so all property headings share one box
+                 geometry — guaranteed alignment with the
+                 button-style heading rows. -->
+            <div class="flex items-center justify-between gap-2 -mx-2 px-2">
               <h3
                 class="text-xs font-medium"
                 :class="isTerminalState ? 'text-primary' : 'text-tertiary'"
@@ -960,7 +979,11 @@ watchEffect(async () => {
                single Created/Modified row pair so consumers can
                answer "who did this last and when" without opening
                the activity timeline. -->
-          <div class="pt-2 border-t border-default flex flex-col gap-2">
+          <!-- Audit block uses the same `-mx-2 px-2` outer extent
+               so its labels (Created / Last Modified / Closed) sit
+               at the same x as the rest of the property list,
+               and the border-t spans the full visual row width. -->
+          <div class="pt-2 border-t border-default flex flex-col gap-2 -mx-2 px-2">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="flex flex-col gap-1">
                 <span class="text-xs text-tertiary font-medium">Created</span>

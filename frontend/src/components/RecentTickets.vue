@@ -250,21 +250,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* Thin scrollbar using theme colors */
-.overflow-y-auto {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-text-tertiary) transparent;
-}
-.overflow-y-auto::-webkit-scrollbar { width: 4px; }
-.overflow-y-auto::-webkit-scrollbar-track { background: transparent; }
-.overflow-y-auto::-webkit-scrollbar-thumb {
-  background-color: var(--color-text-tertiary);
-  border-radius: 2px;
-}
-.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-text-secondary);
-}
-
 /* Drop indicator using pseudo-elements */
 .ticket-item {
   position: relative;

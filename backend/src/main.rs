@@ -609,6 +609,26 @@ async fn main() -> std::io::Result<()> {
     // Initialize SSE state for real-time ticket updates (must be created before YjsAppState)
     let sse_state = web::Data::new(handlers::sse::SseState::new());
 
+    // Spawn the sync-actions outbox listener. Holds a dedicated
+    // `tokio_postgres` LISTEN connection on `sync_actions_new` and
+    // broadcasts every committed sync_actions row to SSE
+    // subscribers. The DB trigger
+    // `sync_actions_notify_trigger` fires the NOTIFY post-commit,
+    // so any code path that emits a sync_actions row (HTTP push,
+    // channel pipeline, background jobs, future write sites) auto-
+    // broadcasts without per-call-site plumbing. See
+    // `services/sync_outbox.rs` for the full lifecycle / recovery
+    // semantics.
+    if let Ok(database_url) = std::env::var("DATABASE_URL") {
+        services::sync_outbox::spawn(
+            database_url,
+            pool.clone(),
+            sse_state.clone().into_inner(),
+        );
+    } else {
+        warn!("DATABASE_URL not set; sync outbox listener not spawned (SSE will not deliver real-time updates)");
+    }
+
     // Build the email service once — it's reused by the notification
     // service and by the channels dispatcher for outbound ticket
     // replies. `None` means SMTP isn't configured; both callers treat

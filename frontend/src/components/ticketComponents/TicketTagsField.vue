@@ -165,24 +165,37 @@ function chipClass(tag: Tag): string {
 
 <template>
   <div class="flex flex-col gap-1.5">
-    <div class="flex items-center justify-between gap-2">
-      <h3 class="text-xs font-medium text-tertiary">Tags</h3>
-      <button
-        type="button"
-        class="p-1 text-tertiary hover:text-accent hover:bg-accent-muted rounded transition-colors"
-        title="Add tag"
-        @click="openPicker"
-      >
-        <Icon name="add" />
-      </button>
-    </div>
+    <!-- Header is the click target for the picker. Same
+         negative-margin idiom as PropertyChipRow: `-mx-2 px-2`
+         extends the button 8px past the property-list
+         container's content edge into the breathing area the
+         container reserves via its own `px-2`, while keeping
+         the label text aligned at the same x as plain <h3>
+         rows. See TicketDetails for the layered padding math. -->
+    <button
+      type="button"
+      class="group flex items-center justify-between gap-2 -mx-2 px-2 py-1 rounded text-left hover:bg-surface-hover transition-colors"
+      title="Add tag"
+      @click="openPicker"
+    >
+      <h3 class="text-xs font-medium text-tertiary group-hover:text-secondary transition-colors">Tags</h3>
+      <Icon
+        name="add"
+        class="w-3.5 h-3.5 text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
+        aria-hidden="true"
+      />
+    </button>
 
     <!-- Attached tag chips. Each chip is dismissable via the
          trailing X button. Wraps when many tags attached so the
-         row stays compact even on a narrow sidebar. -->
+         row stays compact even on a narrow sidebar. The
+         `-mx-2 px-2` mirrors the heading button's negative-
+         margin trick so the chip row's structural footprint
+         matches the button above (chips still sit at the same
+         x as plain content; only the container extends). -->
     <div
       v-if="attachedTags.length > 0"
-      class="flex flex-wrap items-center gap-1"
+      class="flex flex-wrap items-center gap-1 -mx-2 px-2"
     >
       <span
         v-for="tag in attachedTags"

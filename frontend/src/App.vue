@@ -278,43 +278,66 @@ onMounted(async () => {
 <style>
 /* Global styles - note: html/body height and overflow are set in main.css */
 
-/* Custom scrollbar styles */
+/*
+ * Global scrollbar baseline. Thin, subtle, never the loudest
+ * thing on screen. Sharp corners over fully-rounded — the rest
+ * of Nosdesk's chrome leans utilitarian (square table cells,
+ * sharp status pills, instrument-panel feel) and a pill-shape
+ * scrollbar would read as out-of-place consumer-soft chrome.
+ * A 2px transparent border with `background-clip: padding-box`
+ * gives the thumb a "floating inside the gutter" look so the
+ * track doesn't feel like a heavy frame.
+ *
+ * Per-surface overrides can still tighten further, but the
+ * default no longer needs to be fought to look modern.
+ */
 ::-webkit-scrollbar {
-  width: 0.875rem;  /* 14px at default font size */
-  height: 0.875rem;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-bg-surface);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-text-tertiary);
-  border-radius: 0.25rem;
+  background-color: var(--color-border-default);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 120ms ease;
+}
+
+:hover > ::-webkit-scrollbar-thumb,
+::-webkit-scrollbar:hover > ::-webkit-scrollbar-thumb {
+  background-color: var(--color-text-tertiary);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-secondary);
+  background-color: var(--color-text-secondary);
 }
 
-/* Firefox scrollbar styles */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox scrollbar styles. `thin` matches the WebKit width
+ * above; `transparent` track keeps the gutter feeling like
+ * negative space rather than a separate UI element. */
 * {
-  scrollbar-width: auto; /* Changed from 'thin' to 'auto' for wider scrollbar */
-  scrollbar-color: var(--color-text-tertiary) var(--color-bg-surface); /* thumb track */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-default) transparent;
 }
 
-/* Ensure reduced motion preferences are respected */
 @media (prefers-reduced-motion: reduce) {
   ::-webkit-scrollbar-thumb {
     transition: none;
   }
 }
 
-/* Adjust scrollbar size for smaller screens */
 @media (max-width: 640px) {
   ::-webkit-scrollbar {
-    width: 0.75rem;  /* 12px at default font size */
-    height: 0.75rem;
+    width: 8px;
+    height: 8px;
   }
 }
 

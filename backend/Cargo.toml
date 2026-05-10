@@ -46,6 +46,12 @@ actix = "0.13.5"            # Actor framework
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }  # Stream wrappers for tokio types
 tokio-util = "0.7"  # CancellationToken used by the periodic scheduler + future graceful-shutdown wiring
+# Async Postgres client used only by the sync-outbox listener
+# (services/sync_outbox.rs) for `LISTEN sync_actions_new`. Diesel's
+# libpq client is synchronous and doesn't expose notifications cleanly,
+# so the listener holds its own dedicated connection outside the r2d2
+# pool. HTTP handlers continue to use Diesel + r2d2 as before.
+tokio-postgres = "0.7"
 lazy_static = "1.5.0"        # For static mutable state
 dashmap = "6.1.0"            # Thread-safe concurrent hashmap
 env_logger = "0.11.0"

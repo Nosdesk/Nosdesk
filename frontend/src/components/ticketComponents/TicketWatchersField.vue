@@ -57,7 +57,12 @@ function handleToggle() {
 
 <template>
   <div class="flex flex-col gap-1.5">
-    <div class="flex items-center justify-between gap-2">
+    <!-- Heading row uses the same `-mx-2 px-2` outer extent as
+         the interactive button rows in PropertyChipRow /
+         TicketTagsField, so every property heading shares one
+         box geometry — guaranteed pixel-perfect alignment of
+         the label text with button-style siblings. -->
+    <div class="flex items-center justify-between gap-2 -mx-2 px-2">
       <h3 class="text-xs font-medium text-tertiary">
         Watchers
         <span v-if="watcherCount > 0" class="text-tertiary tabular-nums">({{ watcherCount }})</span>
