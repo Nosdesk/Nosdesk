@@ -242,6 +242,7 @@ mod tests {
             due_date: None,
             recurrence_rule: None,
             recurrence_template_id: None,
+            resolution_notes: None,
         }
     }
 

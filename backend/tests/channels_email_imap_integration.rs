@@ -63,7 +63,7 @@ fn greenmail_reachable() -> bool {
 }
 
 fn build_pool() -> Pool {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
     // Require a dedicated test DB — see `src/test_helpers.rs` for the
     // non-transactional-sequence rationale. This integration test
     // commits rows (no test transaction) and tears them down in
