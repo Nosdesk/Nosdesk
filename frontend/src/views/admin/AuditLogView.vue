@@ -41,7 +41,11 @@ const actorFilter = ref('');
 
 const rows = ref<AuditLogRow[]>([]);
 const nextCursor = ref<string | null>(null);
-const expanded = ref<Set<number>>(new Set());
+// Direct property mutation on a reactive Record is intercepted by Vue's
+// proxy and triggers reactivity automatically — simpler than the
+// `expanded.value = new Set(expanded.value)` reassignment dance a Set
+// would require.
+const expanded = ref<Record<number, boolean>>({});
 
 const isLoading = ref(false);
 const isLoadingMore = ref(false);
@@ -59,7 +63,7 @@ function buildQuery(cursor?: string): AuditLogQuery {
 async function loadFirstPage() {
   isLoading.value = true;
   errorMessage.value = '';
-  expanded.value = new Set();
+  expanded.value = {};
   try {
     const page = await auditLogService.list(buildQuery());
     rows.value = page.rows;
@@ -92,10 +96,7 @@ async function loadMore() {
 }
 
 function toggleExpanded(id: number) {
-  const next = new Set(expanded.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  expanded.value = next;
+  expanded.value[id] = !expanded.value[id];
 }
 
 function opLabel(op: string): string {
@@ -254,12 +255,12 @@ onMounted(loadFirstPage);
             {{ formatDateTime(row.occurred_at) }}
           </span>
           <Icon
-            :name="expanded.has(row.id) ? 'chevronUp' : 'chevronDown'"
+            :name="expanded[row.id] ? 'chevronUp' : 'chevronDown'"
             size="sm"
             class="text-secondary"
           />
         </button>
-        <div v-if="expanded.has(row.id)" class="px-3 pb-3">
+        <div v-if="expanded[row.id]" class="px-3 pb-3">
           <table v-if="row.diff.length" class="w-full text-sm">
             <thead>
               <tr class="text-xs text-secondary">

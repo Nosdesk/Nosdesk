@@ -82,12 +82,7 @@ pub async fn msgraph_delta_sync(pool: Pool) -> Result<()> {
 /// `CSP_REPORT_RETENTION_DAYS` env var so deployments with stricter
 /// audit / compliance requirements can dial it up or down.
 pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
-    let days: i32 = std::env::var("CSP_REPORT_RETENTION_DAYS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .filter(|d: &i32| *d > 0)
-        .unwrap_or(30);
-
+    let days = retention_days("CSP_REPORT_RETENTION_DAYS", 30);
     let mut conn = pool.get().context("db pool")?;
     let removed = crate::repository::csp_reports::prune_older_than(&mut conn, days)
         .context("prune CSP reports")?;
@@ -102,12 +97,7 @@ pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
 /// useful for "did anyone touch this account last March?" investigations.
 /// Override via `SECURITY_EVENT_RETENTION_DAYS`.
 pub async fn prune_security_events(pool: Pool) -> Result<()> {
-    let days: i32 = std::env::var("SECURITY_EVENT_RETENTION_DAYS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .filter(|d: &i32| *d > 0)
-        .unwrap_or(365);
-
+    let days = retention_days("SECURITY_EVENT_RETENTION_DAYS", 365);
     let mut conn = pool.get().context("db pool")?;
     let removed = crate::utils::security_events::prune_older_than(&mut conn, days)
         .context("prune security events")?;
@@ -122,12 +112,7 @@ pub async fn prune_security_events(pool: Pool) -> Result<()> {
 /// and only the recent rows have diagnostic value. Override via
 /// `WEBHOOK_DELIVERY_RETENTION_DAYS`; default 30 days.
 pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
-    let days: i32 = std::env::var("WEBHOOK_DELIVERY_RETENTION_DAYS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .filter(|d: &i32| *d > 0)
-        .unwrap_or(30);
-
+    let days = retention_days("WEBHOOK_DELIVERY_RETENTION_DAYS", 30);
     let mut conn = pool.get().context("db pool")?;
     let removed = crate::repository::webhooks::prune_deliveries_older_than(&mut conn, days)
         .context("prune webhook deliveries")?;
@@ -146,12 +131,8 @@ pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
 /// single audited table doesn't fill disk indefinitely. Override via
 /// `AUDIT_LOG_RETENTION_DAYS`.
 pub async fn prune_audit_log_partitions(pool: Pool) -> Result<()> {
-    let days: i64 = std::env::var("AUDIT_LOG_RETENTION_DAYS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .filter(|d: &i64| *d > 0)
-        .unwrap_or(540);
-    drop_old_event_partitions(pool, "audit_log", days).await
+    let days = retention_days("AUDIT_LOG_RETENTION_DAYS", 540);
+    drop_old_event_partitions(pool, "audit_log", days as i64).await
 }
 
 /// Drop monthly partitions of `sync_actions` whose upper bound is older
@@ -159,12 +140,21 @@ pub async fn prune_audit_log_partitions(pool: Pool) -> Result<()> {
 /// cache hydration; a 90-day window is generous since clients re-bootstrap
 /// from snapshots when they lag. Override via `SYNC_ACTIONS_RETENTION_DAYS`.
 pub async fn prune_sync_actions_partitions(pool: Pool) -> Result<()> {
-    let days: i64 = std::env::var("SYNC_ACTIONS_RETENTION_DAYS")
+    let days = retention_days("SYNC_ACTIONS_RETENTION_DAYS", 90);
+    drop_old_event_partitions(pool, "sync_actions", days as i64).await
+}
+
+/// Read a positive day-count from `env_var`, falling back to `default`.
+/// Values that don't parse or aren't positive are treated as unset —
+/// the operator's mistyped `RETENTION_DAYS=-1` shouldn't disable
+/// pruning entirely, since the failure mode (unbounded growth) is
+/// worse than the inconvenience of ignoring a bad value.
+fn retention_days(env_var: &str, default: i32) -> i32 {
+    std::env::var(env_var)
         .ok()
         .and_then(|v| v.parse().ok())
-        .filter(|d: &i64| *d > 0)
-        .unwrap_or(90);
-    drop_old_event_partitions(pool, "sync_actions", days).await
+        .filter(|d: &i32| *d > 0)
+        .unwrap_or(default)
 }
 
 async fn drop_old_event_partitions(

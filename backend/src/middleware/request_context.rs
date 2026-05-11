@@ -17,12 +17,13 @@
 
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::Error;
+use actix_web::{Error, HttpMessage};
 use tracing::Span;
-use tracing_actix_web::{root_span, DefaultRootSpanBuilder, RootSpanBuilder};
+use tracing_actix_web::{root_span, DefaultRootSpanBuilder, RequestId, RootSpanBuilder};
 use uuid::Uuid;
 
-use crate::sync::actor::ActorContext;
+use crate::models::Claims;
+use crate::sync::actor::{ActorContext, ActorKind};
 
 /// Per-request context: who's acting, with what correlation id.
 ///
@@ -70,4 +71,39 @@ pub fn record_user_on_span(uuid: &str, kind: &'static str) {
     let span = Span::current();
     span.record("user_uuid", uuid);
     span.record("actor_kind", kind);
+}
+
+/// Build a [`RequestContext`] from validated claims and the
+/// tracing-actix-web request id, then stash it in extensions and record
+/// the user on the current root span. Called by every auth middleware
+/// at the moment it accepts a credential, so attribution is uniform
+/// regardless of how the request authenticated (cookie, Bearer token,
+/// or future SSO flows).
+///
+/// If the request id isn't on extensions yet (no `TracingLogger`
+/// upstream — only happens in unit tests), a fresh v7 uuid stands in.
+/// If `claims.sub` isn't a uuid (legacy / malformed token), the actor
+/// is recorded as anonymous-but-correlated so audit triggers still see
+/// the correlation id.
+pub fn populate(req: &ServiceRequest, claims: &Claims) {
+    let correlation_id = req
+        .extensions()
+        .get::<RequestId>()
+        .map(|rid| **rid)
+        .unwrap_or_else(Uuid::now_v7);
+    let user_uuid = Uuid::parse_str(&claims.sub).ok();
+    let actor = if let Some(uuid) = user_uuid {
+        ActorContext::user(uuid, Some(correlation_id))
+    } else {
+        ActorContext {
+            kind: ActorKind::User,
+            uuid: None,
+            reference: None,
+            correlation_id: Some(correlation_id),
+            client_tx_id: None,
+        }
+    };
+    record_user_on_span(&claims.sub, ActorKind::User.as_str());
+    req.extensions_mut()
+        .insert(RequestContext::new(correlation_id, actor));
 }

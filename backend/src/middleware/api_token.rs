@@ -6,13 +6,11 @@
 use actix_web::{dev::ServiceRequest, web, Error, HttpMessage};
 use std::net::IpAddr;
 use tracing::{debug, error, info, warn};
-use tracing_actix_web::RequestId;
 
 use crate::db::Pool;
+use crate::middleware::request_context;
 use crate::models::Claims;
 use crate::repository::api_tokens::{get_valid_api_token, hash_token, update_token_last_used};
-use crate::sync::actor::{ActorContext, ActorKind};
-use crate::middleware::request_context::{record_user_on_span, RequestContext};
 
 /// Marker struct to indicate request was authenticated via API token
 /// This is used by CSRF middleware to skip validation for API token requests
@@ -193,25 +191,22 @@ pub async fn dual_auth_middleware(
             req.extensions_mut().insert(ApiTokenAuth {
                 token_uuid: uuid::Uuid::parse_str(&claims.sub).unwrap_or_default(),
             });
-            populate_request_context(&req, &claims);
-            // Insert claims for handler use
+            request_context::populate(&req, &claims);
             req.extensions_mut().insert(claims);
-            // Continue without cookie auth
             return next.call(req).await;
         }
         None => {
-            // No Bearer token, fall through to cookie auth
+            // No Bearer token, fall through to cookie auth.
         }
     }
 
-    // Fall back to cookie-based authentication
+    // Fall back to cookie-based authentication.
     use crate::utils::jwt::JwtUtils;
 
     let mut conn = pool
         .get()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
 
-    // Extract access token from httpOnly cookie
     let token = req
         .cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
         .ok_or_else(|| {
@@ -219,7 +214,6 @@ pub async fn dual_auth_middleware(
             actix_web::error::ErrorUnauthorized("Authentication required")
         })?;
 
-    // Validate token and get claims
     let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn)
         .await
         .map_err(|err| {
@@ -229,37 +223,8 @@ pub async fn dual_auth_middleware(
 
     info!(user = %claims.sub, "Cookie auth: user authenticated successfully");
 
-    populate_request_context(&req, &claims);
-    // Insert claims into request extensions
+    request_context::populate(&req, &claims);
     req.extensions_mut().insert(claims);
 
-    // Continue to the handler
     next.call(req).await
-}
-
-/// Build a [`RequestContext`] from validated claims and the
-/// tracing-actix-web request id, then stash it in extensions and
-/// record the user on the current root span. Shared between the
-/// Bearer-token and cookie-auth branches above so attribution is
-/// uniform regardless of how the request authenticated.
-fn populate_request_context(req: &ServiceRequest, claims: &Claims) {
-    let correlation_id = req
-        .extensions()
-        .get::<RequestId>()
-        .map(|rid| **rid)
-        .unwrap_or_else(uuid::Uuid::now_v7);
-    let user_uuid = uuid::Uuid::parse_str(&claims.sub).ok();
-    let actor = if let Some(uuid) = user_uuid {
-        ActorContext::user(uuid, Some(correlation_id))
-    } else {
-        ActorContext {
-            kind: ActorKind::User,
-            uuid: None,
-            reference: None,
-            correlation_id: Some(correlation_id),
-            client_tx_id: None,
-        }
-    };
-    record_user_on_span(&claims.sub, ActorKind::User.as_str());
-    req.extensions_mut().insert(RequestContext::new(correlation_id, actor));
 }

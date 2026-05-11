@@ -5,7 +5,7 @@ use backend::services;
 use backend::utils;
 
 use actix_cors::Cors;
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error, HttpMessage};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web::dev::{ServiceRequest, ServiceResponse, fn_service};
 use actix_files::Files;
 use actix_limitation::{Limiter, RateLimiter};
@@ -13,7 +13,7 @@ use dotenvy::dotenv;
 use std::env;
 use std::time::Duration;
 use tracing::{info, warn, error, debug};
-use tracing_actix_web::{RequestId, TracingLogger};
+use tracing_actix_web::TracingLogger;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use utils::storage::{get_storage_config, create_storage};
 use utils::redis_yjs_cache::create_redis_cache;
@@ -116,75 +116,12 @@ async fn serve_spa(_req: HttpRequest) -> HttpResponse {
     }
 }
 
-// Cookie-based authentication middleware
-async fn cookie_auth_middleware(
-    req: actix_web::dev::ServiceRequest,
-    next: actix_web::middleware::Next<impl actix_web::body::MessageBody>,
-) -> Result<actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>, Error> {
-    let pool = req.app_data::<web::Data<crate::db::Pool>>()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Database pool not found"))?;
-
-    let mut conn = pool.get()
-        .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
-
-    use crate::utils::jwt::JwtUtils;
-    use backend::sync::actor::{ActorContext, ActorKind};
-    use crate::middleware::{record_user_on_span, RequestContext};
-
-    // Debug logging
-    let cookie_names: Vec<String> = req.cookies()
-        .map(|jar| jar.iter().map(|c| c.name().to_string()).collect())
-        .unwrap_or_default();
-    debug!(path = %req.path(), cookies = ?cookie_names, "Cookie auth middleware processing request");
-
-    // Extract access token from httpOnly cookie
-    let token = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
-        .ok_or_else(|| {
-            warn!(path = %req.path(), "Cookie auth: no access_token cookie found");
-            actix_web::error::ErrorUnauthorized("Authentication required")
-        })?;
-
-    debug!("Cookie auth: validating token from cookie");
-
-    // Validate token and get claims
-    let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn).await
-        .map_err(|err| {
-            error!(error = ?err, "Cookie auth: token validation failed");
-            actix_web::error::ErrorUnauthorized("Invalid or expired token")
-        })?;
-
-    info!(user = %claims.sub, "Cookie auth: user authenticated successfully");
-
-    // Build the per-request context from the verified claims and the
-    // tracing-actix-web request id. The request id doubles as the
-    // correlation id, so logs and audit_log rows share one key.
-    let correlation_id = req.extensions()
-        .get::<RequestId>()
-        .map(|rid| **rid)
-        .unwrap_or_else(uuid::Uuid::now_v7);
-    let user_uuid = uuid::Uuid::parse_str(&claims.sub).ok();
-    let actor = if let Some(uuid) = user_uuid {
-        ActorContext::user(uuid, Some(correlation_id))
-    } else {
-        // Token sub wasn't a uuid; fall back to anonymous-but-correlated
-        // so audit triggers still see the correlation id.
-        ActorContext {
-            kind: ActorKind::User,
-            uuid: None,
-            reference: None,
-            correlation_id: Some(correlation_id),
-            client_tx_id: None,
-        }
-    };
-    record_user_on_span(&claims.sub, ActorKind::User.as_str());
-    req.extensions_mut().insert(RequestContext::new(correlation_id, actor));
-
-    // Insert claims into request extensions
-    req.extensions_mut().insert(claims);
-
-    // Continue to the handler
-    next.call(req).await
-}
+// Cookie-based authentication middleware lives in
+// `middleware/cookie_auth.rs` so it sits next to its peer
+// `middleware/api_token.rs` and uses `crate::*` paths consistently.
+// Re-exported from the middleware module for the same `from_fn`
+// usage in route registration below.
+use middleware::cookie_auth_middleware;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
