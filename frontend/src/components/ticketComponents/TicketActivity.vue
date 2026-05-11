@@ -203,6 +203,10 @@ function assigneeNameFor(ev: TicketActivityEvent): string | null {
   if (!uuid) return null
   return getUserHandle(uuid).user.value?.name ?? null
 }
+
+function isInternalNoteEvent(ev: TicketActivityEvent): boolean {
+  return ev.event_type === 'comment.created' && ev.data?.is_internal === true
+}
 </script>
 
 <template>
@@ -243,7 +247,12 @@ function assigneeNameFor(ev: TicketActivityEvent): string | null {
       <li
         v-for="ev in events"
         :key="ev.sync_id"
-        class="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-surface-hover/40 transition-colors"
+        class="flex items-start gap-2 px-2 py-1.5 rounded transition-colors"
+        :class="
+          isInternalNoteEvent(ev)
+            ? 'bg-status-warning-bg/25 border-l-2 border-status-warning-border/60'
+            : 'hover:bg-surface-hover/40'
+        "
       >
         <!-- Avatar slot. UserAvatar handles the loading skeleton
              when the directory hasn't resolved the uuid yet. -->

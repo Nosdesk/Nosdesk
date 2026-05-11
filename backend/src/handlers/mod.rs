@@ -555,6 +555,7 @@ pub async fn add_comment_to_ticket(
                 let ticket_requester = ticket_info.requester_uuid;
                 let ticket_assignee = ticket_info.assignee_uuid;
                 let comment_id = comment.id;
+                let comment_is_internal = comment.is_internal;
                 // Strip HTML and clean up mentions for notification preview
                 let comment_preview = truncate_preview(&strip_html_for_preview(&comment_data.content), 100);
 
@@ -623,6 +624,46 @@ pub async fn add_comment_to_ticket(
                             continue;
                         }
                         comment_recipients.push(watcher);
+                    }
+
+                    // Strip non-staff recipients from internal-note
+                    // notifications. Without this gate a requester
+                    // mentioned in an internal note would receive a
+                    // notification (and email) about a comment they
+                    // can't view, leaking the existence of the note
+                    // and confusing the recipient. The relay layer
+                    // already drops the outbound email body, but the
+                    // notification fan-out runs independently.
+                    let (mut comment_recipients, mut mentioned_users) =
+                        (comment_recipients, mentioned_users);
+                    if comment_is_internal {
+                        let mut all_candidates: Vec<Uuid> =
+                            comment_recipients.iter().chain(mentioned_users.iter()).copied().collect();
+                        all_candidates.sort();
+                        all_candidates.dedup();
+
+                        let staff_uuids: std::collections::HashSet<Uuid> =
+                            (|| -> Result<std::collections::HashSet<Uuid>, ()> {
+                                let mut conn = pool_for_watchers.get().map_err(|_| ())?;
+                                let users = crate::repository::users::get_users_by_uuids(
+                                    &all_candidates,
+                                    &mut conn,
+                                )
+                                .map_err(|_| ())?;
+                                Ok(users
+                                    .into_iter()
+                                    .filter(|u| matches!(
+                                        u.role,
+                                        crate::models::UserRole::Admin
+                                            | crate::models::UserRole::Technician
+                                    ))
+                                    .map(|u| u.uuid)
+                                    .collect())
+                            })()
+                            .unwrap_or_default();
+
+                        comment_recipients.retain(|u| staff_uuids.contains(u));
+                        mentioned_users.retain(|u| staff_uuids.contains(u));
                     }
 
                     // Send CommentAdded notification to requester/assignee

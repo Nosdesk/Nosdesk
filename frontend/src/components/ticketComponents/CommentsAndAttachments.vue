@@ -140,6 +140,31 @@ const hasTextContent = (html: string): boolean => {
 // `{{customer_name}}` render as-is rather than erroring.
 const cannedResponseVars = computed(() => props.templateVars ?? {});
 
+// Thread-pivot filter: lets a tech narrow the comment list to the
+// public conversation (what the requester sees) or the internal
+// thread (the team's working notes) without leaving the ticket.
+// Print layout deliberately ignores this so a printed record stays
+// complete.
+type CommentVisibilityFilter = 'all' | 'public' | 'internal';
+const commentFilter = ref<CommentVisibilityFilter>('all');
+
+const internalCommentCount = computed(
+    () => props.comments.filter((c) => c.is_internal).length,
+);
+const publicCommentCount = computed(
+    () => props.comments.length - internalCommentCount.value,
+);
+
+const filteredComments = computed(() => {
+    if (commentFilter.value === 'public') {
+        return props.comments.filter((c) => !c.is_internal);
+    }
+    if (commentFilter.value === 'internal') {
+        return props.comments.filter((c) => c.is_internal);
+    }
+    return props.comments;
+});
+
 // Inserts rendered canned-response text into the composer. SimpleEditor's
 // v-model is HTML; plain text with newlines is rendered by wrapping in
 // paragraphs — `\n\n` becomes a paragraph break, single `\n` a `<br>`.
@@ -408,7 +433,12 @@ const handleDrop = async (event: DragEvent) => {
                   rather than a nested card.
                 -->
                 <div
-                    class="print:hidden bg-surface border-b border-default relative p-3"
+                    class="print:hidden border-b relative p-3 transition-colors"
+                    :class="
+                        isInternal
+                            ? 'bg-status-warning-bg/40 border-status-warning-border/60'
+                            : 'bg-surface border-default'
+                    "
                     @dragenter="handleDragEnter"
                     @dragleave="handleDragLeave"
                     @dragover="handleDragOver"
@@ -442,9 +472,28 @@ const handleDrop = async (event: DragEvent) => {
                         @submit.prevent="addComment"
                         class="flex flex-col gap-2"
                     >
+                        <div
+                            v-if="isInternal"
+                            class="flex items-center gap-2 text-xs font-medium text-status-warning"
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="h-4 w-4 flex-shrink-0"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    fill-rule="evenodd"
+                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-13a1 1 0 011 1v4a1 1 0 11-2 0V6a1 1 0 011-1zm0 9a1 1 0 100-2 1 1 0 000 2z"
+                                    clip-rule="evenodd"
+                                />
+                            </svg>
+                            <span>Visible to staff only. Not sent through the ticket's channel.</span>
+                        </div>
                         <SimpleEditor
                             v-model="newCommentContent"
-                            placeholder="Add a new comment..."
+                            :placeholder="isInternal ? 'Note for the team…' : 'Add a new comment...'"
                             min-height="60px"
                             max-height="200px"
                             @submit="addComment"
@@ -618,8 +667,55 @@ const handleDrop = async (event: DragEvent) => {
                     v-if="props.comments.length > 0"
                     class="print:hidden flex flex-col gap-2 px-2 py-3"
                 >
+                    <!-- Visibility pivot: hidden when the ticket has
+                         no internal notes yet (nothing to filter).
+                         Counts give a sense of thread shape before
+                         the filter is engaged. -->
                     <div
-                        v-for="comment in props.comments"
+                        v-if="internalCommentCount > 0"
+                        class="flex items-center gap-1 text-xs"
+                        role="group"
+                        aria-label="Comment visibility filter"
+                    >
+                        <button
+                            type="button"
+                            class="px-2 py-1 rounded transition-colors"
+                            :class="
+                                commentFilter === 'all'
+                                    ? 'bg-surface-alt text-primary font-medium'
+                                    : 'text-tertiary hover:text-primary'
+                            "
+                            @click="commentFilter = 'all'"
+                        >
+                            All ({{ props.comments.length }})
+                        </button>
+                        <button
+                            type="button"
+                            class="px-2 py-1 rounded transition-colors"
+                            :class="
+                                commentFilter === 'public'
+                                    ? 'bg-surface-alt text-primary font-medium'
+                                    : 'text-tertiary hover:text-primary'
+                            "
+                            @click="commentFilter = 'public'"
+                        >
+                            Public ({{ publicCommentCount }})
+                        </button>
+                        <button
+                            type="button"
+                            class="px-2 py-1 rounded transition-colors"
+                            :class="
+                                commentFilter === 'internal'
+                                    ? 'bg-status-warning-bg text-status-warning font-medium'
+                                    : 'text-tertiary hover:text-primary'
+                            "
+                            @click="commentFilter = 'internal'"
+                        >
+                            Internal ({{ internalCommentCount }})
+                        </button>
+                    </div>
+                    <div
+                        v-for="comment in filteredComments"
                         :key="comment.id"
                         class="flex flex-col gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border transition-all duration-300"
                         :class="[
