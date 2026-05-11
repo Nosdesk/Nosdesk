@@ -22,6 +22,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
+import { useMobileDetection } from '@/composables/useMobileDetection'
 import type { Notification } from '@/services/notificationService'
 import { useNotificationsStore } from '@/stores/notifications'
 import {
@@ -39,6 +40,7 @@ import type { PopoverAnchor } from '@/composables/usePopover'
 
 const router = useRouter()
 const store = useNotificationsStore()
+const { isMobile } = useMobileDetection('sm')
 const { lastAnnouncement } = storeToRefs(store)
 
 // Shared notification wiring (queries, mutations, derived state,
@@ -125,6 +127,16 @@ const emptyContent = computed(() => {
 })
 
 function toggleOpen() {
+  // Mobile: skip the popover and route straight to the full inbox.
+  // The popover's value is "glance while working" which doesn't
+  // apply on a phone (the popover is essentially full-screen
+  // anyway, and the inbox view is the better triage surface with
+  // bulk select). The standalone inbox affordance is hidden below
+  // `sm:`, so the bell here is the only entry point.
+  if (isMobile.value) {
+    router.push('/inbox')
+    return
+  }
   if (isOpen.value) {
     isOpen.value = false
     return

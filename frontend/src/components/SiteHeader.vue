@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { RouterLink } from "vue-router";
 import UserAvatar from "./UserAvatar.vue";
 import UserDropdownMenu from "./UserDropdownMenu.vue";
 import HeaderTitle from "./HeaderTitle.vue";
@@ -7,6 +8,7 @@ import DocumentIconSelector from "./DocumentIconSelector.vue";
 import ItemIdentifier from "./ItemIdentifier.vue";
 import CreateActionIcon, { type CreateIconType } from "./common/CreateActionIcon.vue";
 import NotificationBell from "./NotificationBell.vue";
+import Icon from "./common/Icon.vue";
 import { useAuthStore } from '@/stores/auth';
 import { useMobileDetection } from '@/composables/useMobileDetection';
 
@@ -234,8 +236,27 @@ defineExpose({
           <span class="create-button-text">{{ props.createButtonText }}</span>
         </button>
 
-        <!-- Notification Bell -->
-        <NotificationBell />
+        <!-- Messaging cluster: Inbox + Bell paired by proximity, not
+             by a shared border. They look related but behave
+             differently (Inbox navigates, Bell opens a popover), so
+             they share button chrome and a tighter gap than the
+             surrounding header elements rather than being merged
+             into a segmented control. Inbox is hidden below `sm:`
+             because on phones the Bell itself routes straight to
+             `/inbox` (see NotificationBell.toggleOpen), so a second
+             icon would just shout the same thing in less space. -->
+        <div class="flex items-center gap-0.5">
+            <RouterLink
+                to="/inbox"
+                class="hidden sm:inline-flex relative rounded-lg p-2 text-secondary transition-colors hover:bg-surface-hover hover:text-primary focus:outline-none focus:ring-2 focus:ring-accent items-center justify-center"
+                active-class="text-accent bg-accent/10"
+                aria-label="Open inbox"
+                title="Inbox"
+            >
+                <Icon name="inbox" size="md" />
+            </RouterLink>
+            <NotificationBell />
+        </div>
 
         <!-- User Profile Menu -->
         <div class="relative">
