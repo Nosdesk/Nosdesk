@@ -294,8 +294,10 @@ mod tests {
 
     #[test]
     fn add_business_minutes_skips_weekend() {
-        // Friday 16:00 UTC + 4 business hours = Monday 11:00 UTC
-        // (calendar is Mon-Fri 9-17 UTC).
+        // Friday 16:00 UTC + 4 business hours = Monday 12:00 UTC.
+        // Friday 16-17 consumes 1 hour, weekend is non-working, then
+        // Monday 9-12 consumes the remaining 3. Mirrors the holiday
+        // test below (1 hour Fri + 3 hours next working day).
         let cal = cal(serde_json::json!({
             "mon": [["09:00","17:00"]],
             "tue": [["09:00","17:00"]],
@@ -307,7 +309,7 @@ mod tests {
         }));
         let start = Utc.with_ymd_and_hms(2026, 5, 1, 16, 0, 0).unwrap(); // Friday
         let end = add_business_minutes(start, 4 * 60, &cal, &HashSet::new());
-        assert_eq!(end, Utc.with_ymd_and_hms(2026, 5, 4, 11, 0, 0).unwrap());
+        assert_eq!(end, Utc.with_ymd_and_hms(2026, 5, 4, 12, 0, 0).unwrap());
     }
 
     #[test]
