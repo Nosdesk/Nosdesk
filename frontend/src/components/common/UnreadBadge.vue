@@ -11,20 +11,13 @@
  */
 import { computed } from 'vue'
 
-const props = withDefaults(
-  defineProps<{
-    count: number
-    /** Cap displayed value; counts above render as "{cap}+". */
-    cap?: number
-  }>(),
-  {
-    cap: 99,
-  },
-)
+const props = defineProps<{
+  count: number
+}>()
 
 const display = computed(() => {
   if (props.count <= 0) return null
-  return props.count > props.cap ? `${props.cap}+` : String(props.count)
+  return props.count > 99 ? '99+' : String(props.count)
 })
 </script>
 

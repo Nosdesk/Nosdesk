@@ -252,6 +252,23 @@
   .z-effect { z-index: var(--z-effect); }
   .z-cursor { z-index: var(--z-cursor); }
 
+  /* Mobile-only 44x44 tap target. Apple HIG and WCAG 2.5.5 both
+     put primary touch targets at 44 CSS px minimum; this gives
+     us a one-class way to enforce that on icon-only buttons that
+     would otherwise rely on their content's natural size (~24px).
+     Reverts to the inline natural size at the `sm:` breakpoint so
+     desktop layouts don't get oversized buttons. */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  @media (min-width: 640px) {
+    .touch-target {
+      min-height: 0;
+      min-width: 0;
+    }
+  }
+
   /* Background color utilities */
   .bg-app { background-color: var(--color-app); }
   .bg-surface { background-color: var(--color-surface); }

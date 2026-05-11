@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue';
 import { useRouter } from 'vue-router';
+import { stripHtml } from '@/composables/useSanitise';
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
 import { useWorkflowStatesStore } from '@/stores/workflowStates';
 import {
@@ -433,28 +434,17 @@ function handleResolutionBlur() {
   emit('update:resolutionNotes', next.length > 0 ? next : null);
 }
 
-/** Strip HTML to plain text. Mirrors the helper inside
- *  CommentsAndAttachments without importing the whole composable
- *  surface. Comment content lives as HTML in the store (the editor
- *  is ProseMirror); the resolution field is plain text. */
-function stripCommentHtml(html: string): string {
-  if (!html) return '';
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  return (tmp.textContent ?? '').trim();
-}
-
 /** Append the ticket's internal notes to the resolution textarea
  *  as a starting draft. Each note becomes its own paragraph; HTML
- *  is stripped so the resolution stays plain text. Saves
- *  immediately on insert so the draft survives accidental
- *  navigation; the user can still edit and re-save normally
- *  through the blur handler. */
+ *  is stripped via the shared `useSanitise` composable (DOMPurify-
+ *  backed) so the resolution stays plain text. Saves immediately
+ *  on insert so the draft survives accidental navigation; the user
+ *  can still edit and re-save normally through the blur handler. */
 function draftResolutionFromInternalNotes() {
   const notes = props.internalComments ?? [];
   if (notes.length === 0) return;
   const lines = notes
-    .map((c) => stripCommentHtml(c.content))
+    .map((c) => stripHtml(c.content).trim())
     .filter((s) => s.length > 0);
   if (lines.length === 0) return;
   const appended = lines.join('\n\n');

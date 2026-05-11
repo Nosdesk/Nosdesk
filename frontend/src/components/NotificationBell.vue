@@ -22,7 +22,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import { useMobileDetection } from '@/composables/useMobileDetection'
 import type { Notification } from '@/services/notificationService'
 import { useNotificationsStore } from '@/stores/notifications'
 import {
@@ -41,7 +40,6 @@ import type { PopoverAnchor } from '@/composables/usePopover'
 
 const router = useRouter()
 const store = useNotificationsStore()
-const { isMobile } = useMobileDetection('sm')
 const { lastAnnouncement } = storeToRefs(store)
 
 // Shared notification wiring (queries, mutations, derived state,
@@ -128,16 +126,6 @@ const emptyContent = computed(() => {
 })
 
 function toggleOpen() {
-  // Mobile: skip the popover and route straight to the full inbox.
-  // The popover's value is "glance while working" which doesn't
-  // apply on a phone (the popover is essentially full-screen
-  // anyway, and the inbox view is the better triage surface with
-  // bulk select). The standalone inbox affordance is hidden below
-  // `sm:`, so the bell here is the only entry point.
-  if (isMobile.value) {
-    router.push('/inbox')
-    return
-  }
   if (isOpen.value) {
     isOpen.value = false
     return
@@ -385,7 +373,7 @@ onMounted(() => {
                     v-if="!notification.is_read"
                     type="button"
                     @click="handleMarkRead($event, notification)"
-                    class="inline-flex items-center justify-center rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
+                    class="inline-flex items-center justify-center rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary touch-target"
                     :aria-label="`Mark as read: ${notification.title}`"
                   >
                     <Icon name="check" size="xs" />
@@ -393,7 +381,7 @@ onMounted(() => {
                   <button
                     type="button"
                     @click="handleClearNotification($event, notification)"
-                    class="inline-flex items-center justify-center rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
+                    class="inline-flex items-center justify-center rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary touch-target"
                     :aria-label="`Dismiss: ${notification.title}`"
                   >
                     <Icon name="close" size="xs" />
