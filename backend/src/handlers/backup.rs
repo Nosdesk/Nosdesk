@@ -457,35 +457,51 @@ pub async fn execute_restore(
         completed_at: None,
     });
 
-    // Restore files (database restore would need more work)
-    match backup_service::restore_backup_files(&file_path) {
-        Ok(count) => {
-            let _ = backup_repo::update_backup_job(&mut conn, job_id, BackupJobUpdate {
-                status: Some("completed".to_string()),
-                file_path: None,
-                file_size: None,
-                error_message: None,
-                completed_at: Some(chrono::Utc::now().naive_utc()),
-            });
-
-            HttpResponse::Ok().json(json!({
-                "success": true,
-                "files_restored": count,
-                "message": "Files restored successfully. Database restore is not yet implemented."
-            }))
-        }
+    // Restore database first, then files. Mirrors the onboarding-only
+    // `setup_restore_execute` flow below — the two paths now share the
+    // same restore semantics, differing only in their auth gate
+    // (admin claims here vs zero-users-on-system there).
+    let stats = match backup_service::restore_database(&mut conn, &file_path, body.password.as_deref()) {
+        Ok(s) => s,
         Err(e) => {
             let _ = backup_repo::update_backup_job(&mut conn, job_id, BackupJobUpdate {
                 status: Some("failed".to_string()),
                 file_path: None,
                 file_size: None,
-                error_message: Some(e.to_string()),
+                error_message: Some(format!("database restore failed: {e}")),
                 completed_at: Some(chrono::Utc::now().naive_utc()),
             });
-
-            errors::internal(format!("Restore failed: {}", e))
+            return errors::internal(format!("Database restore failed: {e}"));
         }
-    }
+    };
+
+    // Files restore is best-effort: a missing or partial files payload
+    // shouldn't undo the database restore that just completed.
+    let files_restored = match backup_service::restore_backup_files(&file_path) {
+        Ok(count) => count,
+        Err(e) => {
+            tracing::warn!(error = %e, "File restore had issues during admin restore");
+            0
+        }
+    };
+
+    let thumbnails_regenerated = regenerate_user_thumbnails(&mut conn).await;
+
+    let _ = backup_repo::update_backup_job(&mut conn, job_id, BackupJobUpdate {
+        status: Some("completed".to_string()),
+        file_path: None,
+        file_size: None,
+        error_message: None,
+        completed_at: Some(chrono::Utc::now().naive_utc()),
+    });
+
+    HttpResponse::Ok().json(json!({
+        "success": true,
+        "tables_restored": stats.tables_restored,
+        "records_restored": stats.records_restored,
+        "files_restored": files_restored,
+        "thumbnails_regenerated": thumbnails_regenerated,
+    }))
 }
 
 /// Delete a backup job and its associated file
