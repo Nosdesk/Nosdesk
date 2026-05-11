@@ -835,6 +835,7 @@ pub fn parse_rfc822_into_inbound_message(
     let references = extract_references_chain(headers);
     let recipients = collect_recipients(headers);
     let loop_markers = detect_loop_markers(headers);
+    let is_bounce = detect_bounce(&parsed, headers);
 
     let received_at = internal_date
         .or_else(|| header_first(headers, "Date").and_then(parse_rfc2822_to_utc))
@@ -861,7 +862,54 @@ pub fn parse_rfc822_into_inbound_message(
         loop_markers,
         raw_metadata,
         recipients,
+        is_bounce,
     })
+}
+
+/// Detect whether a parsed inbound email is a delivery-status
+/// notification (a bounce). Three signals, any of which is taken as
+/// sufficient because spammy / malformed bounces routinely satisfy
+/// only one:
+///
+/// 1. Top-level `Content-Type` is `multipart/report` with the
+///    `report-type=delivery-status` parameter. This is RFC 3464's
+///    structured form and the most reliable signal when present.
+/// 2. `Auto-Submitted` header carries `auto-replied` plus a
+///    parenthesised `(delivery-status)` annotation. Less common in
+///    practice but specified in RFC 3834.
+/// 3. The envelope sender looks like a postmaster bounce address —
+///    `mailer-daemon@*` or `postmaster@*` (case-insensitive). Falls
+///    in last because spam can spoof these; combined with the
+///    other signals it's directional, alone it's just a hint.
+fn detect_bounce(
+    parsed: &mailparse::ParsedMail,
+    headers: &[mailparse::MailHeader],
+) -> bool {
+    let ctype = parsed.ctype.mimetype.to_ascii_lowercase();
+    if ctype == "multipart/report" {
+        if let Some(rt) = parsed.ctype.params.get("report-type") {
+            if rt.eq_ignore_ascii_case("delivery-status") {
+                return true;
+            }
+        }
+    }
+
+    if let Some(auto) = header_first(headers, "Auto-Submitted") {
+        let lc = auto.to_ascii_lowercase();
+        if lc.contains("delivery-status") || lc.contains("auto-replied") && lc.contains("dsn") {
+            return true;
+        }
+    }
+
+    if let Some(from) = header_first(headers, "From") {
+        let (_, addr) = parse_mailbox(&from);
+        let lc = addr.to_ascii_lowercase();
+        if lc.starts_with("mailer-daemon@") || lc.starts_with("postmaster@") {
+            return true;
+        }
+    }
+
+    false
 }
 
 // ---------- Header helpers ----------
@@ -1117,6 +1165,73 @@ fn parse_rfc2822_to_utc(raw: String) -> Option<DateTime<Utc>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parsed(raw: &[u8]) -> mailparse::ParsedMail<'_> {
+        mailparse::parse_mail(raw).unwrap()
+    }
+
+    #[test]
+    fn detect_bounce_via_content_type_report() {
+        let raw = b"From: postmaster@example.com\r\n\
+                    To: support@yourco.com\r\n\
+                    Subject: Delivery Status Notification (Failure)\r\n\
+                    Message-ID: <bounce@example.com>\r\n\
+                    Content-Type: multipart/report; report-type=delivery-status; boundary=\"b\"\r\n\
+                    \r\n\
+                    --b\r\nContent-Type: text/plain\r\n\r\nThis is a bounce.\r\n--b--\r\n";
+        let p = parsed(raw);
+        assert!(detect_bounce(&p, &p.headers));
+    }
+
+    #[test]
+    fn detect_bounce_via_mailer_daemon_sender() {
+        let raw = b"From: MAILER-DAEMON@hosting.example.com\r\n\
+                    To: support@yourco.com\r\n\
+                    Subject: failure notice\r\n\
+                    Message-ID: <md@example.com>\r\n\
+                    Content-Type: text/plain\r\n\
+                    \r\nUndelivered.\r\n";
+        let p = parsed(raw);
+        assert!(detect_bounce(&p, &p.headers));
+    }
+
+    #[test]
+    fn detect_bounce_via_postmaster_sender() {
+        let raw = b"From: \"Postmaster\" <postmaster@isp.example.net>\r\n\
+                    To: support@yourco.com\r\n\
+                    Subject: Returned mail\r\n\
+                    Message-ID: <pm@example.com>\r\n\
+                    Content-Type: text/plain\r\n\
+                    \r\nUser unknown.\r\n";
+        let p = parsed(raw);
+        assert!(detect_bounce(&p, &p.headers));
+    }
+
+    #[test]
+    fn detect_bounce_ignores_normal_reply() {
+        let raw = b"From: alice@example.com\r\n\
+                    To: support@yourco.com\r\n\
+                    Subject: Re: ticket #42\r\n\
+                    Message-ID: <reply@example.com>\r\n\
+                    Content-Type: text/plain\r\n\
+                    \r\nThanks for the update.\r\n";
+        let p = parsed(raw);
+        assert!(!detect_bounce(&p, &p.headers));
+    }
+
+    #[test]
+    fn detect_bounce_ignores_auto_reply_without_dsn_marker() {
+        // Out-of-office: Auto-Submitted is set but not as a DSN.
+        let raw = b"From: bob@example.com\r\n\
+                    To: support@yourco.com\r\n\
+                    Subject: Out of office\r\n\
+                    Message-ID: <ooo@example.com>\r\n\
+                    Auto-Submitted: auto-replied\r\n\
+                    Content-Type: text/plain\r\n\
+                    \r\nI'm away.\r\n";
+        let p = parsed(raw);
+        assert!(!detect_bounce(&p, &p.headers));
+    }
 
     #[test]
     fn runtime_state_roundtrips_through_json() {

@@ -338,6 +338,7 @@ mod tests {
             loop_markers: LoopMarkers::default(),
             raw_metadata: json!({}),
             recipients,
+            is_bounce: false,
         }
     }
 

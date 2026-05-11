@@ -485,6 +485,7 @@ fn pipeline_outcome_label(outcome: &pipeline::PipelineOutcome) -> &'static str {
         PipelineOutcome::ReplyAppended { .. } => "reply_appended",
         PipelineOutcome::SkippedDuplicate => "skipped_duplicate",
         PipelineOutcome::SkippedLoop => "skipped_loop",
+        PipelineOutcome::SkippedBounce => "skipped_bounce",
         PipelineOutcome::SkippedUnsupportedVariant => "skipped_unsupported",
         PipelineOutcome::SkippedNoIdentity => "skipped_no_identity",
         PipelineOutcome::SkippedEmailClaimed => "skipped_email_claimed",
@@ -622,6 +623,7 @@ mod tests {
             loop_markers: LoopMarkers::default(),
             raw_metadata: serde_json::json!({}),
             recipients: vec!["support@yourco.com".into()],
+            is_bounce: false,
         })
     }
 

@@ -64,6 +64,11 @@ pub enum PipelineOutcome {
     SkippedDuplicate,
     /// `LoopMarkers` flagged this as an auto-reply / out-of-office.
     SkippedLoop,
+    /// Inbound message was a delivery-status notification (DSN /
+    /// bounce). Short-circuited here so it doesn't open a new
+    /// ticket or trigger an auto-reply; future passes will link it
+    /// to the original outbound row.
+    SkippedBounce,
     /// Phase-1 only handles `MessageReceived`. Other variants are
     /// logged and skipped.
     SkippedUnsupportedVariant,
@@ -149,6 +154,15 @@ pub async fn process_event(
             return Ok(PipelineOutcome::SkippedUnsupportedVariant);
         }
     };
+
+    if msg.is_bounce {
+        debug!(
+            channel_id = channel.id,
+            external_id = %msg.external_id,
+            "skip: delivery-status notification (bounce)"
+        );
+        return Ok(PipelineOutcome::SkippedBounce);
+    }
 
     if msg.loop_markers.any() {
         debug!(
@@ -818,6 +832,7 @@ mod tests {
             loop_markers: LoopMarkers::default(),
             raw_metadata: json!({"k": "v"}),
             recipients: vec!["support@yourco.com".into()],
+            is_bounce: false,
         }
     }
 
@@ -936,6 +951,32 @@ mod tests {
 
         // No channel_messages row should have been recorded.
         assert!(channels_repo::find_by_external_id(&mut conn, ch.id, "<loop@ex>")
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn skips_bounces() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+        let mut msg = sample_message("<dsn@ex>", vec![], Some("Delivery Status Notification"));
+        msg.is_bounce = true;
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, PipelineOutcome::SkippedBounce);
+
+        // A bounce must not produce a ticket nor leak into the
+        // channel_messages ledger; the suppression-list pass will
+        // pick it up from the raw DSN content instead.
+        assert!(channels_repo::find_by_external_id(&mut conn, ch.id, "<dsn@ex>")
             .unwrap()
             .is_none());
     }

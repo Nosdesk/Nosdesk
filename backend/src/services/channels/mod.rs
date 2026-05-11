@@ -176,6 +176,14 @@ pub struct InboundMessage {
     /// resolver to extract `support+ticket-N@host` from To/Cc/Delivered-To.
     /// Chat channels leave this empty.
     pub recipients: Vec<String>,
+    /// Set when the message is a delivery-status notification (DSN) /
+    /// hard or soft bounce. The pipeline short-circuits these so they
+    /// don't create new tickets or trigger auto-replies; future
+    /// passes will link them to the original outbound row and feed a
+    /// suppression list. Distinct from `loop_markers` because the
+    /// downstream handling diverges (bounces hit outbound state;
+    /// loops just get logged and dropped).
+    pub is_bounce: bool,
 }
 
 /// Either bytes we already have (IMAP) or a URL we fetch later (Slack

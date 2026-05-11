@@ -201,6 +201,7 @@ mod tests {
             loop_markers: LoopMarkers::default(),
             raw_metadata: serde_json::json!({}),
             recipients: vec![],
+            is_bounce: false,
         }
     }
 
