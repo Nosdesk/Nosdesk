@@ -369,6 +369,32 @@ const handleDrop = async (event: DragEvent) => {
 
     newAttachments.value = [...newAttachments.value, ...processedFiles, ...audioFiles];
 };
+
+// Image files pasted into the composer (screenshots from macOS
+// Cmd-Shift-Ctrl-4, Windows Snipping Tool, Linux Flameshot, etc.).
+// SimpleEditor extracts the files inside ProseMirror's `handlePaste`
+// hook so PM doesn't also try to insert the bitmap inline as a data:
+// URL, then emits them up to here as a plain File[].
+//
+// Plain text and image URLs are not emitted; those fall through to
+// PM's default paste handling so "https://example.com/cat.png" still
+// produces a clickable link instead of a CORS-fraught download.
+const handlePastedFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    // Pasted screenshots typically arrive as "image.png" without a useful
+    // name; rename to a timestamp so multiple pastes in the same composer
+    // don't collide on the server side, and so the attachment chip carries
+    // a recognisable label.
+    const stamped = files.map((file) => {
+        const ext = file.type.split("/")[1] || "png";
+        const ts = new Date().toISOString().replace(/[:.]/g, "-");
+        return new File([file], `pasted-${ts}.${ext}`, { type: file.type });
+    });
+
+    const processed = await processFiles(stamped);
+    newAttachments.value = [...newAttachments.value, ...processed];
+};
 </script>
 
 <template>
@@ -497,6 +523,7 @@ const handleDrop = async (event: DragEvent) => {
                             min-height="60px"
                             max-height="200px"
                             @submit="addComment"
+                            @paste-files="handlePastedFiles"
                         />
 
                         <!-- New attachments -->

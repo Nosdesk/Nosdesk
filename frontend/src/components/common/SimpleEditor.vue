@@ -57,7 +57,43 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void;
   (e: 'submit'): void;
+  /** Image / binary files extracted from a paste event. Fired from
+   *  ProseMirror's `editorProps.handlePaste` so the editor's default
+   *  paste pipeline (which would inline images as data: URLs or
+   *  silently drop binary blobs) is short-circuited. The parent owns
+   *  upload orchestration. */
+  (e: 'pasteFiles', files: File[]): void;
 }>();
+
+/** Pull image File objects out of a ClipboardEvent.
+ *
+ *  `clipboardData.files` is the canonical accessor in modern browsers
+ *  (Chrome / Firefox 63+ / Safari 13.1+ / Edge) and works for the
+ *  screenshot tools we care about (macOS Cmd-Shift-Ctrl-4, Windows
+ *  Snipping Tool, Linux Flameshot). The `items` iteration is a
+ *  defensive fallback for the rare case where `files` is empty but
+ *  `items` carries `kind === 'file'` entries (legacy WebKit behaviour
+ *  that occasionally still surfaces on iframe / cross-origin paste).
+ *
+ *  Returns only image MIME types so URL pastes and rich-text pastes
+ *  fall through to PM's default handling.
+ */
+function extractPastedImageFiles(event: ClipboardEvent): File[] {
+  const cd = event.clipboardData;
+  if (!cd) return [];
+
+  const fromFiles = Array.from(cd.files).filter((f) => f.type.startsWith('image/'));
+  if (fromFiles.length > 0) return fromFiles;
+
+  const fromItems: File[] = [];
+  for (const item of Array.from(cd.items)) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const f = item.getAsFile();
+      if (f) fromItems.push(f);
+    }
+  }
+  return fromItems;
+}
 
 
 const editorElement = ref<HTMLElement | null>(null);
@@ -278,6 +314,18 @@ onMounted(() => {
         const html = docToHtml(newState.doc);
         emit('update:modelValue', html);
       }
+    },
+    handlePaste(_view, event) {
+      // Image-file paste: short-circuit PM's default paste pipeline
+      // (which would otherwise inline a data: URL or drop the bytes
+      // entirely) and let the parent attach the file as an upload.
+      // Returning `true` tells PM "handled, don't apply the default
+      // slice"; we return `false` for non-file pastes so URL, HTML
+      // and plain-text content keep flowing through PM as normal.
+      const files = extractPastedImageFiles(event);
+      if (files.length === 0) return false;
+      emit('pasteFiles', files);
+      return true;
     },
     attributes: {
       class: 'simple-editor-content',
