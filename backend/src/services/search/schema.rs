@@ -17,6 +17,12 @@ pub mod fields {
     pub const URL: &str = "url";
     pub const PREVIEW: &str = "preview";
     pub const UPDATED_AT: &str = "updated_at";
+    /// 0 or 1. Drives both the search-result badge (so techs can
+    /// tell at a glance that a hit is an internal note) and the
+    /// non-staff visibility filter (User-role callers never see
+    /// is_internal=1 documents — preventing accidental disclosure
+    /// of working notes through full-text search).
+    pub const IS_INTERNAL: &str = "is_internal";
 }
 
 /// Container for all schema fields
@@ -32,6 +38,7 @@ pub struct SearchSchema {
     pub url: Field,
     pub preview: Field,
     pub updated_at: Field,
+    pub is_internal: Field,
 }
 
 impl SearchSchema {
@@ -58,6 +65,11 @@ impl SearchSchema {
         let numeric_options = NumericOptions::default().set_stored();
         let entity_id = builder.add_i64_field(fields::ENTITY_ID, numeric_options.clone());
         let updated_at = builder.add_i64_field(fields::UPDATED_AT, numeric_options);
+
+        // Indexed so the searcher can filter is_internal=1 documents
+        // out for non-staff callers via a Must-Not clause.
+        let is_internal_options = NumericOptions::default().set_stored().set_indexed();
+        let is_internal = builder.add_i64_field(fields::IS_INTERNAL, is_internal_options);
 
         let text_indexing = TextFieldIndexing::default()
             .set_tokenizer("default")
@@ -89,6 +101,7 @@ impl SearchSchema {
             url,
             preview,
             updated_at,
+            is_internal,
         }
     }
 
@@ -97,6 +110,7 @@ impl SearchSchema {
         fields::ID, fields::ENTITY_TYPE, fields::ENTITY_ID,
         fields::TITLE, fields::CONTENT, fields::METADATA,
         fields::URL, fields::PREVIEW, fields::UPDATED_AT,
+        fields::IS_INTERNAL,
     ];
 
     /// Create a SearchSchema from an existing index by looking up field handles
@@ -117,6 +131,7 @@ impl SearchSchema {
             url: get(fields::URL)?,
             preview: get(fields::PREVIEW)?,
             updated_at: get(fields::UPDATED_AT)?,
+            is_internal: get(fields::IS_INTERNAL)?,
             schema,
         })
     }

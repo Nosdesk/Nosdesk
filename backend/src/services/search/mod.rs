@@ -132,10 +132,15 @@ impl SearchService {
         Ok((index, schema))
     }
 
-    /// Execute a search query
+    /// Execute a search query.
+    ///
+    /// `include_internal` is gated by the caller's role: staff
+    /// (Admin / Technician) pass `true`; non-staff pass `false` so
+    /// internal-note comments are filtered out of the result set.
     pub fn search(
         &self,
         query: &SearchQuery,
+        include_internal: bool,
     ) -> Result<SearchResponse, Box<dyn std::error::Error + Send + Sync>> {
         let entity_types = query.entity_types();
         let entity_types_ref = entity_types.as_deref();
@@ -146,6 +151,7 @@ impl SearchService {
             &query.q,
             query.limit,
             entity_types_ref,
+            include_internal,
         )
     }
 

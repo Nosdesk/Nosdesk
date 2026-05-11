@@ -66,6 +66,10 @@ pub struct IndexDocument {
     pub preview: String,
     /// Last updated timestamp (Unix timestamp)
     pub updated_at: i64,
+    /// True for internal-note comments only; ignored for other
+    /// entity types. Drives the result-set badge for staff and
+    /// the visibility filter for non-staff callers.
+    pub is_internal: bool,
 }
 
 impl IndexDocument {
@@ -86,6 +90,7 @@ impl IndexDocument {
             url: String::new(),
             preview: String::new(),
             updated_at: chrono::Utc::now().timestamp(),
+            is_internal: false,
         }
     }
 
@@ -100,7 +105,13 @@ impl IndexDocument {
             url: String::new(),
             preview: String::new(),
             updated_at: chrono::Utc::now().timestamp(),
+            is_internal: false,
         }
+    }
+
+    pub fn is_internal(mut self, is_internal: bool) -> Self {
+        self.is_internal = is_internal;
+        self
     }
 
     pub fn metadata(mut self, metadata: impl Into<String>) -> Self {
@@ -145,6 +156,12 @@ pub struct SearchResult {
     /// Last updated timestamp (ISO 8601)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+    /// Whether the hit is an internal-note comment. Only set for
+    /// `entity_type == "comment"`; absent for other entity types
+    /// so the frontend can branch on `result.is_internal === true`
+    /// without an extra entity-type check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_internal: Option<bool>,
 }
 
 /// Search query parameters

@@ -54,7 +54,16 @@ pub async fn search(
     };
     let logged_query = query.q.clone();
 
-    match search_service.search(&query) {
+    // Internal-note hits are gated by role. Admin and Technician
+    // need them for triage / search-as-you-think workflows; end-
+    // users (UserRole::User, serialised in claims as "user") must
+    // never see them via full-text search. Unknown / future roles
+    // default to staff-equivalent here because the migration adds
+    // them to the privileged tier; revisit if non-staff roles
+    // expand.
+    let include_internal = !matches!(claims.role.as_str(), "user");
+
+    match search_service.search(&query, include_internal) {
         Ok(response) => {
             debug!(
                 query = %response.query,

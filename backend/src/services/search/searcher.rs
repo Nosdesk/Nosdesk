@@ -3,7 +3,7 @@
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, RegexQuery, TermQuery};
 use tantivy::schema::IndexRecordOption;
-use tantivy::{IndexReader, TantivyDocument};
+use tantivy::{IndexReader, TantivyDocument, Term};
 use tracing::{debug, warn};
 
 /// Minimum query-term length below which we skip prefix expansion
@@ -15,19 +15,25 @@ use super::schema::SearchSchema;
 use super::types::{EntityType, SearchResult, SearchResponse};
 
 /// Execute a search query against the index
+///
+/// `include_internal` controls whether `is_internal=1` documents
+/// (internal-note comments) appear in the result set. Staff (Admin
+/// / Technician) callers pass `true`; non-staff callers pass `false`
+/// so they cannot reach internal notes through full-text search.
 pub fn execute_search(
     reader: &IndexReader,
     schema: &SearchSchema,
     query_str: &str,
     limit: usize,
     entity_types: Option<&[EntityType]>,
+    include_internal: bool,
 ) -> Result<SearchResponse, Box<dyn std::error::Error + Send + Sync>> {
     let start_time = std::time::Instant::now();
 
     let searcher = reader.searcher();
 
     // Build the query
-    let query = build_search_query(schema, query_str, entity_types);
+    let query = build_search_query(schema, query_str, entity_types, include_internal);
 
     // Execute the search
     // tantivy 0.26 split TopDocs from the Collector trait; you now pick a
@@ -75,6 +81,7 @@ fn build_search_query(
     schema: &SearchSchema,
     query_str: &str,
     entity_types: Option<&[EntityType]>,
+    include_internal: bool,
 ) -> Box<dyn Query> {
     // Apply field boosts using BooleanQuery
     // Title gets 3x boost, content 1x, metadata 0.8x
@@ -114,6 +121,20 @@ fn build_search_query(
             let type_filter = BooleanQuery::new(type_queries);
             subqueries.push((Occur::Must, Box::new(type_filter)));
         }
+    }
+
+    // Visibility filter. Internal-note comments are indexed with
+    // is_internal=1; non-staff callers (UserRole::User) get an
+    // explicit MustNot clause so those documents drop out of the
+    // result set entirely. The MustNot pairs with a "Must match
+    // anything" all-docs branch so the boolean query still has
+    // something positive to score against; without that, a pure
+    // MustNot search returns zero hits in tantivy.
+    if !include_internal {
+        let internal_term = Term::from_field_i64(schema.is_internal, 1);
+        let internal_q: Box<dyn Query> =
+            Box::new(TermQuery::new(internal_term, IndexRecordOption::Basic));
+        subqueries.push((Occur::MustNot, internal_q));
     }
 
     Box::new(BooleanQuery::new(subqueries))
@@ -204,10 +225,20 @@ fn document_to_result(doc: &TantivyDocument, schema: &SearchSchema, score: f32) 
     let preview = get_text(schema.preview);
     let url = get_text(schema.url);
     let updated_at = get_i64(schema.updated_at);
+    let is_internal_raw = get_i64(schema.is_internal);
 
     let updated_at_str = if updated_at > 0 {
         chrono::DateTime::from_timestamp(updated_at, 0)
             .map(|dt| dt.to_rfc3339())
+    } else {
+        None
+    };
+
+    // Only surface the flag on comment hits; other entity types
+    // get None so the frontend doesn't paint a misleading badge
+    // on a ticket or device row.
+    let is_internal = if entity_type == "comment" {
+        Some(is_internal_raw == 1)
     } else {
         None
     };
@@ -221,5 +252,6 @@ fn document_to_result(doc: &TantivyDocument, schema: &SearchSchema, score: f32) 
         url,
         score,
         updated_at: updated_at_str,
+        is_internal,
     }
 }

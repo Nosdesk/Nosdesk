@@ -59,6 +59,7 @@ pub fn index_document_from_comment(comment: &models::Comment, ticket_title: &str
         .url(format!("/tickets/{}", comment.ticket_id))
         .preview(preview)
         .updated_at(comment.created_at.and_utc().timestamp())
+        .is_internal(comment.is_internal)
 }
 
 /// Create an index document from a documentation page
@@ -197,6 +198,7 @@ pub fn add_document_to_index(
         schema.url => doc.url.clone(),
         schema.preview => doc.preview.clone(),
         schema.updated_at => doc.updated_at,
+        schema.is_internal => if doc.is_internal { 1i64 } else { 0i64 },
     ))?;
 
     Ok(())

@@ -21,6 +21,13 @@ export interface SearchResult {
   url: string;
   score: number;
   updated_at?: string;
+  /** Only set for `entity_type === "comment"`; true means the hit
+   *  is an internal note. Drives the per-row "Internal" badge so
+   *  staff can tell at a glance that a search hit came from a
+   *  working note rather than the public conversation. Non-staff
+   *  callers never see these results (the backend filters them
+   *  out before they reach the wire). */
+  is_internal?: boolean;
 }
 
 /**

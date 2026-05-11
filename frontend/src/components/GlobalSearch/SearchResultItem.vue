@@ -76,6 +76,17 @@ const formattedTime = computed(() => {
         >
           {{ result.title }}
         </span>
+        <!-- Internal-note badge. Only rendered for comment hits;
+             the backend filters internal notes out of non-staff
+             results entirely, so this badge always implies the
+             current user has staff access. -->
+        <span
+          v-if="result.is_internal"
+          class="flex-shrink-0 inline-flex items-center px-1.5 h-[15px] rounded text-[9px] font-semibold uppercase tracking-wide bg-status-warning-muted text-status-warning"
+          title="Internal note — visible to staff only"
+        >
+          Internal
+        </span>
         <span
           v-if="formattedTime"
           class="flex-shrink-0 text-[10px] text-tertiary tabular-nums"
