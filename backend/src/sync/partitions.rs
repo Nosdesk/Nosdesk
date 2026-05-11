@@ -45,7 +45,7 @@ use chrono::{Datelike, NaiveDate, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::Bool;
 use serde_json::Value;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use crate::db::DbConnection;
 use crate::sync::system_meta;
@@ -224,7 +224,53 @@ pub fn ensure_partitions(
         partitions_touched = touched.len(),
         "Sync partitions ensured"
     );
+
+    // W6b: report any rows that landed in the default partitions. If the
+    // rotator catches up (this very call), future writes go to the proper
+    // monthly child, but rows already in the default need an operator-run
+    // recovery (move them, then drop the default partition for that month
+    // so the index plan stays clean). Logging here surfaces the lag without
+    // failing the job.
+    check_default_partition_drift(conn, "audit_log_default");
+    check_default_partition_drift(conn, "sync_actions_default");
+
     Ok(touched)
+}
+
+/// Best-effort drift check. Errors are logged, not propagated — the rotator's
+/// job is to provision partitions; default-partition observation is an
+/// adjacent concern that shouldn't fail the rotation tick.
+fn check_default_partition_drift(conn: &mut DbConnection, table: &str) {
+    use diesel::sql_types::BigInt;
+
+    #[derive(diesel::QueryableByName)]
+    struct CountRow {
+        #[diesel(sql_type = BigInt)]
+        count: i64,
+    }
+
+    // The default partition may not exist yet on databases that pre-date the
+    // 2026-05-11-200000_default_partitions migration; treat ProgrammingError
+    // (relation does not exist) as zero rows rather than logging spuriously.
+    let q = format!("SELECT COUNT(*) AS count FROM {}", table);
+    match diesel::sql_query(q).get_result::<CountRow>(conn) {
+        Ok(row) if row.count > 0 => {
+            warn!(
+                table = table,
+                rows = row.count,
+                "default partition has rows; rotation may have lagged. \
+                 See docs/runbooks/partition-recovery.md"
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            debug!(
+                table = table,
+                error = %e,
+                "default partition drift check skipped (likely missing on legacy schema)"
+            );
+        }
+    }
 }
 
 fn first_of_month(d: NaiveDate) -> NaiveDate {
