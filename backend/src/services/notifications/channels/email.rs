@@ -17,6 +17,7 @@ use crate::services::notifications::types::{
     DeliverableNotification, NotificationChannel, NotificationTypeCode,
 };
 use crate::utils::email::EmailService;
+use crate::utils::email_branding::get_email_branding;
 
 /// Rate limit duration in seconds (5 minutes)
 const RATE_LIMIT_SECONDS: i64 = 300;
@@ -26,7 +27,6 @@ pub struct EmailChannel {
     email_service: Arc<EmailService>,
     pool: Pool,
     base_url: String,
-    app_name: String,
     /// Shared cache: notification_type_code -> notification_type_id
     type_id_cache: Arc<TokioRwLock<HashMap<String, i32>>>,
 }
@@ -36,20 +36,22 @@ impl EmailChannel {
         email_service: Arc<EmailService>,
         pool: Pool,
         base_url: String,
-        app_name: String,
         type_id_cache: Arc<TokioRwLock<HashMap<String, i32>>>,
     ) -> Self {
         Self {
             email_service,
             pool,
             base_url,
-            app_name,
             type_id_cache,
         }
     }
 
     /// Generate email subject based on notification type
-    fn generate_subject(&self, notification: &DeliverableNotification) -> String {
+    fn generate_subject(
+        &self,
+        notification: &DeliverableNotification,
+        app_name: &str,
+    ) -> String {
         let entity_title = match &notification.payload.entity {
             crate::services::notifications::types::NotificationEntity::Ticket { title, .. } => {
                 title.clone()
@@ -65,25 +67,25 @@ impl EmailChannel {
 
         match notification.payload.notification_type {
             NotificationTypeCode::TicketAssigned => {
-                format!("[{}] You've been assigned: {}", self.app_name, entity_title)
+                format!("[{}] You've been assigned: {}", app_name, entity_title)
             }
             NotificationTypeCode::TicketStatusChanged => {
-                format!("[{}] Status changed: {}", self.app_name, entity_title)
+                format!("[{}] Status changed: {}", app_name, entity_title)
             }
             NotificationTypeCode::CommentAdded => {
-                format!("[{}] New comment on: {}", self.app_name, entity_title)
+                format!("[{}] New comment on: {}", app_name, entity_title)
             }
             NotificationTypeCode::Mentioned => {
                 format!(
                     "[{}] {} mentioned you",
-                    self.app_name, notification.payload.actor.name
+                    app_name, notification.payload.actor.name
                 )
             }
             NotificationTypeCode::TicketCreatedRequester => {
-                format!("[{}] Ticket created: {}", self.app_name, entity_title)
+                format!("[{}] Ticket created: {}", app_name, entity_title)
             }
             NotificationTypeCode::DocPageUpdated => {
-                format!("[{}] Page updated: {}", self.app_name, entity_title)
+                format!("[{}] Page updated: {}", app_name, entity_title)
             }
         }
     }
@@ -99,50 +101,6 @@ impl EmailChannel {
                 format!("{}/tickets/{}", self.base_url, ticket_id)
             }
         }
-    }
-
-    /// Generate email HTML body
-    fn generate_html_body(&self, notification: &DeliverableNotification) -> String {
-        let ticket_url = self.generate_entity_url(notification);
-        let body_text = notification
-            .payload
-            .body
-            .as_deref()
-            .unwrap_or("You have a new notification.");
-
-        format!(
-            r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-    <div style="background-color: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-        <h2 style="color: #1a1a1a; margin: 0 0 16px 0; font-size: 20px;">
-            {}
-        </h2>
-        <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-            {}
-        </p>
-        <p style="color: #6a6a6a; font-size: 14px; margin: 0 0 24px 0;">
-            <strong>From:</strong> {}
-        </p>
-        <a href="{}" style="display: inline-block; padding: 12px 24px; background-color: #0066cc; color: white; text-decoration: none; border-radius: 6px; font-weight: 500;">
-            View in {}
-        </a>
-    </div>
-    <p style="color: #888; font-size: 12px; text-align: center; margin-top: 16px;">
-        You're receiving this because of your notification preferences.
-    </p>
-</body>
-</html>"#,
-            notification.payload.title,
-            body_text,
-            notification.payload.actor.name,
-            ticket_url,
-            self.app_name
-        )
     }
 
     /// Get the recipient's primary email address
@@ -252,8 +210,26 @@ impl NotificationDeliveryChannel for EmailChannel {
             .get_recipient_email(&notification.payload.recipient_uuid)
             .await?;
 
-        let subject = self.generate_subject(notification);
-        let body = self.generate_html_body(notification);
+        // Load workspace branding so notification mail carries the same logo
+        // and primary color as the password-reset / invitation flows.
+        let branding = {
+            let mut conn = self
+                .pool
+                .get()
+                .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
+            get_email_branding(&mut conn, &self.base_url)
+        };
+
+        let subject = self.generate_subject(notification, &branding.app_name);
+        let entity_url = self.generate_entity_url(notification);
+        let body_text = notification
+            .payload
+            .body
+            .as_deref()
+            .unwrap_or("You have a new notification.")
+            .to_string();
+        let title = notification.payload.title.clone();
+        let actor_name = notification.payload.actor.name.clone();
 
         // Get notification type ID for rate limit tracking
         let type_id = self
@@ -264,10 +240,20 @@ impl NotificationDeliveryChannel for EmailChannel {
         let email_service = self.email_service.clone();
         let email = recipient_email.clone();
         let subj = subject.clone();
-        let html = body.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = email_service.send_html_email(&email, &subj, &html).await {
+            if let Err(e) = email_service
+                .send_notification_email(
+                    &email,
+                    &subj,
+                    &title,
+                    &body_text,
+                    &actor_name,
+                    &entity_url,
+                    &branding,
+                )
+                .await
+            {
                 tracing::error!(error = ?e, "Failed to send notification email");
             }
         });

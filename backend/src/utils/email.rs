@@ -291,7 +291,10 @@ impl<'a> EmailTemplate<'a> {
 
     /// Build the notice section HTML
     fn build_notice_section(&self, notice_type: NoticeType, items: &[&str]) -> String {
-        // Pre-compute the light color to avoid lifetime issues
+        if items.is_empty() {
+            return String::new();
+        }
+
         let light_color = self.branding.primary_color_light();
 
         let (bg_color, border_color): (&str, &str) = match notice_type {
@@ -809,6 +812,48 @@ impl EmailService {
         };
 
         Ok(message)
+    }
+
+    /// Send a notification email using the branded `EmailTemplate` shell.
+    /// Used by the in-app notification delivery channel so notification
+    /// emails carry the workspace logo and primary color rather than the
+    /// hardcoded blue/white from the legacy inline template.
+    pub async fn send_notification_email(
+        &self,
+        to: &str,
+        subject: &str,
+        title: &str,
+        body: &str,
+        actor_name: &str,
+        cta_url: &str,
+        branding: &EmailBranding,
+    ) -> Result<(), String> {
+        if !self.config.is_configured() {
+            return Err("Email is not configured".to_string());
+        }
+
+        let template = EmailTemplate::new(branding);
+        let content = format!(
+            r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">{}</p>
+            <p style="margin: 0 0 24px 0; color: #6b7280; font-size: 14px;"><strong>From:</strong> {}</p>"#,
+            escape_html(body),
+            escape_html(actor_name),
+        );
+
+        let button_label = format!("View in {}", branding.app_name);
+        let html_body = template.build(
+            title,
+            &branding.primary_color,
+            &content,
+            &button_label,
+            cta_url,
+            &branding.primary_color,
+            NoticeType::Info,
+            &[],
+            "You're receiving this because of your notification preferences.",
+        );
+
+        self.send_html_email(to, subject, &html_body).await
     }
 }
 

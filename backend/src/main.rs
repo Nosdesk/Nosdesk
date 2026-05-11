@@ -644,14 +644,14 @@ async fn main() -> std::io::Result<()> {
         let in_app_channel = Arc::new(services::notifications::channels::in_app::InAppChannel::new(sse_state_arc));
         service.register_channel(in_app_channel);
 
-        // Register email channel if email service is configured
+        // Register email channel if email service is configured.
+        // App name comes from the workspace branding (site_settings) at
+        // send time, not env, so admin renames take effect without restart.
         if let Some(email_svc) = email_service.clone() {
-            let app_name = std::env::var("APP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
             let email_channel = Arc::new(services::notifications::channels::email::EmailChannel::new(
                 email_svc,
                 pool.clone(),
                 frontend_url.clone(),
-                app_name,
                 type_id_cache,
             ));
             service.register_channel(email_channel);
