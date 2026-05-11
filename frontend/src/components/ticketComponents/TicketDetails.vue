@@ -24,6 +24,7 @@ import TicketLinkedTicketsField from "@/components/ticketComponents/TicketLinked
 import TicketProjectsField from "@/components/ticketComponents/TicketProjectsField.vue";
 import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
 import type { Device } from "@/types/device";
+import type { CommentWithAttachments } from "@/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
 import { useAuthStore } from "@/stores/auth";
@@ -148,6 +149,11 @@ const props = defineProps<{
   showLinkDropAffordance?: boolean;
   isLinkDropTarget?: boolean;
   linkDropDragLabel?: string | null;
+  /** Internal-note comments on this ticket. Drives the "Draft
+   *  from internal notes" button on the Resolution section so a
+   *  tech can promote their working notes into a fixed-record
+   *  resolution without retyping. */
+  internalComments?: CommentWithAttachments[];
 }>();
 
 const emit = defineEmits<{
@@ -425,6 +431,38 @@ function handleResolutionBlur() {
   const current = (props.ticket.resolution_notes ?? '').trim();
   if (next === current) return;
   emit('update:resolutionNotes', next.length > 0 ? next : null);
+}
+
+/** Strip HTML to plain text. Mirrors the helper inside
+ *  CommentsAndAttachments without importing the whole composable
+ *  surface. Comment content lives as HTML in the store (the editor
+ *  is ProseMirror); the resolution field is plain text. */
+function stripCommentHtml(html: string): string {
+  if (!html) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return (tmp.textContent ?? '').trim();
+}
+
+/** Append the ticket's internal notes to the resolution textarea
+ *  as a starting draft. Each note becomes its own paragraph; HTML
+ *  is stripped so the resolution stays plain text. Saves
+ *  immediately on insert so the draft survives accidental
+ *  navigation; the user can still edit and re-save normally
+ *  through the blur handler. */
+function draftResolutionFromInternalNotes() {
+  const notes = props.internalComments ?? [];
+  if (notes.length === 0) return;
+  const lines = notes
+    .map((c) => stripCommentHtml(c.content))
+    .filter((s) => s.length > 0);
+  if (lines.length === 0) return;
+  const appended = lines.join('\n\n');
+  const current = localResolutionNotes.value.trim();
+  localResolutionNotes.value = current
+    ? `${current}\n\n${appended}`
+    : appended;
+  handleResolutionBlur();
 }
 
 // Terminal state lookup for the visual treatment. Workflow states
@@ -952,10 +990,31 @@ watchEffect(async () => {
                 class="text-xs font-medium"
                 :class="isTerminalState ? 'text-primary' : 'text-tertiary'"
               >Resolution</h3>
-              <span
-                v-if="isTerminalState"
-                class="text-[10px] font-semibold text-status-closed"
-              >Closed</span>
+              <div class="flex items-center gap-2">
+                <!-- Promote internal notes into the resolution draft.
+                     Hidden when the ticket has no internal notes
+                     yet — nothing to pull from, so the affordance
+                     would just confuse. The notes append (don't
+                     replace) so a half-written resolution survives
+                     the pull. -->
+                <button
+                  v-if="(props.internalComments?.length ?? 0) > 0"
+                  type="button"
+                  class="inline-flex items-center gap-1 px-2 h-6 rounded text-[11px] font-medium text-status-warning hover:bg-status-warning-muted transition-colors"
+                  :title="`Append ${props.internalComments?.length ?? 0} internal note${(props.internalComments?.length ?? 0) === 1 ? '' : 's'} to the resolution draft`"
+                  @click="draftResolutionFromInternalNotes"
+                >
+                  <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path d="M13 7H7v6h6V7z" />
+                    <path fill-rule="evenodd" d="M7 2a1 1 0 012 0v1h2V2a1 1 0 112 0v1h2a2 2 0 012 2v2h1a1 1 0 110 2h-1v2h1a1 1 0 110 2h-1v2a2 2 0 01-2 2h-2v1a1 1 0 11-2 0v-1H9v1a1 1 0 11-2 0v-1H5a2 2 0 01-2-2v-2H2a1 1 0 110-2h1V9H2a1 1 0 010-2h1V5a2 2 0 012-2h2V2zM5 5h10v10H5V5z" clip-rule="evenodd" />
+                  </svg>
+                  <span>Draft from notes</span>
+                </button>
+                <span
+                  v-if="isTerminalState"
+                  class="text-[10px] font-semibold text-status-closed"
+                >Closed</span>
+              </div>
             </div>
             <textarea
               v-model="localResolutionNotes"

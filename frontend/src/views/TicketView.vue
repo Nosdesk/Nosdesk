@@ -260,6 +260,15 @@ const confirmDeleteTicket = () => {
     deleteTicket();
 };
 
+/** Internal-note comments on this ticket, in chronological order.
+ *  Threaded into TicketDetails so the Resolution section can offer
+ *  a one-click "Draft from notes" affordance that appends them to
+ *  the resolution textarea. Reuses the comments ref so no extra
+ *  API call is needed. */
+const internalComments = computed(() => {
+    return (comments.value ?? []).filter((c) => c.is_internal === true);
+});
+
 // Check if there are any comments with actual content (for print visibility)
 const hasCommentsWithContent = computed(() => {
     if (!comments.value || comments.value.length === 0) return false;
@@ -630,6 +639,7 @@ useCreateTicketAction();
                                 :show-link-drop-affordance="showDropAffordance"
                                 :is-link-drop-target="isLinkDropTarget"
                                 :link-drop-drag-label="dragState.ticket ? `#${dragState.ticket.id} ${dragState.ticket.title}` : null"
+                                :internal-comments="internalComments"
                                 @update:selectedStatus="updateStatus"
                                 @update:selectedWorkflowStateId="updateWorkflowState"
                                 @update:selectedPriority="updatePriority"
