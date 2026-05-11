@@ -188,6 +188,63 @@ const navGroups: NavGroup[] = [
  *  link only ever requires editing the grouped source. */
 const navLinks: NavLink[] = navGroups.flatMap((g) => g.links);
 
+/** Routes that get a permanent slot in the mobile bottom bar.
+ *  Everything else lives behind the "More" overflow sheet so each
+ *  primary tap target stays comfortably above the 44px floor on a
+ *  360px-wide phone. Order here is the rendered order. */
+const PRIMARY_MOBILE_PATHS = ['/', '/tickets'] as const;
+
+const primaryMobileLinks = computed<NavLink[]>(() =>
+    PRIMARY_MOBILE_PATHS.map((p) => navLinks.find((l) => l.to === p)).filter(
+        (l): l is NavLink => !!l,
+    ),
+);
+
+const overflowMobileLinks = computed<NavLink[]>(() =>
+    navLinks.filter((l) => !PRIMARY_MOBILE_PATHS.includes(l.to as typeof PRIMARY_MOBILE_PATHS[number])),
+);
+
+// Overflow sheet driven by the native <dialog> element via
+// .showModal() / .close(). The native API gives us focus trap, Esc-
+// to-dismiss, focus restoration on close, and proper `inert` on
+// background content (Safari's `aria-modal` alone is unreliable);
+// we just sync the imperative state with a reactive ref.
+const isMobileMoreOpen = ref(false);
+const mobileMoreDialogRef = ref<HTMLDialogElement | null>(null);
+
+function toggleMobileMore() {
+    isMobileMoreOpen.value = !isMobileMoreOpen.value;
+}
+function closeMobileMore() {
+    isMobileMoreOpen.value = false;
+}
+
+watch(isMobileMoreOpen, async (open) => {
+    await nextTick();
+    const dialog = mobileMoreDialogRef.value;
+    if (!dialog) return;
+    if (open && !dialog.open) {
+        dialog.showModal();
+    } else if (!open && dialog.open) {
+        dialog.close();
+    }
+});
+
+// Close the overflow sheet when the route changes (so following any
+// link inside the sheet visually completes the navigation rather
+// than leaving the sheet floating over the destination).
+watch(() => route.path, () => {
+    isMobileMoreOpen.value = false;
+});
+
+// Backdrop tap on a native <dialog>: any click whose target is the
+// dialog element itself (not its children) is on the backdrop.
+function onDialogBackdropClick(event: MouseEvent) {
+    if (event.target === mobileMoreDialogRef.value) {
+        closeMobileMore();
+    }
+}
+
 // Helper function to check if a route is active
 const isRouteActive = (path: string, exact = false) => {
     if (exact) {
@@ -195,6 +252,14 @@ const isRouteActive = (path: string, exact = false) => {
     }
     return route.path.startsWith(path);
 };
+
+/** Active when at least one overflow link matches the current route,
+ *  so the More button gets the same accent treatment as a direct
+ *  primary link would. Without this the bar appears "nothing
+ *  selected" while the user sits on a Devices / Users / Docs page. */
+const isOverflowRouteActive = computed(() =>
+    overflowMobileLinks.value.some((l) => isRouteActive(l.to, l.exact)),
+);
 </script>
 
 <template>
@@ -463,14 +528,18 @@ const isRouteActive = (path: string, exact = false) => {
         </div>
     </nav>
 
-    <!-- Mobile Bottom Navigation (only on mobile) -->
+    <!-- Mobile Bottom Navigation (only on mobile). Two pinned route
+         links + Search + "More" (overflow sheet) so each tap target
+         stays well above 44 CSS pixels on a 360px viewport. The full
+         link list still ships via the overflow sheet so a returning
+         user never finds a destination missing — only re-homed. -->
     <nav
-        class="fixed bottom-0 left-0 right-0 bg-surface-alt border-t border-default z-20 sm:hidden print:hidden pb-[env(safe-area-inset-bottom)]"
+        class="fixed bottom-0 left-0 right-0 bg-surface-alt border-t border-default z-20 sm:hidden print:hidden pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
         v-if="isMobile"
     >
         <div class="flex justify-around items-center h-12">
             <RouterLink
-                v-for="link in navLinks"
+                v-for="link in primaryMobileLinks"
                 :key="link.to"
                 :to="link.to"
                 class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px]"
@@ -495,7 +564,6 @@ const isRouteActive = (path: string, exact = false) => {
                 </svg>
             </RouterLink>
 
-            <!-- Search button (right side) -->
             <button
                 @click="() => openSearch()"
                 class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px] text-secondary"
@@ -504,10 +572,87 @@ const isRouteActive = (path: string, exact = false) => {
             >
                 <Icon name="search" size="lg" />
             </button>
+
+            <button
+                type="button"
+                @click="toggleMobileMore"
+                class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px]"
+                :class="
+                    isMobileMoreOpen || isOverflowRouteActive
+                        ? 'text-accent'
+                        : 'text-secondary'
+                "
+                :aria-expanded="isMobileMoreOpen"
+                aria-controls="mobile-nav-more-sheet"
+                aria-label="More navigation"
+                title="More"
+            >
+                <svg
+                    class="w-6 h-6"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                >
+                    <circle cx="5" cy="12" r="2" />
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="19" cy="12" r="2" />
+                </svg>
+            </button>
         </div>
     </nav>
 
-    <!-- Overlay not needed - sidebar is hidden on mobile, visible but docked on tablet/desktop -->
+    <!-- Overflow sheet rendered as a native <dialog>. The browser's
+         top layer renders above every page surface (no z-index
+         juggling), and `.showModal()` gives focus trap, Esc-to-
+         dismiss, focus restoration on close, and proper `inert`
+         semantics on background content for free. We sync the
+         imperative open/close to a reactive ref via a watcher. -->
+    <dialog
+        v-if="isMobile"
+        ref="mobileMoreDialogRef"
+        id="mobile-nav-more-sheet"
+        class="mobile-nav-sheet sm:hidden print:hidden"
+        aria-labelledby="mobile-nav-more-heading"
+        @close="closeMobileMore"
+        @click="onDialogBackdropClick"
+    >
+        <div
+            class="mobile-nav-sheet-panel bg-surface border-t border-default rounded-t-2xl shadow-xl"
+        >
+            <h2 id="mobile-nav-more-heading" class="sr-only">More navigation</h2>
+            <nav aria-label="Secondary navigation">
+                <ul class="grid grid-cols-2 gap-2 p-3">
+                    <li v-for="link in overflowMobileLinks" :key="link.to">
+                        <RouterLink
+                            :to="link.to"
+                            class="flex items-center gap-3 px-3 py-3 rounded-lg min-h-[44px] transition-colors motion-safe:active:scale-[0.98]"
+                            :class="
+                                isRouteActive(link.to, link.exact)
+                                    ? 'bg-accent/10 text-accent'
+                                    : 'text-primary hover:bg-surface-hover'
+                            "
+                            @click="closeMobileMore"
+                        >
+                            <svg
+                                class="w-5 h-5 flex-shrink-0"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    :d="link.icon"
+                                />
+                            </svg>
+                            <span class="text-sm font-medium truncate">{{ link.text }}</span>
+                        </RouterLink>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </dialog>
 </template>
 
 <style scoped>
@@ -593,5 +738,54 @@ const isRouteActive = (path: string, exact = false) => {
 /* Ensure the resizer itself remains interactive during resize */
 :global(.resize-active .resizer-handle) {
     pointer-events: auto !important;
+}
+
+/* Mobile overflow sheet rendered as a native <dialog>. The element
+   defaults to a centered margin:auto box; we reposition to a full-
+   width bottom anchor so it reads as a sheet rather than a modal.
+   The browser's top-layer rendering means we don't need a z-index. */
+.mobile-nav-sheet {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+.mobile-nav-sheet::backdrop {
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
+.mobile-nav-sheet-panel {
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+}
+
+/* Slide-up entry, fade-out exit. Animations gated on motion-safe so
+   users with prefers-reduced-motion get the dialog instantly. */
+@media (prefers-reduced-motion: no-preference) {
+    .mobile-nav-sheet[open] .mobile-nav-sheet-panel {
+        animation: mobile-nav-sheet-slide-up 240ms cubic-bezier(0.2, 0, 0, 1);
+    }
+    .mobile-nav-sheet[open]::backdrop {
+        animation: mobile-nav-sheet-backdrop-fade 180ms ease-out;
+    }
+}
+
+@keyframes mobile-nav-sheet-slide-up {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+}
+@keyframes mobile-nav-sheet-backdrop-fade {
+    from { background-color: rgba(0, 0, 0, 0); }
+    to   { background-color: rgba(0, 0, 0, 0.4); }
 }
 </style>
