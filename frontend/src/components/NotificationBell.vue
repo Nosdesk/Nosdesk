@@ -36,6 +36,7 @@ import { formatInboxTime, parseDate } from '@/utils/dateUtils'
 import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import Icon from './common/Icon.vue'
 import AsyncBoundary from './common/AsyncBoundary.vue'
+import UnreadBadge from './common/UnreadBadge.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
 
 const router = useRouter()
@@ -217,13 +218,7 @@ onMounted(() => {
       :aria-expanded="isOpen"
     >
       <Icon name="bell" size="md" />
-      <span
-        v-if="hasUnread"
-        class="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-status-error px-1 text-xs font-bold text-white"
-        :aria-label="`${unreadCount} unread`"
-      >
-        {{ displayCount }}
-      </span>
+      <UnreadBadge :count="unreadCount" class="absolute -right-0.5 -top-0.5" />
     </button>
 
     <ResponsiveMenu

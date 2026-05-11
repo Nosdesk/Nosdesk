@@ -236,19 +236,20 @@ defineExpose({
           <span class="create-button-text">{{ props.createButtonText }}</span>
         </button>
 
-        <!-- Messaging cluster: Inbox + Bell paired by proximity, not
-             by a shared border. They look related but behave
-             differently (Inbox navigates, Bell opens a popover), so
-             they share button chrome and a tighter gap than the
-             surrounding header elements rather than being merged
-             into a segmented control. Inbox is hidden below `sm:`
-             because on phones the Bell itself routes straight to
-             `/inbox` (see NotificationBell.toggleOpen), so a second
-             icon would just shout the same thing in less space. -->
-        <div class="flex items-center gap-0.5">
+        <!-- Messaging cluster: Inbox link + Bell. Hidden below `sm:`
+             because the mobile bottom nav already carries an Inbox
+             primary slot (with an unread-count badge) and the top
+             header isn't sticky, so a second affordance up here
+             scrolls out of view while the bottom tile stays in
+             thumb reach. On desktop the cluster pairs the two
+             buttons by proximity rather than a shared border — they
+             look related but behave differently (Inbox navigates,
+             Bell opens a popover), so they share button chrome and
+             a tight gap rather than a segmented control. -->
+        <div class="hidden sm:flex items-center gap-0.5">
             <RouterLink
                 to="/inbox"
-                class="hidden sm:inline-flex relative rounded-lg p-2 text-secondary transition-colors hover:bg-surface-hover hover:text-primary focus:outline-none focus:ring-2 focus:ring-accent items-center justify-center"
+                class="relative inline-flex rounded-lg p-2 text-secondary transition-colors hover:bg-surface-hover hover:text-primary focus:outline-none focus:ring-2 focus:ring-accent items-center justify-center"
                 active-class="text-accent bg-accent/10"
                 aria-label="Open inbox"
                 title="Inbox"

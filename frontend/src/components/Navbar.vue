@@ -9,12 +9,20 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue"
 import { useResizableSidebar } from "@/composables/useResizableSidebar";
 import { useNavbarState } from "@/composables/useNavbarState";
 import { useGlobalSearch } from "@/composables/useGlobalSearch";
+import { useNotificationFeed } from "@/composables/useNotificationFeed";
 import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
 import Icon from "@/components/common/Icon.vue";
+import UnreadBadge from "@/components/common/UnreadBadge.vue";
 
 // Global search
 const { openSearch } = useGlobalSearch();
+
+// Mobile bottom-nav Inbox tile borrows the bell's unread count
+// from the same shared feed composable so the badge agrees with
+// the inbox view's count without an extra round-trip. The query
+// cache deduplicates, so this extra consumer is free.
+const { unreadCount } = useNotificationFeed();
 
 // Keyboard shortcut hint based on platform
 const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -559,11 +567,13 @@ const isOverflowRouteActive = computed(() =>
                 v-for="link in primaryMobileLinks"
                 :key="link.to"
                 :to="link.to"
-                class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px]"
+                class="relative flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px]"
                 :class="
                     isRouteActive(link.to, link.exact) ? 'text-accent' : 'text-secondary'
                 "
-                :aria-label="link.text"
+                :aria-label="link.to === '/inbox' && unreadCount > 0
+                    ? `${link.text}, ${unreadCount} unread`
+                    : link.text"
                 :title="link.text"
             >
                 <svg
@@ -579,6 +589,16 @@ const isOverflowRouteActive = computed(() =>
                         :d="link.icon"
                     />
                 </svg>
+                <!-- Unread badge: only the Inbox tile is wired to
+                     the notification feed. Positioned over the
+                     top-right of the icon (Twitter / GitHub Mobile
+                     convention). The badge component handles the
+                     hide-when-zero and 99+ cap rules. -->
+                <UnreadBadge
+                    v-if="link.to === '/inbox'"
+                    :count="unreadCount"
+                    class="absolute top-1.5 right-1/2 translate-x-[14px]"
+                />
             </RouterLink>
 
             <button
