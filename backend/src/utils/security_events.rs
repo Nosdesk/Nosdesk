@@ -96,6 +96,23 @@ pub fn record_security_event(
         .execute(conn)
 }
 
+/// Delete security_events rows older than `older_than_days`. Operational
+/// observability prefers a long window (logins / MFA toggles a year ago
+/// are still useful for compliance) but unbounded growth eventually
+/// hurts indexes; the scheduler calls this daily with the configured
+/// SECURITY_EVENT_RETENTION_DAYS retention window.
+pub fn prune_older_than(
+    conn: &mut diesel::pg::PgConnection,
+    older_than_days: i32,
+) -> diesel::QueryResult<usize> {
+    use crate::schema::security_events::dsl::*;
+    use diesel::dsl::sql;
+    use diesel::sql_types::Timestamptz;
+
+    let cutoff = sql::<Timestamptz>(&format!("NOW() - INTERVAL '{older_than_days} days'"));
+    diesel::delete(security_events.filter(created_at.lt(cutoff))).execute(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

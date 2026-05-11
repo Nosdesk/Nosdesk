@@ -162,6 +162,22 @@ pub fn get_pending_retries(conn: &mut DbConnection) -> Result<Vec<WebhookDeliver
         .map_err(|e| format!("Database error: {e}"))
 }
 
+/// Delete webhook_deliveries rows older than `older_than_days`. Operators
+/// only ever look at recent deliveries when debugging "why didn't my webhook
+/// fire?" — month-old delivery rows have no diagnostic value, and the table
+/// fills fast on a busy webhook (every event = one row per subscriber).
+pub fn prune_deliveries_older_than(
+    conn: &mut DbConnection,
+    older_than_days: i32,
+) -> Result<usize, diesel::result::Error> {
+    use diesel::dsl::sql;
+    use diesel::sql_types::Timestamptz;
+
+    let cutoff = sql::<Timestamptz>(&format!("NOW() - INTERVAL '{older_than_days} days'"));
+    diesel::delete(webhook_deliveries::table.filter(webhook_deliveries::created_at.lt(cutoff)))
+        .execute(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

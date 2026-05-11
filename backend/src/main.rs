@@ -883,6 +883,44 @@ async fn main() -> std::io::Result<()> {
             move || jobs::prune_csp_reports(p.clone()),
         );
 
+        // Daily: row-level retention for security_events and
+        // webhook_deliveries; partition-level retention for audit_log
+        // and sync_actions. Partition drops use DETACH CONCURRENTLY so
+        // the parent's lock window stays at SHARE UPDATE EXCLUSIVE
+        // (W6a's lock-friendly attach in reverse).
+        let p = pool.clone();
+        spawn_periodic(
+            "security_events.prune",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::prune_security_events(p.clone()),
+        );
+        let p = pool.clone();
+        spawn_periodic(
+            "webhook_deliveries.prune",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::prune_webhook_deliveries(p.clone()),
+        );
+        let p = pool.clone();
+        spawn_periodic(
+            "audit_log.drop_old_partitions",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::prune_audit_log_partitions(p.clone()),
+        );
+        let p = pool.clone();
+        spawn_periodic(
+            "sync_actions.drop_old_partitions",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::prune_sync_actions_partitions(p.clone()),
+        );
+
         info!("scheduler: 5 periodic jobs spawned");
     }
     let scheduler_status_data = web::Data::new(scheduler_status);

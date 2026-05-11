@@ -237,6 +237,111 @@ pub fn ensure_partitions(
     Ok(touched)
 }
 
+/// List the names of `parent`'s range-partition children whose upper bound
+/// is `<=` `cutoff`. The default partition is deliberately excluded — it
+/// has no range bound, and dropping it would close W6b's parachute.
+///
+/// This is split from `drop_partitions_older_than` so it can be exercised
+/// from inside a test transaction (the actual DETACH CONCURRENTLY can't be).
+pub fn partitions_eligible_for_drop(
+    conn: &mut DbConnection,
+    parent: &str,
+    cutoff: NaiveDate,
+) -> Result<Vec<String>, diesel::result::Error> {
+    use diesel::sql_types::Text;
+
+    #[derive(diesel::QueryableByName)]
+    struct PartitionInfo {
+        #[diesel(sql_type = Text)]
+        child_name: String,
+        #[diesel(sql_type = Text)]
+        range_expr: String,
+    }
+
+    // pg_get_expr renders the partition bound expression as
+    // `FOR VALUES FROM ('<ts>') TO ('<ts>')` for our RANGE partitions; we
+    // parse the upper bound below.
+    let rows: Vec<PartitionInfo> = diesel::sql_query(
+        "SELECT
+             c.relname AS child_name,
+             pg_get_expr(c.relpartbound, c.oid) AS range_expr
+         FROM pg_inherits i
+         JOIN pg_class c ON c.oid = i.inhrelid
+         JOIN pg_class p ON p.oid = i.inhparent
+         WHERE p.relname = $1
+         AND c.relname <> $2",
+    )
+    .bind::<Text, _>(parent)
+    .bind::<Text, _>(format!("{parent}_default"))
+    .load(conn)?;
+
+    let mut eligible = Vec::new();
+    for row in rows {
+        let Some(upper_bound) = parse_partition_upper_bound(&row.range_expr) else {
+            debug!(
+                child = %row.child_name,
+                expr = %row.range_expr,
+                "skipping partition: could not parse upper bound"
+            );
+            continue;
+        };
+        if upper_bound <= cutoff {
+            eligible.push(row.child_name);
+        }
+    }
+    Ok(eligible)
+}
+
+/// Drop range partitions of `parent` whose upper bound is `<=` `cutoff`.
+///
+/// Uses DETACH PARTITION CONCURRENTLY (PG14+) so the parent's lock window
+/// stays at SHARE UPDATE EXCLUSIVE — concurrent reads/writes on the parent
+/// keep flowing. The plain ATTACH dual was W6a's lock-friendly partner.
+///
+/// CONCURRENTLY can't run inside a BEGIN block (Postgres rejects with a
+/// hard error); this helper assumes the caller is operating in autocommit
+/// (Diesel's default for raw sql_query outside `conn.transaction(...)`).
+/// The detach + drop sequence is emitted as two separate statements, with
+/// no surrounding transaction.
+///
+/// Returns the names of partitions that were detached + dropped.
+pub fn drop_partitions_older_than(
+    conn: &mut DbConnection,
+    parent: &str,
+    cutoff: NaiveDate,
+) -> Result<Vec<String>, diesel::result::Error> {
+    let eligible = partitions_eligible_for_drop(conn, parent, cutoff)?;
+    let mut dropped = Vec::new();
+    for child in eligible {
+        let detach = format!("ALTER TABLE {parent} DETACH PARTITION {child} CONCURRENTLY");
+        diesel::sql_query(&detach).execute(conn)?;
+        let drop = format!("DROP TABLE {child}");
+        diesel::sql_query(&drop).execute(conn)?;
+        dropped.push(child);
+    }
+    Ok(dropped)
+}
+
+/// Parse the upper bound out of a partition's FOR VALUES clause.
+///
+/// Format: `FOR VALUES FROM ('<ts>') TO ('<ts>')`. Postgres normalises
+/// the bound literal to a full timestamp like
+/// `'2026-06-01 00:00:00+00'` even when the partition was created from
+/// a date-only literal, so we accept the date prefix and ignore the rest.
+/// Returns `None` for the DEFAULT partition's `DEFAULT` literal and any
+/// other unparseable shape.
+fn parse_partition_upper_bound(expr: &str) -> Option<NaiveDate> {
+    let to_idx = expr.find(" TO (")?;
+    let after_to = &expr[to_idx + 5..];
+    let start = after_to.find('\'')? + 1;
+    let end = after_to[start..].find('\'')?;
+    let bound = &after_to[start..start + end];
+    // Take the first 10 chars (YYYY-MM-DD) — this works whether Postgres
+    // rendered the bound as a bare date or a full timestamptz.
+    let date_str = bound.get(..10)?;
+    NaiveDate::parse_from_str(date_str, "%Y-%m-%d").ok()
+}
+
 /// Best-effort drift check. Errors are logged, not propagated — the rotator's
 /// job is to provision partitions; default-partition observation is an
 /// adjacent concern that shouldn't fail the rotation tick.
@@ -396,5 +501,69 @@ mod tests {
             0,
             "no range_check constraints should remain after partition attach"
         );
+    }
+
+    #[test]
+    fn parse_partition_upper_bound_handles_canonical_form() {
+        // Bare-date form (what we'd write in CREATE TABLE).
+        let expr = "FOR VALUES FROM ('2026-05-01') TO ('2026-06-01')";
+        assert_eq!(
+            parse_partition_upper_bound(expr),
+            Some(NaiveDate::from_ymd_opt(2026, 6, 1).unwrap())
+        );
+        // Full-timestamp form (what pg_get_expr actually returns for a
+        // timestamptz partitioning column — the date literal is normalised
+        // to a full instant).
+        let expr = "FOR VALUES FROM ('2026-05-01 00:00:00+00') TO ('2026-06-01 00:00:00+00')";
+        assert_eq!(
+            parse_partition_upper_bound(expr),
+            Some(NaiveDate::from_ymd_opt(2026, 6, 1).unwrap())
+        );
+    }
+
+    #[test]
+    fn parse_partition_upper_bound_returns_none_for_default() {
+        // pg_get_expr renders the default partition as `DEFAULT`, not the
+        // FOR VALUES form. We must skip those rather than parse them.
+        assert_eq!(parse_partition_upper_bound("DEFAULT"), None);
+        assert_eq!(parse_partition_upper_bound(""), None);
+    }
+
+    /// The candidate query picks up partitions whose upper bound is past
+    /// the cutoff, and never the default partition. Driven through the
+    /// candidate-only path because the actual DETACH CONCURRENTLY in
+    /// `drop_partitions_older_than` cannot run inside a transaction block
+    /// (Postgres rejects), and our test runner wraps every connection in
+    /// one. The full DDL path is exercised in production at runtime; we
+    /// rely on Postgres' own well-tested DETACH semantics for the rest.
+    #[test]
+    fn partitions_eligible_for_drop_finds_old_ranges_and_skips_default() {
+        let mut conn = setup_test_connection();
+        let _ = ensure_partitions(&mut conn, 30).expect("ensure");
+        let cutoff = Utc::now().date_naive() + chrono::Duration::days(36500);
+
+        let eligible =
+            partitions_eligible_for_drop(&mut conn, "audit_log", cutoff).expect("eligible");
+
+        assert!(
+            !eligible.is_empty(),
+            "expected at least one range partition to be eligible, got an empty list"
+        );
+        assert!(
+            eligible.iter().all(|n| n != "audit_log_default"),
+            "default partition was incorrectly included: {eligible:?}"
+        );
+    }
+
+    /// A cutoff in the past matches no partition; the eligible list is empty.
+    #[test]
+    fn partitions_eligible_for_drop_empty_when_cutoff_is_in_distant_past() {
+        let mut conn = setup_test_connection();
+        let _ = ensure_partitions(&mut conn, 30).expect("ensure");
+        let cutoff = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+
+        let eligible =
+            partitions_eligible_for_drop(&mut conn, "audit_log", cutoff).expect("eligible");
+        assert!(eligible.is_empty(), "no partitions should match an ancient cutoff");
     }
 }
