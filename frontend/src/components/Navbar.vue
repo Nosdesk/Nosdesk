@@ -583,6 +583,16 @@ const isOverflowRouteActive = computed(() =>
 
             <button
                 type="button"
+                @click="() => openSearch()"
+                class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px] text-secondary"
+                aria-label="Search"
+                title="Search"
+            >
+                <Icon name="search" size="lg" />
+            </button>
+
+            <button
+                type="button"
                 @click="toggleMobileMore"
                 class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px]"
                 :class="
@@ -656,22 +666,6 @@ const isOverflowRouteActive = computed(() =>
                             </svg>
                             <span class="text-sm font-medium truncate">{{ link.text }}</span>
                         </RouterLink>
-                    </li>
-                    <!-- Global search lives in the overflow sheet
-                         alongside the navigation routes: not a
-                         RouterLink because it opens a modal rather
-                         than navigating. Close the sheet first so
-                         the search palette doesn't surface stacked
-                         under it. -->
-                    <li>
-                        <button
-                            type="button"
-                            class="w-full text-left flex items-center gap-3 px-3 py-3 rounded-lg min-h-[44px] transition-colors motion-safe:active:scale-[0.98] text-primary hover:bg-surface-hover"
-                            @click="closeMobileMore(); openSearch();"
-                        >
-                            <Icon name="search" size="md" class="flex-shrink-0" />
-                            <span class="text-sm font-medium truncate">Search</span>
-                        </button>
                     </li>
                 </ul>
             </nav>
