@@ -343,3 +343,20 @@ pub fn create_test_claims(user: &User) -> crate::models::Claims {
         iat: chrono::Utc::now().timestamp() as usize,
     }
 }
+
+/// Build claims for a fresh user with the given role. Compresses the
+/// "create user, drop conn, build claims" three-step that every
+/// permission-matrix test was open-coding.
+///
+/// The connection is acquired and dropped synchronously inside the
+/// helper, so handler tests are free to call into `test::call_service`
+/// immediately after — the single-connection test pool won't deadlock.
+pub fn claims_for(pool: &crate::db::Pool, role: UserRole) -> crate::models::Claims {
+    let mut conn = pool.get().expect("test pool connection");
+    let user = TestFixtures::create_user(
+        &mut conn,
+        &format!("permtest-{}", uuid::Uuid::now_v7()),
+        role,
+    );
+    create_test_claims(&user)
+}

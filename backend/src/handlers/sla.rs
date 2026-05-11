@@ -193,3 +193,70 @@ pub async fn delete_calendar(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Permission-boundary tests. Unlike most admin handlers, SLA
+    //! endpoints gate via the `AuthContext` extractor (which queries
+    //! the DB for the user's role rather than reading it from claims
+    //! directly). The shared `claims_for` helper still works because
+    //! it creates a real user row that AuthContext then loads.
+    use super::*;
+    use crate::models::UserRole;
+    use crate::test_helpers::{claims_for, setup_test_pool};
+    use actix_web::test as actix_test;
+    use actix_web::{http::StatusCode, App, HttpMessage};
+
+    fn test_app(pool: crate::db::Pool) -> App<
+        impl actix_web::dev::ServiceFactory<
+            actix_web::dev::ServiceRequest,
+            Config = (),
+            Response = actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+            Error = actix_web::Error,
+            InitError = (),
+        >,
+    > {
+        App::new()
+            .app_data(web::Data::new(pool))
+            .route("/admin/sla/policies/{id}", web::delete().to(delete_policy))
+    }
+
+    #[actix_web::test]
+    async fn delete_policy_requires_authentication() {
+        // No claims in extensions -> AuthContext extractor errors with 401
+        // (its Unauthorized variant), gate never reached.
+        let pool = setup_test_pool();
+        let app = actix_test::init_service(test_app(pool)).await;
+        let req = actix_test::TestRequest::delete()
+            .uri("/admin/sla/policies/1")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_web::test]
+    async fn delete_policy_rejects_user_role() {
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::User);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+        let req = actix_test::TestRequest::delete()
+            .uri("/admin/sla/policies/1")
+            .to_request();
+        req.extensions_mut().insert(claims);
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn delete_policy_rejects_technician_role() {
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::Technician);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+        let req = actix_test::TestRequest::delete()
+            .uri("/admin/sla/policies/1")
+            .to_request();
+        req.extensions_mut().insert(claims);
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+}

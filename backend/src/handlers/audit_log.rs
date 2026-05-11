@@ -135,6 +135,10 @@ fn decode_cursor(s: &str) -> Result<repo::Cursor, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::UserRole;
+    use crate::test_helpers::{claims_for, setup_test_pool};
+    use actix_web::test as actix_test;
+    use actix_web::{http::StatusCode, App, HttpMessage};
 
     #[test]
     fn cursor_round_trips() {
@@ -155,5 +159,76 @@ mod tests {
     fn decode_cursor_rejects_garbage() {
         assert!(decode_cursor("not base64!!!").is_err());
         assert!(decode_cursor("aGVsbG8").is_err()); // valid base64, not JSON cursor
+    }
+
+    fn test_app(pool: crate::db::Pool) -> App<
+        impl actix_web::dev::ServiceFactory<
+            actix_web::dev::ServiceRequest,
+            Config = (),
+            Response = actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+            Error = actix_web::Error,
+            InitError = (),
+        >,
+    > {
+        App::new()
+            .app_data(web::Data::new(pool))
+            .route("/admin/audit-log", web::get().to(list))
+    }
+
+    #[actix_web::test]
+    async fn audit_log_requires_authentication() {
+        let pool = setup_test_pool();
+        let app = actix_test::init_service(test_app(pool)).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/admin/audit-log")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_web::test]
+    async fn audit_log_rejects_user_role() {
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::User);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/admin/audit-log")
+            .to_request();
+        req.extensions_mut().insert(claims);
+
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn audit_log_rejects_technician_role() {
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::Technician);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/admin/audit-log")
+            .to_request();
+        req.extensions_mut().insert(claims);
+
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn audit_log_admin_succeeds() {
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::Admin);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/admin/audit-log")
+            .to_request();
+        req.extensions_mut().insert(claims);
+
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }

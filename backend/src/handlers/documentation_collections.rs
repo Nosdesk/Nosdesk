@@ -736,3 +736,67 @@ pub async fn set_page_collections(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Permission-boundary tests. Collections gate by role + tier:
+    //! delete is admin-only, while create/update accept technicians.
+    //! We test delete here — accidentally widening that gate from
+    //! admin to technician would let any tech wipe documentation.
+    use super::*;
+    use crate::models::UserRole;
+    use crate::test_helpers::{claims_for, setup_test_pool};
+    use actix_web::test as actix_test;
+    use actix_web::{http::StatusCode, App, HttpMessage};
+
+    fn test_app(pool: crate::db::Pool) -> App<
+        impl actix_web::dev::ServiceFactory<
+            actix_web::dev::ServiceRequest,
+            Config = (),
+            Response = actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+            Error = actix_web::Error,
+            InitError = (),
+        >,
+    > {
+        App::new()
+            .app_data(web::Data::new(pool))
+            .route("/admin/documentation-collections/{id}", web::delete().to(delete_collection))
+    }
+
+    #[actix_web::test]
+    async fn delete_requires_authentication() {
+        let pool = setup_test_pool();
+        let app = actix_test::init_service(test_app(pool)).await;
+        let req = actix_test::TestRequest::delete()
+            .uri("/admin/documentation-collections/1")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_web::test]
+    async fn delete_rejects_user_role() {
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::User);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+        let req = actix_test::TestRequest::delete()
+            .uri("/admin/documentation-collections/1")
+            .to_request();
+        req.extensions_mut().insert(claims);
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn delete_rejects_technician_role() {
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::Technician);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+        let req = actix_test::TestRequest::delete()
+            .uri("/admin/documentation-collections/1")
+            .to_request();
+        req.extensions_mut().insert(claims);
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+}

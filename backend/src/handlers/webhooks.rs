@@ -390,3 +390,73 @@ pub async fn test_webhook(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Permission-boundary tests for the webhooks surface. The gate
+    //! itself is unit-tested in utils::rbac; here we prove it's wired
+    //! to the list and delete endpoints (the highest-impact actions on
+    //! this surface — a non-admin could otherwise silence audit-style
+    //! integrations or leak the webhook secret payload).
+    use super::*;
+    use crate::models::UserRole;
+    use crate::test_helpers::{claims_for, setup_test_pool};
+    use actix_web::test as actix_test;
+    use actix_web::{http::StatusCode, App};
+
+    fn test_app(pool: crate::db::Pool) -> App<
+        impl actix_web::dev::ServiceFactory<
+            actix_web::dev::ServiceRequest,
+            Config = (),
+            Response = actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+            Error = actix_web::Error,
+            InitError = (),
+        >,
+    > {
+        App::new()
+            .app_data(web::Data::new(pool))
+            .route("/admin/webhooks", web::get().to(list_webhooks))
+            .route("/admin/webhooks/{id}", web::delete().to(delete_webhook))
+    }
+
+    #[actix_web::test]
+    async fn list_requires_authentication() {
+        let pool = setup_test_pool();
+        let app = actix_test::init_service(test_app(pool)).await;
+        let req = actix_test::TestRequest::get()
+            .uri("/admin/webhooks")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_web::test]
+    async fn list_rejects_user_role() {
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::User);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+        let req = actix_test::TestRequest::get()
+            .uri("/admin/webhooks")
+            .to_request();
+        req.extensions_mut().insert(claims);
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn delete_rejects_user_role() {
+        // The path extractor types `{id}` as Uuid, so we need a valid
+        // uuid to actually dispatch to the handler. An int-shaped path
+        // would 404 inside the extractor before the gate fires (which
+        // would mask a missing gate).
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::User);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+        let req = actix_test::TestRequest::delete()
+            .uri(&format!("/admin/webhooks/{}", uuid::Uuid::now_v7()))
+            .to_request();
+        req.extensions_mut().insert(claims);
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+}

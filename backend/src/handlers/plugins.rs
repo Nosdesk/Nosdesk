@@ -1354,3 +1354,67 @@ fn sha256_hex(bytes: &[u8]) -> String {
     ctx.update(bytes);
     hex::encode(ctx.finish().as_ref())
 }
+
+#[cfg(test)]
+mod tests {
+    //! Permission-boundary tests. Plugins execute backend code and
+    //! can read/write arbitrary plugin_data — the gate is critical.
+    use super::*;
+    use crate::models::UserRole;
+    use crate::test_helpers::{claims_for, setup_test_pool};
+    use actix_web::test as actix_test;
+    use actix_web::{http::StatusCode, App, HttpMessage};
+
+    fn test_app(pool: crate::db::Pool) -> App<
+        impl actix_web::dev::ServiceFactory<
+            actix_web::dev::ServiceRequest,
+            Config = (),
+            Response = actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+            Error = actix_web::Error,
+            InitError = (),
+        >,
+    > {
+        App::new()
+            .app_data(web::Data::new(pool))
+            .route("/admin/plugins", web::get().to(list_plugins))
+    }
+
+    #[actix_web::test]
+    async fn list_requires_authentication() {
+        let pool = setup_test_pool();
+        let app = actix_test::init_service(test_app(pool)).await;
+        let req = actix_test::TestRequest::get()
+            .uri("/admin/plugins")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_web::test]
+    async fn list_rejects_user_role() {
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::User);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+        let req = actix_test::TestRequest::get()
+            .uri("/admin/plugins")
+            .to_request();
+        req.extensions_mut().insert(claims);
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn list_rejects_technician_role() {
+        // Plugins are admin-only — running custom code requires more
+        // trust than the technician role implies.
+        let pool = setup_test_pool();
+        let claims = claims_for(&pool, UserRole::Technician);
+        let app = actix_test::init_service(test_app(pool.clone())).await;
+        let req = actix_test::TestRequest::get()
+            .uri("/admin/plugins")
+            .to_request();
+        req.extensions_mut().insert(claims);
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+}
