@@ -91,6 +91,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         icon: 'email',
         route: '/admin/channels/email',
         keywords: ['email', 'imap', 'ingestion', 'inbox', 'mailbox', 'channel', 'pipeline', 'tickets']
+      },
+      {
+        title: 'Email Queue',
+        description: 'Outbound email durable queue: status, retries, bounces, and per-row actions',
+        icon: 'email',
+        route: '/admin/email-queue',
+        keywords: ['email', 'outbound', 'queue', 'smtp', 'send', 'retry', 'bounce', 'delivery', 'spool']
       }
     ]
   },

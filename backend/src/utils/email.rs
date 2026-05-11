@@ -746,7 +746,7 @@ impl EmailService {
     /// they are joined verbatim into the header values.
     pub async fn send_ticket_reply(
         &self,
-        outbound: OutboundEmail<'_>,
+        outbound: OutboundEmailMessage<'_>,
     ) -> Result<(), String> {
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
@@ -764,7 +764,7 @@ impl EmailService {
     /// SMTP transport.
     pub(crate) fn build_ticket_reply_message(
         &self,
-        outbound: &OutboundEmail<'_>,
+        outbound: &OutboundEmailMessage<'_>,
     ) -> Result<Message, String> {
         let to_mailbox: Mailbox = outbound
             .to
@@ -815,7 +815,7 @@ impl EmailService {
 /// Parameters for [`EmailService::send_ticket_reply`]. Keeps the argument
 /// list short as the channel abstraction grows (attachments land here in
 /// task #20).
-pub struct OutboundEmail<'a> {
+pub struct OutboundEmailMessage<'a> {
     pub to: &'a str,
     pub subject: &'a str,
     pub body_text: &'a str,
@@ -891,7 +891,7 @@ mod tests {
     #[test]
     fn ticket_reply_sets_message_id_with_angle_brackets() {
         let msg = svc()
-            .build_ticket_reply_message(&OutboundEmail {
+            .build_ticket_reply_message(&OutboundEmailMessage {
                 to: "alice@example.com",
                 subject: "[#42] Re: Printer fire",
                 body_text: "On it",
@@ -912,7 +912,7 @@ mod tests {
     #[test]
     fn ticket_reply_omits_threading_headers_when_no_parent() {
         let msg = svc()
-            .build_ticket_reply_message(&OutboundEmail {
+            .build_ticket_reply_message(&OutboundEmailMessage {
                 to: "alice@example.com",
                 subject: "[#42] New case",
                 body_text: "hi",
@@ -932,7 +932,7 @@ mod tests {
     fn ticket_reply_writes_in_reply_to_and_references() {
         let refs = vec!["<first@x>".to_string(), "<second@x>".to_string()];
         let msg = svc()
-            .build_ticket_reply_message(&OutboundEmail {
+            .build_ticket_reply_message(&OutboundEmailMessage {
                 to: "alice@example.com",
                 subject: "[#42] Re: thread",
                 body_text: "reply",
@@ -954,7 +954,7 @@ mod tests {
     #[test]
     fn ticket_reply_builds_multipart_when_html_provided() {
         let msg = svc()
-            .build_ticket_reply_message(&OutboundEmail {
+            .build_ticket_reply_message(&OutboundEmailMessage {
                 to: "alice@example.com",
                 subject: "[#42] hi",
                 body_text: "plain body",
@@ -983,7 +983,7 @@ mod tests {
             enabled: false,
             security: SmtpSecurity::StartTls,
         });
-        let outbound = OutboundEmail {
+        let outbound = OutboundEmailMessage {
             to: "x@example.com",
             subject: "hi",
             body_text: "hi",

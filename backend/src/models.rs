@@ -5527,3 +5527,81 @@ pub struct AuditLogRow {
     pub correlation_id: Option<Uuid>,
     pub occurred_at: chrono::DateTime<chrono::Utc>,
 }
+
+// ---------------------------------------------------------------------------
+// Outbound email queue (Item J Pass 1)
+// ---------------------------------------------------------------------------
+//
+// Durable, retryable replacement for the `tokio::spawn` fire-and-forget
+// outbound path. Every external-channel send goes through this queue; a
+// worker drains via SELECT FOR UPDATE SKIP LOCKED and dispatches to SMTP.
+// See migrations/2026-05-11-300000_outbound_emails_queue and
+// `services/email_queue/` for the worker.
+
+/// One outbound email row. The `status` column is constrained at the
+/// schema layer to `pending | sending | sent | failed | dead | suppressed`.
+///
+/// `QueryableByName` is needed alongside `Queryable` because the worker's
+/// claim path uses a CTE-with-UPDATE pattern that Diesel's typed builder
+/// can't express; the raw `sql_query(...).load::<OutboundEmail>()` shape
+/// needs the by-name variant.
+#[derive(Debug, Clone, Serialize, Deserialize, Queryable, QueryableByName, Identifiable)]
+#[diesel(table_name = crate::schema::outbound_emails)]
+pub struct OutboundEmail {
+    pub id: i64,
+    pub channel_id: i32,
+    pub ticket_id: Option<i32>,
+    pub comment_id: Option<i32>,
+    pub recipient: String,
+    pub subject: String,
+    pub body_text: String,
+    pub body_html: Option<String>,
+    /// Stamped at enqueue, persisted, reused on every retry. Receiving
+    /// MTAs and customer MUAs dedupe on Message-ID — this is the
+    /// primary defense against crash-mid-send duplicates.
+    pub message_id: String,
+    pub in_reply_to: Option<String>,
+    /// Diesel renders `TEXT[]` columns as `Vec<Option<String>>`; nulls
+    /// inside the array are unused but the type plumbing requires it.
+    pub references_list: Vec<Option<String>>,
+    pub headers_json: serde_json::Value,
+    pub status: String,
+    pub attempts: i32,
+    pub last_error: Option<String>,
+    pub last_smtp_code: Option<i32>,
+    pub next_attempt_at: chrono::DateTime<chrono::Utc>,
+    pub lease_token: Option<Uuid>,
+    pub lease_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub sent_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub failed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub correlation_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = crate::schema::outbound_emails)]
+pub struct NewOutboundEmail {
+    pub channel_id: i32,
+    pub ticket_id: Option<i32>,
+    pub comment_id: Option<i32>,
+    pub recipient: String,
+    pub subject: String,
+    pub body_text: String,
+    pub body_html: Option<String>,
+    pub message_id: String,
+    pub in_reply_to: Option<String>,
+    pub references_list: Vec<Option<String>>,
+    pub headers_json: serde_json::Value,
+    pub correlation_id: Option<Uuid>,
+}
+
+/// Status string constants. Centralised so Rust callers (worker, repo,
+/// admin handlers) and SQL CHECK constraint stay in lockstep.
+pub mod outbound_email_status {
+    pub const PENDING: &str = "pending";
+    pub const SENDING: &str = "sending";
+    pub const SENT: &str = "sent";
+    pub const FAILED: &str = "failed";
+    pub const DEAD: &str = "dead";
+    pub const SUPPRESSED: &str = "suppressed";
+}

@@ -644,6 +644,12 @@ const router = createRouter({
           meta: { title: 'Audit Log' }
         },
         {
+          path: 'email-queue',
+          name: 'admin-email-queue',
+          component: () => import('../views/admin/EmailQueueView.vue'),
+          meta: { title: 'Email Queue' }
+        },
+        {
           path: 'guest-access',
           name: 'admin-guest-access',
           component: () => import('../views/GuestAccessSettingsView.vue'),

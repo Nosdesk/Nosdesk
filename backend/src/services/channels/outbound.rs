@@ -157,24 +157,152 @@ pub async fn send_and_record_best_effort(
     }
 }
 
-/// Spawn a detached task that runs the full inbound-comment relay
-/// pipeline for a freshly-created comment:
+/// Spawn a detached task that composes the outbound reply for a
+/// freshly-created comment and enqueues it on the durable
+/// `outbound_emails` queue (Item J Pass 1). The actual SMTP send
+/// happens later in `services::email_queue::worker`, with retry,
+/// idempotency, and crash recovery.
 ///
-///   1. obtain a DB connection,
-///   2. run [`super::relay::decide_relay`] to classify the comment
-///      (skip internal, closed channel, etc.),
-///   3. if the decision is `Relay`, build outbound content from the
-///      comment body and call [`send_and_record_best_effort`].
+/// What changed vs. the old `spawn_relay_for_comment`:
+///   - This task no longer talks to SMTP. It composes the body, builds
+///     the queue row (including the deterministic Message-ID stamped
+///     once and reused on retry), and inserts it. The worker drains
+///     the queue and dispatches.
+///   - Failures during composition still hit the log only — the
+///     comment is already persisted; we don't roll back on a relay
+///     hiccup.
 ///
-/// Fire-and-forget on purpose: the HTTP caller should never wait on
-/// SMTP, and a failed send doesn't roll back the already-persisted
-/// comment. Returns immediately; errors hit the log only.
+/// Why still `tokio::spawn`: composition involves DB reads (signature
+/// lookup, quote-previous, channel config). Doing it synchronously in
+/// the HTTP handler would slow down comment posting. The spawn body is
+/// now milliseconds (no SMTP roundtrip), but it's still off the
+/// critical path.
+pub fn enqueue_for_comment(
+    ticket: crate::models::Ticket,
+    comment: crate::models::Comment,
+    pool: crate::db::Pool,
+) {
+    tokio::spawn(async move {
+        let mut conn = match pool.get() {
+            Ok(c) => c,
+            Err(e) => {
+                warn!(error = %e, "channel relay: could not obtain db connection");
+                return;
+            }
+        };
+        let decision = match super::relay::decide_relay(&mut conn, &ticket, &comment) {
+            Ok(d) => d,
+            Err(e) => {
+                warn!(error = %e, "channel relay: decision failed");
+                return;
+            }
+        };
+        let (channel, thread) = match decision {
+            super::relay::RelayDecision::Relay { channel, thread } => (channel, thread),
+            other => {
+                tracing::debug!(decision = ?other, "channel relay: skipped");
+                return;
+            }
+        };
+
+        // Compose the reply in both HTML and plaintext form so the
+        // email worker can ship a real `multipart/alternative` message.
+        // Final wire order in either form:
+        //   <tech's new reply>
+        //   <signature>
+        //   <quoted prior message>
+        let body = super::reply_body::ReplyBody::from_comment(&comment);
+        let body = super::signature::append_signature_for_user(
+            &mut conn,
+            comment.user_uuid,
+            body,
+        );
+        let body = super::quote_previous::maybe_prepend_quote(
+            &mut conn,
+            &channel,
+            &ticket,
+            body,
+        );
+
+        // Stamp the Message-ID *once*, here, and persist it on the
+        // queue row. Retries reuse the same ID; receiving MTAs and
+        // customer MUAs deduplicate on it. This is the primary defense
+        // against crash-mid-send duplicates.
+        let config: super::email_imap::ImapChannelConfig =
+            match serde_json::from_value(channel.config.clone()) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!(
+                        channel_id = channel.id,
+                        error = %e,
+                        "channel relay: bad channel config; skipping enqueue"
+                    );
+                    return;
+                }
+            };
+        let message_id =
+            format_outbound_message_id(thread.ticket_id, comment.id, &config.reply_domain);
+        let subject = super::threading::format_outbound_subject(
+            thread.ticket_id,
+            thread.subject.as_deref().unwrap_or(""),
+        );
+        let recipient = thread
+            .recipient
+            .known_email
+            .clone()
+            .unwrap_or_else(|| thread.recipient.external_id.clone());
+
+        let new_row = crate::models::NewOutboundEmail {
+            channel_id: channel.id,
+            ticket_id: Some(thread.ticket_id),
+            comment_id: Some(comment.id),
+            recipient,
+            subject,
+            body_text: body.text,
+            body_html: Some(body.html),
+            message_id,
+            in_reply_to: thread.external_thread_id,
+            references_list: thread.references.into_iter().map(Some).collect(),
+            headers_json: serde_json::json!({}),
+            // Item S correlation_id flows in once the per-request
+            // context propagates through this far. Pass 1 ships
+            // None and the audit row will lack the cross-request
+            // join; Pass 2's bounce work picks this back up.
+            correlation_id: None,
+        };
+
+        match crate::repository::outbound_emails::enqueue(&mut conn, new_row) {
+            Ok(row) => {
+                tracing::debug!(
+                    queue_id = row.id,
+                    ticket_id = thread.ticket_id,
+                    comment_id = comment.id,
+                    "channel relay: enqueued for outbound dispatch"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    ticket_id = thread.ticket_id,
+                    comment_id = comment.id,
+                    "channel relay: enqueue failed; comment saved but no reply sent"
+                );
+            }
+        }
+    });
+}
+
+/// Legacy fire-and-forget direct-send entry point.
 ///
-/// Keeping the orchestration here (rather than inline in the comment
-/// handler) means the handler stays focused on persistence + client
-/// response, and future relay targets (chat channels) plug into one
-/// place.
-pub fn spawn_relay_for_comment(
+/// **Deprecated.** Kept compiled-in for one release as a rollback
+/// escape hatch in case the queue rollout (Pass 1) needs to be
+/// reverted. New code paths must call [`enqueue_for_comment`] instead.
+/// Will be removed in Pass 2 once the queue has soaked.
+#[deprecated(
+    note = "use enqueue_for_comment; the queue is the durable replacement"
+)]
+#[allow(dead_code)]
+pub fn spawn_relay_for_comment_direct_legacy(
     ticket: crate::models::Ticket,
     comment: crate::models::Comment,
     pool: crate::db::Pool,
@@ -202,14 +330,6 @@ pub fn spawn_relay_for_comment(
                 return;
             }
         };
-        // Compose the reply in both HTML and plaintext form so the
-        // email adapter can ship a real `multipart/alternative`
-        // message. Final wire order in either form:
-        //   <tech's new reply>
-        //   <signature>
-        //   <quoted prior message>
-        // Matches what `Mail.app` / Gmail produce when a user hits
-        // Reply, anchoring the response to its context.
         let body = super::reply_body::ReplyBody::from_comment(&comment);
         let body = super::signature::append_signature_for_user(
             &mut conn,

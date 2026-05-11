@@ -7,6 +7,7 @@ pub mod api_tokens;
 pub mod assignment_rules;
 pub mod audit_log;
 pub mod collaboration;
+pub mod email_queue;
 pub mod auth;
 pub mod users;
 pub mod files;
@@ -524,17 +525,21 @@ pub async fn add_comment_to_ticket(
             debug!(ticket_id, "SSE: Successfully broadcasted comment-added and modified events");
 
             // Relay the comment back through the originating channel
-            // (email today, chat once those adapters exist). Fire-and-
-            // forget: the comment is already persisted and broadcast,
-            // so a failed SMTP send must not block the HTTP response.
-            if let (Some(ticket_info), Some(email_svc)) =
+            // (email today, chat once those adapters exist). Item J
+            // Pass 1: enqueue on the durable outbound_emails queue;
+            // the worker (services::email_queue::worker) handles SMTP
+            // dispatch with retry, idempotency, and crash recovery.
+            //
+            // Skipped silently when SMTP isn't configured — the worker
+            // would just mark every row failed forever. Same gate as
+            // the listener spawn in main.rs.
+            if let (Some(ticket_info), Some(_email_svc)) =
                 (ticket.as_ref(), email_service.get_ref().as_ref())
             {
-                crate::services::channels::outbound::spawn_relay_for_comment(
+                crate::services::channels::outbound::enqueue_for_comment(
                     ticket_info.clone(),
                     comment.clone(),
                     pool.get_ref().clone(),
-                    email_svc.clone(),
                 );
             }
 

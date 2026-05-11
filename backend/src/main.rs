@@ -606,6 +606,27 @@ async fn main() -> std::io::Result<()> {
             }
         };
 
+    // Spawn the outbound email queue listener (Item J Pass 1). Holds a
+    // dedicated tokio_postgres LISTEN connection on
+    // `outbound_emails_new`; on each NOTIFY, drives the worker to claim
+    // a batch via SKIP LOCKED and dispatch each row through SMTP. A 30s
+    // safety-net tick covers the case where a notification was missed
+    // (reconnect window, etc.). The lease sweeper job (registered with
+    // the periodic scheduler below) recovers rows whose worker died
+    // mid-send.
+    //
+    // Skipped silently when email isn't configured — the worker would
+    // just mark every row failed forever; better not to enqueue at all
+    // (the cutover at services/channels/outbound.rs honours the same
+    // gate).
+    if let (Ok(database_url), Some(email)) =
+        (std::env::var("DATABASE_URL"), email_service.clone())
+    {
+        services::email_queue::spawn(database_url, pool.clone(), email);
+    } else if email_service.is_some() {
+        warn!("DATABASE_URL not set; outbound email queue listener not spawned");
+    }
+
     // Initialize notification service for in-app and email notifications
     let notification_service = {
         use std::sync::Arc;
@@ -818,6 +839,20 @@ async fn main() -> std::io::Result<()> {
             scheduler_shutdown.clone(),
             scheduler_status.clone(),
             move || jobs::prune_csp_reports(p.clone()),
+        );
+
+        // Every 60s: sweep expired leases on the outbound email queue.
+        // A worker that crashed mid-send leaves a row in `sending` with
+        // a 5-minute lease; the sweep moves expired-lease rows back to
+        // `failed` so the next claim cycle picks them up. Cheap (the
+        // partial outbound_emails_lease_idx keeps the scan tiny).
+        let p = pool.clone();
+        spawn_periodic(
+            "outbound_emails.sweep_leases",
+            Duration::from_secs(60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::sweep_outbound_email_leases(p.clone()),
         );
 
         // Daily: row-level retention for security_events and
@@ -1125,6 +1160,15 @@ async fn main() -> std::io::Result<()> {
                     // 2026-05-11-210000_attach_audit_tier1 for the
                     // tables that participate.
                     .route("/admin/audit-log", web::get().to(handlers::audit_log::list))
+
+                    // Outbound email queue — Item J Pass 1 admin
+                    // surface. List rows + per-row actions (retry now,
+                    // cancel) for operators to investigate why a
+                    // notification didn't fire.
+                    .route("/admin/email-queue", web::get().to(handlers::email_queue::list))
+                    .route("/admin/email-queue/stats", web::get().to(handlers::email_queue::stats))
+                    .route("/admin/email-queue/{id}/retry", web::post().to(handlers::email_queue::retry_now))
+                    .route("/admin/email-queue/{id}/cancel", web::post().to(handlers::email_queue::cancel))
 
                     // Consolidated dashboard stats. The frontend's
                     // widget registry derives an `include` set

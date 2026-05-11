@@ -726,6 +726,34 @@ diesel::table! {
 }
 
 diesel::table! {
+    outbound_emails (id) {
+        id -> Int8,
+        channel_id -> Int4,
+        ticket_id -> Nullable<Int4>,
+        comment_id -> Nullable<Int4>,
+        recipient -> Text,
+        subject -> Text,
+        body_text -> Text,
+        body_html -> Nullable<Text>,
+        message_id -> Text,
+        in_reply_to -> Nullable<Text>,
+        references_list -> Array<Nullable<Text>>,
+        headers_json -> Jsonb,
+        status -> Text,
+        attempts -> Int4,
+        last_error -> Nullable<Text>,
+        last_smtp_code -> Nullable<Int4>,
+        next_attempt_at -> Timestamptz,
+        lease_token -> Nullable<Uuid>,
+        lease_expires_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        sent_at -> Nullable<Timestamptz>,
+        failed_at -> Nullable<Timestamptz>,
+        correlation_id -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     passkey_credentials (id) {
         id -> Uuid,
         user_uuid -> Uuid,
@@ -1471,6 +1499,9 @@ diesel::joinable!(notification_rate_limits -> notification_types (notification_t
 diesel::joinable!(notification_rate_limits -> users (user_uuid));
 diesel::joinable!(notifications -> notification_types (notification_type_id));
 diesel::joinable!(notifications -> users (user_uuid));
+diesel::joinable!(outbound_emails -> channels (channel_id));
+diesel::joinable!(outbound_emails -> comments (comment_id));
+diesel::joinable!(outbound_emails -> tickets (ticket_id));
 diesel::joinable!(passkey_credentials -> users (user_uuid));
 diesel::joinable!(plugin_activity -> plugins (plugin_id));
 diesel::joinable!(plugin_activity -> users (user_uuid));
@@ -1515,4 +1546,4 @@ diesel::joinable!(working_calendar_holidays -> working_calendars (calendar_id));
 diesel::joinable!(working_calendars -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,audit_log_default,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,csp_reports,cycle_tickets,cycles,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,llm_config,notification_preferences,notification_rate_limits,notification_types,notifications,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sla_policies,sync_actions,sync_actions_default,sync_delta_tokens,sync_history,system_meta,tags,ticket_categories,ticket_devices,ticket_tags,ticket_watchers,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,working_calendar_holidays,working_calendars,);
+    active_sessions,api_tokens,article_content_revisions,article_contents,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,audit_log_default,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,csp_reports,cycle_tickets,cycles,device_groups,devices,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,group_includes,groups,knowledge_gap_signals,knowledge_gaps,linked_tickets,llm_config,notification_preferences,notification_rate_limits,notification_types,notifications,outbound_emails,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sla_policies,sync_actions,sync_actions_default,sync_delta_tokens,sync_history,system_meta,tags,ticket_categories,ticket_devices,ticket_tags,ticket_watchers,tickets,user_auth_identities,user_emails,user_groups,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,working_calendar_holidays,working_calendars,);

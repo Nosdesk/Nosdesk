@@ -177,3 +177,22 @@ async fn drop_old_event_partitions(
     }
     Ok(())
 }
+
+/// Sweep expired leases on `outbound_emails`. A worker that crashes
+/// between `claim_batch` and a terminal `mark_*` leaves the row in
+/// `sending` with a lease; this job moves expired-lease rows back to
+/// `failed` so the next claim cycle picks them up. Cheap (the partial
+/// `outbound_emails_lease_idx` keeps the scan tiny). Default cadence:
+/// 60s.
+pub async fn sweep_outbound_email_leases(pool: Pool) -> Result<()> {
+    let mut conn = pool.get().context("db pool")?;
+    let swept = crate::repository::outbound_emails::sweep_expired_leases(&mut conn)
+        .context("sweep_expired_leases")?;
+    if swept > 0 {
+        info!(
+            count = swept,
+            "scheduler: outbound_emails leases swept (worker crash recovery)"
+        );
+    }
+    Ok(())
+}

@@ -40,7 +40,7 @@ use crate::services::channels::{
     InboundMessage, LoopMarkers, OutboundContent, OutboundMessage, PullAdapter, ThreadContext,
 };
 use crate::services::channels::threading::format_outbound_message_id;
-use crate::utils::email::{EmailService, OutboundEmail};
+use crate::utils::email::{EmailService, OutboundEmailMessage};
 
 // ---------- Persistence shapes ----------
 
@@ -390,7 +390,7 @@ impl ChannelAdapter for EmailImapAdapter {
             .unwrap_or("(no subject)");
         let in_reply_to = thread.external_thread_id.as_deref();
 
-        let outbound = OutboundEmail {
+        let outbound = OutboundEmailMessage {
             to: recipient,
             subject,
             body_text: &content.body_markdown,

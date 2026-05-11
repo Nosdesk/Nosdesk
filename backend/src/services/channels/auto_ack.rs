@@ -37,7 +37,7 @@ use crate::models::{
 };
 use crate::repository::{channels as channels_repo, site_settings as site_settings_repo, user_helpers};
 use crate::services::channels::threading::{format_outbound_message_id, format_outbound_subject};
-use crate::utils::email::{EmailService, OutboundEmail};
+use crate::utils::email::{EmailService, OutboundEmailMessage};
 
 /// Built-in fallback template. Deliberately terse — Zendesk's
 /// default is a single sentence, and customers typically read the
@@ -123,7 +123,7 @@ async fn send_auto_ack(
     let subject = format_outbound_subject(ticket.id, &ticket.title);
     let references = vec![in_reply_to.to_string()];
 
-    let outbound = OutboundEmail {
+    let outbound = OutboundEmailMessage {
         to: &recipient_email,
         subject: &subject,
         body_text: &body,

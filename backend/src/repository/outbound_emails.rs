@@ -1,0 +1,591 @@
+//! Outbound email queue repository.
+//!
+//! The queue is the durable replacement for the fire-and-forget
+//! `tokio::spawn` send path. Producers (the comment-creation handler,
+//! the auto-ack flow) call [`enqueue`]; the worker in
+//! `services/email_queue/worker.rs` calls [`claim_batch`] and one of
+//! [`mark_sent`] / [`mark_failed`] / [`mark_dead`] / [`mark_suppressed`]
+//! per row. The lease sweeper calls [`sweep_expired_leases`].
+//!
+//! Claim semantics use `SELECT FOR UPDATE SKIP LOCKED` inside a CTE
+//! that flips status to `sending` and bumps the attempt counter in a
+//! single round trip — the canonical "implicit ACK" pattern shared by
+//! pgmq, pg-boss, Solid Queue, etc. Workers never double-claim a row.
+//!
+//! Crash recovery rests on `lease_token` + `lease_expires_at`: a worker
+//! that holds a row in `sending` and dies orphans the row. The lease
+//! sweeper finds rows whose lease expired and bumps them back to
+//! `pending` (or `failed` for backoff). Combined with the deterministic
+//! `Message-ID` persisted at enqueue, this is at-least-once delivery
+//! with consumer-side dedupe (the receiving MTA / customer MUA).
+
+use crate::db::DbConnection;
+use crate::models::{outbound_email_status, NewOutboundEmail, OutboundEmail};
+use crate::schema::outbound_emails;
+use diesel::prelude::*;
+use diesel::result::Error as DieselError;
+use diesel::sql_types::{BigInt, Integer, Nullable, Text, Timestamptz};
+
+/// Batch size for the worker's claim loop. Email is high-latency I/O
+/// (200ms-2s per send); 10 sends = 10-20s of work, well under the
+/// 5-minute lease.
+pub const DEFAULT_BATCH_SIZE: i64 = 10;
+
+/// Insert a new row in the queue. The trigger fires `pg_notify` so the
+/// listener wakes immediately.
+pub fn enqueue(
+    conn: &mut DbConnection,
+    new_row: NewOutboundEmail,
+) -> Result<OutboundEmail, DieselError> {
+    diesel::insert_into(outbound_emails::table)
+        .values(&new_row)
+        .get_result(conn)
+}
+
+/// Fetch a single row by id. Used by the admin handler.
+pub fn get(conn: &mut DbConnection, id: i64) -> Result<OutboundEmail, DieselError> {
+    outbound_emails::table.find(id).first(conn)
+}
+
+/// Atomically claim up to `limit` due rows. Returns the claimed rows
+/// in `sending` state with leases set; the worker dispatches each then
+/// calls one of the `mark_*` functions to terminate.
+///
+/// Single CTE: SELECT...FOR UPDATE SKIP LOCKED inside an UPDATE that
+/// flips status, increments attempts, sets the lease. One round trip,
+/// no double-claim possible. Lease defaults to 5 minutes — long enough
+/// to absorb SMTP slowness, bounded enough that crash recovery is
+/// deterministic.
+pub fn claim_batch(
+    conn: &mut DbConnection,
+    limit: i64,
+    lease_seconds: i64,
+) -> Result<Vec<OutboundEmail>, DieselError> {
+    // `clock_timestamp()` rather than `now()` for the lease so that
+    // crash recovery works across transactions. `now()` returns the
+    // calling transaction's start time and is stable within it; the
+    // sweeper running in a separate transaction would compare the
+    // lease against its own (different) `now()` and the relative
+    // ordering becomes brittle. `clock_timestamp()` gives wall-clock
+    // semantics, which is what a lease actually needs.
+    diesel::sql_query(
+        r#"
+        WITH claimed AS (
+            SELECT id
+            FROM outbound_emails
+            WHERE status IN ('pending', 'failed')
+              AND next_attempt_at <= now()
+            ORDER BY next_attempt_at
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE outbound_emails o
+        SET status = 'sending',
+            attempts = attempts + 1,
+            lease_token = gen_random_uuid(),
+            lease_expires_at = clock_timestamp() + ($2 || ' seconds')::interval
+        FROM claimed
+        WHERE o.id = claimed.id
+        RETURNING o.*
+        "#,
+    )
+    .bind::<BigInt, _>(limit)
+    .bind::<Text, _>(lease_seconds.to_string())
+    .load::<OutboundEmail>(conn)
+}
+
+/// Mark a successful send. Terminal state.
+pub fn mark_sent(conn: &mut DbConnection, id: i64) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET status = 'sent',
+            sent_at = now(),
+            lease_token = NULL,
+            lease_expires_at = NULL,
+            last_error = NULL,
+            last_smtp_code = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind::<BigInt, _>(id)
+    .execute(conn)
+}
+
+/// Mark a transient failure. Schedules the next retry. Caller computes
+/// `next_attempt_at` per the retry policy (backoff + jitter).
+pub fn mark_failed(
+    conn: &mut DbConnection,
+    id: i64,
+    error_message: &str,
+    smtp_code: Option<i32>,
+    next_attempt_at: chrono::DateTime<chrono::Utc>,
+) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET status = 'failed',
+            last_error = $2,
+            last_smtp_code = $3,
+            next_attempt_at = $4,
+            lease_token = NULL,
+            lease_expires_at = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind::<BigInt, _>(id)
+    .bind::<Text, _>(error_message)
+    .bind::<Nullable<Integer>, _>(smtp_code)
+    .bind::<Timestamptz, _>(next_attempt_at)
+    .execute(conn)
+}
+
+/// Mark a permanent failure. Terminal state — no further retries.
+pub fn mark_dead(
+    conn: &mut DbConnection,
+    id: i64,
+    error_message: &str,
+    smtp_code: Option<i32>,
+) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET status = 'dead',
+            last_error = $2,
+            last_smtp_code = $3,
+            failed_at = now(),
+            lease_token = NULL,
+            lease_expires_at = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind::<BigInt, _>(id)
+    .bind::<Text, _>(error_message)
+    .bind::<Nullable<Integer>, _>(smtp_code)
+    .execute(conn)
+}
+
+/// Mark a row as suppressed (recipient on suppression list). Worker
+/// sets this at claim time before any SMTP traffic. Terminal state.
+pub fn mark_suppressed(
+    conn: &mut DbConnection,
+    id: i64,
+    reason: &str,
+) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET status = 'suppressed',
+            last_error = $2,
+            failed_at = now(),
+            lease_token = NULL,
+            lease_expires_at = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind::<BigInt, _>(id)
+    .bind::<Text, _>(reason)
+    .execute(conn)
+}
+
+/// Release a claim without recording a failure — used by the circuit
+/// breaker when SMTP is down and the worker shouldn't burn an attempt.
+/// Sets status back to `pending` and clears the lease so another worker
+/// pass can pick it up after the breaker recovers.
+pub fn release_claim(conn: &mut DbConnection, id: i64) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET status = 'pending',
+            attempts = attempts - 1,
+            lease_token = NULL,
+            lease_expires_at = NULL
+        WHERE id = $1 AND status = 'sending'
+        "#,
+    )
+    .bind::<BigInt, _>(id)
+    .execute(conn)
+}
+
+/// Periodic sweeper: rows whose lease expired (worker crashed mid-send)
+/// move back to `failed` so the next claim cycle picks them up. Returns
+/// the count of swept rows for the scheduler to log.
+///
+/// Uses `clock_timestamp()` to compare against `lease_expires_at` —
+/// `now()` is the transaction-start time and would be stable inside
+/// long-running maintenance transactions, defeating the sweep.
+pub fn sweep_expired_leases(conn: &mut DbConnection) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET status = 'failed',
+            last_error = COALESCE(last_error, 'lease expired (worker crash)'),
+            next_attempt_at = clock_timestamp(),
+            lease_token = NULL,
+            lease_expires_at = NULL
+        WHERE status = 'sending' AND lease_expires_at < clock_timestamp()
+        "#,
+    )
+    .execute(conn)
+}
+
+/// Operator action: bump `next_attempt_at` to now and reset attempts on
+/// dead rows so the worker re-tries immediately.
+pub fn retry_now(conn: &mut DbConnection, id: i64) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET status = 'pending',
+            next_attempt_at = now(),
+            attempts = CASE WHEN status = 'dead' THEN 0 ELSE attempts END,
+            failed_at = NULL,
+            last_error = NULL,
+            last_smtp_code = NULL
+        WHERE id = $1 AND status IN ('failed', 'dead', 'suppressed')
+        "#,
+    )
+    .bind::<BigInt, _>(id)
+    .execute(conn)
+}
+
+/// Operator action: cancel a pending or failed row. Marks as suppressed
+/// with a "cancelled by admin" reason for audit clarity.
+pub fn cancel(conn: &mut DbConnection, id: i64) -> Result<usize, DieselError> {
+    mark_suppressed(conn, id, "cancelled by admin")
+}
+
+/// Filter set for [`list`]. All fields optional; the admin UI passes
+/// the user's filter selection.
+#[derive(Debug, Clone, Default)]
+pub struct ListFilter {
+    pub status: Option<Vec<String>>,
+    pub ticket_id: Option<i32>,
+    pub recipient_domain: Option<String>,
+    pub since: Option<chrono::DateTime<chrono::Utc>>,
+    pub until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Cursor for keyset pagination on `(created_at DESC, id DESC)`.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct Cursor {
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub id: i64,
+}
+
+#[derive(Debug)]
+pub struct Page {
+    pub rows: Vec<OutboundEmail>,
+    pub next_cursor: Option<Cursor>,
+}
+
+/// Admin list endpoint. Keyset pagination on `(created_at DESC, id DESC)`.
+/// `limit` is clamped to `[1, 200]`.
+pub fn list(
+    conn: &mut DbConnection,
+    filter: &ListFilter,
+    cursor: Option<Cursor>,
+    limit: i64,
+) -> Result<Page, DieselError> {
+    let limit = limit.clamp(1, 200);
+    let mut q = outbound_emails::table.into_boxed();
+
+    if let Some(statuses) = &filter.status {
+        q = q.filter(outbound_emails::status.eq_any(statuses));
+    }
+    if let Some(t) = filter.ticket_id {
+        q = q.filter(outbound_emails::ticket_id.eq(t));
+    }
+    if let Some(domain) = &filter.recipient_domain {
+        // Simple suffix match. Domains live in lowercase by convention.
+        let pattern = format!("%@{}", domain.to_lowercase());
+        q = q.filter(outbound_emails::recipient.ilike(pattern));
+    }
+    if let Some(since) = filter.since {
+        q = q.filter(outbound_emails::created_at.ge(since));
+    }
+    if let Some(until) = filter.until {
+        q = q.filter(outbound_emails::created_at.lt(until));
+    }
+    if let Some(c) = cursor {
+        // Tuple comparison spelled out so Diesel can build a single
+        // index seek. Same shape as audit_log::list — keyset cursor
+        // on (timestamp DESC, id DESC) avoids OFFSET on a write-heavy
+        // table.
+        q = q.filter(
+            outbound_emails::created_at
+                .lt(c.created_at)
+                .or(outbound_emails::created_at
+                    .eq(c.created_at)
+                    .and(outbound_emails::id.lt(c.id))),
+        );
+    }
+
+    let rows: Vec<OutboundEmail> = q
+        .order((
+            outbound_emails::created_at.desc(),
+            outbound_emails::id.desc(),
+        ))
+        .limit(limit + 1)
+        .load(conn)?;
+
+    Ok(paginate(rows, limit))
+}
+
+/// `list` over-fetches by one row to detect "more after this page."
+/// When the over-fetch row is present, drop it and emit a cursor
+/// pointing at the new last row.
+fn paginate(mut rows: Vec<OutboundEmail>, limit: i64) -> Page {
+    if rows.len() as i64 > limit {
+        rows.pop();
+        let cursor = rows.last().map(|r| Cursor {
+            created_at: r.created_at,
+            id: r.id,
+        });
+        Page {
+            rows,
+            next_cursor: cursor,
+        }
+    } else {
+        Page {
+            rows,
+            next_cursor: None,
+        }
+    }
+}
+
+/// Aggregate counts per status — drives the admin dashboard's top stats
+/// bar. Cheap because of `outbound_emails_due_idx` + the small set of
+/// distinct status values.
+pub fn count_by_status(conn: &mut DbConnection) -> Result<Vec<(String, i64)>, DieselError> {
+    use diesel::dsl::count_star;
+    outbound_emails::table
+        .group_by(outbound_emails::status)
+        .select((outbound_emails::status, count_star()))
+        .load::<(String, i64)>(conn)
+}
+
+/// Pending-row gauge: count + age of the oldest. Drives the SLA alert
+/// "outbound queue is backed up." Returns `(count, oldest_age_seconds)`.
+pub fn pending_health(conn: &mut DbConnection) -> Result<(i64, Option<i64>), DieselError> {
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = BigInt)]
+        count: i64,
+        #[diesel(sql_type = Nullable<BigInt>)]
+        oldest_age_seconds: Option<i64>,
+    }
+    let row: Row = diesel::sql_query(
+        r#"
+        SELECT
+            COUNT(*) AS count,
+            EXTRACT(EPOCH FROM (now() - MIN(created_at)))::bigint AS oldest_age_seconds
+        FROM outbound_emails
+        WHERE status IN ('pending', 'failed')
+        "#,
+    )
+    .get_result(conn)?;
+    let _ = outbound_email_status::PENDING; // re-export sanity
+    Ok((row.count, row.oldest_age_seconds))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::NewOutboundEmail;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use chrono::Utc;
+
+    fn seed_channel(conn: &mut DbConnection) -> i32 {
+        TestFixtures::create_channel(conn, "email_imap").id
+    }
+
+    fn fresh_row(channel_id: i32, suffix: &str) -> NewOutboundEmail {
+        NewOutboundEmail {
+            channel_id,
+            ticket_id: None,
+            comment_id: None,
+            recipient: format!("test-{suffix}@example.com"),
+            subject: format!("test {suffix}"),
+            body_text: format!("body {suffix}"),
+            body_html: None,
+            message_id: format!("test-{suffix}-{}@example.com", uuid::Uuid::now_v7()),
+            in_reply_to: None,
+            references_list: vec![],
+            headers_json: serde_json::json!({}),
+            correlation_id: None,
+        }
+    }
+
+    #[test]
+    fn enqueue_and_get_round_trip() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let row = enqueue(&mut conn, fresh_row(ch, "rt")).expect("enqueue");
+        let fetched = get(&mut conn, row.id).expect("get");
+        assert_eq!(fetched.recipient, row.recipient);
+        assert_eq!(fetched.status, outbound_email_status::PENDING);
+        assert_eq!(fetched.attempts, 0);
+    }
+
+    #[test]
+    fn claim_batch_picks_pending_rows_and_sets_lease() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let r1 = enqueue(&mut conn, fresh_row(ch, "c1")).unwrap();
+        let r2 = enqueue(&mut conn, fresh_row(ch, "c2")).unwrap();
+
+        let claimed = claim_batch(&mut conn, 5, 300).expect("claim");
+        let claimed_ids: Vec<i64> = claimed.iter().map(|r| r.id).collect();
+        assert!(claimed_ids.contains(&r1.id));
+        assert!(claimed_ids.contains(&r2.id));
+        for row in &claimed {
+            assert_eq!(row.status, outbound_email_status::SENDING);
+            assert_eq!(row.attempts, 1);
+            assert!(row.lease_token.is_some());
+            assert!(row.lease_expires_at.is_some());
+        }
+    }
+
+    #[test]
+    fn claim_batch_skips_future_next_attempt() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        // Enqueue then push next_attempt_at into the future via mark_failed.
+        let r = enqueue(&mut conn, fresh_row(ch, "future")).unwrap();
+        mark_failed(
+            &mut conn,
+            r.id,
+            "transient",
+            Some(421),
+            Utc::now() + chrono::Duration::hours(1),
+        )
+        .unwrap();
+
+        let claimed = claim_batch(&mut conn, 5, 300).expect("claim");
+        let claimed_ids: Vec<i64> = claimed.iter().map(|r| r.id).collect();
+        assert!(
+            !claimed_ids.contains(&r.id),
+            "row scheduled in the future should not be claimed"
+        );
+    }
+
+    #[test]
+    fn mark_sent_clears_lease_and_sets_terminal_state() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let r = enqueue(&mut conn, fresh_row(ch, "sent")).unwrap();
+        let _ = claim_batch(&mut conn, 5, 300).unwrap();
+        mark_sent(&mut conn, r.id).expect("mark_sent");
+        let fetched = get(&mut conn, r.id).unwrap();
+        assert_eq!(fetched.status, outbound_email_status::SENT);
+        assert!(fetched.sent_at.is_some());
+        assert!(fetched.lease_token.is_none());
+        assert!(fetched.lease_expires_at.is_none());
+    }
+
+    #[test]
+    fn mark_failed_reschedules_and_clears_lease() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let r = enqueue(&mut conn, fresh_row(ch, "f")).unwrap();
+        let _ = claim_batch(&mut conn, 5, 300).unwrap();
+        let next = Utc::now() + chrono::Duration::minutes(2);
+        mark_failed(&mut conn, r.id, "boom", Some(450), next).expect("mark_failed");
+        let fetched = get(&mut conn, r.id).unwrap();
+        assert_eq!(fetched.status, outbound_email_status::FAILED);
+        assert_eq!(fetched.last_error.as_deref(), Some("boom"));
+        assert_eq!(fetched.last_smtp_code, Some(450));
+        assert!(fetched.lease_token.is_none());
+    }
+
+    #[test]
+    fn mark_dead_is_terminal() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let r = enqueue(&mut conn, fresh_row(ch, "d")).unwrap();
+        let _ = claim_batch(&mut conn, 5, 300).unwrap();
+        mark_dead(&mut conn, r.id, "permanent", Some(550)).expect("mark_dead");
+        let fetched = get(&mut conn, r.id).unwrap();
+        assert_eq!(fetched.status, outbound_email_status::DEAD);
+        assert!(fetched.failed_at.is_some());
+
+        // A subsequent claim cycle MUST NOT pick this up — the partial
+        // index excludes 'dead' specifically.
+        let claimed = claim_batch(&mut conn, 5, 300).expect("claim");
+        let ids: Vec<i64> = claimed.iter().map(|r| r.id).collect();
+        assert!(!ids.contains(&r.id));
+    }
+
+    #[test]
+    fn release_claim_returns_to_pending_and_decrements_attempts() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let r = enqueue(&mut conn, fresh_row(ch, "rel")).unwrap();
+        let _ = claim_batch(&mut conn, 5, 300).unwrap();
+        // After claim: status=sending, attempts=1.
+        release_claim(&mut conn, r.id).expect("release");
+        let fetched = get(&mut conn, r.id).unwrap();
+        assert_eq!(fetched.status, outbound_email_status::PENDING);
+        assert_eq!(
+            fetched.attempts, 0,
+            "release_claim decrements the attempt the worker speculatively bumped"
+        );
+        assert!(fetched.lease_token.is_none());
+    }
+
+    #[test]
+    fn sweep_expired_leases_recovers_orphaned_rows() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let r = enqueue(&mut conn, fresh_row(ch, "orphan")).unwrap();
+        // Claim with a 0-second lease so it's instantly expired.
+        let _ = claim_batch(&mut conn, 5, 0).unwrap();
+        // Wait one tick so now() definitely exceeds lease_expires_at.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let swept = sweep_expired_leases(&mut conn).expect("sweep");
+        assert!(swept >= 1, "should have swept at least our orphan");
+        let fetched = get(&mut conn, r.id).unwrap();
+        assert_eq!(fetched.status, outbound_email_status::FAILED);
+        assert!(fetched.lease_token.is_none());
+    }
+
+    #[test]
+    fn retry_now_resets_dead_row() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let r = enqueue(&mut conn, fresh_row(ch, "retry")).unwrap();
+        let _ = claim_batch(&mut conn, 5, 300).unwrap();
+        mark_dead(&mut conn, r.id, "test", None).unwrap();
+
+        retry_now(&mut conn, r.id).expect("retry_now");
+        let fetched = get(&mut conn, r.id).unwrap();
+        assert_eq!(fetched.status, outbound_email_status::PENDING);
+        assert_eq!(fetched.attempts, 0);
+        assert!(fetched.failed_at.is_none());
+    }
+
+    #[test]
+    fn list_with_status_filter() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let pending = enqueue(&mut conn, fresh_row(ch, "p1")).unwrap();
+        let _ = enqueue(&mut conn, fresh_row(ch, "p2")).unwrap();
+        let r3 = enqueue(&mut conn, fresh_row(ch, "p3")).unwrap();
+        let _ = claim_batch(&mut conn, 5, 300).unwrap();
+        mark_sent(&mut conn, r3.id).unwrap();
+
+        let page = list(
+            &mut conn,
+            &ListFilter {
+                status: Some(vec![outbound_email_status::SENT.to_string()]),
+                ..Default::default()
+            },
+            None,
+            10,
+        )
+        .expect("list");
+        let ids: Vec<i64> = page.rows.iter().map(|r| r.id).collect();
+        assert!(ids.contains(&r3.id), "sent row should be in filter");
+        assert!(!ids.contains(&pending.id), "pending row should be excluded");
+    }
+}
