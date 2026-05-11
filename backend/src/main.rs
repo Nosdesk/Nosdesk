@@ -1321,6 +1321,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/{id}/watchers", web::get().to(handlers::ticket_watchers::list_watchers))
                     .route("/tickets/{id}/watch", web::post().to(handlers::ticket_watchers::watch_ticket))
                     .route("/tickets/{id}/watch", web::delete().to(handlers::ticket_watchers::unwatch_ticket))
+                    .route("/tickets/{id}/watch/me", web::get().to(handlers::ticket_watchers::my_watch_state))
+                    .route("/tickets/{id}/watch/preferences", web::patch().to(handlers::ticket_watchers::update_my_watch_preferences))
                     .route("/tags", web::get().to(handlers::tags::list_tags))
                     .route("/tags", web::post().to(handlers::tags::create_tag))
                     .route("/tags/{id}", web::patch().to(handlers::tags::update_tag))

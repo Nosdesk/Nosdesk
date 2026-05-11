@@ -16,13 +16,15 @@
  * (deduped against the requester / assignee / @mentions). This
  * component just exposes the toggle.
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
+import { watcherService } from '@/services/watcherService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Icon from '@/components/common/Icon.vue'
 
 const props = defineProps<{
+  ticketId: number
   watcherUuids: string[]
 }>()
 
@@ -52,6 +54,52 @@ const overflowCount = computed<number>(() => Math.max(0, props.watcherUuids.leng
 function handleToggle() {
   if (!currentUserUuid.value) return
   emit('toggle')
+}
+
+// Per-watch preference: mute internal-note notifications. Loaded
+// on demand whenever the current user is watching; cleared back to
+// true (the server default) when they unwatch so the next watch
+// starts fresh. Optimistic write so the toggle reads correctly
+// even before the PATCH round-trip resolves; reverted on error.
+const notifyOnInternalNotes = ref<boolean>(true)
+const prefError = ref<string | null>(null)
+
+async function refreshMyWatchPref() {
+  if (!isWatching.value) {
+    notifyOnInternalNotes.value = true
+    prefError.value = null
+    return
+  }
+  try {
+    const state = await watcherService.myState(props.ticketId)
+    notifyOnInternalNotes.value = state.notify_on_internal_notes
+    prefError.value = null
+  } catch (e) {
+    prefError.value = e instanceof Error ? e.message : 'Failed to load preference'
+  }
+}
+
+watch(
+  () => [props.ticketId, isWatching.value] as const,
+  () => {
+    void refreshMyWatchPref()
+  },
+  { immediate: true },
+)
+
+async function toggleInternalNotify() {
+  const previous = notifyOnInternalNotes.value
+  const next = !previous
+  notifyOnInternalNotes.value = next
+  prefError.value = null
+  try {
+    await watcherService.updatePreferences(props.ticketId, {
+      notify_on_internal_notes: next,
+    })
+  } catch (e) {
+    notifyOnInternalNotes.value = previous
+    prefError.value = e instanceof Error ? e.message : 'Failed to save preference'
+  }
 }
 </script>
 
@@ -87,6 +135,46 @@ function handleToggle() {
         <span>{{ isWatching ? 'Watching' : 'Watch' }}</span>
       </button>
     </div>
+
+    <!-- Per-watch visibility preference. Rendered only when the
+         current user is watching; lets a staff watcher follow the
+         public conversation without being pinged for every internal
+         note. Mentions still notify (those are explicit pings,
+         not implicit fan-out), so the copy specifically calls out
+         "internal notes" rather than a broader "mute" framing. -->
+    <button
+      v-if="isWatching"
+      type="button"
+      class="-mx-2 px-2 py-1 inline-flex items-center justify-between gap-2 text-[11px] text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
+      :aria-pressed="!notifyOnInternalNotes"
+      @click="toggleInternalNotify"
+    >
+      <span class="flex items-center gap-1.5">
+        <Icon
+          :name="notifyOnInternalNotes ? 'bell' : 'bell'"
+          class="w-3 h-3 flex-shrink-0"
+          :class="notifyOnInternalNotes ? '' : 'opacity-40'"
+        />
+        <span class="truncate">
+          {{ notifyOnInternalNotes ? 'Notify on internal notes' : 'Public replies only' }}
+        </span>
+      </span>
+      <span
+        class="inline-flex items-center justify-center h-4 px-1.5 rounded-full text-[9px] font-medium"
+        :class="notifyOnInternalNotes
+          ? 'bg-accent-muted text-accent'
+          : 'bg-surface-alt text-tertiary'"
+      >
+        {{ notifyOnInternalNotes ? 'ON' : 'OFF' }}
+      </span>
+    </button>
+    <p
+      v-if="prefError"
+      class="text-[10px] text-status-error -mt-1"
+      role="alert"
+    >
+      {{ prefError }}
+    </p>
 
     <!-- Avatar row. Empty state: skip the row entirely so the
          "Watchers (0)" + bell button stand alone. Avoids a

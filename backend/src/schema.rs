@@ -1226,6 +1226,7 @@ diesel::table! {
         user_uuid -> Uuid,
         created_at -> Timestamptz,
         auto_added -> Bool,
+        notify_on_internal_notes -> Bool,
     }
 }
 

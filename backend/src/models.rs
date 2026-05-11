@@ -411,6 +411,12 @@ pub struct TicketWatcher {
     /// explicitly toggled the bell. Used by the future "stop
     /// auto-watching" preference.
     pub auto_added: bool,
+    /// Per-watch preference. `true` (default) means the watcher
+    /// is notified for both public replies and internal notes;
+    /// `false` mutes internal-note notifications only. Mentions
+    /// ignore this flag because they are explicit pings rather
+    /// than implicit fan-out.
+    pub notify_on_internal_notes: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Insertable)]

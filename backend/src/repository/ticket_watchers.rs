@@ -20,10 +20,28 @@ use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
 /// Watcher uuids for a ticket, sorted for stable rendering.
-/// Drives the sidebar list + the comment-notification fan-out.
+/// Drives the sidebar list + the comment-notification fan-out
+/// for public replies.
 pub fn watcher_uuids(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Uuid>> {
     ticket_watchers::table
         .filter(ticket_watchers::ticket_id.eq(ticket_id))
+        .order(ticket_watchers::created_at.asc())
+        .select(ticket_watchers::user_uuid)
+        .load(conn)
+}
+
+/// Watcher uuids who have opted in to internal-note notifications
+/// for a given ticket. Used by the comment-notification fan-out
+/// when the new comment is `is_internal = true`; watchers who
+/// flipped the per-watch toggle off are dropped here. Mentions
+/// fan out separately so this filter does not affect them.
+pub fn watcher_uuids_for_internal_notify(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<Vec<Uuid>> {
+    ticket_watchers::table
+        .filter(ticket_watchers::ticket_id.eq(ticket_id))
+        .filter(ticket_watchers::notify_on_internal_notes.eq(true))
         .order(ticket_watchers::created_at.asc())
         .select(ticket_watchers::user_uuid)
         .load(conn)
@@ -47,6 +65,65 @@ pub fn watcher_uuids_for_tickets(
         out.entry(tid).or_default().push(uuid);
     }
     Ok(out)
+}
+
+/// Fetch a single watch row so the UI can show its current
+/// preferences (notify_on_internal_notes toggle, auto-added flag).
+/// Returns `Ok(None)` when the user isn't watching.
+pub fn get_watch(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: &Uuid,
+) -> QueryResult<Option<TicketWatcher>> {
+    ticket_watchers::table
+        .filter(ticket_watchers::ticket_id.eq(ticket_id))
+        .filter(ticket_watchers::user_uuid.eq(user_uuid))
+        .first(conn)
+        .optional()
+}
+
+/// Update the `notify_on_internal_notes` preference on an existing
+/// watch row. No-op when the user isn't watching (returns `false`);
+/// the caller should add a watch first if they want to set a pref
+/// pre-emptively. Emits a sync event so other tabs / devices pick
+/// up the toggle live.
+pub fn set_notify_on_internal_notes(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: &Uuid,
+    notify: bool,
+) -> QueryResult<bool> {
+    conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+        let ticket = tickets::table.find(ticket_id).first::<crate::models::Ticket>(conn)?;
+        let updated = diesel::update(
+            ticket_watchers::table
+                .filter(ticket_watchers::ticket_id.eq(ticket_id))
+                .filter(ticket_watchers::user_uuid.eq(user_uuid)),
+        )
+        .set(ticket_watchers::notify_on_internal_notes.eq(notify))
+        .execute(conn)?;
+        if updated == 0 {
+            return Ok(false);
+        }
+        let groups = groups::for_ticket(conn, &ticket)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Ticket,
+                aggregate_id: ticket_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "ticket.watcher_pref_changed",
+                data: json!({
+                    "ticket_id": ticket_id,
+                    "user_uuid": user_uuid,
+                    "notify_on_internal_notes": notify,
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(true)
+    })
 }
 
 pub fn is_watching(conn: &mut DbConnection, ticket_id: i32, user_uuid: &Uuid) -> QueryResult<bool> {

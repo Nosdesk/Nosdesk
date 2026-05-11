@@ -891,6 +891,7 @@ watchEffect(async () => {
                user; avatar row for the broader set. Notifications
                fan out server-side on each new comment. -->
           <TicketWatchersField
+            :ticket-id="ticket.id"
             :watcher-uuids="ticket.watcher_uuids ?? []"
             @toggle="emit('toggle-watch')"
           />

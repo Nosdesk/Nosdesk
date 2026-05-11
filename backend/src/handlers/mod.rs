@@ -607,10 +607,21 @@ pub async fn add_comment_to_ticket(
                     // path cheap. Failure here downgrades to "no
                     // watcher notifications this round" rather than
                     // blocking the comment.
+                    // Watcher fan-out source depends on the comment's
+                    // visibility. For an internal note we use the
+                    // notify-on-internal-only variant so per-watch
+                    // mute-internal preferences are honoured.
                     let watchers: Vec<Uuid> = (|| -> Result<Vec<Uuid>, ()> {
                         let mut conn = pool_for_watchers.get().map_err(|_| ())?;
-                        crate::repository::ticket_watchers::watcher_uuids(&mut conn, ticket_id)
-                            .map_err(|_| ())
+                        if comment_is_internal {
+                            crate::repository::ticket_watchers::watcher_uuids_for_internal_notify(
+                                &mut conn,
+                                ticket_id,
+                            )
+                        } else {
+                            crate::repository::ticket_watchers::watcher_uuids(&mut conn, ticket_id)
+                        }
+                        .map_err(|_| ())
                     })()
                     .unwrap_or_default();
                     for watcher in watchers {
