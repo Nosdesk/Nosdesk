@@ -95,6 +95,18 @@ export const adminNavGroups: AdminNavGroup[] = [
     ]
   },
   {
+    label: 'Compliance',
+    items: [
+      {
+        title: 'Audit Log',
+        description: 'Forensic record of who changed what, drawn from per-table triggers',
+        icon: 'clock',
+        route: '/admin/audit-log',
+        keywords: ['audit', 'log', 'history', 'forensic', 'compliance', 'changes', 'who', 'when']
+      }
+    ]
+  },
+  {
     label: 'Appearance & Notifications',
     items: [
       {

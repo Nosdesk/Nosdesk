@@ -638,6 +638,12 @@ const router = createRouter({
           meta: { title: 'Branding' }
         },
         {
+          path: 'audit-log',
+          name: 'admin-audit-log',
+          component: () => import('../views/admin/AuditLogView.vue'),
+          meta: { title: 'Audit Log' }
+        },
+        {
           path: 'guest-access',
           name: 'admin-guest-access',
           component: () => import('../views/GuestAccessSettingsView.vue'),

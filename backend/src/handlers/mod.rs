@@ -5,6 +5,7 @@ pub mod health;
 pub mod helpers;
 pub mod api_tokens;
 pub mod assignment_rules;
+pub mod audit_log;
 pub mod collaboration;
 pub mod auth;
 pub mod users;

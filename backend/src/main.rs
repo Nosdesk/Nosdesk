@@ -1144,6 +1144,13 @@ async fn main() -> std::io::Result<()> {
                     // observe here, then enforce.
                     .route("/admin/csp-reports", web::get().to(handlers::csp_reports::list_violations))
 
+                    // Audit log — admin-gated read of audit_log rows
+                    // produced by the per-table triggers. See
+                    // handlers/audit_log.rs for query shape and
+                    // 2026-05-11-210000_attach_audit_tier1 for the
+                    // tables that participate.
+                    .route("/admin/audit-log", web::get().to(handlers::audit_log::list))
+
                     // Consolidated dashboard stats. The frontend's
                     // widget registry derives an `include` set
                     // from the user's active widgets and passes

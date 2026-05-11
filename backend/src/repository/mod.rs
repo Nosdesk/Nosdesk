@@ -1,6 +1,7 @@
 // Domain-specific modules
 pub mod article_content;
 pub mod assignment_rules;
+pub mod audit_log;
 pub mod canned_responses;
 pub mod categories;
 pub mod dashboard_stats;
