@@ -73,7 +73,7 @@ onUnmounted(() => document.removeEventListener('keydown', onEscape))
             <button
               type="button"
               @click="emit('close')"
-              class="p-1 -mr-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors flex-shrink-0"
+              class="p-1 -mr-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors flex-shrink-0 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center"
               aria-label="Close modal"
             >
               <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">

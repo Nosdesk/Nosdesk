@@ -515,7 +515,7 @@ const handleDrop = async (event: DragEvent) => {
                             <button
                                 type="button"
                                 @click="startVoiceRecording"
-                                class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
+                                class="min-h-[44px] sm:h-9 sm:min-h-0 min-w-[44px] sm:min-w-0 px-3 sm:px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
                                 :class="{ 'text-error': showRecordingInterface }"
                                 aria-label="Record voice note"
                                 title="Record voice note"
@@ -537,7 +537,7 @@ const handleDrop = async (event: DragEvent) => {
                             <button
                                 type="button"
                                 @click="triggerFileUpload"
-                                class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
+                                class="min-h-[44px] sm:h-9 sm:min-h-0 min-w-[44px] sm:min-w-0 px-3 sm:px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
                                 aria-label="Upload file"
                                 title="Upload file"
                             >
@@ -671,7 +671,7 @@ const handleDrop = async (event: DragEvent) => {
                                         :href="convertToAuthenticatedPath(comment.attachments?.[0]?.url ?? '')"
                                         :download="comment.attachments?.[0]?.name"
                                         target="_blank"
-                                        class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                        class="inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
                                         title="Download"
                                         @click.stop
                                     >
@@ -683,7 +683,7 @@ const handleDrop = async (event: DragEvent) => {
                                         v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
                                         type="button"
                                         @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
-                                        class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                        class="inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
                                         :title="isAudioOnlyComment(comment) ? 'Delete voice message' : 'Delete comment'"
                                     >
                                         <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

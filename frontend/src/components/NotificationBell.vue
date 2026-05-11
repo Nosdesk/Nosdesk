@@ -255,7 +255,7 @@ onMounted(() => {
           role="tab"
           :aria-selected="filter === tab.value"
           @click="filter = tab.value"
-          class="relative flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors"
+          class="relative flex items-center justify-center gap-1.5 px-4 sm:px-3 min-h-[44px] sm:min-h-0 sm:py-2 text-xs font-medium transition-colors"
           :class="
             filter === tab.value
               ? 'text-primary'
@@ -378,7 +378,7 @@ onMounted(() => {
                     v-if="!notification.is_read"
                     type="button"
                     @click="handleMarkRead($event, notification)"
-                    class="rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary"
+                    class="inline-flex items-center justify-center rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
                     :aria-label="`Mark as read: ${notification.title}`"
                   >
                     <Icon name="check" size="xs" />
@@ -386,7 +386,7 @@ onMounted(() => {
                   <button
                     type="button"
                     @click="handleClearNotification($event, notification)"
-                    class="rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary"
+                    class="inline-flex items-center justify-center rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
                     :aria-label="`Dismiss: ${notification.title}`"
                   >
                     <Icon name="close" size="xs" />

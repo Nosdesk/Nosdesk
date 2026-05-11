@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import {
@@ -35,6 +36,9 @@ const expanded = ref<Record<number, boolean>>({});
 const isLoading = ref(false);
 const isLoadingMore = ref(false);
 const errorMessage = ref('');
+
+const showCancelConfirm = ref(false);
+const pendingCancelId = ref<number | null>(null);
 
 function buildQuery(cursor?: string): OutboundEmailQuery {
   const q: OutboundEmailQuery = { limit: 50 };
@@ -114,8 +118,16 @@ async function retryNow(id: number) {
   }
 }
 
-async function cancelRow(id: number) {
-  if (!confirm('Cancel this queued email? It will be marked suppressed and not sent.')) return;
+function cancelRow(id: number) {
+  pendingCancelId.value = id;
+  showCancelConfirm.value = true;
+}
+
+async function confirmCancel() {
+  const id = pendingCancelId.value;
+  showCancelConfirm.value = false;
+  pendingCancelId.value = null;
+  if (id === null) return;
   try {
     await emailQueueService.cancel(id);
     await Promise.all([loadFirstPage(), loadStats()]);
@@ -380,5 +392,16 @@ onMounted(async () => {
         {{ isLoadingMore ? 'Loading…' : 'Load more' }}
       </button>
     </div>
+
+    <ConfirmModal
+      :show="showCancelConfirm"
+      variant="danger"
+      title="Cancel queued email?"
+      message="The email will be marked suppressed and will not be sent."
+      confirm-label="Cancel send"
+      cancel-label="Keep it"
+      @confirm="confirmCancel"
+      @close="showCancelConfirm = false"
+    />
   </div>
 </template>
