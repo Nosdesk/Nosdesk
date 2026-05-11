@@ -139,7 +139,12 @@ where
     Fut: Future<Output = anyhow::Result<()>>,
 {
     set_in_progress(statuses, name, true);
-    let span = info_span!("periodic", task = name);
+    // Fresh correlation id per invocation, so a grep across log lines
+    // produced by one tick joins back together. Matches the per-HTTP-
+    // request correlation id assigned by tracing-actix-web; the two
+    // share a Uuid::now_v7 source so they're trivially comparable.
+    let correlation_id = uuid::Uuid::now_v7();
+    let span = info_span!("periodic", task = name, correlation_id = %correlation_id);
     let started = Instant::now();
     let result = job().instrument(span).await;
     let elapsed = started.elapsed();

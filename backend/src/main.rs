@@ -13,6 +13,7 @@ use dotenvy::dotenv;
 use std::env;
 use std::time::Duration;
 use tracing::{info, warn, error, debug};
+use tracing_actix_web::{RequestId, TracingLogger};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use utils::storage::{get_storage_config, create_storage};
 use utils::redis_yjs_cache::create_redis_cache;
@@ -127,6 +128,8 @@ async fn cookie_auth_middleware(
         .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
 
     use crate::utils::jwt::JwtUtils;
+    use backend::sync::actor::{ActorContext, ActorKind};
+    use crate::middleware::{record_user_on_span, RequestContext};
 
     // Debug logging
     let cookie_names: Vec<String> = req.cookies()
@@ -151,6 +154,30 @@ async fn cookie_auth_middleware(
         })?;
 
     info!(user = %claims.sub, "Cookie auth: user authenticated successfully");
+
+    // Build the per-request context from the verified claims and the
+    // tracing-actix-web request id. The request id doubles as the
+    // correlation id, so logs and audit_log rows share one key.
+    let correlation_id = req.extensions()
+        .get::<RequestId>()
+        .map(|rid| **rid)
+        .unwrap_or_else(uuid::Uuid::now_v7);
+    let user_uuid = uuid::Uuid::parse_str(&claims.sub).ok();
+    let actor = if let Some(uuid) = user_uuid {
+        ActorContext::user(uuid, Some(correlation_id))
+    } else {
+        // Token sub wasn't a uuid; fall back to anonymous-but-correlated
+        // so audit triggers still see the correlation id.
+        ActorContext {
+            kind: ActorKind::User,
+            uuid: None,
+            reference: None,
+            correlation_id: Some(correlation_id),
+            client_tx_id: None,
+        }
+    };
+    record_user_on_span(&claims.sub, ActorKind::User.as_str());
+    req.extensions_mut().insert(RequestContext::new(correlation_id, actor));
 
     // Insert claims into request extensions
     req.extensions_mut().insert(claims);
@@ -913,6 +940,11 @@ async fn main() -> std::io::Result<()> {
             .limit(max_payload_size);
 
         App::new()
+            // TracingLogger is the outermost wrap so its root span
+            // covers every other middleware (CORS preflight, CSRF
+            // rejections, security headers). Auth middlewares record
+            // user_uuid / actor_kind onto this span post-hoc.
+            .wrap(TracingLogger::<crate::middleware::NosdeskRootSpanBuilder>::new())
             .wrap(cors)
             .wrap(crate::middleware::SecurityHeaders) // Apply security headers globally
             .wrap(crate::utils::csrf::CsrfProtection)
