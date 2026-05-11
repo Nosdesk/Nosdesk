@@ -41,23 +41,18 @@ fn seed_getting_started(conn: &mut DbConnection) {
         _ => {}
     }
 
-    // Read the seed markdown file
-    let markdown = match std::fs::read_to_string("seeds/getting-started.md") {
-        Ok(content) => content,
-        Err(e) => {
-            // Try alternate path (for local dev outside Docker)
-            match std::fs::read_to_string("backend/seeds/getting-started.md") {
-                Ok(content) => content,
-                Err(_) => {
-                    warn!(error = %e, "Could not read getting-started.md seed file");
-                    return;
-                }
-            }
-        }
-    };
+    // The seed markdown is embedded at compile time via include_str!().
+    // The earlier CWD-relative read (seeds/getting-started.md plus a
+    // backend/ fallback) was fragile: it worked under the dev container
+    // because CWD happened to be /app, but failed under slimmer images,
+    // host-side `cargo run` from outside backend/, and any future bin
+    // that didn't happen to launch from the right directory. Embedding
+    // makes the seed install-relative-by-construction — wherever the
+    // binary runs, the content is in it.
+    let markdown = include_str!("../../seeds/getting-started.md");
 
     // Convert markdown to a Yjs document
-    let yjs_document = match markdown_to_yjs(&markdown) {
+    let yjs_document = match markdown_to_yjs(markdown) {
         Some(doc) => doc,
         None => {
             warn!("Failed to convert getting-started.md to Yjs document");
