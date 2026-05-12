@@ -30,6 +30,7 @@ use std::time::Duration;
 use crate::db::DbConnection;
 
 pub mod auto_ack;
+pub mod bounce_parser;
 pub mod email_imap;
 pub mod forward_parser;
 pub mod outbound;
@@ -178,12 +179,18 @@ pub struct InboundMessage {
     pub recipients: Vec<String>,
     /// Set when the message is a delivery-status notification (DSN) /
     /// hard or soft bounce. The pipeline short-circuits these so they
-    /// don't create new tickets or trigger auto-replies; future
-    /// passes will link them to the original outbound row and feed a
-    /// suppression list. Distinct from `loop_markers` because the
-    /// downstream handling diverges (bounces hit outbound state;
-    /// loops just get logged and dropped).
+    /// don't create new tickets or trigger auto-replies; J Pass 2.2
+    /// also stamps the matching outbound row via `bounce_report`.
+    /// Distinct from `loop_markers` because the downstream handling
+    /// diverges (bounces hit outbound state; loops just get logged
+    /// and dropped).
     pub is_bounce: bool,
+    /// Structured bounce detail when `is_bounce` is set AND the DSN's
+    /// MIME structure was parseable (`message/rfc822` part present
+    /// with an extractable `Message-ID`). `None` for malformed DSNs
+    /// or sender-heuristic-only bounces; the pipeline still short-
+    /// circuits but can't link back to the outbound row.
+    pub bounce_report: Option<bounce_parser::BounceReport>,
 }
 
 /// Either bytes we already have (IMAP) or a URL we fetch later (Slack

@@ -5582,6 +5582,20 @@ pub struct OutboundEmail {
     pub sent_at: Option<chrono::DateTime<chrono::Utc>>,
     pub failed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub correlation_id: Option<Uuid>,
+    /// Stamped when an inbound DSN linked back to this row via
+    /// the deterministic Message-ID. NULL for the normal happy
+    /// path. See migration `2026-05-12-100000_outbound_email_bounce_fields`.
+    pub bounced_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The address the remote MTA rejected. Usually matches
+    /// `recipient`; differs when the original recipient was a
+    /// distribution list / forwarder and the failure came from
+    /// the downstream member.
+    pub bounce_recipient: Option<String>,
+    /// Raw RFC 3464 Diagnostic-Code or Status text from the
+    /// DSN's `message/delivery-status` part. Verbatim so the
+    /// admin queue UI can show the upstream reason without us
+    /// having to guess at categorisation.
+    pub bounce_diagnostic: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable)]

@@ -54,6 +54,16 @@ pub struct RowResponse {
     pub created_at: DateTime<Utc>,
     pub sent_at: Option<DateTime<Utc>>,
     pub failed_at: Option<DateTime<Utc>>,
+    /// J Pass 2.2 bounce-linkage fields. Non-null `bounced_at`
+    /// is the canonical "row was bounced" signal that drives the
+    /// admin UI badge; recipient and diagnostic populate the
+    /// expanded-row detail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounced_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounce_recipient: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounce_diagnostic: Option<String>,
 }
 
 impl From<crate::models::OutboundEmail> for RowResponse {
@@ -73,6 +83,9 @@ impl From<crate::models::OutboundEmail> for RowResponse {
             created_at: r.created_at,
             sent_at: r.sent_at,
             failed_at: r.failed_at,
+            bounced_at: r.bounced_at,
+            bounce_recipient: r.bounce_recipient,
+            bounce_diagnostic: r.bounce_diagnostic,
         }
     }
 }

@@ -750,6 +750,9 @@ diesel::table! {
         sent_at -> Nullable<Timestamptz>,
         failed_at -> Nullable<Timestamptz>,
         correlation_id -> Nullable<Uuid>,
+        bounced_at -> Nullable<Timestamptz>,
+        bounce_recipient -> Nullable<Text>,
+        bounce_diagnostic -> Nullable<Text>,
     }
 }
 

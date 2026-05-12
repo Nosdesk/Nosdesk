@@ -624,6 +624,7 @@ mod tests {
             raw_metadata: serde_json::json!({}),
             recipients: vec!["support@yourco.com".into()],
             is_bounce: false,
+            bounce_report: None,
         })
     }
 

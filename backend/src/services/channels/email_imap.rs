@@ -836,6 +836,13 @@ pub fn parse_rfc822_into_inbound_message(
     let recipients = collect_recipients(headers);
     let loop_markers = detect_loop_markers(headers);
     let is_bounce = detect_bounce(&parsed, headers);
+    // Parse the DSN MIME structure only when we've flagged the
+    // message as a bounce; saves the walk on every normal email.
+    let bounce_report = if is_bounce {
+        crate::services::channels::bounce_parser::parse_bounce(&parsed)
+    } else {
+        None
+    };
 
     let received_at = internal_date
         .or_else(|| header_first(headers, "Date").and_then(parse_rfc2822_to_utc))
@@ -863,6 +870,7 @@ pub fn parse_rfc822_into_inbound_message(
         raw_metadata,
         recipients,
         is_bounce,
+        bounce_report,
     })
 }
 

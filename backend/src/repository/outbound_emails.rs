@@ -188,6 +188,38 @@ pub fn mark_suppressed(
     .execute(conn)
 }
 
+/// Stamp bounce metadata onto an outbound row matched by its
+/// deterministic Message-ID. Does NOT change `status` — a bounce
+/// is delivery-result detail recorded alongside the SMTP outcome
+/// rather than a fresh state. Most bounced rows sit in `sent`
+/// status because the SMTP relay accepted the handoff and the
+/// remote MTA only rejected later via DSN.
+///
+/// Returns the number of rows updated. Zero means we couldn't
+/// match the DSN's original-Message-ID to any outbound row — the
+/// caller logs and moves on (the inbound is still treated as a
+/// bounce skip per J Pass 2.1, just unlinked).
+pub fn mark_bounced(
+    conn: &mut DbConnection,
+    message_id: &str,
+    recipient: Option<&str>,
+    diagnostic: Option<&str>,
+) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET bounced_at = now(),
+            bounce_recipient = $2,
+            bounce_diagnostic = $3
+        WHERE message_id = $1
+        "#,
+    )
+    .bind::<Text, _>(message_id)
+    .bind::<Nullable<Text>, _>(recipient)
+    .bind::<Nullable<Text>, _>(diagnostic)
+    .execute(conn)
+}
+
 /// Release a claim without recording a failure — used by the circuit
 /// breaker when SMTP is down and the worker shouldn't burn an attempt.
 /// Sets status back to `pending` and clears the lease so another worker

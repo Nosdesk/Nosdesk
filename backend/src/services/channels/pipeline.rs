@@ -156,11 +156,50 @@ pub async fn process_event(
     };
 
     if msg.is_bounce {
-        debug!(
-            channel_id = channel.id,
-            external_id = %msg.external_id,
-            "skip: delivery-status notification (bounce)"
-        );
+        // Best-effort linkage to the originating outbound row. If
+        // the DSN was malformed or the embedded original message
+        // didn't carry our deterministic Message-ID, we still
+        // short-circuit (so no ticket / auto-reply) but log the
+        // miss so admins know coverage isn't complete.
+        if let Some(report) = msg.bounce_report.as_ref() {
+            match crate::repository::outbound_emails::mark_bounced(
+                conn,
+                &report.original_message_id,
+                report.recipient.as_deref(),
+                report.diagnostic.as_deref(),
+            ) {
+                Ok(0) => {
+                    debug!(
+                        channel_id = channel.id,
+                        message_id = %report.original_message_id,
+                        "bounce: no matching outbound row"
+                    );
+                }
+                Ok(n) => {
+                    debug!(
+                        channel_id = channel.id,
+                        message_id = %report.original_message_id,
+                        rows = n,
+                        recipient = ?report.recipient,
+                        "bounce: linked to outbound row"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        channel_id = channel.id,
+                        error = %e,
+                        message_id = %report.original_message_id,
+                        "bounce: failed to update outbound row"
+                    );
+                }
+            }
+        } else {
+            debug!(
+                channel_id = channel.id,
+                external_id = %msg.external_id,
+                "bounce: detected but DSN was unparseable; no linkage"
+            );
+        }
         return Ok(PipelineOutcome::SkippedBounce);
     }
 
@@ -833,6 +872,7 @@ mod tests {
             raw_metadata: json!({"k": "v"}),
             recipients: vec!["support@yourco.com".into()],
             is_bounce: false,
+            bounce_report: None,
         }
     }
 

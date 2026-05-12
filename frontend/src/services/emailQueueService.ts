@@ -26,6 +26,15 @@ export interface OutboundEmailRow {
   created_at: string;
   sent_at: string | null;
   failed_at: string | null;
+  /** J Pass 2.2 bounce-linkage fields. Set when an inbound DSN
+   *  matched this row's deterministic Message-ID; drives the
+   *  "Bounced" badge and the expanded-row diagnostic detail.
+   *  Independent from `status` (most bounced rows sit in `sent`
+   *  because SMTP relay succeeded; the remote MTA rejected later
+   *  via DSN). */
+  bounced_at?: string;
+  bounce_recipient?: string;
+  bounce_diagnostic?: string;
 }
 
 export interface OutboundEmailPage {

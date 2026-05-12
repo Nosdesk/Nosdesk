@@ -315,6 +315,20 @@ onMounted(async () => {
           >
             {{ row.status }}
           </span>
+          <!-- Bounce badge sits beside the status badge. Bounced
+               rows are usually status=sent (SMTP relay accepted,
+               remote MTA rejected later via DSN); the status pill
+               alone would lie about delivery success. Title carries
+               the upstream diagnostic so a hover reveals "why". -->
+          <span
+            v-if="row.bounced_at"
+            class="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-red-500/10 text-red-700 dark:text-red-400"
+            :title="row.bounce_diagnostic
+              ? `Bounced: ${row.bounce_diagnostic}`
+              : 'Bounced (no upstream diagnostic captured)'"
+          >
+            Bounced
+          </span>
           <span class="text-sm text-primary truncate" :title="row.subject">
             {{ row.subject }}
           </span>
@@ -376,6 +390,14 @@ onMounted(async () => {
             <dt v-if="row.last_error" class="text-secondary">Last error</dt>
             <dd v-if="row.last_error" class="font-mono text-amber-700 dark:text-amber-400">
               {{ row.last_error }}
+            </dd>
+            <dt v-if="row.bounced_at" class="text-secondary">Bounced at</dt>
+            <dd v-if="row.bounced_at">{{ formatDateTime(row.bounced_at) }}</dd>
+            <dt v-if="row.bounce_recipient" class="text-secondary">Bounce recipient</dt>
+            <dd v-if="row.bounce_recipient" class="font-mono">{{ row.bounce_recipient }}</dd>
+            <dt v-if="row.bounce_diagnostic" class="text-secondary">Bounce reason</dt>
+            <dd v-if="row.bounce_diagnostic" class="font-mono text-red-700 dark:text-red-400">
+              {{ row.bounce_diagnostic }}
             </dd>
           </dl>
         </div>
