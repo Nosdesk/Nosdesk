@@ -162,8 +162,11 @@ fn truncate_preview(text: &str, max_len: usize) -> String {
 // Ticket comments and attachments
 pub async fn get_comments_by_ticket_id(
     path: web::Path<i32>,
-    pool: web::Data<crate::db::Pool>
+    pool: web::Data<crate::db::Pool>,
+    req: actix_web::HttpRequest,
 ) -> impl Responder {
+    use crate::repository::ticket_visibility::{self, VisibilityContext};
+
     let ticket_id = path.into_inner();
     debug!(ticket_id, "Getting comments for ticket");
 
@@ -171,6 +174,22 @@ pub async fn get_comments_by_ticket_id(
         Ok(c) => c,
         Err(e) => return e,
     };
+
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(c) => c.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+    let Some(vis) = VisibilityContext::from_claims(&claims) else {
+        return errors::not_found_msg("Ticket not found");
+    };
+    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Ticket not found"),
+        Err(e) => {
+            error!(error = ?e, ticket_id, "get_comments visibility check failed");
+            return errors::internal("Failed to load comments");
+        }
+    }
 
     match crate::repository::comments::get_comments_with_attachments_by_ticket_id(&mut conn, ticket_id) {
         Ok(comments) => {
@@ -250,6 +269,22 @@ pub async fn add_comment_to_ticket(
         Some(claims) => claims.clone(),
         None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
     };
+
+    // AUD-011: a User can only comment on a ticket they can see.
+    {
+        use crate::repository::ticket_visibility::{self, VisibilityContext};
+        let Some(vis) = VisibilityContext::from_claims(&claims) else {
+            return errors::not_found_msg("Ticket not found");
+        };
+        match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
+            Ok(true) => {}
+            Ok(false) => return errors::not_found_msg("Ticket not found"),
+            Err(e) => {
+                error!(error = ?e, ticket_id, "add_comment visibility check failed");
+                return errors::internal("Failed to add comment");
+            }
+        }
+    }
 
     // Parse the authenticated user's UUID from the JWT claims
     let user_uuid_parsed = match crate::utils::parse_uuid(&claims.sub) {

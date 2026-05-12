@@ -44,6 +44,7 @@ use diesel::select;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
+use crate::extractors::AuthContext;
 use crate::models::{Claims, UserRole};
 use crate::schema::{ticket_watchers, tickets};
 
@@ -69,6 +70,17 @@ impl VisibilityContext {
             _ => return None,
         };
         Some(Self { user_uuid, role })
+    }
+
+    /// Build from the `AuthContext` extractor that most handlers
+    /// already destructure out of the request. Avoids re-parsing
+    /// the claims string-fields when the typed UUID + UserRole are
+    /// already on hand.
+    pub fn from_auth(auth: &AuthContext) -> Self {
+        Self {
+            user_uuid: auth.user_uuid,
+            role: auth.role,
+        }
     }
 
     /// True when the role is unrestricted (sees every ticket). v1
@@ -121,6 +133,30 @@ pub fn visible_tickets_query<'a>(
 /// }
 /// // ... load full ticket detail ...
 /// ```
+/// Given a candidate list of ticket ids, return the subset the
+/// caller can read. Used by search and any other surface that
+/// produces a pre-baked list of ticket references (search index,
+/// in-memory caches) and needs to filter them post-hoc against
+/// the visibility predicate.
+///
+/// Returns an empty set on empty input and a fast all-pass for
+/// staff (still a single `IN`-filtered SELECT so callers don't
+/// have to special-case role).
+pub fn visible_ticket_ids(
+    conn: &mut DbConnection,
+    ctx: &VisibilityContext,
+    candidate_ids: &[i32],
+) -> QueryResult<std::collections::HashSet<i32>> {
+    if candidate_ids.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+    let ids: Vec<i32> = visible_tickets_query(ctx)
+        .filter(tickets::id.eq_any(candidate_ids))
+        .select(tickets::id)
+        .load(conn)?;
+    Ok(ids.into_iter().collect())
+}
+
 pub fn can_view_ticket(
     conn: &mut DbConnection,
     ctx: &VisibilityContext,
@@ -206,6 +242,33 @@ mod tests {
             .unwrap();
 
         assert!(can_view_ticket(&mut conn, &ctx(alice.uuid, UserRole::User), ticket.id).unwrap());
+    }
+
+    #[test]
+    fn visible_ticket_ids_filters_to_subset() {
+        let mut conn = setup_test_connection();
+        let alice = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
+        let bob = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let mine = TestFixtures::create_ticket(&mut conn, "mine", Some(alice.uuid), None);
+        let hers = TestFixtures::create_ticket(&mut conn, "hers", Some(bob.uuid), None);
+
+        let visible = visible_ticket_ids(
+            &mut conn,
+            &ctx(alice.uuid, UserRole::User),
+            &[mine.id, hers.id, 999_999],
+        )
+        .unwrap();
+        assert!(visible.contains(&mine.id));
+        assert!(!visible.contains(&hers.id));
+        assert!(!visible.contains(&999_999));
+    }
+
+    #[test]
+    fn visible_ticket_ids_empty_input_returns_empty() {
+        let mut conn = setup_test_connection();
+        let alice = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
+        let visible = visible_ticket_ids(&mut conn, &ctx(alice.uuid, UserRole::User), &[]).unwrap();
+        assert!(visible.is_empty());
     }
 
     #[test]

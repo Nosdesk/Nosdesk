@@ -1096,12 +1096,15 @@ mod tests {
         .unwrap();
         assert_eq!(outcome, PipelineOutcome::SkippedBounce);
 
-        // A bounce must not produce a ticket nor leak into the
-        // channel_messages ledger; the suppression-list pass will
-        // pick it up from the raw DSN content instead.
-        assert!(channels_repo::find_by_external_id(&mut conn, ch.id, "<dsn@ex>")
+        // The DSN row is recorded with `ticket_id = None` so a
+        // duplicate arrival is caught by the dedup short-circuit at
+        // the top of the bounce branch. The presence of the marker
+        // is what makes the second pass return `SkippedDuplicate`
+        // instead of double-processing.
+        let recorded = channels_repo::find_by_external_id(&mut conn, ch.id, "<dsn@ex>")
             .unwrap()
-            .is_none());
+            .expect("bounce dedup marker should be recorded");
+        assert!(recorded.ticket_id.is_none(), "bounces don't open a ticket");
     }
 
     /// Helper: build a NewOutboundEmail for use in bounce-flow tests.

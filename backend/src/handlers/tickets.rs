@@ -330,8 +330,9 @@ pub async fn get_ticket_activity(
     pool: web::Data<crate::db::Pool>,
     params: web::Path<i32>,
     query: web::Query<TicketActivityQuery>,
-    _claims: web::ReqData<Claims>,
+    claims: web::ReqData<Claims>,
 ) -> impl Responder {
+    use crate::repository::ticket_visibility::{self, VisibilityContext};
     use crate::schema::sync_actions;
 
     let ticket_id = params.into_inner();
@@ -339,6 +340,18 @@ pub async fn get_ticket_activity(
         Ok(c) => c,
         Err(e) => return e,
     };
+
+    let Some(vis) = VisibilityContext::from_claims(&claims) else {
+        return errors::not_found_msg("Ticket not found");
+    };
+    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Ticket not found"),
+        Err(e) => {
+            error!(error = ?e, ticket_id, "ticket_activity visibility check failed");
+            return errors::internal("Failed to load ticket activity");
+        }
+    }
 
     let limit = query.limit.unwrap_or(DEFAULT_ACTIVITY_LIMIT).clamp(1, MAX_ACTIVITY_LIMIT);
     let group_marker = format!("ticket:{}", ticket_id);
@@ -570,11 +583,30 @@ pub async fn update_ticket(
     path: web::Path<i32>,
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
+    use crate::repository::ticket_visibility::{self, VisibilityContext};
+
     let ticket_id = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
+
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+    let Some(vis) = VisibilityContext::from_claims(&claims) else {
+        return errors::not_found_msg("Ticket not found");
+    };
+    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Ticket not found"),
+        Err(e) => {
+            error!(error = ?e, ticket_id, "update_ticket visibility check failed");
+            return errors::internal("Failed to update ticket");
+        }
+    }
+
     let new_ticket = ticket.into_inner();
 
     // Validate assignee role if assignee is set
@@ -896,6 +928,23 @@ pub async fn update_ticket_partial(
         Some(claims) => claims.clone(),
         None => return errors::unauthorized("Authentication required"),
     };
+
+    // AUD-011: visibility gate so a User can't PATCH a ticket they
+    // can't see. Returns 404 to avoid disclosing existence.
+    {
+        use crate::repository::ticket_visibility::{self, VisibilityContext};
+        let Some(vis) = VisibilityContext::from_claims(&user_info) else {
+            return errors::not_found_msg("Ticket not found");
+        };
+        match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
+            Ok(true) => {}
+            Ok(false) => return errors::not_found_msg("Ticket not found"),
+            Err(e) => {
+                error!(error = ?e, ticket_id, "update_ticket_partial visibility check failed");
+                return errors::internal("Failed to update ticket");
+            }
+        }
+    }
 
     // Get the current ticket state for detecting changes (for notifications)
     let old_ticket = repository::get_ticket_by_id(&mut conn, ticket_id).ok();
@@ -1624,6 +1673,7 @@ pub async fn record_ticket_view(
     path: web::Path<i32>,
     claims: web::ReqData<Claims>,
 ) -> impl Responder {
+    use crate::repository::ticket_visibility::{self, VisibilityContext};
     use crate::repository::user_ticket_views::UserTicketViewsRepository;
 
     let ticket_id = path.into_inner();
@@ -1632,6 +1682,26 @@ pub async fn record_ticket_view(
         Ok(uuid) => uuid,
         Err(_) => return errors::bad_request("Invalid user UUID: The user UUID in the authentication token is invalid"),
     };
+
+    // Don't record views for tickets the caller isn't allowed to see —
+    // otherwise the recent-views list becomes an existence oracle.
+    {
+        let mut conn = match helpers::db_conn(&pool) {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
+        let Some(vis) = VisibilityContext::from_claims(&claims_inner) else {
+            return errors::not_found_msg("Ticket not found");
+        };
+        match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
+            Ok(true) => {}
+            Ok(false) => return errors::not_found_msg("Ticket not found"),
+            Err(e) => {
+                error!(error = ?e, ticket_id, "record_ticket_view visibility check failed");
+                return errors::internal("Failed to record ticket view");
+            }
+        }
+    }
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
 
@@ -1694,6 +1764,14 @@ pub async fn bulk_tickets(
         Some(claims) => claims.clone(),
         None => return errors::unauthorized("Unauthorized: Authentication required"),
     };
+
+    // Bulk mutations are a staff-only affordance. The end-user surface
+    // doesn't expose multi-select; gating here keeps Users out of a
+    // surface that has no UX path for them and avoids per-id IDOR
+    // sweeps via the bulk endpoint.
+    if !is_technician_or_admin(&claims) {
+        return errors::forbidden("Forbidden: Bulk ticket actions are restricted to staff");
+    }
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,

@@ -89,6 +89,25 @@ file upload, SSRF, info disclosure, HTTP headers, rate limiting,
 outbound email, plugin sandboxing, CSRF, secrets in logs, TLS,
 backup/restore.
 
+### Visibility gate coverage
+
+The `repository::ticket_visibility` primitive is the one source of
+truth for "which tickets is this user allowed to read." Every
+ticket-scoped handler now consumes it via one of two entry points:
+
+* `can_view_ticket(conn, ctx, id) -> bool` — single-record gate,
+  used by `get_ticket`, `update_ticket`, `update_ticket_partial`,
+  `get_ticket_activity`, `get_comments_by_ticket_id`,
+  `add_comment_to_ticket`, `set_ticket_tags`, `watch_ticket`,
+  `list_watchers`, `my_watch_state`, `record_ticket_view`.
+* `visible_tickets_query(ctx)` / `visible_ticket_ids(conn, ctx, ids)`
+  — list-shape filters, used by `search` to drop ticket and comment
+  results an end-user shouldn't see.
+
+Returning `404` (not `403`) on a deny is intentional, per the OWASP
+IDOR Cheatsheet: a `403` leaks ticket-id existence and enables
+enumeration.
+
 ### Findings shipped before v1
 
 | ID | Severity | Surface | Status |
@@ -103,7 +122,7 @@ backup/restore.
 | AUD-008 | Medium | Backup restore uses string-concatenated SQL (admin-gated) | Tracked as task |
 | AUD-009 | Medium | Email From-address spoofing via configured channel | Deployment / config concern |
 | AUD-010 | Medium | Image decompression-bomb defence not directly verified | Tracked as task |
-| AUD-011 | Low | Sibling write handlers (`update_ticket`, `delete_ticket`, etc.) likely need same visibility check as AUD-001 | Tracked as task |
+| AUD-011 | Low | Sibling write handlers (`update_ticket`, `delete_ticket`, etc.) likely need same visibility check as AUD-001 | **Fixed** — sweep applied the visibility gate to `watch_ticket`, `list_watchers`, `my_watch_state`, `update_ticket`, `update_ticket_partial`, `get_ticket_activity`, `get_comments_by_ticket_id`, `add_comment_to_ticket`, `set_ticket_tags`, `record_ticket_view`, and full-text `search` results for end-users. `bulk_tickets` is now staff-only. `delete_ticket` was already admin-only. |
 | AUD-012 | Low | Invitation acceptance rate-limit coverage unverified | Tracked as task |
 | AUD-013 | Low | Lockout keyed by email only (can DoS a known user) | Tracked as task |
 

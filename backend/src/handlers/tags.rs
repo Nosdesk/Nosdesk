@@ -14,6 +14,7 @@ use crate::handlers::{errors, helpers};
 use crate::handlers::helpers::with_actor;
 use crate::models::{NewTag, TagUpdate};
 use crate::repository::tags as repo;
+use crate::repository::ticket_visibility::{self, VisibilityContext};
 use crate::sync::actor::ActorContext;
 
 #[derive(Debug, Deserialize)]
@@ -133,6 +134,15 @@ pub async fn set_ticket_tags(
         Ok(c) => c,
         Err(e) => return e,
     };
+    let vis = VisibilityContext::from_auth(&auth);
+    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Ticket not found"),
+        Err(e) => {
+            error!(error = %e, ticket_id, "set_ticket_tags visibility check failed");
+            return errors::internal("Failed to update ticket tags");
+        }
+    }
     let actor_ctx = ActorContext::user(auth.user_uuid, None);
     match with_actor(&mut conn, &actor_ctx, |conn| {
         repo::set_tags_for_ticket(conn, ticket_id, &body.tag_ids, Some(auth.user_uuid))

@@ -64,7 +64,62 @@ pub async fn search(
     let include_internal = !matches!(claims.role.as_str(), "user");
 
     match search_service.search(&query, include_internal) {
-        Ok(response) => {
+        Ok(mut response) => {
+            // AUD-011: end-users must not learn about tickets they
+            // can't read via search. Staff bypass this filter (their
+            // visibility predicate matches every ticket). Comment
+            // hits are filtered by the parent ticket id parsed out
+            // of the result URL (`/tickets/{id}`).
+            if claims.role.as_str() == "user" {
+                use crate::repository::ticket_visibility::{self, VisibilityContext};
+
+                let vis_opt = VisibilityContext::from_claims(&claims);
+                let candidate_ids: Vec<i32> = response
+                    .results
+                    .iter()
+                    .filter_map(|r| match r.entity_type.as_str() {
+                        "ticket" => i32::try_from(r.entity_id).ok(),
+                        "comment" => r
+                            .url
+                            .strip_prefix("/tickets/")
+                            .and_then(|s| s.parse::<i32>().ok()),
+                        _ => None,
+                    })
+                    .collect();
+
+                if let (Some(vis), false) = (vis_opt, candidate_ids.is_empty()) {
+                    let mut conn = match helpers::db_conn(&pool) {
+                        Ok(c) => c,
+                        Err(e) => return e,
+                    };
+                    match ticket_visibility::visible_ticket_ids(
+                        &mut conn,
+                        &vis,
+                        &candidate_ids,
+                    ) {
+                        Ok(visible) => {
+                            response.results.retain(|r| match r.entity_type.as_str() {
+                                "ticket" => i32::try_from(r.entity_id)
+                                    .map(|id| visible.contains(&id))
+                                    .unwrap_or(false),
+                                "comment" => r
+                                    .url
+                                    .strip_prefix("/tickets/")
+                                    .and_then(|s| s.parse::<i32>().ok())
+                                    .map(|id| visible.contains(&id))
+                                    .unwrap_or(false),
+                                _ => true,
+                            });
+                            response.total = response.results.len();
+                        }
+                        Err(e) => {
+                            error!(error = ?e, "search visibility filter failed");
+                            return errors::internal("Search failed");
+                        }
+                    }
+                }
+            }
+
             debug!(
                 query = %response.query,
                 results = response.results.len(),
