@@ -1,4 +1,10 @@
 use crate::models::{NewUserTicketView, RecentTicket, UpdateUserTicketView, UserTicketView};
+
+/// How many recent-tickets rows the sidebar / dashboard widget
+/// fetch in one go. Surfaced as a constant so the handler and
+/// any future consumer agree without a magic number drifting
+/// between them.
+pub const RECENT_TICKETS_LIMIT: i64 = 15;
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool};
@@ -69,22 +75,30 @@ impl UserTicketViewsRepository {
         .execute(&mut conn)
     }
 
-    /// Get recent tickets for a user
+    /// Get recent tickets for a user.
+    ///
+    /// One JOIN to `workflow_states` so the category enum lands
+    /// alongside the row in a single query. The previous loop
+    /// asked `category_of` per row; even though that helper is
+    /// cached, the lookup-and-RwLock-grab on each iteration was
+    /// avoidable noise. With the category pulled directly,
+    /// nothing in the result-mapping loop touches the DB or the
+    /// cache.
     pub fn get_recent_tickets(
         &self,
         user_uuid_param: Uuid,
         limit: i64,
     ) -> Result<Vec<RecentTicket>, diesel::result::Error> {
-        use crate::schema::tickets;
-        use crate::schema::user_ticket_views;
+        use crate::models::WorkflowStateCategory;
+        use crate::schema::{tickets, user_ticket_views, workflow_states};
 
         let mut conn = self.pool.get().expect("Failed to get DB connection");
 
-        // Join user_ticket_views with tickets, ordered by last_viewed_at
         let rows: Vec<(
             i32,
             String,
             i32,
+            Option<WorkflowStateCategory>,
             Option<Uuid>,
             Option<Uuid>,
             chrono::NaiveDateTime,
@@ -93,6 +107,7 @@ impl UserTicketViewsRepository {
             i32,
         )> = user_ticket_views::table
             .inner_join(tickets::table.on(user_ticket_views::ticket_id.eq(tickets::id)))
+            .left_join(workflow_states::table.on(tickets::workflow_state_id.eq(workflow_states::id)))
             .filter(user_ticket_views::user_uuid.eq(user_uuid_param))
             .order(user_ticket_views::last_viewed_at.desc())
             .limit(limit)
@@ -100,6 +115,7 @@ impl UserTicketViewsRepository {
                 tickets::id,
                 tickets::title,
                 tickets::workflow_state_id,
+                workflow_states::category.nullable(),
                 tickets::requester_uuid,
                 tickets::assignee_uuid,
                 tickets::created_at,
@@ -112,11 +128,8 @@ impl UserTicketViewsRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(tid, ttitle, ws_id, req, ass, created, updated, last_viewed, views)| {
-                    let cat = crate::repository::workflow_states::category_of(&mut conn, ws_id)
-                        .ok()
-                        .flatten()
-                        .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+                |(tid, ttitle, ws_id, cat, req, ass, created, updated, last_viewed, views)| {
+                    let cat = cat.unwrap_or(WorkflowStateCategory::Backlog);
                     RecentTicket {
                         id: tid,
                         title: ttitle,

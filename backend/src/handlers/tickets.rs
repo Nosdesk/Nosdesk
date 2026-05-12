@@ -1581,23 +1581,46 @@ pub async fn get_recent_tickets(
     pool: web::Data<crate::db::Pool>,
     claims: web::ReqData<Claims>,
 ) -> impl Responder {
+    use crate::repository::ticket_visibility::{self, VisibilityContext};
     use crate::repository::user_ticket_views::UserTicketViewsRepository;
 
     let claims_inner = claims.into_inner();
-    let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
-        Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid user UUID: The user UUID in the authentication token is invalid"),
+    let Some(vis) = VisibilityContext::from_claims(&claims_inner) else {
+        return errors::unauthorized("Authentication required");
     };
+    let user_uuid = vis.user_uuid;
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
 
-    match repo.get_recent_tickets(user_uuid, 15) {
-        Ok(tickets) => HttpResponse::Ok().json(tickets),
+    let recent = match repo.get_recent_tickets(user_uuid, crate::repository::user_ticket_views::RECENT_TICKETS_LIMIT) {
+        Ok(t) => t,
         Err(e) => {
             error!(error = ?e, "Failed to fetch recent tickets");
-            errors::internal("Failed to fetch recent tickets")
+            return errors::internal("Failed to fetch recent tickets");
         }
-    }
+    };
+
+    // AUD-001 follow-up: a row that landed in `user_ticket_views`
+    // before the caller's visibility narrowed (group membership
+    // change, ticket reassigned to a private project, etc.) is
+    // still in `recent` because the join only checks existence.
+    // Filter against the same primitive that gates single-record
+    // fetches so the sidebar can't surface titles for tickets the
+    // user can no longer read.
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let candidate_ids: Vec<i32> = recent.iter().map(|r| r.id).collect();
+    let visible = match ticket_visibility::visible_ticket_ids(&mut conn, &vis, &candidate_ids) {
+        Ok(ids) => ids,
+        Err(e) => {
+            error!(error = ?e, "Failed to filter recent tickets by visibility");
+            return errors::internal("Failed to fetch recent tickets");
+        }
+    };
+    let filtered: Vec<_> = recent.into_iter().filter(|t| visible.contains(&t.id)).collect();
+    HttpResponse::Ok().json(filtered)
 }
 
 // Record a ticket view. Extractor handles visibility — no
