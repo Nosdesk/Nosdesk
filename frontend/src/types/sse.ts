@@ -149,6 +149,26 @@ export interface ViewersChangedEventData {
 }
 
 /**
+ * Fields the backend allows on the `/field-preview` endpoint.
+ * Mirrors `PreviewableField` in `backend/src/handlers/tickets.rs`.
+ * Kept as a literal union so call sites can't typo into a field
+ * the backend will reject.
+ */
+export type PreviewableField = 'title' | 'resolution_notes'
+
+/**
+ * ticket-field-previewed event data. Transient in-flight value
+ * broadcast during typing. Not persistent: the next `ticket-updated`
+ * with the committed value is what consumers should rely on for
+ * durable state.
+ */
+export interface TicketFieldPreviewedEventData {
+  ticket_id: number
+  field: PreviewableField
+  value: string
+}
+
+/**
  * Actor who triggered a notification
  */
 export interface NotificationActor {
@@ -191,6 +211,7 @@ export type SSEEventData =
   | TicketLinkEventData
   | ProjectEventData
   | ViewersChangedEventData
+  | TicketFieldPreviewedEventData
   | NotificationReceivedEventData
 
 /**

@@ -144,6 +144,19 @@ pub enum SseEvent {
         viewers: Vec<crate::services::presence::ViewerInfo>,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// Transient in-flight edit on a single ticket field. Broadcast
+    /// during typing so other viewers' UI mirrors the keystrokes
+    /// without the backend writing to the DB or emitting a
+    /// `sync_actions` activity row. The PATCH commit path remains
+    /// the only writer; this channel exists purely to decouple
+    /// real-time mirroring from persistence. Routed to
+    /// `TopicKey::Ticket(ticket_id)` like `ViewersChanged`.
+    TicketFieldPreviewed {
+        ticket_id: i32,
+        field: String,
+        value: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     UserUpdated {
         user_uuid: String,
         field: String,
@@ -207,6 +220,7 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::KnowledgeGapDetected { .. } => "knowledge-gap-detected",
         SseEvent::KnowledgeGapResolved { .. } => "knowledge-gap-resolved",
         SseEvent::ViewersChanged { .. } => "viewers-changed",
+        SseEvent::TicketFieldPreviewed { .. } => "ticket-field-previewed",
         SseEvent::UserUpdated { .. } => "user-updated",
         SseEvent::UserCreated { .. } => "user-created",
         SseEvent::UserDeleted { .. } => "user-deleted",
@@ -346,6 +360,7 @@ impl SseState {
                 TopicKey::User(recipient_uuid.clone())
             }
             SseEvent::ViewersChanged { ticket_id, .. } => TopicKey::Ticket(*ticket_id),
+            SseEvent::TicketFieldPreviewed { ticket_id, .. } => TopicKey::Ticket(*ticket_id),
             _ => TopicKey::Global,
         }
     }

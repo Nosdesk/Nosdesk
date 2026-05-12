@@ -384,6 +384,92 @@ pub async fn get_ticket_activity(
     HttpResponse::Ok().json(TicketActivityResponse { events, next_cursor })
 }
 
+// ----------------------------------------------------------------------
+// In-flight field preview (no-op against the DB)
+//
+// Decouples real-time mirroring (every keystroke broadcast to other
+// viewers) from persistence (one PATCH per editing session, one
+// activity row). The PATCH commit path stays the only writer; this
+// endpoint broadcasts a transient `TicketFieldPreviewed` SSE event
+// scoped to the ticket's topic so the activity log doesn't bloat
+// with one row per debounced keystroke.
+//
+// Field allowlist: only fields where per-keystroke broadcast is
+// useful land here. Discrete fields (status, priority, assignee)
+// have nothing to "preview" — their PATCH is already the user's
+// commit.
+//
+// The article body is unaffected; it uses Yjs over a WebSocket and
+// has its own snapshot/revision pipeline.
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewableField {
+    Title,
+    ResolutionNotes,
+}
+
+impl PreviewableField {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Title => "title",
+            Self::ResolutionNotes => "resolution_notes",
+        }
+    }
+
+    /// Per-field upper bound on the preview value. Keeps a single
+    /// abusive request from broadcasting megabytes to every other
+    /// viewer on the topic. Matches the field's effective storage
+    /// limits, not exactly the column constraint, so PATCH-side
+    /// validation still has the final say.
+    fn max_len(self) -> usize {
+        match self {
+            Self::Title => 500,
+            Self::ResolutionNotes => 50_000,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TicketFieldPreviewBody {
+    pub field: PreviewableField,
+    pub value: String,
+}
+
+/// Broadcast a transient preview of an in-flight field edit to
+/// other ticket viewers. No DB write, no `sync_actions` row, no
+/// webhook fan-out. Echo suppression is handled at the SSE layer
+/// via `X-SSE-Client-Id` so the sender's own preview doesn't loop
+/// back into their UI.
+pub async fn preview_ticket_field(
+    req: HttpRequest,
+    access: TicketAccess,
+    body: web::Json<TicketFieldPreviewBody>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
+) -> impl Responder {
+    if body.value.len() > body.field.max_len() {
+        return errors::bad_request("Preview value exceeds maximum length");
+    }
+
+    let source_client_id = extract_sse_client_id(&req);
+    sse_state
+        .broadcast_event_from(
+            crate::handlers::sse::SseEvent::TicketFieldPreviewed {
+                ticket_id: access.ticket_id,
+                field: body.field.as_str().to_string(),
+                value: body.value.clone(),
+                timestamp: chrono::Utc::now(),
+            },
+            source_client_id,
+        )
+        .await;
+
+    // 202 Accepted: we've handed it to the broadcaster; there is
+    // no resource to return, and the caller shouldn't wait on the
+    // fan-out.
+    HttpResponse::Accepted().finish()
+}
+
 // Get a ticket by ID with comments and related info.
 //
 // The visibility gate is part of the `TicketAccess` extractor —

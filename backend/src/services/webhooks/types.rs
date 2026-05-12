@@ -160,6 +160,7 @@ impl WebhookEventType {
             SseEvent::CollectionUpdated { .. } => None,
             SseEvent::Heartbeat { .. } => None,
             SseEvent::ViewersChanged { .. } => None,
+            SseEvent::TicketFieldPreviewed { .. } => None,
             SseEvent::NotificationReceived { .. } => None,
             SseEvent::KnowledgeGapDetected { .. } => None,
             SseEvent::KnowledgeGapResolved { .. } => None,

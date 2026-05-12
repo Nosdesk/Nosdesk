@@ -19,6 +19,7 @@ import {
   type ProjectEventData,
   type ViewerInfo,
   type ViewersChangedEventData,
+  type TicketFieldPreviewedEventData,
 } from "@/types/sse";
 
 // Enable debug logging only in development
@@ -329,6 +330,31 @@ export function useTicketSSE(
     activeViewers.value = eventData.viewers ?? [];
   }
 
+  // Handle ticket-field-previewed: another viewer is typing into a
+  // field. Apply to local state so the UI mirrors their keystrokes
+  // in real time. No persistence: the backend doesn't write this,
+  // and the eventual `ticket-updated` will overwrite us with the
+  // committed value (which will be identical to the final preview
+  // if the writer didn't undo).
+  //
+  // Echo suppression for our own previews is handled upstream by
+  // sseService (source_client_id match), so we don't gate by
+  // sender here. `shouldApplyUpdate` still protects locally
+  // focused edits: if WE are typing in the title, a remote
+  // preview for "title" must not overwrite our in-progress text.
+  function handleTicketFieldPreviewed(rawData: unknown): void {
+    const eventData = unwrapEventData(rawData as TicketFieldPreviewedEventData);
+    if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
+    if (!shouldApplyUpdate(eventData.field)) return;
+
+    if (eventData.field === "title") {
+      ticket.value.title = eventData.value;
+      titleManager.setTicket(ticket.value);
+    } else if (eventData.field === "resolution_notes") {
+      ticket.value.resolution_notes = eventData.value;
+    }
+  }
+
   // SSE event types used by this composable
   type TicketSSEEventType =
     | "ticket-updated"
@@ -341,7 +367,8 @@ export function useTicketSSE(
     | "ticket-unlinked"
     | "project-assigned"
     | "project-unassigned"
-    | "viewers-changed";
+    | "viewers-changed"
+    | "ticket-field-previewed";
 
   // Event handler type for SSE events
   type SSEEventHandler = (data: unknown) => void | Promise<void>;
@@ -359,6 +386,7 @@ export function useTicketSSE(
     "project-assigned": handleProjectAssigned,
     "project-unassigned": handleProjectUnassigned,
     "viewers-changed": handleViewersChanged,
+    "ticket-field-previewed": handleTicketFieldPreviewed,
   };
 
   // Setup event listeners

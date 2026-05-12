@@ -102,6 +102,25 @@ export const updateTicket = async (id: number, ticket: Partial<Ticket>): Promise
   }
 };
 
+/**
+ * Broadcast an in-flight value for a field to other ticket viewers
+ * without writing to the database. The backend fans the value out
+ * over the per-ticket SSE topic and skips both the activity log
+ * and webhook fan-out. Pair with `updateTicket` on a commit
+ * boundary (blur, idle timeout) to persist.
+ *
+ * Best-effort: a network failure here just drops one preview tick.
+ * The next preview supersedes it, and the eventual commit carries
+ * the final value.
+ */
+export const previewTicketField = async (
+  id: number,
+  field: 'title' | 'resolution_notes',
+  value: string,
+): Promise<void> => {
+  await apiClient.post(`/tickets/${id}/field-preview`, { field, value });
+};
+
 export const deleteTicket = async (id: number): Promise<void> => {
   try {
     await apiClient.delete(`/tickets/${id}`);
@@ -322,6 +341,7 @@ export default {
   getTicketById,
   createTicket,
   updateTicket,
+  previewTicketField,
   deleteTicket,
   createEmptyTicket,
   linkTicket,

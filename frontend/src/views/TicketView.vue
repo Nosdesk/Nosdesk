@@ -14,6 +14,7 @@ import type { Ticket } from "@/types/ticket";
 import { useTicketData } from "@/composables/useTicketData";
 import { useTicketUiStore } from "@/stores/ticketUi";
 import { useTicketSSE } from "@/composables/useTicketSSE";
+import { useFieldAutoSave } from "@/composables/useFieldAutoSave";
 import { useTicketDevices } from "@/composables/useTicketDevices";
 import { useTicketRelationships } from "@/composables/useTicketRelationships";
 import { useTicketComments } from "@/composables/useTicketComments";
@@ -377,55 +378,55 @@ const { addComment, deleteAttachment, deleteComment } = useTicketComments(
     refreshTicket,
 );
 
-// Debounced backend save for title
-let titleUpdateTimeout: NodeJS.Timeout | null = null;
-let lastSavedTitle: string | null = null;
+// Title editing pipeline. Two channels:
+//   - preview: broadcast every typing pause to other viewers via
+//     SSE. No DB write, no activity row.
+//   - commit:  persist the final value via PATCH, which is what
+//     stamps the activity log. Fires on idle (3s of no typing),
+//     on blur, or on a hard 8s cap to bound unsaved work.
+// Local UI updates immediately on every keystroke regardless.
+const titleAutoSave = useFieldAutoSave<string>({
+    preview: async (value) => {
+        if (!ticket.value) return;
+        await ticketService.previewTicketField(ticket.value.id, 'title', value);
+    },
+    commit: async (value) => {
+        if (!ticket.value) return;
+        await ticketService.updateTicket(ticket.value.id, { title: value });
+    },
+});
 
-// Called when user starts editing the title (focus)
 const handleTitleFocus = () => {
     startEditing('title');
+    // Baseline the autosaver against the value at focus time so a
+    // user who types and reverts back to the original skips a
+    // redundant commit. `seed` doesn't schedule any network work,
+    // unlike `update`, so focusing-without-typing stays free.
+    if (ticket.value) {
+        titleAutoSave.seed(ticket.value.title);
+    }
 };
 
-// Called when user stops editing the title (blur)
-const handleTitleBlur = () => {
+const handleTitleBlur = async () => {
     stopEditing('title');
-    lastSavedTitle = null; // Reset for next edit session
+    // Flush any pending commit immediately. `commitNow` is a no-op
+    // when the value matches the last successful commit, so a
+    // focus-without-typing blur stays free.
+    try {
+        await titleAutoSave.commitNow();
+    } catch (error) {
+        console.error('Failed to save title:', error);
+    }
 };
 
 const handleTitleUpdate = (newTitle: string) => {
-    // Update local ticket immediately for instant UI feedback
+    // Local optimistic update first: the editor IS the user, no need
+    // to wait for a round trip to reflect their own keystroke.
     if (ticket.value) {
-        // Store the last saved title on first edit
-        if (lastSavedTitle === null) {
-            lastSavedTitle = ticket.value.title;
-        }
-
-        // Update locally immediately
         ticket.value.title = newTitle;
-
-        // Update title manager immediately so header updates
         titleManager.setTicket(ticket.value);
     }
-
-    // Clear any pending backend save
-    if (titleUpdateTimeout) {
-        clearTimeout(titleUpdateTimeout);
-    }
-
-    // Debounce the backend save (300ms)
-    titleUpdateTimeout = setTimeout(async () => {
-        if (ticket.value && lastSavedTitle !== newTitle) {
-            try {
-                // Call the API directly without reverting local state
-                await ticketService.updateTicket(ticket.value.id, { title: newTitle });
-
-                // Update our saved reference
-                lastSavedTitle = newTitle;
-            } catch (error) {
-                console.error('Failed to save title:', error);
-            }
-        }
-    }, 300);
+    titleAutoSave.update(newTitle);
 };
 
 // Emit ticket updates - pass the full reactive ticket object

@@ -28,6 +28,7 @@ const ALL_SSE_EVENT_TYPES = [
   "project-assigned",
   "project-unassigned",
   "viewers-changed",
+  "ticket-field-previewed",
   "documentation-created",
   "documentation-updated",
   "collection-updated",
