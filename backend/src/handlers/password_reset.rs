@@ -16,75 +16,88 @@ use crate::utils::email_branding::get_email_branding;
 /// Rate limiting: Maximum password reset requests per user within time window
 const MAX_RESET_REQUESTS_PER_HOUR: i64 = 3;
 
-/// Request a password reset - sends email with reset link
+/// Request a password reset - sends email with reset link.
+///
+/// AUD-007: the handler always returns the same generic success
+/// message at constant latency. The token-issue + email-send
+/// work happens in a detached `tokio::spawn` task so missing
+/// users and real users return on the same timeline. The
+/// previous in-line `.await` leaked existence via SMTP round-
+/// trip latency even though the response body was identical.
 pub async fn request_password_reset(
     db_pool: web::Data<crate::db::Pool>,
     request_data: web::Json<PasswordResetRequest>,
     http_request: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Validate email format
     let email = request_data.email.trim().to_lowercase();
     if email.is_empty() || !email.contains('@') {
         return errors::bad_request("Invalid email address");
     }
 
-    // Extract IP address and user agent for audit trail
     let ip_address = crate::utils::client_ip::from_http_request(&http_request)
         .map(|ip| ip.to_string());
-
-    let user_agent = http_request.headers()
+    let user_agent = http_request
+        .headers()
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
+    let scheme = http_request.connection_info().scheme().to_string();
+    let host = http_request.connection_info().host().to_string();
 
-    // Find user by email
-    // IMPORTANT: We return the same response regardless of whether the user exists
-    // This prevents account enumeration attacks
+    let pool = db_pool.clone();
+    tokio::spawn(async move {
+        if let Err(e) = issue_password_reset(pool, email, ip_address, user_agent, scheme, host).await {
+            // Errors are logged inside; this branch is only hit on
+            // unrecoverable failures. Never re-throw to the caller.
+            error!(error = %e, "password reset background task failed");
+        }
+    });
+
+    HttpResponse::Ok().json(PasswordResetResponse {
+        message: "If an account with that email exists, a password reset link has been sent."
+            .to_string(),
+    })
+}
+
+/// The actual work, off the response path.
+async fn issue_password_reset(
+    pool: web::Data<crate::db::Pool>,
+    email: String,
+    ip_address: Option<String>,
+    user_agent: Option<String>,
+    scheme: String,
+    host: String,
+) -> Result<(), String> {
+    let mut conn = pool
+        .get()
+        .map_err(|e| format!("db pool: {e}"))?;
+
     let user = match repository::get_user_by_email(&email, &mut conn) {
-        Ok(user) => user,
+        Ok(u) => u,
         Err(_) => {
-            // User doesn't exist - return success anyway to prevent enumeration
             info!("Password reset requested for non-existent email: {}", email);
-            return HttpResponse::Ok().json(PasswordResetResponse {
-                message: "If an account with that email exists, a password reset link has been sent.".to_string(),
-            });
+            return Ok(());
         }
     };
 
-    // Check rate limiting - count recent tokens for this user
     let since = Utc::now() - Duration::hours(1);
-    let recent_count = match repository::reset_tokens::count_recent_tokens(
+    let recent_count = repository::reset_tokens::count_recent_tokens(
         &mut conn,
         user.uuid,
         TokenType::PasswordReset.as_str(),
         since,
-    ) {
-        Ok(count) => count,
-        Err(e) => {
-            error!("Failed to check rate limit for password reset: {}", e);
-            return errors::internal("Failed to process reset request");
-        }
-    };
-
+    )
+    .map_err(|e| format!("count_recent_tokens: {e}"))?;
     if recent_count >= MAX_RESET_REQUESTS_PER_HOUR {
-        warn!("Rate limit exceeded for password reset: user_uuid={}, ip={:?}",
-              user.uuid, ip_address);
-        // Return success message to prevent enumeration, but don't send email
-        return HttpResponse::Ok().json(PasswordResetResponse {
-            message: "If an account with that email exists, a password reset link has been sent.".to_string(),
-        });
+        warn!(
+            "Rate limit exceeded for password reset: user_uuid={}, ip={:?}",
+            user.uuid, ip_address
+        );
+        return Ok(());
     }
 
-    // Generate reset token
     let reset_token = ResetTokenUtils::create_reset_token(user.uuid, TokenType::PasswordReset);
-
-    // Store token hash in database
-    if let Err(e) = repository::reset_tokens::create_reset_token(
+    repository::reset_tokens::create_reset_token(
         &mut conn,
         &reset_token.token_hash,
         user.uuid,
@@ -92,72 +105,45 @@ pub async fn request_password_reset(
         ip_address.as_deref(),
         user_agent.as_deref(),
         reset_token.expires_at,
-        None, // No metadata needed for password reset
-    ) {
-        error!("Failed to create password reset token: {}", e);
-        return errors::internal("Failed to process reset request");
-    }
+        None,
+    )
+    .map_err(|e| format!("create_reset_token: {e}"))?;
 
-    // Get base URL from environment or request
-    let base_url = std::env::var("FRONTEND_URL")
-        .unwrap_or_else(|_| {
-            // Fallback to constructing from request
-            let scheme = if http_request.connection_info().scheme() == "https" {
-                "https"
-            } else {
-                "http"
-            };
-            let host = http_request.connection_info().host().to_string();
-            format!("{scheme}://{host}")
-        });
+    let base_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| format!("{scheme}://{host}"));
 
-    // Get user's primary email for sending reset link
-    let user_email = match crate::repository::user_helpers::get_primary_email(&user.uuid, &mut conn) {
-        Some(email) => email,
-        None => {
-            warn!("User {} has no primary email - cannot send password reset", user.uuid);
-            // Return success anyway to prevent enumeration
-            return HttpResponse::Ok().json(PasswordResetResponse {
-                message: "If an account with that email exists, a password reset link has been sent.".to_string(),
-            });
-        }
+    let Some(user_email) =
+        crate::repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
+    else {
+        warn!(
+            "User {} has no primary email; password reset link not sent",
+            user.uuid
+        );
+        return Ok(());
     };
 
-    // Send password reset email
     let email_service = match EmailService::from_env() {
-        Ok(service) => service,
+        Ok(s) => s,
         Err(e) => {
             error!("Failed to initialize email service: {}", e);
-            // Return success to user anyway (no enumeration)
-            return HttpResponse::Ok().json(PasswordResetResponse {
-                message: "If an account with that email exists, a password reset link has been sent.".to_string(),
-            });
+            return Ok(());
         }
     };
 
-    // Get branding for email
     let branding = get_email_branding(&mut conn, &base_url);
-
-    // Send the email asynchronously
-    match email_service.send_password_reset_email(
-        &user_email,
-        &user.name,
-        &reset_token.raw_token,
-        &branding,
-    ).await {
-        Ok(_) => {
-            info!("Password reset email sent to: {} (user_uuid={})", user_email, user.uuid);
-        },
-        Err(e) => {
-            error!("Failed to send password reset email to {}: {}", user_email, e);
-            // Don't fail the request - return success to prevent enumeration
-        }
+    match email_service
+        .send_password_reset_email(&user_email, &user.name, &reset_token.raw_token, &branding)
+        .await
+    {
+        Ok(_) => info!(
+            "Password reset email sent to: {} (user_uuid={})",
+            user_email, user.uuid
+        ),
+        Err(e) => error!(
+            "Failed to send password reset email to {}: {}",
+            user_email, e
+        ),
     }
-
-    // Always return the same success message (no enumeration)
-    HttpResponse::Ok().json(PasswordResetResponse {
-        message: "If an account with that email exists, a password reset link has been sent.".to_string(),
-    })
+    Ok(())
 }
 
 /// Complete password reset using token

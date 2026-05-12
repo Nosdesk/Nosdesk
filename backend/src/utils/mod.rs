@@ -2,6 +2,7 @@ pub mod auth;
 pub mod bootstrap_token;
 pub mod client_ip;
 pub mod content;
+pub mod login_timing;
 pub mod user;
 pub mod image;
 pub mod jwt;

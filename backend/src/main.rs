@@ -503,6 +503,10 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // AUD-007: prewarm the dummy bcrypt hash so the first real
+    // login attempt doesn't pay the one-shot init cost.
+    utils::login_timing::prewarm();
+
     // Surface the compiled-in Nosdesk root pubkey fingerprint on
     // every startup. Operators can diff this against what they
     // know the real root to be; an attacker who swaps the backend

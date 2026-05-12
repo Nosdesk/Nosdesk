@@ -255,53 +255,34 @@ pub async fn login(
         Err(e) => return e,
     };
 
-    // Find user by email
-    let user = match repository::get_user_by_email(&login_data.email, &mut conn) {
-        Ok(user) => user,
-        Err(e) => {
-            error!(error = ?e, "Error finding user by email");
-            // Record failed attempt even for non-existent users (prevents enumeration)
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return errors::unauthorized("Invalid email or password");
-        }
-    };
-
-    // Get password hash from user_auth_identities for local authentication
-    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
-        Ok(hash) => hash,
-        Err(_) => {
-            warn!(user_uuid = %user.uuid, "No local password found for user");
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return errors::unauthorized("Invalid email or password");
-        }
-    };
-
-    // Verify password
-    let password_matches = match verify(&login_data.password, &password_hash) {
-        Ok(matches) => matches,
-        Err(_) => false,
-    };
-
-    if !password_matches {
-        // Record failed attempt
-        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
-            Ok(attempts) => {
-                let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
-                if remaining == 0 {
-                    warn!(email = %login_data.email, "Account locked after {} failed attempts", MAX_LOGIN_ATTEMPTS);
-                    return errors::too_many_requests(
-                        format!("Account locked after too many failed attempts. Try again in {} minutes.", LOCKOUT_DURATION_SECONDS / 60),
-                        LOCKOUT_DURATION_SECONDS as u64,
-                    );
+    // AUD-007: lookup + bcrypt verify happen as one equal-work
+    // call. Missing users, SSO-only users, and wrong passwords
+    // are indistinguishable in wall-clock time.
+    let user = match crate::utils::login_timing::verify_credentials(
+        &mut conn,
+        &login_data.email,
+        &login_data.password,
+    ) {
+        Some(u) => u,
+        None => {
+            match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+                Ok(attempts) => {
+                    let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
+                    if remaining == 0 {
+                        warn!(email = %login_data.email, "Account locked after {} failed attempts", MAX_LOGIN_ATTEMPTS);
+                        return errors::too_many_requests(
+                            format!("Account locked after too many failed attempts. Try again in {} minutes.", LOCKOUT_DURATION_SECONDS / 60),
+                            LOCKOUT_DURATION_SECONDS as u64,
+                        );
+                    }
+                    debug!(email = %login_data.email, attempts, remaining, "Failed login attempt");
                 }
-                debug!(email = %login_data.email, attempts, remaining, "Failed login attempt");
+                Err(e) => warn!(error = %e, "Failed to record login attempt"),
             }
-            Err(e) => warn!(error = %e, "Failed to record login attempt"),
+            return errors::unauthorized("Invalid email or password");
         }
-        return errors::unauthorized("Invalid email or password");
-    }
+    };
 
-    // Clear failed attempts on successful password verification
     if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
         warn!(error = %e, "Failed to clear login attempts after successful auth");
     }
@@ -339,30 +320,14 @@ pub async fn mfa_login(
         Err(e) => return e,
     };
 
-    // Find user by email (same as regular login)
-    let user = match repository::get_user_by_email(&login_data.email, &mut conn) {
-        Ok(user) => user,
-        Err(_) => {
-            return errors::unauthorized("Invalid email or password");
-        }
+    let user = match crate::utils::login_timing::verify_credentials(
+        &mut conn,
+        &login_data.email,
+        &login_data.password,
+    ) {
+        Some(u) => u,
+        None => return errors::unauthorized("Invalid email or password"),
     };
-
-    // Get password hash from user_auth_identities for local authentication
-    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
-        Ok(hash) => hash,
-        Err(_) => {
-            return errors::unauthorized("Invalid email or password");
-        }
-    };
-
-    let password_matches = match verify(&login_data.password, &password_hash) {
-        Ok(matches) => matches,
-        Err(_) => false,
-    };
-
-    if !password_matches {
-        return errors::unauthorized("Invalid email or password");
-    }
 
     // Check that user actually has MFA enabled
     if !mfa::user_has_mfa_enabled(&user) {
@@ -440,35 +405,18 @@ pub async fn recovery_login(
         Err(e) => return e,
     };
 
-    // Find user by email
-    let user = match repository::get_user_by_email(&login_data.email, &mut conn) {
-        Ok(user) => user,
-        Err(_) => {
+    let user = match crate::utils::login_timing::verify_credentials(
+        &mut conn,
+        &login_data.email,
+        &login_data.password,
+    ) {
+        Some(u) => u,
+        None => {
             let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
             return errors::unauthorized("Invalid email or password");
         }
     };
 
-    // Verify password
-    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
-        Ok(hash) => hash,
-        Err(_) => {
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return errors::unauthorized("Invalid email or password");
-        }
-    };
-
-    let password_matches = match verify(&login_data.password, &password_hash) {
-        Ok(matches) => matches,
-        Err(_) => false,
-    };
-
-    if !password_matches {
-        let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-        return errors::unauthorized("Invalid email or password");
-    }
-
-    // Clear failed attempts on successful password verification
     if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
         warn!(error = %e, "Failed to clear login attempts after successful recovery auth");
     }
@@ -1486,45 +1434,26 @@ pub async fn mfa_setup_login(
         Err(e) => return e,
     };
 
-    // Find user by email and verify password (same as login flow)
-    let user = match repository::get_user_by_email(&email_lower, &mut conn) {
-        Ok(user) => user,
-        Err(_) => {
-            // Record failed attempt even for non-existent users (prevents enumeration)
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return errors::unauthorized("Invalid email or password");
-        }
-    };
-
-    // Get password hash from user_auth_identities for local authentication
-    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
-        Ok(hash) => hash,
-        Err(_) => {
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return errors::unauthorized("Invalid email or password");
-        }
-    };
-
-    let password_matches = match verify(&request.password, &password_hash) {
-        Ok(matches) => matches,
-        Err(_) => false,
-    };
-
-    if !password_matches {
-        // Record failed attempt
-        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
-            Ok(attempts) => {
-                let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
-                if remaining == 0 {
-                    warn!(email = %email_lower, "Account locked after failed MFA setup attempts");
+    let user = match crate::utils::login_timing::verify_credentials(
+        &mut conn,
+        &email_lower,
+        &request.password,
+    ) {
+        Some(u) => u,
+        None => {
+            match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+                Ok(attempts) => {
+                    let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
+                    if remaining == 0 {
+                        warn!(email = %email_lower, "Account locked after failed MFA setup attempts");
+                    }
                 }
+                Err(e) => warn!("Failed to record failed attempt: {:?}", e),
             }
-            Err(e) => warn!("Failed to record failed attempt: {:?}", e),
+            return errors::unauthorized("Invalid email or password");
         }
-        return errors::unauthorized("Invalid email or password");
-    }
+    };
 
-    // Clear failed attempts on successful password verification
     if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
         warn!(error = %e, "Failed to clear login attempts after successful MFA setup auth");
     }
@@ -1603,43 +1532,26 @@ pub async fn mfa_enable_login(
         Err(e) => return e,
     };
 
-    // Find user by email and verify password again (security)
-    let user = match repository::get_user_by_email(&email_lower, &mut conn) {
-        Ok(user) => user,
-        Err(_) => {
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return errors::unauthorized("Invalid email or password");
-        }
-    };
-
-    // Get password hash from user_auth_identities for local authentication
-    let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
-        Ok(hash) => hash,
-        Err(_) => {
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
-            return errors::unauthorized("Invalid email or password");
-        }
-    };
-
-    let password_matches = match verify(&request.password, &password_hash) {
-        Ok(matches) => matches,
-        Err(_) => false,
-    };
-
-    if !password_matches {
-        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
-            Ok(attempts) => {
-                let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
-                if remaining == 0 {
-                    warn!(email = %email_lower, "Account locked after failed MFA enable attempts");
+    let user = match crate::utils::login_timing::verify_credentials(
+        &mut conn,
+        &email_lower,
+        &request.password,
+    ) {
+        Some(u) => u,
+        None => {
+            match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+                Ok(attempts) => {
+                    let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
+                    if remaining == 0 {
+                        warn!(email = %email_lower, "Account locked after failed MFA enable attempts");
+                    }
                 }
+                Err(e) => warn!("Failed to record failed attempt: {:?}", e),
             }
-            Err(e) => warn!("Failed to record failed attempt: {:?}", e),
+            return errors::unauthorized("Invalid email or password");
         }
-        return errors::unauthorized("Invalid email or password");
-    }
+    };
 
-    // Clear failed attempts on successful password verification
     if let Err(e) = RateLimiter::clear_attempts(&redis_url, &lockout_key).await {
         warn!(error = %e, "Failed to clear login attempts after successful MFA enable auth");
     }

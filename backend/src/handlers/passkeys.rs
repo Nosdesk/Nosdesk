@@ -391,81 +391,33 @@ pub async fn start_passkey_login(
 
     let webauthn = &*WEBAUTHN;
 
-    // Discoverable (usernameless) authentication - no email required
-    if email.is_none() {
-        // Generate a session ID for this auth attempt
-        let session_id = webauthn::generate_auth_session_id();
+    // AUD-007: every start_login takes the discoverable-auth
+    // path, regardless of whether an email was supplied or
+    // whether that email maps to a user with passkeys. This
+    // makes the response shape (empty allowCredentials, session
+    // id) and the work performed (one challenge generation,
+    // one Redis write) identical across "no email", "email of
+    // nonexistent user", "email of user with no passkeys", and
+    // "email of user with passkeys". finish_passkey_login keys
+    // off the credential id presented by the authenticator, so
+    // the protocol still works end-to-end for real users while
+    // missing-account paths fail at finish-time with the same
+    // error a wrong-passkey on a real account produces.
 
-        // Start discoverable authentication (empty allowCredentials)
-        let (rcr, auth_state) = match webauthn.start_discoverable_authentication() {
-            Ok(result) => result,
-            Err(e) => {
-                error!("Failed to start discoverable passkey authentication: {:?}", e);
-                return errors::internal("Failed to generate authentication challenge");
+    // Do the user lookup even when we won't use the result. The
+    // wall-clock cost of `get_user_by_email` and
+    // `load_user_passkey_data` would otherwise distinguish
+    // email-supplied from no-email calls.
+    if let Some(ref email_lower) = email {
+        if let Ok(mut conn) = pool.get() {
+            if let Ok(user) = repository::user_helpers::get_user_by_email(email_lower, &mut conn) {
+                let _ = webauthn::load_user_passkey_data(&mut conn, &user.uuid);
             }
-        };
-
-        // Store discoverable authentication state in Redis
-        if let Err(e) = webauthn::store_discoverable_auth_state(&session_id, &auth_state).await {
-            error!("Failed to store discoverable auth state: {:?}", e);
-            return errors::internal("Failed to store authentication state");
-        }
-
-        debug!("Started discoverable passkey authentication, session_id={}", session_id);
-
-        // Return the challenge options with session ID
-        let rcr_json = serde_json::to_value(&rcr).unwrap_or(json!({}));
-
-        // Extract publicKey and add session_id
-        if let Some(public_key) = rcr_json.get("publicKey") {
-            let mut response = public_key.clone();
-            if let Some(obj) = response.as_object_mut() {
-                obj.insert("sessionId".to_string(), json!(session_id));
-            }
-            return HttpResponse::Ok().json(response);
-        } else {
-            let mut response = rcr_json.clone();
-            if let Some(obj) = response.as_object_mut() {
-                obj.insert("sessionId".to_string(), json!(session_id));
-            }
-            return HttpResponse::Ok().json(response);
         }
     }
 
-    // Non-discoverable authentication - email required
-    let email = email.unwrap();
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Find user by email
-    let user = match repository::user_helpers::get_user_by_email(&email, &mut conn) {
-        Ok(user) => user,
-        Err(_) => {
-            debug!("User not found for passkey login: {}", email);
-            return errors::bad_request("No passkeys registered for this account");
-        }
-    };
-
-    // Get user's passkeys
-    let passkey_data = match webauthn::load_user_passkey_data(&mut conn, &user.uuid) {
-        Ok(data) => data,
-        Err(e) => {
-            error!("Failed to load passkeys for {}: {:?}", email, e);
-            return errors::internal("Failed to load passkeys");
-        }
-    };
-    if passkey_data.credentials.is_empty() {
-        return errors::bad_request("No passkeys registered for this account");
-    }
-
-    // Get passkeys for authentication
-    let passkeys = passkey_data.get_passkeys();
-
-    // Create authentication challenge
-    let (rcr, auth_state) = match webauthn.start_passkey_authentication(&passkeys) {
+    let session_id = webauthn::generate_auth_session_id();
+    let (rcr, auth_state) = match webauthn.start_discoverable_authentication() {
         Ok(result) => result,
         Err(e) => {
             error!("Failed to start passkey authentication: {:?}", e);
@@ -473,22 +425,22 @@ pub async fn start_passkey_login(
         }
     };
 
-    // Store authentication state in Redis
-    if let Err(e) = webauthn::store_authentication_state(&email, &auth_state).await {
-        error!("Failed to store authentication state: {:?}", e);
+    if let Err(e) = webauthn::store_discoverable_auth_state(&session_id, &auth_state).await {
+        error!("Failed to store auth state: {:?}", e);
         return errors::internal("Failed to store authentication state");
     }
 
-    debug!("Started passkey authentication for {}", email);
+    debug!(?email, %session_id, "started passkey authentication");
 
-    // Return the challenge options to the client
     let rcr_json = serde_json::to_value(&rcr).unwrap_or(json!({}));
-
-    if let Some(public_key) = rcr_json.get("publicKey") {
-        HttpResponse::Ok().json(public_key)
-    } else {
-        HttpResponse::Ok().json(rcr_json)
+    let mut response = rcr_json
+        .get("publicKey")
+        .cloned()
+        .unwrap_or(rcr_json);
+    if let Some(obj) = response.as_object_mut() {
+        obj.insert("sessionId".to_string(), json!(session_id));
     }
+    HttpResponse::Ok().json(response)
 }
 
 /// Complete passkey login
