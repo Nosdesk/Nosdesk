@@ -156,6 +156,21 @@ pub async fn process_event(
     };
 
     if msg.is_bounce {
+        // Idempotency: same DSN arriving twice (forwarder loop,
+        // manual IMAP replay, multi-channel re-delivery) must not
+        // re-process. The check happens up here rather than at the
+        // general dedup point further down so a duplicate bounce
+        // doesn't double-stamp the outbound row and double-count
+        // the suppression's bounce_count.
+        if channels_repo::find_by_external_id(conn, channel.id, &msg.external_id)?.is_some() {
+            debug!(
+                channel_id = channel.id,
+                external_id = %msg.external_id,
+                "skip: duplicate bounce DSN already processed"
+            );
+            return Ok(PipelineOutcome::SkippedDuplicate);
+        }
+
         // Best-effort linkage to the originating outbound row. If
         // the DSN was malformed or the embedded original message
         // didn't carry our deterministic Message-ID, we still
@@ -227,6 +242,38 @@ pub async fn process_event(
                 channel_id = channel.id,
                 external_id = %msg.external_id,
                 "bounce: detected but DSN was unparseable; no linkage"
+            );
+        }
+
+        // Record the DSN itself so a re-arrival (forwarder loop,
+        // replay, multi-channel redelivery) is caught by the
+        // duplicate check at the top of this branch on the next
+        // pass. ticket_id / comment_id are None because a bounce
+        // doesn't open a ticket; from_address preserves the
+        // postmaster-style sender for audit.
+        if let Err(e) = channels_repo::record_message(
+            conn,
+            crate::models::NewChannelMessage {
+                channel_id: channel.id,
+                external_id: msg.external_id.clone(),
+                direction: crate::models::CHANNEL_DIRECTION_INBOUND.to_string(),
+                ticket_id: None,
+                comment_id: None,
+                in_reply_to: None,
+                from_address: msg.from.known_email.clone(),
+                author_user_uuid: None,
+                raw_metadata: None,
+            },
+        ) {
+            // Failing to record the dedup marker just means the
+            // next arrival of this DSN will re-process — annoying
+            // (one duplicate bounce_count bump) but not corrupting.
+            // Don't let it fail the outer pipeline.
+            warn!(
+                channel_id = channel.id,
+                error = %e,
+                external_id = %msg.external_id,
+                "bounce: failed to record dedup marker"
             );
         }
         return Ok(PipelineOutcome::SkippedBounce);
@@ -1236,6 +1283,76 @@ mod tests {
             )
             .unwrap(),
             "soft bounce (4.x.x) must NOT auto-suppress",
+        );
+    }
+
+    /// Duplicate DSN ingest must not double-count the suppression's
+    /// `bounce_count`. The second arrival of the same external_id
+    /// short-circuits as `SkippedDuplicate`, leaving the count at 1.
+    #[tokio::test]
+    async fn duplicate_dsn_does_not_double_count_bounce_count() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+
+        let _original = crate::repository::outbound_emails::enqueue(
+            &mut conn,
+            outbound_row(ch.id, "out-42-canonical@yourco.com", "bob@example.org"),
+        )
+        .unwrap();
+
+        let raw = include_bytes!("../../../tests/fixtures/dsn/postfix-canonical.eml");
+
+        // First arrival: full bounce processing.
+        let msg1 = super::super::email_imap::parse_rfc822_into_inbound_message(raw, None).unwrap();
+        let outcome1 = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg1),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome1, PipelineOutcome::SkippedBounce);
+
+        // Read the suppression row's bounce_count after the first
+        // arrival; sanity-check it's 1.
+        let after_first = crate::repository::email_suppressions::list(&mut conn, 10, None)
+            .unwrap()
+            .into_iter()
+            .find(|s| s.email == "bob@example.org")
+            .expect("recipient should be suppressed after first DSN");
+        assert_eq!(
+            after_first.bounce_count, 1,
+            "first arrival should leave bounce_count at 1"
+        );
+
+        // Second arrival of the same DSN. Same external_id, same
+        // payload — the pipeline must short-circuit on the dedup
+        // check rather than re-processing.
+        let msg2 = super::super::email_imap::parse_rfc822_into_inbound_message(raw, None).unwrap();
+        let outcome2 = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg2),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome2, PipelineOutcome::SkippedDuplicate);
+
+        // bounce_count must remain at 1 — re-processing would have
+        // bumped it via the upsert's ON CONFLICT DO UPDATE branch.
+        let after_second = crate::repository::email_suppressions::list(&mut conn, 10, None)
+            .unwrap()
+            .into_iter()
+            .find(|s| s.email == "bob@example.org")
+            .expect("recipient should still be suppressed");
+        assert_eq!(
+            after_second.bounce_count, 1,
+            "duplicate DSN must not increment bounce_count, got {}",
+            after_second.bounce_count
         );
     }
 
