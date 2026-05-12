@@ -3,6 +3,29 @@ use tokio::fs;
 use std::io::Cursor;
 use tracing::{debug, warn, error};
 
+/// AUD-010: cap decode-time pixel dimensions so a tiny encoded
+/// image can't expand into a multi-gigabyte raster.
+///
+/// 16384 covers any realistic photo or banner (8K is 7680 wide; an
+/// ultrawide banner crop tops out around 12k). The `image` crate
+/// treats width/height limits as STRICT, so a header claiming
+/// 100_000 × 100_000 fails before any allocation happens.
+///
+/// `max_alloc` tightens the crate's default 512 MiB cap down to
+/// 256 MiB. The default's non-strict, but for the decoders we
+/// actually ship (PNG / JPEG / WebP via the image-rs defaults)
+/// it's honored.
+const IMAGE_MAX_DIMENSION: u32 = 16_384;
+const IMAGE_MAX_ALLOC_BYTES: u64 = 256 * 1024 * 1024;
+
+fn decode_limits() -> image::Limits {
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(IMAGE_MAX_DIMENSION);
+    limits.max_image_height = Some(IMAGE_MAX_DIMENSION);
+    limits.max_alloc = Some(IMAGE_MAX_ALLOC_BYTES);
+    limits
+}
+
 /// Process and resize an uploaded avatar image to WebP format with fixed dimensions
 /// This ensures consistent sizing and optimal storage
 pub async fn process_avatar_image(
@@ -447,6 +470,13 @@ fn load_image_with_orientation(image_bytes: &[u8]) -> Result<image::DynamicImage
         .into_decoder()
         .map_err(|e| format!("Failed to create decoder: {e}"))?;
 
+    // AUD-010: enforce decode limits before any pixel allocation.
+    // A bomb image with a pathological width/height in its header
+    // fails here, before the decoder commits memory.
+    decoder
+        .set_limits(decode_limits())
+        .map_err(|e| format!("Image exceeds decode limits: {e}"))?;
+
     // Get the EXIF orientation (defaults to no rotation if not present)
     let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
 
@@ -462,4 +492,62 @@ fn load_image_with_orientation(image_bytes: &[u8]) -> Result<image::DynamicImage
     }
 
     Ok(img)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{ImageBuffer, Rgba};
+
+    fn encode_png(width: u32, height: u32) -> Vec<u8> {
+        let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
+            ImageBuffer::from_pixel(width, height, Rgba([0, 0, 0, 255]));
+        let mut buf = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut buf), ImageFormat::Png)
+            .expect("encode test PNG");
+        buf
+    }
+
+    #[test]
+    fn decode_limits_caps_dimensions_and_alloc() {
+        let limits = decode_limits();
+        assert_eq!(limits.max_image_width, Some(IMAGE_MAX_DIMENSION));
+        assert_eq!(limits.max_image_height, Some(IMAGE_MAX_DIMENSION));
+        assert_eq!(limits.max_alloc, Some(IMAGE_MAX_ALLOC_BYTES));
+    }
+
+    #[test]
+    fn small_image_decodes_normally() {
+        let png = encode_png(64, 64);
+        let img = load_image_with_orientation(&png).expect("small image must decode");
+        assert_eq!(img.width(), 64);
+        assert_eq!(img.height(), 64);
+    }
+
+    #[test]
+    fn image_at_the_limit_decodes() {
+        // 16384 itself is allowed; only > 16384 should fail. The
+        // image-rs `set_limits` semantics are <= the cap. Encoding a
+        // full 16k x 16k image would be slow (megabytes of zeros);
+        // a thinner test (a 16384 x 1 strip) exercises the boundary.
+        let png = encode_png(IMAGE_MAX_DIMENSION, 1);
+        load_image_with_orientation(&png).expect("image at the dimension limit must decode");
+    }
+
+    #[test]
+    fn oversized_dimension_is_rejected() {
+        // A real PNG that's one pixel wider than the limit. The
+        // header carries the true dimension and the decoder refuses
+        // before allocating the pixel buffer. This is the bomb
+        // defence: an attacker can claim any dimension in the
+        // header, and the strict width/height cap stops them at
+        // header-parse time.
+        let png = encode_png(IMAGE_MAX_DIMENSION + 1, 1);
+        let err = load_image_with_orientation(&png)
+            .expect_err("image past the dimension limit must be rejected");
+        assert!(
+            err.contains("decode limits") || err.to_lowercase().contains("limit"),
+            "expected limit-related error, got: {err}"
+        );
+    }
 }
