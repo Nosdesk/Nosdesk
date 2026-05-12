@@ -1,0 +1,93 @@
+# cargo-deny configuration.
+#
+# Run locally before each release with:
+#
+#     cargo deny check
+#
+# Replaces `cargo audit` (advisories), adds license / banned-crate /
+# duplicate-version / source-allowlist gates. Each advisory in the
+# `ignore` list mirrors a row in SECURITY.md's "Acknowledged advisories"
+# table — keep them in sync when one moves.
+#
+# Not yet wired into CI per the v1 plan; intent is to add it after
+# initial customer rollout.
+
+[advisories]
+# Strict on vulnerabilities; warn on the rest. Unmaintained advisories
+# on transitive-only deps are tracked but not gated because the Rust
+# ecosystem's "unmaintained" definition is broad and triggers churn on
+# crates that are stable-enough-not-to-need-releases.
+version = 2
+yanked = "deny"
+ignore = [
+    # RUSTSEC-2023-0071 — rsa 0.9.10 "Marvin Attack" timing sidechannel
+    # on RSA decryption. 5.9 medium. No upstream fix.
+    #
+    # Transitive via openidconnect → rsa. Our use of openidconnect is
+    # JWT signature *verification* (we accept signed JWTs from Microsoft
+    # Entra), not decryption. Marvin targets a decryption oracle; the
+    # primitives we exercise are unaffected. Revisit when rsa ships a
+    # fix or openidconnect migrates away.
+    { id = "RUSTSEC-2023-0071", reason = "signature verify only, not decrypt" },
+]
+
+[bans]
+# Multi-version detection: warn (the workspace pulls in plenty of
+# duplicate-but-different versions across the async / ring / tokio
+# stacks; nothing actionable for v1).
+multiple-versions = "warn"
+# Allow build-time dupes that come from proc-macro versioning.
+wildcards = "allow"
+
+[licenses]
+version = 2
+# Allowlist of licences we accept in our dependency tree. New
+# transitive deps that introduce something outside this list will
+# fail `cargo deny check licenses` and force a deliberate choice.
+#
+# BSL-licensed product, so we're permissive about upstream licences as
+# long as they're not viral (no GPL, no AGPL).
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "OpenSSL",
+    # Used by webpki-roots / webpki-root-certs. Permissive (close to
+    # MIT in practice). The CDLA family is administered by the Linux
+    # Foundation for data licensing; the Permissive variant explicitly
+    # allows redistribution without source-disclosure obligations.
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.93
+
+[[licenses.exceptions]]
+# ring uses a custom mash-up licence that's MIT-equivalent in practice
+# but doesn't match any single SPDX identifier exactly. Standard
+# carve-out across the Rust ecosystem.
+allow = ["MIT", "ISC", "OpenSSL"]
+name = "ring"
+
+[[licenses.exceptions]]
+# This crate's own licence. BUSL-1.1 only appears here, not on any
+# dependency — a transitive BUSL-1.1 dep would be a real concern
+# (viral source-availability), so we whitelist by name rather than
+# adding it to the global `allow` list.
+allow = ["BUSL-1.1"]
+name = "backend"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

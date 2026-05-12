@@ -175,12 +175,34 @@ enumeration.
 | AUD-012 | Low | Invitation acceptance rate-limit coverage unverified | **Verified + structural follow-up shipped**. Verification: invitation tokens are 32 random bytes (256-bit entropy, brute-force infeasible) and the `/api/auth` scope is wrapped in `RateLimiter::default()` keyed on `utils::client_ip`, so resource-exhaustion via flood is already covered. The investigation surfaced a separate concurrency bug: `validate_and_consume_token` was a non-atomic check-then-update, so two concurrent requests with the same token could both pass the `is_used = false` check and both call `accept_invitation`, leaving the account in an indeterminate state (the second password write wins). Replaced with a single `UPDATE reset_tokens SET is_used = true ... WHERE is_used = false AND expires_at > now() AND token_type = $1 RETURNING user_uuid`, so exactly one claim ever succeeds; all other failure modes collapse to the same "Invalid or expired token" message. Also closes a small message-distinguishability leak (the old code returned "Token has already been used" vs "Invalid token type"; now it doesn't). Four DB-backed tests cover succeed-once, second-attempt-fails, wrong-type-doesn't-consume, and missing-token-fails. The fix applies to password reset complete too, which shares the same primitive. |
 | AUD-013 | Low | Lockout keyed by email only (can DoS a known user) | **Fixed**. `RateLimiter::login_attempt_key` now takes `(email, client_ip)` and the key shape is `login_attempts:{email}:{ip}`. An attacker who deliberately fails logins against a known email locks out their own IP without affecting the legitimate user's IP. Email stays in the key so an attacker can't trivially rotate IPs across every targeted account. The IP comes from `utils::client_ip` (the trusted-proxy-resolved helper from AUD-004), so behind a reverse proxy the lockout still keys on the real client; on a direct bind it falls back to the TCP peer. Tests cover key shape, lowercasing, the no-IP-known fallback, and the structural property that two different IPs against the same email get different keys. Every login-family handler (`login`, `recovery_login`, `mfa_setup_login`, `mfa_enable_login`, passkey setup-login start + finish) was migrated to the new signature.
 
+### Dependency audit + triage policy
+
+We run two scanners before each release:
+
+* `cargo deny check` against `backend/deny.toml`, which covers
+  advisories (RustSec DB), licence allowlist, source restriction
+  to crates.io, and duplicate-version warnings.
+* `npm audit` against the frontend lockfile. Currently clean at
+  every severity level.
+
+The `cargo-deny` config is the canonical record; every advisory
+in its `ignore` list mirrors a row in the table below.
+
+Triage policy:
+
+| Class | Action |
+|---|---|
+| Critical / High vulnerability with a fixed version | Patch before release. No exceptions. |
+| Medium / Low vulnerability with no upstream fix | Acknowledged in the table below with severity, attack pre-conditions, and threat-model rationale. Mirrored as an `ignore` entry in `deny.toml`. |
+| Unmaintained advisory on a transitive-only dep | Tracked but not gated. Re-evaluated when a direct dep starts pulling it directly, or quarterly. |
+| Unmaintained advisory on a direct dep | Treated as a migration ticket with an explicit deadline. |
+
 ### Acknowledged advisories
 
 | Advisory | Severity | Why we ship anyway |
 |---|---|---|
-| RUSTSEC-2023-0071 (rsa 0.9.10 Marvin Attack) | 5.9 medium | Transitive through `openidconnect`. Our use is signature verification only (validating signed JWTs from Microsoft Entra), not decryption. Marvin targets decryption oracles, not signatures. No upstream fix available. |
-| RUSTSEC-2024-0436 (paste 1.0.15 unmaintained) | warning | Transitive through `image → ravif → rav1e`. Warning-only, no CVE. Tracked upstream by image-rs. |
+| RUSTSEC-2023-0071 (rsa 0.9.10 Marvin Attack) | 5.9 medium | Transitive through `openidconnect`. Our use is signature verification only (validating signed JWTs from Microsoft Entra), not decryption. Marvin targets decryption oracles, not signatures. No upstream fix available. Codified in `deny.toml`. |
+| RUSTSEC-2024-0436 (paste 1.0.15 unmaintained) | warning | Was previously transitive via `image → ravif → rav1e`. Trimmed out by switching `image` to `default-features = false` and re-enabling only `webp`, `jpeg`, `png`, and `rayon`; `cargo tree -i -p paste` now returns empty. The crate remains in `Cargo.lock` as a conditional dep that would only activate if a consumer turned the `avif` feature back on, which is why `cargo audit` still surfaces it. Not in our shipped binary. |
 
 ### Confirmed-good surfaces
 

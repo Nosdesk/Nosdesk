@@ -3,6 +3,8 @@ name = "backend"
 version = "0.1.0"
 edition = "2021"
 default-run = "backend"
+license = "BUSL-1.1"
+publish = false
 
 [[bin]]
 name = "backend"
@@ -86,7 +88,7 @@ fastrand = "2.0.0"
 mime = "0.3.17"
 
 # Image processing for thumbnail generation (v0.25+ has native EXIF orientation support)
-image = { version = "0.25", features = ["webp", "jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["webp", "jpeg", "png", "rayon"] }
 
 # PDF rendering for thumbnail generation
 pdfium-render = { version = "0.8", features = ["image", "thread_safe"] }
