@@ -50,11 +50,13 @@ pub struct WebhookDeliveryWorker {
 impl WebhookDeliveryWorker {
     /// Create a new delivery worker
     pub fn new(pool: Pool, receiver: mpsc::Receiver<DeliveryTask>) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .user_agent("Nosdesk-Webhook/1.0")
-            .build()
-            .expect("Failed to build HTTP client");
+        // Constructed via `safe_http::client` so the underlying
+        // DNS resolver refuses internal-IP destinations. That
+        // moves the SSRF gate from "every send-site remembers to
+        // check" to "the client physically can't dial unsafe
+        // ranges" — see backend/src/utils/safe_http.rs.
+        let client = crate::utils::safe_http::client(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+            .expect("Failed to build SSRF-safe HTTP client");
 
         Self {
             pool,
@@ -120,6 +122,32 @@ impl WebhookDeliveryWorker {
                 attempt_number: task.attempt,
             },
         )?;
+
+        // IP-literal guard. The resolver in the safe_http client
+        // refuses to hand back internal IPs for hostnames, but
+        // when the URL's host is already an Ipv4Addr / Ipv6Addr
+        // literal (e.g. http://169.254.169.254/) hyper-util
+        // bypasses the resolver entirely. This one synchronous
+        // call closes that hole.
+        if let Err(e) = crate::utils::safe_http::reject_unsafe_ip_literal(&task.webhook_url) {
+            let duration_ms = start.elapsed().as_millis() as i32;
+            self.handle_failure(
+                &mut conn,
+                &task,
+                delivery.id,
+                0,
+                None,
+                duration_ms,
+                Some(format!("SSRF guard blocked delivery: {e}")),
+            )?;
+            tracing::warn!(
+                webhook_id = task.webhook_id,
+                url = %task.webhook_url,
+                error = %e,
+                "webhook delivery blocked by SSRF guard"
+            );
+            return Ok(());
+        }
 
         // Send request
         let result = request.body(payload_json).send().await;

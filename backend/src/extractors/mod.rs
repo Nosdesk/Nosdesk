@@ -2,8 +2,10 @@
 //!
 //! Provides type-safe extractors that automatically handle auth context.
 
-mod auth_context;
+pub mod auth_context;
 mod sync_context;
+mod ticket_access;
 
 pub use auth_context::AuthContext;
 pub use sync_context::SyncContext;
+pub use ticket_access::TicketAccess;

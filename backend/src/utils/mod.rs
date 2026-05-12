@@ -19,6 +19,7 @@ pub mod rbac;
 pub mod pdf;
 pub mod webauthn;
 pub mod markdown_export;
+pub mod safe_http;
 pub mod slug;
 
 use uuid::Uuid;

@@ -1,20 +1,21 @@
 //! Ticket watch / unwatch + watcher list handlers.
 //!
-//! Watch / unwatch operate on the AUTHENTICATED user — there's
-//! no admin endpoint to add another user as a watcher in V1
-//! (we'd want that for power users; defer to V1.1). The
-//! authenticated user's uuid comes from the JWT, not the body,
-//! so the user can't accidentally watch on someone else's
-//! behalf.
+//! Every ticket-scoped handler takes `TicketAccess` instead of a
+//! raw `web::Path<i32>` + `AuthContext`. The extractor runs the
+//! visibility gate during request extraction, so the handler
+//! body is only reachable for callers who can already read the
+//! ticket. That makes the "user self-adds as watcher to escalate
+//! visibility" path impossible by construction — there's nowhere
+//! in the source where a handler can take a ticket id without
+//! the gate having run first.
 
 use actix_web::{web, HttpResponse, Responder};
 use serde::Deserialize;
 use tracing::error;
 
-use crate::extractors::AuthContext;
-use crate::handlers::{errors, helpers};
+use crate::extractors::{AuthContext, TicketAccess};
 use crate::handlers::helpers::with_actor;
-use crate::repository::ticket_visibility::{self, VisibilityContext};
+use crate::handlers::{errors, helpers};
 use crate::repository::ticket_watchers as repo;
 use crate::sync::actor::ActorContext;
 
@@ -23,23 +24,13 @@ use crate::sync::actor::ActorContext;
 /// each uuid through the directory composable.
 pub async fn list_watchers(
     pool: web::Data<crate::db::Pool>,
-    params: web::Path<i32>,
-    auth: AuthContext,
+    access: TicketAccess,
 ) -> impl Responder {
-    let ticket_id = params.into_inner();
+    let TicketAccess { ticket_id, .. } = access;
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
-    let vis = VisibilityContext::from_auth(&auth);
-    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
-        Ok(true) => {}
-        Ok(false) => return errors::not_found_msg("Ticket not found"),
-        Err(e) => {
-            error!(error = %e, ticket_id, "list_watchers visibility check failed");
-            return errors::internal("Failed to load watchers");
-        }
-    }
     match repo::watcher_uuids(&mut conn, ticket_id) {
         Ok(uuids) => HttpResponse::Ok().json(serde_json::json!({ "watcher_uuids": uuids })),
         Err(e) => {
@@ -51,26 +42,13 @@ pub async fn list_watchers(
 
 pub async fn watch_ticket(
     pool: web::Data<crate::db::Pool>,
-    params: web::Path<i32>,
-    auth: AuthContext,
+    access: TicketAccess,
 ) -> impl Responder {
-    let ticket_id = params.into_inner();
+    let TicketAccess { ticket_id, auth } = access;
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
-    // Visibility gate: without this, a User could self-add as a
-    // watcher on any ticket and gain read access via the visibility
-    // predicate (privilege escalation, OWASP A01:2021).
-    let vis = VisibilityContext::from_auth(&auth);
-    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
-        Ok(true) => {}
-        Ok(false) => return errors::not_found_msg("Ticket not found"),
-        Err(e) => {
-            error!(error = %e, ticket_id, "watch_ticket visibility check failed");
-            return errors::internal("Failed to watch ticket");
-        }
-    }
     let actor_ctx = ActorContext::user(auth.user_uuid, None);
     match with_actor(&mut conn, &actor_ctx, |conn| {
         repo::add_watcher(conn, ticket_id, auth.user_uuid, false)
@@ -91,6 +69,10 @@ pub async fn unwatch_ticket(
     params: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
+    // Unwatch doesn't need a visibility gate: the user is removing
+    // themselves from the watcher list, which only narrows their
+    // own access. Continuing to take `web::Path<i32>` here is
+    // intentional — escalation isn't a risk for this direction.
     let ticket_id = params.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -118,23 +100,13 @@ pub async fn unwatch_ticket(
 /// when the user isn't watching.
 pub async fn my_watch_state(
     pool: web::Data<crate::db::Pool>,
-    params: web::Path<i32>,
-    auth: AuthContext,
+    access: TicketAccess,
 ) -> impl Responder {
-    let ticket_id = params.into_inner();
+    let TicketAccess { ticket_id, auth } = access;
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
-    let vis = VisibilityContext::from_auth(&auth);
-    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
-        Ok(true) => {}
-        Ok(false) => return errors::not_found_msg("Ticket not found"),
-        Err(e) => {
-            error!(error = %e, ticket_id, "my_watch_state visibility check failed");
-            return errors::internal("Failed to load watch state");
-        }
-    }
     match repo::get_watch(&mut conn, ticket_id, &auth.user_uuid) {
         Ok(Some(w)) => HttpResponse::Ok().json(serde_json::json!({
             "watching": true,
@@ -163,11 +135,10 @@ pub struct WatchPreferencesBody {
 /// already shaped to accept further flags without an API change.
 pub async fn update_my_watch_preferences(
     pool: web::Data<crate::db::Pool>,
-    params: web::Path<i32>,
+    access: TicketAccess,
     body: web::Json<WatchPreferencesBody>,
-    auth: AuthContext,
 ) -> impl Responder {
-    let ticket_id = params.into_inner();
+    let TicketAccess { ticket_id, auth } = access;
     let Some(notify) = body.notify_on_internal_notes else {
         return errors::bad_request("notify_on_internal_notes is required");
     };

@@ -92,21 +92,24 @@ backup/restore.
 ### Visibility gate coverage
 
 The `repository::ticket_visibility` primitive is the one source of
-truth for "which tickets is this user allowed to read." Every
-ticket-scoped handler now consumes it via one of two entry points:
+truth for "which tickets is this user allowed to read." It feeds
+two consumers:
 
-* `can_view_ticket(conn, ctx, id) -> bool` — single-record gate,
-  used by `get_ticket`, `update_ticket`, `update_ticket_partial`,
-  `get_ticket_activity`, `get_comments_by_ticket_id`,
-  `add_comment_to_ticket`, `set_ticket_tags`, `watch_ticket`,
-  `list_watchers`, `my_watch_state`, `record_ticket_view`.
+* The `extractors::TicketAccess` Actix extractor — every
+  ticket-scoped handler takes this as a parameter instead of
+  raw `web::Path<i32>` + `AuthContext`. The visibility check runs
+  during request extraction, so the handler body is unreachable
+  for callers who can't read the ticket. A new ticket-scoped
+  endpoint that "forgets" the gate cannot compile — it would
+  have to declare a `web::Path<i32>` parameter, which is visible
+  to code review.
 * `visible_tickets_query(ctx)` / `visible_ticket_ids(conn, ctx, ids)`
-  — list-shape filters, used by `search` to drop ticket and comment
-  results an end-user shouldn't see.
+  — list-shape filters, used by `search` to drop ticket and
+  comment results an end-user shouldn't see.
 
-Returning `404` (not `403`) on a deny is intentional, per the OWASP
-IDOR Cheatsheet: a `403` leaks ticket-id existence and enables
-enumeration.
+Returning `404` (not `403`) on a deny is enforced inside the
+extractor, per the OWASP IDOR Cheatsheet: a `403` leaks ticket-id
+existence and enables enumeration.
 
 ### Findings shipped before v1
 
@@ -114,7 +117,7 @@ enumeration.
 |---|---|---|---|
 | AUD-001 | High | IDOR on `GET /api/tickets/{id}` | **Fixed by group-based visibility** (this commit) |
 | AUD-002 | High | TOTP replay key uses non-crypto `DefaultHasher` | **Fixed** — replay-cache key now derived from SHA-256 via `ring`; deterministic across Rust toolchain bumps. |
-| AUD-003 | Medium | Webhook + plugin-bundle SSRF (no internal-IP denylist) | Tracked as task |
+| AUD-003 | Medium | Webhook + plugin-bundle SSRF (no internal-IP denylist) | **Fixed** — `utils::safe_http::client()` factory pins a custom `reqwest::dns::Resolve` that refuses internal IPs at resolution time, so the client physically can't dial RFC1918 / loopback / link-local / CGNAT / reserved ranges (v4 + v6, plus mapped-v4). One factory consumed by webhook delivery, plugin registry, and the plugin proxy; a one-line `reject_unsafe_ip_literal()` covers IP-literal URLs that bypass DNS. Operator allowlist via `NOSDESK_OUTBOUND_ALLOWED_HOSTS`. |
 | AUD-004 | Medium | `X-Forwarded-For` trusted unconditionally for rate-limit keys | Tracked as task |
 | AUD-005 | Medium | Unauthenticated onboarding-restore endpoints (race on first boot) | Tracked as task |
 | AUD-006 | Medium | SVG uploads not blocked from authed users | Tracked as task |

@@ -431,17 +431,11 @@ pub fn spawn_sync_loop(pool: Pool, base_url: String, cache: SharedCache) {
 }
 
 pub fn build_http_client() -> reqwest::Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .user_agent(concat!("nosdesk/", env!("CARGO_PKG_VERSION")))
-        .timeout(FETCH_TIMEOUT)
-        // `https_only` refuses to fall back to http:// on redirects
-        // AND refuses http:// requests at send() time. Combined with
-        // the download-handler URL parse, any `http://` anywhere in
-        // the redirect chain is rejected. Redirects are still
-        // followed up to reqwest's default limit, but only within
-        // the https scheme.
-        .https_only(true)
-        .build()
+    // Routed through safe_http so the resolver refuses
+    // hostnames that resolve to internal IPs. `https_only_client`
+    // additionally pins the scheme to https — the registry
+    // signing chain assumes TLS for the document fetches.
+    crate::utils::safe_http::https_only_client(FETCH_TIMEOUT)
 }
 
 // =============================================================================
@@ -560,6 +554,16 @@ async fn fetch_bytes(
     accept_content_types: &[&str],
 ) -> Result<Vec<u8>, RegistryError> {
     debug!(url, "Registry fetch");
+    // The safe_http resolver covers hostnames; this sync check
+    // covers the IP-literal case where hyper-util skips DNS. A
+    // hostile registry could otherwise hand back a
+    // `download_url` of `http://127.0.0.1:5432/` and turn the
+    // installer into a port scanner of the host.
+    if let Err(e) = crate::utils::safe_http::reject_unsafe_ip_literal(url) {
+        return Err(RegistryError::Fetch(format!(
+            "{url}: blocked by SSRF guard: {e}"
+        )));
+    }
     let resp = http
         .get(url)
         .send()

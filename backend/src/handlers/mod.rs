@@ -161,35 +161,16 @@ fn truncate_preview(text: &str, max_len: usize) -> String {
 
 // Ticket comments and attachments
 pub async fn get_comments_by_ticket_id(
-    path: web::Path<i32>,
+    access: crate::extractors::TicketAccess,
     pool: web::Data<crate::db::Pool>,
-    req: actix_web::HttpRequest,
 ) -> impl Responder {
-    use crate::repository::ticket_visibility::{self, VisibilityContext};
-
-    let ticket_id = path.into_inner();
+    let ticket_id = access.ticket_id;
     debug!(ticket_id, "Getting comments for ticket");
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
-
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(c) => c.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-    let Some(vis) = VisibilityContext::from_claims(&claims) else {
-        return errors::not_found_msg("Ticket not found");
-    };
-    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
-        Ok(true) => {}
-        Ok(false) => return errors::not_found_msg("Ticket not found"),
-        Err(e) => {
-            error!(error = ?e, ticket_id, "get_comments visibility check failed");
-            return errors::internal("Failed to load comments");
-        }
-    }
 
     match crate::repository::comments::get_comments_with_attachments_by_ticket_id(&mut conn, ticket_id) {
         Ok(comments) => {
@@ -239,7 +220,7 @@ pub async fn get_comments_by_ticket_id(
 }
 
 pub async fn add_comment_to_ticket(
-    path: web::Path<i32>,
+    access: crate::extractors::TicketAccess,
     comment_data: web::Json<crate::models::NewCommentWithAttachments>,
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
@@ -249,7 +230,8 @@ pub async fn add_comment_to_ticket(
     email_service: web::Data<Option<Arc<crate::utils::email::EmailService>>>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
-    let ticket_id = path.into_inner();
+    let ticket_id = access.ticket_id;
+    let user_uuid_parsed = access.auth.user_uuid;
     let source_client_id = req.headers()
         .get("X-SSE-Client-Id")
         .and_then(|v| v.to_str().ok())
@@ -264,32 +246,14 @@ pub async fn add_comment_to_ticket(
         Err(e) => return e,
     };
 
-    // Extract claims from cookie auth middleware
+    // Still need the raw `Claims` for actor logging on the
+    // notification path; the extractor's `auth.claims` carries
+    // them but is private. Pull from request extensions, where
+    // the JWT middleware deposited them; the extractor's success
+    // guarantees this is present.
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
-    };
-
-    // AUD-011: a User can only comment on a ticket they can see.
-    {
-        use crate::repository::ticket_visibility::{self, VisibilityContext};
-        let Some(vis) = VisibilityContext::from_claims(&claims) else {
-            return errors::not_found_msg("Ticket not found");
-        };
-        match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
-            Ok(true) => {}
-            Ok(false) => return errors::not_found_msg("Ticket not found"),
-            Err(e) => {
-                error!(error = ?e, ticket_id, "add_comment visibility check failed");
-                return errors::internal("Failed to add comment");
-            }
-        }
-    }
-
-    // Parse the authenticated user's UUID from the JWT claims
-    let user_uuid_parsed = match crate::utils::parse_uuid(&claims.sub) {
-        Ok(uuid) => uuid,
-        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid user UUID in token"})),
     };
 
     // Get the authenticated user's full information for notifications

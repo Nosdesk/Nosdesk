@@ -39,10 +39,14 @@ pub struct PluginProxyService {
 impl PluginProxyService {
     /// Create a new proxy service
     pub fn new() -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("Failed to create HTTP client");
+        // The proxy fronts URLs declared in plugin manifests. Plugin
+        // bundles are signature-pinned, but the network section of
+        // the manifest is still author-supplied. Routing through
+        // safe_http means the resolver refuses to dial private IPs
+        // even if a manifest author lists a hostname that resolves
+        // into RFC1918 / 169.254.x.x.
+        let client = crate::utils::safe_http::client(Duration::from_secs(30))
+            .expect("Failed to create SSRF-safe HTTP client");
 
         Self {
             client,
@@ -332,6 +336,22 @@ impl PluginProxyService {
         {
             // Some servers require Content-Length even for empty bodies
             req = req.header("Content-Length", "0");
+        }
+
+        // The safe_http client refuses internal IPs returned by
+        // DNS; this catches the IP-literal case (a manifest
+        // declaring `http://127.0.0.1/whatever` doesn't trigger
+        // the resolver). The manifest's network allowlist already
+        // ran upstream of this call, so reaching this guard is
+        // already the "manifest said it was OK" path.
+        if let Err(e) = crate::utils::safe_http::reject_unsafe_ip_literal(&request.url) {
+            warn!(
+                plugin = plugin_name,
+                url = request.url,
+                error = %e,
+                "plugin proxy blocked by SSRF guard"
+            );
+            return Err(format!("Request blocked: {e}"));
         }
 
         // Execute the request

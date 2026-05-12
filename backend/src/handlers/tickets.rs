@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::{debug, error, warn, info};
 use uuid::Uuid;
 
-use crate::extractors::AuthContext;
+use crate::extractors::{AuthContext, TicketAccess};
 use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, UserRole, WorkflowStateCategory};
 use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
@@ -328,30 +328,16 @@ const MAX_ACTIVITY_LIMIT: i64 = 200;
 
 pub async fn get_ticket_activity(
     pool: web::Data<crate::db::Pool>,
-    params: web::Path<i32>,
+    access: TicketAccess,
     query: web::Query<TicketActivityQuery>,
-    claims: web::ReqData<Claims>,
 ) -> impl Responder {
-    use crate::repository::ticket_visibility::{self, VisibilityContext};
     use crate::schema::sync_actions;
 
-    let ticket_id = params.into_inner();
+    let ticket_id = access.ticket_id;
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
-
-    let Some(vis) = VisibilityContext::from_claims(&claims) else {
-        return errors::not_found_msg("Ticket not found");
-    };
-    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
-        Ok(true) => {}
-        Ok(false) => return errors::not_found_msg("Ticket not found"),
-        Err(e) => {
-            error!(error = ?e, ticket_id, "ticket_activity visibility check failed");
-            return errors::internal("Failed to load ticket activity");
-        }
-    }
 
     let limit = query.limit.unwrap_or(DEFAULT_ACTIVITY_LIMIT).clamp(1, MAX_ACTIVITY_LIMIT);
     let group_marker = format!("ticket:{}", ticket_id);
@@ -398,49 +384,27 @@ pub async fn get_ticket_activity(
     HttpResponse::Ok().json(TicketActivityResponse { events, next_cursor })
 }
 
-// Get a ticket by ID with comments and related info
+// Get a ticket by ID with comments and related info.
+//
+// The visibility gate is part of the `TicketAccess` extractor —
+// reaching this body means the caller is allowed to read the
+// ticket. 404 (not 403) on deny is enforced inside the extractor,
+// per the OWASP IDOR Cheatsheet.
 pub async fn get_ticket(
     pool: web::Data<crate::db::Pool>,
-    params: web::Path<i32>,
-    claims: web::ReqData<Claims>,
+    access: TicketAccess,
 ) -> impl Responder {
-    use crate::repository::ticket_visibility::{self, VisibilityContext};
     use crate::repository::user_ticket_views::UserTicketViewsRepository;
 
-    let ticket_id = params.into_inner();
-    let claims_inner = claims.into_inner();
+    let TicketAccess { ticket_id, auth } = access;
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    // Resolve the visibility context from claims. A malformed claim
-    // (bad UUID or unknown role) shouldn't pass the auth middleware,
-    // but if it somehow does, we treat it as "no visibility" — same
-    // 404 path as the access check below so the existence of the
-    // ticket isn't disclosed.
-    let Some(ctx) = VisibilityContext::from_claims(&claims_inner) else {
-        warn!("get_ticket: claims missing or malformed; rejecting as not-found");
-        return errors::not_found_msg("Ticket not found");
-    };
-
-    // AUD-001: AuthZ gate at the data layer. End-users (UserRole::User)
-    // only see tickets they're the requester of or are watching; staff
-    // see everything. Returning 404 (not 403) hides the existence of
-    // tickets the caller can't read, per OWASP IDOR Cheatsheet.
-    match ticket_visibility::can_view_ticket(&mut conn, &ctx, ticket_id) {
-        Ok(true) => {}
-        Ok(false) => return errors::not_found_msg("Ticket not found"),
-        Err(e) => {
-            error!(error = ?e, ticket_id, "ticket visibility check failed");
-            return errors::internal("Failed to verify ticket access");
-        }
-    }
-
-    // Load the full ticket detail. The visibility check above means
-    // a `not_found` here is a genuine "deleted between check and
-    // load" race, which we still want to surface as 404.
+    // A `not_found` here is a genuine "deleted between extraction
+    // and load" race, which we still want to surface as 404.
     let complete_ticket = match repository::get_complete_ticket(&mut conn, ticket_id) {
         Ok(ticket) => ticket,
         Err(_) => return errors::not_found_msg("Ticket not found"),
@@ -448,8 +412,8 @@ pub async fn get_ticket(
 
     // Record the view (don't fail the request if this fails).
     let view_repo = UserTicketViewsRepository::new(pool.get_ref().clone());
-    if let Err(e) = view_repo.record_view(ctx.user_uuid, ticket_id) {
-        warn!(user_uuid = %ctx.user_uuid, error = ?e, "Failed to record ticket view");
+    if let Err(e) = view_repo.record_view(auth.user_uuid, ticket_id) {
+        warn!(user_uuid = %auth.user_uuid, error = ?e, "Failed to record ticket view");
     }
 
     HttpResponse::Ok().json(complete_ticket)
@@ -576,36 +540,19 @@ pub async fn create_ticket(
     }
 }
 
-// Update a ticket
+// Update a ticket. The extractor gates visibility; this body
+// only runs for callers who can see the ticket.
 pub async fn update_ticket(
     req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
-    path: web::Path<i32>,
+    access: TicketAccess,
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
-    use crate::repository::ticket_visibility::{self, VisibilityContext};
-
-    let ticket_id = path.into_inner();
+    let ticket_id = access.ticket_id;
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
-
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-    let Some(vis) = VisibilityContext::from_claims(&claims) else {
-        return errors::not_found_msg("Ticket not found");
-    };
-    match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
-        Ok(true) => {}
-        Ok(false) => return errors::not_found_msg("Ticket not found"),
-        Err(e) => {
-            error!(error = ?e, ticket_id, "update_ticket visibility check failed");
-            return errors::internal("Failed to update ticket");
-        }
-    }
 
     let new_ticket = ticket.into_inner();
 
@@ -912,10 +859,10 @@ pub async fn update_ticket_partial(
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
-    params: web::Path<i32>,
+    access: TicketAccess,
     body: web::Json<Value>,
 ) -> impl Responder {
-    let ticket_id = params.into_inner();
+    let ticket_id = access.ticket_id;
     let source_client_id = extract_sse_client_id(&req);
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -923,28 +870,14 @@ pub async fn update_ticket_partial(
         Err(e) => return e,
     };
 
-    // Extract claims from request extensions (set by cookie_auth_middleware)
+    // Notification dispatch downstream wants the raw `Claims`
+    // for actor logging; pull from extensions, which the JWT
+    // middleware populates (the extractor already verified
+    // these claims map to a real user).
     let user_info = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => return errors::unauthorized("Authentication required"),
     };
-
-    // AUD-011: visibility gate so a User can't PATCH a ticket they
-    // can't see. Returns 404 to avoid disclosing existence.
-    {
-        use crate::repository::ticket_visibility::{self, VisibilityContext};
-        let Some(vis) = VisibilityContext::from_claims(&user_info) else {
-            return errors::not_found_msg("Ticket not found");
-        };
-        match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
-            Ok(true) => {}
-            Ok(false) => return errors::not_found_msg("Ticket not found"),
-            Err(e) => {
-                error!(error = ?e, ticket_id, "update_ticket_partial visibility check failed");
-                return errors::internal("Failed to update ticket");
-            }
-        }
-    }
 
     // Get the current ticket state for detecting changes (for notifications)
     let old_ticket = repository::get_ticket_by_id(&mut conn, ticket_id).ok();
@@ -1667,41 +1600,17 @@ pub async fn get_recent_tickets(
     }
 }
 
-// Record a ticket view
+// Record a ticket view. Extractor handles visibility — no
+// possibility of recording a view for a ticket the user
+// shouldn't know exists.
 pub async fn record_ticket_view(
     pool: web::Data<crate::db::Pool>,
-    path: web::Path<i32>,
-    claims: web::ReqData<Claims>,
+    access: TicketAccess,
 ) -> impl Responder {
-    use crate::repository::ticket_visibility::{self, VisibilityContext};
     use crate::repository::user_ticket_views::UserTicketViewsRepository;
 
-    let ticket_id = path.into_inner();
-    let claims_inner = claims.into_inner();
-    let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
-        Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid user UUID: The user UUID in the authentication token is invalid"),
-    };
-
-    // Don't record views for tickets the caller isn't allowed to see —
-    // otherwise the recent-views list becomes an existence oracle.
-    {
-        let mut conn = match helpers::db_conn(&pool) {
-            Ok(c) => c,
-            Err(e) => return e,
-        };
-        let Some(vis) = VisibilityContext::from_claims(&claims_inner) else {
-            return errors::not_found_msg("Ticket not found");
-        };
-        match ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id) {
-            Ok(true) => {}
-            Ok(false) => return errors::not_found_msg("Ticket not found"),
-            Err(e) => {
-                error!(error = ?e, ticket_id, "record_ticket_view visibility check failed");
-                return errors::internal("Failed to record ticket view");
-            }
-        }
-    }
+    let TicketAccess { ticket_id, auth } = access;
+    let user_uuid = auth.user_uuid;
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
 
