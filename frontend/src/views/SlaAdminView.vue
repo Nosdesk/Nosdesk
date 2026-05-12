@@ -208,7 +208,8 @@ function fmtMinutes(m: number | null): string {
       <section class="flex flex-col gap-3">
         <h2 class="text-sm font-semibold text-primary">Working calendars</h2>
 
-        <table class="w-full text-xs border border-subtle rounded-md overflow-hidden">
+        <div class="overflow-x-auto">
+        <table class="w-full min-w-[480px] text-xs border border-subtle rounded-md overflow-hidden">
           <thead class="bg-surface text-tertiary">
             <tr>
               <th class="text-left px-3 py-2 font-medium">Name</th>
@@ -239,13 +240,14 @@ function fmtMinutes(m: number | null): string {
             </tr>
           </tbody>
         </table>
+        </div>
 
         <form
           class="rounded-md border border-subtle bg-app p-3 flex flex-col gap-2"
           @submit.prevent="createCalendar"
         >
           <h3 class="text-xs font-semibold text-secondary uppercase tracking-wide">New calendar</h3>
-          <div class="grid grid-cols-2 gap-2">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <label class="flex flex-col gap-1 text-[11px] text-tertiary">
               Name
               <input
@@ -280,7 +282,8 @@ function fmtMinutes(m: number | null): string {
       <section class="flex flex-col gap-3">
         <h2 class="text-sm font-semibold text-primary">SLA policies</h2>
 
-        <table class="w-full text-xs border border-subtle rounded-md overflow-hidden">
+        <div class="overflow-x-auto">
+        <table class="w-full min-w-[480px] text-xs border border-subtle rounded-md overflow-hidden">
           <thead class="bg-surface text-tertiary">
             <tr>
               <th class="text-left px-3 py-2 font-medium">Name</th>
@@ -315,13 +318,14 @@ function fmtMinutes(m: number | null): string {
             </tr>
           </tbody>
         </table>
+        </div>
 
         <form
           class="rounded-md border border-subtle bg-app p-3 flex flex-col gap-2"
           @submit.prevent="createPolicy"
         >
           <h3 class="text-xs font-semibold text-secondary uppercase tracking-wide">New policy</h3>
-          <div class="grid grid-cols-2 gap-2">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <label class="flex flex-col gap-1 text-[11px] text-tertiary">
               Name
               <input

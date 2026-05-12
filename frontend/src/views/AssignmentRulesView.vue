@@ -450,7 +450,7 @@ onMounted(() => {
         <!-- Assignment Method -->
         <div>
           <label class="block text-sm font-medium text-primary mb-2">Assignment Method</label>
-          <div class="grid grid-cols-2 gap-2">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button
               v-for="option in methodOptions"
               :key="option.value"

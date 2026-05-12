@@ -190,16 +190,16 @@ onMounted(loadFirstPage);
           v-model="pkFilter"
           type="text"
           placeholder="e.g. 42"
-          class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-32"
+          class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-full sm:w-32"
         />
       </label>
-      <label class="flex flex-col gap-1 text-xs text-secondary">
+      <label class="flex flex-col gap-1 text-xs text-secondary w-full sm:w-auto">
         <span>Actor UUID</span>
         <input
           v-model="actorFilter"
           type="text"
           placeholder="e.g. 0192…"
-          class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-72 font-mono"
+          class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-full sm:w-72 font-mono"
         />
       </label>
       <button
