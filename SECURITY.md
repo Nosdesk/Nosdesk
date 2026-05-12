@@ -48,6 +48,44 @@ rewrite date, so `git pull --rebase` won't fast-forward.
 Re-clone, or `git fetch --all && git reset --hard origin/main`
 after auditing the new history.
 
+### Outbound email authentication (SPF / DKIM / DMARC)
+
+Nosdesk sets a `From:` header derived from `SMTP_FROM_EMAIL`
+and `SMTP_FROM_NAME` and hands the message to your SMTP relay.
+It does not sign with DKIM itself, doesn't publish SPF, and
+doesn't manage DMARC. Those records live in the DNS zone of
+whichever domain you set `SMTP_FROM_EMAIL` to; configuring
+them is an operator responsibility.
+
+Without them, an attacker on any sender network can craft an
+email whose `From:` matches your Nosdesk domain (`noreply@yourdomain.com`)
+and most receivers will deliver it. Recipients see what looks
+like a Nosdesk notification carrying the attacker's payload,
+which is straightforward credential phishing against your
+users. The fix is at the DNS layer, not in this codebase:
+
+* **SPF**: publish a TXT record at `yourdomain.com` listing
+  the IPs / hostnames allowed to send for you (typically your
+  SMTP relay's recommended `include:`).
+* **DKIM**: enable DKIM signing at your relay (SES, Postmark,
+  SendGrid, Mailgun, Postal, etc. all expose this; for direct
+  SMTP, set up `opendkim` on the relay host). Publish the
+  public key as a TXT record at
+  `<selector>._domainkey.yourdomain.com`.
+* **DMARC**: publish a TXT record at `_dmarc.yourdomain.com`
+  with at minimum `v=DMARC1; p=quarantine` (or `p=reject` once
+  you've confirmed alignment from real sends). Start with
+  `p=none; rua=mailto:...` to collect reports before tightening.
+
+Verify with `dig TXT yourdomain.com`, `dig TXT <selector>._domainkey.yourdomain.com`,
+and `dig TXT _dmarc.yourdomain.com`, or use `mail-tester.com`.
+
+If your deployment can't publish DNS records (running on an
+unowned domain, dev sandboxes, etc), set `SMTP_FROM_EMAIL` to
+an address on a domain that *does* have these records, even
+if it's a shared one. The application can't substitute for
+DNS-level authentication.
+
 ### Reverse proxy expectations
 
 `X-Forwarded-For` is gated on a `TRUSTED_PROXIES` CIDR
@@ -131,7 +169,7 @@ enumeration.
 | AUD-006 | Medium | SVG uploads not blocked from authed users | **Fixed**. `image/svg+xml` joins `BLOCKED_MIME_TYPES` and `.svg` / `.svgz` join `BLOCKED_EXTENSIONS` in `utils::file_validation`. A content sniffer runs ahead of `infer` (which often classifies SVG as `text/xml` and would slip past the MIME blocklist) and rejects anything whose first 1KB looks like SVG, including BOM- or whitespace-prefixed payloads renamed to non-SVG extensions. The sniffer is consulted by both the authed `validate_file` and the guest `validate_guest_upload`, so XSS-bearing SVG can't reach storage through any upload path. Plugin bundles are signed zips and don't touch this validator.
 | AUD-007 | Medium | Password reset reveals user existence via timing side-channel | **Fixed**. The login family (`login`, `mfa_login`, `mfa_setup_login`, `mfa_enable_login`, `recovery_login`) routes through `utils::login_timing::verify_credentials`, which always runs `bcrypt::verify` against either the real hash or a random-bytes dummy hash with the same cost. Missing users, SSO-only users, and wrong passwords are indistinguishable in wall-clock time. The dummy hash is generated at startup so the cost matches `DEFAULT_COST` exactly; a statistical test asserts median delta < 20ms. `request_password_reset` runs token-issue + email-send in a detached `tokio::spawn` so the response is constant-latency. `start_passkey_login` always returns a discoverable-shape challenge with `sessionId`, regardless of whether the email maps to a user with passkeys; finish-time credential matching is the gate. Registration enumeration via the "email already exists" response is a separate concern (most products accept this leak; flagged in audit notes). |
 | AUD-008 | Medium | Backup restore uses string-concatenated SQL (admin-gated) | **Fixed**. Restore is admin-gated but a poisoned backup uploaded by an admin (or by an attacker who phished one) was a SQL-injection vector via JSON column keys. The fix is layered: table names come from a hardcoded `ALLOWED_RESTORE_TABLES` list and every interpolation goes through `assert_table_allowed`; column names from backup JSON keys are filtered against `information_schema.columns` for the target table, so a hostile key in the backup file is silently dropped before reaching the INSERT; row values stay through the existing quote-doubling escape as the second layer. A DB-backed test verifies that a row with hostile keys (`"name); DROP TABLE users; --"`) inserts only the legitimate columns, leaving the schema untouched. |
-| AUD-009 | Medium | Email From-address spoofing via configured channel | Deployment / config concern. |
+| AUD-009 | Medium | Email From-address spoofing via configured channel | **Documented**. The application sets a `From:` header from `SMTP_FROM_EMAIL` and hands the message to your SMTP relay; SPF / DKIM / DMARC are operator responsibilities on the DNS for whichever domain that address belongs to. Without those records, an attacker can spoof Nosdesk-shaped emails against your users (credential phishing). The application can't substitute for DNS-level authentication. See the new "Outbound email authentication" section under "Deployment guidance" for the records to publish and verification commands. |
 | AUD-010 | Medium | Image decompression-bomb defence not directly verified | **Fixed**. `utils::image::load_image_with_orientation` is the single decode chokepoint that avatar, banner, and thumbnail handlers all route through. It now calls `decoder.set_limits(decode_limits())` with strict `max_image_width = max_image_height = 16384` (covers any realistic photo or banner; 8K is 7680) and `max_alloc = 256 MiB`. The image-rs width/height limits are strict and are checked before any pixel buffer is allocated, so a tiny PNG header claiming `100_000 × 100_000` is rejected at parse time rather than after a 40 GB allocation. Tests cover a small image decoding normally, an image at the dimension limit decoding, an image one pixel past the limit being rejected, and the `decode_limits()` constants themselves. |
 | AUD-011 | Low | Sibling write handlers (`update_ticket`, `delete_ticket`, etc.) likely need the same visibility check as AUD-001 | **Fixed**. The sweep applied the visibility gate to `watch_ticket`, `list_watchers`, `my_watch_state`, `update_ticket`, `update_ticket_partial`, `get_ticket_activity`, `get_comments_by_ticket_id`, `add_comment_to_ticket`, `set_ticket_tags`, `record_ticket_view`, and full-text `search` results for end-users. `bulk_tickets` is staff-only. `delete_ticket` was already admin-only. |
 | AUD-012 | Low | Invitation acceptance rate-limit coverage unverified | **Verified + structural follow-up shipped**. Verification: invitation tokens are 32 random bytes (256-bit entropy, brute-force infeasible) and the `/api/auth` scope is wrapped in `RateLimiter::default()` keyed on `utils::client_ip`, so resource-exhaustion via flood is already covered. The investigation surfaced a separate concurrency bug: `validate_and_consume_token` was a non-atomic check-then-update, so two concurrent requests with the same token could both pass the `is_used = false` check and both call `accept_invitation`, leaving the account in an indeterminate state (the second password write wins). Replaced with a single `UPDATE reset_tokens SET is_used = true ... WHERE is_used = false AND expires_at > now() AND token_type = $1 RETURNING user_uuid`, so exactly one claim ever succeeds; all other failure modes collapse to the same "Invalid or expired token" message. Also closes a small message-distinguishability leak (the old code returned "Token has already been used" vs "Invalid token type"; now it doesn't). Four DB-backed tests cover succeed-once, second-attempt-fails, wrong-type-doesn't-consume, and missing-token-fails. The fix applies to password reset complete too, which shares the same primitive. |
