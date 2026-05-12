@@ -93,45 +93,152 @@ pub fn invalidate_tokens_by_type(
     .execute(conn)
 }
 
-/// Validate and consume a reset token
-/// Returns Ok(user_uuid) if token is valid, unused, and not expired
+/// Validate and consume a reset token atomically.
+///
+/// AUD-012: replaces a non-atomic check-then-update with one
+/// SQL `UPDATE ... WHERE is_used = false ... RETURNING user_uuid`.
+/// Two concurrent requests carrying the same token used to both
+/// see `is_used = false` and both proceed to set passwords, mark
+/// emails verified, etc. With the atomic update only one
+/// `UPDATE` ever sees `is_used = false`; the other gets an empty
+/// RETURNING and fails with the same generic error a missing or
+/// expired token would produce.
+///
+/// All failure modes collapse to "Invalid or expired token." A
+/// caller that distinguishes "wrong type" from "already used"
+/// from "expired" leaks state about which tokens are alive,
+/// which is useless given the 256-bit token entropy but still
+/// worth not leaking.
 pub fn validate_and_consume_token(
     conn: &mut DbConnection,
     raw_token: &str,
     expected_token_type: &str,
 ) -> Result<Uuid, String> {
-    // Hash the raw token to look it up
     let token_hash_value = ResetTokenUtils::hash_token(raw_token);
+    let now = Utc::now();
 
-    // Find the token
-    let token = find_token_by_hash(conn, &token_hash_value)
-        .map_err(|_| "Invalid or expired token".to_string())?;
+    let user_uuid: Option<Uuid> = diesel::update(
+        reset_tokens::table
+            .filter(reset_tokens::token_hash.eq(&token_hash_value))
+            .filter(reset_tokens::token_type.eq(expected_token_type))
+            .filter(reset_tokens::is_used.eq(false))
+            .filter(reset_tokens::expires_at.gt(now)),
+    )
+    .set((
+        reset_tokens::is_used.eq(true),
+        reset_tokens::used_at.eq(Some(now)),
+    ))
+    .returning(reset_tokens::user_uuid)
+    .get_result(conn)
+    .optional()
+    .map_err(|e| format!("Failed to claim token: {e}"))?;
 
-    // Verify token type
-    if token.token_type != expected_token_type {
-        return Err("Invalid token type".to_string());
-    }
-
-    // Check if already used
-    if token.is_used {
-        return Err("Token has already been used".to_string());
-    }
-
-    // Check if expired (convert NaiveDateTime to DateTime<Utc>)
-    let expires_at_utc = DateTime::<Utc>::from_naive_utc_and_offset(token.expires_at, Utc);
-    if ResetTokenUtils::is_token_expired(expires_at_utc) {
-        return Err("Token has expired".to_string());
-    }
-
-    // Mark as used
-    mark_token_as_used(conn, &token_hash_value)
-        .map_err(|_| "Failed to mark token as used".to_string())?;
-
-    Ok(token.user_uuid)
+    user_uuid.ok_or_else(|| "Invalid or expired token".to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    // Note: These tests require a test database connection
-    // They are here as documentation of the expected behavior
+    use super::*;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use crate::utils::reset_tokens::TokenType;
+    use crate::models::UserRole;
+
+    fn create_invitation_token(conn: &mut DbConnection, user_uuid: Uuid) -> String {
+        let issued = crate::utils::reset_tokens::ResetTokenUtils::create_reset_token(
+            user_uuid,
+            TokenType::Invitation,
+        );
+        create_reset_token(
+            conn,
+            &issued.token_hash,
+            user_uuid,
+            TokenType::Invitation.as_str(),
+            None,
+            None,
+            issued.expires_at,
+            None,
+        )
+        .expect("seed token row");
+        issued.raw_token
+    }
+
+    #[test]
+    fn validate_and_consume_token_succeeds_once() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
+        let raw = create_invitation_token(&mut conn, user.uuid);
+
+        let claimed = validate_and_consume_token(
+            &mut conn,
+            &raw,
+            TokenType::Invitation.as_str(),
+        )
+        .expect("first consume must succeed");
+        assert_eq!(claimed, user.uuid);
+    }
+
+    #[test]
+    fn second_consume_of_same_token_fails() {
+        // The atomic UPDATE pattern: the second caller's
+        // `WHERE is_used = false` clause filters the row out, so
+        // RETURNING comes back empty and we surface the same
+        // generic error a never-existed token would produce.
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let raw = create_invitation_token(&mut conn, user.uuid);
+
+        validate_and_consume_token(&mut conn, &raw, TokenType::Invitation.as_str())
+            .expect("first consume succeeds");
+        let second = validate_and_consume_token(
+            &mut conn,
+            &raw,
+            TokenType::Invitation.as_str(),
+        );
+        assert!(second.is_err(), "second consume must fail");
+        assert_eq!(
+            second.unwrap_err(),
+            "Invalid or expired token",
+            "error message must not distinguish 'already used' from 'never existed'",
+        );
+    }
+
+    #[test]
+    fn wrong_token_type_fails_with_generic_error() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "carol", UserRole::User);
+        let raw = create_invitation_token(&mut conn, user.uuid);
+
+        // The token exists and is fresh, but the caller's
+        // expected type doesn't match. The atomic UPDATE filters
+        // on token_type so the row is unchanged and the response
+        // is the same generic error.
+        let err = validate_and_consume_token(
+            &mut conn,
+            &raw,
+            TokenType::PasswordReset.as_str(),
+        )
+        .expect_err("wrong token type must fail");
+        assert_eq!(err, "Invalid or expired token");
+
+        // Confirm the row was NOT consumed — a subsequent call
+        // with the correct type still succeeds.
+        validate_and_consume_token(
+            &mut conn,
+            &raw,
+            TokenType::Invitation.as_str(),
+        )
+        .expect("token remains consumable with the right type");
+    }
+
+    #[test]
+    fn nonexistent_token_fails_with_generic_error() {
+        let mut conn = setup_test_connection();
+        let err = validate_and_consume_token(
+            &mut conn,
+            "not-a-real-token",
+            TokenType::Invitation.as_str(),
+        )
+        .expect_err("missing token must fail");
+        assert_eq!(err, "Invalid or expired token");
+    }
 }
