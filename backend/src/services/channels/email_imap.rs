@@ -838,10 +838,11 @@ pub fn parse_rfc822_into_inbound_message(
     let is_bounce = detect_bounce(&parsed, headers);
     // Parse the DSN MIME structure only when we've flagged the
     // message as a bounce; saves the walk on every normal email.
-    let bounce_report = if is_bounce {
+    // Returns one report per per-recipient block per RFC 3464 §2.1.
+    let bounce_reports = if is_bounce {
         crate::services::channels::bounce_parser::parse_bounce(&parsed)
     } else {
-        None
+        Vec::new()
     };
 
     let received_at = internal_date
@@ -870,7 +871,7 @@ pub fn parse_rfc822_into_inbound_message(
         raw_metadata,
         recipients,
         is_bounce,
-        bounce_report,
+        bounce_reports,
     })
 }
 

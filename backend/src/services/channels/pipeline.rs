@@ -176,7 +176,19 @@ pub async fn process_event(
         // didn't carry our deterministic Message-ID, we still
         // short-circuit (so no ticket / auto-reply) but log the
         // miss so admins know coverage isn't complete.
-        if let Some(report) = msg.bounce_report.as_ref() {
+        //
+        // RFC 3464 §2.1 allows multiple per-recipient blocks in one
+        // DSN. We process each report independently so a multi-
+        // recipient bounce suppresses every failed address — not
+        // just the first one.
+        if msg.bounce_reports.is_empty() {
+            debug!(
+                channel_id = channel.id,
+                external_id = %msg.external_id,
+                "bounce: detected but DSN was unparseable; no linkage"
+            );
+        }
+        for report in &msg.bounce_reports {
             match crate::repository::outbound_emails::mark_bounced(
                 conn,
                 &report.original_message_id,
@@ -212,14 +224,15 @@ pub async fn process_event(
             // Auto-suppress on hard bounces only. Soft bounces
             // (4xx — transient) shouldn't permanently block a
             // recipient; they retry naturally on the next send.
-            if let (Some(recipient), Some(diagnostic)) =
-                (report.recipient.as_deref(), report.diagnostic.as_deref())
-            {
-                if is_hard_bounce(diagnostic) {
+            // `BounceReport::is_hard` prefers the structured Status
+            // code (RFC 3464's canonical signal) and falls back to
+            // scanning the diagnostic when Status is absent.
+            if let Some(recipient) = report.recipient.as_deref() {
+                if report.is_hard() {
                     let new = crate::models::NewEmailSuppression {
                         email: recipient.to_string(),
                         reason: crate::models::email_suppression_reason::HARD_BOUNCE.to_string(),
-                        bounce_diagnostic: Some(diagnostic.to_string()),
+                        bounce_diagnostic: report.diagnostic.clone(),
                     };
                     if let Err(e) = crate::repository::email_suppressions::upsert(conn, new) {
                         warn!(
@@ -237,12 +250,6 @@ pub async fn process_event(
                     }
                 }
             }
-        } else {
-            debug!(
-                channel_id = channel.id,
-                external_id = %msg.external_id,
-                "bounce: detected but DSN was unparseable; no linkage"
-            );
         }
 
         // Record the DSN itself so a re-arrival (forwarder loop,
@@ -474,62 +481,6 @@ pub async fn process_event(
             comment_id: comment.id,
         }
     })
-}
-
-/// Classify a DSN diagnostic as a hard or soft bounce.
-///
-/// "Hard" = permanent recipient-side failure (mailbox doesn't
-/// exist, user disabled, etc.). These auto-populate the suppression
-/// list so we stop wasting deliveries.
-///
-/// "Soft" = transient (4xx codes; mailbox full, server down). Not
-/// suppressed because the next send will likely succeed.
-///
-/// Carve-outs from the 5xx universe per Mailgun / SES / Postmark
-/// production patterns:
-///   - `5.0.0` is "other / undefined" per RFC 3463 — too vague to
-///     act on without risking a real customer.
-///   - `5.7.x` is policy / security (SPF, DKIM, DMARC, content
-///     filtering, greylisting). These are usually *sender*-side
-///     problems; suppressing the recipient just because we failed
-///     DKIM loses them forever for a configuration issue we own.
-///
-/// Default-deny: anything we can't classify counts as soft. Better
-/// to retry a real address than to block a real customer over a
-/// parsing miss.
-fn is_hard_bounce(diagnostic: &str) -> bool {
-    // Scan first, decide after. A single diagnostic often carries
-    // both the basic SMTP code (550) and the enhanced status (5.7.1);
-    // a token-by-token short-circuit would return on the basic code
-    // before reaching the more-specific enhanced status and apply
-    // the wrong verdict.
-    let mut saw_hard_enhanced = false;
-    let mut saw_carve_out_enhanced = false;
-    let mut saw_basic_5xx = false;
-
-    for word in diagnostic.split(|c: char| !c.is_ascii_alphanumeric() && c != '.') {
-        // RFC 3463 enhanced status: `5.x.y`
-        if word.starts_with("5.") && word.matches('.').count() == 2 {
-            if word == "5.0.0" || word.starts_with("5.7.") {
-                saw_carve_out_enhanced = true;
-            } else {
-                saw_hard_enhanced = true;
-            }
-            continue;
-        }
-        // SMTP basic 5xx code (bare 3-digit number starting with 5).
-        if word.len() == 3 && word.starts_with('5') && word.chars().all(|c| c.is_ascii_digit()) {
-            saw_basic_5xx = true;
-        }
-    }
-
-    // Enhanced status is more specific than the basic SMTP code, so
-    // when present it takes precedence. A carve-out enhanced status
-    // (5.0.0 / 5.7.x) wins even if a basic 5xx is also in the line.
-    if saw_carve_out_enhanced && !saw_hard_enhanced {
-        return false;
-    }
-    saw_hard_enhanced || saw_basic_5xx
 }
 
 // ---------- DB helpers ----------
@@ -1004,7 +955,7 @@ mod tests {
             raw_metadata: json!({"k": "v"}),
             recipients: vec!["support@yourco.com".into()],
             is_bounce: false,
-            bounce_report: None,
+            bounce_reports: Vec::new(),
         }
     }
 
@@ -1201,7 +1152,7 @@ mod tests {
         let msg = super::super::email_imap::parse_rfc822_into_inbound_message(raw, None)
             .expect("fixture should parse");
         assert!(msg.is_bounce, "detect_bounce should flag the fixture");
-        assert!(msg.bounce_report.is_some(), "parse_bounce should yield a report");
+        assert!(!msg.bounce_reports.is_empty(), "parse_bounce should yield at least one report");
 
         let outcome = process_event(
             &StubAdapter,
@@ -1283,6 +1234,58 @@ mod tests {
             )
             .unwrap(),
             "soft bounce (4.x.x) must NOT auto-suppress",
+        );
+    }
+
+    /// RFC 3464 §2.1 multi-block DSN: when a single outbound (e.g.
+    /// to a distribution list) bounces for several downstream
+    /// recipients, the pipeline must suppress *each* failed address
+    /// independently rather than just the first per-recipient block.
+    #[tokio::test]
+    async fn multi_recipient_dsn_suppresses_every_failed_recipient() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+
+        // One outbound row, sent to a list address. The DSN names
+        // two downstream members (alice, carol) that the list
+        // server failed to deliver to.
+        let _original = crate::repository::outbound_emails::enqueue(
+            &mut conn,
+            outbound_row(ch.id, "out-multi@yourco.com", "mailing-list@example.org"),
+        )
+        .unwrap();
+
+        let raw = include_bytes!("../../../tests/fixtures/dsn/multi-recipient.eml");
+        let msg = super::super::email_imap::parse_rfc822_into_inbound_message(raw, None).unwrap();
+        assert_eq!(
+            msg.bounce_reports.len(),
+            2,
+            "multi-recipient fixture should yield 2 reports",
+        );
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, PipelineOutcome::SkippedBounce);
+
+        // Both failed downstream addresses must be on the
+        // suppression list, even though only one outbound row
+        // existed (we sent to the list, not to the members).
+        assert!(
+            crate::repository::email_suppressions::is_suppressed(&mut conn, "alice@example.org")
+                .unwrap(),
+            "alice should be auto-suppressed",
+        );
+        assert!(
+            crate::repository::email_suppressions::is_suppressed(&mut conn, "carol@example.org")
+                .unwrap(),
+            "carol should be auto-suppressed",
         );
     }
 
@@ -1391,51 +1394,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn is_hard_bounce_detects_5xx_smtp_codes() {
-        // Combined basic + enhanced status (the common DSN shape).
-        assert!(is_hard_bounce("smtp; 550 5.1.1 User unknown"));
-        assert!(is_hard_bounce("550 5.1.1 User unknown"));
-        // Bare enhanced status outside the carve-out set.
-        assert!(is_hard_bounce("5.1.1 Bad destination mailbox address"));
-        // Bare SMTP code with no enhanced status at all.
-        assert!(is_hard_bounce("552 mailbox full"));
-    }
-
-    #[test]
-    fn is_hard_bounce_rejects_4xx_soft_failures() {
-        assert!(!is_hard_bounce("smtp; 421 4.7.0 Try again later"));
-        assert!(!is_hard_bounce("4.4.1 Connection refused"));
-        assert!(!is_hard_bounce("452 Insufficient storage"));
-    }
-
-    #[test]
-    fn is_hard_bounce_rejects_unparseable_diagnostic() {
-        // Conservative default: nothing 5xx-shaped, no suppression.
-        assert!(!is_hard_bounce(""));
-        assert!(!is_hard_bounce("Delivery failed for unspecified reason"));
-        assert!(!is_hard_bounce("smtp; queue too long"));
-    }
-
-    #[test]
-    fn is_hard_bounce_excludes_5_7_x_policy_failures() {
-        // 5.7.x = policy / security. SPF, DKIM, DMARC, content
-        // filtering, greylisting. Almost always a sender-side fix;
-        // suppressing the recipient would lose them forever for our
-        // own misconfiguration.
-        assert!(!is_hard_bounce("5.7.1 Message rejected by policy"));
-        assert!(!is_hard_bounce("5.7.0 Authentication required"));
-        assert!(!is_hard_bounce("5.7.26 DMARC alignment failed"));
-        assert!(!is_hard_bounce("smtp; 550 5.7.1 greylisted"));
-    }
-
-    #[test]
-    fn is_hard_bounce_excludes_5_0_0_undefined() {
-        // 5.0.0 = "other / undefined" per RFC 3463 — too vague to
-        // auto-suppress.
-        assert!(!is_hard_bounce("5.0.0 Failure"));
-        assert!(!is_hard_bounce("smtp; 550 5.0.0 unspecified"));
-    }
+    // Classifier unit tests live in `bounce_parser::tests` alongside
+    // the `is_hard_bounce` / `BounceReport::is_hard` definitions; the
+    // pipeline tests above exercise the integration path end-to-end.
 
     #[tokio::test]
     async fn dedupes_on_repeated_external_id() {

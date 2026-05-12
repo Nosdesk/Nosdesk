@@ -42,17 +42,23 @@ struct Fixture {
     expected: Option<ExpectedReport>,
 }
 
-/// Subset of the report fields the test pins; `recipient` and
-/// `diagnostic` are checked when `Some`, ignored when `None` so we
-/// don't have to nail every detail to make a test informative.
+/// Subset of the report fields the test pins. Any of recipient /
+/// status_code / diagnostic / is_hard left as `None` means "don't
+/// check" — keeps each fixture's expectation focused on what it
+/// uniquely covers.
 struct ExpectedReport {
     original_message_id: &'static str,
     recipient: Option<&'static str>,
-    /// Substring expected to appear in the diagnostic. We don't
-    /// pin the full string because MTAs add their own prefixes
-    /// (`smtp; ...`, trailing semicolons, line-wraps) which would
-    /// make the test brittle without testing anything real.
+    /// Exact match (Status is short and fixed-format).
+    status_code: Option<&'static str>,
+    /// Substring expected in the diagnostic text. We don't pin the
+    /// full string because MTAs add prefixes (`smtp; ...`), trailing
+    /// semicolons, and line-wraps — checking substrings tests what
+    /// the consumer cares about without making the test brittle.
     diagnostic_contains: Option<&'static str>,
+    /// Expected classifier verdict via `BounceReport::is_hard()`.
+    /// `None` means don't check.
+    is_hard: Option<bool>,
 }
 
 const FIXTURES: &[Fixture] = &[
@@ -61,20 +67,23 @@ const FIXTURES: &[Fixture] = &[
         expected: Some(ExpectedReport {
             original_message_id: "out-42-canonical@yourco.com",
             recipient: Some("bob@example.org"),
+            status_code: Some("5.1.1"),
             diagnostic_contains: Some("User unknown"),
+            is_hard: Some(true),
         }),
     },
     Fixture {
         name: "exchange-wrapped.eml",
+        // Exchange wraps Diagnostic-Code across continuation lines;
+        // the parser unfolds them per RFC 5322 §2.2.3 so both the
+        // RESOLVER.ADR.RecipientNotFound code AND the human-readable
+        // suffix end up in the diagnostic field.
         expected: Some(ExpectedReport {
             original_message_id: "out-100-exch@yourco.com",
             recipient: Some("jane@example.org"),
-            // Exchange wraps Diagnostic-Code across continuation
-            // lines; our parser keeps only the first line for now,
-            // which is what most other libraries do too. The
-            // important thing is the first line carries the SMTP
-            // code, so classification still works.
-            diagnostic_contains: Some("RESOLVER.ADR.RecipientNotFound"),
+            status_code: Some("5.1.10"),
+            diagnostic_contains: Some("Recipient not found by SMTP address lookup"),
+            is_hard: Some(true),
         }),
     },
     Fixture {
@@ -83,9 +92,11 @@ const FIXTURES: &[Fixture] = &[
             original_message_id: "out-multi@yourco.com",
             // We pick up the first Final-Recipient block; the
             // current parser returns the first match. Future
-            // improvement: return a Vec<BounceReport> and feed all.
+            // improvement: return a Vec<BounceReport> and fan all.
             recipient: Some("alice@example.org"),
+            status_code: Some("5.1.1"),
             diagnostic_contains: Some("No such user"),
+            is_hard: Some(true),
         }),
     },
     Fixture {
@@ -104,32 +115,40 @@ const FIXTURES: &[Fixture] = &[
     },
     Fixture {
         name: "status-only.eml",
+        // No Diagnostic-Code: Status lands in its own field, the
+        // diagnostic stays None. Classifier still works off Status.
         expected: Some(ExpectedReport {
             original_message_id: "out-77-statusonly@yourco.com",
             recipient: Some("somebody@example.org"),
-            // No Diagnostic-Code: the parser falls back to Status:.
-            diagnostic_contains: Some("5.2.1"),
+            status_code: Some("5.2.1"),
+            diagnostic_contains: None,
+            is_hard: Some(true),
         }),
     },
     Fixture {
         name: "soft-bounce-4xx.eml",
         // Parser doesn't gate on hard vs soft — that's the
-        // classifier's job. So even 4xx DSNs return a report.
+        // classifier's job. The 4.x.x status should classify as
+        // soft so no auto-suppression.
         expected: Some(ExpectedReport {
             original_message_id: "out-soft@yourco.com",
             recipient: Some("backed-up@example.org"),
+            status_code: Some("4.2.2"),
             diagnostic_contains: Some("Mailbox full"),
+            is_hard: Some(false),
         }),
     },
     Fixture {
         name: "policy-5_7_1.eml",
-        // Parser surfaces the policy rejection just like any other
-        // bounce; the suppression carve-out for 5.7.x happens in
-        // pipeline::is_hard_bounce, not here.
+        // Parser surfaces the policy rejection like any other bounce;
+        // the 5.7.x carve-out happens in BounceReport::is_hard, which
+        // we verify here directly.
         expected: Some(ExpectedReport {
             original_message_id: "out-policy@yourco.com",
             recipient: Some("valid@example.org"),
+            status_code: Some("5.7.1"),
             diagnostic_contains: Some("content restrictions"),
+            is_hard: Some(false),
         }),
     },
 ];
@@ -155,24 +174,38 @@ fn dsn_corpus_parses_to_expectations() {
         let raw = load_fixture(fixture.name);
         let parsed = mailparse::parse_mail(&raw)
             .unwrap_or_else(|e| panic!("fixture {} failed to mailparse: {}", fixture.name, e));
-        let report = parse_bounce(&parsed);
+        let reports = parse_bounce(&parsed);
 
-        match (&fixture.expected, &report) {
-            (None, None) => continue,
+        match (&fixture.expected, reports.first()) {
+            // No expectation, no reports → ok.
+            (None, None) => {
+                if !reports.is_empty() {
+                    failures.push(format!(
+                        "{}: expected no reports, got {}",
+                        fixture.name,
+                        reports.len()
+                    ));
+                }
+            }
             (Some(_), None) => {
                 failures.push(format!(
-                    "{}: expected Some(report), got None",
+                    "{}: expected at least one report, got an empty Vec",
                     fixture.name
                 ));
             }
             (None, Some(r)) => {
                 failures.push(format!(
-                    "{}: expected None, got Some({})",
-                    fixture.name, r.original_message_id
+                    "{}: expected no reports, got {} (first: {})",
+                    fixture.name,
+                    reports.len(),
+                    r.original_message_id,
                 ));
             }
-            (Some(expected), Some(got)) => {
-                if let Err(msg) = check_expectation(expected, got) {
+            (Some(expected), Some(first)) => {
+                // The fixture's `expected` describes the *first*
+                // report; richer multi-block coverage is tested in
+                // bounce_parser's own unit tests.
+                if let Err(msg) = check_expectation(expected, first) {
                     failures.push(format!("{}: {}", fixture.name, msg));
                 }
             }
@@ -206,6 +239,17 @@ fn check_expectation(expected: &ExpectedReport, got: &BounceReport) -> Result<()
             }
         }
     }
+    if let Some(want_status) = expected.status_code {
+        match got.status_code.as_deref() {
+            Some(have) if have == want_status => {}
+            other => {
+                return Err(format!(
+                    "status_code mismatch: expected {:?}, got {:?}",
+                    want_status, other
+                ));
+            }
+        }
+    }
     if let Some(want_substr) = expected.diagnostic_contains {
         match got.diagnostic.as_deref() {
             Some(have) if have.contains(want_substr) => {}
@@ -215,6 +259,14 @@ fn check_expectation(expected: &ExpectedReport, got: &BounceReport) -> Result<()
                     want_substr, other
                 ));
             }
+        }
+    }
+    if let Some(want_hard) = expected.is_hard {
+        if got.is_hard() != want_hard {
+            return Err(format!(
+                "is_hard mismatch: expected {}, got {} (status={:?}, diag={:?})",
+                want_hard, got.is_hard(), got.status_code, got.diagnostic,
+            ));
         }
     }
     Ok(())

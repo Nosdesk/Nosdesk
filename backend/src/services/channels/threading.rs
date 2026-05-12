@@ -339,7 +339,7 @@ mod tests {
             raw_metadata: json!({}),
             recipients,
             is_bounce: false,
-            bounce_report: None,
+            bounce_reports: Vec::new(),
         }
     }
 

@@ -187,10 +187,11 @@ pub struct InboundMessage {
     pub is_bounce: bool,
     /// Structured bounce detail when `is_bounce` is set AND the DSN's
     /// MIME structure was parseable (`message/rfc822` part present
-    /// with an extractable `Message-ID`). `None` for malformed DSNs
-    /// or sender-heuristic-only bounces; the pipeline still short-
-    /// circuits but can't link back to the outbound row.
-    pub bounce_report: Option<bounce_parser::BounceReport>,
+    /// with an extractable `Message-ID`). One entry per per-recipient
+    /// block in the DSN (RFC 3464 §2.1 allows multiple). Empty when
+    /// the DSN was malformed or sender-heuristic-only; the pipeline
+    /// still short-circuits but can't link back to the outbound row.
+    pub bounce_reports: Vec<bounce_parser::BounceReport>,
 }
 
 /// Either bytes we already have (IMAP) or a URL we fetch later (Slack
