@@ -11,9 +11,6 @@
 //! Subcommand groups planned but not yet implemented (keep this
 //! list current so the shape stays predictable):
 //!
-//!   - `nosdesk-cli db backup|restore` — thin wrappers around
-//!     pg_dump / pg_restore, with awareness of attachments + plugin
-//!     bundles under /app/uploads.
 //!   - `nosdesk-cli secrets generate jwt` — one-shot replacement
 //!     for `openssl rand -base64 32`.
 //!   - `nosdesk-cli secrets rotate encryption-key` — re-encrypt
@@ -43,6 +40,7 @@ use backend::db;
 use backend::repository::user_auth_identities;
 use backend::repository::user_helpers;
 use backend::repository::users as users_repo;
+use backend::services::backup as backup_service;
 use backend::services::plugins::{install, signing, trust};
 
 #[derive(Parser)]
@@ -67,6 +65,11 @@ enum Commands {
     /// out of the web UI; normal flows should go through it.
     #[command(subcommand)]
     Admin(AdminCommand),
+
+    /// Database operations. Lives here so restore is gated on
+    /// shell access, not on a TCP race (see AUD-005).
+    #[command(subcommand)]
+    Db(DbCommand),
 }
 
 // ---------------------------------------------------------------
@@ -132,6 +135,27 @@ enum PluginCommand {
 }
 
 // ---------------------------------------------------------------
+// Database subcommands
+// ---------------------------------------------------------------
+
+#[derive(Subcommand)]
+enum DbCommand {
+    /// Restore the database and uploaded files from a backup zip.
+    /// Destructive: tables are replaced. Prompts unless --yes.
+    /// Requires DATABASE_URL and the encryption env.
+    Restore {
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+        #[arg(long, value_name = "PASSWORD", help = "Backup decryption password")]
+        password: Option<String>,
+        #[arg(long, value_name = "VAR", help = "Read password from this env var")]
+        password_env: Option<String>,
+        #[arg(long, short = 'y', help = "Skip the confirmation prompt")]
+        yes: bool,
+    },
+}
+
+// ---------------------------------------------------------------
 // Admin subcommands
 // ---------------------------------------------------------------
 
@@ -167,6 +191,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Commands::Plugin(cmd) => run_plugin(cmd),
         Commands::Admin(cmd) => run_admin(cmd),
+        Commands::Db(cmd) => run_db(cmd),
     };
 
     match result {
@@ -398,6 +423,111 @@ fn admin_clear_mfa(email: &str) -> Result<()> {
     println!("cleared MFA for {} ({})", user.name, user.uuid);
     println!("user will re-enrol on next login");
     Ok(())
+}
+
+// ---------------------------------------------------------------
+// Database handlers
+// ---------------------------------------------------------------
+
+fn run_db(cmd: DbCommand) -> Result<()> {
+    match cmd {
+        DbCommand::Restore {
+            file,
+            password,
+            password_env,
+            yes,
+        } => db_restore(&file, password, password_env, yes),
+    }
+}
+
+fn db_restore(
+    file: &Path,
+    password: Option<String>,
+    password_env: Option<String>,
+    yes: bool,
+) -> Result<()> {
+    if !file.exists() {
+        bail!("backup file not found: {}", file.display());
+    }
+
+    let password = resolve_password(password, password_env)?;
+
+    let preview = backup_service::preview_restore(file)
+        .map_err(|e| anyhow!("invalid backup archive: {e}"))?;
+
+    if preview.has_encrypted_sensitive {
+        let pw = password
+            .as_deref()
+            .ok_or_else(|| anyhow!("backup is encrypted; pass --password or --password-env"))?;
+        let ok = backup_service::verify_backup_password(file, pw)
+            .map_err(|e| anyhow!("password verification failed: {e}"))?;
+        if !ok {
+            bail!("backup password is incorrect");
+        }
+    }
+
+    let manifest = &preview.manifest;
+    println!("Restore preview:");
+    println!("  source:       {}", file.display());
+    println!("  created:      {}", manifest.created_at);
+    println!("  version:      {}", manifest.nosdesk_version);
+    println!(
+        "  files:        {} ({} bytes)",
+        manifest.files.total_count, manifest.files.total_size_bytes
+    );
+    let mut tables: Vec<_> = manifest.tables.iter().collect();
+    tables.sort_by_key(|(name, _)| name.as_str());
+    println!("  tables:");
+    for (name, info) in tables {
+        println!("    - {name}: {} rows", info.count);
+    }
+    for warning in &preview.warnings {
+        eprintln!("  warning: {warning}");
+    }
+
+    if !yes && !confirm_destructive("Replace all matching tables with the backup contents?")? {
+        eprintln!("aborted");
+        return Ok(());
+    }
+
+    let mut conn = connect_db()?;
+    let stats = backup_service::restore_database(&mut conn, file, password.as_deref())
+        .map_err(|e| anyhow!("database restore failed: {e}"))?;
+    let files_restored = backup_service::restore_backup_files(file)
+        .map_err(|e| anyhow!("file restore failed: {e}"))?;
+
+    println!();
+    println!("Restore complete:");
+    println!("  tables restored:  {}", stats.tables_restored);
+    println!("  records restored: {}", stats.records_restored);
+    println!("  files restored:   {}", files_restored);
+    Ok(())
+}
+
+fn resolve_password(
+    password: Option<String>,
+    password_env: Option<String>,
+) -> Result<Option<String>> {
+    match (password, password_env) {
+        (Some(_), Some(_)) => bail!("pass --password or --password-env, not both"),
+        (Some(p), None) => Ok(Some(p)),
+        (None, Some(var)) => Ok(Some(std::env::var(&var).map_err(|_| {
+            anyhow!("environment variable {var} is not set")
+        })?)),
+        (None, None) => Ok(None),
+    }
+}
+
+fn confirm_destructive(prompt: &str) -> Result<bool> {
+    use std::io::{BufRead, Write as _};
+    print!("{prompt} Type 'yes' to continue: ");
+    std::io::stdout().flush().ok();
+    let mut line = String::new();
+    std::io::stdin()
+        .lock()
+        .read_line(&mut line)
+        .with_context(|| "reading confirmation")?;
+    Ok(line.trim().eq_ignore_ascii_case("yes"))
 }
 
 // ---------------------------------------------------------------

@@ -177,11 +177,18 @@ class AuthService {
   }
 
   /**
-   * Setup the initial admin user
+   * Setup the initial admin user. Requires the one-shot
+   * bootstrap token written to `${UPLOAD_DIR}/bootstrap.token`
+   * at first boot (AUD-005).
    */
-  async setupInitialAdmin(adminData: AdminSetupRequest): Promise<AdminSetupResponse> {
+  async setupInitialAdmin(
+    adminData: AdminSetupRequest,
+    bootstrapToken: string,
+  ): Promise<AdminSetupResponse> {
     try {
-      const response = await apiClient.post('/auth/setup/admin', adminData);
+      const response = await apiClient.post('/auth/setup/admin', adminData, {
+        headers: { Authorization: `Bearer ${bootstrapToken}` },
+      });
       return response.data;
     } catch (error) {
       logger.error('Failed to setup initial admin', { error, email: adminData.email });
@@ -525,54 +532,8 @@ class AuthService {
     }
   }
 
-  /**
-   * Upload a backup file for onboarding restore
-   * Only works during initial setup when no users exist
-   */
-  async uploadRestoreBackup(file: File): Promise<OnboardingRestoreUploadResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await apiClient.post<OnboardingRestoreUploadResponse>(
-      '/auth/setup/restore/upload',
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
-    );
-    return response.data;
-  }
-
-  /**
-   * Execute the restore from an uploaded backup
-   * Only works during initial setup when no users exist
-   */
-  async executeRestore(filePath: string, password?: string): Promise<OnboardingRestoreResult> {
-    const response = await apiClient.post<OnboardingRestoreResult>(
-      '/auth/setup/restore/execute',
-      {
-        file_path: filePath,
-        password,
-      }
-    );
-    return response.data;
-  }
-}
-
-// Onboarding Restore Types (BackupManifest and RestorePreview imported from @/types/backup)
-export interface OnboardingRestoreUploadResponse {
-  file_path: string;
-  preview: RestorePreview;
-}
-
-export interface OnboardingRestoreResult {
-  success: boolean;
-  message: string;
-  tables_restored: number;
-  records_restored: number;
-  files_restored: number;
+  // Onboarding restore methods removed (AUD-005). Restore now
+  // ships via `nosdesk-cli db restore`.
 }
 
 export const authService = new AuthService();

@@ -902,40 +902,41 @@ pub async fn check_setup_status(
 }
 
 pub async fn setup_initial_admin(
+    req: HttpRequest,
     db_pool: web::Data<crate::db::Pool>,
     search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     admin_data: web::Json<crate::models::AdminSetupRequest>,
 ) -> impl Responder {
+    // AUD-005: bootstrap-token gate. Network attackers reaching
+    // the listener on first boot cannot proceed without the token
+    // written to disk at startup.
+    let bearer = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let Some(provided) = bearer else {
+        return errors::unauthorized("Bootstrap token required. See uploads/bootstrap.token on the server.");
+    };
+    if let Err(e) = crate::utils::bootstrap_token::verify(provided) {
+        warn!(error = %e, "setup_initial_admin: bootstrap token verify failed");
+        return errors::unauthorized("Invalid bootstrap token");
+    }
+
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    // Security check: Only allow setup if no users exist
-    match repository::count_users(&mut conn) {
-        Ok(user_count) => {
-            if user_count > 0 {
-                return errors::bad_request("Setup has already been completed. Users already exist in the system.");
-            }
-        },
-        Err(e) => {
-            error!(error = ?e, "Error counting users");
-            return errors::internal("Failed to verify setup status");
-        }
-    }
-
-    // Comprehensive input validation using our validation utilities
     let mut validation_errors = Vec::new();
-
-    // Validate name
     let trimmed_name = admin_data.name.trim();
     if trimmed_name.is_empty() {
         validation_errors.push("name: Name is required".to_string());
     } else if trimmed_name.len() > 255 {
         validation_errors.push("name: Name must be less than 255 characters".to_string());
     }
-
-    // Validate email
     let trimmed_email = admin_data.email.trim();
     if trimmed_email.is_empty() {
         validation_errors.push("email: Email is required".to_string());
@@ -944,15 +945,11 @@ pub async fn setup_initial_admin(
     } else if !trimmed_email.contains('@') || !trimmed_email.contains('.') {
         validation_errors.push("email: Invalid email format".to_string());
     }
-
-    // Validate password
     if admin_data.password.len() < 8 {
         validation_errors.push("password: Password must be at least 8 characters long".to_string());
     } else if admin_data.password.len() > 128 {
         validation_errors.push("password: Password must be less than 128 characters".to_string());
     }
-
-    // If there are validation errors, return them
     if !validation_errors.is_empty() {
         return HttpResponse::BadRequest().json(json!({
             "status": "error",
@@ -961,7 +958,6 @@ pub async fn setup_initial_admin(
         }));
     }
 
-    // Hash the password
     let password_hash = match hash_password(&admin_data.password) {
         Ok(hash) => hash,
         Err(e) => {
@@ -970,91 +966,143 @@ pub async fn setup_initial_admin(
         }
     };
 
-    // Generate UUID for the admin user
-    let _user_uuid = Uuid::now_v7();
+    let (normalized_name, normalized_email) =
+        utils::normalization::normalize_user_data(&admin_data.name, &admin_data.email);
+    let (new_user, email) =
+        utils::NewUserBuilder::admin_user(normalized_name, normalized_email.clone())
+            .build_with_email();
 
-    // Create the admin user using convenience function with email
-    let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&admin_data.name, &admin_data.email);
-    let (new_user, email) = utils::NewUserBuilder::admin_user(
-        normalized_name,
-        normalized_email.clone()
-    ).build_with_email();
+    // AUD-005: one transaction holds the advisory lock from the
+    // count check through to the inserts, so a concurrent caller
+    // can't pass `count == 0` between our check and our insert.
+    // Sync indexing runs after the commit so a rolled-back insert
+    // never produces an orphan search document.
+    use diesel::connection::Connection as _;
+    use diesel::prelude::*;
+    use diesel::sql_query;
 
-    match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn, Some(search_service.get_ref())) {
-        Ok((created_user, _email_entry)) => {
-            // Create local auth identity with password hash
-            use diesel::prelude::*;
-            use crate::schema::user_auth_identities;
+    #[derive(Debug)]
+    enum SetupError {
+        AlreadyComplete,
+        Db(diesel::result::Error),
+    }
+    impl From<diesel::result::Error> for SetupError {
+        fn from(e: diesel::result::Error) -> Self {
+            SetupError::Db(e)
+        }
+    }
 
-            #[derive(diesel::Insertable)]
-            #[diesel(table_name = user_auth_identities)]
-            struct NewLocalAuthIdentity {
-                user_uuid: Uuid,
-                provider_type: String,
-                external_id: String,
-                email: Option<String>,
-                password_hash: Option<String>,
-            }
+    let created = conn.transaction::<_, SetupError, _>(|c| {
+        sql_query("SELECT pg_advisory_xact_lock(0x4E4F44535F535450)").execute(c)?;
+        if repository::count_users(c)? > 0 {
+            return Err(SetupError::AlreadyComplete);
+        }
 
-            let auth_identity = NewLocalAuthIdentity {
-                user_uuid: created_user.uuid,
-                provider_type: "local".to_string(),
-                external_id: normalized_email.clone(),
-                email: Some(normalized_email.clone()),
-                password_hash: Some(password_hash),
-            };
+        let user: crate::models::User = diesel::insert_into(crate::schema::users::table)
+            .values(&new_user)
+            .get_result(c)?;
+        let user_email: crate::models::UserEmail = diesel::insert_into(crate::schema::user_emails::table)
+            .values(&crate::models::NewUserEmail {
+                user_uuid: user.uuid,
+                email: email.clone(),
+                email_type: "personal".to_string(),
+                is_primary: true,
+                is_verified: true,
+                source: Some("manual".to_string()),
+            })
+            .get_result(c)?;
 
-            if let Err(e) = diesel::insert_into(user_auth_identities::table)
-                .values(&auth_identity)
-                .execute(&mut conn) {
-                error!(error = ?e, "Error creating auth identity");
-                // Rollback by deleting the user
-                let _ = repository::users::delete_user(&created_user.uuid, &mut conn, Some(search_service.get_ref()));
-                return errors::internal("Error creating user authentication");
-            }
+        #[derive(diesel::Insertable)]
+        #[diesel(table_name = crate::schema::user_auth_identities)]
+        struct NewLocalAuthIdentity<'a> {
+            user_uuid: Uuid,
+            provider_type: &'a str,
+            external_id: &'a str,
+            email: Option<&'a str>,
+            password_hash: Option<&'a str>,
+        }
+        diesel::insert_into(crate::schema::user_auth_identities::table)
+            .values(&NewLocalAuthIdentity {
+                user_uuid: user.uuid,
+                provider_type: "local",
+                external_id: &normalized_email,
+                email: Some(&normalized_email),
+                password_hash: Some(&password_hash),
+            })
+            .execute(c)?;
 
-            info!(user_name = %created_user.name, "Initial admin user created successfully");
+        crate::sync::emit::record(
+            c,
+            crate::sync::emit::SyncEmit {
+                aggregate: crate::models::SyncAggregate::User,
+                aggregate_id: user.uuid.to_string(),
+                op: crate::models::SyncOp::Insert,
+                event_type: "user.created",
+                data: json!({
+                    "uuid": user.uuid,
+                    "name": user.name,
+                    "email": user_email.email,
+                    "role": user.role,
+                    "pronouns": user.pronouns,
+                    "avatar_url": user.avatar_url,
+                    "avatar_thumb": user.avatar_thumb,
+                }),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
 
-            // Seed workspace defaults so the first ticket creation
-            // experience isn't faced with an empty category dropdown.
-            // Workflow states + SLA policy already seed via migration.
-            // Failures here are logged but never fail the admin setup
-            // since the admin can always create categories manually.
-            match repository::categories::seed_defaults_if_empty(&mut conn, Some(created_user.uuid)) {
-                Ok(0) => {
-                    debug!("Default categories already present, skipping seed");
-                }
-                Ok(n) => {
-                    info!(seeded = n, "Seeded default ticket categories");
-                }
-                Err(e) => {
-                    tracing::warn!(error = ?e, "Failed to seed default categories; admin can create them manually");
-                }
-            }
+        Ok((user, user_email))
+    });
 
-            let response = crate::models::AdminSetupResponse {
-                success: true,
-                message: "Initial admin user created successfully".to_string(),
-                user: Some(repository::user_helpers::get_user_with_primary_email(created_user, &mut conn)),
-            };
-            HttpResponse::Created().json(response)
-        },
-        Err(e) => {
+    let (created_user, user_email) = match created {
+        Ok(v) => v,
+        Err(SetupError::AlreadyComplete) => {
+            return errors::bad_request(
+                "Setup has already been completed. Users already exist in the system.",
+            );
+        }
+        Err(SetupError::Db(e)) => {
             error!(error = ?e, "Error creating admin user");
-            
-            // Provide more specific error messages for common issues
-            let error_message = if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
+            let msg = if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
                 "Email address already exists in the system"
             } else {
                 "Error creating admin user"
             };
-            
-            HttpResponse::InternalServerError().json(json!({
+            return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
-                "message": error_message
-            }))
+                "message": msg,
+            }));
+        }
+    };
+
+    info!(user_name = %created_user.name, "Initial admin user created successfully");
+
+    // Bootstrap token has done its job; consuming the file is the
+    // belt to the count check's braces.
+    crate::utils::bootstrap_token::consume();
+
+    // Search indexing happens post-commit so a rolled-back insert
+    // never leaves an orphan document in tantivy.
+    search_service.index_user(&created_user, Some(user_email.email.as_str())).ok();
+
+    match repository::categories::seed_defaults_if_empty(&mut conn, Some(created_user.uuid)) {
+        Ok(0) => debug!("Default categories already present, skipping seed"),
+        Ok(n) => info!(seeded = n, "Seeded default ticket categories"),
+        Err(e) => {
+            warn!(error = ?e, "Failed to seed default categories; admin can create them manually");
         }
     }
+
+    let response = crate::models::AdminSetupResponse {
+        success: true,
+        message: "Initial admin user created successfully".to_string(),
+        user: Some(repository::user_helpers::get_user_with_primary_email(
+            created_user,
+            &mut conn,
+        )),
+    };
+    HttpResponse::Created().json(response)
 }
 
 // === MFA (Multi-Factor Authentication) Handlers ===

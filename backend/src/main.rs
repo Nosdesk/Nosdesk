@@ -495,6 +495,14 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // AUD-005: write a one-shot bootstrap token if no users exist.
+    {
+        let mut conn = pool.get().expect("Failed to get connection for bootstrap token reconcile");
+        if let Err(e) = utils::bootstrap_token::reconcile(&mut conn) {
+            error!(error = ?e, "bootstrap token reconcile failed");
+        }
+    }
+
     // Surface the compiled-in Nosdesk root pubkey fingerprint on
     // every startup. Operators can diff this against what they
     // know the real root to be; an attacker who swaps the backend
@@ -1047,11 +1055,10 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api/auth")
                     .wrap(RateLimiter::default())
                     .service(
+                        // Restore moved to `nosdesk-cli db restore` (AUD-005).
                         web::scope("/setup")
                             .route("/status", web::get().to(handlers::check_setup_status))
                             .route("/admin", web::post().to(handlers::setup_initial_admin))
-                            .route("/restore/upload", web::post().to(handlers::backup::onboarding_upload_restore))
-                            .route("/restore/execute", web::post().to(handlers::backup::onboarding_execute_restore))
                     )
                                             .route("/login", web::post().to(handlers::login))
                         .route("/logout", web::post().to(handlers::logout))
