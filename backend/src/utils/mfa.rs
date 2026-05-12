@@ -276,13 +276,41 @@ pub async fn verify_mfa_token(
     verify_backup_code(user_uuid, token, conn).await
 }
 
+/// Build the Redis key used for TOTP replay tracking.
+///
+/// The token is hashed with SHA-256 rather than stored verbatim,
+/// so a snapshot of Redis doesn't expose recently-used codes. Plain
+/// SHA-256 (not HMAC) is sufficient here because:
+///
+/// * The replay cache only needs determinism + collision-resistance,
+///   not unforgeability — the secret-keeping job is done by the TOTP
+///   secret itself, which never reaches this layer.
+/// * The user uuid is already in plaintext in the key, so a brute-
+///   force precomputation over the 10^6 possible 6-digit tokens
+///   buys the attacker only the codes they already had to know to
+///   construct the Redis key in the first place.
+///
+/// The earlier implementation used `std::collections::hash_map::
+/// DefaultHasher`, whose output is documented as unstable across
+/// Rust releases. A toolchain bump silently invalidated the entire
+/// replay cache, opening a small but real window. SHA-256 is
+/// stable, fast enough for one hash per login, and pulls in no new
+/// dependencies (`ring` is already used for AES-256-GCM elsewhere
+/// in this module's neighbourhood).
+fn totp_replay_key(user_uuid: &Uuid, token: &str) -> String {
+    let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
+    ctx.update(user_uuid.as_bytes());
+    ctx.update(b":");
+    ctx.update(token.as_bytes());
+    let digest = ctx.finish();
+    format!("totp_used:{user_uuid}:{}", hex::encode(digest.as_ref()))
+}
+
 /// Check if TOTP code was already used (replay prevention)
 /// Returns true if replay detected, false if code is fresh
 /// Fails closed in production (assumes replay) for security
 async fn check_totp_replay(user_uuid: &Uuid, token: &str) -> bool {
     use redis::AsyncCommands;
-    use std::hash::{Hash, Hasher};
-    use std::collections::hash_map::DefaultHasher;
 
     let is_production = std::env::var("ENVIRONMENT")
         .map(|v| v.to_lowercase() == "production")
@@ -305,20 +333,13 @@ async fn check_totp_replay(user_uuid: &Uuid, token: &str) -> bool {
         }
     };
 
-    // Hash the token to avoid storing it directly
-    let mut hasher = DefaultHasher::new();
-    token.hash(&mut hasher);
-    let token_hash = hasher.finish();
-    let key = format!("totp_used:{user_uuid}:{token_hash}");
-
+    let key = totp_replay_key(user_uuid, token);
     con.exists(&key).await.unwrap_or(false)
 }
 
 /// Mark TOTP code as used (replay prevention)
 async fn mark_totp_used(user_uuid: &Uuid, token: &str) {
     use redis::AsyncCommands;
-    use std::hash::{Hash, Hasher};
-    use std::collections::hash_map::DefaultHasher;
 
     let redis_url = crate::utils::rate_limit::get_redis_url();
     let client = match redis::Client::open(redis_url.as_str()) {
@@ -331,11 +352,7 @@ async fn mark_totp_used(user_uuid: &Uuid, token: &str) {
         Err(_) => return,
     };
 
-    let mut hasher = DefaultHasher::new();
-    token.hash(&mut hasher);
-    let token_hash = hasher.finish();
-    let key = format!("totp_used:{user_uuid}:{token_hash}");
-
+    let key = totp_replay_key(user_uuid, token);
     // Set with 90-second TTL (TOTP validity window + clock drift tolerance)
     let _: Result<(), _> = con.set_ex(&key, "1", 90).await;
 }
@@ -505,6 +522,37 @@ mod tests {
         let decoded = base32::decode(base32::Alphabet::RFC4648 { padding: true }, secret.as_str());
         assert!(decoded.is_some());
         assert_eq!(decoded.unwrap().len(), 20); // 160 bits
+    }
+
+    #[test]
+    fn totp_replay_key_is_deterministic() {
+        let user = Uuid::parse_str("0190a1b2-c3d4-7e80-9abc-def012345678").unwrap();
+        let a = totp_replay_key(&user, "123456");
+        let b = totp_replay_key(&user, "123456");
+        assert_eq!(a, b);
+        assert!(a.starts_with(&format!("totp_used:{user}:")));
+        // 64-hex-character SHA-256 digest after the second colon.
+        let hex = a.rsplit(':').next().unwrap();
+        assert_eq!(hex.len(), 64);
+        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn totp_replay_key_differs_per_token() {
+        let user = Uuid::parse_str("0190a1b2-c3d4-7e80-9abc-def012345678").unwrap();
+        let a = totp_replay_key(&user, "123456");
+        let b = totp_replay_key(&user, "654321");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn totp_replay_key_differs_per_user() {
+        let user_a = Uuid::parse_str("0190a1b2-c3d4-7e80-9abc-def012345678").unwrap();
+        let user_b = Uuid::parse_str("0190a1b2-c3d4-7e80-9abc-def0123456ff").unwrap();
+        assert_ne!(
+            totp_replay_key(&user_a, "123456"),
+            totp_replay_key(&user_b, "123456"),
+        );
     }
 
     #[test]

@@ -113,7 +113,7 @@ enumeration.
 | ID | Severity | Surface | Status |
 |---|---|---|---|
 | AUD-001 | High | IDOR on `GET /api/tickets/{id}` | **Fixed by group-based visibility** (this commit) |
-| AUD-002 | High | TOTP replay key uses non-crypto `DefaultHasher` | Tracked as task |
+| AUD-002 | High | TOTP replay key uses non-crypto `DefaultHasher` | **Fixed** — replay-cache key now derived from SHA-256 via `ring`; deterministic across Rust toolchain bumps. |
 | AUD-003 | Medium | Webhook + plugin-bundle SSRF (no internal-IP denylist) | Tracked as task |
 | AUD-004 | Medium | `X-Forwarded-For` trusted unconditionally for rate-limit keys | Tracked as task |
 | AUD-005 | Medium | Unauthenticated onboarding-restore endpoints (race on first boot) | Tracked as task |
