@@ -121,6 +121,12 @@ lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", 
 # safely inside an HTML body (signature lines, quote attribution).
 html2text = "0.12"
 html-escape = "0.2"
+# Server-side HTML sanitiser for inbound email rendering. Built on
+# html5ever (the Servo HTML parser), so it's the right tool for
+# untrusted HTML rather than regex-based stripping. Runs at ingest
+# in `services::channels::email_sanitise`; the frontend still
+# layers DOMPurify before iframe injection as defence-in-depth.
+ammonia = "4"
 # DNS resolver for pre-flight MX lookup on guest-submitted email addresses.
 # Catches `random@nonexistentdomain.tld` before we waste an invitation email on it.
 hickory-resolver = { version = "0.26", features = ["tokio"] }

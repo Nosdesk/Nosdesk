@@ -69,7 +69,18 @@ render is more useful than a fitting one.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 
-const props = defineProps<{ html: string }>()
+const props = defineProps<{
+  html: string
+  /**
+   * True when `html` already passed the backend's sanitiser
+   * (Outlook strip + ammonia). The iframe's inline CSP and the
+   * sandbox attribute remain unconditional; this flag only skips
+   * the client-side DOMPurify pass, which would otherwise re-run
+   * for nothing on every render. Defaults to false so legacy
+   * comments (pre-Pass-2 ingest) keep their belt-and-braces.
+   */
+  preSanitised?: boolean
+}>()
 
 const frame = ref<HTMLIFrameElement | null>(null)
 /** Height the email occupies after any zoom is applied. */
@@ -113,20 +124,52 @@ const heightPx = computed(() => {
  * mapped presentational hints that survive a plain rule.
  */
 const srcdoc = computed(() => {
-  const sanitized = DOMPurify.sanitize(props.html, {
-    USE_PROFILES: { html: true },
-    // Belt and braces — DOMPurify already strips these by default but
-    // listing them documents intent for future maintainers.
-    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'meta', 'base'],
-    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter'],
-    // Keep `<style>` tags so an email's own typography survives —
-    // they're scoped to the iframe document and can't leak out.
-    ADD_TAGS: ['style'],
-  })
+  // Pre-sanitised HTML comes from the backend's Outlook strip +
+  // ammonia pass and is render-ready. For legacy rows ingested
+  // before Pass 2's sanitiser landed, DOMPurify is the only safety
+  // layer in front of the iframe — keep running it. Either way the
+  // sandbox attribute and inline CSP catch what the sanitiser
+  // misses.
+  const safeBody = props.preSanitised
+    ? props.html
+    : DOMPurify.sanitize(props.html, {
+        USE_PROFILES: { html: true },
+        // Belt and braces — DOMPurify already strips these by default but
+        // listing them documents intent for future maintainers.
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'meta', 'base'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseenter'],
+        // Keep `<style>` tags so an email's own typography survives —
+        // they're scoped to the iframe document and can't leak out.
+        ADD_TAGS: ['style'],
+      })
   return `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
+<!--
+  Inline CSP inside srcdoc — defence-in-depth on top of the iframe
+  sandbox and the backend ammonia pass, matching the Close.com
+  email-rendering recipe:
+    - default-src 'none'  everything not explicitly allowed (fetch,
+                          ws, worker, etc.) is denied
+    - script-src 'none'   blocks every flavour of script even if
+                          the sandbox attribute is ever loosened
+    - img-src             allows http(s), data:, and cid:. Browsers
+                          don't natively resolve cid: refs, so
+                          inline-attachment images render as broken
+                          until Pass 3 wires a server-side proxy
+                          that rewrites cid: → /api/files/... and
+                          proxies http(s) for tracker stripping.
+                          Until then we accept that remote tracking
+                          pixels may load; the helpdesk is internal
+                          so the privacy exposure is bounded.
+    - style-src           emails ship their own <style> blocks; we
+                          allow inline so typography renders, but
+                          no remote stylesheet loads
+    - font-src            web fonts (some marketing emails ship
+                          their own): http(s), data:, same-origin
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' data: https: cid:; style-src 'unsafe-inline'; font-src 'self' data: https:">
 <!-- Subresource fetches (images, link clicks) inherit this policy
      from the iframe document; the parent iframe's referrerpolicy
      only governs the iframe's own load, not what runs inside. -->
@@ -175,7 +218,7 @@ const srcdoc = computed(() => {
   hr { border: 0; border-top: 1px solid #e5e7eb; margin: 12px 0; }
 </style>
 </head>
-<body>${sanitized}</body>
+<body>${safeBody}</body>
 </html>`
 })
 

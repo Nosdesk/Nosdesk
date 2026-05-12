@@ -164,6 +164,7 @@ mod tests {
             new_content: None,
             quoted_content: None,
             raw_source_uri: None,
+            sanitised_html: None,
         }
     }
 

@@ -875,11 +875,20 @@ pub struct Comment {
     pub content_format: ContentFormat,
     /// Raw text/plain MIME part (or the plaintext body for plaintext-only
     /// inbound messages). NULL for non-email comments.
+    ///
+    /// Backend-only: `skip` keeps it off the wire because the
+    /// renderer reads `new_content` / `quoted_content` instead, and
+    /// shipping the full raw body on every comment list inflates
+    /// payloads with no consumer.
+    #[serde(skip)]
     pub body_text: Option<String>,
     /// Raw text/html MIME part. Pre-sanitisation; Pass 2 of the email
     /// rendering plan introduces a separate `sanitised_html` column for
     /// the render-ready form. NULL for non-email comments and for emails
     /// without an HTML alternative.
+    ///
+    /// Backend-only — same reasoning as `body_text`.
+    #[serde(skip)]
     pub body_html: Option<String>,
     /// Just-the-reply extraction, output of the quote splitter at ingest.
     /// Plain text or HTML depending on which path the parser took
@@ -895,7 +904,27 @@ pub struct Comment {
     /// change without re-fetching from the upstream mailbox. NULL for
     /// non-email comments and for email comments ingested before this
     /// column existed.
+    ///
+    /// `skip` because the storage path is internal infrastructure; the
+    /// frontend constructs the public URL from the comment id
+    /// (`/api/comments/{id}/raw.eml`) and doesn't need the backing
+    /// path. Hiding it also avoids leaking storage layout (S3 keys,
+    /// LocalStorage roots) in API responses.
+    #[serde(skip)]
     pub raw_source_uri: Option<String>,
+    /// Render-ready HTML produced by the backend sanitiser at ingest
+    /// (Outlook strip → ammonia → CSS allowlist). NULL for non-HTML
+    /// comments and for legacy rows ingested before the sanitiser
+    /// landed.
+    ///
+    /// `skip` because the renderer reads the post-split, already-
+    /// sanitised `new_content` / `quoted_content` columns; the full
+    /// sanitised body would just bloat the payload. Stays in the
+    /// DB for operator inspection and as a re-render shortcut if a
+    /// future viewer wants the un-split body without re-running the
+    /// sanitiser.
+    #[serde(skip)]
+    pub sanitised_html: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, Default)]
@@ -926,6 +955,8 @@ pub struct NewComment {
     pub quoted_content: Option<String>,
     #[serde(default)]
     pub raw_source_uri: Option<String>,
+    #[serde(default)]
+    pub sanitised_html: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
@@ -1105,6 +1136,12 @@ pub struct CommentWithAttachments {
     /// reads a single typed field instead of probing a JSON blob.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_address: Option<String>,
+    /// Whether this comment has an archived raw RFC-822 source the
+    /// frontend can fetch via `GET /api/comments/{id}/raw.eml`.
+    /// Derived from `Comment::raw_source_uri`'s presence so the
+    /// frontend can render the "Show original message" affordance
+    /// conditionally without learning the storage path itself.
+    pub has_raw_source: bool,
 }
 
 // JSON import struct that matches the structure in tickets.json

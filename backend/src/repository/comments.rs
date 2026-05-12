@@ -187,11 +187,13 @@ pub fn get_comments_with_attachments_by_ticket_id(conn: &mut DbConnection, ticke
                 .ok()
                 .map(UserInfoWithAvatar::from);
             let from_address = from_addresses.remove(&comment.id);
+            let has_raw_source = comment.raw_source_uri.is_some();
             Ok(CommentWithAttachments {
                 comment,
                 attachments,
                 user,
                 from_address,
+                has_raw_source,
             })
         })
         .collect()

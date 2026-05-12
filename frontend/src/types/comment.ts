@@ -43,6 +43,29 @@ export interface Comment {
    *  for chat channels). Sourced from `channel_messages.from_address`;
    *  `undefined` for comments authored through the helpdesk UI. */
   from_address?: string
+  /**
+   * Backend-extracted "just the reply" from the email-rendering Pass 1
+   * splitter. Present for email-derived comments; null/undefined for
+   * UI-authored comments and for legacy rows ingested before the
+   * splitter landed. Renderer prefers this over `content` when set
+   * so the visible body is just the new reply, not the entire
+   * quoted thread.
+   */
+  new_content?: string | null
+  /**
+   * Backend-extracted quoted prior thread from the same splitter.
+   * Renders in a "Show quoted thread" disclosure below the reply.
+   * Null when no quote boundary was detected (first-touch emails,
+   * short replies) or the comment isn't email-derived.
+   */
+  quoted_content?: string | null
+  /**
+   * Whether the backend has an archived .eml available at
+   * `/api/comments/{id}/raw.eml`. The frontend uses this flag to
+   * conditionally render the "Show original message" affordance,
+   * keeping the internal storage path off the wire.
+   */
+  has_raw_source?: boolean
   attachments?: Attachment[]
   user?: UserInfo
 }

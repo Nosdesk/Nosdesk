@@ -680,13 +680,24 @@ fn insert_inbound_comment(
         _ => (msg.body_text.clone(), crate::models::ContentFormat::Plaintext),
     };
 
-    // Quote-split at ingest so the renderer can ship just the new
-    // content by default and tuck the quoted prior thread behind a
-    // disclosure. `split_auto` routes to the plaintext or HTML
-    // splitter based on `content_format`, so the renderer doesn't
-    // have to disambiguate and new content formats only need a
-    // branch in `email_quote::split_auto`, not here.
-    let split = super::email_quote::split_auto(content_format, &content);
+    // Order matters: for HTML bodies we sanitise FIRST, then split,
+    // so the new_content and quoted_content columns carry render-
+    // safe HTML the frontend can inject directly. Splitting before
+    // sanitising would leak unsanitised markup into those columns,
+    // forcing the renderer to re-sanitise per-render or risk XSS.
+    // For plaintext there's nothing to sanitise; we split the raw
+    // text directly.
+    let (sanitised_html, split) = match content_format {
+        crate::models::ContentFormat::Html => {
+            let clean = super::email_sanitise::sanitise(&content).html;
+            let split = super::email_quote::split_html(&clean);
+            (Some(clean), split)
+        }
+        _ => {
+            let split = super::email_quote::split_plaintext(&content);
+            (None, split)
+        }
+    };
 
     let new_comment = NewComment {
         content,
@@ -708,6 +719,7 @@ fn insert_inbound_comment(
         new_content: Some(split.new_content),
         quoted_content: split.quoted_content,
         raw_source_uri,
+        sanitised_html,
     };
 
     let observer = ctx

@@ -33,6 +33,7 @@ pub mod auto_ack;
 pub mod bounce_parser;
 pub mod email_imap;
 pub mod email_quote;
+pub mod email_sanitise;
 pub mod forward_parser;
 pub mod outbound;
 pub mod pipeline;
