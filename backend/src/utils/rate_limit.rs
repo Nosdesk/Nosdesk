@@ -140,9 +140,26 @@ impl RateLimiter {
         format!("mfa_attempts:{user_uuid}")
     }
 
-    /// Generate a standardized rate limit key for login attempts (by email)
-    pub fn login_attempt_key(email: &str) -> String {
-        format!("login_attempts:{}", email.to_lowercase())
+    /// Generate a lockout key for login attempts, keyed on
+    /// email-and-client-IP.
+    ///
+    /// AUD-013: keying on email alone let any attacker DoS a known
+    /// user by deliberately failing logins until lockout fired.
+    /// Including the client IP means the bad-actor IP locks itself
+    /// out without affecting the legitimate user's IP. Email stays
+    /// in the key so an attacker can't trivially rotate IPs across
+    /// every targeted account.
+    ///
+    /// `client_ip` should be the trusted-proxy-resolved value from
+    /// `utils::client_ip`; raw `peer_addr` is unsafe when a reverse
+    /// proxy is in front. Callers that genuinely don't have a
+    /// client IP (rare) pass `None`, which slots into a single
+    /// `unknown` bucket per email so lockout still applies.
+    pub fn login_attempt_key(email: &str, client_ip: Option<std::net::IpAddr>) -> String {
+        let ip = client_ip
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        format!("login_attempts:{}:{ip}", email.to_lowercase())
     }
 
     /// Clear all attempts for a key (used on successful login)
@@ -244,6 +261,45 @@ mod tests {
         let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let key = RateLimiter::mfa_attempt_key(&uuid);
         assert_eq!(key, "mfa_attempts:550e8400-e29b-41d4-a716-446655440000");
+    }
+
+    #[test]
+    fn login_attempt_key_includes_ip() {
+        use std::net::IpAddr;
+        let ip: IpAddr = "203.0.113.42".parse().unwrap();
+        let key = RateLimiter::login_attempt_key("Alice@example.com", Some(ip));
+        assert_eq!(key, "login_attempts:alice@example.com:203.0.113.42");
+    }
+
+    #[test]
+    fn login_attempt_key_lowercases_email() {
+        let key = RateLimiter::login_attempt_key("Alice@Example.COM", None);
+        assert!(key.starts_with("login_attempts:alice@example.com:"));
+    }
+
+    #[test]
+    fn login_attempt_key_unknown_ip_buckets_per_email() {
+        // Two requests for the same email with no resolvable IP land
+        // in the same bucket, so lockout still applies even when the
+        // proxy gate is unconfigured.
+        let a = RateLimiter::login_attempt_key("bob@example.com", None);
+        let b = RateLimiter::login_attempt_key("bob@example.com", None);
+        assert_eq!(a, b);
+        assert!(a.ends_with(":unknown"));
+    }
+
+    #[test]
+    fn login_attempt_key_different_ips_get_different_keys() {
+        // The whole point of AUD-013: two attackers (or one attacker
+        // rotating IPs) accumulate lockout state independently.
+        // A user's legitimate IP isn't locked out by another IP's
+        // failed attempts on the same email.
+        use std::net::IpAddr;
+        let attacker: IpAddr = "198.51.100.7".parse().unwrap();
+        let legit_user: IpAddr = "203.0.113.1".parse().unwrap();
+        let a = RateLimiter::login_attempt_key("alice@example.com", Some(attacker));
+        let b = RateLimiter::login_attempt_key("alice@example.com", Some(legit_user));
+        assert_ne!(a, b);
     }
 
     // Note: Integration tests requiring Redis would go in tests/ directory

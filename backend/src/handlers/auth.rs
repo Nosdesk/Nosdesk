@@ -224,7 +224,8 @@ pub async fn login(
     request: HttpRequest,
 ) -> impl Responder {
     let redis_url = get_redis_url();
-    let lockout_key = RateLimiter::login_attempt_key(&login_data.email);
+    let client_ip = crate::utils::client_ip::from_http_request(&request);
+    let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
 
     // Check if account is locked before any validation
     let is_production = std::env::var("ENVIRONMENT")
@@ -377,7 +378,8 @@ pub async fn recovery_login(
     request: actix_web::HttpRequest,
 ) -> impl Responder {
     let redis_url = get_redis_url();
-    let lockout_key = RateLimiter::login_attempt_key(&login_data.email);
+    let client_ip = crate::utils::client_ip::from_http_request(&request);
+    let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
 
     // Check if account is locked before any validation
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
@@ -1408,11 +1410,13 @@ pub async fn mfa_status(
 /// MFA Setup for Login (Unauthenticated) - For users who need MFA to login but haven't set it up yet
 pub async fn mfa_setup_login(
     db_pool: web::Data<crate::db::Pool>,
-    request: web::Json<crate::models::MfaSetupLoginRequest>,
+    body: web::Json<crate::models::MfaSetupLoginRequest>,
+    http_request: HttpRequest,
 ) -> impl Responder {
     let redis_url = get_redis_url();
-    let email_lower = request.email.to_lowercase();
-    let lockout_key = RateLimiter::login_attempt_key(&email_lower);
+    let email_lower = body.email.to_lowercase();
+    let client_ip = crate::utils::client_ip::from_http_request(&http_request);
+    let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
@@ -1437,7 +1441,7 @@ pub async fn mfa_setup_login(
     let user = match crate::utils::login_timing::verify_credentials(
         &mut conn,
         &email_lower,
-        &request.password,
+        &body.password,
     ) {
         Some(u) => u,
         None => {
@@ -1510,7 +1514,8 @@ pub async fn mfa_enable_login(
 ) -> impl Responder {
     let redis_url = get_redis_url();
     let email_lower = request.email.to_lowercase();
-    let lockout_key = RateLimiter::login_attempt_key(&email_lower);
+    let client_ip = crate::utils::client_ip::from_http_request(&http_request);
+    let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {

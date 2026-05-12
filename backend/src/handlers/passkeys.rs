@@ -822,13 +822,14 @@ const LOCKOUT_DURATION_SECONDS: u64 = 900; // 15 minutes
 /// Start passkey registration during MFA setup flow
 /// This endpoint accepts email+password instead of requiring JWT authentication
 pub async fn start_passkey_setup_login(
-    _req: HttpRequest,
+    req: HttpRequest,
     pool: web::Data<Pool>,
     body: web::Json<PasskeySetupStartRequest>,
 ) -> impl Responder {
     let redis_url = get_redis_url();
     let email_lower = body.email.to_lowercase();
-    let lockout_key = RateLimiter::login_attempt_key(&email_lower);
+    let client_ip = crate::utils::client_ip::from_http_request(&req);
+    let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
@@ -989,7 +990,8 @@ pub async fn finish_passkey_setup_login(
 ) -> impl Responder {
     let redis_url = get_redis_url();
     let email_lower = body.email.to_lowercase();
-    let lockout_key = RateLimiter::login_attempt_key(&email_lower);
+    let client_ip = crate::utils::client_ip::from_http_request(&req);
+    let lockout_key = RateLimiter::login_attempt_key(&email_lower, client_ip);
 
     // Check if account is locked before any validation
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {

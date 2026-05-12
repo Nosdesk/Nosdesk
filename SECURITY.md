@@ -135,7 +135,7 @@ enumeration.
 | AUD-010 | Medium | Image decompression-bomb defence not directly verified | Tracked. |
 | AUD-011 | Low | Sibling write handlers (`update_ticket`, `delete_ticket`, etc.) likely need the same visibility check as AUD-001 | **Fixed**. The sweep applied the visibility gate to `watch_ticket`, `list_watchers`, `my_watch_state`, `update_ticket`, `update_ticket_partial`, `get_ticket_activity`, `get_comments_by_ticket_id`, `add_comment_to_ticket`, `set_ticket_tags`, `record_ticket_view`, and full-text `search` results for end-users. `bulk_tickets` is staff-only. `delete_ticket` was already admin-only. |
 | AUD-012 | Low | Invitation acceptance rate-limit coverage unverified | Tracked. |
-| AUD-013 | Low | Lockout keyed by email only (can DoS a known user) | Tracked. |
+| AUD-013 | Low | Lockout keyed by email only (can DoS a known user) | **Fixed**. `RateLimiter::login_attempt_key` now takes `(email, client_ip)` and the key shape is `login_attempts:{email}:{ip}`. An attacker who deliberately fails logins against a known email locks out their own IP without affecting the legitimate user's IP. Email stays in the key so an attacker can't trivially rotate IPs across every targeted account. The IP comes from `utils::client_ip` (the trusted-proxy-resolved helper from AUD-004), so behind a reverse proxy the lockout still keys on the real client; on a direct bind it falls back to the TCP peer. Tests cover key shape, lowercasing, the no-IP-known fallback, and the structural property that two different IPs against the same email get different keys. Every login-family handler (`login`, `recovery_login`, `mfa_setup_login`, `mfa_enable_login`, passkey setup-login start + finish) was migrated to the new signature.
 
 ### Acknowledged advisories
 
