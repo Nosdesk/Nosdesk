@@ -9,7 +9,7 @@ use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
 use diesel::Connection;
 use diesel_migrations::MigrationHarness;
-use std::sync::Once;
+use once_cell::sync::OnceCell;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -28,19 +28,37 @@ fn test_database_url() -> String {
 }
 
 /// Ensure the test database has all migrations applied. Runs once
-/// per process via `Once`. Without this, the first fixture insert
-/// fails with `FailedToLookupTypeError(... "user_role" ...)` because
-/// Diesel can't find the OID for custom Postgres enum types that
-/// the migrations would have created.
+/// per process. Without this, the first fixture insert fails with
+/// `FailedToLookupTypeError(... "user_role" ...)` because Diesel
+/// can't find the OID for custom Postgres enum types that the
+/// migrations would have created.
+///
+/// Uses `OnceCell::get_or_try_init` rather than `std::sync::Once`
+/// so an early connection failure (e.g. the dev compose stack
+/// isn't running, or the test DB is briefly unreachable) errors
+/// out just the test that triggered it. `std::sync::Once` would
+/// poison the cell on any panic in the init closure, cascading
+/// the failure into every subsequent test in the same process
+/// with an opaque "instance has been poisoned" error.
 fn ensure_test_db_migrated() {
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        let url = test_database_url();
-        let mut conn = PgConnection::establish(&url)
-            .expect("Failed to connect to test DB for migration bootstrap");
-        conn.run_pending_migrations(MIGRATIONS)
-            .expect("Failed to apply migrations to test DB");
-    });
+    static INIT: OnceCell<()> = OnceCell::new();
+    if INIT
+        .get_or_try_init(|| -> Result<(), Box<dyn std::error::Error>> {
+            let url = test_database_url();
+            let mut conn = PgConnection::establish(&url)
+                .map_err(|e| format!("Failed to connect to test DB for migration bootstrap: {e}"))?;
+            conn.run_pending_migrations(MIGRATIONS)
+                .map_err(|e| format!("Failed to apply migrations to test DB: {e}"))?;
+            Ok(())
+        })
+        .is_err()
+    {
+        // Re-derive a panic so the test's failure message reads
+        // the same as before for any tooling that parses the
+        // panic line. The retry-on-next-call semantic comes from
+        // `get_or_try_init` not memoising errors.
+        panic!("Test DB migration bootstrap failed; see the previous error");
+    }
 }
 
 /// Connection customizer that begins a test transaction on every new

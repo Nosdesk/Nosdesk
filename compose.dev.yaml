@@ -1,6 +1,16 @@
 services:
-  # Postgres and Redis are reachable only on the internal Compose network.
-  # Use `docker compose exec postgres psql ...` / `... redis-cli ...` for shell access.
+  # Postgres — dev override exposes the port on the host loopback so
+  # `cargo test` can reach the `helpdesk_test` database from outside
+  # the compose network without a socat bridge dance. Bound to
+  # 127.0.0.1 (no LAN exposure) and on a deliberately non-standard
+  # port so it doesn't fight a developer's host Postgres on 5432.
+  # The container internal port stays 5432 for sibling services.
+  postgres:
+    ports:
+      - "127.0.0.1:54329:5432"
+
+  # Redis is reachable only on the internal Compose network.
+  # Use `docker compose exec redis redis-cli ...` for shell access.
 
   # Backend - Development override.
   #
