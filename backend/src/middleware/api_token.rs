@@ -30,27 +30,14 @@ pub fn extract_bearer_token(req: &ServiceRequest) -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
-/// Extract client IP from request
+/// Extract client IP from request. Delegates to the central
+/// `utils::client_ip` helper so this middleware obeys the same
+/// `TRUSTED_PROXIES` gate as every other rate-limit / audit
+/// surface. Previously this read `X-Forwarded-For` unconditionally,
+/// which let an attacker on a direct connection forge any source
+/// IP they wanted.
 fn extract_client_ip(req: &ServiceRequest) -> Option<IpAddr> {
-    // Try X-Forwarded-For first (for reverse proxy setups)
-    if let Some(forwarded) = req.headers().get("X-Forwarded-For") {
-        if let Ok(forwarded_str) = forwarded.to_str() {
-            if let Some(first_ip) = forwarded_str.split(',').next() {
-                if let Ok(ip) = first_ip.trim().parse::<IpAddr>() {
-                    return Some(ip);
-                }
-            }
-        }
-    }
-
-    // Fall back to connection info
-    req.connection_info()
-        .realip_remote_addr()
-        .and_then(|addr| {
-            addr.split(':')
-                .next()
-                .and_then(|ip| ip.parse::<IpAddr>().ok())
-        })
+    crate::utils::client_ip::from_service_request(req)
 }
 
 /// Try to authenticate request via Bearer token

@@ -334,12 +334,15 @@ async fn main() -> std::io::Result<()> {
         "memory://".to_string()
     });
 
-    // Build the public limiter (for unauthenticated requests)
+    // Rate-limit keying goes through the trusted-proxy-aware
+    // client_ip helper. Behind a reverse proxy (the standard
+    // production shape) per-IP limits track the real client; on
+    // a direct connection X-Forwarded-For is ignored so an
+    // attacker can't rotate spoofed headers to bypass the limit.
     let public_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
-            // Use IP address as the key for rate limiting
-            req.peer_addr()
-                .map(|addr| format!("public:{}", addr.ip()))
+            crate::utils::client_ip::from_service_request(req)
+                .map(|ip| format!("public:{ip}"))
         })
         .limit(rate_limit_per_minute as usize)
         .period(Duration::from_secs(60)) // 1 minute window
@@ -348,9 +351,8 @@ async fn main() -> std::io::Result<()> {
     // Build the authenticated limiter (for authenticated requests)
     let auth_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
-            // Use IP address with auth prefix for higher limits
-            req.peer_addr()
-                .map(|addr| format!("auth:{}", addr.ip()))
+            crate::utils::client_ip::from_service_request(req)
+                .map(|ip| format!("auth:{ip}"))
         })
         .limit(auth_rate_limit_per_minute as usize)
         .period(Duration::from_secs(60)) // 1 minute window
@@ -364,8 +366,8 @@ async fn main() -> std::io::Result<()> {
             // Fallback to memory limiter
             let fallback = Limiter::builder("memory://")
                 .key_by(|req: &actix_web::dev::ServiceRequest| {
-                    req.peer_addr()
-                        .map(|addr| format!("public:{}", addr.ip()))
+                    crate::utils::client_ip::from_service_request(req)
+                        .map(|ip| format!("public:{ip}"))
                 })
                 .limit(rate_limit_per_minute as usize)
                 .period(Duration::from_secs(60))
@@ -389,8 +391,8 @@ async fn main() -> std::io::Result<()> {
             // Fallback to memory limiter
             let fallback = Limiter::builder("memory://")
                 .key_by(|req: &actix_web::dev::ServiceRequest| {
-                    req.peer_addr()
-                        .map(|addr| format!("auth:{}", addr.ip()))
+                    crate::utils::client_ip::from_service_request(req)
+                        .map(|ip| format!("auth:{ip}"))
                 })
                 .limit(auth_rate_limit_per_minute as usize)
                 .period(Duration::from_secs(60))

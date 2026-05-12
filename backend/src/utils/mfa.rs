@@ -415,8 +415,8 @@ pub async fn log_mfa_attempt(
         .and_then(|h| h.to_str().ok())
         .unwrap_or("Unknown");
     
-    let ip_address = request.peer_addr()
-        .map(|addr| addr.ip().to_string())
+    let ip_address = crate::utils::client_ip::from_http_request(request)
+        .map(|ip| ip.to_string())
         .unwrap_or_else(|| "Unknown".to_string());
     
     if success {

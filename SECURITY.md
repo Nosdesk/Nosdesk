@@ -60,9 +60,12 @@ limits. In production:
 * Configure the proxy to set `X-Forwarded-For` itself, stripping any
   client-supplied value.
 
-A planned hardening pass will gate `X-Forwarded-For` on a
-`TRUSTED_PROXIES` CIDR allowlist; until then the deployment
-guidance is the security control.
+`X-Forwarded-For` is now gated on a `TRUSTED_PROXIES` CIDR
+allowlist (env var). Set it to the network(s) your reverse
+proxy connects from; leave it unset on direct-bind
+deployments. See AUD-004 below and `utils::client_ip`. Setting
+the backend on a private interface remains the primary
+defence; the gate is the belt to that suspenders.
 
 ## Threat model
 
@@ -118,7 +121,7 @@ existence and enables enumeration.
 | AUD-001 | High | IDOR on `GET /api/tickets/{id}` | **Fixed by group-based visibility** (this commit) |
 | AUD-002 | High | TOTP replay key uses non-crypto `DefaultHasher` | **Fixed** — replay-cache key now derived from SHA-256 via `ring`; deterministic across Rust toolchain bumps. |
 | AUD-003 | Medium | Webhook + plugin-bundle SSRF (no internal-IP denylist) | **Fixed** — `utils::safe_http::client()` factory pins a custom `reqwest::dns::Resolve` that refuses internal IPs at resolution time, so the client physically can't dial RFC1918 / loopback / link-local / CGNAT / reserved ranges (v4 + v6, plus mapped-v4). One factory consumed by webhook delivery, plugin registry, and the plugin proxy; a one-line `reject_unsafe_ip_literal()` covers IP-literal URLs that bypass DNS. Operator allowlist via `NOSDESK_OUTBOUND_ALLOWED_HOSTS`. |
-| AUD-004 | Medium | `X-Forwarded-For` trusted unconditionally for rate-limit keys | Tracked as task |
+| AUD-004 | Medium | `X-Forwarded-For` trusted unconditionally for rate-limit keys | **Fixed** — `utils::client_ip` is the single source of truth for "what IP is this request from." Honors `X-Forwarded-For` only when the TCP peer is inside `TRUSTED_PROXIES` (comma-separated CIDR allowlist); walks XFF right-to-left and stops at the first non-trusted hop, so a spoofed leftmost entry can't bypass the gate. Consumed by rate limiters, API-token middleware, security-event logger, session record, MFA logger, passkey + password-reset rate keys, guest-submission audit. |
 | AUD-005 | Medium | Unauthenticated onboarding-restore endpoints (race on first boot) | Tracked as task |
 | AUD-006 | Medium | SVG uploads not blocked from authed users | Tracked as task |
 | AUD-007 | Medium | Password reset reveals user existence via timing side-channel | Tracked as task |

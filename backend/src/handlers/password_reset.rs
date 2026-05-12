@@ -34,8 +34,8 @@ pub async fn request_password_reset(
     }
 
     // Extract IP address and user agent for audit trail
-    let ip_address = http_request.peer_addr()
-        .map(|addr| addr.ip().to_string());
+    let ip_address = crate::utils::client_ip::from_http_request(&http_request)
+        .map(|ip| ip.to_string());
 
     let user_agent = http_request.headers()
         .get("user-agent")

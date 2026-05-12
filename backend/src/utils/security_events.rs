@@ -49,13 +49,13 @@ pub struct SecurityEventInput<'a> {
     pub session_id: Option<i32>,
 }
 
-/// Pull the client IP out of a request in the same way the rest of the
-/// app does — `peer_addr` only, no X-Forwarded-For. Callers that need
-/// proxy-aware extraction should stop using this and hit
-/// `req.connection_info().realip_remote_addr()` directly.
+/// Pull the client IP out of a request via the trusted-proxy-aware
+/// helper, so security-event rows show the real client (not the
+/// reverse proxy) when `TRUSTED_PROXIES` is configured, and the
+/// peer address when it isn't.
 fn request_ip(req: &HttpRequest) -> Option<IpNetwork> {
-    req.peer_addr()
-        .and_then(|addr| addr.ip().to_string().parse().ok())
+    crate::utils::client_ip::from_http_request(req)
+        .and_then(|ip| ip.to_string().parse().ok())
 }
 
 fn request_user_agent(req: &HttpRequest) -> Option<String> {

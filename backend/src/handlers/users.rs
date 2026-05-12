@@ -132,7 +132,7 @@ async fn prepare_invitation(
         crate::utils::reset_tokens::TokenType::Invitation,
     );
 
-    let ip_address = req.connection_info().realip_remote_addr().map(|s| s.to_string());
+    let ip_address = crate::utils::client_ip::from_http_request(req).map(|ip| ip.to_string());
     let user_agent = req.headers()
         .get("User-Agent")
         .and_then(|h| h.to_str().ok())

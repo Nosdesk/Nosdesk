@@ -211,8 +211,11 @@ fn get_settings(conn: &mut DbConnection) -> Option<SiteSettings> {
 }
 
 fn client_ip(req: &HttpRequest) -> Option<IpNetwork> {
-    req.peer_addr()
-        .and_then(|addr| addr.ip().to_string().parse().ok())
+    // Guest submissions are public; per-IP rate limiting only
+    // works if we see the real client. Route through the central
+    // helper so TRUSTED_PROXIES gates X-Forwarded-For consistently.
+    crate::utils::client_ip::from_http_request(req)
+        .and_then(|ip| ip.to_string().parse().ok())
 }
 
 /// Best-effort audit log; failures are swallowed so they can't break a

@@ -369,9 +369,9 @@ pub async fn start_passkey_login(
     let rate_key = if let Some(ref email) = email {
         format!("passkey_login_attempts:{email}")
     } else {
-        let ip = req.connection_info().realip_remote_addr()
-            .unwrap_or("unknown")
-            .to_string();
+        let ip = crate::utils::client_ip::from_http_request(&req)
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
         format!("passkey_login_attempts:ip:{ip}")
     };
 

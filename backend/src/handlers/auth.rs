@@ -125,8 +125,8 @@ pub fn create_session_record(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<crate::models::ActiveSession, diesel::result::Error> {
-    let ip_address = request.peer_addr()
-        .and_then(|addr| addr.ip().to_string().parse().ok());
+    let ip_address = crate::utils::client_ip::from_http_request(request)
+        .and_then(|ip| ip.to_string().parse().ok());
 
     let user_agent = request.headers()
         .get("user-agent")
@@ -857,10 +857,10 @@ pub async fn check_setup_status(
     req: HttpRequest,
 ) -> impl Responder {
     // Log access for audit purposes
-    let client_ip = req.peer_addr()
-        .map(|addr| addr.ip().to_string())
+    let client_ip = crate::utils::client_ip::from_http_request(&req)
+        .map(|ip| ip.to_string())
         .unwrap_or_else(|| "unknown".to_string());
-    
+
     debug!("Setup status check from IP: {}", client_ip);
     
     let mut conn = match helpers::db_conn(&db_pool) {
