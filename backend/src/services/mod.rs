@@ -4,6 +4,7 @@ pub mod channels;
 pub mod email_queue;
 pub mod notifications;
 pub mod plugins;
+pub mod presence;
 pub mod scheduled_jobs;
 pub mod scheduler;
 pub mod recurrence;

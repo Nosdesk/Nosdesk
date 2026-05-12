@@ -27,7 +27,7 @@ const ALL_SSE_EVENT_TYPES = [
   "ticket-unlinked",
   "project-assigned",
   "project-unassigned",
-  "viewer-count-changed",
+  "viewers-changed",
   "documentation-created",
   "documentation-updated",
   "collection-updated",
@@ -282,16 +282,22 @@ class SSEService {
       // Build URL. `topics` declares the subscription set the server
       // should attach this connection to: the caller's personal
       // topic for targeted notifications plus the shared global
-      // topic for cross-resource events. The server enforces that
-      // `user` resolves to the authenticated caller, so this can't
-      // be used to read another user's notifications.
+      // topic for cross-resource events. When a ticket id is
+      // supplied, the per-ticket presence topic (`ticket-<id>`) is
+      // appended so this connection receives `viewers-changed`
+      // events for that ticket only. The server enforces that
+      // `user` resolves to the authenticated caller and gates
+      // `ticket-<id>` through ticket_visibility::can_view_ticket,
+      // so this can't be used to read another user's notifications
+      // or learn that a ticket exists.
+      const topicTokens = ["user", "global"];
+      if (ticketId) {
+        topicTokens.push(`ticket-${ticketId}`);
+      }
       const params = new URLSearchParams({
         sse_token: sseToken,
-        topics: "user,global",
+        topics: topicTokens.join(","),
       });
-      if (ticketId) {
-        params.append("ticket_id", ticketId.toString());
-      }
       const url = `/api/events/stream?${params.toString()}`;
 
       // Create EventSource

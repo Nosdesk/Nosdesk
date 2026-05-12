@@ -128,11 +128,24 @@ export interface ProjectEventData {
 }
 
 /**
- * viewer-count-changed event data
+ * One viewer in a ticket's active-presence set. Keyed by user
+ * uuid, not session, so multi-tab from the same user collapses to
+ * a single entry. `last_active_at` is server-stamped UTC ISO 8601;
+ * the avatar stack uses it to order most-recent first.
  */
-export interface ViewerCountEventData {
+export interface ViewerInfo {
+  user_uuid: string
+  last_active_at: string
+}
+
+/**
+ * viewers-changed event data. Carries the full viewer set rather
+ * than a delta so a fresh subscriber gets correct state on the
+ * first event without needing a snapshot endpoint.
+ */
+export interface ViewersChangedEventData {
   ticket_id: number
-  count: number
+  viewers: ViewerInfo[]
 }
 
 /**
@@ -177,7 +190,7 @@ export type SSEEventData =
   | DeviceDeletedEventData
   | TicketLinkEventData
   | ProjectEventData
-  | ViewerCountEventData
+  | ViewersChangedEventData
   | NotificationReceivedEventData
 
 /**

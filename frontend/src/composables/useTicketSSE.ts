@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted, type Ref } from "vue";
+import { ref, computed, onMounted, onUnmounted, type Ref } from "vue";
 import { useSSE } from "@/services/sseService";
 import { useAuthStore } from "@/stores/auth";
 import { useTitleManager } from "@/composables/useTitleManager";
@@ -17,7 +17,8 @@ import {
   type DeviceUpdatedEventData,
   type TicketLinkEventData,
   type ProjectEventData,
-  type ViewerCountEventData,
+  type ViewerInfo,
+  type ViewersChangedEventData,
 } from "@/types/sse";
 
 // Enable debug logging only in development
@@ -56,7 +57,15 @@ export function useTicketSSE(
   const mutations = useTicketMutations(ticket);
 
   const recentlyAddedCommentIds = ref<Set<number>>(new Set());
-  const activeViewerCount = ref<number>(0);
+  // Raw viewer list from the backend (already deduped per user and
+  // sorted recency-first). Includes the current user; the UI filters
+  // self out via `otherViewers` so it never shows you back to yourself.
+  const activeViewers = ref<ViewerInfo[]>([]);
+  const otherViewers = computed<ViewerInfo[]>(() => {
+    const selfUuid = authStore.user?.uuid;
+    if (!selfUuid) return activeViewers.value;
+    return activeViewers.value.filter((v) => v.user_uuid !== selfUuid);
+  });
 
   // Track fields currently being edited locally (e.g. title input focused).
   // SSE updates for these fields are skipped to avoid overwriting mid-edit text.
@@ -309,12 +318,15 @@ export function useTicketSSE(
     }
   }
 
-  // Handle viewer count changed
-  function handleViewerCountChanged(rawData: unknown): void {
-    const eventData = unwrapEventData(rawData as ViewerCountEventData);
+  // Handle viewers-changed: the backend sends the full viewer set
+  // on every change, so we just swap the ref rather than diff.
+  // Defensive filter on ticket_id even though the per-ticket SSE
+  // topic should already scope us correctly.
+  function handleViewersChanged(rawData: unknown): void {
+    const eventData = unwrapEventData(rawData as ViewersChangedEventData);
     if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
 
-    activeViewerCount.value = eventData.count || 0;
+    activeViewers.value = eventData.viewers ?? [];
   }
 
   // SSE event types used by this composable
@@ -329,7 +341,7 @@ export function useTicketSSE(
     | "ticket-unlinked"
     | "project-assigned"
     | "project-unassigned"
-    | "viewer-count-changed";
+    | "viewers-changed";
 
   // Event handler type for SSE events
   type SSEEventHandler = (data: unknown) => void | Promise<void>;
@@ -346,7 +358,7 @@ export function useTicketSSE(
     "ticket-unlinked": handleTicketUnlinked,
     "project-assigned": handleProjectAssigned,
     "project-unassigned": handleProjectUnassigned,
-    "viewer-count-changed": handleViewerCountChanged,
+    "viewers-changed": handleViewersChanged,
   };
 
   // Setup event listeners
@@ -386,8 +398,9 @@ export function useTicketSSE(
   return {
     isConnected,
     recentlyAddedCommentIds,
-    activeViewerCount,
-    // Field editing state — protects actively-edited fields (e.g. title) from SSE overwrites
+    activeViewers,
+    otherViewers,
+    // Field editing state: protects actively-edited fields (e.g. title) from SSE overwrites
     startEditing,
     stopEditing,
   };

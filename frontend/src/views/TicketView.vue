@@ -22,6 +22,7 @@ import { useTicketDrag } from "@/composables/useTicketDrag";
 import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
 
 // Components
+import PresenceStack from "@/components/PresenceStack.vue";
 import CollaborativeTicketArticle from "@/components/ticketComponents/CollaborativeTicketArticle.vue";
 import TicketDetails from "@/components/ticketComponents/TicketDetails.vue";
 import TicketActivity from "@/components/ticketComponents/TicketActivity.vue";
@@ -115,7 +116,7 @@ const ticketId = computed(() =>
 const {
     isConnected,
     recentlyAddedCommentIds,
-    activeViewerCount,
+    otherViewers,
     startEditing,
     stopEditing,
 } = useTicketSSE(
@@ -487,21 +488,23 @@ useCreateTicketAction();
                     <template v-if="ticket">
                         <BackButton fallbackRoute="/tickets" />
 
-                        <!-- SSE Connection Status -->
-                        <div class="flex items-center gap-2 text-sm">
+                        <!-- Presence + connection status. In the steady
+                             case (connected, no other viewers) this
+                             collapses to empty space: nothing to say,
+                             so don't say anything. The yellow dot
+                             only surfaces during a degraded
+                             connection; PresenceStack only renders
+                             when at least one other viewer is here. -->
+                        <div class="flex items-center gap-3 text-sm">
                             <div
-                                class="w-2 h-2 rounded-full"
-                                :class="{
-                                    'bg-status-success': isConnected,
-                                    'bg-status-warning animate-pulse': !isConnected,
-                                }"
-                            ></div>
-                            <span class="text-secondary">
-                                {{ isConnected ? "Live updates" : "Connecting..." }}
-                            </span>
-                            <span v-if="activeViewerCount > 0" class="text-secondary ml-2">
-                                <span class="text-accent">{{ activeViewerCount }}</span> viewing
-                            </span>
+                                v-if="!isConnected"
+                                class="flex items-center gap-2"
+                                title="Reconnecting to live updates"
+                            >
+                                <div class="w-2 h-2 rounded-full bg-status-warning animate-pulse"></div>
+                                <span class="text-secondary">Connecting...</span>
+                            </div>
+                            <PresenceStack :viewers="otherViewers" />
                         </div>
                     </template>
                     <!-- Skeleton back button -->

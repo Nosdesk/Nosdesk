@@ -159,7 +159,7 @@ impl WebhookEventType {
             // Internal events not exposed to webhooks
             SseEvent::CollectionUpdated { .. } => None,
             SseEvent::Heartbeat { .. } => None,
-            SseEvent::ViewerCountChanged { .. } => None,
+            SseEvent::ViewersChanged { .. } => None,
             SseEvent::NotificationReceived { .. } => None,
             SseEvent::KnowledgeGapDetected { .. } => None,
             SseEvent::KnowledgeGapResolved { .. } => None,

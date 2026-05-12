@@ -374,7 +374,21 @@ impl DocumentState {
 // Create app state to manage active documents and awareness
 type DocumentId = String;
 type SessionId = String;
-type SessionInfo = (Addr<YjsWebSocket>, Instant); // (Socket address, last activity timestamp)
+
+/// Per-session bookkeeping kept on the collaboration side. The
+/// user identity + ticket presence live in
+/// `services::presence::PresenceRegistry`; this map only carries
+/// what the transport needs (the actor address and the last
+/// activity Instant for stale-cleanup).
+struct SessionInfo {
+    addr: Addr<YjsWebSocket>,
+    last_active: Instant,
+    /// User who owns this session. Forwarded to the presence
+    /// registry on add / remove so the registry can deduplicate
+    /// multi-tab.
+    user_uuid: Uuid,
+}
+
 type RoomSessions = HashMap<DocumentId, HashMap<SessionId, SessionInfo>>;
 type RoomSessionStore = Arc<RwLock<RoomSessions>>;
 type DocumentStore = Arc<RwLock<HashMap<DocumentId, DocumentState>>>;
@@ -393,6 +407,11 @@ pub struct YjsAppState {
     /// editor. Without this every Yjs save would leave the index
     /// stale until a metadata change triggered a reindex.
     search_service: Arc<crate::services::search::SearchService>,
+    /// Per-(user, ticket) presence state. Single source of truth
+    /// for the avatar stack on the ticket detail page; gates the
+    /// per-user "appear away" preference via its visibility
+    /// resolver.
+    presence: Arc<crate::services::presence::PresenceRegistry>,
 }
 
 impl YjsAppState {
@@ -409,6 +428,7 @@ impl YjsAppState {
             redis_cache,
             sse_state,
             search_service,
+            presence: Arc::new(crate::services::presence::PresenceRegistry::with_default_resolver()),
         };
         // Start the periodic cleanup and save task
         let state_clone = state.clone();
@@ -766,8 +786,29 @@ impl YjsAppState {
     }
 
 
+    /// Emit a `ViewersChanged` SSE event for one ticket with the
+    /// current viewer set from the presence registry. Visibility
+    /// resolution is applied inside the registry, so any "appear
+    /// away" hidden users are already filtered.
+    async fn emit_viewers_changed(&self, ticket_id: i32) {
+        let viewers = self.presence.viewers_on_ticket(ticket_id);
+        self.sse_state
+            .broadcast_event(crate::handlers::sse::SseEvent::ViewersChanged {
+                ticket_id,
+                viewers,
+                timestamp: chrono::Utc::now(),
+            })
+            .await;
+    }
+
     // Register session
-    async fn register_session(&self, doc_id: &str, session_id: &str, addr: Addr<YjsWebSocket>) {
+    async fn register_session(
+        &self,
+        doc_id: &str,
+        session_id: &str,
+        addr: Addr<YjsWebSocket>,
+        user_uuid: Uuid,
+    ) {
         let mut sessions = self.sessions.write().await;
 
         // Get or create the room for this document
@@ -775,7 +816,14 @@ impl YjsAppState {
             .or_insert_with(HashMap::new);
 
         // Add this session to the room with current timestamp
-        room.insert(session_id.to_string(), (addr, Instant::now()));
+        room.insert(
+            session_id.to_string(),
+            SessionInfo {
+                addr,
+                last_active: Instant::now(),
+                user_uuid,
+            },
+        );
         let room_size = room.len();
 
         // Release sessions lock before acquiring documents lock
@@ -790,36 +838,49 @@ impl YjsAppState {
 
         debug!(session_id = %session_id, doc_id = %doc_id, room_size, "Session joined document");
 
-        // Broadcast viewer count change via SSE for tickets
+        // Feed the presence registry. The registry deduplicates
+        // multi-tab from the same user, so the SSE event only fires
+        // on a real "user joined" delta.
         if let Some(DocumentType::Ticket(ticket_id)) = DocumentType::from_doc_id(doc_id) {
-            self.sse_state
-                .broadcast_event(crate::handlers::sse::SseEvent::ViewerCountChanged {
-                    ticket_id,
-                    count: room_size,
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
+            let delta = self.presence.add_session(
+                user_uuid,
+                ticket_id,
+                session_id.to_string(),
+            );
+            if delta.changed {
+                self.emit_viewers_changed(ticket_id).await;
+            }
         }
     }
 
     // Update session activity timestamp
     async fn update_session_activity(&self, doc_id: &str, session_id: &str) {
-        let mut sessions = self.sessions.write().await;
+        let touched_user: Option<Uuid> = {
+            let mut sessions = self.sessions.write().await;
+            sessions.get_mut(doc_id).and_then(|room| {
+                room.get_mut(session_id).map(|info| {
+                    info.last_active = Instant::now();
+                    info.user_uuid
+                })
+            })
+        };
 
-        if let Some(room) = sessions.get_mut(doc_id) {
-            if let Some(session_info) = room.get_mut(session_id) {
-                // Update the timestamp
-                session_info.1 = Instant::now();
-            }
+        // Keep presence's last-active in sync so the avatar stack's
+        // recency ordering reflects what the transport sees. No SSE
+        // emission: touches never change the viewer set.
+        if let (Some(user_uuid), Some(DocumentType::Ticket(ticket_id))) =
+            (touched_user, DocumentType::from_doc_id(doc_id))
+        {
+            self.presence.touch_session(user_uuid, ticket_id);
         }
     }
-    
+
     // Remove session
     async fn remove_session(&self, doc_id: &str, session_id: &str) {
         let mut sessions = self.sessions.write().await;
 
         if let Some(room) = sessions.get_mut(doc_id) {
-            room.remove(session_id);
+            let removed_user = room.remove(session_id).map(|info| info.user_uuid);
             let room_size = room.len();
             let is_empty = room.is_empty();
             debug!(session_id = %session_id, doc_id = %doc_id, room_size, "Session left document");
@@ -827,15 +888,17 @@ impl YjsAppState {
             // Release the sessions lock before any async operations
             drop(sessions);
 
-            // Broadcast viewer count change via SSE for tickets
-            if let Some(DocumentType::Ticket(ticket_id)) = DocumentType::from_doc_id(doc_id) {
-                self.sse_state
-                    .broadcast_event(crate::handlers::sse::SseEvent::ViewerCountChanged {
-                        ticket_id,
-                        count: room_size,
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
+            // Mirror the removal into the presence registry. The
+            // registry only reports `changed = true` when this was
+            // the user's last tab on the ticket, so multi-tab close
+            // doesn't spam the wire.
+            if let (Some(user_uuid), Some(DocumentType::Ticket(ticket_id))) =
+                (removed_user, DocumentType::from_doc_id(doc_id))
+            {
+                let delta = self.presence.remove_session(user_uuid, ticket_id, session_id);
+                if delta.changed {
+                    self.emit_viewers_changed(ticket_id).await;
+                }
             }
 
             // If room is empty, mark it as empty but don't save immediately
@@ -850,31 +913,40 @@ impl YjsAppState {
             }
         }
     }
-    
+
     // Clean up stale sessions
     async fn cleanup_stale_sessions(&self) {
         let mut sessions = self.sessions.write().await;
         let now = Instant::now();
         let mut stale_session_count = 0;
         let mut newly_empty_rooms = Vec::new();
+        // (ticket_id, user_uuid, session_id) tuples to drop from the
+        // presence registry after we release the sessions lock.
+        let mut presence_drops: Vec<(i32, Uuid, String)> = Vec::new();
 
         // First pass: collect stale sessions
         for (doc_id, room) in sessions.iter_mut() {
             let mut stale_sessions = Vec::new();
             let was_empty = room.is_empty();
+            let ticket_id = match DocumentType::from_doc_id(doc_id) {
+                Some(DocumentType::Ticket(id)) => Some(id),
+                _ => None,
+            };
 
-            for (session_id, (_, last_active)) in room.iter() {
-                if now.duration_since(*last_active) > CLIENT_TIMEOUT * 5 {
-                    stale_sessions.push(session_id.clone());
+            for (session_id, info) in room.iter() {
+                if now.duration_since(info.last_active) > CLIENT_TIMEOUT * 5 {
+                    stale_sessions.push((session_id.clone(), info.user_uuid));
                 }
             }
 
             stale_session_count += stale_sessions.len();
 
-            // Remove stale sessions from the room
-            for session_id in stale_sessions.iter() {
+            for (session_id, user_uuid) in stale_sessions.iter() {
                 debug!(session_id = %session_id, doc_id = %doc_id, "Removing stale session");
                 room.remove(session_id);
+                if let Some(tid) = ticket_id {
+                    presence_drops.push((tid, *user_uuid, session_id.clone()));
+                }
             }
 
             // If room just became empty, mark it
@@ -900,6 +972,23 @@ impl YjsAppState {
                     doc_state.mark_room_empty();
                 }
             }
+        }
+
+        // Mirror drops into the presence registry and emit one
+        // `ViewersChanged` per ticket whose viewer set actually
+        // changed (i.e. a user lost their last session). Per-ticket
+        // dedup means a user closing N tabs in a row produces at
+        // most one wire event.
+        let mut tickets_to_notify: std::collections::HashSet<i32> =
+            std::collections::HashSet::new();
+        for (ticket_id, user_uuid, session_id) in presence_drops {
+            let delta = self.presence.remove_session(user_uuid, ticket_id, &session_id);
+            if delta.changed {
+                tickets_to_notify.insert(ticket_id);
+            }
+        }
+        for ticket_id in tickets_to_notify {
+            self.emit_viewers_changed(ticket_id).await;
         }
     }
 
@@ -941,7 +1030,7 @@ impl YjsAppState {
             if let Some(room) = sessions.get(doc_id) {
                 room.iter()
                     .filter(|(id, _)| *id != sender_id)
-                    .map(|(_, (addr, _))| addr.clone())
+                    .map(|(_, info)| info.addr.clone())
                     .collect()
             } else {
                 Vec::new()
@@ -1421,9 +1510,10 @@ impl Actor for YjsWebSocket {
         let app_state = self.app_state.clone();
         let doc_id = self.doc_id.clone();
         let session_id = self.id.clone();
+        let user_uuid = self.user_uuid;
         let addr = ctx.address();
         actix::spawn(async move {
-            app_state.register_session(&doc_id, &session_id, addr.clone()).await;
+            app_state.register_session(&doc_id, &session_id, addr.clone(), user_uuid).await;
 
             // Per the yjs sync protocol spec, the server should proactively send
             // SyncStep1 + all known awareness states to newly connected clients.

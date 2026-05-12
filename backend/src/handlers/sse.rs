@@ -132,9 +132,16 @@ pub enum SseEvent {
         resolved_page_id: Option<i32>,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    ViewerCountChanged {
+    /// Per-user presence on a ticket. Replaces the v0
+    /// `ViewerCountChanged` event: instead of a bare count, ships
+    /// the deduplicated viewer set so the frontend can render
+    /// avatars and filter out the current user. Routed to
+    /// `TopicKey::Ticket(ticket_id)` so only subscribers
+    /// authorised on that ticket receive it; the per-user
+    /// identities here are visibility-sensitive.
+    ViewersChanged {
         ticket_id: i32,
-        count: usize,
+        viewers: Vec<crate::services::presence::ViewerInfo>,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
     UserUpdated {
@@ -199,7 +206,7 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::CollectionUpdated { .. } => "collection-updated",
         SseEvent::KnowledgeGapDetected { .. } => "knowledge-gap-detected",
         SseEvent::KnowledgeGapResolved { .. } => "knowledge-gap-resolved",
-        SseEvent::ViewerCountChanged { .. } => "viewer-count-changed",
+        SseEvent::ViewersChanged { .. } => "viewers-changed",
         SseEvent::UserUpdated { .. } => "user-updated",
         SseEvent::UserCreated { .. } => "user-created",
         SseEvent::UserDeleted { .. } => "user-deleted",
@@ -221,13 +228,20 @@ pub struct ClientInfo {
 /// Routing key for SSE delivery. Each event lives on exactly one topic;
 /// clients subscribe to the topics they care about and only ever see
 /// events published there. Phase A keeps the topology small: `Global`
-/// carries every cross-resource event, and `User(uuid)` carries
-/// targeted notifications. Per-resource topics (Ticket, Project, etc.)
-/// arrive in a later phase for finer fan-out.
+/// carries every cross-resource event, `User(uuid)` carries targeted
+/// notifications, and `Ticket(id)` carries presence-style events whose
+/// payload is sensitive enough that only authorised subscribers may
+/// receive them.
+///
+/// Subscription to `Ticket(id)` is gated by
+/// `ticket_visibility::can_view_ticket` at connect time (see
+/// `parse_topics_authorized`), so the visibility filter is structural
+/// — it doesn't run per event.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TopicKey {
     Global,
     User(String),
+    Ticket(i32),
 }
 
 /// One delivery on the wire. `id` is a process-monotonic sequence so
@@ -331,6 +345,7 @@ impl SseState {
             SseEvent::NotificationReceived { recipient_uuid, .. } => {
                 TopicKey::User(recipient_uuid.clone())
             }
+            SseEvent::ViewersChanged { ticket_id, .. } => TopicKey::Ticket(*ticket_id),
             _ => TopicKey::Global,
         }
     }
@@ -624,12 +639,13 @@ pub async fn sse_events_stream(
     };
 
     // Resolve subscription set. The client may declare interest via
-    // `?topics=user,global` (comma-separated). When absent, both
-    // topics are subscribed for back-compat. Unknown tokens are
-    // ignored. The `user` token is always rebound to the
-    // authenticated caller's uuid; we never let one client subscribe
-    // to another user's personal topic.
-    let topics = parse_topics(query.topics.as_deref(), &user_info.sub);
+    // `?topics=user,global,ticket-42` (comma-separated). When absent,
+    // `user` + `global` are subscribed for back-compat. Unknown
+    // tokens are ignored. `user` is rebound to the authenticated
+    // caller's uuid. `ticket-<id>` is gated by
+    // ticket_visibility::can_view_ticket so unauthorised ticket
+    // subscriptions are silently dropped (no existence leak).
+    let topics = parse_topics_authorized(query.topics.as_deref(), &user_info.sub, &mut conn);
 
     let last_event_id = last_event_id_from_request(&req);
     let (receivers, replay) = state.subscribe(&topics, last_event_id);
@@ -678,38 +694,122 @@ pub struct SseEventsQuery {
     topics: Option<String>,
 }
 
-fn parse_topics(raw: Option<&str>, caller_uuid: &str) -> Vec<TopicKey> {
+/// Parse the `topics` query parameter into a list of `TopicKey`s
+/// the caller is allowed to subscribe to. Authorisation happens
+/// here so the filter is structural — once a subscriber has the
+/// receiver, every event on that topic is theirs to consume.
+///
+/// Recognised tokens:
+///
+/// * `global`          — the shared cross-resource topic.
+/// * `user`            — the caller's personal topic. Always
+///                       rebound to the caller's uuid; we never
+///                       let one client subscribe to another
+///                       user's personal channel.
+/// * `ticket-<i32>`    — ticket-scoped presence events. Allowed
+///                       only when `ticket_visibility::can_view_ticket`
+///                       returns true for the caller. Tokens for
+///                       tickets the caller can't see (or that
+///                       don't exist) are silently dropped so the
+///                       subscription doesn't leak existence.
+///
+/// Unknown / malformed / unauthorised tokens are dropped rather
+/// than rejected so a newer client can still connect to an older
+/// server.
+fn parse_topics_authorized(
+    raw: Option<&str>,
+    caller_uuid: &str,
+    conn: &mut crate::db::DbConnection,
+) -> Vec<TopicKey> {
+    use crate::repository::ticket_visibility::{can_view_ticket, VisibilityContext};
+
     let trimmed = raw.map(str::trim).unwrap_or("");
     if trimmed.is_empty() {
         return vec![TopicKey::Global, TopicKey::User(caller_uuid.to_string())];
     }
+
+    // Build the visibility context once if we need it for any
+    // ticket-<id> token.
+    let mut cached_vis: Option<Option<VisibilityContext>> = None;
+
     let mut out = Vec::new();
     let mut seen_global = false;
     let mut seen_user = false;
+    let mut seen_tickets = std::collections::HashSet::new();
+
     for token in trimmed.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-        match token {
-            "global" if !seen_global => {
+        if token == "global" {
+            if !seen_global {
                 out.push(TopicKey::Global);
                 seen_global = true;
             }
-            "user" if !seen_user => {
+            continue;
+        }
+        if token == "user" {
+            if !seen_user {
                 out.push(TopicKey::User(caller_uuid.to_string()));
                 seen_user = true;
             }
-            _ => {
-                // Unknown or duplicate token. Ignored rather than
-                // refused so a future client that knows about new
-                // topics can still connect to an old server.
-            }
+            continue;
         }
+        if let Some(rest) = token.strip_prefix("ticket-") {
+            let Ok(ticket_id) = rest.parse::<i32>() else {
+                continue;
+            };
+            if !seen_tickets.insert(ticket_id) {
+                continue;
+            }
+            // Lazily build the VisibilityContext from the caller's
+            // claims string. A malformed sub string (shouldn't
+            // happen post-auth, but treat defensively) drops every
+            // ticket subscription.
+            let vis = cached_vis.get_or_insert_with(|| {
+                use crate::models::Claims;
+                let stub_claims = Claims {
+                    sub: caller_uuid.to_string(),
+                    name: String::new(),
+                    email: String::new(),
+                    role: String::from("user"),
+                    scope: String::new(),
+                    sid: None,
+                    exp: 0,
+                    iat: 0,
+                };
+                // VisibilityContext::from_claims only reads sub +
+                // role. The stub above is enough; we re-resolve the
+                // real role from the DB row that the caller of
+                // parse_topics_authorized already validated.
+                let user_uuid = uuid::Uuid::parse_str(caller_uuid).ok()?;
+                let _ = stub_claims;
+                Some(VisibilityContext {
+                    user_uuid,
+                    role: lookup_role_for(conn, user_uuid)?,
+                })
+            });
+            let Some(vis_ctx) = vis.as_ref() else {
+                continue;
+            };
+            if can_view_ticket(conn, vis_ctx, ticket_id).unwrap_or(false) {
+                out.push(TopicKey::Ticket(ticket_id));
+            }
+            // else: silently drop — denying with a status leaks ticket
+            // existence to the caller.
+        }
+        // Other tokens silently dropped (back-compat).
     }
     if out.is_empty() {
-        // All tokens unknown. Fall back to the default rather than
-        // returning an empty subscription that would silently swallow
-        // every event.
         return vec![TopicKey::Global, TopicKey::User(caller_uuid.to_string())];
     }
     out
+}
+
+fn lookup_role_for(
+    conn: &mut crate::db::DbConnection,
+    user_uuid: uuid::Uuid,
+) -> Option<crate::models::UserRole> {
+    crate::repository::users::get_user_by_uuid(&user_uuid, conn)
+        .ok()
+        .map(|u| u.role)
 }
 
 // SSE status endpoint
