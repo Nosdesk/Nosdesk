@@ -2,6 +2,7 @@
 pub mod article_content;
 pub mod assignment_rules;
 pub mod audit_log;
+pub mod email_suppressions;
 pub mod outbound_emails;
 pub mod canned_responses;
 pub mod categories;

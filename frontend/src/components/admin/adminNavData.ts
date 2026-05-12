@@ -98,6 +98,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         icon: 'email',
         route: '/admin/email-queue',
         keywords: ['email', 'outbound', 'queue', 'smtp', 'send', 'retry', 'bounce', 'delivery', 'spool']
+      },
+      {
+        title: 'Email Suppressions',
+        description: 'Addresses blocked from outbound delivery, auto-populated by hard bounces',
+        icon: 'email',
+        route: '/admin/email-suppressions',
+        keywords: ['email', 'suppressions', 'block', 'bounce', 'blocklist', 'unsubscribe', 'complaint']
       }
     ]
   },

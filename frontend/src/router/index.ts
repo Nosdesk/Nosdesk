@@ -650,6 +650,12 @@ const router = createRouter({
           meta: { title: 'Email Queue' }
         },
         {
+          path: 'email-suppressions',
+          name: 'admin-email-suppressions',
+          component: () => import('../views/admin/EmailSuppressionsView.vue'),
+          meta: { title: 'Email Suppressions' }
+        },
+        {
           path: 'guest-access',
           name: 'admin-guest-access',
           component: () => import('../views/GuestAccessSettingsView.vue'),

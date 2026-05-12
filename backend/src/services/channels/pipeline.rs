@@ -193,6 +193,35 @@ pub async fn process_event(
                     );
                 }
             }
+
+            // Auto-suppress on hard bounces only. Soft bounces
+            // (4xx — transient) shouldn't permanently block a
+            // recipient; they retry naturally on the next send.
+            if let (Some(recipient), Some(diagnostic)) =
+                (report.recipient.as_deref(), report.diagnostic.as_deref())
+            {
+                if is_hard_bounce(diagnostic) {
+                    let new = crate::models::NewEmailSuppression {
+                        email: recipient.to_string(),
+                        reason: crate::models::email_suppression_reason::HARD_BOUNCE.to_string(),
+                        bounce_diagnostic: Some(diagnostic.to_string()),
+                    };
+                    if let Err(e) = crate::repository::email_suppressions::upsert(conn, new) {
+                        warn!(
+                            channel_id = channel.id,
+                            error = %e,
+                            recipient = %recipient,
+                            "bounce: failed to add suppression"
+                        );
+                    } else {
+                        debug!(
+                            channel_id = channel.id,
+                            recipient = %recipient,
+                            "bounce: recipient auto-suppressed"
+                        );
+                    }
+                }
+            }
         } else {
             debug!(
                 channel_id = channel.id,
@@ -398,6 +427,62 @@ pub async fn process_event(
             comment_id: comment.id,
         }
     })
+}
+
+/// Classify a DSN diagnostic as a hard or soft bounce.
+///
+/// "Hard" = permanent recipient-side failure (mailbox doesn't
+/// exist, user disabled, etc.). These auto-populate the suppression
+/// list so we stop wasting deliveries.
+///
+/// "Soft" = transient (4xx codes; mailbox full, server down). Not
+/// suppressed because the next send will likely succeed.
+///
+/// Carve-outs from the 5xx universe per Mailgun / SES / Postmark
+/// production patterns:
+///   - `5.0.0` is "other / undefined" per RFC 3463 — too vague to
+///     act on without risking a real customer.
+///   - `5.7.x` is policy / security (SPF, DKIM, DMARC, content
+///     filtering, greylisting). These are usually *sender*-side
+///     problems; suppressing the recipient just because we failed
+///     DKIM loses them forever for a configuration issue we own.
+///
+/// Default-deny: anything we can't classify counts as soft. Better
+/// to retry a real address than to block a real customer over a
+/// parsing miss.
+fn is_hard_bounce(diagnostic: &str) -> bool {
+    // Scan first, decide after. A single diagnostic often carries
+    // both the basic SMTP code (550) and the enhanced status (5.7.1);
+    // a token-by-token short-circuit would return on the basic code
+    // before reaching the more-specific enhanced status and apply
+    // the wrong verdict.
+    let mut saw_hard_enhanced = false;
+    let mut saw_carve_out_enhanced = false;
+    let mut saw_basic_5xx = false;
+
+    for word in diagnostic.split(|c: char| !c.is_ascii_alphanumeric() && c != '.') {
+        // RFC 3463 enhanced status: `5.x.y`
+        if word.starts_with("5.") && word.matches('.').count() == 2 {
+            if word == "5.0.0" || word.starts_with("5.7.") {
+                saw_carve_out_enhanced = true;
+            } else {
+                saw_hard_enhanced = true;
+            }
+            continue;
+        }
+        // SMTP basic 5xx code (bare 3-digit number starting with 5).
+        if word.len() == 3 && word.starts_with('5') && word.chars().all(|c| c.is_ascii_digit()) {
+            saw_basic_5xx = true;
+        }
+    }
+
+    // Enhanced status is more specific than the basic SMTP code, so
+    // when present it takes precedence. A carve-out enhanced status
+    // (5.0.0 / 5.7.x) wins even if a basic 5xx is also in the line.
+    if saw_carve_out_enhanced && !saw_hard_enhanced {
+        return false;
+    }
+    saw_hard_enhanced || saw_basic_5xx
 }
 
 // ---------- DB helpers ----------
@@ -1019,6 +1104,52 @@ mod tests {
         assert!(channels_repo::find_by_external_id(&mut conn, ch.id, "<dsn@ex>")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn is_hard_bounce_detects_5xx_smtp_codes() {
+        // Combined basic + enhanced status (the common DSN shape).
+        assert!(is_hard_bounce("smtp; 550 5.1.1 User unknown"));
+        assert!(is_hard_bounce("550 5.1.1 User unknown"));
+        // Bare enhanced status outside the carve-out set.
+        assert!(is_hard_bounce("5.1.1 Bad destination mailbox address"));
+        // Bare SMTP code with no enhanced status at all.
+        assert!(is_hard_bounce("552 mailbox full"));
+    }
+
+    #[test]
+    fn is_hard_bounce_rejects_4xx_soft_failures() {
+        assert!(!is_hard_bounce("smtp; 421 4.7.0 Try again later"));
+        assert!(!is_hard_bounce("4.4.1 Connection refused"));
+        assert!(!is_hard_bounce("452 Insufficient storage"));
+    }
+
+    #[test]
+    fn is_hard_bounce_rejects_unparseable_diagnostic() {
+        // Conservative default: nothing 5xx-shaped, no suppression.
+        assert!(!is_hard_bounce(""));
+        assert!(!is_hard_bounce("Delivery failed for unspecified reason"));
+        assert!(!is_hard_bounce("smtp; queue too long"));
+    }
+
+    #[test]
+    fn is_hard_bounce_excludes_5_7_x_policy_failures() {
+        // 5.7.x = policy / security. SPF, DKIM, DMARC, content
+        // filtering, greylisting. Almost always a sender-side fix;
+        // suppressing the recipient would lose them forever for our
+        // own misconfiguration.
+        assert!(!is_hard_bounce("5.7.1 Message rejected by policy"));
+        assert!(!is_hard_bounce("5.7.0 Authentication required"));
+        assert!(!is_hard_bounce("5.7.26 DMARC alignment failed"));
+        assert!(!is_hard_bounce("smtp; 550 5.7.1 greylisted"));
+    }
+
+    #[test]
+    fn is_hard_bounce_excludes_5_0_0_undefined() {
+        // 5.0.0 = "other / undefined" per RFC 3463 — too vague to
+        // auto-suppress.
+        assert!(!is_hard_bounce("5.0.0 Failure"));
+        assert!(!is_hard_bounce("smtp; 550 5.0.0 unspecified"));
     }
 
     #[tokio::test]

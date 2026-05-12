@@ -1169,6 +1169,9 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/email-queue/stats", web::get().to(handlers::email_queue::stats))
                     .route("/admin/email-queue/{id}/retry", web::post().to(handlers::email_queue::retry_now))
                     .route("/admin/email-queue/{id}/cancel", web::post().to(handlers::email_queue::cancel))
+                    .route("/admin/email-suppressions", web::get().to(handlers::email_suppressions::list))
+                    .route("/admin/email-suppressions", web::post().to(handlers::email_suppressions::create))
+                    .route("/admin/email-suppressions/{email}", web::delete().to(handlers::email_suppressions::delete))
 
                     // Consolidated dashboard stats. The frontend's
                     // widget registry derives an `include` set

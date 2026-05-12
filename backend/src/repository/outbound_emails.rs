@@ -42,6 +42,36 @@ pub fn enqueue(
         .get_result(conn)
 }
 
+/// Enqueue a row, but if the recipient is on the suppression list,
+/// short-circuit to `suppressed` status without ever entering the
+/// worker's claim set. Wrapped in a transaction so the INSERT and
+/// the subsequent `mark_suppressed` either both land or neither
+/// does — the LISTEN/NOTIFY trigger only fires at commit time, so
+/// the worker never observes the intermediate pending state.
+///
+/// Returns the row in its final state (either pending or
+/// suppressed) so the caller can log + report without a refetch.
+pub fn enqueue_or_suppress(
+    conn: &mut DbConnection,
+    new_row: NewOutboundEmail,
+) -> Result<OutboundEmail, DieselError> {
+    use diesel::Connection;
+    conn.transaction::<OutboundEmail, DieselError, _>(|conn| {
+        let suppressed = crate::repository::email_suppressions::is_suppressed(conn, &new_row.recipient)?;
+        if suppressed {
+            let row: OutboundEmail = diesel::insert_into(outbound_emails::table)
+                .values(&new_row)
+                .get_result(conn)?;
+            mark_suppressed(conn, row.id, "recipient on suppression list")?;
+            get(conn, row.id)
+        } else {
+            diesel::insert_into(outbound_emails::table)
+                .values(&new_row)
+                .get_result(conn)
+        }
+    })
+}
+
 /// Fetch a single row by id. Used by the admin handler.
 pub fn get(conn: &mut DbConnection, id: i64) -> Result<OutboundEmail, DieselError> {
     outbound_emails::table.find(id).first(conn)

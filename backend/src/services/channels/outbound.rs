@@ -271,7 +271,7 @@ pub fn enqueue_for_comment(
             correlation_id: None,
         };
 
-        match crate::repository::outbound_emails::enqueue(&mut conn, new_row) {
+        match crate::repository::outbound_emails::enqueue_or_suppress(&mut conn, new_row) {
             Ok(row) => {
                 tracing::debug!(
                     queue_id = row.id,

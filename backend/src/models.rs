@@ -5625,3 +5625,44 @@ pub mod outbound_email_status {
     pub const DEAD: &str = "dead";
     pub const SUPPRESSED: &str = "suppressed";
 }
+
+// === Email suppression list ==================================
+//
+// Addresses on this list are skipped by the outbound enqueue path.
+// Auto-populated by hard-bounce detection (J Pass 2.2b) and
+// manually managed by admins via the suppression admin view. See
+// migration `2026-05-12-110000_email_suppressions`.
+
+#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Identifiable)]
+#[diesel(primary_key(email))]
+#[diesel(table_name = crate::schema::email_suppressions)]
+pub struct EmailSuppression {
+    pub email: String,
+    /// Short identifier the admin UI groups on: `hard_bounce`,
+    /// `manual`, `complaint`. Kept loose so future categories
+    /// (`unsubscribe`, `gdpr_erase`) don't require a migration.
+    pub reason: String,
+    /// Verbatim upstream diagnostic from the most recent bounce.
+    /// `NULL` for manually-added entries.
+    pub bounce_diagnostic: Option<String>,
+    /// Bumped each time the same address bounces again so admins
+    /// can spot chronic vs one-off issues.
+    pub bounce_count: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_seen_at: chrono::DateTime<chrono::Utc>,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = crate::schema::email_suppressions)]
+pub struct NewEmailSuppression {
+    pub email: String,
+    pub reason: String,
+    pub bounce_diagnostic: Option<String>,
+}
+
+/// Suppression reason constants.
+pub mod email_suppression_reason {
+    pub const HARD_BOUNCE: &str = "hard_bounce";
+    pub const MANUAL: &str = "manual";
+}

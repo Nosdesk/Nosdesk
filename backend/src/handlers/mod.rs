@@ -8,6 +8,7 @@ pub mod assignment_rules;
 pub mod audit_log;
 pub mod collaboration;
 pub mod email_queue;
+pub mod email_suppressions;
 pub mod auth;
 pub mod users;
 pub mod files;
