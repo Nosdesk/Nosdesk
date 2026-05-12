@@ -31,6 +31,12 @@ const BLOCKED_MIME_TYPES: &[&str] = &[
     // Dynamic libraries
     "application/x-sharedlib",
     "application/x-mach-binary",
+    // SVG: XML container that browsers execute as a document, with full
+    // <script> and event-handler semantics. Treating it as an image is
+    // the source of a long line of XSS reports across GitHub, Slack, and
+    // others. We refuse uploads entirely; if a real image is wanted, the
+    // caller can rasterise to PNG/JPEG client-side.
+    "image/svg+xml",
 ];
 
 /// Dangerous file extensions that are explicitly blocked
@@ -46,6 +52,9 @@ const BLOCKED_EXTENSIONS: &[&str] = &[
     "jar", "class",
     // Other potentially dangerous
     "reg", "inf", "scf", "lnk", "pif", "hta", "gadget",
+    // SVG: see BLOCKED_MIME_TYPES comment. `.svgz` is gzipped SVG and
+    // serves identically once decoded by the browser.
+    "svg", "svgz",
 ];
 
 /// Custom error type for file validation
@@ -160,6 +169,25 @@ fn detected_mime(bytes: &[u8]) -> Option<&'static str> {
     infer::get(bytes).map(|kind| kind.mime_type())
 }
 
+/// Defensive SVG sniffer for content whose magic bytes `infer` either
+/// missed (leading whitespace, BOM, HTML comments before the root
+/// element) or that was renamed to a non-`.svg` extension. A browser
+/// will still execute `<script>` inside such content if it's served
+/// with an SVG-ish Content-Type, so we refuse it at upload time
+/// regardless of how the bytes are dressed up.
+fn looks_like_svg(bytes: &[u8]) -> bool {
+    let prefix_len = bytes.len().min(1024);
+    let Ok(text) = std::str::from_utf8(&bytes[..prefix_len]) else {
+        return false;
+    };
+    let trimmed = text
+        .trim_start_matches('\u{feff}')
+        .trim_start_matches(|c: char| c.is_whitespace());
+    trimmed.starts_with("<?xml") && trimmed.to_ascii_lowercase().contains("<svg")
+        || trimmed.starts_with("<svg")
+        || trimmed.to_ascii_lowercase().starts_with("<svg")
+}
+
 /// File validator with security-focused validation
 pub struct FileValidator;
 
@@ -209,6 +237,17 @@ impl FileValidator {
             }
         }
 
+        // SVG check runs ahead of `infer` because `infer` classifies
+        // many SVG documents as `text/xml` (matching the XML prolog
+        // before the SVG-specific signature), which would slip past
+        // the MIME blocklist. Refuse SVG bytes regardless of the
+        // claimed extension or detected MIME.
+        if looks_like_svg(bytes) {
+            return Err(FileValidationError::BlockedMimeType {
+                detected: "image/svg+xml".to_string(),
+            });
+        }
+
         if let Some(mime) = detected_mime(bytes) {
             if BLOCKED_MIME_TYPES.contains(&mime) {
                 return Err(FileValidationError::BlockedMimeType {
@@ -253,6 +292,16 @@ impl FileValidator {
         if !ext_ok {
             return Err(FileValidationError::BlockedExtension {
                 extension: extension.unwrap_or_else(|| "(none)".to_string()),
+            });
+        }
+
+        // SVG sniffer runs ahead of the MIME branch for the same
+        // reason as `validate_file`: `infer` reports many SVG docs
+        // as `text/xml`, which a downstream serve path could still
+        // hand back with an SVG Content-Type.
+        if looks_like_svg(bytes) {
+            return Err(FileValidationError::BlockedMimeType {
+                detected: "image/svg+xml".to_string(),
             });
         }
 
@@ -493,6 +542,75 @@ mod tests {
         let garbage = b"not really an image";
         assert!(matches!(
             FileValidator::validate_guest_upload(garbage, "fake.png"),
+            Err(FileValidationError::BlockedMimeType { .. })
+        ));
+    }
+
+    // ---- SVG blocking (AUD-006) ----
+
+    const SVG_WELL_FORMED: &[u8] =
+        b"<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>";
+    const SVG_BARE_TAG: &[u8] = b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>";
+    const SVG_WITH_BOM: &[u8] = b"\xef\xbb\xbf<?xml version=\"1.0\"?><svg></svg>";
+    const SVG_LEADING_WHITESPACE: &[u8] = b"\n\n  <?xml version=\"1.0\"?><svg></svg>";
+
+    #[test]
+    fn validate_file_rejects_svg_extension() {
+        assert!(matches!(
+            FileValidator::validate_file(b"anything", Some("logo.svg")),
+            Err(FileValidationError::BlockedExtension { .. })
+        ));
+        assert!(matches!(
+            FileValidator::validate_file(b"anything", Some("logo.svgz")),
+            Err(FileValidationError::BlockedExtension { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_file_rejects_svg_renamed_to_png() {
+        // Extension `.png` doesn't trip the extension blocklist, but
+        // `infer` will see the SVG magic bytes and the MIME blocklist
+        // refuses image/svg+xml.
+        assert!(matches!(
+            FileValidator::validate_file(SVG_WELL_FORMED, Some("innocent.png")),
+            Err(FileValidationError::BlockedMimeType { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_file_rejects_svg_with_bom_or_whitespace() {
+        // `infer` may miss SVG when prefixed with a BOM or leading
+        // whitespace. The looks_like_svg sniffer is the backstop.
+        for buf in [SVG_WITH_BOM, SVG_LEADING_WHITESPACE] {
+            assert!(matches!(
+                FileValidator::validate_file(buf, Some("notes.txt")),
+                Err(FileValidationError::BlockedMimeType { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn validate_file_rejects_bare_svg_tag() {
+        assert!(matches!(
+            FileValidator::validate_file(SVG_BARE_TAG, Some("vector.png")),
+            Err(FileValidationError::BlockedMimeType { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_file_allows_non_svg_xml() {
+        // Generic XML that isn't SVG must not be caught by the sniffer.
+        let xml = b"<?xml version=\"1.0\"?><note><body>hi</body></note>";
+        assert!(FileValidator::validate_file(xml, Some("note.xml")).is_ok());
+    }
+
+    #[test]
+    fn guest_upload_rejects_svg_renamed_to_txt() {
+        // Guest path: SVG bytes saved as `.txt` would slip past the
+        // extension allowlist and fall into the text/log fallback. The
+        // sniffer catches it.
+        assert!(matches!(
+            FileValidator::validate_guest_upload(SVG_WELL_FORMED, "notes.txt"),
             Err(FileValidationError::BlockedMimeType { .. })
         ));
     }
