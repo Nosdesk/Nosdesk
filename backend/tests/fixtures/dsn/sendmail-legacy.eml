@@ -1,0 +1,17 @@
+From: MAILER-DAEMON@legacy.example.com
+To: support@yourco.com
+Subject: Returned mail: User unknown
+Date: Mon, 12 May 2026 14:00:00 +0000
+Message-ID: <legacy-bounce-1@legacy.example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+
+   ----- The following addresses had permanent fatal errors -----
+<ghost@example.org>
+    (reason: 550 5.1.1 User unknown)
+
+   ----- Transcript of session follows -----
+... while talking to mx.example.org.:
+>>> RCPT To:<ghost@example.org>
+<<< 550 5.1.1 <ghost@example.org>... User unknown
+550 5.1.1 <ghost@example.org>... User unknown

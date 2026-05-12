@@ -1,0 +1,30 @@
+From: postmaster@minimal.example.net
+To: support@yourco.com
+Subject: Delivery Status Notification (Failure)
+Date: Mon, 12 May 2026 15:00:00 +0000
+Message-ID: <minimal-dsn-1@minimal.example.net>
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=delivery-status; boundary="MINI"
+
+--MINI
+Content-Type: text/plain
+
+Delivery failed.
+
+--MINI
+Content-Type: message/delivery-status
+
+Final-Recipient: rfc822; somebody@example.org
+Action: failed
+Status: 5.2.1
+
+--MINI
+Content-Type: message/rfc822-headers
+
+From: support@yourco.com
+To: somebody@example.org
+Subject: Re: [#77] ticket
+Message-ID: <out-77-statusonly@yourco.com>
+Date: Mon, 12 May 2026 14:59:00 +0000
+
+--MINI--

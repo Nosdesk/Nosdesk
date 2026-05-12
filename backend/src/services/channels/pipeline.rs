@@ -1106,6 +1106,174 @@ mod tests {
             .is_none());
     }
 
+    /// Helper: build a NewOutboundEmail for use in bounce-flow tests.
+    /// All fields are filled with realistic-but-uninteresting values
+    /// so each test only has to specify what it actually cares about
+    /// (Message-ID for linkage, recipient for suppression).
+    fn outbound_row(channel_id: i32, message_id: &str, recipient: &str) -> crate::models::NewOutboundEmail {
+        crate::models::NewOutboundEmail {
+            channel_id,
+            ticket_id: None,
+            comment_id: None,
+            recipient: recipient.to_string(),
+            subject: "Re: ticket".to_string(),
+            body_text: "body".to_string(),
+            body_html: None,
+            message_id: message_id.to_string(),
+            in_reply_to: None,
+            references_list: vec![],
+            headers_json: serde_json::json!({}),
+            correlation_id: None,
+        }
+    }
+
+    /// End-to-end: a real Postfix DSN (parsed from the corpus fixture)
+    /// flows through the pipeline. We expect the matching outbound
+    /// row to be stamped bounced AND the recipient to land on the
+    /// suppression list, AND a subsequent enqueue for the same
+    /// recipient to short-circuit to `suppressed`.
+    #[tokio::test]
+    async fn hard_bounce_marks_row_and_suppresses_recipient_end_to_end() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+
+        // Enqueue an outbound row whose Message-ID matches the fixture's
+        // embedded original message. The pipeline will look for this
+        // row by message_id when it processes the DSN.
+        let original = crate::repository::outbound_emails::enqueue(
+            &mut conn,
+            outbound_row(ch.id, "out-42-canonical@yourco.com", "bob@example.org"),
+        )
+        .unwrap();
+        assert!(original.bounced_at.is_none(), "fresh row has no bounce stamp");
+
+        // Parse the canonical Postfix DSN fixture through the real
+        // email_imap entry point so detect_bounce + parse_bounce both
+        // fire and bounce_report gets populated.
+        let raw = include_bytes!("../../../tests/fixtures/dsn/postfix-canonical.eml");
+        let msg = super::super::email_imap::parse_rfc822_into_inbound_message(raw, None)
+            .expect("fixture should parse");
+        assert!(msg.is_bounce, "detect_bounce should flag the fixture");
+        assert!(msg.bounce_report.is_some(), "parse_bounce should yield a report");
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, PipelineOutcome::SkippedBounce);
+
+        // Outbound row should now carry the bounce stamp.
+        let refreshed = crate::repository::outbound_emails::get(&mut conn, original.id).unwrap();
+        assert!(refreshed.bounced_at.is_some(), "outbound row should be marked bounced");
+        assert_eq!(refreshed.bounce_recipient.as_deref(), Some("bob@example.org"));
+        assert!(
+            refreshed
+                .bounce_diagnostic
+                .as_deref()
+                .map(|d| d.contains("User unknown"))
+                .unwrap_or(false),
+            "diagnostic should carry the upstream reason, got {:?}",
+            refreshed.bounce_diagnostic,
+        );
+
+        // Recipient should be on the suppression list (5.1.1 is hard).
+        assert!(
+            crate::repository::email_suppressions::is_suppressed(&mut conn, "bob@example.org")
+                .unwrap(),
+            "recipient should be auto-suppressed",
+        );
+
+        // The next enqueue for the same recipient should short-circuit
+        // to suppressed without ever entering the worker's claim set.
+        let blocked = crate::repository::outbound_emails::enqueue_or_suppress(
+            &mut conn,
+            outbound_row(ch.id, "out-followup@yourco.com", "bob@example.org"),
+        )
+        .unwrap();
+        assert_eq!(
+            blocked.status,
+            crate::models::outbound_email_status::SUPPRESSED
+        );
+    }
+
+    /// 4xx soft bounce: outbound row gets the bounce stamp (so admins
+    /// can see the failure) but the recipient is NOT added to the
+    /// suppression list. Tomorrow's send should still go out.
+    #[tokio::test]
+    async fn soft_bounce_marks_row_but_does_not_suppress() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+
+        let _original = crate::repository::outbound_emails::enqueue(
+            &mut conn,
+            outbound_row(ch.id, "out-soft@yourco.com", "backed-up@example.org"),
+        )
+        .unwrap();
+
+        let raw = include_bytes!("../../../tests/fixtures/dsn/soft-bounce-4xx.eml");
+        let msg = super::super::email_imap::parse_rfc822_into_inbound_message(raw, None).unwrap();
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, PipelineOutcome::SkippedBounce);
+
+        assert!(
+            !crate::repository::email_suppressions::is_suppressed(
+                &mut conn,
+                "backed-up@example.org",
+            )
+            .unwrap(),
+            "soft bounce (4.x.x) must NOT auto-suppress",
+        );
+    }
+
+    /// 5.7.x policy rejection: outbound row gets marked bounced, but
+    /// the recipient is NOT suppressed (the failure is almost always
+    /// sender-side — SPF / DKIM / content filtering).
+    #[tokio::test]
+    async fn policy_5_7_x_bounce_marks_row_but_does_not_suppress() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+
+        let _original = crate::repository::outbound_emails::enqueue(
+            &mut conn,
+            outbound_row(ch.id, "out-policy@yourco.com", "valid@example.org"),
+        )
+        .unwrap();
+
+        let raw = include_bytes!("../../../tests/fixtures/dsn/policy-5_7_1.eml");
+        let msg = super::super::email_imap::parse_rfc822_into_inbound_message(raw, None).unwrap();
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, PipelineOutcome::SkippedBounce);
+
+        assert!(
+            !crate::repository::email_suppressions::is_suppressed(&mut conn, "valid@example.org")
+                .unwrap(),
+            "5.7.x policy rejection must NOT auto-suppress (sender-side failure)",
+        );
+    }
+
     #[test]
     fn is_hard_bounce_detects_5xx_smtp_codes() {
         // Combined basic + enhanced status (the common DSN shape).
