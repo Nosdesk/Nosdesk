@@ -340,6 +340,7 @@ mod tests {
             recipients,
             is_bounce: false,
             bounce_reports: Vec::new(),
+            raw_bytes: None,
         }
     }
 

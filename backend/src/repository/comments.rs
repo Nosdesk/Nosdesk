@@ -374,9 +374,7 @@ mod tests {
             content: "bump".to_string(),
             ticket_id: ticket.id,
             user_uuid: user.uuid,
-            channel_metadata: None,
-            is_internal: false,
-            content_format: Default::default(),
+            ..Default::default()
         };
         create_comment(&mut conn, new_comment, None).unwrap();
 

@@ -305,6 +305,11 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         #[max_length = 16]
         content_format -> Varchar,
+        body_text -> Nullable<Text>,
+        body_html -> Nullable<Text>,
+        new_content -> Nullable<Text>,
+        quoted_content -> Nullable<Text>,
+        raw_source_uri -> Nullable<Text>,
     }
 }
 

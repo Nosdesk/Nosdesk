@@ -1354,6 +1354,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/{ticket_id}/comments", web::post().to(handlers::add_comment_to_ticket))
                     .route("/tickets/{ticket_id}/notes/images", web::post().to(handlers::upload_ticket_note_image))
                     .route("/comments/{id}", web::delete().to(handlers::delete_comment))
+                    .route("/comments/{id}/raw.eml", web::get().to(handlers::get_comment_raw_eml))
                     .route("/comments/{comment_id}/attachments", web::post().to(handlers::add_attachment_to_comment))
                     .route("/attachments/{id}", web::delete().to({
                         let storage = storage.clone();

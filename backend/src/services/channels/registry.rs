@@ -625,6 +625,7 @@ mod tests {
             recipients: vec!["support@yourco.com".into()],
             is_bounce: false,
             bounce_reports: Vec::new(),
+            raw_bytes: None,
         })
     }
 

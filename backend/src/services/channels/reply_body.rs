@@ -95,6 +95,11 @@ mod tests {
             is_internal: false,
             deleted_at: None,
             content_format: format,
+            body_text: None,
+            body_html: None,
+            new_content: None,
+            quoted_content: None,
+            raw_source_uri: None,
         }
     }
 

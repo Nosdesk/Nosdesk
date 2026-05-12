@@ -1,0 +1,10 @@
+Hi Support,
+
+I noticed the dashboard is showing stale numbers. The
+"unassigned" widget reads 12 but the queue itself shows 4.
+
+This started after the deploy at noon today. Happy to share more
+detail if helpful.
+
+Thanks,
+Kyle

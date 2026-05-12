@@ -32,6 +32,7 @@ use crate::db::DbConnection;
 pub mod auto_ack;
 pub mod bounce_parser;
 pub mod email_imap;
+pub mod email_quote;
 pub mod forward_parser;
 pub mod outbound;
 pub mod pipeline;
@@ -192,6 +193,14 @@ pub struct InboundMessage {
     /// the DSN was malformed or sender-heuristic-only; the pipeline
     /// still short-circuits but can't link back to the outbound row.
     pub bounce_reports: Vec<bounce_parser::BounceReport>,
+    /// Raw RFC 5322 bytes for email channels. Carried through the
+    /// pipeline so the persistence layer can save a verbatim copy
+    /// of the original message (`comments.raw_source_uri`). Powers
+    /// the "Show original message" affordance and lets us re-run
+    /// the quote splitter on policy change without re-fetching
+    /// from upstream. `None` for chat / webhook channels that
+    /// don't have an equivalent.
+    pub raw_bytes: Option<Vec<u8>>,
 }
 
 /// Either bytes we already have (IMAP) or a URL we fetch later (Slack

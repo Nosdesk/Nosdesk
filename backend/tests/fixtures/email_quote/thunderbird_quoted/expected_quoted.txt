@@ -1,0 +1,6 @@
+On 5/13/26 15:42, Sam Operator wrote:
+> Acknowledged. I will queue the SLA recalculation job for
+> after the window closes. Let me know if anything else needs
+> coordination.
+>
+> Sam

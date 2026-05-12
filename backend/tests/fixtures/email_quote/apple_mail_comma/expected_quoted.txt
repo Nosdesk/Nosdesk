@@ -1,0 +1,6 @@
+On 13 May 2026, at 15:42, Sam Operator <sam@example.com> wrote:
+
+Quick question on the deployment plan: are we using blue/green or
+in-place rolling? The runbook is ambiguous.
+
+Sam

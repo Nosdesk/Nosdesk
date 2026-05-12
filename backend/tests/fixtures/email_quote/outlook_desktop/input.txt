@@ -1,0 +1,17 @@
+Acknowledged, will reboot the server tonight.
+
+Kyle Phillips
+Senior Engineer
+
+From: Sam Operator <sam@example.com>
+Sent: Tuesday, May 13, 2026 3:42 PM
+To: Kyle Phillips <kyle@example.com>
+Cc: Support <support@example.com>
+Subject: Re: SLA pill renders red after escalation
+
+Kyle,
+
+We need a maintenance window for the SLA recalculation. Can you
+confirm the reboot window for tonight?
+
+Sam

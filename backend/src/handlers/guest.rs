@@ -434,12 +434,13 @@ pub async fn submit_guest_ticket(
         content: description.to_string(),
         user_uuid: user.uuid,
         ticket_id: ticket.id,
-        channel_metadata: None,
-        is_internal: false,
         // Guest portal currently posts plaintext into the description.
         // (When the guest form moves to a rich editor, change this to
         // match what the editor produces.)
         content_format: crate::models::ContentFormat::Plaintext,
+        // Email-specific body parts only apply to inbound channel
+        // comments; the guest portal isn't an email channel.
+        ..Default::default()
     };
     // Guest comments don't have a JWT actor; record under a system
     // actor so the sync substrate has a clear attribution chain.

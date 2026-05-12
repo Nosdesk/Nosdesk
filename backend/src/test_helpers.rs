@@ -249,9 +249,7 @@ impl TestFixtures {
             content: content.to_string(),
             ticket_id,
             user_uuid,
-            channel_metadata: None,
-            is_internal: false,
-            content_format: Default::default(),
+            ..Default::default()
         };
 
         diesel::insert_into(comments::table)

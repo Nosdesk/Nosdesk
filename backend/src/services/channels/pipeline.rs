@@ -326,6 +326,15 @@ pub async fn process_event(
     // isn't a correctness hazard here.
     let existing_ticket_id = adapter.resolve_thread(&msg, channel.id, conn).await;
 
+    // Raw RFC-822 archive. Done before the transaction because
+    // storage uploads are async and shouldn't hold a DB connection;
+    // a failure here is non-fatal (we log and proceed with a NULL
+    // `raw_source_uri`). The .eml is the source of truth for
+    // re-running quote extraction on policy change and powers the
+    // "Show original message" affordance, so it's worth a best
+    // effort but not worth aborting the comment for.
+    let raw_source_uri = store_raw_eml(ctx, &msg).await;
+
     // Atomically: identity resolve (which may create a guest user row)
     // → get-or-create ticket → insert comment → write the
     // `channel_messages` dedup row. Everything that writes during
@@ -359,14 +368,28 @@ pub async fn process_event(
         let (ticket, comment, is_new_ticket) = match existing_ticket_id {
             Some(ticket_id) => {
                 let ticket = tickets_repo::get_ticket_by_id(conn, ticket_id)?;
-                let comment =
-                    insert_inbound_comment(conn, ticket.id, sender_uuid, &msg, forwarded_by_uuid, ctx)?;
+                let comment = insert_inbound_comment(
+                    conn,
+                    ticket.id,
+                    sender_uuid,
+                    &msg,
+                    forwarded_by_uuid,
+                    raw_source_uri.clone(),
+                    ctx,
+                )?;
                 (ticket, comment, false)
             }
             None => {
                 let ticket = open_ticket_from_message(conn, channel, &msg, sender_uuid)?;
-                let comment =
-                    insert_inbound_comment(conn, ticket.id, sender_uuid, &msg, forwarded_by_uuid, ctx)?;
+                let comment = insert_inbound_comment(
+                    conn,
+                    ticket.id,
+                    sender_uuid,
+                    &msg,
+                    forwarded_by_uuid,
+                    raw_source_uri.clone(),
+                    ctx,
+                )?;
                 (ticket, comment, true)
             }
         };
@@ -625,6 +648,7 @@ fn insert_inbound_comment(
     user_uuid: uuid::Uuid,
     msg: &InboundMessage,
     forwarded_by_user_uuid: Option<uuid::Uuid>,
+    raw_source_uri: Option<String>,
     ctx: &PipelineContext,
 ) -> Result<Comment, diesel::result::Error> {
     let mut metadata = json!({
@@ -655,6 +679,15 @@ fn insert_inbound_comment(
         }
         _ => (msg.body_text.clone(), crate::models::ContentFormat::Plaintext),
     };
+
+    // Quote-split at ingest so the renderer can ship just the new
+    // content by default and tuck the quoted prior thread behind a
+    // disclosure. `split_auto` routes to the plaintext or HTML
+    // splitter based on `content_format`, so the renderer doesn't
+    // have to disambiguate and new content formats only need a
+    // branch in `email_quote::split_auto`, not here.
+    let split = super::email_quote::split_auto(content_format, &content);
+
     let new_comment = NewComment {
         content,
         ticket_id,
@@ -662,6 +695,19 @@ fn insert_inbound_comment(
         channel_metadata: Some(metadata),
         is_internal: false,
         content_format,
+        // Persist both raw body parts so a future re-sanitise or
+        // re-extract can run without re-fetching from upstream.
+        // Empty plaintext is coerced to NULL so the DB carries a
+        // clean tri-state: NULL = no part of this MIME type, Some
+        // = a real body. `body_html` is already `Option<String>`
+        // and the parser only sets it when an `text/html` part
+        // existed, so the same invariant holds without coercion.
+        body_text: (!msg.body_text.trim().is_empty())
+            .then(|| msg.body_text.clone()),
+        body_html: msg.body_html.clone(),
+        new_content: Some(split.new_content),
+        quoted_content: split.quoted_content,
+        raw_source_uri,
     };
 
     let observer = ctx
@@ -669,6 +715,51 @@ fn insert_inbound_comment(
         .as_ref()
         .map(|s| s as &dyn crate::repository::comments::CommentCreatedObserver);
     comments_repo::create_comment(conn, new_comment, observer)
+}
+
+/// Persist the raw RFC-822 source to the storage backend so the
+/// `.eml` can be re-fetched later (Show original, re-parse on
+/// policy change). Returns the storage path on success; logs and
+/// returns `None` on any failure — the comment still ingests with
+/// `raw_source_uri = NULL`, which the consumer treats as "raw not
+/// available for this comment."
+///
+/// Files land in the `email_raw` folder. Filename includes the
+/// channel external_id (sanitised) so an operator browsing the
+/// backing storage can map a file to a comment without a DB
+/// lookup; the storage abstraction also prepends a uuid so
+/// collisions across messages with the same Message-ID are
+/// impossible.
+async fn store_raw_eml(ctx: &PipelineContext, msg: &InboundMessage) -> Option<String> {
+    let Some(storage) = ctx.storage.as_ref() else {
+        return None;
+    };
+    let Some(bytes) = msg.raw_bytes.as_ref() else {
+        return None;
+    };
+
+    let safe_id: String = msg
+        .external_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .take(80)
+        .collect();
+    let filename = format!("{}.eml", safe_id);
+
+    match storage
+        .store_file(bytes, &filename, "message/rfc822", "email_raw")
+        .await
+    {
+        Ok(stored) => Some(stored.path),
+        Err(e) => {
+            warn!(
+                error = ?e,
+                external_id = %msg.external_id,
+                "failed to archive raw .eml; comment will record NULL raw_source_uri"
+            );
+            None
+        }
+    }
 }
 
 async fn persist_attachments(
@@ -956,6 +1047,7 @@ mod tests {
             recipients: vec!["support@yourco.com".into()],
             is_bounce: false,
             bounce_reports: Vec::new(),
+            raw_bytes: None,
         }
     }
 

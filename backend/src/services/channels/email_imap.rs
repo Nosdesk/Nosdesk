@@ -872,6 +872,12 @@ pub fn parse_rfc822_into_inbound_message(
         recipients,
         is_bounce,
         bounce_reports,
+        // Stamp the raw bytes so the pipeline can persist the .eml
+        // for "Show original message" and re-parsing on policy
+        // change. One copy at parse time, cheap; alternative would
+        // be to pass the bytes through alongside the parsed
+        // message and that complicates every adapter signature.
+        raw_bytes: Some(raw.to_vec()),
     })
 }
 

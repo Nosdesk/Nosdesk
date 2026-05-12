@@ -873,9 +873,32 @@ pub struct Comment {
     /// What the bytes in `content` are. Drives the outbound dispatcher's
     /// HTML / plaintext composition for replies.
     pub content_format: ContentFormat,
+    /// Raw text/plain MIME part (or the plaintext body for plaintext-only
+    /// inbound messages). NULL for non-email comments.
+    pub body_text: Option<String>,
+    /// Raw text/html MIME part. Pre-sanitisation; Pass 2 of the email
+    /// rendering plan introduces a separate `sanitised_html` column for
+    /// the render-ready form. NULL for non-email comments and for emails
+    /// without an HTML alternative.
+    pub body_html: Option<String>,
+    /// Just-the-reply extraction, output of the quote splitter at ingest.
+    /// Plain text or HTML depending on which path the parser took
+    /// (use `content_format` to disambiguate). NULL for non-email
+    /// comments.
+    pub new_content: Option<String>,
+    /// Extracted prior-thread quoted block. NULL when nothing was
+    /// detected or when the comment isn't email-derived. Same format
+    /// rule as `new_content`.
+    pub quoted_content: Option<String>,
+    /// Storage path (not URL) to the persisted .eml. Powers "Show
+    /// original message" and lets us re-run the splitter on policy
+    /// change without re-fetching from the upstream mailbox. NULL for
+    /// non-email comments and for email comments ingested before this
+    /// column existed.
+    pub raw_source_uri: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[derive(Debug, Serialize, Deserialize, Insertable, Default)]
 #[diesel(table_name = crate::schema::comments)]
 pub struct NewComment {
     pub content: String,
@@ -891,6 +914,18 @@ pub struct NewComment {
     /// stored in `content`.
     #[serde(default)]
     pub content_format: ContentFormat,
+    /// Inbound-email-only — see `Comment` field docs. UI-authored
+    /// comments leave all four NULL and just fill `content`.
+    #[serde(default)]
+    pub body_text: Option<String>,
+    #[serde(default)]
+    pub body_html: Option<String>,
+    #[serde(default)]
+    pub new_content: Option<String>,
+    #[serde(default)]
+    pub quoted_content: Option<String>,
+    #[serde(default)]
+    pub raw_source_uri: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]

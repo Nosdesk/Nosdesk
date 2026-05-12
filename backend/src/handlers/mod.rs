@@ -285,15 +285,14 @@ pub async fn add_comment_to_ticket(
         content: comment_data.content.clone(),
         user_uuid: user_uuid_parsed,  // Use the user_uuid from JWT token
         ticket_id,
-        channel_metadata: None,
-        // is_internal defaults to false here. Task #19 adds the toggle
-        // from the UI; for now every authenticated comment is public.
-        is_internal: false,
         // Editor-driven flow today produces HTML. Older clients that
         // don't send the field rely on the `Default` impl on
-        // `ContentFormat`, which is also HTML — so the wire shape is
+        // `ContentFormat`, which is also HTML, so the wire shape is
         // backward-compatible.
         content_format: comment_data.content_format,
+        // Email body parts only apply to inbound channel comments,
+        // not UI-authored ones.
+        ..Default::default()
     };
 
     // Insert the comment, attributed to the authenticated user.
@@ -806,6 +805,79 @@ pub async fn delete_comment(
 
 pub async fn add_attachment_to_comment(_: web::Path<i32>, _: web::Data<crate::db::Pool>) -> impl Responder {
     HttpResponse::Ok().json(json!({"message": "Add attachment to comment handler placeholder"}))
+}
+
+/// Serve the raw RFC-822 source for an email-derived comment as
+/// `text/plain` so agents can fall back to the unparsed message
+/// when the quote splitter misfires or they need to inspect
+/// headers. 404 on comments that have no archived source (UI-
+/// authored, chat-relayed, or pre-archive history).
+///
+/// Visibility is gated by the parent ticket's `can_view_ticket`
+/// predicate — same primitive as `TicketAccess` but applied
+/// indirectly here because the route is keyed by comment id, not
+/// ticket id. Deny maps to 404 (not 403) per the AUD-001 IDOR
+/// pattern so the response shape can't be used to enumerate
+/// comment ids that the caller doesn't own.
+///
+/// The body is streamed as `text/plain; charset=utf-8` rather
+/// than `message/rfc822` because the intent is human inspection
+/// in a browser tab; an `.eml`-typed response would trigger a
+/// download in some browsers, which is worse UX for "Show
+/// original message."
+pub async fn get_comment_raw_eml(
+    auth: crate::extractors::AuthContext,
+    path: web::Path<i32>,
+    pool: web::Data<crate::db::Pool>,
+    storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
+) -> impl Responder {
+    let comment_id = path.into_inner();
+
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    let comment = match crate::repository::comments::get_comment_by_id(&mut conn, comment_id) {
+        Ok(c) => c,
+        Err(_) => return HttpResponse::NotFound().finish(),
+    };
+
+    let vis = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
+    match crate::repository::ticket_visibility::can_view_ticket(&mut conn, &vis, comment.ticket_id) {
+        Ok(true) => {}
+        // 404 on deny (not 403): an attacker iterating comment ids
+        // mustn't learn which exist on other users' tickets.
+        Ok(false) | Err(_) => return HttpResponse::NotFound().finish(),
+    }
+
+    let Some(storage_path) = comment.raw_source_uri else {
+        // Comment exists and is visible, but has no archived
+        // source. UI-authored comments and pre-archive history
+        // land here. 404 is correct — there's no resource to
+        // serve under this URL.
+        return HttpResponse::NotFound().finish();
+    };
+
+    match storage.get_file(&storage_path).await {
+        Ok(bytes) => HttpResponse::Ok()
+            .insert_header(("Content-Type", "text/plain; charset=utf-8"))
+            .insert_header((
+                "Content-Disposition",
+                format!("inline; filename=\"comment-{}.eml\"", comment_id),
+            ))
+            // Mailbox source is immutable once written. Cache it
+            // aggressively at the browser; the contents can never
+            // change because we never rewrite `.eml` files. 1 hour
+            // is conservative; the agent UI re-fetches on tab
+            // reload anyway.
+            .insert_header(("Cache-Control", "private, max-age=3600"))
+            .body(bytes),
+        Err(e) => {
+            warn!(comment_id, error = ?e, "raw .eml fetch failed; file may have been pruned");
+            HttpResponse::NotFound().finish()
+        }
+    }
 }
 
 pub async fn delete_attachment(

@@ -528,9 +528,7 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
                 content: comment_json.content.clone(),
                 ticket_id: ticket.id,
                 user_uuid: default_user_uuid,
-                channel_metadata: None,
-                is_internal: false,
-                content_format: Default::default(),
+                ..Default::default()
             };
 
             let comment = crate::repository::comments::create_comment(conn, new_comment, None)?;

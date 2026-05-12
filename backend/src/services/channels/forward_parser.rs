@@ -203,6 +203,7 @@ mod tests {
             recipients: vec![],
             is_bounce: false,
             bounce_reports: Vec::new(),
+            raw_bytes: None,
         }
     }
 
