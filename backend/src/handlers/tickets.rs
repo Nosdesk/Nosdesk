@@ -391,6 +391,7 @@ pub async fn get_ticket(
     params: web::Path<i32>,
     claims: web::ReqData<Claims>,
 ) -> impl Responder {
+    use crate::repository::ticket_visibility::{self, VisibilityContext};
     use crate::repository::user_ticket_views::UserTicketViewsRepository;
 
     let ticket_id = params.into_inner();
@@ -401,25 +402,41 @@ pub async fn get_ticket(
         Err(e) => return e,
     };
 
-    // Get the ticket first
+    // Resolve the visibility context from claims. A malformed claim
+    // (bad UUID or unknown role) shouldn't pass the auth middleware,
+    // but if it somehow does, we treat it as "no visibility" — same
+    // 404 path as the access check below so the existence of the
+    // ticket isn't disclosed.
+    let Some(ctx) = VisibilityContext::from_claims(&claims_inner) else {
+        warn!("get_ticket: claims missing or malformed; rejecting as not-found");
+        return errors::not_found_msg("Ticket not found");
+    };
+
+    // AUD-001: AuthZ gate at the data layer. End-users (UserRole::User)
+    // only see tickets they're the requester of or are watching; staff
+    // see everything. Returning 404 (not 403) hides the existence of
+    // tickets the caller can't read, per OWASP IDOR Cheatsheet.
+    match ticket_visibility::can_view_ticket(&mut conn, &ctx, ticket_id) {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Ticket not found"),
+        Err(e) => {
+            error!(error = ?e, ticket_id, "ticket visibility check failed");
+            return errors::internal("Failed to verify ticket access");
+        }
+    }
+
+    // Load the full ticket detail. The visibility check above means
+    // a `not_found` here is a genuine "deleted between check and
+    // load" race, which we still want to surface as 404.
     let complete_ticket = match repository::get_complete_ticket(&mut conn, ticket_id) {
         Ok(ticket) => ticket,
         Err(_) => return errors::not_found_msg("Ticket not found"),
     };
 
-    // Record the view (don't fail the request if this fails)
-    let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
-        Ok(uuid) => uuid,
-        Err(_) => {
-            // Log but don't fail - still return the ticket
-            warn!("Invalid user UUID in claims, cannot record view");
-            return HttpResponse::Ok().json(complete_ticket);
-        }
-    };
-
+    // Record the view (don't fail the request if this fails).
     let view_repo = UserTicketViewsRepository::new(pool.get_ref().clone());
-    if let Err(e) = view_repo.record_view(user_uuid, ticket_id) {
-        warn!(user_uuid = %user_uuid, error = ?e, "Failed to record ticket view");
+    if let Err(e) = view_repo.record_view(ctx.user_uuid, ticket_id) {
+        warn!(user_uuid = %ctx.user_uuid, error = ?e, "Failed to record ticket view");
     }
 
     HttpResponse::Ok().json(complete_ticket)
