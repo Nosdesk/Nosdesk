@@ -5612,7 +5612,12 @@ pub struct AuditLogRow {
 #[diesel(table_name = crate::schema::outbound_emails)]
 pub struct OutboundEmail {
     pub id: i64,
-    pub channel_id: i32,
+    /// `Some(channel_id)` for ticket-reply rows that thread back into
+    /// an inbound channel; `None` for transactional sends (password
+    /// reset, invitation, notification) that don't belong to any
+    /// channel. The worker skips the `channel_messages` book-keeping
+    /// step when this is None.
+    pub channel_id: Option<i32>,
     pub ticket_id: Option<i32>,
     pub comment_id: Option<i32>,
     pub recipient: String,
@@ -5653,12 +5658,20 @@ pub struct OutboundEmail {
     /// admin queue UI can show the upstream reason without us
     /// having to guess at categorisation.
     pub bounce_diagnostic: Option<String>,
+    /// Optional caller-supplied key for at-least-once → effectively-
+    /// once enqueue. Two enqueues with the same key collapse to a
+    /// single queue row (see `repository::outbound_emails::enqueue_idempotent`).
+    /// Channel-reply rows leave it NULL — they're already deduped at
+    /// the handler layer via stable Message-ID.
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = crate::schema::outbound_emails)]
 pub struct NewOutboundEmail {
-    pub channel_id: i32,
+    /// `Some(channel_id)` for channel-mediated ticket replies. `None`
+    /// for transactional sends that don't bind to any channel.
+    pub channel_id: Option<i32>,
     pub ticket_id: Option<i32>,
     pub comment_id: Option<i32>,
     pub recipient: String,
@@ -5670,6 +5683,10 @@ pub struct NewOutboundEmail {
     pub references_list: Vec<Option<String>>,
     pub headers_json: serde_json::Value,
     pub correlation_id: Option<Uuid>,
+    /// Idempotency key — see `OutboundEmail::idempotency_key`. Use
+    /// `enqueue_idempotent` when this is `Some`; `enqueue` with a
+    /// None key for fire-and-forget channel replies.
+    pub idempotency_key: Option<String>,
 }
 
 /// Status string constants. Centralised so Rust callers (worker, repo,

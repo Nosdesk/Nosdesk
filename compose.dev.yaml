@@ -110,8 +110,46 @@ services:
       # extra config. Override to a fork's registry by setting
       # the env var; pass an empty string to disable sync.
       - NOSDESK_REGISTRY_URL=${NOSDESK_REGISTRY_URL:-https://nosdesk.com/registry}
+      # Route outbound mail through the Mailpit sidecar (web UI on
+      # http://localhost:8025) instead of a real SMTP relay. These
+      # vars OVERRIDE whatever's in docker.env so dev never burns
+      # real customer email on a stray test invitation. Plaintext
+      # SMTP is fine: the link only exists inside the compose
+      # network. Username / password are placeholders — Mailpit
+      # accepts any credentials but EmailConfig::is_configured()
+      # requires them to be non-empty.
+      - SMTP_ENABLED=true
+      - SMTP_HOST=mailpit
+      - SMTP_PORT=1025
+      - SMTP_SECURITY=plaintext
+      - SMTP_USERNAME=mailpit
+      - SMTP_PASSWORD=mailpit
+      - SMTP_FROM_NAME=Nosdesk
+      - SMTP_FROM_EMAIL=noreply@nosdesk.test
     healthcheck:
       start_period: 120s # Longer for dev due to compilation time
+
+  # Mailpit — local SMTP capture for development. Replaces real
+  # SMTP relay in dev so password resets, invitations, and ticket
+  # notifications land in a browser UI instead of customer
+  # mailboxes. Plain SMTP on 1025, web UI on 8025. Anonymous auth
+  # accepted; we still pass placeholder username/password so the
+  # backend's `is_configured()` gate doesn't trip.
+  #
+  # Backend env override below points SMTP_HOST/PORT/SECURITY at
+  # this service. Operators running the production compose (without
+  # `-f compose.dev.yaml`) keep their real SMTP credentials from
+  # `docker.env` and never see this service.
+  mailpit:
+    image: axllent/mailpit:v1.20
+    networks:
+      - nosdesk-network
+    ports:
+      - "127.0.0.1:8025:8025"  # Web UI
+      # SMTP port (1025) intentionally not published — only reachable
+      # by sibling services on the compose network, so a dev box
+      # can't be accidentally turned into an open relay if a stray
+      # process binds it.
 
   # Greenmail — in-memory IMAP/SMTP server used only by the channel
   # integration test (`tests/channels_email_imap_integration.rs`).

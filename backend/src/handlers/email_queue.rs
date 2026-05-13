@@ -41,7 +41,10 @@ pub struct ListResponse {
 #[derive(Debug, Serialize)]
 pub struct RowResponse {
     pub id: i64,
-    pub channel_id: i32,
+    /// `None` for transactional rows (password reset, invitation,
+    /// notification) that don't bind to a channel; admin UI renders
+    /// these in a separate "Transactional" bucket.
+    pub channel_id: Option<i32>,
     pub ticket_id: Option<i32>,
     pub comment_id: Option<i32>,
     pub recipient: String,

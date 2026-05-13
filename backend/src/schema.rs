@@ -745,7 +745,7 @@ diesel::table! {
 diesel::table! {
     outbound_emails (id) {
         id -> Int8,
-        channel_id -> Int4,
+        channel_id -> Nullable<Int4>,
         ticket_id -> Nullable<Int4>,
         comment_id -> Nullable<Int4>,
         recipient -> Text,
@@ -770,6 +770,7 @@ diesel::table! {
         bounced_at -> Nullable<Timestamptz>,
         bounce_recipient -> Nullable<Text>,
         bounce_diagnostic -> Nullable<Text>,
+        idempotency_key -> Nullable<Text>,
     }
 }
 

@@ -236,27 +236,47 @@ impl NotificationDeliveryChannel for EmailChannel {
             .get_notification_type_id(notification.payload.notification_type.as_str())
             .await?;
 
-        // Send email asynchronously
-        let email_service = self.email_service.clone();
-        let email = recipient_email.clone();
-        let subj = subject.clone();
-
-        tokio::spawn(async move {
-            if let Err(e) = email_service
-                .send_notification_email(
-                    &email,
-                    &subj,
-                    &title,
-                    &body_text,
-                    &actor_name,
-                    &entity_url,
-                    &branding,
-                )
-                .await
-            {
-                tracing::error!(error = ?e, "Failed to send notification email");
+        // Enqueue rather than fire-and-forget. The outbound worker
+        // retries with backoff if SMTP burps, honours the suppression
+        // list, and respects the circuit breaker. The idempotency
+        // key combines the notification uuid with the recipient so
+        // retries of the same logical event don't deliver twice but
+        // multi-recipient fanout still produces one row per
+        // watcher.
+        let event_id = notification.uuid.to_string();
+        let recipient_uuid_str = notification.payload.recipient_uuid.to_string();
+        {
+            let mut conn = self
+                .pool
+                .get()
+                .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
+            match crate::services::transactional_email::enqueue_notification(
+                &mut conn,
+                self.email_service.as_ref(),
+                &branding,
+                &recipient_email,
+                &subject,
+                &title,
+                &body_text,
+                &actor_name,
+                &entity_url,
+                &event_id,
+                &recipient_uuid_str,
+            ) {
+                Ok(row) => tracing::debug!(
+                    queue_id = row.id,
+                    notification_uuid = %notification.uuid,
+                    recipient = %recipient_email,
+                    "Notification email enqueued"
+                ),
+                Err(e) => tracing::error!(
+                    notification_uuid = %notification.uuid,
+                    recipient = %recipient_email,
+                    error = ?e,
+                    "Failed to enqueue notification email"
+                ),
             }
-        });
+        }
 
         // Update rate limit tracking
         self.update_rate_limit(

@@ -130,17 +130,31 @@ async fn issue_password_reset(
     };
 
     let branding = get_email_branding(&mut conn, &base_url);
-    match email_service
-        .send_password_reset_email(&user_email, &user.name, &reset_token.raw_token, &branding)
-        .await
-    {
-        Ok(_) => info!(
-            "Password reset email sent to: {} (user_uuid={})",
-            user_email, user.uuid
+    // Enqueue rather than fire-and-forget. The outbound worker
+    // retries with backoff if SMTP burps, applies the suppression
+    // list, and respects the circuit breaker. The idempotency key
+    // is derived from a hash of the raw reset token so a network
+    // blip between this handler and the DB doesn't deliver two
+    // copies of the same reset link.
+    match crate::services::transactional_email::enqueue_password_reset(
+        &mut conn,
+        &email_service,
+        &branding,
+        &user_email,
+        &user.name,
+        &reset_token.raw_token,
+    ) {
+        Ok(row) => info!(
+            queue_id = row.id,
+            user_uuid = %user.uuid,
+            recipient = %user_email,
+            "Password reset email enqueued"
         ),
         Err(e) => error!(
-            "Failed to send password reset email to {}: {}",
-            user_email, e
+            user_uuid = %user.uuid,
+            recipient = %user_email,
+            error = %e,
+            "Failed to enqueue password reset email"
         ),
     }
     Ok(())

@@ -424,6 +424,28 @@ impl EmailConfig {
             .or_else(|_| env::var("SMTP_USERNAME"))
             .map_err(|_| "SMTP_FROM_EMAIL not configured".to_string())?;
 
+        // Optional explicit security selector. Defaults to StartTLS
+        // for backward compatibility — every legitimate production
+        // SMTP relay supports it. `plaintext` exists for local
+        // testing against Mailpit / Greenmail; never set this in
+        // production, the doc on `SmtpSecurity::Plaintext` flags it
+        // as a misconfiguration.
+        let security = match env::var("SMTP_SECURITY")
+            .ok()
+            .as_deref()
+            .map(|s| s.trim().to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("tls") => SmtpSecurity::Tls,
+            Some("plaintext" | "plain" | "none") => SmtpSecurity::Plaintext,
+            Some("starttls") | None => SmtpSecurity::StartTls,
+            Some(other) => {
+                return Err(format!(
+                    "Invalid SMTP_SECURITY '{other}'; expected tls | starttls | plaintext"
+                ));
+            }
+        };
+
         Ok(Self {
             smtp_host,
             smtp_port,
@@ -432,7 +454,7 @@ impl EmailConfig {
             from_name,
             from_email,
             enabled,
-            security: SmtpSecurity::StartTls,
+            security,
         })
     }
 
@@ -573,18 +595,25 @@ impl EmailService {
         self.send_text_email(to, &subject, &body).await
     }
 
-    /// Send a password reset email with branding
-    pub async fn send_password_reset_email(
+    /// Access the underlying SMTP configuration. Needed by callers
+    /// (the queue path) that want to derive the From-email domain
+    /// for outbound Message-IDs without re-reading env.
+    pub fn config(&self) -> &EmailConfig {
+        &self.config
+    }
+
+    /// Render the password-reset email without sending. Returns
+    /// `(subject, body_html, body_text)`. Used by both the legacy
+    /// fire-and-forget `send_password_reset_email` and the
+    /// queued `transactional_email::enqueue_password_reset` so the
+    /// HTML, copy, and plain-text alternative stay aligned across
+    /// the two delivery paths.
+    pub fn compose_password_reset(
         &self,
-        to: &str,
         user_name: &str,
         reset_token: &str,
         branding: &EmailBranding,
-    ) -> Result<(), String> {
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
-
+    ) -> (String, String, String) {
         let reset_link = format!("{}/reset-password?token={}", branding.base_url, reset_token);
         let template = EmailTemplate::new(branding);
 
@@ -620,6 +649,47 @@ impl EmailService {
         );
 
         let subject = format!("Reset Your {} Password", branding.app_name);
+
+        // Plain-text alternative — hand-authored rather than HTML→
+        // text stripped so the copy reads as deliberate prose and
+        // the CTA is a bare URL (the bracket noise an automated
+        // strip produces looks like spam to filters).
+        let body_text = format!(
+            "Hello {name},\n\n\
+             We received a request to reset your password for your {app} account. \
+             If you didn't make this request, you can safely ignore this email.\n\n\
+             To reset your password, open this link in your browser:\n\n\
+             {link}\n\n\
+             Security notes:\n\
+               - This link will expire in 1 hour.\n\
+               - This link can only be used once.\n\
+               - Never share this link with anyone.\n\
+               - If you didn't request this reset, secure your account.\n\n\
+             If you have any questions, please contact your system administrator.\n\n\
+             — {app}\n",
+            name = user_name,
+            app = branding.app_name,
+            link = reset_link,
+        );
+
+        (subject, html_body, body_text)
+    }
+
+    /// Send a password reset email with branding
+    pub async fn send_password_reset_email(
+        &self,
+        to: &str,
+        user_name: &str,
+        reset_token: &str,
+        branding: &EmailBranding,
+    ) -> Result<(), String> {
+        if !self.config.is_configured() {
+            return Err("Email is not configured".to_string());
+        }
+
+        let (subject, html_body, _text_body) = self.compose_password_reset(
+            user_name, reset_token, branding,
+        );
         self.send_html_email(to, &subject, &html_body).await
     }
 
@@ -636,6 +706,21 @@ impl EmailService {
             return Err("Email is not configured".to_string());
         }
 
+        let (subject, html_body, _text_body) = self.compose_invitation(
+            user_name, invitation_token, branding, invited_by,
+        );
+        self.send_html_email(to, &subject, &html_body).await
+    }
+
+    /// Render the invitation email without sending. See
+    /// `compose_password_reset` for the rationale.
+    pub fn compose_invitation(
+        &self,
+        user_name: &str,
+        invitation_token: &str,
+        branding: &EmailBranding,
+        invited_by: &str,
+    ) -> (String, String, String) {
         let setup_link = format!("{}/accept-invitation?token={}", branding.base_url, invitation_token);
         let template = EmailTemplate::new(branding);
 
@@ -675,7 +760,25 @@ impl EmailService {
         );
 
         let subject = format!("You've Been Invited to {} - Set Up Your Account", branding.app_name);
-        self.send_html_email(to, &subject, &html_body).await
+
+        let body_text = format!(
+            "Hello {name},\n\n\
+             You've been invited to join {app} by {by}.\n\n\
+             To complete your account setup and create your password, open this link:\n\n\
+             {link}\n\n\
+             A few things to know:\n\
+               - This invitation will expire in 7 days.\n\
+               - You'll create a password during setup.\n\
+               - Choose a strong password with at least 8 characters.\n\
+               - If you didn't expect this invitation, you can safely ignore this email.\n\n\
+             — {app}\n",
+            name = user_name,
+            app = branding.app_name,
+            by = invited_by,
+            link = setup_link,
+        );
+
+        (subject, html_body, body_text)
     }
 
     /// Send a confirmation email for a guest ticket submission. The link
@@ -831,7 +934,23 @@ impl EmailService {
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
         }
+        let (html_body, _text_body) = self.compose_notification(
+            title, body, actor_name, cta_url, branding,
+        );
+        self.send_html_email(to, subject, &html_body).await
+    }
 
+    /// Render the notification email without sending. Returns
+    /// `(body_html, body_text)`; the caller already has the subject
+    /// (notifications synthesise it from the notification type).
+    pub fn compose_notification(
+        &self,
+        title: &str,
+        body: &str,
+        actor_name: &str,
+        cta_url: &str,
+        branding: &EmailBranding,
+    ) -> (String, String) {
         let template = EmailTemplate::new(branding);
         let content = format!(
             r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">{}</p>
@@ -853,7 +972,20 @@ impl EmailService {
             "You're receiving this because of your notification preferences.",
         );
 
-        self.send_html_email(to, subject, &html_body).await
+        let body_text = format!(
+            "{title}\n\n\
+             {body}\n\n\
+             From: {actor}\n\n\
+             View in {app}: {cta}\n\n\
+             — You're receiving this because of your notification preferences in {app}.\n",
+            title = title,
+            body = body,
+            actor = actor_name,
+            app = branding.app_name,
+            cta = cta_url,
+        );
+
+        (html_body, body_text)
     }
 }
 

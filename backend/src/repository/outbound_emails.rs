@@ -42,6 +42,56 @@ pub fn enqueue(
         .get_result(conn)
 }
 
+/// Enqueue a row keyed by an idempotency token. Two enqueues that
+/// share the same `idempotency_key` collapse to a single queue row:
+/// the first wins, the second returns the existing row without
+/// firing a fresh send. Powers the "at-least-once → effectively-once"
+/// semantics transactional callers (password reset, invitation,
+/// notification) rely on — a network blip between the handler and
+/// the DB can safely retry without delivering two copies.
+///
+/// The key MUST be set on `new_row.idempotency_key`. Callers that
+/// don't need idempotency should use the bare `enqueue` instead;
+/// the partial unique index doesn't index NULL keys, so a NULL key
+/// here would degrade silently to a non-idempotent insert.
+///
+/// Returns the row in whichever state it ended up:
+///   * Fresh insert → newly-pending row, ready for the worker.
+///   * Conflict     → the previously-enqueued row, unchanged.
+pub fn enqueue_idempotent(
+    conn: &mut DbConnection,
+    new_row: NewOutboundEmail,
+) -> Result<OutboundEmail, DieselError> {
+    debug_assert!(
+        new_row.idempotency_key.is_some(),
+        "enqueue_idempotent requires a non-None idempotency_key; \
+         use `enqueue` for non-idempotent inserts",
+    );
+    let key = match new_row.idempotency_key.clone() {
+        Some(k) => k,
+        None => return Err(DieselError::NotFound),
+    };
+
+    let inserted = diesel::insert_into(outbound_emails::table)
+        .values(&new_row)
+        .on_conflict_do_nothing()
+        .get_result::<OutboundEmail>(conn)
+        .optional()?;
+
+    match inserted {
+        Some(row) => Ok(row),
+        None => {
+            // Key already used by a prior enqueue. Return that row so
+            // the caller can log the queue id without distinguishing
+            // first-insert from retry. Operators inspecting the admin
+            // queue UI see only one row per logical send regardless.
+            outbound_emails::table
+                .filter(outbound_emails::idempotency_key.eq(&key))
+                .first(conn)
+        }
+    }
+}
+
 /// Enqueue a row, but if the recipient is on the suppression list,
 /// short-circuit to `suppressed` status without ever entering the
 /// worker's claim set. Wrapped in a transaction so the INSERT and
@@ -463,7 +513,7 @@ mod tests {
 
     fn fresh_row(channel_id: i32, suffix: &str) -> NewOutboundEmail {
         NewOutboundEmail {
-            channel_id,
+            channel_id: Some(channel_id),
             ticket_id: None,
             comment_id: None,
             recipient: format!("test-{suffix}@example.com"),
@@ -475,6 +525,7 @@ mod tests {
             references_list: vec![],
             headers_json: serde_json::json!({}),
             correlation_id: None,
+            idempotency_key: None,
         }
     }
 

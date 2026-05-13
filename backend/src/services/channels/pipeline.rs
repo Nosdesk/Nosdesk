@@ -1248,7 +1248,7 @@ mod tests {
     /// (Message-ID for linkage, recipient for suppression).
     fn outbound_row(channel_id: i32, message_id: &str, recipient: &str) -> crate::models::NewOutboundEmail {
         crate::models::NewOutboundEmail {
-            channel_id,
+            channel_id: Some(channel_id),
             ticket_id: None,
             comment_id: None,
             recipient: recipient.to_string(),
@@ -1260,6 +1260,7 @@ mod tests {
             references_list: vec![],
             headers_json: serde_json::json!({}),
             correlation_id: None,
+            idempotency_key: None,
         }
     }
 

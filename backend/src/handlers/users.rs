@@ -183,11 +183,18 @@ pub async fn send_user_invitation(
         Err(result) => return result,
     };
 
-    match prep
-        .email_service
-        .send_invitation_email(user_email, user_name, &prep.raw_token, &prep.branding, admin_name)
-        .await
-    {
+    // Enqueue rather than synchronous send. The worker handles retry
+    // with backoff and respects the suppression list, so an SMTP
+    // hiccup mid-onboarding doesn't lose the invitation.
+    match crate::services::transactional_email::enqueue_invitation(
+        conn,
+        &prep.email_service,
+        &prep.branding,
+        user_email,
+        user_name,
+        &prep.raw_token,
+        admin_name,
+    ) {
         Ok(_) => SendInvitationResult::Success,
         Err(e) => SendInvitationResult::EmailSendError(format!("{e:?}")),
     }

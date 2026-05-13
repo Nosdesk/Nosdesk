@@ -253,7 +253,7 @@ pub fn enqueue_for_comment(
             .unwrap_or_else(|| thread.recipient.external_id.clone());
 
         let new_row = crate::models::NewOutboundEmail {
-            channel_id: channel.id,
+            channel_id: Some(channel.id),
             ticket_id: Some(thread.ticket_id),
             comment_id: Some(comment.id),
             recipient,
@@ -269,6 +269,9 @@ pub fn enqueue_for_comment(
             // None and the audit row will lack the cross-request
             // join; Pass 2's bounce work picks this back up.
             correlation_id: None,
+            // Channel-reply rows dedupe via stable Message-ID at the
+            // handler layer; no enqueue-level idempotency key needed.
+            idempotency_key: None,
         };
 
         match crate::repository::outbound_emails::enqueue_or_suppress(&mut conn, new_row) {

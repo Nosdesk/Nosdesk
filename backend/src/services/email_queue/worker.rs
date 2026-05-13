@@ -197,8 +197,16 @@ fn terminate_row(
                 warn!(error = %e, queue_id = row.id, "mark_sent failed");
                 return;
             }
+            // Channel-reply rows record an outbound `channel_messages`
+            // row so later inbound replies thread back via the
+            // existing external_id lookup. Transactional rows
+            // (channel_id = NULL) don't have a thread to anchor and
+            // skip the bookkeeping; they're send-and-done.
+            let Some(channel_id) = row.channel_id else {
+                return;
+            };
             let new_msg = NewChannelMessage {
-                channel_id: row.channel_id,
+                channel_id,
                 external_id: format!("<{}>", row.message_id),
                 direction: CHANNEL_DIRECTION_OUTBOUND.into(),
                 ticket_id: row.ticket_id,
