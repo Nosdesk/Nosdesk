@@ -1,16 +1,17 @@
+# syntax=docker/dockerfile:1.7
 # Multi-stage build with optimized dependency caching
 # Stage 1: Compute a recipe file for dependencies
-FROM rust:1.87-slim as planner
+FROM rust:1.95-slim-bookworm AS planner
 
 # Install cargo-chef for dependency caching
-RUN cargo install cargo-chef
+RUN cargo install cargo-chef --locked
 
 WORKDIR /app
 COPY backend/Cargo.toml backend/Cargo.lock ./
 RUN cargo chef prepare --recipe-path recipe.json
 
 # Stage 2: Build dependencies (this layer will be cached)
-FROM rust:1.87-slim as cacher
+FROM rust:1.95-slim-bookworm AS cacher
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -20,8 +21,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install cargo-chef and diesel CLI
-RUN cargo install cargo-chef
-RUN cargo install diesel_cli --no-default-features --features postgres
+RUN cargo install cargo-chef --locked
+RUN cargo install diesel_cli --no-default-features --features postgres --locked
 
 WORKDIR /app
 COPY --from=planner /app/recipe.json recipe.json
@@ -30,7 +31,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 # Stage 3: Build the application
-FROM rust:1.87-slim as builder
+FROM rust:1.95-slim-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -76,7 +77,7 @@ RUN NOSDESK_ROOT_PUBKEY="$NOSDESK_ROOT_PUBKEY" \
     cargo build --release --bin backend --bin nosdesk-cli
 
 # Stage 4: Build frontend
-FROM node:18-alpine as frontend-builder
+FROM node:24-bookworm-slim AS frontend-builder
 
 WORKDIR /frontend
 
@@ -93,7 +94,7 @@ COPY frontend .
 RUN npm run build-only
 
 # Stage 5: Runtime image
-FROM debian:bookworm-slim as runtime
+FROM debian:bookworm-slim AS runtime
 
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y \

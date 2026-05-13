@@ -1,14 +1,18 @@
 name: nosdesk
 
 services:
-  # PostgreSQL Database
+  # PostgreSQL Database. Postgres 18 changed `PGDATA` to
+  # `/var/lib/postgresql/18/docker` and declares `VOLUME
+  # /var/lib/postgresql` (broader than the old `.../data`). Mounting
+  # the broader path keeps the on-disk layout covered across point
+  # releases without re-rooting on every major bump.
   postgres:
-    image: postgres:18-alpine
+    image: postgres:18-bookworm
     restart: unless-stopped
     env_file: docker.env
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+      - postgres_data:/var/lib/postgresql
+      - ./init-db.sh:/docker-entrypoint-initdb.d/01-init-db.sh:ro
     networks:
       - nosdesk-network
     healthcheck:
@@ -20,6 +24,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # `start_period` is a grace window: failures during it don't
+      # count toward `retries`. Postgres 18 cold-start with
+      # `initdb` + the seed script can take ~15s on slower disks;
+      # 30s covers it with margin.
+      start_period: 30s
 
   # Redis Cache
   redis:

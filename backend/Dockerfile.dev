@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1.4
+# syntax=docker/dockerfile:1.7
 # Development Dockerfile for faster iteration
-FROM rust:1.88-slim as development
+FROM rust:1.95-slim-bookworm AS development
 
 # Install development dependencies
 RUN apt-get update && apt-get install -y \
@@ -29,7 +29,7 @@ RUN case "$TARGETARCH" in \
 
 # Install useful development tools with BuildKit cache mounts
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo install diesel_cli --no-default-features --features postgres && \
+    cargo install diesel_cli --no-default-features --features postgres --locked && \
     cargo install bacon --locked
 
 WORKDIR /app

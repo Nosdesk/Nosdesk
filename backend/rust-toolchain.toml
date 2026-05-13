@@ -1,0 +1,10 @@
+# Reproducible toolchain pin. The dev + prod Docker base images use
+# `rust:1.95-slim-bookworm`; this file keeps host `cargo` runs aligned
+# with the container so MSRV-driven drift (e.g. a transitive crate
+# bumping its required-rustc) breaks in the same way everywhere.
+#
+# Bump in lockstep with the FROM directives in `Dockerfile` /
+# `Dockerfile.dev`.
+[toolchain]
+channel = "1.95.0"
+profile = "default"
