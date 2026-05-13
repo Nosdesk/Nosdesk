@@ -1,3 +1,4 @@
+pub mod admin_setup;
 pub mod assignment;
 pub mod backup;
 pub mod channels;

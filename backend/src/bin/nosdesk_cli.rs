@@ -40,6 +40,7 @@ use backend::db;
 use backend::repository::user_auth_identities;
 use backend::repository::user_helpers;
 use backend::repository::users as users_repo;
+use backend::services::admin_setup;
 use backend::services::backup as backup_service;
 use backend::services::plugins::{install, signing, trust};
 
@@ -161,6 +162,26 @@ enum DbCommand {
 
 #[derive(Subcommand)]
 enum AdminCommand {
+    /// Create the initial administrator account. Refuses if any
+    /// user already exists; use `reset-password` for recovery in
+    /// that case. Reads the password from a TTY prompt by
+    /// default (no echo), or from stdin if `--password-stdin` is
+    /// passed. This is the HTTP-free alternative to the
+    /// `/onboarding` web flow — appropriate when the operator
+    /// can't reach the setup URL (Cloudflare Tunnel, headless
+    /// CI provisioning, etc.).
+    Create {
+        #[arg(long, value_name = "NAME", help = "Administrator full name")]
+        name: String,
+        #[arg(long, value_name = "EMAIL", help = "Administrator email address")]
+        email: String,
+        #[arg(
+            long,
+            help = "Read the password from stdin (one line). Use for scripts; omit for an interactive prompt."
+        )]
+        password_stdin: bool,
+    },
+
     /// Generate a strong random password, bcrypt it, and replace
     /// the user's local auth password. Prints the new password
     /// exactly once on stdout; pipe to a secret manager or hand it
@@ -367,9 +388,97 @@ fn plugin_install(zip_path: &Path) -> Result<()> {
 
 fn run_admin(cmd: AdminCommand) -> Result<()> {
     match cmd {
+        AdminCommand::Create {
+            name,
+            email,
+            password_stdin,
+        } => admin_create(&name, &email, password_stdin),
         AdminCommand::ResetPassword { email } => admin_reset_password(&email),
         AdminCommand::ClearMfa { email } => admin_clear_mfa(&email),
     }
+}
+
+fn admin_create(name: &str, email: &str, password_stdin: bool) -> Result<()> {
+    let trimmed_name = name.trim();
+    let trimmed_email = email.trim();
+    if trimmed_name.is_empty() {
+        bail!("--name is required and must not be blank");
+    }
+    if trimmed_name.len() > 255 {
+        bail!("--name must be less than 255 characters");
+    }
+    if trimmed_email.is_empty() {
+        bail!("--email is required and must not be blank");
+    }
+    if !trimmed_email.contains('@') || !trimmed_email.contains('.') {
+        bail!("--email does not look like a valid address");
+    }
+
+    let password = if password_stdin {
+        read_password_from_stdin()?
+    } else {
+        read_password_interactive()?
+    };
+    if password.len() < 8 {
+        bail!("password must be at least 8 characters");
+    }
+    if password.len() > 128 {
+        bail!("password must be less than 128 characters");
+    }
+
+    let hashed = hash(&password, DEFAULT_COST).with_context(|| "hashing password")?;
+
+    let mut conn = connect_db()?;
+    let (user, primary_email) = admin_setup::create_initial_admin(
+        &mut conn,
+        admin_setup::InitialAdminInput {
+            name: trimmed_name,
+            email: trimmed_email,
+            password_hash: &hashed,
+        },
+    )
+    .map_err(|e| match e {
+        admin_setup::AdminSetupError::AlreadyComplete => anyhow!(
+            "setup is already complete; use `nosdesk-cli admin reset-password` to recover credentials"
+        ),
+        admin_setup::AdminSetupError::DuplicateEmail => {
+            anyhow!("email address already in use")
+        }
+        admin_setup::AdminSetupError::Db(db_err) => anyhow!("db error: {db_err:?}"),
+    })?;
+
+    // Shell access implies file access; clearing the bootstrap
+    // token here makes the web setup endpoint inert immediately,
+    // matching what the HTTP path does on its success branch.
+    backend::utils::bootstrap_token::consume();
+
+    println!("created administrator: {} <{}>", user.name, primary_email.email);
+    println!("uuid: {}", user.uuid);
+    println!("the user can now log in via the web UI with the password you provided");
+    Ok(())
+}
+
+fn read_password_interactive() -> Result<String> {
+    let pw = rpassword::prompt_password("Password: ")
+        .with_context(|| "reading password from TTY")?;
+    let confirm = rpassword::prompt_password("Confirm password: ")
+        .with_context(|| "reading password confirmation from TTY")?;
+    if pw != confirm {
+        bail!("passwords do not match");
+    }
+    Ok(pw)
+}
+
+fn read_password_from_stdin() -> Result<String> {
+    use std::io::Read as _;
+    let mut buf = String::new();
+    std::io::stdin()
+        .read_to_string(&mut buf)
+        .with_context(|| "reading password from stdin")?;
+    // Trim the trailing newline that pipes typically add. Don't
+    // trim leading/internal whitespace — a leading space could be
+    // intentional, however unusual.
+    Ok(buf.trim_end_matches(['\n', '\r']).to_string())
 }
 
 fn admin_reset_password(email: &str) -> Result<()> {

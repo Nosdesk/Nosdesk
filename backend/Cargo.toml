@@ -42,6 +42,7 @@ bcrypt = "0.15.1"
 actix-web-httpauth = "0.8.2"
 regex = "1.11.0"
 clap = { version = "4.5", features = ["derive"] }  # nosdesk-cli
+rpassword = "7"                                    # nosdesk-cli interactive password prompt (no-echo)
 quick-xml = "0.36"  # SVG validator for plugin icons
 semver = "1.0"      # engines.nosdesk constraint matching
 

@@ -928,112 +928,31 @@ pub async fn setup_initial_admin(
         }
     };
 
-    let (normalized_name, normalized_email) =
-        utils::normalization::normalize_user_data(&admin_data.name, &admin_data.email);
-    let (new_user, email) =
-        utils::NewUserBuilder::admin_user(normalized_name, normalized_email.clone())
-            .build_with_email();
-
-    // AUD-005: one transaction holds the advisory lock from the
-    // count check through to the inserts, so a concurrent caller
-    // can't pass `count == 0` between our check and our insert.
-    // Sync indexing runs after the commit so a rolled-back insert
-    // never produces an orphan search document.
-    use diesel::connection::Connection as _;
-    use diesel::prelude::*;
-    use diesel::sql_query;
-
-    #[derive(Debug)]
-    enum SetupError {
-        AlreadyComplete,
-        Db(diesel::result::Error),
-    }
-    impl From<diesel::result::Error> for SetupError {
-        fn from(e: diesel::result::Error) -> Self {
-            SetupError::Db(e)
-        }
-    }
-
-    let created = conn.transaction::<_, SetupError, _>(|c| {
-        sql_query("SELECT pg_advisory_xact_lock(0x4E4F44535F535450)").execute(c)?;
-        if repository::count_users(c)? > 0 {
-            return Err(SetupError::AlreadyComplete);
-        }
-
-        let user: crate::models::User = diesel::insert_into(crate::schema::users::table)
-            .values(&new_user)
-            .get_result(c)?;
-        let user_email: crate::models::UserEmail = diesel::insert_into(crate::schema::user_emails::table)
-            .values(&crate::models::NewUserEmail {
-                user_uuid: user.uuid,
-                email: email.clone(),
-                email_type: "personal".to_string(),
-                is_primary: true,
-                is_verified: true,
-                source: Some("manual".to_string()),
-            })
-            .get_result(c)?;
-
-        #[derive(diesel::Insertable)]
-        #[diesel(table_name = crate::schema::user_auth_identities)]
-        struct NewLocalAuthIdentity<'a> {
-            user_uuid: Uuid,
-            provider_type: &'a str,
-            external_id: &'a str,
-            email: Option<&'a str>,
-            password_hash: Option<&'a str>,
-        }
-        diesel::insert_into(crate::schema::user_auth_identities::table)
-            .values(&NewLocalAuthIdentity {
-                user_uuid: user.uuid,
-                provider_type: "local",
-                external_id: &normalized_email,
-                email: Some(&normalized_email),
-                password_hash: Some(&password_hash),
-            })
-            .execute(c)?;
-
-        crate::sync::emit::record(
-            c,
-            crate::sync::emit::SyncEmit {
-                aggregate: crate::models::SyncAggregate::User,
-                aggregate_id: user.uuid.to_string(),
-                op: crate::models::SyncOp::Insert,
-                event_type: "user.created",
-                data: json!({
-                    "uuid": user.uuid,
-                    "name": user.name,
-                    "email": user_email.email,
-                    "role": user.role,
-                    "pronouns": user.pronouns,
-                    "avatar_url": user.avatar_url,
-                    "avatar_thumb": user.avatar_thumb,
-                }),
-                groups: crate::sync::groups::workspace(),
-                causation_id: None,
-            },
-        )?;
-
-        Ok((user, user_email))
-    });
-
-    let (created_user, user_email) = match created {
+    let (created_user, user_email) = match crate::services::admin_setup::create_initial_admin(
+        &mut conn,
+        crate::services::admin_setup::InitialAdminInput {
+            name: &admin_data.name,
+            email: &admin_data.email,
+            password_hash: &password_hash,
+        },
+    ) {
         Ok(v) => v,
-        Err(SetupError::AlreadyComplete) => {
+        Err(crate::services::admin_setup::AdminSetupError::AlreadyComplete) => {
             return errors::bad_request(
                 "Setup has already been completed. Users already exist in the system.",
             );
         }
-        Err(SetupError::Db(e)) => {
-            error!(error = ?e, "Error creating admin user");
-            let msg = if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
-                "Email address already exists in the system"
-            } else {
-                "Error creating admin user"
-            };
+        Err(crate::services::admin_setup::AdminSetupError::DuplicateEmail) => {
             return HttpResponse::InternalServerError().json(json!({
                 "status": "error",
-                "message": msg,
+                "message": "Email address already exists in the system",
+            }));
+        }
+        Err(crate::services::admin_setup::AdminSetupError::Db(e)) => {
+            error!(error = ?e, "Error creating admin user");
+            return HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Error creating admin user",
             }));
         }
     };
