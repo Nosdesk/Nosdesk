@@ -29,6 +29,11 @@ const adminData = ref<AdminSetupRequest>({
 });
 const confirmPassword = ref('');
 const bootstrapToken = ref('');
+// True when the token arrived via `?token=` in the URL (the
+// server-logged setup URL flow). The manual-paste UI hides in
+// that case to keep the form clean. If verification later fails,
+// we flip this back to false so the operator can correct.
+const tokenFromUrl = ref(false);
 
 const isSetupStep = computed(() => currentStep.value === 'setup');
 const isLoggingIn = computed(() => currentStep.value === 'logging-in');
@@ -77,6 +82,22 @@ const validateFormComputed = computed((): boolean => {
 const canSubmit = computed(() => !isLoading.value && validateFormComputed.value);
 
 onMounted(async () => {
+  // Pick up the bootstrap token if the operator arrived via the
+  // setup URL logged at server startup. We strip the token from
+  // the URL bar before the form ever renders, so it doesn't get
+  // captured in browser history, the Referer header on the
+  // eventual POST, or shoulder-surfing screenshots.
+  const params = new URLSearchParams(window.location.search);
+  const tokenParam = params.get('token');
+  if (tokenParam && tokenParam.trim()) {
+    bootstrapToken.value = tokenParam.trim();
+    tokenFromUrl.value = true;
+    params.delete('token');
+    const cleanQuery = params.toString();
+    const cleanUrl = `${window.location.pathname}${cleanQuery ? '?' + cleanQuery : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', cleanUrl);
+  }
+
   try {
     const status = await authService.checkSetupStatus();
     if (!status.requires_setup) {
@@ -146,13 +167,22 @@ const handleSetup = async () => {
     console.error('Setup error:', error);
     currentStep.value = 'setup';
 
-    const axiosError = error as { response?: { data?: { message?: string; status?: string } } };
+    const axiosError = error as { response?: { status?: number; data?: { message?: string; status?: string } } };
     if (axiosError.response?.data?.message) {
       errorMessage.value = axiosError.response.data.message;
     } else if (axiosError.response?.data?.status === 'error') {
       errorMessage.value = axiosError.response.data.message || 'Setup failed. Please try again.';
     } else {
       errorMessage.value = 'An unexpected error occurred. Please try again.';
+    }
+    // 401 from this endpoint means the bootstrap token was
+    // rejected (missing, mismatched, or expired). Surface the
+    // manual paste field so the operator can correct rather than
+    // staring at "click the URL from logs" when their URL is the
+    // problem.
+    if (axiosError.response?.status === 401 && tokenFromUrl.value) {
+      tokenFromUrl.value = false;
+      bootstrapToken.value = '';
     }
   } finally {
     isLoading.value = false;
@@ -194,7 +224,15 @@ onUnmounted(() => {
 
       <!-- Setup Form -->
       <form v-if="isSetupStep" @submit.prevent="handleSetup" class="flex flex-col gap-4">
-        <div>
+        <!--
+          Bootstrap token field. Hidden on the happy path where
+          the operator arrived via the setup URL from server
+          logs (the token is already in our state and stripped
+          from the address bar). Visible only when no URL token
+          was supplied, or when verification just rejected one
+          we did supply.
+        -->
+        <div v-if="!tokenFromUrl">
           <label for="bootstrap-token" class="block text-sm font-medium text-secondary">Bootstrap Token</label>
           <input
             id="bootstrap-token"
@@ -207,7 +245,7 @@ onUnmounted(() => {
             placeholder="Paste the one-shot token from the server"
           />
           <p class="text-xs text-tertiary mt-1">
-            Retrieve with
+            Check the server startup logs for a setup URL, or retrieve manually with
             <code class="text-secondary bg-app rounded px-1 py-0.5">docker compose exec backend cat /app/uploads/bootstrap.token</code>
           </p>
         </div>

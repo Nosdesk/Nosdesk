@@ -859,7 +859,11 @@ pub async fn setup_initial_admin(
 ) -> impl Responder {
     // AUD-005: bootstrap-token gate. Network attackers reaching
     // the listener on first boot cannot proceed without the token
-    // written to disk at startup.
+    // written to disk at startup. Accept the token via either
+    // `Authorization: Bearer <token>` (CLI / scripts) or
+    // `X-Bootstrap-Token: <token>` (frontend setup form, which
+    // sends the token alongside the eventual user-session bearer
+    // and needs a separate header to avoid collision).
     let bearer = req
         .headers()
         .get("Authorization")
@@ -867,8 +871,16 @@ pub async fn setup_initial_admin(
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let Some(provided) = bearer else {
-        return errors::unauthorized("Bootstrap token required. See uploads/bootstrap.token on the server.");
+    let x_bootstrap = req
+        .headers()
+        .get("X-Bootstrap-Token")
+        .and_then(|h| h.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let Some(provided) = bearer.or(x_bootstrap) else {
+        return errors::unauthorized(
+            "Bootstrap token required. Check the server startup logs for the setup URL, or paste the token from `docker compose exec backend cat /app/uploads/bootstrap.token`."
+        );
     };
     if let Err(e) = crate::utils::bootstrap_token::verify(provided) {
         warn!(error = %e, "setup_initial_admin: bootstrap token verify failed");
