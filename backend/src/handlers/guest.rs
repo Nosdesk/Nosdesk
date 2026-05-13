@@ -420,7 +420,26 @@ pub async fn submit_guest_ticket(
         ..Default::default()
     };
 
-    let ticket = match repository::tickets::create_ticket(&mut conn, new_ticket) {
+    // Tag the activity row so the renderer can phrase the entry as
+    // "Created via public portal by <name> <<email>>" instead of the
+    // generic "System created this ticket". Same shape as inbound
+    // email tickets; the renderer switches on `source`.
+    let creation_annotation = repository::tickets::TicketCreationAnnotation {
+        source: Some("guest_portal".to_string()),
+        from_email: Some(email.to_string()),
+        from_name: if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        },
+        subject: Some(title.to_string()),
+    };
+
+    let ticket = match repository::tickets::create_ticket_with_annotation(
+        &mut conn,
+        new_ticket,
+        creation_annotation,
+    ) {
         Ok(t) => t,
         Err(e) => {
             error!(error = %e, "Failed to create guest ticket");
@@ -445,13 +464,26 @@ pub async fn submit_guest_ticket(
     // Guest comments don't have a JWT actor; record under a system
     // actor so the sync substrate has a clear attribution chain.
     let guest_actor = crate::sync::actor::ActorContext::system("guest:ticket_create");
+    // Mirror the ticket-side annotation: the renderer reads
+    // `created_via.source` and surfaces the submitter's identity
+    // in the activity feed.
+    let comment_annotation = repository::comments::CommentCreationAnnotation {
+        source: Some("guest_portal".to_string()),
+        from_email: Some(email.to_string()),
+        from_name: if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        },
+    };
     let first_comment_id = {
         use diesel::Connection;
         conn.transaction::<Option<i32>, diesel::result::Error, _>(|conn| {
             crate::sync::session::set_actor(conn, &guest_actor)?;
-            let c = repository::comments::create_comment(
+            let c = repository::comments::create_comment_with_annotation(
                 conn,
                 new_comment,
+                comment_annotation,
                 Some(search_service.get_ref()),
             )?;
             Ok(Some(c.id))

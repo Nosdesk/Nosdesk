@@ -108,11 +108,87 @@ interface PhraseContext {
   userName: (uuid: string) => string | null
 }
 
+/**
+ * Channel-or-portal annotation attached to `ticket.created` events
+ * by the backend (`repository::tickets::TicketCreationAnnotation`).
+ * Drives both the actor display and the trailing phrase so the
+ * activity entry reads as e.g. "alice@example.com opened this
+ * ticket via email" rather than the generic "System created this
+ * ticket".
+ */
+interface CreatedVia {
+  source: string | null
+  from_email: string | null
+  from_name: string | null
+  subject: string | null
+}
+
+/**
+ * Extract the channel/portal annotation when present. Both
+ * `ticket.created` and `comment.created` events carry the same
+ * `created_via` shape (`subject` is only meaningful for the ticket
+ * variant), so one parser handles both. Returns null for UI-
+ * authored events and for legacy rows ingested before the
+ * annotation shipped — the renderer falls back to its old
+ * "System" phrasing in those cases.
+ */
+function readCreatedVia(ev: TicketActivityEvent): CreatedVia | null {
+  if (ev.event_type !== 'ticket.created' && ev.event_type !== 'comment.created') {
+    return null
+  }
+  const cv = ev.data?.created_via
+  if (!cv || typeof cv !== 'object') return null
+  const obj = cv as Record<string, unknown>
+  const source = typeof obj.source === 'string' ? obj.source : null
+  // The annotation always emits the keys; treat null/empty as
+  // "missing" so the renderer can short-circuit to a simpler phrasing.
+  if (!source) return null
+  return {
+    source,
+    from_email: typeof obj.from_email === 'string' ? obj.from_email : null,
+    from_name: typeof obj.from_name === 'string' ? obj.from_name : null,
+    subject: typeof obj.subject === 'string' ? obj.subject : null,
+  }
+}
+
+/**
+ * Human-readable label for the channel/portal `source` tag. Returns
+ * `null` when the source isn't one the renderer knows about — the
+ * caller treats that as "use generic phrasing." New channels only
+ * need an entry here; the backend tag is conventionally
+ * `channel:<provider>`.
+ */
+function creationSourceLabel(source: string): string | null {
+  if (source.startsWith('channel:email')) return 'email'
+  if (source.startsWith('channel:slack')) return 'Slack'
+  if (source.startsWith('channel:teams')) return 'Microsoft Teams'
+  if (source.startsWith('channel:discord')) return 'Discord'
+  if (source.startsWith('channel:')) {
+    // Generic fallback: turn "channel:custom_provider" into
+    // "custom provider" so a new adapter renders meaningfully
+    // before someone adds a bespoke label here.
+    return source.slice('channel:'.length).replace(/_/g, ' ')
+  }
+  if (source === 'guest_portal') return 'the public portal'
+  return null
+}
+
 function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
   const data = ev.data ?? {}
   switch (ev.event_type) {
-    case 'ticket.created':
-      return 'created this ticket'
+    case 'ticket.created': {
+      const cv = readCreatedVia(ev)
+      if (!cv) return 'created this ticket'
+      const label = creationSourceLabel(cv.source!)
+      if (!label) return 'created this ticket'
+      // Email/chat: "opened... via email". Portal: "submitted...
+      // via the public portal". The two verbs match how the agent
+      // would think about each surface — emails get opened,
+      // portal forms get submitted.
+      return cv.source === 'guest_portal'
+        ? `submitted this ticket via ${label}`
+        : `opened this ticket via ${label}`
+    }
     case 'ticket.deleted':
       return 'deleted this ticket'
     case 'ticket.workflow_state_changed': {
@@ -175,8 +251,21 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
     }
     case 'ticket.updated':
       return 'updated the ticket'
-    case 'comment.created':
-      return data.is_internal ? 'added an internal note' : 'commented on this ticket'
+    case 'comment.created': {
+      if (data.is_internal) return 'added an internal note'
+      const cv = readCreatedVia(ev)
+      const label = cv?.source ? creationSourceLabel(cv.source) : null
+      if (!cv || !label) return 'commented on this ticket'
+      // Email channels: "replied via email" — the activity is a
+      // genuine response, not a fresh comment, when it threads onto
+      // an existing ticket. Portal: "added a comment via the
+      // public portal" — kept distinct from "submitted this ticket
+      // via the public portal" (the ticket.created entry) so the
+      // two rows don't read identically.
+      return cv.source === 'guest_portal'
+        ? `added a comment via ${label}`
+        : `replied via ${label}`
+    }
     case 'comment.deleted':
       return 'deleted a comment'
     default:
@@ -206,6 +295,62 @@ function assigneeNameFor(ev: TicketActivityEvent): string | null {
 
 function isInternalNoteEvent(ev: TicketActivityEvent): boolean {
   return ev.event_type === 'comment.created' && ev.data?.is_internal === true
+}
+
+/**
+ * Resolve who to show as the actor for an activity row, with a
+ * fallback chain that prefers the most-meaningful identity
+ * available:
+ *
+ *   1. Channel/portal annotation (`from_name`/`from_email`) — the
+ *      ticket's *sender*, surfaced in place of the system actor so
+ *      the agent doesn't have to open the comment thread to see
+ *      who reported the issue.
+ *   2. The signed-in user who triggered the event
+ *      (`actor_uuid`) — resolves via the directory.
+ *   3. The bare actor_kind label — the original "System" fallback.
+ *
+ * The `kind` field drives the avatar slot in the template: real
+ * users get the normal avatar; channel/portal senders get a small
+ * "@" or "form" badge; pure system actors keep the "sys" badge.
+ */
+interface ActorDisplay {
+  name: string
+  /** Tooltip text — full name + email for senders, kind label otherwise. */
+  title: string | null
+  kind: 'user' | 'email' | 'portal' | 'system'
+  /** Set when `kind === 'user'`; drives `<UserAvatar :name="...">`. */
+  userUuid: string | null
+}
+
+function actorFor(ev: TicketActivityEvent): ActorDisplay {
+  const cv = readCreatedVia(ev)
+  if (cv && (cv.from_name || cv.from_email)) {
+    const name = cv.from_name?.trim() || cv.from_email || 'Sender'
+    const title = cv.from_name && cv.from_email
+      ? `${cv.from_name} <${cv.from_email}>${cv.subject ? ` — Subject: ${cv.subject}` : ''}`
+      : (cv.subject ? `${name} — Subject: ${cv.subject}` : name)
+    return {
+      name,
+      title,
+      kind: cv.source === 'guest_portal' ? 'portal' : 'email',
+      userUuid: null,
+    }
+  }
+  if (ev.actor_uuid) {
+    return {
+      name: getUserHandle(ev.actor_uuid).user.value?.name ?? 'Someone',
+      title: null,
+      kind: 'user',
+      userUuid: ev.actor_uuid,
+    }
+  }
+  return {
+    name: ev.actor_kind === 'system' ? 'System' : ev.actor_kind,
+    title: ev.actor_ref ?? ev.actor_kind,
+    kind: 'system',
+    userUuid: null,
+  }
 }
 </script>
 
@@ -254,32 +399,47 @@ function isInternalNoteEvent(ev: TicketActivityEvent): boolean {
             : 'hover:bg-surface-hover/40'
         "
       >
-        <!-- Avatar slot. UserAvatar handles the loading skeleton
-             when the directory hasn't resolved the uuid yet. -->
-        <UserAvatar
-          v-if="ev.actor_uuid"
-          :name="ev.actor_uuid"
-          :user-name="getUserHandle(ev.actor_uuid).user.value?.name ?? undefined"
-          :avatar="getUserHandle(ev.actor_uuid).user.value?.avatar_thumb || getUserHandle(ev.actor_uuid).user.value?.avatar_url || null"
-          size="xs"
-          :show-name="false"
-          :clickable="true"
-          class="mt-0.5"
-        />
+        <!-- Avatar / origin slot. `actorFor` picks the most
+             meaningful identity available: ticket sender for
+             channel/portal events, signed-in user for everything
+             else, "sys" badge as final fallback. Avatar lookups
+             only fire for the user path; the small badges for
+             email/portal/system are static so they don't churn the
+             directory composable. -->
+        <template v-if="actorFor(ev).kind === 'user' && actorFor(ev).userUuid">
+          <UserAvatar
+            :name="actorFor(ev).userUuid!"
+            :user-name="getUserHandle(actorFor(ev).userUuid!).user.value?.name ?? undefined"
+            :avatar="getUserHandle(actorFor(ev).userUuid!).user.value?.avatar_thumb || getUserHandle(actorFor(ev).userUuid!).user.value?.avatar_url || null"
+            size="xs"
+            :show-name="false"
+            :clickable="true"
+            class="mt-0.5"
+          />
+        </template>
+        <span
+          v-else-if="actorFor(ev).kind === 'email'"
+          class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-status-info-bg text-status-info-border text-[10px] mt-0.5 shrink-0"
+          :title="actorFor(ev).title ?? undefined"
+          aria-label="Email sender"
+        >@</span>
+        <span
+          v-else-if="actorFor(ev).kind === 'portal'"
+          class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-[9px] mt-0.5 shrink-0"
+          :title="actorFor(ev).title ?? undefined"
+          aria-label="Public portal submission"
+        >www</span>
         <span
           v-else
           class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-[9px] mt-0.5 shrink-0"
-          :title="ev.actor_kind"
+          :title="actorFor(ev).title ?? undefined"
         >sys</span>
 
         <div class="flex-1 min-w-0 text-xs text-secondary leading-relaxed">
-          <span class="font-medium text-primary">
-            {{
-              ev.actor_uuid
-                ? (getUserHandle(ev.actor_uuid).user.value?.name ?? 'Someone')
-                : (ev.actor_kind === 'system' ? 'System' : ev.actor_kind)
-            }}
-          </span>
+          <span
+            class="font-medium text-primary"
+            :title="actorFor(ev).title ?? undefined"
+          >{{ actorFor(ev).name }}</span>
           {{ phraseFor(ev, ctx) }}
           <template v-if="assigneeNameFor(ev)">
             to <span class="font-medium text-primary">{{ assigneeNameFor(ev) }}</span>

@@ -52,12 +52,69 @@ pub fn get_ticket_by_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<
         .first(conn)
 }
 
+/// Typed annotation describing where a ticket originated, attached
+/// to the `ticket.created` sync_actions row so the activity feed can
+/// render richer phrasing than "System created this ticket".
+///
+/// Every field is optional so callers can populate just what they
+/// know. The activity renderer walks the populated fields in
+/// priority order (channel → portal → bare) and picks the most
+/// specific phrasing it can support. Adding a new origin type
+/// (assignment-rule auto-create, API token, scheduled job) only
+/// needs a new `source` value plus a renderer branch — no schema
+/// change, no migration.
+#[derive(Debug, Clone, Default)]
+pub struct TicketCreationAnnotation {
+    /// Origin tag the renderer switches on. Conventional values:
+    ///   * `"channel:<provider>"` — inbound channel ingest
+    ///     (e.g. `"channel:email_imap"`).
+    ///   * `"guest_portal"` — public submission form.
+    ///   * `"api"` — programmatic create via an API token.
+    /// Unknown values fall through to a generic "Created" line.
+    pub source: Option<String>,
+    /// Sender's email (channel-derived). Surfaces in the activity
+    /// entry's actor slot so the agent sees who reported the issue
+    /// before opening the comment thread.
+    pub from_email: Option<String>,
+    /// Display name attached to the sender's address, when present.
+    pub from_name: Option<String>,
+    /// Subject line for email-sourced tickets. Useful in the rare
+    /// case the original sender's address differs from the
+    /// ticket's requester record (forwarded messages, list-bots).
+    pub subject: Option<String>,
+}
+
+/// Bare create — UI handlers, the import binary, and any caller
+/// without specific channel/portal context land here.
 pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryResult<Ticket> {
+    create_ticket_with_annotation(conn, new_ticket, TicketCreationAnnotation::default())
+}
+
+/// Create with explicit origin annotation. Channel adapters and the
+/// guest portal handler use this; everything else stays on the bare
+/// `create_ticket`.
+pub fn create_ticket_with_annotation(
+    conn: &mut DbConnection,
+    new_ticket: NewTicket,
+    annotation: TicketCreationAnnotation,
+) -> QueryResult<Ticket> {
     conn.transaction(|conn| {
         let ticket: Ticket = diesel::insert_into(tickets::table)
             .values(&new_ticket)
             .get_result(conn)?;
         let groups = groups::for_ticket(conn, &ticket)?;
+        // `created_via` is an additive nested object: legacy
+        // consumers that look at the existing top-level fields keep
+        // working; the activity renderer reads `created_via.source`
+        // and friends when present. Always emitted (even when all
+        // annotation fields are None) so the renderer can rely on a
+        // stable shape rather than probing for missing keys.
+        let created_via = json!({
+            "source": annotation.source,
+            "from_email": annotation.from_email,
+            "from_name": annotation.from_name,
+            "subject": annotation.subject,
+        });
         emit::record(
             conn,
             SyncEmit {
@@ -75,6 +132,7 @@ pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryRes
                     "category_id": ticket.category_id,
                     "submitted_via": ticket.submitted_via,
                     "origin_channel_id": ticket.origin_channel_id,
+                    "created_via": created_via,
                 }),
                 groups,
                 causation_id: None,

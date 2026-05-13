@@ -639,7 +639,27 @@ fn open_ticket_from_message(
         ..Default::default()
     };
 
-    tickets_repo::create_ticket(conn, new_ticket)
+    // Surface channel context on the `ticket.created` activity row
+    // so the agent sees "Created from email by Alice <alice@…>"
+    // instead of a bare "System created this ticket". The display
+    // name is filtered for emptiness to avoid rendering `<unknown>`-
+    // style artifacts when the From header had no quoted-name part.
+    fn non_empty(s: &str) -> Option<String> {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+    let annotation = tickets_repo::TicketCreationAnnotation {
+        source: Some(format!("channel:{}", channel.provider)),
+        from_email: msg.from.known_email.clone(),
+        from_name: non_empty(&msg.from.display_name),
+        subject: msg.subject.as_deref().and_then(non_empty),
+    };
+
+    tickets_repo::create_ticket_with_annotation(conn, new_ticket, annotation)
 }
 
 fn insert_inbound_comment(
@@ -721,7 +741,23 @@ fn insert_inbound_comment(
         .search
         .as_ref()
         .map(|s| s as &dyn crate::repository::comments::CommentCreatedObserver);
-    comments_repo::create_comment(conn, new_comment, observer)
+
+    // Carry the channel context onto the `comment.created` activity
+    // row so inbound replies render as
+    // "alice@example.com replied via email" instead of the generic
+    // "System commented on this ticket". Same shape and source tags
+    // as the `ticket.created` annotation upstream.
+    fn non_empty(s: &str) -> Option<String> {
+        let t = s.trim();
+        if t.is_empty() { None } else { Some(t.to_string()) }
+    }
+    let annotation = crate::repository::comments::CommentCreationAnnotation {
+        source: Some(format!("channel:{}", msg.from.provider)),
+        from_email: msg.from.known_email.clone(),
+        from_name: non_empty(&msg.from.display_name),
+    };
+
+    comments_repo::create_comment_with_annotation(conn, new_comment, annotation, observer)
 }
 
 /// Persist the raw RFC-822 source to the storage backend so the

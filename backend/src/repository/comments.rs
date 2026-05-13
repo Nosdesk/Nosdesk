@@ -45,9 +45,49 @@ pub fn get_public_comments_by_ticket_id(
         .load(conn)
 }
 
+/// Typed annotation describing where a comment originated, attached
+/// to the `comment.created` sync_actions row so the activity feed
+/// can render richer phrasing than "System commented on this
+/// ticket".
+///
+/// Mirrors `repository::tickets::TicketCreationAnnotation`: every
+/// field optional, callers populate just what they know. The
+/// annotation lives on the comment.created event's `data.created_via`
+/// nested object — same shape as the ticket.created annotation so
+/// the frontend can reuse one parser.
+#[derive(Debug, Clone, Default)]
+pub struct CommentCreationAnnotation {
+    /// Origin tag the renderer switches on. Conventional values
+    /// match the ticket-side tags:
+    ///   * `"channel:<provider>"` for inbound channel comments.
+    ///   * `"guest_portal"` for the initial portal-form comment.
+    /// Other values fall through to a generic "commented" line.
+    pub source: Option<String>,
+    /// Sender's email — surfaces in the actor slot of the activity
+    /// entry so an inbound reply renders as "alice@example.com
+    /// replied via email" rather than "System commented".
+    pub from_email: Option<String>,
+    /// Display name for the sender, when present.
+    pub from_name: Option<String>,
+}
+
+/// Bare create — UI handlers, the import binary, and any caller
+/// without specific channel/portal context land here.
 pub fn create_comment(
     conn: &mut DbConnection,
     new_comment: NewComment,
+    observer: Option<&dyn CommentCreatedObserver>,
+) -> QueryResult<Comment> {
+    create_comment_with_annotation(conn, new_comment, CommentCreationAnnotation::default(), observer)
+}
+
+/// Create with explicit origin annotation. The inbound channel
+/// pipeline and the guest portal handler use this; everything else
+/// stays on the bare `create_comment`.
+pub fn create_comment_with_annotation(
+    conn: &mut DbConnection,
+    new_comment: NewComment,
+    annotation: CommentCreationAnnotation,
     observer: Option<&dyn CommentCreatedObserver>,
 ) -> QueryResult<Comment> {
     let ticket_id = new_comment.ticket_id;
@@ -76,6 +116,16 @@ pub fn create_comment(
 
         let groups = groups::for_ticket(conn, &parent)?;
 
+        // Mirrors the `ticket.created` annotation shape so the
+        // frontend reads `data.created_via` the same way regardless
+        // of event aggregate. Always emitted (even with all fields
+        // None) for shape stability.
+        let created_via = json!({
+            "source": annotation.source,
+            "from_email": annotation.from_email,
+            "from_name": annotation.from_name,
+        });
+
         emit::record(
             conn,
             SyncEmit {
@@ -89,6 +139,7 @@ pub fn create_comment(
                     "user_uuid": comment.user_uuid,
                     "is_internal": comment.is_internal,
                     "content_format": comment.content_format,
+                    "created_via": created_via,
                 }),
                 groups,
                 causation_id: None,
