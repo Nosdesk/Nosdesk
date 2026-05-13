@@ -681,22 +681,18 @@ fn insert_inbound_comment(
     };
 
     // Order matters: for HTML bodies we sanitise FIRST, then split,
-    // so the new_content and quoted_content columns carry render-
-    // safe HTML the frontend can inject directly. Splitting before
-    // sanitising would leak unsanitised markup into those columns,
-    // forcing the renderer to re-sanitise per-render or risk XSS.
-    // For plaintext there's nothing to sanitise; we split the raw
-    // text directly.
-    let (sanitised_html, split) = match content_format {
+    // so the `new_content` and `quoted_content` columns carry
+    // render-safe HTML the frontend can inject directly. Splitting
+    // before sanitising would leak unsanitised markup into those
+    // columns, forcing the renderer to re-sanitise per-render or
+    // risk XSS. For plaintext there's nothing to sanitise; we split
+    // the raw text directly.
+    let split = match content_format {
         crate::models::ContentFormat::Html => {
             let clean = super::email_sanitise::sanitise(&content).html;
-            let split = super::email_quote::split_html(&clean);
-            (Some(clean), split)
+            super::email_quote::split_html(&clean)
         }
-        _ => {
-            let split = super::email_quote::split_plaintext(&content);
-            (None, split)
-        }
+        _ => super::email_quote::split_plaintext(&content),
     };
 
     let new_comment = NewComment {
@@ -719,7 +715,6 @@ fn insert_inbound_comment(
         new_content: Some(split.new_content),
         quoted_content: split.quoted_content,
         raw_source_uri,
-        sanitised_html,
     };
 
     let observer = ctx

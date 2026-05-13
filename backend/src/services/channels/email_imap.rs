@@ -968,7 +968,12 @@ fn parse_mailbox(raw: &str) -> (String, String) {
 fn extract_bodies(mail: &mailparse::ParsedMail) -> (String, Option<String>) {
     // Walk every part. First text/plain wins for body_text; first
     // text/html wins for body_html. Attachments are excluded via
-    // Content-Disposition check.
+    // Content-Disposition check. When the chosen text/plain part
+    // advertises `format=flowed` (RFC 3676 — Apple Mail and
+    // Thunderbird are the common emitters), we unfold soft-wrapped
+    // lines before storage so downstream consumers (quote splitter,
+    // search indexer, plaintext renderer) all see a single logical
+    // paragraph per paragraph rather than 78-column fragments.
     let mut text: Option<String> = None;
     let mut html: Option<String> = None;
 
@@ -979,7 +984,8 @@ fn extract_bodies(mail: &mailparse::ParsedMail) -> (String, Option<String>) {
         let ctype = part.ctype.mimetype.to_ascii_lowercase();
         match ctype.as_str() {
             "text/plain" if text.is_none() => {
-                text = part.get_body().ok();
+                let body = part.get_body().ok();
+                text = body.map(|raw| maybe_unfold_flowed(&part.ctype.params, raw));
             }
             "text/html" if html.is_none() => {
                 html = part.get_body().ok();
@@ -989,6 +995,29 @@ fn extract_bodies(mail: &mailparse::ParsedMail) -> (String, Option<String>) {
     });
 
     (text.unwrap_or_default(), html)
+}
+
+/// Apply the RFC 3676 unfolder when the part's Content-Type
+/// parameters say `format=flowed`. `delsp=yes` triggers the
+/// space-strip variant most useful for CJK content. Non-flowed
+/// parts pass through unmodified so we don't disturb plaintext
+/// from mail clients that emit hard-wrapped bodies.
+fn maybe_unfold_flowed(
+    params: &std::collections::BTreeMap<String, String>,
+    body: String,
+) -> String {
+    let format_is_flowed = params
+        .get("format")
+        .map(|v| v.eq_ignore_ascii_case("flowed"))
+        .unwrap_or(false);
+    if !format_is_flowed {
+        return body;
+    }
+    let delsp = params
+        .get("delsp")
+        .map(|v| v.eq_ignore_ascii_case("yes"))
+        .unwrap_or(false);
+    super::email_format_flowed::unfold(&body, delsp)
 }
 
 fn extract_attachments(mail: &mailparse::ParsedMail) -> Vec<InboundAttachment> {
@@ -1026,7 +1055,7 @@ fn attachment_filename(part: &mailparse::ParsedMail) -> Option<String> {
             let trimmed = rest.trim_start();
             let unquoted = trimmed
                 .trim_start_matches('"')
-                .split(|c: char| c == '"' || c == ';')
+                .split(['"', ';'])
                 .next()?
                 .trim();
             if !unquoted.is_empty() {

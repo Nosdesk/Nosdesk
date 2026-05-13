@@ -912,19 +912,6 @@ pub struct Comment {
     /// LocalStorage roots) in API responses.
     #[serde(skip)]
     pub raw_source_uri: Option<String>,
-    /// Render-ready HTML produced by the backend sanitiser at ingest
-    /// (Outlook strip → ammonia → CSS allowlist). NULL for non-HTML
-    /// comments and for legacy rows ingested before the sanitiser
-    /// landed.
-    ///
-    /// `skip` because the renderer reads the post-split, already-
-    /// sanitised `new_content` / `quoted_content` columns; the full
-    /// sanitised body would just bloat the payload. Stays in the
-    /// DB for operator inspection and as a re-render shortcut if a
-    /// future viewer wants the un-split body without re-running the
-    /// sanitiser.
-    #[serde(skip)]
-    pub sanitised_html: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, Default)]
@@ -955,8 +942,6 @@ pub struct NewComment {
     pub quoted_content: Option<String>,
     #[serde(default)]
     pub raw_source_uri: Option<String>,
-    #[serde(default)]
-    pub sanitised_html: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]

@@ -1355,6 +1355,11 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/{ticket_id}/notes/images", web::post().to(handlers::upload_ticket_note_image))
                     .route("/comments/{id}", web::delete().to(handlers::delete_comment))
                     .route("/comments/{id}/raw.eml", web::get().to(handlers::get_comment_raw_eml))
+                    // Image proxy for inbound email rendering. Path-positional
+                    // {sig}/{encoded_url} keeps the URL self-describing and
+                    // cache-friendly (browsers cache by full URL). HMAC sig
+                    // is derived from JWT_SECRET; see handlers::image_proxy.
+                    .route("/image-proxy/{sig}/{encoded_url}", web::get().to(handlers::image_proxy::proxy_image))
                     .route("/comments/{comment_id}/attachments", web::post().to(handlers::add_attachment_to_comment))
                     .route("/attachments/{id}", web::delete().to({
                         let storage = storage.clone();

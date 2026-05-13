@@ -48,8 +48,6 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-use crate::models::ContentFormat;
-
 /// Result of splitting an inbound email body into the new reply
 /// and the quoted prior thread. `quoted_content` is `None` when no
 /// boundary was detected — common for first-touch emails and for
@@ -58,22 +56,6 @@ use crate::models::ContentFormat;
 pub struct QuoteSplit {
     pub new_content: String,
     pub quoted_content: Option<String>,
-}
-
-/// Dispatch to the correct splitter for a given content format.
-/// Keeps the format-to-splitter mapping inside this module so call
-/// sites don't have to know which formats route through which
-/// path; new formats only need a new branch here.
-///
-/// Markdown is handled by the plaintext splitter — markdown quote
-/// markers (`> `) and signature delimiters (`-- `) are the same
-/// as plaintext email conventions, and channels that emit markdown
-/// (Slack, Discord) don't have HTML quote containers.
-pub fn split_auto(format: ContentFormat, content: &str) -> QuoteSplit {
-    match format {
-        ContentFormat::Html => split_html(content),
-        ContentFormat::Plaintext | ContentFormat::Markdown => split_plaintext(content),
-    }
 }
 
 /// Single-line "On ... wrote:" headers in English plus the four

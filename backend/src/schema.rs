@@ -310,7 +310,6 @@ diesel::table! {
         new_content -> Nullable<Text>,
         quoted_content -> Nullable<Text>,
         raw_source_uri -> Nullable<Text>,
-        sanitised_html -> Nullable<Text>,
     }
 }
 

@@ -154,22 +154,24 @@ const srcdoc = computed(() => {
                           ws, worker, etc.) is denied
     - script-src 'none'   blocks every flavour of script even if
                           the sandbox attribute is ever loosened
-    - img-src             allows http(s), data:, and cid:. Browsers
-                          don't natively resolve cid: refs, so
-                          inline-attachment images render as broken
-                          until Pass 3 wires a server-side proxy
-                          that rewrites cid: → /api/files/... and
-                          proxies http(s) for tracker stripping.
-                          Until then we accept that remote tracking
-                          pixels may load; the helpdesk is internal
-                          so the privacy exposure is bounded.
+    - img-src             allows 'self' (the image proxy at
+                          /api/image-proxy/... rewrites every
+                          remote img to a same-origin URL during
+                          Pass 3 sanitisation), data: (rarely
+                          used but cheap), and cid: (inline
+                          attachments). Remote http(s): is NOT
+                          allowed — anything that reaches this
+                          CSP without being proxied was either
+                          missed by the sanitiser or injected
+                          past it, and we'd rather fail the load
+                          than fetch an un-vetted upstream.
     - style-src           emails ship their own <style> blocks; we
                           allow inline so typography renders, but
                           no remote stylesheet loads
     - font-src            web fonts (some marketing emails ship
                           their own): http(s), data:, same-origin
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' data: https: cid:; style-src 'unsafe-inline'; font-src 'self' data: https:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src 'self' data: cid:; style-src 'unsafe-inline'; font-src 'self' data: https:">
 <!-- Subresource fetches (images, link clicks) inherit this policy
      from the iframe document; the parent iframe's referrerpolicy
      only governs the iframe's own load, not what runs inside. -->
@@ -177,6 +179,16 @@ const srcdoc = computed(() => {
 <!-- Open every link in a new tab. -->
 <base target="_blank">
 <style>
+  /*
+   * Force light rendering inside the iframe regardless of the host
+   * helpdesk theme. Newsletter emails routinely ship white-background
+   * imagery, white logos on transparent backgrounds, and light-mode
+   * inline styles assuming the rendering surface is white. Inverting
+   * any of that for a dark-themed agent UI would flashbang the agent;
+   * keeping the iframe forced-light is the same call Gmail, Front,
+   * and Help Scout make. A V1.1 "invert for accessibility" toggle is
+   * the natural follow-up, opt-in per-agent.
+   */
   :root { color-scheme: light; }
   html, body { margin: 0; padding: 0; background: #fff; }
   body {

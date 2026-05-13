@@ -41,15 +41,22 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 /// Outcome of sanitising one inbound email body. Returned as a
-/// struct rather than a bare String so Pass 2.x and Pass 3 can
-/// add fields (inline_images, remote_images_blocked,
-/// trackers_stripped) without breaking callers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// struct rather than a bare String so future passes can add
+/// fields (inline_images, remote_images_blocked) without breaking
+/// callers.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SanitisedEmail {
     /// Render-ready HTML. Safe to inject into a sandboxed iframe's
     /// `srcdoc`; the frontend should still run DOMPurify on it
     /// for defence-in-depth.
     pub html: String,
+    /// Human-readable names of tracker services whose pixel
+    /// images were stripped from the body. Powers the "Stripped
+    /// tracker from Mailchimp" attribution affordance. Empty
+    /// when nothing was stripped. Names are deduplicated so the
+    /// UI doesn't repeat a brand if the same sender embedded
+    /// multiple pixels.
+    pub trackers_stripped: Vec<String>,
 }
 
 /// Sanitise one HTML email body for ticket-detail rendering.
@@ -60,7 +67,56 @@ pub struct SanitisedEmail {
 pub fn sanitise(raw_html: &str) -> SanitisedEmail {
     let pre = outlook_pre_strip(raw_html);
     let clean = ammonia_clean(&pre);
-    SanitisedEmail { html: clean }
+    let (after_trackers, trackers_stripped) = strip_known_trackers(&clean);
+    let final_html = rewrite_remote_images_to_proxy(&after_trackers);
+    SanitisedEmail {
+        html: final_html,
+        trackers_stripped,
+    }
+}
+
+/// Rewrite every `<img src="http(s)://...">` in the HTML to point
+/// at the same-origin image proxy. The proxy signs the upstream
+/// URL with HMAC-SHA256 derived from `JWT_SECRET`, so the URL we
+/// emit here is locked to this specific upstream and can't be
+/// repurposed. After this pass the iframe CSP can tighten
+/// `img-src` to `'self' data: cid:` because every remote image is
+/// now same-origin.
+///
+/// cid: and data: URLs are passed through untouched — they don't
+/// reach the network so the proxy adds nothing. Idempotency:
+/// the regex requires `http(s)://` so an already-proxied URL
+/// (which is `/api/image-proxy/...`) won't match a second time.
+fn rewrite_remote_images_to_proxy(html: &str) -> String {
+    IMG_TAG_RE
+        .replace_all(html, |caps: &regex::Captures<'_>| {
+            let original_src = &caps["src"];
+            // Only http(s) gets proxied. cid:, data:, and relative
+            // URLs don't reach the network and don't need it.
+            let lower = original_src.to_ascii_lowercase();
+            if !lower.starts_with("http://") && !lower.starts_with("https://") {
+                return caps[0].to_string();
+            }
+            let proxy_url = crate::handlers::image_proxy::sign_proxy_url(original_src);
+            // Replace the src= attribute value in-place, preserving
+            // every other attribute on the img tag. The matched
+            // text has the shape `<img ... src="ORIGINAL" ...>`
+            // (with attribute order arbitrary); we find the src
+            // group's range in the match and splice in the proxy
+            // URL.
+            let full = &caps[0];
+            let src_match = caps.name("src").expect("src group always present");
+            // Offsets are relative to `html`; convert to in-`full`.
+            let match_start = caps.get(0).unwrap().start();
+            let local_start = src_match.start() - match_start;
+            let local_end = src_match.end() - match_start;
+            let mut out = String::with_capacity(full.len() + proxy_url.len());
+            out.push_str(&full[..local_start]);
+            out.push_str(&proxy_url);
+            out.push_str(&full[local_end..]);
+            out
+        })
+        .into_owned()
 }
 
 /// Drop the Word / Outlook junk that html5ever would otherwise
@@ -153,6 +209,80 @@ static STYLE_ATTR_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)\s+style\s*=\s*(?:"([^"]*)"|'([^']*)')"#)
         .expect("valid style attribute regex")
 });
+
+/// Walk every `<img>` tag in the ammonia-cleaned HTML, parse its
+/// `src` URL, and check the host against the tracker blocklist.
+/// Matched tags are dropped (the entire `<img ...>` element
+/// disappears), and the tracker's display name is recorded so the
+/// renderer can show "Stripped tracker from X" attribution.
+///
+/// Operates on the post-ammonia string with a regex because
+/// ammonia's output is well-formed: `<img>` is always
+/// `<img attr="value" attr="value" ...>`, attributes are
+/// double-quoted, and tags don't span newlines in surprising
+/// ways. A real DOM walk would be a larger dep for marginal
+/// correctness gain.
+fn strip_known_trackers(html: &str) -> (String, Vec<String>) {
+    let mut stripped = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let replaced = IMG_TAG_RE.replace_all(html, |caps: &regex::Captures<'_>| {
+        let src = &caps["src"];
+        let Some(host) = extract_host(src) else {
+            // Unparseable URL: keep the img as-is rather than
+            // silently dropping legitimate-looking content.
+            return caps[0].to_string();
+        };
+        if let Some(name) = super::email_trackers::match_tracker(&host) {
+            // First sighting of this tracker brand records the
+            // name; subsequent occurrences from the same brand
+            // get dropped silently to avoid "stripped 14
+            // Mailchimp trackers" attribution noise.
+            if seen.insert(name) {
+                stripped.push(name.to_string());
+            }
+            String::new()
+        } else {
+            caps[0].to_string()
+        }
+    });
+
+    (replaced.into_owned(), stripped)
+}
+
+/// Capture group `src` holds the URL inside an `<img src="...">`
+/// tag. Anchored to `<img` and the closing `>` so we don't match
+/// a `src=` attribute on some other element.
+static IMG_TAG_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?is)<img\b[^>]*\bsrc\s*=\s*"(?P<src>[^"]*)"[^>]*>"#)
+        .expect("valid img tag regex")
+});
+
+/// Extract the host component of a URL. Accepts only `http(s)://`
+/// URLs; CID refs, data URLs, and anything else return `None`
+/// because they aren't reachable by remote trackers anyway.
+fn extract_host(url: &str) -> Option<String> {
+    let after_scheme = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .or_else(|| url.strip_prefix("HTTP://"))
+        .or_else(|| url.strip_prefix("HTTPS://"))?;
+    // Authority section runs up to the first /, ?, or #.
+    let authority_end = after_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(after_scheme.len());
+    let authority = &after_scheme[..authority_end];
+    // Strip optional userinfo (user:pass@) and port (:80).
+    let host_start = authority.rfind('@').map(|i| i + 1).unwrap_or(0);
+    let host_with_port = &authority[host_start..];
+    let host_end = host_with_port.find(':').unwrap_or(host_with_port.len());
+    let host = &host_with_port[..host_end];
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
 
 /// Run ammonia with the email-rendering allowlist. The default
 /// `ammonia::Builder` already strips `<script>`, `<iframe>`,
@@ -344,6 +474,114 @@ mod tests {
         let once = sanitise(input).html;
         let twice = sanitise(&once).html;
         assert_eq!(once, twice, "second pass should be a no-op");
+    }
+
+    #[test]
+    fn strips_known_tracker_img() {
+        let input = r#"<p>Hi</p><img src="https://track.mailchimp.com/p.gif?u=abc" width="1" height="1">"#;
+        let out = sanitise(input);
+        assert!(!out.html.to_lowercase().contains("mailchimp"),
+            "tracker img dropped: {}", out.html);
+        assert!(out.html.contains("Hi"));
+        assert_eq!(out.trackers_stripped, vec!["Mailchimp".to_string()]);
+    }
+
+    #[test]
+    fn preserves_non_tracker_img_via_proxy() {
+        // A non-tracker remote image survives ammonia and the
+        // tracker pass, then the rewrite swaps its src for the
+        // signed proxy path. The img element and alt attribute
+        // stay; only the src changes.
+        std::env::set_var("JWT_SECRET", "test-secret-for-image-proxy-signing-deterministic");
+        let input = r#"<p>Hi</p><img src="https://cdn.example.com/logo.png" alt="Logo">"#;
+        let out = sanitise(input);
+        // Original upstream gone — the rewrite replaced it.
+        assert!(!out.html.contains("cdn.example.com"));
+        // Proxy URL is what reaches the renderer.
+        assert!(out.html.contains("/api/image-proxy/"));
+        // alt attribute preserved.
+        assert!(out.html.contains(r#"alt="Logo""#));
+        // Not a tracker, so attribution stays empty.
+        assert!(out.trackers_stripped.is_empty());
+    }
+
+    #[test]
+    fn cid_img_kept_and_not_misclassified() {
+        // CID references aren't reachable by remote trackers, so
+        // the tracker matcher should pass them through.
+        let input = r#"<img src="cid:abc@example.com" alt="inline">"#;
+        let out = sanitise(input);
+        assert!(out.html.contains("cid:abc@example.com"));
+        assert!(out.trackers_stripped.is_empty());
+    }
+
+    #[test]
+    fn multiple_trackers_deduplicated_in_attribution() {
+        // A marketing email with three Mailchimp pixels gets all
+        // three dropped, but the attribution list says "Mailchimp"
+        // once, not three times.
+        let input = r#"
+            <img src="https://track.mailchimp.com/a.gif">
+            <p>Body</p>
+            <img src="https://track.mailchimp.com/b.gif">
+            <img src="https://list-manage.com/c.gif">
+        "#;
+        let out = sanitise(input);
+        assert!(!out.html.to_lowercase().contains("mailchimp"));
+        assert!(out.html.contains("Body"));
+        assert_eq!(out.trackers_stripped, vec!["Mailchimp".to_string()]);
+    }
+
+    #[test]
+    fn rewrites_remote_img_src_to_proxy() {
+        // JWT_SECRET must be set for the proxy signer to produce
+        // deterministic output across test runs.
+        std::env::set_var("JWT_SECRET", "test-secret-for-image-proxy-signing-deterministic");
+        let input = r#"<p>Hi</p><img src="https://cdn.example.com/banner.png" alt="banner">"#;
+        let out = sanitise(input).html;
+        // Original upstream URL no longer present (replaced).
+        assert!(!out.contains("cdn.example.com"),
+            "remote src must be rewritten: {out}");
+        // Proxy URL is.
+        assert!(out.contains("/api/image-proxy/"),
+            "proxy URL injected: {out}");
+        // Other attributes preserved (alt).
+        assert!(out.contains(r#"alt="banner""#),
+            "other img attrs preserved: {out}");
+    }
+
+    #[test]
+    fn passes_through_cid_images() {
+        std::env::set_var("JWT_SECRET", "test-secret-for-image-proxy-signing-deterministic");
+        let input = r#"<img src="cid:abc@example.com" alt="x">"#;
+        let out = sanitise(input).html;
+        assert!(out.contains("cid:abc@example.com"),
+            "cid not rewritten: {out}");
+        assert!(!out.contains("/api/image-proxy/"));
+    }
+
+    #[test]
+    fn rewrite_is_idempotent() {
+        // Once an img src points at /api/image-proxy/... the
+        // regex requires http(s):// to match again, so a second
+        // sanitise pass is a no-op on the rewrite axis.
+        std::env::set_var("JWT_SECRET", "test-secret-for-image-proxy-signing-deterministic");
+        let input = r#"<img src="https://cdn.example.com/x.png">"#;
+        let once = sanitise(input).html;
+        let twice = sanitise(&once).html;
+        assert_eq!(once, twice, "second sanitise is a no-op");
+    }
+
+    #[test]
+    fn distinct_trackers_each_listed() {
+        let input = r#"
+            <img src="https://track.mailchimp.com/a.gif">
+            <img src="https://email.sendgrid.net/b.gif">
+        "#;
+        let out = sanitise(input);
+        assert!(out.trackers_stripped.contains(&"Mailchimp".to_string()));
+        assert!(out.trackers_stripped.contains(&"SendGrid".to_string()));
+        assert_eq!(out.trackers_stripped.len(), 2);
     }
 
     #[test]
