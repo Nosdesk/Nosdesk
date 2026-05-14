@@ -495,11 +495,42 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    // AUD-005: write a one-shot bootstrap token if no users exist.
+    // Bootstrap admin paths, in priority order:
+    //   1. INITIAL_ADMIN_* env vars (GitOps / declarative). If
+    //      set + users empty, seed and we're done.
+    //   2. Otherwise, mint a one-shot bootstrap token so the
+    //      operator can complete setup via the web URL or the
+    //      `nosdesk-cli admin create` subcommand.
+    //
+    // Misconfigured env vars (set but unusable — bad hash, missing
+    // password, etc.) are a refuse-to-boot condition; an operator
+    // who set INITIAL_ADMIN_* clearly meant the env path and a
+    // silent fallback would mask the mistake.
     {
-        let mut conn = pool.get().expect("Failed to get connection for bootstrap token reconcile");
-        if let Err(e) = utils::bootstrap_token::reconcile(&mut conn) {
-            error!(error = ?e, "bootstrap token reconcile failed");
+        let mut conn = pool
+            .get()
+            .expect("Failed to get connection for bootstrap reconcile");
+
+        match services::admin_setup::seed_from_env(&mut conn) {
+            Ok(true) => {
+                // Env-var seed succeeded; reconcile() will see
+                // users and clean up any stale token file.
+                if let Err(e) = utils::bootstrap_token::reconcile(&mut conn) {
+                    error!(error = ?e, "bootstrap token reconcile failed");
+                }
+            }
+            Ok(false) => {
+                // No env-seed; fall through to the token path.
+                if let Err(e) = utils::bootstrap_token::reconcile(&mut conn) {
+                    error!(error = ?e, "bootstrap token reconcile failed");
+                }
+            }
+            Err(e) => {
+                error!(error = %e, "INITIAL_ADMIN_* env vars are set but unusable");
+                return Err(std::io::Error::other(format!(
+                    "refusing to start with misconfigured INITIAL_ADMIN_*: {e}"
+                )));
+            }
         }
     }
 

@@ -31,12 +31,25 @@ use crate::models::{User, UserEmail};
 
 #[derive(Debug, Error)]
 pub enum AdminSetupError {
-    #[error("setup has already been completed — users exist in the system")]
+    #[error("setup has already been completed; users exist in the system")]
     AlreadyComplete,
     #[error("email address already in use")]
     DuplicateEmail,
     #[error(transparent)]
     Db(#[from] diesel::result::Error),
+}
+
+/// Result of the env-var pre-seed path. Kept separate from
+/// `AdminSetupError` because misconfigured env vars are a
+/// startup-config problem (refuse to boot) whereas a downstream
+/// DB error during seeding is a transient failure (worth a warn
+/// but boot should continue).
+#[derive(Debug, Error)]
+pub enum EnvSeedError {
+    #[error("INITIAL_ADMIN env var misconfigured: {0}")]
+    Misconfigured(&'static str),
+    #[error("failed to insert seeded admin: {0}")]
+    AdminSetup(#[from] AdminSetupError),
 }
 
 /// Parameters for creating the initial admin. The caller is
@@ -149,4 +162,221 @@ pub fn create_initial_admin(
         }
         other => other,
     })
+}
+
+/// Pre-seed the initial admin from `INITIAL_ADMIN_*` env vars
+/// (the Phase 3 GitOps / declarative-deploy path). Called once
+/// at server boot before the bootstrap-token logic runs; if it
+/// succeeds, the token machinery sees an existing user and goes
+/// inert on its own.
+///
+/// Returns:
+///   - `Ok(true)`  → an admin was created from env config
+///   - `Ok(false)` → env vars not set, or users already exist
+///   - `Err(_)`    → env vars set but unusable (boot should
+///     surface this, then either refuse to start or warn and
+///     fall through to the URL flow; main.rs picks the policy)
+///
+/// Required env vars:
+///   - `INITIAL_ADMIN_EMAIL` — plaintext email address
+///   - `INITIAL_ADMIN_PASSWORD_HASH` — bcrypt hash string
+///     (starts with `$2a$` / `$2b$` / `$2y$`). Plaintext is
+///     explicitly refused — the value would otherwise sit in
+///     env files, container metadata, and process listings.
+///     Use `nosdesk-cli secrets bcrypt-hash` to generate.
+///
+/// Optional:
+///   - `INITIAL_ADMIN_NAME` — display name. Defaults to the
+///     email's local-part when unset (operator can change it
+///     from the UI after login).
+pub fn seed_from_env(conn: &mut DbConnection) -> Result<bool, EnvSeedError> {
+    let email = match std::env::var("INITIAL_ADMIN_EMAIL") {
+        Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
+        _ => return Ok(false),
+    };
+    let password_hash = std::env::var("INITIAL_ADMIN_PASSWORD_HASH")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or(EnvSeedError::Misconfigured(
+            "INITIAL_ADMIN_EMAIL is set but INITIAL_ADMIN_PASSWORD_HASH is not; \
+             refusing to seed admin without a password",
+        ))?;
+
+    if !looks_like_bcrypt_hash(&password_hash) {
+        return Err(EnvSeedError::Misconfigured(
+            "INITIAL_ADMIN_PASSWORD_HASH must be a bcrypt hash starting with \
+             $2a$, $2b$, or $2y$. Generate one with `nosdesk-cli secrets bcrypt-hash`.",
+        ));
+    }
+
+    let name = std::env::var("INITIAL_ADMIN_NAME")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            email
+                .split('@')
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("admin")
+                .to_string()
+        });
+
+    match create_initial_admin(
+        conn,
+        InitialAdminInput {
+            name: &name,
+            email: &email,
+            password_hash: password_hash.trim(),
+        },
+    ) {
+        Ok(_) => {
+            tracing::warn!(
+                "INITIAL_ADMIN_* env config seeded admin {email}. Consider \
+                 unsetting these vars after verifying login; they're idempotent \
+                 (users-exist short-circuit) but leaving secrets in env is best avoided."
+            );
+            Ok(true)
+        }
+        Err(AdminSetupError::AlreadyComplete) => {
+            // Operator left the env vars set after first boot.
+            // Idempotent skip — no harm, no log noise.
+            Ok(false)
+        }
+        Err(e) => Err(EnvSeedError::AdminSetup(e)),
+    }
+}
+
+/// Cheap surface check for the bcrypt PHC format. Real
+/// verification happens at login time; this just guards against
+/// plaintext slipping into the env.
+fn looks_like_bcrypt_hash(s: &str) -> bool {
+    let s = s.trim();
+    // bcrypt hashes are 60 chars exactly: $2x$NN$<22 salt><31 hash>.
+    // Allow a small range to be tolerant of future minor variants.
+    let len_ok = (59..=72).contains(&s.len());
+    let prefix_ok = s.starts_with("$2a$") || s.starts_with("$2b$") || s.starts_with("$2y$");
+    len_ok && prefix_ok
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test guard: env-var manipulation isn't thread-safe in
+    /// Rust's `std::env`. The serial mutex pins these tests to
+    /// one-at-a-time even when `cargo test` parallelises the
+    /// suite.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_env<F: FnOnce()>(pairs: &[(&str, Option<&str>)], f: F) {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let saved: Vec<_> = pairs
+            .iter()
+            .map(|(k, _)| (*k, std::env::var_os(k)))
+            .collect();
+        for (k, v) in pairs {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
+        f();
+        for (k, v) in saved {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
+    }
+
+    #[test]
+    fn bcrypt_format_check_accepts_real_hashes() {
+        // Three real bcrypt-shaped strings (variant prefixes).
+        for h in [
+            "$2a$12$abcdefghijklmnopqrstuuM5MLuvTAdEhfwjPGYvkMNDw7pYrkjFNW",
+            "$2b$12$abcdefghijklmnopqrstuuM5MLuvTAdEhfwjPGYvkMNDw7pYrkjFNW",
+            "$2y$12$abcdefghijklmnopqrstuuM5MLuvTAdEhfwjPGYvkMNDw7pYrkjFNW",
+        ] {
+            assert!(looks_like_bcrypt_hash(h), "should accept: {h}");
+        }
+    }
+
+    #[test]
+    fn bcrypt_format_check_rejects_plaintext_and_other_formats() {
+        for bad in [
+            "",
+            "hunter2",
+            "password",
+            // argon2 (different algorithm; login can't verify these)
+            "$argon2id$v=19$m=64,t=3,p=1$ZGVmZ2hpams$abc",
+            // sha256 hex
+            "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+            // bcrypt-shaped but too short
+            "$2b$12$tooshort",
+            // wrong prefix entirely
+            "{bcrypt}$2b$12$valid-looking-rest-of-the-hash-string-here",
+        ] {
+            assert!(
+                !looks_like_bcrypt_hash(bad),
+                "should reject: {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn seed_returns_false_when_email_unset() {
+        use crate::test_helpers::setup_test_connection;
+        with_env(
+            &[
+                ("INITIAL_ADMIN_EMAIL", None),
+                ("INITIAL_ADMIN_PASSWORD_HASH", None),
+                ("INITIAL_ADMIN_NAME", None),
+            ],
+            || {
+                let mut conn = setup_test_connection();
+                let did_seed = seed_from_env(&mut conn).unwrap();
+                assert!(!did_seed);
+            },
+        );
+    }
+
+    #[test]
+    fn seed_refuses_when_email_set_but_hash_missing() {
+        use crate::test_helpers::setup_test_connection;
+        with_env(
+            &[
+                ("INITIAL_ADMIN_EMAIL", Some("admin@example.com")),
+                ("INITIAL_ADMIN_PASSWORD_HASH", None),
+            ],
+            || {
+                let mut conn = setup_test_connection();
+                let err = seed_from_env(&mut conn).unwrap_err();
+                assert!(
+                    matches!(err, EnvSeedError::Misconfigured(_)),
+                    "got: {err:?}"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn seed_refuses_plaintext_password_in_hash_var() {
+        use crate::test_helpers::setup_test_connection;
+        with_env(
+            &[
+                ("INITIAL_ADMIN_EMAIL", Some("admin@example.com")),
+                ("INITIAL_ADMIN_PASSWORD_HASH", Some("hunter2")),
+            ],
+            || {
+                let mut conn = setup_test_connection();
+                let err = seed_from_env(&mut conn).unwrap_err();
+                let msg = err.to_string();
+                assert!(
+                    msg.contains("bcrypt"),
+                    "error message must point at bcrypt: {msg}"
+                );
+            },
+        );
+    }
 }

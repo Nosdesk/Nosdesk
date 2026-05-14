@@ -71,6 +71,32 @@ enum Commands {
     /// shell access, not on a TCP race (see AUD-005).
     #[command(subcommand)]
     Db(DbCommand),
+
+    /// Generate or transform secret material that the server
+    /// consumes from env vars. No database access — these are
+    /// pure transformations, safe to run on a developer laptop
+    /// before any container exists.
+    #[command(subcommand)]
+    Secrets(SecretsCommand),
+}
+
+#[derive(Subcommand)]
+enum SecretsCommand {
+    /// Hash a password with bcrypt and print the resulting PHC
+    /// string. Use the output as the value of
+    /// `INITIAL_ADMIN_PASSWORD_HASH` for first-boot admin seeding,
+    /// or as a one-off generator when you need a bcrypt hash
+    /// elsewhere.
+    ///
+    /// Reads the password from a TTY prompt (no echo) by default;
+    /// pass `--stdin` to read one line from stdin for scripting.
+    BcryptHash {
+        #[arg(
+            long,
+            help = "Read the password from stdin (one line). Use for scripts; omit for an interactive prompt."
+        )]
+        stdin: bool,
+    },
 }
 
 // ---------------------------------------------------------------
@@ -224,6 +250,7 @@ fn main() -> ExitCode {
         Commands::Plugin(cmd) => run_plugin(cmd),
         Commands::Admin(cmd) => run_admin(cmd),
         Commands::Db(cmd) => run_db(cmd),
+        Commands::Secrets(cmd) => run_secrets(cmd),
     };
 
     match result {
@@ -466,6 +493,33 @@ fn admin_create(name: &str, email: &str, password_stdin: bool) -> Result<()> {
     println!("created administrator: {} <{}>", user.name, primary_email.email);
     println!("uuid: {}", user.uuid);
     println!("the user can now log in via the web UI with the password you provided");
+    Ok(())
+}
+
+// ---------------------------------------------------------------
+// Secrets handlers
+// ---------------------------------------------------------------
+
+fn run_secrets(cmd: SecretsCommand) -> Result<()> {
+    match cmd {
+        SecretsCommand::BcryptHash { stdin } => secrets_bcrypt_hash(stdin),
+    }
+}
+
+fn secrets_bcrypt_hash(from_stdin: bool) -> Result<()> {
+    let password = if from_stdin {
+        read_password_from_stdin()?
+    } else {
+        read_password_interactive()?
+    };
+    if password.is_empty() {
+        bail!("password must not be empty");
+    }
+    let hashed = hash(&password, DEFAULT_COST).with_context(|| "hashing password")?;
+    // Print to stdout exactly, no trailing newline-after-prefix
+    // noise; this output is meant to be captured into env files
+    // or pasted into a Kubernetes Secret.
+    println!("{hashed}");
     Ok(())
 }
 
