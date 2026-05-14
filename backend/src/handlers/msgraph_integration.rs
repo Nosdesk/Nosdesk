@@ -2071,6 +2071,8 @@ async fn update_existing_microsoft_user_optimized(
         updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
     };
 
     // Update user if there are changes
@@ -2182,6 +2184,8 @@ async fn link_existing_user_to_microsoft_optimized(
         updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
     };
 
     // Always update to store the Microsoft UUID
@@ -3503,6 +3507,8 @@ async fn update_user_avatar_by_id(
             updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
         };
 
         match user_repo::update_user(user_uuid, user_update, conn, None) {
@@ -4277,6 +4283,8 @@ async fn update_existing_microsoft_user_no_photos(
         updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
     };
 
     if user_update.name.is_some() || user_update.microsoft_uuid.is_some() {
@@ -4342,6 +4350,8 @@ async fn link_existing_user_to_microsoft_no_photos(
         updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
     };
 
     user_repo::update_user(&existing_user.uuid, user_update, conn, None)

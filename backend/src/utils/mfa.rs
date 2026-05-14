@@ -498,6 +498,8 @@ mod tests {
             signature: None,
             dashboard_layout: None,
             feature_flag_overrides: serde_json::json!({}),
+            locale: None,
+            timezone: None,
         };
 
         assert!(!user_has_mfa_enabled(&base_user));

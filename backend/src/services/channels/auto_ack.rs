@@ -217,6 +217,8 @@ mod tests {
             channel_auto_ack_enabled: true,
             channel_auto_ack_template: None,
             feature_flags: serde_json::json!({}),
+            default_locale: "en-US".into(),
+            default_timezone: "UTC".into(),
         }
     }
 

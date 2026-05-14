@@ -1276,6 +1276,8 @@ pub async fn upload_user_image(
             updated_at: Some(chrono::Utc::now().naive_utc()),
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
         };
         
         match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
@@ -1676,6 +1678,11 @@ pub async fn update_user_by_uuid(
             }
         }),
         dashboard_layout: user_data.dashboard_layout.clone(),
+        // Preference updates go through the dedicated
+        // PATCH /api/users/me/preferences endpoint, not this
+        // general-purpose user update.
+        locale: None,
+        timezone: None,
     };
 
     match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
@@ -2335,6 +2342,8 @@ pub async fn bulk_users(
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                     signature: None,
                     dashboard_layout: None,
+                    locale: None,
+                    timezone: None,
                 };
 
                 if repository::update_user(&uuid, user_update, &mut conn, Some(search_service.get_ref())).is_ok() {

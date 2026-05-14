@@ -461,6 +461,8 @@ mod tests {
             updated_at: None,
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
         };
 
         let updated = update_user(&user.uuid, update, &mut conn, None).unwrap();

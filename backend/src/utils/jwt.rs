@@ -564,6 +564,8 @@ mod tests {
             signature: None,
             dashboard_layout: None,
             feature_flag_overrides: serde_json::json!({}),
+            locale: None,
+            timezone: None,
         };
 
         let sid = uuid::Uuid::new_v4();

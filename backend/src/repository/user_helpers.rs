@@ -187,6 +187,8 @@ pub fn find_or_create_guest_user(
             mfa_backup_codes: None,
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
         };
 
         match create_user_with_email(
@@ -434,6 +436,8 @@ mod tests {
             mfa_backup_codes: None,
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
         };
 
         let (user, email_record) = create_user_with_email(

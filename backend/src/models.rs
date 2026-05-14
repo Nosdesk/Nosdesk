@@ -1349,6 +1349,15 @@ pub struct User {
     /// `site_settings.feature_flags`. Used to opt individuals into
     /// staged rollouts before flipping the workspace default.
     pub feature_flag_overrides: serde_json::Value,
+    /// Preferred BCP-47 locale (e.g. `en-US`, `en-GB`, `de-DE`).
+    /// `None` means "inherit from site_settings.default_locale".
+    /// Resolved via `utils::locale::resolve_locale`.
+    pub locale: Option<String>,
+    /// Preferred IANA timezone (e.g. `Europe/Berlin`). Never a
+    /// bare offset — those don't encode DST. `None` means
+    /// "inherit from site_settings.default_timezone". Resolved
+    /// via `utils::locale::resolve_timezone`.
+    pub timezone: Option<String>,
 }
 
 // New user for creation
@@ -1373,6 +1382,14 @@ pub struct NewUser {
     pub signature: Option<String>,
     #[serde(default)]
     pub dashboard_layout: Option<serde_json::Value>,
+    /// Locale parsed from inbound mail (Content-Language) at
+    /// guest-user creation time. Staff users start as `None` and
+    /// pick up an auto-detected zone from the frontend on first
+    /// login.
+    #[serde(default)]
+    pub locale: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 // Add a separate struct for user registration with password
@@ -1410,6 +1427,11 @@ pub struct UserUpdate {
     /// client-side: the frontend computes the role default and sends
     /// it as a concrete payload.
     pub dashboard_layout: Option<serde_json::Value>,
+    /// `Option<Option<String>>` so the API can distinguish
+    /// "don't touch" from "clear back to site default". Validated
+    /// upstream against BCP-47 / IANA TZDB.
+    pub locale: Option<Option<String>>,
+    pub timezone: Option<Option<String>>,
 }
 
 // User update with password for admin/user management
@@ -2921,6 +2943,15 @@ pub struct SiteSettings {
     /// object = all flags at code-default. Per-user overrides on the
     /// `users` table merge on top at request time.
     pub feature_flags: serde_json::Value,
+    /// System-wide default BCP-47 locale used when the user has no
+    /// preference and (for guests) when the inbound mail's
+    /// `Content-Language` was missing or unsupported. Defaults to
+    /// `en-US`; operator can change via admin settings.
+    pub default_locale: String,
+    /// System-wide default IANA timezone used when the user has no
+    /// preference. Defaults to `UTC`; operator typically sets this
+    /// to the team's working zone (e.g. `Australia/Sydney`).
+    pub default_timezone: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -2944,6 +2975,8 @@ pub struct UpdateSiteSettings {
     pub guest_ticket_intro_message: Option<Option<String>>,
     pub channel_auto_ack_enabled: Option<bool>,
     pub channel_auto_ack_template: Option<Option<String>>,
+    pub default_locale: Option<String>,
+    pub default_timezone: Option<String>,
 }
 
 // API response for site settings (without internal fields)

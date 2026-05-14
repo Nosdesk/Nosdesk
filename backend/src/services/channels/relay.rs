@@ -137,6 +137,8 @@ mod tests {
             mfa_backup_codes: None,
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
         };
         let (user, _) = create_user_with_email(
             user,

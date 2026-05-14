@@ -77,6 +77,8 @@ impl NewUserBuilder {
             mfa_backup_codes: None,
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
         };
         (new_user, self.email)
     }
@@ -99,6 +101,8 @@ impl NewUserBuilder {
             mfa_backup_codes: None,
             signature: None,
             dashboard_layout: None,
+            locale: None,
+            timezone: None,
         }
     }
 }
