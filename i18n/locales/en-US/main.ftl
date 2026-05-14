@@ -54,6 +54,36 @@ password-reset-body-text =
 
     -- { $app }
 invitation-subject = You've Been Invited to { $app } - Set Up Your Account
+# Invitation email body. HTML keys carry inline <strong>
+# emphasis around variables; variables themselves are HTML-
+# escaped at the Rust boundary. Plaintext body is one Fluent
+# multi-line value carrying the same prose.
+invitation-title = Welcome to { $app }!
+invitation-greeting = Hello <strong>{ $name }</strong>,
+invitation-intro = You've been invited to join <strong>{ $app }</strong> by <strong>{ $by }</strong>.
+invitation-action-prompt = To complete your account setup and create your password, click the button below:
+invitation-cta-label = Set Up Your Account
+invitation-notice-expiry = This invitation link will expire in <strong>7 days</strong>
+invitation-notice-create-password = You'll need to create a password during setup
+invitation-notice-strong-password = Choose a strong password with at least 8 characters
+invitation-notice-unexpected = If you didn't expect this invitation, you can safely ignore this email
+invitation-footer = If you have any questions, please contact your system administrator.
+invitation-body-text =
+    Hello { $name },
+
+    You've been invited to join { $app } by { $by }.
+
+    To complete your account setup and create your password, open this link in your browser:
+
+    { $link }
+
+    A few things to know:
+      - This invitation will expire in 7 days.
+      - You'll create a password during setup.
+      - Choose a strong password with at least 8 characters.
+      - If you didn't expect this invitation, you can safely ignore this email.
+
+    -- { $app }
 
 # Notification email subjects. Each stamps the workspace name in
 # brackets so inbox grouping by sender + subject prefix still

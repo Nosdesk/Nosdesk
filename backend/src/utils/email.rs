@@ -746,63 +746,82 @@ impl EmailService {
     ) -> (String, String, String) {
         let setup_link = format!("{}/accept-invitation?token={}", branding.base_url, invitation_token);
         let template = EmailTemplate::new(branding);
+        let tr = |key: &str, args: &[(&str, fluent_bundle::FluentValue<'static>)]| {
+            crate::utils::i18n::tr_with(locale, key, args)
+        };
+
+        // HTML-escape user-supplied / branding strings before
+        // handing them to Fluent for the HTML keys; plaintext
+        // path passes raw values.
+        let name_html = escape_html(user_name);
+        let app_html = escape_html(&branding.app_name);
+        let by_html = escape_html(invited_by);
+
+        let title = tr("invitation-title", &[("app", app_html.clone().into())]);
+        let greeting = tr("invitation-greeting", &[("name", name_html.clone().into())]);
+        let intro = tr(
+            "invitation-intro",
+            &[
+                ("app", app_html.clone().into()),
+                ("by", by_html.clone().into()),
+            ],
+        );
+        let action_prompt = tr("invitation-action-prompt", &[]);
+        let cta_label = tr("invitation-cta-label", &[]);
+        let footer = tr("invitation-footer", &[]);
+        let notice_items_owned: Vec<String> = [
+            "invitation-notice-expiry",
+            "invitation-notice-create-password",
+            "invitation-notice-strong-password",
+            "invitation-notice-unexpected",
+        ]
+        .iter()
+        .map(|key| tr(key, &[]))
+        .collect();
+        let notice_items: Vec<&str> = notice_items_owned.iter().map(String::as_str).collect();
 
         let content = format!(
             r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                Hello <strong>{}</strong>,
+                {greeting}
             </p>
             <p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                You've been invited to join <strong>{}</strong> by <strong>{}</strong>.
+                {intro}
             </p>
             <p style="margin: 0 0 8px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                To complete your account setup and create your password, click the button below:
-            </p>"#,
-            escape_html(user_name),
-            escape_html(&branding.app_name),
-            escape_html(invited_by)
+                {action_prompt}
+            </p>"#
         );
 
-        // Use green/success color for welcome emails
+        // Green/success accent — the invitation flow is positive
+        // by intent (joining a workspace), distinct from password
+        // reset's warning amber.
         let welcome_color = "#059669";
 
         let html_body = template.build(
-            &format!("Welcome to {}!", branding.app_name),
+            &title,
             welcome_color,
             &content,
-            "Set Up Your Account",
+            &cta_label,
             &setup_link,
             welcome_color,
             NoticeType::Info,
-            &[
-                "This invitation link will expire in <strong>7 days</strong>",
-                "You'll need to create a password during setup",
-                "Choose a strong password with at least 8 characters",
-                "If you didn't expect this invitation, you can safely ignore this email",
-            ],
-            "If you have any questions, please contact your system administrator.",
+            &notice_items,
+            &footer,
         );
 
-        let subject = crate::utils::i18n::tr_with(
-            locale,
+        let subject = tr(
             "invitation-subject",
             &[("app", branding.app_name.clone().into())],
         );
 
-        let body_text = format!(
-            "Hello {name},\n\n\
-             You've been invited to join {app} by {by}.\n\n\
-             To complete your account setup and create your password, open this link:\n\n\
-             {link}\n\n\
-             A few things to know:\n\
-               - This invitation will expire in 7 days.\n\
-               - You'll create a password during setup.\n\
-               - Choose a strong password with at least 8 characters.\n\
-               - If you didn't expect this invitation, you can safely ignore this email.\n\n\
-             — {app}\n",
-            name = user_name,
-            app = branding.app_name,
-            by = invited_by,
-            link = setup_link,
+        let body_text = tr(
+            "invitation-body-text",
+            &[
+                ("name", user_name.to_string().into()),
+                ("app", branding.app_name.clone().into()),
+                ("by", invited_by.to_string().into()),
+                ("link", setup_link.clone().into()),
+            ],
         );
 
         (subject, html_body, body_text)

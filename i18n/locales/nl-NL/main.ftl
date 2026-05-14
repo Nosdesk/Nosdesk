@@ -18,6 +18,33 @@ unread-count = { $count ->
 # Transactional email subjects.
 password-reset-subject = Reset uw { $app }-wachtwoord
 invitation-subject = U bent uitgenodigd voor { $app } - Account instellen
+# Invitation email body.
+invitation-title = Welkom bij { $app }!
+invitation-greeting = Hallo <strong>{ $name }</strong>,
+invitation-intro = U bent uitgenodigd voor <strong>{ $app }</strong> door <strong>{ $by }</strong>.
+invitation-action-prompt = Klik op de knop hieronder om uw account in te stellen en een wachtwoord aan te maken:
+invitation-cta-label = Account instellen
+invitation-notice-expiry = Deze uitnodigingslink verloopt over <strong>7 dagen</strong>
+invitation-notice-create-password = U maakt tijdens het instellen een wachtwoord aan
+invitation-notice-strong-password = Kies een sterk wachtwoord van minstens 8 tekens
+invitation-notice-unexpected = Als u deze uitnodiging niet verwachtte, kunt u deze e-mail negeren
+invitation-footer = Neem voor vragen contact op met uw systeembeheerder.
+invitation-body-text =
+    Hallo { $name },
+
+    U bent uitgenodigd voor { $app } door { $by }.
+
+    Open deze link in uw browser om uw account in te stellen en een wachtwoord aan te maken:
+
+    { $link }
+
+    Een paar punten om te weten:
+      - Deze uitnodiging verloopt over 7 dagen.
+      - U maakt tijdens het instellen een wachtwoord aan.
+      - Kies een sterk wachtwoord van minstens 8 tekens.
+      - Als u deze uitnodiging niet verwachtte, kunt u deze e-mail negeren.
+
+    -- { $app }
 
 # Notification email subjects.
 notif-ticket-assigned = [{ $app }] Ticket toegewezen: { $title }

@@ -44,6 +44,34 @@ password-reset-body-text =
 
     -- { $app }
 invitation-subject = You've Been Invited to { $app } - Set Up Your Account
+# en-AU keeps the G'day greeting for the demo divergence (see
+# password-reset-greeting in this file).
+invitation-title = Welcome to { $app }!
+invitation-greeting = G'day <strong>{ $name }</strong>,
+invitation-intro = You've been invited to join <strong>{ $app }</strong> by <strong>{ $by }</strong>.
+invitation-action-prompt = To complete your account setup and create your password, click the button below:
+invitation-cta-label = Set Up Your Account
+invitation-notice-expiry = This invitation link will expire in <strong>7 days</strong>
+invitation-notice-create-password = You'll need to create a password during setup
+invitation-notice-strong-password = Choose a strong password with at least 8 characters
+invitation-notice-unexpected = If you didn't expect this invitation, you can safely ignore this email
+invitation-footer = If you have any questions, contact your system administrator.
+invitation-body-text =
+    G'day { $name },
+
+    You've been invited to join { $app } by { $by }.
+
+    To complete your account setup and create your password, open this link in your browser:
+
+    { $link }
+
+    A few things to know:
+      - This invitation will expire in 7 days.
+      - You'll create a password during setup.
+      - Choose a strong password with at least 8 characters.
+      - If you didn't expect this invitation, you can safely ignore this email.
+
+    -- { $app }
 
 notif-ticket-assigned = [{ $app }] You've been assigned: { $title }
 notif-ticket-status-changed = [{ $app }] Status changed: { $title }

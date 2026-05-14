@@ -21,6 +21,33 @@ unread-count = { $count ->
 # Transactional email subjects.
 password-reset-subject = Réinitialiser votre mot de passe { $app }
 invitation-subject = Vous avez été invité à rejoindre { $app } - Créez votre compte
+# Invitation email body.
+invitation-title = Bienvenue sur { $app } !
+invitation-greeting = Bonjour <strong>{ $name }</strong>,
+invitation-intro = Vous avez été invité à rejoindre <strong>{ $app }</strong> par <strong>{ $by }</strong>.
+invitation-action-prompt = Pour finaliser la création de votre compte et choisir votre mot de passe, cliquez sur le bouton ci-dessous :
+invitation-cta-label = Configurer mon compte
+invitation-notice-expiry = Ce lien d'invitation expirera dans <strong>7 jours</strong>
+invitation-notice-create-password = Vous devrez choisir un mot de passe pendant la configuration
+invitation-notice-strong-password = Choisissez un mot de passe robuste d'au moins 8 caractères
+invitation-notice-unexpected = Si vous n'attendiez pas cette invitation, vous pouvez ignorer cet e-mail
+invitation-footer = Pour toute question, contactez votre administrateur système.
+invitation-body-text =
+    Bonjour { $name },
+
+    Vous avez été invité à rejoindre { $app } par { $by }.
+
+    Pour finaliser la création de votre compte et choisir votre mot de passe, ouvrez ce lien dans votre navigateur :
+
+    { $link }
+
+    À savoir :
+      - Cette invitation expirera dans 7 jours.
+      - Vous choisirez un mot de passe pendant la configuration.
+      - Choisissez un mot de passe robuste d'au moins 8 caractères.
+      - Si vous n'attendiez pas cette invitation, vous pouvez ignorer cet e-mail.
+
+    -- { $app }
 
 # Notification email subjects.
 notif-ticket-assigned = [{ $app }] Ticket assigné : { $title }
