@@ -30,6 +30,7 @@ import {
   type NotificationFilter,
 } from '@/composables/useNotificationFeed'
 import { formatInboxTime, parseDate } from '@/utils/dateUtils'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import PageScroll from '@/components/common/PageScroll.vue'
@@ -38,6 +39,8 @@ import { useInboxLoader } from '@/loaders/inboxLoader'
 
 const router = useRouter()
 const store = useNotificationsStore()
+const fluent = useFluent()
+const tInbox = (key: string, args?: Record<string, string>) => fluent.$t(key, args)
 
 // Subscribe to the route Data Loader. The loader has already
 // run during navigation and primed the Pinia Colada caches
@@ -575,7 +578,7 @@ onBeforeUnmount(() => {
                     {{ notification.body }}
                   </p>
                   <p class="mt-1 text-xs text-tertiary">
-                    {{ formatInboxTime(notification.created_at) }}
+                    {{ formatInboxTime(notification.created_at, tInbox) }}
                   </p>
                 </div>
 

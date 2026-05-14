@@ -59,3 +59,12 @@ settings-localization-save-failed = Failed to save preferences
 # Admin customisation in `site_settings.channel_auto_ack_template`
 # bypasses this entirely (custom copy is the source of truth).
 auto-ack-default-template = Your request (#{ $ticket_id }) has been received and is being reviewed by our support team. To add additional comments, reply to this email.
+
+# Inbox-time connecting copy. The bare time string ("3:42 PM"),
+# weekday ("Mon"), and relative phrases ("5 minutes ago") all
+# come from Intl.DateTimeFormat / Intl.RelativeTimeFormat in the
+# active locale; these keys are just the glue that strings them
+# together for "today" / "yesterday" / "this week" buckets.
+inbox-time-just-now = Just now
+inbox-time-yesterday = Yesterday at { $time }
+inbox-time-weekday = { $day } at { $time }

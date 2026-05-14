@@ -43,10 +43,16 @@ export function useDateFormat(
   // Tick ref for live updates
   const tick = ref(0)
 
-  // Formatted date - recomputes when date, timezone, or tick changes
+  // Formatted date — recomputes when the date, the active
+  // timezone, the active locale, or the tick changes. Reading
+  // dateStore.locale here (even unused) is what makes Vue's
+  // reactivity track it, so flipping locales in settings flows
+  // through to every <DateCell> instance.
   const formatted = computed(() => {
-    // Access tick to trigger recomputation
+    // Touch reactivity triggers.
     tick.value
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    dateStore.locale
 
     const dateValue = dateRef.value
 

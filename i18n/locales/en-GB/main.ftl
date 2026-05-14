@@ -43,3 +43,7 @@ settings-localization-saved = Language and timezone preferences saved
 settings-localization-save-failed = Failed to save preferences
 
 auto-ack-default-template = Your request (#{ $ticket_id }) has been received and is being reviewed by our support team. To add additional comments, reply to this email.
+
+inbox-time-just-now = Just now
+inbox-time-yesterday = Yesterday at { $time }
+inbox-time-weekday = { $day } at { $time }

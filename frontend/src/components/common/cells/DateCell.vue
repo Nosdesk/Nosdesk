@@ -21,6 +21,16 @@ const dateStore = useDateStore()
 const formattedDate = computed(() => {
   if (!props.value) return props.emptyText
 
+  // Touch dateStore.locale / effectiveTimezone so Vue's reactivity
+  // re-runs this computed when the user flips either in settings.
+  // The helpers below read the same values from globalConfig at
+  // call time, but the computed needs a dependency on the store
+  // refs themselves to know it should re-evaluate.
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  dateStore.locale
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  dateStore.effectiveTimezone
+
   switch (props.format) {
     case 'relative':
       return formatRelativeTime(props.value)
@@ -43,7 +53,7 @@ const timezoneAbbr = computed(() => {
 
   try {
     const date = new Date(props.value)
-    const formatter = new Intl.DateTimeFormat('en-US', {
+    const formatter = new Intl.DateTimeFormat(dateStore.locale, {
       timeZone: dateStore.effectiveTimezone,
       timeZoneName: 'short'
     })

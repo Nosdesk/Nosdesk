@@ -32,6 +32,7 @@ import {
   type NotificationFilter,
 } from '@/composables/useNotificationFeed'
 import { formatInboxTime, parseDate } from '@/utils/dateUtils'
+import { useFluent } from 'fluent-vue'
 import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import Icon from './common/Icon.vue'
 import AsyncBoundary from './common/AsyncBoundary.vue'
@@ -41,6 +42,11 @@ import type { PopoverAnchor } from '@/composables/usePopover'
 const router = useRouter()
 const store = useNotificationsStore()
 const { lastAnnouncement } = storeToRefs(store)
+
+// Passed into formatInboxTime so "Yesterday at" / "Mon at"
+// connectors come from the active locale's FTL catalogue.
+const fluent = useFluent()
+const tInbox = (key: string, args?: Record<string, string>) => fluent.$t(key, args)
 
 // Shared notification wiring (queries, mutations, derived state,
 // presentation helpers). The bell and the inbox both consume
@@ -356,7 +362,7 @@ onMounted(() => {
                   {{ notification.body }}
                 </p>
                 <p class="mt-1 text-xs text-tertiary">
-                  {{ formatInboxTime(notification.created_at) }}
+                  {{ formatInboxTime(notification.created_at, tInbox) }}
                 </p>
               </div>
 
