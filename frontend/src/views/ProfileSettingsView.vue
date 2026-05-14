@@ -11,6 +11,7 @@ import SectionCard from '@/components/common/SectionCard.vue';
 import {
   UserProfileCard,
   AppearanceSettings,
+  LocalizationSettings,
   NotificationSettings,
   SecuritySettings,
   MFASettings,
@@ -684,10 +685,15 @@ const cancelDelete = () => {
           </div>
 
           <!-- Appearance Tab -->
-          <div v-if="activeTab === 'appearance'">
+          <div v-if="activeTab === 'appearance'" class="flex flex-col gap-4">
             <AppearanceSettings
               :target-user-uuid="targetUserUuid"
               :target-user-theme="targetUser?.theme"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+            <LocalizationSettings
+              :target-user-uuid="targetUserUuid"
               @success="handleSuccess"
               @error="handleError"
             />

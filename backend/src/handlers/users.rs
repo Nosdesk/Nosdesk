@@ -1665,27 +1665,30 @@ pub async fn update_user_by_uuid(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    // Compose the preferences patch. Empty-string signature is
-    // treated as "clear back to None" (matches the previous
-    // textarea-emptied semantic). theme + dashboard_layout pass
-    // through; locale/timezone are not exposed on this endpoint
-    // (use PATCH /api/users/me/preferences instead).
+    // Compose the preferences patch. Empty-string signature /
+    // locale / timezone are treated as "clear back to None"
+    // (matches the textarea-emptied semantic for signature, and
+    // gives the settings UI a way to revert to site defaults
+    // without a separate API call).
+    let empty_to_none = |s: &String| -> Option<String> {
+        if s.trim().is_empty() {
+            None
+        } else {
+            Some(s.clone())
+        }
+    };
     let prefs_update = crate::models::UpdateUserPreferences {
         theme: user_data.theme.clone().map(Some),
-        signature: user_data.signature.as_ref().map(|s| {
-            if s.trim().is_empty() {
-                None
-            } else {
-                Some(s.clone())
-            }
-        }),
+        signature: user_data.signature.as_ref().map(empty_to_none),
         dashboard_layout: user_data.dashboard_layout.clone().map(Some),
-        locale: None,
-        timezone: None,
+        locale: user_data.locale.as_ref().map(empty_to_none),
+        timezone: user_data.timezone.as_ref().map(empty_to_none),
     };
     let prefs_changed = user_data.theme.is_some()
         || user_data.signature.is_some()
-        || user_data.dashboard_layout.is_some();
+        || user_data.dashboard_layout.is_some()
+        || user_data.locale.is_some()
+        || user_data.timezone.is_some();
 
     match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
         Ok(updated_user) => {

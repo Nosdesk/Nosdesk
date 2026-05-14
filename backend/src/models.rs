@@ -1410,6 +1410,14 @@ pub struct UserUpdateWithPassword {
     /// Dashboard layout JSON (see `UserUpdate::dashboard_layout`).
     #[serde(default)]
     pub dashboard_layout: Option<serde_json::Value>,
+    /// BCP-47 locale preference. `None` in the payload = no change;
+    /// empty string = clear back to "inherit site default".
+    #[serde(default)]
+    pub locale: Option<String>,
+    /// IANA timezone preference. Same omission / empty-string
+    /// semantics as `locale`.
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 // User profile update for profile management

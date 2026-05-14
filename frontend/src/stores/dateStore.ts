@@ -68,6 +68,22 @@ export const useDateStore = defineStore('date', () => {
   }
 
   /**
+   * Set the user's explicit locale preference. Pass `null` to
+   * revert to "inherit from site default" — the next `/me`
+   * response repopulates `locale` from the resolver chain.
+   *
+   * Optimistic local update only; persisting to the backend is
+   * the caller's job (PATCH /users/:uuid with `locale`).
+   */
+  function setUserLocale(next: string | null) {
+    userLocale.value = next
+    if (next) {
+      locale.value = next
+    }
+    updateGlobalConfig()
+  }
+
+  /**
    * Seed all four refs from a `/auth/me`-shaped user object.
    *
    * `timezone` / `locale` carry the raw preference (null when the
@@ -95,6 +111,7 @@ export const useDateStore = defineStore('date', () => {
     effectiveTimezone,
     locale,
     setUserTimezone,
+    setUserLocale,
     autoDetectTimezone,
     loadFromUser
   }
