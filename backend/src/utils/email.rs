@@ -117,7 +117,12 @@ impl<'a> EmailTemplate<'a> {
         Self { branding }
     }
 
-    /// Build complete HTML email with branding
+    /// Build complete HTML email with branding. `lang` lands on
+    /// the `<html lang="...">` attribute so screen readers reading
+    /// the rendered message announce the right pronunciation rules
+    /// and clients that auto-translate inbound mail know to skip
+    /// (the body already matches).
+    #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
         title: &str,
@@ -129,13 +134,14 @@ impl<'a> EmailTemplate<'a> {
         notice_type: NoticeType,
         notice_items: &[&str],
         footer_text: &str,
+        lang: &str,
     ) -> String {
         let logo_html = self.build_logo_section();
         let notice_html = self.build_notice_section(notice_type, notice_items);
 
         format!(
             r#"<!DOCTYPE html>
-<html lang="en">
+<html lang="{lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -673,6 +679,7 @@ impl EmailService {
             NoticeType::Warning,
             &notice_items,
             &footer,
+            &locale.to_string(),
         );
 
         let subject = tr(
@@ -807,6 +814,7 @@ impl EmailService {
             NoticeType::Info,
             &notice_items,
             &footer,
+            &locale.to_string(),
         );
 
         let subject = tr(
@@ -864,6 +872,11 @@ impl EmailService {
         // reads as "your helpdesk" rather than a generic invitation.
         let accent = &branding.primary_color;
 
+        // No recipient locale to resolve from at this point — the
+        // guest has just submitted a form, no account exists yet,
+        // so we default to "en". A future commit could resolve
+        // the inbound `Accept-Language` header or
+        // site_settings.default_locale here.
         let html_body = template.build(
             "Confirm your ticket submission",
             accent,
@@ -877,6 +890,7 @@ impl EmailService {
                 "Confirming also gives you access to your ticket portal to track progress and reply",
             ],
             "If you didn't submit a ticket, you can safely ignore this email — no account will be created.",
+            "en",
         );
 
         let subject = format!("Confirm your ticket submission to {}", branding.app_name);
@@ -1035,6 +1049,7 @@ impl EmailService {
             NoticeType::Info,
             &[],
             &footer,
+            &locale.to_string(),
         );
 
         let body_text = tr(
