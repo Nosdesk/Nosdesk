@@ -13,7 +13,7 @@
  * away so date formatting + active Fluent bundle flip immediately.
  * On API failure revert.
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDateStore } from '@/stores/dateStore'
@@ -21,6 +21,8 @@ import { SUPPORTED_LOCALES } from '@/i18n'
 import userService from '@/services/userService'
 import SectionCard from '@/components/common/SectionCard.vue'
 import Spinner from '@/components/common/Spinner.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
+import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue'
 
 const authStore = useAuthStore()
 const dateStore = useDateStore()
@@ -82,9 +84,13 @@ const localeOptions = computed(() => [
 ])
 
 // Timezone options. `Intl.supportedValuesOf('timeZone')` returns
-// the IANA tz database — ~600 names. Group with a "Browser-
-// detected" sentinel at the top so the default path is one click.
+// the IANA tz database (~600 names in modern browsers). Each
+// option carries label = city, description = "Region · UTC offset
+// · current local time" so the picker reads at a glance instead
+// of expecting the user to know their IANA path. The "Use device
+// timezone" sentinel is pinned at the top.
 const browserTimezone = computed(() => dateStore.browserTimezone)
+
 const ianaTimezones = computed<string[]>(() => {
   if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
     try {
@@ -95,6 +101,90 @@ const ianaTimezones = computed<string[]>(() => {
     }
   }
   return []
+})
+
+/**
+ * For an IANA name like `America/Indiana/Indianapolis`:
+ *   city   = "Indianapolis"
+ *   region = "America"
+ * Underscores become spaces so labels read like normal English.
+ */
+function splitIana(name: string): { city: string; region: string } {
+  const parts = name.split('/')
+  const city = parts[parts.length - 1].replace(/_/g, ' ')
+  const region = parts[0].replace(/_/g, ' ')
+  return { city, region }
+}
+
+/** Current UTC offset for `tz` as a short string ("UTC+10:00"). */
+function offsetFor(tz: string, now: Date): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en', {
+      timeZone: tz,
+      timeZoneName: 'longOffset',
+    }).formatToParts(now)
+    const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? ''
+    // longOffset produces "GMT+10:00"; normalise to "UTC+10:00".
+    return raw.replace(/^GMT/, 'UTC')
+  } catch {
+    return ''
+  }
+}
+
+/** Localised "3:47 PM" rendering of the current moment in `tz`. */
+function localTimeFor(tz: string, now: Date): string {
+  try {
+    return new Intl.DateTimeFormat(dateStore.locale, {
+      timeZone: tz,
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(now)
+  } catch {
+    return ''
+  }
+}
+
+// Recompute every minute so the displayed local times don't drift
+// while the picker is open. Cheap; ~600 options × one Intl call.
+const tick = ref(0)
+let tickInterval: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  tickInterval = setInterval(() => {
+    tick.value++
+  }, 60_000)
+})
+onBeforeUnmount(() => {
+  if (tickInterval) clearInterval(tickInterval)
+})
+
+const timezoneOptions = computed<DropdownOption[]>(() => {
+  // Read tick so this re-evaluates on the minute.
+  void tick.value
+  const now = new Date()
+  const opts: DropdownOption[] = []
+
+  // Pinned "use device" sentinel.
+  const browserOffset = offsetFor(browserTimezone.value, now)
+  const browserLocal = localTimeFor(browserTimezone.value, now)
+  opts.push({
+    value: 'system',
+    label: fluent.$t('settings-timezone-use-device'),
+    description: [browserTimezone.value, browserOffset, browserLocal]
+      .filter(Boolean)
+      .join(' · '),
+  })
+
+  for (const name of ianaTimezones.value) {
+    const { city, region } = splitIana(name)
+    const offset = offsetFor(name, now)
+    const local = localTimeFor(name, now)
+    opts.push({
+      value: name,
+      label: city,
+      description: [region, offset, local].filter(Boolean).join(' · '),
+    })
+  }
+  return opts
 })
 
 const isUpdating = ref(false)
@@ -200,53 +290,32 @@ const dirty = computed(
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <!-- Locale picker -->
         <div class="flex flex-col gap-2">
-          <label
-            for="locale-select"
-            class="text-sm font-medium text-primary"
-          >
+          <label class="text-sm font-medium text-primary">
             {{ $t('settings-language-label') }}
           </label>
-          <select
-            id="locale-select"
+          <BaseDropdown
             v-model="selectedLocale"
+            :options="localeOptions"
             :disabled="isUpdating"
-            class="w-full px-3 py-2 bg-surface-alt text-primary rounded-lg border border-default focus:ring-2 focus:ring-accent focus:outline-none text-sm"
-          >
-            <option
-              v-for="opt in localeOptions"
-              :key="opt.value || 'default'"
-              :value="opt.value"
-            >
-              {{ opt.label }}
-            </option>
-          </select>
+            :placeholder="$t('settings-language-label')"
+            size="sm"
+          />
         </div>
 
         <!-- Timezone picker -->
         <div class="flex flex-col gap-2">
-          <label
-            for="timezone-select"
-            class="text-sm font-medium text-primary"
-          >
+          <label class="text-sm font-medium text-primary">
             {{ $t('settings-timezone-label') }}
           </label>
-          <select
-            id="timezone-select"
+          <SearchableDropdown
             v-model="selectedTimezone"
+            :options="timezoneOptions"
             :disabled="isUpdating"
-            class="w-full px-3 py-2 bg-surface-alt text-primary rounded-lg border border-default focus:ring-2 focus:ring-accent focus:outline-none text-sm"
-          >
-            <option value="system">
-              {{ $t('settings-timezone-browser-detected', { tz: browserTimezone }) }}
-            </option>
-            <option
-              v-for="tz in ianaTimezones"
-              :key="tz"
-              :value="tz"
-            >
-              {{ tz }}
-            </option>
-          </select>
+            :placeholder="$t('settings-timezone-label')"
+            :search-placeholder="$t('settings-timezone-search-placeholder')"
+            :empty-message="$t('settings-timezone-no-matches')"
+            size="sm"
+          />
         </div>
       </div>
 
