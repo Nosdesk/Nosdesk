@@ -7,6 +7,7 @@ import authService from '@/services/authService';
 import router from '@/router';
 import type { User, LoginCredentials } from '@/types';
 import { useThemeStore } from './theme';
+import { useDateStore } from './dateStore';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -88,6 +89,13 @@ export const useAuthStore = defineStore('auth', () => {
         // Load theme from user profile
         const themeStore = useThemeStore();
         themeStore.loadThemeFromUser(userData);
+
+        // Seed locale + timezone from the backend's resolved
+        // effective_* fields. The settings picker reads the raw
+        // userLocale / userTimezone prefs; everything else reads
+        // `locale` / `effectiveTimezone`.
+        const dateStore = useDateStore();
+        dateStore.loadFromUser(userData);
 
         // Reset cooldown on success
         lastFetchAttempt = 0;
@@ -252,9 +260,11 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem('authProvider', 'local');
       axios.defaults.headers.common['X-Auth-Provider'] = 'local';
 
-      // Load theme from user profile
+      // Load theme + locale/timezone from user profile.
       const themeStore = useThemeStore();
       themeStore.loadThemeFromUser(userData);
+      const dateStore = useDateStore();
+      dateStore.loadFromUser(userData);
     }
 
     // MFA Setup for Login - Start setup process for users who need MFA

@@ -62,6 +62,14 @@ services:
         - action: sync
           path: ./backend/migrations
           target: /app/migrations
+        # Shared Fluent message catalogues live at workspace root
+        # (so the frontend can import the same files later). The
+        # backend `include_str!`s them via ../../../i18n/locales/...
+        # from src/utils/i18n.rs, which resolves to /i18n inside
+        # the container.
+        - action: sync+restart
+          path: ./i18n
+          target: /i18n
         # Manifest changes need cargo to re-resolve dependencies.
         # `sync+restart` syncs the file then restarts bacon, which
         # re-runs `cargo run` and picks up the new deps. Cheaper

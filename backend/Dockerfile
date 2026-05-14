@@ -50,6 +50,10 @@ COPY --from=cacher /usr/local/cargo /usr/local/cargo
 COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/src ./src
 COPY backend/migrations ./migrations
+# Shared Fluent catalogues. include_str! in src/utils/i18n.rs
+# resolves them via ../../../i18n/locales/... so mirror the host
+# workspace layout at /i18n inside the container.
+COPY i18n /i18n
 
 # Ed25519 root pubkey for the plugin registry trust chain. Baked
 # into the compiled binary via `option_env!("NOSDESK_ROOT_PUBKEY")`

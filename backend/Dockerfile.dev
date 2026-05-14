@@ -54,6 +54,13 @@ COPY backend/tests ./tests
 # `cargo test` works without a separate sync step.
 COPY backend/sync-models ./sync-models
 COPY backend/diesel.toml ./diesel.toml
+# Shared Fluent message catalogues. The backend `include_str!`s
+# these from src/utils/i18n.rs at compile time. Path lives at
+# workspace root (one level above `backend/`) so the frontend can
+# import the same files; in the container we mirror that layout
+# at `/i18n` so the `../../../i18n/locales/...` include path
+# resolves correctly.
+COPY i18n /i18n
 
 # Note: We don't pre-build here because target/ is mounted as a volume.
 # The first run will compile everything, subsequent runs use cached artifacts.

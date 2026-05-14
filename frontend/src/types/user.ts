@@ -45,6 +45,20 @@ export interface User {
   /** Per-user customised dashboard layout. `null` / absent means the
    * client falls back to the role default. */
   dashboard_layout?: DashboardLayout | null;
+  /** Raw BCP-47 locale preference. `null` / absent means "inherit
+   * from site default". The settings picker reads this; UI rendering
+   * uses `effective_locale` instead. */
+  locale?: string | null;
+  /** Raw IANA timezone preference. `null` / absent means "use the
+   * browser-detected zone". Settings picker reads this; date
+   * formatting uses `effective_timezone` instead. */
+  timezone?: string | null;
+  /** Server-resolved locale after walking user pref -> site default
+   * -> hardcoded fallback. Only present on /auth/me responses. */
+  effective_locale?: string | null;
+  /** Server-resolved timezone after walking the same chain. Only
+   * present on /auth/me responses. */
+  effective_timezone?: string | null;
   created_at: string;
   updated_at: string;
   open_ticket_count?: number;
