@@ -3,6 +3,12 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 
+// True only when invoked as `vite build --watch` (our
+// `dev:unified` script + the Docker frontend-watch service).
+// `vite build` without --watch leaves `build.watch` null so it
+// completes and exits like a one-shot build is expected to.
+const isWatchBuild = process.argv.includes("--watch");
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
@@ -43,6 +49,21 @@ export default defineConfig({
     sourcemap: false,
     // Skip minification in watch mode for faster rebuilds
     minify: process.env.NODE_ENV === 'production' ? 'esbuild' : false,
+    // Rollup `watch.include` extends what the watcher tracks
+    // when `vite build --watch` is running (our `dev:unified`
+    // script + the frontend-watch container). Without listing
+    // `../i18n/locales/**`, a *brand new* FTL file there
+    // doesn't trigger a rebuild: Vite's `import.meta.glob`
+    // only re-evaluates when a file already in the dep graph
+    // changes, so adding a locale requires a watcher restart.
+    // Gated on the `--watch` CLI flag because setting
+    // `build.watch` to any non-null object forces Vite into
+    // watch mode regardless of how it was invoked — including
+    // a plain `vite build`, which would then hang waiting for
+    // changes instead of completing.
+    watch: isWatchBuild
+      ? { include: ['src/**', '../i18n/locales/**'] }
+      : null,
     rollupOptions: {
       output: {
         manualChunks(id) {
