@@ -143,6 +143,7 @@ enum PluginCommand {
 enum DbCommand {
     /// Restore the database and uploaded files from a backup zip.
     /// Destructive: tables are replaced. Prompts unless --yes.
+    /// Refuses on a non-empty target database unless --force.
     /// Requires DATABASE_URL and the encryption env.
     Restore {
         #[arg(value_name = "FILE")]
@@ -153,6 +154,11 @@ enum DbCommand {
         password_env: Option<String>,
         #[arg(long, short = 'y', help = "Skip the confirmation prompt")]
         yes: bool,
+        #[arg(
+            long,
+            help = "Allow restore over a non-empty target database (replaces existing data)"
+        )]
+        force: bool,
     },
 }
 
@@ -545,7 +551,8 @@ fn run_db(cmd: DbCommand) -> Result<()> {
             password,
             password_env,
             yes,
-        } => db_restore(&file, password, password_env, yes),
+            force,
+        } => db_restore(&file, password, password_env, yes, force),
     }
 }
 
@@ -554,6 +561,7 @@ fn db_restore(
     password: Option<String>,
     password_env: Option<String>,
     yes: bool,
+    force: bool,
 ) -> Result<()> {
     if !file.exists() {
         bail!("backup file not found: {}", file.display());
@@ -600,8 +608,13 @@ fn db_restore(
     }
 
     let mut conn = connect_db()?;
-    let stats = backup_service::restore_database(&mut conn, file, password.as_deref())
-        .map_err(|e| anyhow!("database restore failed: {e}"))?;
+    let stats = backup_service::restore_database(
+        &mut conn,
+        file,
+        password.as_deref(),
+        backup_service::RestoreOptions { force_non_empty: force },
+    )
+    .map_err(|e| anyhow!("database restore failed: {e}"))?;
     let files_restored = backup_service::restore_backup_files(file)
         .map_err(|e| anyhow!("file restore failed: {e}"))?;
 
@@ -610,6 +623,18 @@ fn db_restore(
     println!("  tables restored:  {}", stats.tables_restored);
     println!("  records restored: {}", stats.records_restored);
     println!("  files restored:   {}", files_restored);
+    if !stats.per_table.is_empty() {
+        println!();
+        println!("Per-table breakdown:");
+        for r in &stats.per_table {
+            if r.rows_attempted > 0 || r.rows_loaded > 0 {
+                println!(
+                    "  {:<32} {:>6} loaded / {:>6} attempted",
+                    r.table, r.rows_loaded, r.rows_attempted
+                );
+            }
+        }
+    }
     Ok(())
 }
 

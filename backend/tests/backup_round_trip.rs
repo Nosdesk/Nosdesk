@@ -141,11 +141,25 @@ fn backup_round_trip_preserves_seeded_rows() {
         "delete removed all seeded users"
     );
 
-    // Restore. ON CONFLICT DO NOTHING means rows that survived the delete
-    // (everything that wasn't ours) stay untouched; the seeded users come
-    // back from the zip.
-    let stats = backup_service::restore_database(&mut conn, &backup_path, None)
-        .expect("restore_database succeeded");
+    // The new restore semantics are full-replace, not merge: we
+    // truncate the user-table chain before restoring. CASCADE
+    // unwinds FKs from comments / tickets / etc. and the backup
+    // brings those back too. `force_non_empty: true` is required
+    // because the test DB still has other tables (settings,
+    // workflow_states, etc.) populated by migrations.
+    diesel::sql_query(
+        "TRUNCATE TABLE users RESTART IDENTITY CASCADE",
+    )
+    .execute(&mut conn)
+    .expect("truncate users cascade");
+
+    let stats = backup_service::restore_database(
+        &mut conn,
+        &backup_path,
+        None,
+        backup_service::RestoreOptions { force_non_empty: true },
+    )
+    .expect("restore_database succeeded");
     assert!(stats.tables_restored > 0, "at least one table restored");
     assert!(stats.records_restored >= 5, "at least our 5 seeded users restored");
 

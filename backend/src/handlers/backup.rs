@@ -460,7 +460,14 @@ pub async fn execute_restore(
     // `setup_restore_execute` flow below — the two paths now share the
     // same restore semantics, differing only in their auth gate
     // (admin claims here vs zero-users-on-system there).
-    let stats = match backup_service::restore_database(&mut conn, &file_path, body.password.as_deref()) {
+    let stats = match backup_service::restore_database(
+        &mut conn,
+        &file_path,
+        body.password.as_deref(),
+        // Admin auth is the upstream gate for this endpoint; the
+        // operator explicitly chose to restore over the live DB.
+        backup_service::RestoreOptions { force_non_empty: true },
+    ) {
         Ok(s) => s,
         Err(e) => {
             let _ = backup_repo::update_backup_job(&mut conn, job_id, BackupJobUpdate {
