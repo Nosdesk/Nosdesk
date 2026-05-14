@@ -1,0 +1,89 @@
+## Catalogue Fluent fr-FR (français métropolitain).
+##
+## DRAFT — Première traduction non révisée. Les locuteurs natifs
+## sont invités à proposer des corrections via une PR; les
+## changements sont des modifications de ce fichier uniquement,
+## aucun code à toucher.
+##
+## Convention: tutoiement non utilisé. L'interface s'adresse aux
+## utilisateurs à la deuxième personne du pluriel ("vous") comme
+## il est d'usage dans les applications professionnelles
+## francophones.
+
+# Generic
+greeting = Bonjour, { $name }.
+unread-count = { $count ->
+    [0] Aucun nouveau message.
+    [one] Un nouveau message.
+   *[other] { $count } nouveaux messages.
+}
+
+# Transactional email subjects.
+password-reset-subject = Réinitialiser votre mot de passe { $app }
+invitation-subject = Vous avez été invité à rejoindre { $app } - Créez votre compte
+
+# Notification email subjects.
+notif-ticket-assigned = [{ $app }] Ticket assigné : { $title }
+notif-ticket-status-changed = [{ $app }] Statut modifié : { $title }
+notif-comment-added = [{ $app }] Nouveau commentaire : { $title }
+notif-mentioned = [{ $app }] { $actor } vous a mentionné
+notif-ticket-created-requester = [{ $app }] Ticket créé : { $title }
+notif-doc-page-updated = [{ $app }] Page mise à jour : { $title }
+
+# Settings.
+settings-localization-title = Langue et fuseau horaire
+settings-localization-help = Détermine la langue des messages et l'affichage des dates. La valeur par défaut du site s'applique si rien n'est sélectionné.
+settings-language-label = Langue
+settings-timezone-label = Fuseau horaire
+settings-locale-site-default = Par défaut du site
+settings-locale-en-US = Anglais (États-Unis)
+settings-locale-en-GB = Anglais (Royaume-Uni)
+settings-locale-en-AU = Anglais (Australie)
+settings-locale-fr-FR = Français (France)
+settings-locale-nl-NL = Néerlandais (Pays-Bas)
+settings-timezone-browser-detected = Détecté par le navigateur ({ $tz })
+settings-timezone-use-device = Utiliser le fuseau de l'appareil
+settings-timezone-search-placeholder = Rechercher une ville ou un décalage (ex. Paris, UTC+1)
+settings-timezone-no-matches = Aucun fuseau ne correspond
+settings-save = Enregistrer
+settings-saving = Enregistrement...
+settings-localization-saved = Préférences de langue et de fuseau enregistrées
+settings-localization-save-failed = Échec de l'enregistrement des préférences
+
+# Channel auto-acknowledgement.
+auto-ack-default-template = Votre demande (#{ $ticket_id }) a été reçue et est en cours d'examen par notre équipe d'assistance. Pour ajouter d'autres commentaires, répondez à cet e-mail.
+
+# Inbox-time connecting copy.
+inbox-time-just-now = À l'instant
+inbox-time-yesterday = Hier à { $time }
+inbox-time-weekday = { $day } à { $time }
+
+# Password-reset email body.
+password-reset-title = Demande de réinitialisation du mot de passe
+password-reset-greeting = Bonjour <strong>{ $name }</strong>,
+password-reset-intro = Nous avons reçu une demande de réinitialisation du mot de passe de votre compte <strong>{ $app }</strong>. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail.
+password-reset-action-prompt = Pour réinitialiser votre mot de passe, cliquez sur le bouton ci-dessous :
+password-reset-cta-label = Réinitialiser le mot de passe
+password-reset-notice-expiry = Ce lien expirera dans <strong>1 heure</strong>
+password-reset-notice-single-use = Ce lien ne peut être utilisé qu'<strong>une seule fois</strong>
+password-reset-notice-never-share = Ne partagez jamais ce lien avec personne
+password-reset-notice-account-security = Si vous n'avez pas demandé cette réinitialisation, sécurisez immédiatement votre compte
+password-reset-footer = Pour toute question, contactez votre administrateur système.
+password-reset-body-text =
+    Bonjour { $name },
+
+    Nous avons reçu une demande de réinitialisation du mot de passe de votre compte { $app }. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail.
+
+    Pour réinitialiser votre mot de passe, ouvrez ce lien dans votre navigateur :
+
+    { $link }
+
+    Notes de sécurité :
+      - Ce lien expirera dans 1 heure.
+      - Ce lien ne peut être utilisé qu'une seule fois.
+      - Ne partagez jamais ce lien avec personne.
+      - Si vous n'avez pas demandé cette réinitialisation, sécurisez votre compte.
+
+    Pour toute question, contactez votre administrateur système.
+
+    -- { $app }

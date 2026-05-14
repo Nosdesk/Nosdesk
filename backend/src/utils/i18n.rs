@@ -29,6 +29,8 @@ const FTL_SOURCES: &[(&str, &str)] = &[
     ("en-US", include_str!("../../../i18n/locales/en-US/main.ftl")),
     ("en-GB", include_str!("../../../i18n/locales/en-GB/main.ftl")),
     ("en-AU", include_str!("../../../i18n/locales/en-AU/main.ftl")),
+    ("fr-FR", include_str!("../../../i18n/locales/fr-FR/main.ftl")),
+    ("nl-NL", include_str!("../../../i18n/locales/nl-NL/main.ftl")),
 ];
 
 type Bundle = FluentBundle<FluentResource>;
@@ -160,8 +162,8 @@ mod tests {
 
     #[test]
     fn unknown_locale_falls_back_to_default() {
-        // No catalogue for fr-FR; lookup should land on en-US.
-        let out = tr_with(&lang("fr-FR"), "greeting", &[("name", "Kyle".into())]);
+        // No catalogue for de-DE; lookup should land on en-US.
+        let out = tr_with(&lang("de-DE"), "greeting", &[("name", "Kyle".into())]);
         assert!(out.contains("Hello"), "expected en-US fallback, got: {out}");
     }
 

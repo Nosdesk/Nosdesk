@@ -20,7 +20,7 @@ use unic_langid::LanguageIdentifier;
 /// Locales we ship message catalogues for, in priority order. The
 /// first entry is also the fallback for any message a non-default
 /// locale leaves untranslated.
-pub const SUPPORTED_LOCALES: &[&str] = &["en-US", "en-GB", "en-AU"];
+pub const SUPPORTED_LOCALES: &[&str] = &["en-US", "en-GB", "en-AU", "fr-FR", "nl-NL"];
 
 /// Default locale for guest contacts, system emails to unknown
 /// recipients, and the en-US -> en-GB -> en-AU fallback chain.
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn parse_supported_rejects_unsupported() {
         assert!(matches!(
-            parse_supported("fr-FR"),
+            parse_supported("de-DE"),
             Err(LocaleError::Unsupported(_))
         ));
     }
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn negotiate_falls_back_for_unsupported_request() {
-        let chosen = negotiate("fr-FR, de-DE");
+        let chosen = negotiate("de-DE, ja-JP");
         assert_eq!(chosen.to_string(), DEFAULT_LOCALE);
     }
 
@@ -277,10 +277,10 @@ mod tests {
 
     #[test]
     fn effective_locale_skips_unsupported_user_preference() {
-        // Well-formed but we don't ship catalogues for fr-FR yet, so
+        // Well-formed but we don't ship catalogues for de-DE yet, so
         // fall through to site default rather than promise something
         // we can't deliver.
-        let l = effective_locale(Some("fr-FR"), "en-AU");
+        let l = effective_locale(Some("de-DE"), "en-AU");
         assert_eq!(l.to_string(), "en-AU");
     }
 
