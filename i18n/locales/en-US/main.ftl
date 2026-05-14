@@ -20,3 +20,14 @@ unread-count = { $count ->
 # Acme Helpdesk Password" rather than the literal product name.
 password-reset-subject = Reset Your { $app } Password
 invitation-subject = You've Been Invited to { $app } - Set Up Your Account
+
+# Notification email subjects. Each stamps the workspace name in
+# brackets so inbox grouping by sender + subject prefix still
+# works. $title is the entity (ticket title / doc page title);
+# $actor only fires for the Mentioned variant.
+notif-ticket-assigned = [{ $app }] You've been assigned: { $title }
+notif-ticket-status-changed = [{ $app }] Status changed: { $title }
+notif-comment-added = [{ $app }] New comment on: { $title }
+notif-mentioned = [{ $app }] { $actor } mentioned you
+notif-ticket-created-requester = [{ $app }] Ticket created: { $title }
+notif-doc-page-updated = [{ $app }] Page updated: { $title }

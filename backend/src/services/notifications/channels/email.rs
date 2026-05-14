@@ -46,11 +46,14 @@ impl EmailChannel {
         }
     }
 
-    /// Generate email subject based on notification type
+    /// Generate email subject based on notification type. The
+    /// recipient's effective locale picks the catalogue; bracketed
+    /// `$app` plus an entity field interpolate the rest.
     fn generate_subject(
         &self,
         notification: &DeliverableNotification,
         app_name: &str,
+        locale: &unic_langid::LanguageIdentifier,
     ) -> String {
         let entity_title = match &notification.payload.entity {
             crate::services::notifications::types::NotificationEntity::Ticket { title, .. } => {
@@ -65,29 +68,26 @@ impl EmailChannel {
             } => title.clone(),
         };
 
-        match notification.payload.notification_type {
-            NotificationTypeCode::TicketAssigned => {
-                format!("[{}] You've been assigned: {}", app_name, entity_title)
-            }
-            NotificationTypeCode::TicketStatusChanged => {
-                format!("[{}] Status changed: {}", app_name, entity_title)
-            }
-            NotificationTypeCode::CommentAdded => {
-                format!("[{}] New comment on: {}", app_name, entity_title)
-            }
-            NotificationTypeCode::Mentioned => {
-                format!(
-                    "[{}] {} mentioned you",
-                    app_name, notification.payload.actor.name
-                )
-            }
-            NotificationTypeCode::TicketCreatedRequester => {
-                format!("[{}] Ticket created: {}", app_name, entity_title)
-            }
-            NotificationTypeCode::DocPageUpdated => {
-                format!("[{}] Page updated: {}", app_name, entity_title)
-            }
-        }
+        let key = match notification.payload.notification_type {
+            NotificationTypeCode::TicketAssigned => "notif-ticket-assigned",
+            NotificationTypeCode::TicketStatusChanged => "notif-ticket-status-changed",
+            NotificationTypeCode::CommentAdded => "notif-comment-added",
+            NotificationTypeCode::Mentioned => "notif-mentioned",
+            NotificationTypeCode::TicketCreatedRequester => "notif-ticket-created-requester",
+            NotificationTypeCode::DocPageUpdated => "notif-doc-page-updated",
+        };
+
+        // Pass every possible arg; Fluent silently ignores unused
+        // ones, which keeps the per-variant match above small.
+        crate::utils::i18n::tr_with(
+            locale,
+            key,
+            &[
+                ("app", app_name.to_string().into()),
+                ("title", entity_title.into()),
+                ("actor", notification.payload.actor.name.clone().into()),
+            ],
+        )
     }
 
     /// Generate the entity URL for the email
@@ -210,17 +210,24 @@ impl NotificationDeliveryChannel for EmailChannel {
             .get_recipient_email(&notification.payload.recipient_uuid)
             .await?;
 
-        // Load workspace branding so notification mail carries the same logo
-        // and primary color as the password-reset / invitation flows.
-        let branding = {
+        // Load workspace branding + recipient locale in one
+        // connection. Branding feeds every transactional surface
+        // (logo, primary color); the locale picks which message
+        // catalogue formats the subject.
+        let (branding, recipient_locale) = {
             let mut conn = self
                 .pool
                 .get()
                 .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
-            get_email_branding(&mut conn, &self.base_url)
+            let branding = get_email_branding(&mut conn, &self.base_url);
+            let locale = crate::repository::user_locale::resolve_effective_locale(
+                &mut conn,
+                notification.payload.recipient_uuid,
+            );
+            (branding, locale)
         };
 
-        let subject = self.generate_subject(notification, &branding.app_name);
+        let subject = self.generate_subject(notification, &branding.app_name, &recipient_locale);
         let entity_url = self.generate_entity_url(notification);
         let body_text = notification
             .payload

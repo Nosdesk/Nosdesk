@@ -13,3 +13,10 @@ unread-count = { $count ->
 
 password-reset-subject = Reset Your { $app } Password
 invitation-subject = You've Been Invited to { $app } - Set Up Your Account
+
+notif-ticket-assigned = [{ $app }] You've been assigned: { $title }
+notif-ticket-status-changed = [{ $app }] Status changed: { $title }
+notif-comment-added = [{ $app }] New comment on: { $title }
+notif-mentioned = [{ $app }] { $actor } mentioned you
+notif-ticket-created-requester = [{ $app }] Ticket created: { $title }
+notif-doc-page-updated = [{ $app }] Page updated: { $title }
