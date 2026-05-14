@@ -181,8 +181,8 @@ const selectProject = (project: Project) => {
       <EmptyState
         v-else-if="!isLoading && filteredProjects.length === 0 && searchQuery"
         icon="search"
-        title="No projects found"
-        description="Try adjusting your search criteria"
+        :title="$t('empty-project-search-title')"
+        :description="$t('empty-project-search-description')"
         variant="compact"
       />
 
@@ -190,8 +190,8 @@ const selectProject = (project: Project) => {
       <EmptyState
         v-else-if="!isLoading && filteredProjects.length === 0 && !searchQuery"
         icon="folder"
-        title="No projects available"
-        description="Create a project to get started"
+        :title="$t('empty-project-available-title')"
+        :description="$t('empty-project-available-description')"
         variant="compact"
       />
 

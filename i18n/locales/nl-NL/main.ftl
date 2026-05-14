@@ -143,6 +143,44 @@ dashboard-subtitle = Welkom op uw { $app }-dashboard
 dashboard-edit-button = Dashboard bewerken
 dashboard-guest-fallback = Gast
 
+# Lege staten voor de belangrijkste overzichten.
+empty-documentation-grid-title = Nog geen documentatie
+empty-documentation-grid-description = Maak uw eerste documentatiepagina om te beginnen.
+empty-documentation-index-title = Start uw kennisbank
+empty-documentation-index-description = Documentatiepagina's leggen procedures, FAQ's en beleid van uw team vast. Maak de eerste pagina om te beginnen.
+empty-documentation-archived-title = Geen gearchiveerde pagina's
+empty-documentation-archived-description = Gearchiveerde pagina's verschijnen hier.
+empty-documentation-trash-title = Prullenbak is leeg
+empty-documentation-trash-description = Verwijderde pagina's verschijnen hier.
+empty-project-search-title = Geen projecten gevonden
+empty-project-search-description = Probeer uw zoekopdracht aan te passen
+empty-project-available-title = Geen projecten beschikbaar
+empty-project-available-description = Maak een project om te beginnen
+empty-device-search-prompt-title = Zoek naar apparaten
+empty-device-search-prompt-description = Begin met typen om apparaten te vinden op naam, serienummer of gebruiker
+empty-device-search-title = Geen apparaten gevonden
+empty-device-search-description = Probeer uw zoekopdracht aan te passen
+empty-users-default-title = Geen gebruikers gevonden
+empty-users-default-description = Nodig gebruikers uit om te beginnen
+empty-users-search-title = Geen gebruikers gevonden
+empty-users-search-description = Probeer uw zoekopdracht aan te passen
+empty-devices-default-title = Geen apparaten gevonden
+empty-devices-default-description = Voeg uw eerste apparaat toe om te beginnen
+empty-devices-search-title = Geen apparaten gevonden
+empty-devices-search-description = Probeer uw zoekopdracht of filters aan te passen
+empty-groups-title = Nog geen groepen
+empty-groups-description = Maak uw eerste groep om gebruikers te organiseren
+empty-assignment-rules-title = Nog geen toewijzingsregels
+empty-assignment-rules-description = Maak uw eerste regel om tickets automatisch toe te wijzen
+empty-webhooks-title = Geen webhooks
+empty-webhooks-description = Maak een webhook om gebeurtenissen naar externe diensten te sturen
+empty-api-tokens-title = Geen API-tokens
+empty-api-tokens-description = Maak een API-token om programmatische toegang tot de API mogelijk te maken
+empty-categories-title = Nog geen categorieën
+empty-categories-description = Maak categorieën om tickets te organiseren
+empty-plugins-installed-title = Geen plugins geïnstalleerd
+empty-plugins-installed-description = Plugins breiden { $app } uit met aangepaste integraties en functies. Blader door het register voor één-klik-installaties.
+
 # Settings.
 settings-localization-title = Taal en tijdzone
 settings-localization-help = Bepaalt de taal van berichten en hoe datums worden weergegeven. De siteinstelling wordt gebruikt als u niets selecteert.

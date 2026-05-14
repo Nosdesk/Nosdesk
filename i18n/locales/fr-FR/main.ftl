@@ -146,6 +146,44 @@ dashboard-subtitle = Bienvenue sur votre tableau de bord { $app }
 dashboard-edit-button = Modifier le tableau de bord
 dashboard-guest-fallback = Invité
 
+# États vides des principales listes.
+empty-documentation-grid-title = Aucune documentation pour le moment
+empty-documentation-grid-description = Créez votre première page de documentation pour commencer.
+empty-documentation-index-title = Démarrez votre base de connaissances
+empty-documentation-index-description = Les pages de documentation permettent à votre équipe de centraliser procédures, FAQ et politiques. Créez la première page pour commencer.
+empty-documentation-archived-title = Aucune page archivée
+empty-documentation-archived-description = Les pages archivées apparaîtront ici.
+empty-documentation-trash-title = La corbeille est vide
+empty-documentation-trash-description = Les pages supprimées apparaîtront ici.
+empty-project-search-title = Aucun projet trouvé
+empty-project-search-description = Essayez d'ajuster vos critères de recherche
+empty-project-available-title = Aucun projet disponible
+empty-project-available-description = Créez un projet pour commencer
+empty-device-search-prompt-title = Rechercher un appareil
+empty-device-search-prompt-description = Commencez à taper pour trouver des appareils par nom, numéro de série ou utilisateur
+empty-device-search-title = Aucun appareil trouvé
+empty-device-search-description = Essayez d'ajuster vos critères de recherche
+empty-users-default-title = Aucun utilisateur trouvé
+empty-users-default-description = Invitez des utilisateurs pour commencer
+empty-users-search-title = Aucun utilisateur ne correspond
+empty-users-search-description = Essayez d'ajuster vos critères de recherche
+empty-devices-default-title = Aucun appareil trouvé
+empty-devices-default-description = Ajoutez votre premier appareil pour commencer
+empty-devices-search-title = Aucun appareil ne correspond
+empty-devices-search-description = Essayez d'ajuster votre recherche ou vos filtres
+empty-groups-title = Aucun groupe pour le moment
+empty-groups-description = Créez votre premier groupe pour organiser les utilisateurs
+empty-assignment-rules-title = Aucune règle d'attribution
+empty-assignment-rules-description = Créez votre première règle pour attribuer automatiquement les tickets
+empty-webhooks-title = Aucun webhook
+empty-webhooks-description = Créez un webhook pour envoyer des événements à des services externes
+empty-api-tokens-title = Aucun jeton API
+empty-api-tokens-description = Créez un jeton API pour activer l'accès programmatique à l'API
+empty-categories-title = Aucune catégorie
+empty-categories-description = Créez des catégories pour organiser les tickets
+empty-plugins-installed-title = Aucun plugin installé
+empty-plugins-installed-description = Les plugins étendent { $app } avec des intégrations et fonctionnalités personnalisées. Parcourez le registre pour une installation en un clic.
+
 # Settings.
 settings-localization-title = Langue et fuseau horaire
 settings-localization-help = Détermine la langue des messages et l'affichage des dates. La valeur par défaut du site s'applique si rien n'est sélectionné.

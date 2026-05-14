@@ -19,6 +19,7 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { useBrandingStore } from '@/stores/branding';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -31,6 +32,7 @@ import { usePluginAdminConfig } from '@/composables/usePluginAdminConfig';
 import type { Plugin, PluginState } from '@/types/plugin';
 
 const router = useRouter();
+const brandingStore = useBrandingStore();
 const { plugins, loading, error, load, toggle, uninstall } = usePlugins();
 const { config: adminConfig, load: loadAdminConfig } = usePluginAdminConfig();
 
@@ -178,8 +180,8 @@ const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined
     <EmptyState
       v-else-if="plugins.length === 0"
       icon="plugin"
-      title="No plugins installed"
-      description="Plugins extend Nosdesk with custom integrations and features. Browse the registry for one-click installs."
+      :title="$t('empty-plugins-installed-title')"
+      :description="$t('empty-plugins-installed-description', { app: brandingStore.appName })"
       action-label="Browse registry"
       variant="card"
       @action="router.push('/admin/plugins/registry')"

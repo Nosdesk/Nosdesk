@@ -114,8 +114,8 @@ onMounted(() => {
         <EmptyState
           v-else-if="pages.length === 0"
           icon="trash"
-          title="Trash is empty"
-          description="Deleted pages will appear here."
+          :title="$t('empty-documentation-trash-title')"
+          :description="$t('empty-documentation-trash-description')"
           variant="card"
         />
 

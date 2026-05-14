@@ -360,8 +360,8 @@ onMounted(() => {
           <EmptyState
             v-if="groups.length === 0 && !isLoading"
             icon="users"
-            title="No groups yet"
-            description="Create your first group to organize users"
+            :title="$t('empty-groups-title')"
+            :description="$t('empty-groups-description')"
             action-label="Create Group"
             variant="card"
             @action="openCreateModal"

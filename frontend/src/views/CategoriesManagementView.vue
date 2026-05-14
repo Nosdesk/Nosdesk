@@ -594,8 +594,8 @@ onMounted(() => {
           <EmptyState
             v-if="categories.length === 0 && !isLoading"
             icon="folder"
-            title="No categories yet"
-            description="Create categories to organize tickets"
+            :title="$t('empty-categories-title')"
+            :description="$t('empty-categories-description')"
             action-label="Create Category"
             variant="card"
             @action="openCreateModal"

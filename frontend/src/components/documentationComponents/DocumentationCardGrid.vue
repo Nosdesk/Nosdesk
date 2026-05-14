@@ -39,8 +39,8 @@ const { getStyle } = useStaggeredList({
     <EmptyState
       v-else
       icon="document"
-      title="No documentation yet"
-      description="Create your first documentation page to get started."
+      :title="$t('empty-documentation-grid-title')"
+      :description="$t('empty-documentation-grid-description')"
       action-label="Create Page"
       variant="card"
       @action="emit('create')"

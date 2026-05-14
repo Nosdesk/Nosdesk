@@ -171,8 +171,8 @@ async function applyRoleChange(role: string) {
       <template #empty-state>
         <EmptyState
           icon="users"
-          :title="controls.searchQuery.value ? 'No users match your search' : 'No users found'"
-          :description="controls.searchQuery.value ? 'Try adjusting your search criteria' : 'Invite users to get started'"
+          :title="controls.searchQuery.value ? $t('empty-users-search-title') : $t('empty-users-default-title')"
+          :description="controls.searchQuery.value ? $t('empty-users-search-description') : $t('empty-users-default-description')"
           :action-label="!controls.searchQuery.value ? 'Invite User' : undefined"
           @action="navigateToCreateUser"
         />

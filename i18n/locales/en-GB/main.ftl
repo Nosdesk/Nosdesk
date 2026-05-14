@@ -161,6 +161,43 @@ dashboard-subtitle = Welcome to your { $app } dashboard
 dashboard-edit-button = Edit dashboard
 dashboard-guest-fallback = Guest
 
+empty-documentation-grid-title = No documentation yet
+empty-documentation-grid-description = Create your first documentation page to get started.
+empty-documentation-index-title = Start your knowledge base
+empty-documentation-index-description = Documentation pages are how your team captures runbooks, FAQs, and policies. Create the first page to get going.
+empty-documentation-archived-title = No archived pages
+empty-documentation-archived-description = Archived pages will appear here.
+empty-documentation-trash-title = Trash is empty
+empty-documentation-trash-description = Deleted pages will appear here.
+empty-project-search-title = No projects found
+empty-project-search-description = Try adjusting your search criteria
+empty-project-available-title = No projects available
+empty-project-available-description = Create a project to get started
+empty-device-search-prompt-title = Search for devices
+empty-device-search-prompt-description = Start typing to find devices by name, serial number, or user
+empty-device-search-title = No devices found
+empty-device-search-description = Try adjusting your search criteria
+empty-users-default-title = No users found
+empty-users-default-description = Invite users to get started
+empty-users-search-title = No users match your search
+empty-users-search-description = Try adjusting your search criteria
+empty-devices-default-title = No devices found
+empty-devices-default-description = Add your first device to get started
+empty-devices-search-title = No devices match your search
+empty-devices-search-description = Try adjusting your search or filters
+empty-groups-title = No groups yet
+empty-groups-description = Create your first group to organise users
+empty-assignment-rules-title = No assignment rules yet
+empty-assignment-rules-description = Create your first rule to automatically assign tickets
+empty-webhooks-title = No webhooks
+empty-webhooks-description = Create a webhook to send events to external services
+empty-api-tokens-title = No API tokens
+empty-api-tokens-description = Create an API token to enable programmatic access to the API
+empty-categories-title = No categories yet
+empty-categories-description = Create categories to organise tickets
+empty-plugins-installed-title = No plugins installed
+empty-plugins-installed-description = Plugins extend { $app } with custom integrations and features. Browse the registry for one-click installs.
+
 # en-GB: same wording as en-US for now; this section exists so the
 # locale ships its own catalogue end-to-end. Spelling differences
 # (organise / customise) will land here when those keys are added.

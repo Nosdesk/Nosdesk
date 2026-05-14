@@ -292,8 +292,8 @@ onMounted(() => {
         <EmptyState
           v-if="tokens.length === 0 && !isLoading"
           icon="key"
-          title="No API tokens"
-          description="Create an API token to enable programmatic access to the API"
+          :title="$t('empty-api-tokens-title')"
+          :description="$t('empty-api-tokens-description')"
           action-label="Create Token"
           variant="card"
           @action="openCreateModal"

@@ -371,8 +371,8 @@ const formatLastUpdated = (dateString: string): string => {
       <EmptyState
         v-if="!searchQuery && !loading && devices.length === 0"
         icon="search"
-        title="Search for devices"
-        description="Start typing to find devices by name, serial number, or user"
+        :title="$t('empty-device-search-prompt-title')"
+        :description="$t('empty-device-search-prompt-description')"
         variant="compact"
       />
 
@@ -409,8 +409,8 @@ const formatLastUpdated = (dateString: string): string => {
       <EmptyState
         v-else-if="!loading && allDevicesForDisplay.length === 0 && searchQuery"
         icon="device"
-        title="No devices found"
-        description="Try adjusting your search criteria"
+        :title="$t('empty-device-search-title')"
+        :description="$t('empty-device-search-description')"
         variant="compact"
       />
 

@@ -408,8 +408,8 @@ onMounted(() => {
         <EmptyState
           v-if="rules.length === 0 && !isLoading"
           icon="ticket"
-          title="No assignment rules yet"
-          description="Create your first rule to automatically assign tickets"
+          :title="$t('empty-assignment-rules-title')"
+          :description="$t('empty-assignment-rules-description')"
           action-label="Create Rule"
           variant="card"
           @action="openCreateModal"

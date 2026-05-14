@@ -111,8 +111,8 @@ usePageCreateAction(handleCreatePage)
         <EmptyState
           v-if="!showSkeleton && totalPages === 0"
           icon="document"
-          title="Start your knowledge base"
-          description="Documentation pages are how your team captures runbooks, FAQs, and policies. Create the first page to get going."
+          :title="$t('empty-documentation-index-title')"
+          :description="$t('empty-documentation-index-description')"
           action-label="New page"
           @action="handleCreatePage"
         />

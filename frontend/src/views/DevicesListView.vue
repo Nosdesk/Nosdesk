@@ -165,8 +165,8 @@ async function confirmDelete() {
     <template #empty-state>
       <EmptyState
         icon="device"
-        :title="controls.searchQuery.value ? 'No devices match your search' : 'No devices found'"
-        :description="controls.searchQuery.value ? 'Try adjusting your search or filters' : 'Add your first device to get started'"
+        :title="controls.searchQuery.value ? $t('empty-devices-search-title') : $t('empty-devices-default-title')"
+        :description="controls.searchQuery.value ? $t('empty-devices-search-description') : $t('empty-devices-default-description')"
         :action-label="!controls.searchQuery.value ? 'Add Device' : undefined"
         @action="navigateToCreateDevice"
       />

@@ -597,8 +597,8 @@ onMounted(() => {
         <EmptyState
           v-if="webhooks.length === 0 && !isLoading"
           icon="link"
-          title="No webhooks"
-          description="Create a webhook to send events to external services"
+          :title="$t('empty-webhooks-title')"
+          :description="$t('empty-webhooks-description')"
           action-label="Create Webhook"
           variant="card"
           @action="openCreateModal"

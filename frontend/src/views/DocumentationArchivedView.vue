@@ -98,8 +98,8 @@ onMounted(() => {
         <EmptyState
           v-else-if="pages.length === 0"
           icon="inbox"
-          title="No archived pages"
-          description="Archived pages will appear here."
+          :title="$t('empty-documentation-archived-title')"
+          :description="$t('empty-documentation-archived-description')"
           variant="card"
         />
 
