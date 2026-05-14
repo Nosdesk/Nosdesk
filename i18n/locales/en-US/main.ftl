@@ -19,6 +19,40 @@ unread-count = { $count ->
 # workspace name from EmailBranding so the line reads "Reset Your
 # Acme Helpdesk Password" rather than the literal product name.
 password-reset-subject = Reset Your { $app } Password
+# Password-reset email body. The HTML strings carry inline
+# <strong> tags for typographic emphasis; translators preserve
+# them as opaque markers around the words they wrap. The plain-
+# text variant is one Fluent multi-line value so translators see
+# the full prose at once. $name and $app are already HTML-escaped
+# by the caller in HTML contexts and passed raw in plaintext.
+password-reset-title = Password Reset Request
+password-reset-greeting = Hello <strong>{ $name }</strong>,
+password-reset-intro = We received a request to reset your password for your <strong>{ $app }</strong> account. If you didn't make this request, you can safely ignore this email.
+password-reset-action-prompt = To reset your password, click the button below:
+password-reset-cta-label = Reset Password
+password-reset-notice-expiry = This link will expire in <strong>1 hour</strong>
+password-reset-notice-single-use = This link can only be used <strong>once</strong>
+password-reset-notice-never-share = Never share this link with anyone
+password-reset-notice-account-security = If you didn't request this reset, please secure your account immediately
+password-reset-footer = If you have any questions, please contact your system administrator.
+password-reset-body-text =
+    Hello { $name },
+
+    We received a request to reset your password for your { $app } account. If you didn't make this request, you can safely ignore this email.
+
+    To reset your password, open this link in your browser:
+
+    { $link }
+
+    Security notes:
+      - This link will expire in 1 hour.
+      - This link can only be used once.
+      - Never share this link with anyone.
+      - If you didn't request this reset, secure your account.
+
+    If you have any questions, please contact your system administrator.
+
+    -- { $app }
 invitation-subject = You've Been Invited to { $app } - Set Up Your Account
 
 # Notification email subjects. Each stamps the workspace name in

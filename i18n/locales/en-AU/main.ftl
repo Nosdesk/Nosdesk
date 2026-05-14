@@ -12,6 +12,37 @@ unread-count = { $count ->
 }
 
 password-reset-subject = Reset Your { $app } Password
+# en-AU keeps the same body wording as US for now; the divergence
+# we already ship (settings copy, time-zone) is the visible
+# demo. Translators can tighten the AU register later.
+password-reset-title = Password Reset Request
+password-reset-greeting = G'day <strong>{ $name }</strong>,
+password-reset-intro = We received a request to reset your password for your <strong>{ $app }</strong> account. If you didn't make this request, you can safely ignore this email.
+password-reset-action-prompt = To reset your password, click the button below:
+password-reset-cta-label = Reset Password
+password-reset-notice-expiry = This link will expire in <strong>1 hour</strong>
+password-reset-notice-single-use = This link can only be used <strong>once</strong>
+password-reset-notice-never-share = Never share this link with anyone
+password-reset-notice-account-security = If you didn't request this reset, please secure your account immediately
+password-reset-footer = If you have any questions, please contact your system administrator.
+password-reset-body-text =
+    G'day { $name },
+
+    We received a request to reset your password for your { $app } account. If you didn't make this request, you can safely ignore this email.
+
+    To reset your password, open this link in your browser:
+
+    { $link }
+
+    Security notes:
+      - This link will expire in 1 hour.
+      - This link can only be used once.
+      - Never share this link with anyone.
+      - If you didn't request this reset, secure your account.
+
+    If you have any questions, please contact your system administrator.
+
+    -- { $app }
 invitation-subject = You've Been Invited to { $app } - Set Up Your Account
 
 notif-ticket-assigned = [{ $app }] You've been assigned: { $title }

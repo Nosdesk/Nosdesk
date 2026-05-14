@@ -617,64 +617,79 @@ impl EmailService {
     ) -> (String, String, String) {
         let reset_link = format!("{}/reset-password?token={}", branding.base_url, reset_token);
         let template = EmailTemplate::new(branding);
+        let tr = |key: &str, args: &[(&str, fluent_bundle::FluentValue<'static>)]| {
+            crate::utils::i18n::tr_with(locale, key, args)
+        };
+
+        // For HTML interpolation we pass HTML-escaped variable
+        // values into Fluent; the `<strong>` markers around them
+        // come from the FTL value itself. For plaintext we pass
+        // the raw values because there's no HTML context.
+        let name_html = escape_html(user_name);
+        let app_html = escape_html(&branding.app_name);
+
+        let greeting = tr(
+            "password-reset-greeting",
+            &[("name", name_html.clone().into())],
+        );
+        let intro = tr(
+            "password-reset-intro",
+            &[("app", app_html.clone().into())],
+        );
+        let action_prompt = tr("password-reset-action-prompt", &[]);
+        let title = tr("password-reset-title", &[]);
+        let cta_label = tr("password-reset-cta-label", &[]);
+        let footer = tr("password-reset-footer", &[]);
+        let notice_items_owned: Vec<String> = [
+            "password-reset-notice-expiry",
+            "password-reset-notice-single-use",
+            "password-reset-notice-never-share",
+            "password-reset-notice-account-security",
+        ]
+        .iter()
+        .map(|key| tr(key, &[]))
+        .collect();
+        let notice_items: Vec<&str> = notice_items_owned.iter().map(String::as_str).collect();
 
         let content = format!(
             r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                Hello <strong>{}</strong>,
+                {greeting}
             </p>
             <p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                We received a request to reset your password for your {} account. If you didn't make this request, you can safely ignore this email.
+                {intro}
             </p>
             <p style="margin: 0 0 8px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                To reset your password, click the button below:
-            </p>"#,
-            escape_html(user_name),
-            escape_html(&branding.app_name)
+                {action_prompt}
+            </p>"#
         );
 
         let html_body = template.build(
-            "Password Reset Request",
+            &title,
             &branding.primary_color,
             &content,
-            "Reset Password",
+            &cta_label,
             &reset_link,
             &branding.primary_color,
             NoticeType::Warning,
-            &[
-                "This link will expire in <strong>1 hour</strong>",
-                "This link can only be used <strong>once</strong>",
-                "Never share this link with anyone",
-                "If you didn't request this reset, please secure your account immediately",
-            ],
-            "If you have any questions, please contact your system administrator.",
+            &notice_items,
+            &footer,
         );
 
-        let subject = crate::utils::i18n::tr_with(
-            locale,
+        let subject = tr(
             "password-reset-subject",
             &[("app", branding.app_name.clone().into())],
         );
 
-        // Plain-text alternative — hand-authored rather than HTML→
-        // text stripped so the copy reads as deliberate prose and
-        // the CTA is a bare URL (the bracket noise an automated
-        // strip produces looks like spam to filters).
-        let body_text = format!(
-            "Hello {name},\n\n\
-             We received a request to reset your password for your {app} account. \
-             If you didn't make this request, you can safely ignore this email.\n\n\
-             To reset your password, open this link in your browser:\n\n\
-             {link}\n\n\
-             Security notes:\n\
-               - This link will expire in 1 hour.\n\
-               - This link can only be used once.\n\
-               - Never share this link with anyone.\n\
-               - If you didn't request this reset, secure your account.\n\n\
-             If you have any questions, please contact your system administrator.\n\n\
-             — {app}\n",
-            name = user_name,
-            app = branding.app_name,
-            link = reset_link,
+        // Plain-text alternative comes from one multi-line FTL
+        // value so translators see the whole prose at once
+        // (instead of stitching together six fragments).
+        let body_text = tr(
+            "password-reset-body-text",
+            &[
+                ("name", user_name.to_string().into()),
+                ("app", branding.app_name.clone().into()),
+                ("link", reset_link.clone().into()),
+            ],
         );
 
         (subject, html_body, body_text)
