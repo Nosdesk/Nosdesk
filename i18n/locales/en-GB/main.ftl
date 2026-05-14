@@ -12,4 +12,5 @@ unread-count = { $count ->
    *[other] { $count } new messages.
 }
 
-password-reset-subject = Reset your Nosdesk password
+password-reset-subject = Reset Your { $app } Password
+invitation-subject = You've Been Invited to { $app } - Set Up Your Account

@@ -77,11 +77,13 @@ pub fn prepare_password_reset(
     recipient: &str,
     user_name: &str,
     reset_token: &str,
+    locale: &unic_langid::LanguageIdentifier,
 ) -> NewOutboundEmail {
     let (subject, body_html, body_text) = svc.compose_password_reset(
         user_name,
         reset_token,
         branding,
+        locale,
     );
     let message_id = make_message_id("password-reset", &from_email_domain(svc));
 
@@ -120,8 +122,9 @@ pub fn enqueue_password_reset(
     recipient: &str,
     user_name: &str,
     reset_token: &str,
+    locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
-    let row = prepare_password_reset(svc, branding, recipient, user_name, reset_token);
+    let row = prepare_password_reset(svc, branding, recipient, user_name, reset_token, locale);
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
@@ -134,12 +137,14 @@ pub fn prepare_invitation(
     user_name: &str,
     invitation_token: &str,
     invited_by: &str,
+    locale: &unic_langid::LanguageIdentifier,
 ) -> NewOutboundEmail {
     let (subject, body_html, body_text) = svc.compose_invitation(
         user_name,
         invitation_token,
         branding,
         invited_by,
+        locale,
     );
     let message_id = make_message_id("invitation", &from_email_domain(svc));
     let headers_json = serde_json::json!({
@@ -175,8 +180,17 @@ pub fn enqueue_invitation(
     user_name: &str,
     invitation_token: &str,
     invited_by: &str,
+    locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
-    let row = prepare_invitation(svc, branding, recipient, user_name, invitation_token, invited_by);
+    let row = prepare_invitation(
+        svc,
+        branding,
+        recipient,
+        user_name,
+        invitation_token,
+        invited_by,
+        locale,
+    );
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
@@ -257,6 +271,12 @@ pub fn enqueue_notification(
 mod tests {
     use super::*;
     use crate::utils::email::{EmailBranding, EmailConfig, EmailService, SmtpSecurity};
+    use std::str::FromStr;
+    use unic_langid::LanguageIdentifier;
+
+    fn en_us() -> LanguageIdentifier {
+        LanguageIdentifier::from_str("en-US").unwrap()
+    }
 
     fn test_svc() -> EmailService {
         EmailService::new(EmailConfig {
@@ -332,6 +352,7 @@ mod tests {
             "alice@example.com",
             "Alice",
             "raw-token-abc123",
+            &en_us(),
         );
 
         assert_eq!(row.recipient, "alice@example.com");
@@ -385,6 +406,7 @@ mod tests {
             "Bob",
             "invite-token-xyz",
             "Kyle",
+            &en_us(),
         );
 
         assert!(row.channel_id.is_none());
@@ -466,6 +488,7 @@ mod tests {
             "alice@example.com",
             "Alice",
             "same-token",
+            &en_us(),
         );
         let r2 = prepare_password_reset(
             &test_svc(),
@@ -473,6 +496,7 @@ mod tests {
             "alice@example.com",
             "Alice",
             "same-token",
+            &en_us(),
         );
         assert_eq!(r1.idempotency_key, r2.idempotency_key);
         // ...but message_id rotates so a retried send doesn't

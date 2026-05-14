@@ -613,6 +613,7 @@ impl EmailService {
         user_name: &str,
         reset_token: &str,
         branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
     ) -> (String, String, String) {
         let reset_link = format!("{}/reset-password?token={}", branding.base_url, reset_token);
         let template = EmailTemplate::new(branding);
@@ -648,7 +649,11 @@ impl EmailService {
             "If you have any questions, please contact your system administrator.",
         );
 
-        let subject = format!("Reset Your {} Password", branding.app_name);
+        let subject = crate::utils::i18n::tr_with(
+            locale,
+            "password-reset-subject",
+            &[("app", branding.app_name.clone().into())],
+        );
 
         // Plain-text alternative — hand-authored rather than HTML→
         // text stripped so the copy reads as deliberate prose and
@@ -682,13 +687,14 @@ impl EmailService {
         user_name: &str,
         reset_token: &str,
         branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
     ) -> Result<(), String> {
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
         }
 
         let (subject, html_body, _text_body) = self.compose_password_reset(
-            user_name, reset_token, branding,
+            user_name, reset_token, branding, locale,
         );
         self.send_html_email(to, &subject, &html_body).await
     }
@@ -701,13 +707,14 @@ impl EmailService {
         invitation_token: &str,
         branding: &EmailBranding,
         invited_by: &str,
+        locale: &unic_langid::LanguageIdentifier,
     ) -> Result<(), String> {
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
         }
 
         let (subject, html_body, _text_body) = self.compose_invitation(
-            user_name, invitation_token, branding, invited_by,
+            user_name, invitation_token, branding, invited_by, locale,
         );
         self.send_html_email(to, &subject, &html_body).await
     }
@@ -720,6 +727,7 @@ impl EmailService {
         invitation_token: &str,
         branding: &EmailBranding,
         invited_by: &str,
+        locale: &unic_langid::LanguageIdentifier,
     ) -> (String, String, String) {
         let setup_link = format!("{}/accept-invitation?token={}", branding.base_url, invitation_token);
         let template = EmailTemplate::new(branding);
@@ -759,7 +767,11 @@ impl EmailService {
             "If you have any questions, please contact your system administrator.",
         );
 
-        let subject = format!("You've Been Invited to {} - Set Up Your Account", branding.app_name);
+        let subject = crate::utils::i18n::tr_with(
+            locale,
+            "invitation-subject",
+            &[("app", branding.app_name.clone().into())],
+        );
 
         let body_text = format!(
             "Hello {name},\n\n\

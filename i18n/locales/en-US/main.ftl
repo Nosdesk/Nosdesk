@@ -15,5 +15,8 @@ unread-count = { $count ->
    *[other] { $count } new messages.
 }
 
-# Password reset email (placeholder — full body wired in Commit 3)
-password-reset-subject = Reset your Nosdesk password
+# Transactional email subjects. $app interpolates the configured
+# workspace name from EmailBranding so the line reads "Reset Your
+# Acme Helpdesk Password" rather than the literal product name.
+password-reset-subject = Reset Your { $app } Password
+invitation-subject = You've Been Invited to { $app } - Set Up Your Account

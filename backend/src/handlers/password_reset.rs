@@ -136,6 +136,7 @@ async fn issue_password_reset(
     // is derived from a hash of the raw reset token so a network
     // blip between this handler and the DB doesn't deliver two
     // copies of the same reset link.
+    let locale = crate::repository::user_locale::resolve_effective_locale(&mut conn, user.uuid);
     match crate::services::transactional_email::enqueue_password_reset(
         &mut conn,
         &email_service,
@@ -143,6 +144,7 @@ async fn issue_password_reset(
         &user_email,
         &user.name,
         &reset_token.raw_token,
+        &locale,
     ) {
         Ok(row) => info!(
             queue_id = row.id,

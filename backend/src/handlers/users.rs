@@ -186,6 +186,7 @@ pub async fn send_user_invitation(
     // Enqueue rather than synchronous send. The worker handles retry
     // with backoff and respects the suppression list, so an SMTP
     // hiccup mid-onboarding doesn't lose the invitation.
+    let locale = crate::repository::user_locale::resolve_effective_locale(conn, user_uuid);
     match crate::services::transactional_email::enqueue_invitation(
         conn,
         &prep.email_service,
@@ -194,6 +195,7 @@ pub async fn send_user_invitation(
         user_name,
         &prep.raw_token,
         admin_name,
+        &locale,
     ) {
         Ok(_) => SendInvitationResult::Success,
         Err(e) => SendInvitationResult::EmailSendError(format!("{e:?}")),
