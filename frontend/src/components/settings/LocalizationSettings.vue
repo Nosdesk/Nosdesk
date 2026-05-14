@@ -220,7 +220,7 @@ async function save() {
     const updated = await userService.updateUser(userUuid.value, {
       locale: localePayload,
       timezone: timezonePayload,
-    } as Parameters<typeof userService.updateUser>[1])
+    })
     if (!updated) throw new Error('updateUser returned null')
 
     // For self: re-seed dateStore from the response so the
