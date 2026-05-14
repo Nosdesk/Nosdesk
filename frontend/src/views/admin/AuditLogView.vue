@@ -5,6 +5,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import { formatDateTime } from '@/utils/dateUtils';
 import {
   auditLogService,
   type AuditLogQuery,
@@ -128,10 +129,6 @@ function opTone(op: string): string {
 function shortUuid(uuid: string | null): string {
   if (!uuid) return 'system';
   return uuid.slice(0, 8);
-}
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString();
 }
 
 function previewValue(value: unknown): string {

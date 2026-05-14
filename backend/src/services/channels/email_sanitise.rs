@@ -15,10 +15,14 @@
 //!      stripped. Built on html5ever so the parse is real, not
 //!      regex-based.
 //!
-//! Output lands in `comments.sanitised_html` at ingest time. The
-//! frontend renders it inside a sandboxed iframe with an inline
-//! CSP and runs DOMPurify before injection as defence-in-depth.
-//! Re-sanitisation on policy change is a backfill that re-reads
+//! Output lands in `comments.new_content` + `comments.quoted_content`
+//! at ingest time (sanitisation now runs BEFORE the quote split,
+//! so concatenating the two persisted columns equals the full
+//! sanitised body — the previous standalone `sanitised_html`
+//! column was dropped in 2026-05-13-120000). The frontend renders
+//! the result inside a sandboxed iframe with an inline CSP and
+//! runs DOMPurify before injection as defence-in-depth. Re-
+//! sanitisation on policy change is a backfill that re-reads
 //! `raw_source_uri` and runs this module again; no upstream
 //! re-fetch needed.
 //!

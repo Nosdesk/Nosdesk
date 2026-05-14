@@ -120,7 +120,7 @@
 
                 <!-- Date -->
                 <span class="text-xs sm:text-sm text-primary font-medium">
-                  {{ formatDate(job.created_at) }}
+                  {{ formatDateTime(job.created_at) }}
                 </span>
 
                 <!-- Encrypted badge -->
@@ -244,7 +244,7 @@
             <div class="p-3 bg-surface-alt rounded-lg">
               <h4 class="text-xs sm:text-sm font-medium text-primary mb-2">Backup Details</h4>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-xs sm:text-sm">
-                <div><span class="text-secondary">Created:</span> <span class="text-primary ml-1">{{ formatDate(restorePreview.manifest.created_at) }}</span></div>
+                <div><span class="text-secondary">Created:</span> <span class="text-primary ml-1">{{ formatDateTime(restorePreview.manifest.created_at) }}</span></div>
                 <div><span class="text-secondary">Version:</span> <span class="text-primary ml-1">{{ restorePreview.manifest.nosdesk_version }}</span></div>
                 <div><span class="text-secondary">Files:</span> <span class="text-primary ml-1">{{ restorePreview.manifest.files.total_count }}</span></div>
                 <div><span class="text-secondary">Size:</span> <span class="text-primary ml-1">{{ formatFileSize(restorePreview.manifest.files.total_size_bytes) }}</span></div>
@@ -335,6 +335,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import backupService from '@/services/backupService';
+import { formatDateTime } from '@/utils/dateUtils';
 import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
 import type { BackupJob, RestorePreview } from '@/types/backup';
 import { formatFileSize } from '@/utils/formatFileSize';
@@ -367,11 +368,6 @@ const exportJobs = computed(() =>
 );
 
 // Methods
-const formatDate = (dateStr: string) => {
-  return new Date(dateStr).toLocaleString();
-};
-
-
 const loadJobs = async () => {
   isLoadingJobs.value = true;
   try {

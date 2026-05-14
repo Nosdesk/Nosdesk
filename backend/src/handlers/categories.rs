@@ -125,24 +125,42 @@ pub async fn create_category(
             // Set visibility if specified
             if let Some(ref group_ids) = body.visible_to_group_ids {
                 if !group_ids.is_empty() {
-                    if let Err(_) = repository::categories::set_category_visibility(
+                    if let Err(e) = repository::categories::set_category_visibility(
                         &mut conn,
                         category.id,
                         group_ids.clone(),
                         created_by,
                     ) {
+                        tracing::error!(
+                            error = ?e,
+                            category_id = category.id,
+                            "Failed to set category visibility on create",
+                        );
                         return errors::internal("Failed to set category visibility");
                     }
                 }
             }
 
-            // Return category with visibility info
+            // Return category with visibility info. If the visibility-
+            // read fails we still return the base category — the row
+            // was inserted and the operator can re-fetch — but log so
+            // a persistent visibility-fetch bug doesn't hide.
             match repository::categories::get_category_with_visibility(&mut conn, category.id) {
                 Ok(category_with_vis) => HttpResponse::Created().json(category_with_vis),
-                Err(_) => HttpResponse::Created().json(category),
+                Err(e) => {
+                    tracing::warn!(
+                        error = ?e,
+                        category_id = category.id,
+                        "Created category but failed to read it back with visibility; returning bare row",
+                    );
+                    HttpResponse::Created().json(category)
+                }
             }
         }
-        Err(_) => errors::internal("Failed to create category"),
+        Err(e) => {
+            tracing::error!(error = ?e, "Failed to create category");
+            errors::internal("Failed to create category")
+        }
     }
 }
 
@@ -190,12 +208,17 @@ pub async fn update_category(
         Ok(_) => {
             // Update visibility if specified
             if let Some(ref group_ids) = body.visible_to_group_ids {
-                if let Err(_) = repository::categories::set_category_visibility(
+                if let Err(e) = repository::categories::set_category_visibility(
                     &mut conn,
                     category_id,
                     group_ids.clone(),
                     updated_by,
                 ) {
+                    tracing::error!(
+                        error = ?e,
+                        category_id,
+                        "Failed to update category visibility",
+                    );
                     return errors::internal("Failed to update category visibility");
                 }
             }
@@ -203,12 +226,22 @@ pub async fn update_category(
             // Return updated category with visibility info
             match repository::categories::get_category_with_visibility(&mut conn, category_id) {
                 Ok(category) => HttpResponse::Ok().json(category),
-                Err(_) => errors::internal("Failed to get updated category"),
+                Err(e) => {
+                    tracing::error!(
+                        error = ?e,
+                        category_id,
+                        "Failed to read updated category with visibility",
+                    );
+                    errors::internal("Failed to get updated category")
+                }
             }
         }
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Category not found"),
-            _ => errors::internal("Failed to update category"),
+            _ => {
+                tracing::error!(error = ?e, category_id, "Failed to update category");
+                errors::internal("Failed to update category")
+            }
         },
     }
 }

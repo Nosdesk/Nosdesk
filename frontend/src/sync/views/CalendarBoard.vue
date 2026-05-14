@@ -21,6 +21,7 @@
 import { computed, ref, watch } from 'vue'
 import type { CardData } from './types'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
+import { priorityForBadge } from '@/utils/priorityHelpers'
 
 type DateField = 'due_date' | 'created_at' | 'last_activity_at'
 
@@ -191,12 +192,6 @@ function cardsFor(cell: DayCell): CardData[] {
 
 function open(cardId: number): void {
   props.onCardClick?.(cardId)
-}
-
-function priorityForBadge(p: CardData['priority']): 'low' | 'medium' | 'high' | null {
-  if (p === 'urgent') return 'high'
-  if (p === 'low' || p === 'medium' || p === 'high') return p
-  return null
 }
 
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']

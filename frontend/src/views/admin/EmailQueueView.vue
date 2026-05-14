@@ -5,6 +5,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import { formatDateTime } from '@/utils/dateUtils';
 import {
   emailQueueService,
   type OutboundEmailQuery,
@@ -161,10 +162,6 @@ function formatAge(seconds: number | null): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
   return `${Math.floor(seconds / 86400)}d`;
-}
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString();
 }
 
 function recipientDomain(addr: string): string {
