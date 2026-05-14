@@ -435,7 +435,7 @@ const handleOidcLogoutClick = async () => {
           class="h-12 max-w-full px-4 object-contain"
         />
         <LogoIcon v-else class="h-12 px-4 text-accent" aria-label="Nosdesk Logo" />
-        <p class="text-secondary mt-2">Sign in to your account</p>
+        <p class="text-secondary mt-2">{{ $t("login-subtitle") }}</p>
       </div>
 
       <!-- Success Message -->
@@ -458,10 +458,10 @@ const handleOidcLogoutClick = async () => {
               <Icon name="lock" size="lg" class="text-accent" />
             </div>
             <h2 class="text-xl font-semibold text-primary mb-2">
-              Two-Factor Authentication
+              {{ $t("login-mfa-title") }}
             </h2>
             <p class="text-secondary text-sm">
-              Please enter your authentication code
+              {{ $t("login-mfa-subtitle") }}
             </p>
           </div>
         </div>
@@ -482,7 +482,7 @@ const handleOidcLogoutClick = async () => {
               for="mfa-token"
               class="block text-sm font-medium text-secondary"
             >
-              Authentication Code
+              {{ $t("login-mfa-code-label") }}
             </label>
             <div class="relative">
               <input
@@ -517,8 +517,7 @@ const handleOidcLogoutClick = async () => {
               </div>
             </div>
             <p class="text-xs text-tertiary text-center">
-              Enter the 6-digit code from your authenticator app or an
-              8-character backup code
+              {{ $t("login-mfa-code-help") }}
             </p>
           </div>
 
@@ -529,7 +528,7 @@ const handleOidcLogoutClick = async () => {
               @click="handleBackToLogin"
               class="flex-1 py-3 px-4 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent transition-colors"
             >
-              Back
+              {{ $t("login-mfa-back") }}
             </button>
             <button
               type="submit"
@@ -537,8 +536,8 @@ const handleOidcLogoutClick = async () => {
               class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               <Spinner v-if="loadingAction === 'mfa'" class="-ml-1 mr-2 text-white" />
-              <span v-if="loadingAction === 'mfa'">Verifying...</span>
-              <span v-else>Verify & Sign In</span>
+              <span v-if="loadingAction === 'mfa'">{{ $t("login-mfa-verifying") }}</span>
+              <span v-else>{{ $t("login-mfa-verify") }}</span>
             </button>
           </div>
         </form>
@@ -556,7 +555,9 @@ const handleOidcLogoutClick = async () => {
         </div>
 
         <div class="flex flex-col gap-1 text-center">
-          <p class="text-sm text-secondary">Password verified for <strong class="text-primary">{{ email }}</strong></p>
+          <p class="text-sm text-secondary">
+            {{ $t("login-passkey-mfa-verified", { email }) }}
+          </p>
         </div>
 
         <!-- Recovery code mode -->
@@ -564,7 +565,7 @@ const handleOidcLogoutClick = async () => {
           <form @submit.prevent="handleRecoveryLogin" class="flex flex-col gap-4">
             <div class="flex flex-col gap-2">
               <label for="recovery-code" class="block text-sm font-medium text-secondary">
-                Recovery Code
+                {{ $t("login-recovery-code-label") }}
               </label>
               <input
                 id="recovery-code"
@@ -572,12 +573,12 @@ const handleOidcLogoutClick = async () => {
                 type="text"
                 required
                 autocomplete="off"
-                placeholder="Enter recovery code"
+                :placeholder="$t('login-recovery-code-placeholder')"
                 class="w-full px-4 py-3 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent text-center text-lg tracking-widest font-mono uppercase"
                 maxlength="8"
               />
               <p class="text-xs text-tertiary text-center">
-                Enter one of the 8-character recovery codes you saved during setup
+                {{ $t("login-recovery-code-help") }}
               </p>
             </div>
 
@@ -587,7 +588,7 @@ const handleOidcLogoutClick = async () => {
                 @click="recoveryMode = false; errorMessage = ''"
                 class="flex-1 py-3 px-4 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover transition-colors"
               >
-                Back
+                {{ $t("login-mfa-back") }}
               </button>
               <button
                 type="submit"
@@ -595,8 +596,8 @@ const handleOidcLogoutClick = async () => {
                 class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
                 <Spinner v-if="loadingAction === 'mfa'" class="text-white" />
-                <span v-if="loadingAction === 'mfa'">Verifying...</span>
-                <span v-else>Verify & Sign In</span>
+                <span v-if="loadingAction === 'mfa'">{{ $t("login-mfa-verifying") }}</span>
+                <span v-else>{{ $t("login-mfa-verify") }}</span>
               </button>
             </div>
           </form>
@@ -612,8 +613,8 @@ const handleOidcLogoutClick = async () => {
           >
             <Spinner v-if="loadingAction === 'passkey'" />
             <Icon v-else name="key" size="md" />
-            <span v-if="loadingAction === 'passkey'">Verifying...</span>
-            <span v-else>Verify with passkey</span>
+            <span v-if="loadingAction === 'passkey'">{{ $t("login-mfa-verifying") }}</span>
+            <span v-else>{{ $t("login-passkey-mfa-verify-cta") }}</span>
           </button>
 
           <button
@@ -621,7 +622,7 @@ const handleOidcLogoutClick = async () => {
             @click="recoveryMode = true; errorMessage = ''"
             class="text-sm text-tertiary hover:text-primary transition-colors"
           >
-            Use a recovery code
+            {{ $t("login-passkey-mfa-use-recovery") }}
           </button>
         </template>
 
@@ -630,7 +631,7 @@ const handleOidcLogoutClick = async () => {
           @click="handleBackToLogin"
           class="text-sm text-tertiary hover:text-primary transition-colors"
         >
-          Back to login
+          {{ $t("login-passkey-mfa-back-to-login") }}
         </button>
       </div>
 
@@ -645,9 +646,9 @@ const handleOidcLogoutClick = async () => {
         </div>
 
         <div class="flex flex-col gap-1">
-          <label for="email" class="block text-sm font-medium text-secondary"
-            >Email</label
-          >
+          <label for="email" class="block text-sm font-medium text-secondary">
+            {{ $t("login-email-label") }}
+          </label>
           <input
             id="email"
             v-model="email"
@@ -655,14 +656,14 @@ const handleOidcLogoutClick = async () => {
             required
             autocomplete="email"
             class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            placeholder="Enter your email"
+            :placeholder="$t('login-email-placeholder')"
           />
         </div>
 
         <div class="flex flex-col gap-1">
-          <label for="password" class="block text-sm font-medium text-secondary"
-            >Password</label
-          >
+          <label for="password" class="block text-sm font-medium text-secondary">
+            {{ $t("login-password-label") }}
+          </label>
           <div class="relative">
             <input
               id="password"
@@ -671,13 +672,13 @@ const handleOidcLogoutClick = async () => {
               required
               autocomplete="current-password"
               class="mt-1 block w-full px-3 py-2 pr-10 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              placeholder="Enter your password"
+              :placeholder="$t('login-password-placeholder')"
             />
             <button
               type="button"
               @click="showPassword = !showPassword"
               class="absolute inset-y-0 right-0 mt-1 px-3 flex items-center text-tertiary hover:text-secondary transition-colors"
-              :aria-label="showPassword ? 'Hide password' : 'Show password'"
+              :aria-label="showPassword ? $t('login-password-hide') : $t('login-password-show')"
             >
               <Icon v-if="!showPassword" name="eye" />
               <Icon v-else name="eyeOff" />
@@ -691,7 +692,7 @@ const handleOidcLogoutClick = async () => {
             @click="showForgotPasswordModal = true"
             class="text-sm text-accent hover:text-accent transition-colors"
           >
-            Forgot password?
+            {{ $t("login-forgot-password") }}
           </button>
         </div>
 
@@ -700,8 +701,8 @@ const handleOidcLogoutClick = async () => {
           :disabled="isLoading"
           class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <span v-if="loadingAction === 'login'">Signing in...</span>
-          <span v-else>Sign in</span>
+          <span v-if="loadingAction === 'login'">{{ $t("login-submitting") }}</span>
+          <span v-else>{{ $t("login-submit") }}</span>
         </button>
 
         <!-- Passkey Login Button -->
@@ -714,13 +715,13 @@ const handleOidcLogoutClick = async () => {
         >
           <Spinner v-if="loadingAction === 'passkey'" />
           <Icon v-else name="key" size="md" />
-          <span v-if="loadingAction === 'passkey'">Authenticating...</span>
-          <span v-else>Sign in with passkey</span>
+          <span v-if="loadingAction === 'passkey'">{{ $t("login-passkey-authenticating") }}</span>
+          <span v-else>{{ $t("login-passkey-cta") }}</span>
         </button>
 
         <div v-if="microsoftAuthEnabled || oidcEnabled" class="relative flex gap-2 items-center justify-center">
           <div class="border-t border-default flex-grow"></div>
-          <span class="mx-4 text-sm text-tertiary">or</span>
+          <span class="mx-4 text-sm text-tertiary">{{ $t("login-divider-or") }}</span>
           <div class="border-t border-default flex-grow"></div>
         </div>
 
@@ -748,14 +749,14 @@ const handleOidcLogoutClick = async () => {
                 <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
                 <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
               </svg>
-              <span v-if="loadingAction === 'microsoft'">Connecting...</span>
-              <span v-else>Sign in with Microsoft Entra</span>
+              <span v-if="loadingAction === 'microsoft'">{{ $t("login-microsoft-connecting") }}</span>
+              <span v-else>{{ $t("login-microsoft-cta") }}</span>
             </button>
 
             <button
               type="button"
               @click="handleMicrosoftLogoutClick"
-              title="Sign out of Microsoft account"
+              :title="$t('login-microsoft-logout-title')"
               class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
             >
               <svg
@@ -797,14 +798,14 @@ const handleOidcLogoutClick = async () => {
                 <polyline points="10 17 15 12 10 7" />
                 <line x1="15" y1="12" x2="3" y2="12" />
               </svg>
-              <span v-if="loadingAction === 'oidc'">Connecting...</span>
-              <span v-else>Sign in with {{ oidcDisplayName }}</span>
+              <span v-if="loadingAction === 'oidc'">{{ $t("login-oidc-connecting") }}</span>
+              <span v-else>{{ $t("login-oidc-cta", { provider: oidcDisplayName }) }}</span>
             </button>
 
             <button
               type="button"
               @click="handleOidcLogoutClick"
-              :title="`Sign out of ${oidcDisplayName} account`"
+              :title="$t('login-oidc-logout-title', { provider: oidcDisplayName })"
               class="p-2 border border-default rounded-lg text-tertiary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent"
             >
               <svg

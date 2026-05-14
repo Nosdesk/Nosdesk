@@ -69,6 +69,41 @@ notif-body-text =
 
     -- U ontvangt deze e-mail vanwege uw meldingsvoorkeuren in { $app }.
 
+# Login + MFA challenge view.
+login-subtitle = Log in op uw account
+login-email-label = E-mail
+login-email-placeholder = Voer uw e-mailadres in
+login-password-label = Wachtwoord
+login-password-placeholder = Voer uw wachtwoord in
+login-password-show = Wachtwoord tonen
+login-password-hide = Wachtwoord verbergen
+login-forgot-password = Wachtwoord vergeten?
+login-submit = Inloggen
+login-submitting = Bezig met inloggen...
+login-passkey-cta = Inloggen met passkey
+login-passkey-authenticating = Authenticatie...
+login-microsoft-cta = Inloggen met Microsoft Entra
+login-microsoft-connecting = Verbinden...
+login-microsoft-logout-title = Uitloggen bij Microsoft-account
+login-oidc-cta = Inloggen met { $provider }
+login-oidc-logout-title = Uitloggen bij { $provider }-account
+login-oidc-connecting = Verbinden...
+login-divider-or = of
+login-mfa-title = Tweefactorauthenticatie
+login-mfa-subtitle = Voer uw authenticatiecode in
+login-mfa-code-label = Authenticatiecode
+login-mfa-code-help = Voer de zescijferige code uit uw authenticator-app in, of een 8-karakter back-upcode
+login-mfa-back = Terug
+login-mfa-verify = Verifiëren en inloggen
+login-mfa-verifying = Verifiëren...
+login-passkey-mfa-verified = Wachtwoord geverifieerd voor { $email }
+login-passkey-mfa-verify-cta = Verifiëren met passkey
+login-passkey-mfa-use-recovery = Een herstelcode gebruiken
+login-passkey-mfa-back-to-login = Terug naar inloggen
+login-recovery-code-label = Herstelcode
+login-recovery-code-placeholder = Voer de herstelcode in
+login-recovery-code-help = Voer een van de 8-karakter herstelcodes in die u tijdens de configuratie hebt opgeslagen
+
 # Settings.
 settings-localization-title = Taal en tijdzone
 settings-localization-help = Bepaalt de taal van berichten en hoe datums worden weergegeven. De siteinstelling wordt gebruikt als u niets selecteert.

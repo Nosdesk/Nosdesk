@@ -113,6 +113,44 @@ notif-body-text =
 
     -- You're receiving this because of your notification preferences in { $app }.
 
+# Login + MFA challenge view. First contact for every user;
+# the strings here are deliberately conservative — short
+# CTAs, clear field labels, no idioms a translator has to
+# wrestle with.
+login-subtitle = Sign in to your account
+login-email-label = Email
+login-email-placeholder = Enter your email
+login-password-label = Password
+login-password-placeholder = Enter your password
+login-password-show = Show password
+login-password-hide = Hide password
+login-forgot-password = Forgot password?
+login-submit = Sign in
+login-submitting = Signing in...
+login-passkey-cta = Sign in with passkey
+login-passkey-authenticating = Authenticating...
+login-microsoft-cta = Sign in with Microsoft Entra
+login-microsoft-connecting = Connecting...
+login-microsoft-logout-title = Sign out of Microsoft account
+login-oidc-cta = Sign in with { $provider }
+login-oidc-logout-title = Sign out of { $provider } account
+login-oidc-connecting = Connecting...
+login-divider-or = or
+login-mfa-title = Two-Factor Authentication
+login-mfa-subtitle = Please enter your authentication code
+login-mfa-code-label = Authentication Code
+login-mfa-code-help = Enter the 6-digit code from your authenticator app or an 8-character backup code
+login-mfa-back = Back
+login-mfa-verify = Verify & Sign In
+login-mfa-verifying = Verifying...
+login-passkey-mfa-verified = Password verified for { $email }
+login-passkey-mfa-verify-cta = Verify with passkey
+login-passkey-mfa-use-recovery = Use a recovery code
+login-passkey-mfa-back-to-login = Back to login
+login-recovery-code-label = Recovery Code
+login-recovery-code-placeholder = Enter recovery code
+login-recovery-code-help = Enter one of the 8-character recovery codes you saved during setup
+
 # Localization settings panel. Every string in
 # components/settings/LocalizationSettings.vue resolves through
 # this section, so flipping the active locale immediately re-

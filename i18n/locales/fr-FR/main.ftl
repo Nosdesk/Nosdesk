@@ -72,6 +72,41 @@ notif-body-text =
 
     -- Vous recevez cet e-mail en raison de vos préférences de notification dans { $app }.
 
+# Login + MFA challenge view.
+login-subtitle = Connectez-vous à votre compte
+login-email-label = E-mail
+login-email-placeholder = Saisissez votre e-mail
+login-password-label = Mot de passe
+login-password-placeholder = Saisissez votre mot de passe
+login-password-show = Afficher le mot de passe
+login-password-hide = Masquer le mot de passe
+login-forgot-password = Mot de passe oublié ?
+login-submit = Se connecter
+login-submitting = Connexion...
+login-passkey-cta = Se connecter avec une clé d'accès
+login-passkey-authenticating = Authentification...
+login-microsoft-cta = Se connecter avec Microsoft Entra
+login-microsoft-connecting = Connexion...
+login-microsoft-logout-title = Se déconnecter du compte Microsoft
+login-oidc-cta = Se connecter avec { $provider }
+login-oidc-logout-title = Se déconnecter du compte { $provider }
+login-oidc-connecting = Connexion...
+login-divider-or = ou
+login-mfa-title = Authentification à deux facteurs
+login-mfa-subtitle = Veuillez saisir votre code d'authentification
+login-mfa-code-label = Code d'authentification
+login-mfa-code-help = Saisissez le code à 6 chiffres de votre application d'authentification ou un code de secours à 8 caractères
+login-mfa-back = Retour
+login-mfa-verify = Vérifier et se connecter
+login-mfa-verifying = Vérification...
+login-passkey-mfa-verified = Mot de passe vérifié pour { $email }
+login-passkey-mfa-verify-cta = Vérifier avec une clé d'accès
+login-passkey-mfa-use-recovery = Utiliser un code de secours
+login-passkey-mfa-back-to-login = Retour à la connexion
+login-recovery-code-label = Code de secours
+login-recovery-code-placeholder = Saisissez le code de secours
+login-recovery-code-help = Saisissez l'un des codes de secours à 8 caractères enregistrés lors de la configuration
+
 # Settings.
 settings-localization-title = Langue et fuseau horaire
 settings-localization-help = Détermine la langue des messages et l'affichage des dates. La valeur par défaut du site s'applique si rien n'est sélectionné.
