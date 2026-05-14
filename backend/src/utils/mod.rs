@@ -21,6 +21,8 @@ pub mod security_events;
 pub mod rbac;
 pub mod pdf;
 pub mod webauthn;
+pub mod i18n;
+pub mod locale;
 pub mod markdown_export;
 pub mod safe_http;
 pub mod slug;

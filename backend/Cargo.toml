@@ -164,6 +164,16 @@ mailparse = "0.16"         # RFC 5322 parser — headers, attachments, Reference
 # added.
 metrics = "0.24"
 
+# Localization. Fluent (Mozilla's i18n format) bundles message
+# catalogues per locale; we embed .ftl resources from the shared
+# `i18n/locales/` tree via `include_str!` so the backend ships a
+# self-contained set of translations. fluent-langneg implements
+# RFC 4647 Accept-Language negotiation against our supported
+# locale list. unic-langid is the BCP-47 language tag type used
+# across the Fluent ecosystem.
+fluent-bundle = "0.16"
+unic-langid = "0.9"
+
 # For testing only
 [dev-dependencies]
 actix-rt = "2.10.0"
