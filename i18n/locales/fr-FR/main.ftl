@@ -107,6 +107,36 @@ login-recovery-code-label = Code de secours
 login-recovery-code-placeholder = Saisissez le code de secours
 login-recovery-code-help = Saisissez l'un des codes de secours à 8 caractères enregistrés lors de la configuration
 
+# Forgot-password modal.
+forgot-password-title = Réinitialiser votre mot de passe
+forgot-password-close-modal = Fermer la fenêtre
+forgot-password-intro = Saisissez votre adresse e-mail et nous vous enverrons un lien pour réinitialiser votre mot de passe.
+forgot-password-email-label = Adresse e-mail
+forgot-password-email-placeholder = vous@exemple.com
+forgot-password-cancel = Annuler
+forgot-password-submit = Envoyer le lien
+forgot-password-submitting = Envoi...
+forgot-password-error-default = Échec de l'envoi de l'e-mail. Veuillez réessayer.
+forgot-password-success-title = Vérifiez votre boîte mail
+forgot-password-success-body = Si un compte existe avec cette adresse, nous avons envoyé un lien de réinitialisation à { $email }
+forgot-password-success-important = Important :
+forgot-password-success-tip-expiry = Le lien expirera dans <strong>1 heure</strong>
+forgot-password-success-tip-spam = Consultez votre dossier spam si vous ne le voyez pas
+forgot-password-success-tip-close = Vous pouvez fermer cette fenêtre
+forgot-password-success-done = Terminé
+
+# Profile settings tabs.
+settings-tab-profile = Profil
+settings-tab-appearance = Apparence
+settings-tab-language = Langue
+settings-tab-notifications = Notifications
+settings-tab-security = Sécurité
+settings-sidebar-heading = Paramètres
+settings-subtitle = Gérez votre profil, vos préférences et vos paramètres de sécurité
+settings-loading-user = Chargement des paramètres utilisateur...
+settings-user-heading = Paramètres utilisateur
+settings-section-suffix = - Paramètres
+
 # Settings.
 settings-localization-title = Langue et fuseau horaire
 settings-localization-help = Détermine la langue des messages et l'affichage des dates. La valeur par défaut du site s'applique si rien n'est sélectionné.

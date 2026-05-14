@@ -125,6 +125,34 @@ login-recovery-code-label = Recovery Code
 login-recovery-code-placeholder = Enter recovery code
 login-recovery-code-help = Enter one of the 8-character recovery codes you saved during setup
 
+forgot-password-title = Reset Your Password
+forgot-password-close-modal = Close modal
+forgot-password-intro = Enter your email address and we'll send you a link to reset your password.
+forgot-password-email-label = Email Address
+forgot-password-email-placeholder = you@example.com
+forgot-password-cancel = Cancel
+forgot-password-submit = Send Reset Link
+forgot-password-submitting = Sending...
+forgot-password-error-default = Failed to send reset email. Please try again.
+forgot-password-success-title = Check Your Email
+forgot-password-success-body = If an account with that email exists, we've sent a password reset link to { $email }
+forgot-password-success-important = Important:
+forgot-password-success-tip-expiry = The link will expire in <strong>1 hour</strong>
+forgot-password-success-tip-spam = Check your spam folder if you don't see it
+forgot-password-success-tip-close = You can close this window now
+forgot-password-success-done = Done
+
+settings-tab-profile = Profile
+settings-tab-appearance = Appearance
+settings-tab-language = Language
+settings-tab-notifications = Notifications
+settings-tab-security = Security
+settings-sidebar-heading = Settings
+settings-subtitle = Manage your profile, preferences, and security settings
+settings-loading-user = Loading User Settings...
+settings-user-heading = User Settings
+settings-section-suffix = Settings
+
 # en-GB: same wording as en-US for now; this section exists so the
 # locale ships its own catalogue end-to-end. Spelling differences
 # (organise / customise) will land here when those keys are added.

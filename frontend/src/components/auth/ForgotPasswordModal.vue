@@ -12,11 +12,11 @@
         >
           <!-- Header -->
           <div class="px-6 py-4 bg-surface-alt border-b border-subtle flex items-center justify-between">
-            <h2 class="text-lg font-semibold text-primary">Reset Your Password</h2>
+            <h2 class="text-lg font-semibold text-primary">{{ $t('forgot-password-title') }}</h2>
             <button
               @click="close"
               class="text-tertiary hover:text-primary transition-colors p-1 rounded-lg hover:bg-surface-hover"
-              aria-label="Close modal"
+              :aria-label="$t('forgot-password-close-modal')"
             >
               <Icon name="close" size="md" />
             </button>
@@ -32,32 +32,31 @@
                 </svg>
               </div>
               <div>
-                <h3 class="text-lg font-medium text-primary mb-2">Check Your Email</h3>
+                <h3 class="text-lg font-medium text-primary mb-2">{{ $t('forgot-password-success-title') }}</h3>
                 <p class="text-sm text-secondary">
-                  If an account with that email exists, we've sent a password reset link to
-                  <span class="text-primary font-medium">{{ email }}</span>
+                  {{ $t('forgot-password-success-body', { email }) }}
                 </p>
               </div>
               <div class="bg-accent/10 border border-accent/20 rounded-lg p-4 text-sm text-secondary">
-                <p class="mb-2"><strong class="text-accent">Important:</strong></p>
+                <p class="mb-2"><strong class="text-accent">{{ $t('forgot-password-success-important') }}</strong></p>
                 <ul class="space-y-1 text-xs">
-                  <li>• The link will expire in <strong>1 hour</strong></li>
-                  <li>• Check your spam folder if you don't see it</li>
-                  <li>• You can close this window now</li>
+                  <li>• <span v-html="$t('forgot-password-success-tip-expiry')"></span></li>
+                  <li>• {{ $t('forgot-password-success-tip-spam') }}</li>
+                  <li>• {{ $t('forgot-password-success-tip-close') }}</li>
                 </ul>
               </div>
               <button
                 @click="close"
                 class="w-full px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium"
               >
-                Done
+                {{ $t('forgot-password-success-done') }}
               </button>
             </div>
 
             <!-- Form State -->
             <form v-else @submit.prevent="handleSubmit" class="flex flex-col gap-4">
               <p class="text-sm text-secondary">
-                Enter your email address and we'll send you a link to reset your password.
+                {{ $t('forgot-password-intro') }}
               </p>
 
               <!-- Error Message -->
@@ -71,7 +70,7 @@
               <!-- Email Input -->
               <div>
                 <label for="reset-email" class="block text-sm font-medium text-secondary mb-2">
-                  Email Address
+                  {{ $t('forgot-password-email-label') }}
                 </label>
                 <input
                   id="reset-email"
@@ -79,7 +78,7 @@
                   type="email"
                   required
                   autocomplete="email"
-                  placeholder="you@example.com"
+                  :placeholder="$t('forgot-password-email-placeholder')"
                   class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                   :disabled="loading"
                 />
@@ -93,7 +92,7 @@
                   class="flex-1 px-4 py-2 bg-surface-alt hover:bg-surface-hover text-primary rounded-lg transition-colors font-medium"
                   :disabled="loading"
                 >
-                  Cancel
+                  {{ $t('forgot-password-cancel') }}
                 </button>
                 <button
                   type="submit"
@@ -101,7 +100,7 @@
                   :disabled="loading || !email"
                 >
                   <Spinner v-if="loading" />
-                  <span>{{ loading ? 'Sending...' : 'Send Reset Link' }}</span>
+                  <span>{{ loading ? $t('forgot-password-submitting') : $t('forgot-password-submit') }}</span>
                 </button>
               </div>
             </form>
@@ -114,9 +113,12 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { useFluent } from 'fluent-vue';
 import authService from '@/services/authService';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+
+const fluent = useFluent();
 
 const props = defineProps<{
   isOpen: boolean;
@@ -152,7 +154,7 @@ const handleSubmit = async () => {
     console.error('Password reset request error:', error);
     // Show generic error to prevent account enumeration
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to send reset email. Please try again.';
+    errorMessage.value = axiosError.response?.data?.message || fluent.$t('forgot-password-error-default');
   } finally {
     loading.value = false;
   }

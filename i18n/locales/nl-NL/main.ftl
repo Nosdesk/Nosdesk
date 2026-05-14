@@ -104,6 +104,36 @@ login-recovery-code-label = Herstelcode
 login-recovery-code-placeholder = Voer de herstelcode in
 login-recovery-code-help = Voer een van de 8-karakter herstelcodes in die u tijdens de configuratie hebt opgeslagen
 
+# Forgot-password modal.
+forgot-password-title = Wachtwoord opnieuw instellen
+forgot-password-close-modal = Venster sluiten
+forgot-password-intro = Voer uw e-mailadres in en we sturen u een link om uw wachtwoord opnieuw in te stellen.
+forgot-password-email-label = E-mailadres
+forgot-password-email-placeholder = u@voorbeeld.nl
+forgot-password-cancel = Annuleren
+forgot-password-submit = Resetlink versturen
+forgot-password-submitting = Versturen...
+forgot-password-error-default = Resetmail kon niet worden verzonden. Probeer het opnieuw.
+forgot-password-success-title = Controleer uw e-mail
+forgot-password-success-body = Als er een account bestaat met dit e-mailadres, hebben we een wachtwoord-resetlink naar { $email } gestuurd
+forgot-password-success-important = Belangrijk:
+forgot-password-success-tip-expiry = De link verloopt over <strong>1 uur</strong>
+forgot-password-success-tip-spam = Controleer uw spam-map als u hem niet ziet
+forgot-password-success-tip-close = U kunt dit venster nu sluiten
+forgot-password-success-done = Klaar
+
+# Profile settings tabs.
+settings-tab-profile = Profiel
+settings-tab-appearance = Weergave
+settings-tab-language = Taal
+settings-tab-notifications = Meldingen
+settings-tab-security = Beveiliging
+settings-sidebar-heading = Instellingen
+settings-subtitle = Beheer uw profiel, voorkeuren en beveiligingsinstellingen
+settings-loading-user = Gebruikersinstellingen laden...
+settings-user-heading = Gebruikersinstellingen
+settings-section-suffix = - Instellingen
+
 # Settings.
 settings-localization-title = Taal en tijdzone
 settings-localization-help = Bepaalt de taal van berichten en hoe datums worden weergegeven. De siteinstelling wordt gebruikt als u niets selecteert.

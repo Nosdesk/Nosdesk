@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import BackButton from '@/components/common/BackButton.vue';
 import Spinner from '@/components/common/Spinner.vue';
@@ -31,6 +32,7 @@ import { useColorFilter } from '@/composables/useColorFilter';
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const fluent = useFluent();
 const { colorFilterStyle } = useColorFilter();
 
 // Groups state
@@ -81,16 +83,17 @@ const updateURL = (section: string) => {
 
   window.history.replaceState(history.state, '', newPath);
 
-  const prefix = isAdminMode.value ? 'User ' : '';
-  const sectionTitles: Record<string, string> = {
-    profile: `${prefix}Profile Settings`,
-    appearance: `${prefix}Appearance Settings`,
-    language: `${prefix}Language Settings`,
-    notifications: `${prefix}Notification Settings`,
-    security: `${prefix}Security Settings`
-  };
-
-  const title = sectionTitles[section] || 'Settings';
+  // Compose the document title from the tab label and a localized
+  // "Settings" suffix. Join order isn't great in every language
+  // (French wants "Paramètres du profil" not "Profil Paramètres")
+  // but it's the browser-tab title; we accept the rough join here
+  // and refine when a translator flags it.
+  const tabKey = `settings-tab-${section}`;
+  const suffix = fluent.$t('settings-section-suffix');
+  const tabLabel = fluent.$t(tabKey);
+  const title = section in { profile: 1, appearance: 1, language: 1, notifications: 1, security: 1 }
+    ? `${tabLabel} ${suffix}`
+    : fluent.$t('settings-sidebar-heading');
   document.title = `${title} | Nosdesk`;
 };
 
@@ -102,33 +105,16 @@ watch(activeTab, (newTab) => {
 // Settings tabs. Language is its own top-level tab rather than
 // being buried inside Appearance — locale + timezone aren't a
 // visual preference, they're discoverability-critical for any
-// non-default-locale user.
+// non-default-locale user. `labelKey` is a Fluent key the
+// template resolves with `$t()`; rendering at template time
+// keeps the labels reactive to locale flips without re-running
+// this module.
 const settingsTabs = [
-  {
-    id: 'profile',
-    label: 'Profile',
-    icon: 'user'
-  },
-  {
-    id: 'appearance',
-    label: 'Appearance',
-    icon: 'palette'
-  },
-  {
-    id: 'language',
-    label: 'Language',
-    icon: 'globe'
-  },
-  {
-    id: 'notifications',
-    label: 'Notifications',
-    icon: 'bell'
-  },
-  {
-    id: 'security',
-    label: 'Security',
-    icon: 'shield'
-  }
+  { id: 'profile', labelKey: 'settings-tab-profile', icon: 'user' },
+  { id: 'appearance', labelKey: 'settings-tab-appearance', icon: 'palette' },
+  { id: 'language', labelKey: 'settings-tab-language', icon: 'globe' },
+  { id: 'notifications', labelKey: 'settings-tab-notifications', icon: 'bell' },
+  { id: 'security', labelKey: 'settings-tab-security', icon: 'shield' },
 ];
 
 // Available roles for admin management
@@ -427,7 +413,7 @@ const cancelDelete = () => {
             ]"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
-            <span class="text-sm">{{ tab.label }}</span>
+            <span class="text-sm">{{ $t(tab.labelKey) }}</span>
           </button>
         </HorizontalScrollContainer>
       </div>
@@ -438,7 +424,7 @@ const cancelDelete = () => {
       <div class="mb-2 sm:mb-6">
         <div v-if="loadingTargetUser" class="flex items-center gap-3 text-accent">
           <Spinner size="md" />
-          <h1 class="text-xl sm:text-2xl font-bold text-primary">Loading User Settings...</h1>
+          <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('settings-loading-user') }}</h1>
         </div>
         <div v-else-if="isManagingOtherUser && targetUser">
           <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-2">
@@ -446,7 +432,7 @@ const cancelDelete = () => {
               <Icon name="settings" size="md" />
             </div>
             <div class="min-w-0 flex-1 overflow-hidden">
-              <h1 class="text-xl sm:text-2xl font-bold text-primary">User Settings</h1>
+              <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('settings-user-heading') }}</h1>
               <p class="text-sm sm:text-base text-secondary">
                 <span class="block sm:inline">Managing settings for </span>
                 <span class="text-accent font-medium break-all">{{ targetUser.name }}</span>
@@ -456,9 +442,9 @@ const cancelDelete = () => {
           </div>
         </div>
         <div v-else>
-          <h1 class="text-xl sm:text-2xl font-bold text-primary">Settings</h1>
+          <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('settings-sidebar-heading') }}</h1>
           <p class="text-sm sm:text-base text-secondary mt-1 sm:mt-2">
-            Manage your profile, preferences, and security settings
+            {{ $t('settings-subtitle') }}
           </p>
         </div>
       </div>
@@ -474,7 +460,7 @@ const cancelDelete = () => {
         <aside class="hidden lg:block lg:w-64 flex-shrink-0">
           <div class="sticky top-4">
             <SectionCard content-padding="p-2">
-              <template #title>Settings</template>
+              <template #title>{{ $t('settings-sidebar-heading') }}</template>
               <nav class="flex flex-col gap-1">
               <button
                 v-for="tab in settingsTabs"
@@ -494,7 +480,7 @@ const cancelDelete = () => {
                 ></div>
 
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="renderTabIcon(tab.icon)"></svg>
-                <span class="text-sm whitespace-nowrap">{{ tab.label }}</span>
+                <span class="text-sm whitespace-nowrap">{{ $t(tab.labelKey) }}</span>
               </button>
             </nav>
             </SectionCard>
