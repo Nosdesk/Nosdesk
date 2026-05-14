@@ -1372,17 +1372,73 @@ async fn sync_users(
     let removed_user_ids = delta_result.removed_user_ids;
     let access_token = delta_result.access_token;
 
-    // Handle removed users first (if delta sync returned any)
+    // Handle removed users first (if delta sync returned any).
+    //
+    // Design choice: we revoke active sessions and record a security
+    // event, but we DO NOT delete or soft-delete the users row.
+    //   - Revoke severs access immediately: an Entra ID admin
+    //     removing a fired employee from the source IDP propagates
+    //     to "they can no longer log in to Nosdesk" on the next
+    //     delta-sync run.
+    //   - Keeping the row preserves historical attribution
+    //     (tickets they created, comments they wrote, audit log
+    //     entries). A compromised admin in the source IDP can't
+    //     wipe Nosdesk data by mass-removing users.
+    //   - Operators who want hard cleanup can do it via the admin
+    //     UI / nosdesk-cli once they've decided.
     if !removed_user_ids.is_empty() {
         info!(count = removed_user_ids.len(), "Processing removed users from delta response");
         for removed_id in &removed_user_ids {
-            // Find the identity for this Microsoft user
-            if let Ok(identity) = find_identity_by_provider_user_id(conn, provider_id, removed_id) {
-                // Soft-delete or mark the user as inactive
-                // For now, we just log it - you might want to deactivate the user
-                info!(user_uuid = %identity.user_uuid, ms_id = %removed_id, "User removed from Microsoft - consider deactivating");
-                // TODO: Implement user deactivation if desired
+            let Ok(identity) = find_identity_by_provider_user_id(conn, provider_id, removed_id)
+            else {
+                continue;
+            };
+
+            let revoked = crate::repository::active_sessions::revoke_other_sessions(
+                conn,
+                &identity.user_uuid,
+                None,
+            )
+            .unwrap_or_else(|e| {
+                warn!(
+                    error = ?e,
+                    user_uuid = %identity.user_uuid,
+                    ms_id = %removed_id,
+                    "Failed to revoke sessions for user removed from Entra ID",
+                );
+                0
+            });
+
+            if let Err(e) = crate::utils::security_events::record_security_event(
+                conn,
+                crate::utils::security_events::SecurityEventInput {
+                    user_uuid: identity.user_uuid,
+                    event_type: "user_removed_via_msgraph",
+                    severity: "warning",
+                    details: Some(serde_json::json!({
+                        "ms_id": removed_id,
+                        "provider_id": provider_id,
+                        "sessions_revoked": revoked,
+                        "action": "access_revoked_user_row_kept",
+                    })),
+                    request: None,
+                    session_id: None,
+                },
+            ) {
+                warn!(
+                    error = ?e,
+                    user_uuid = %identity.user_uuid,
+                    ms_id = %removed_id,
+                    "Failed to record security event for Entra ID user removal",
+                );
             }
+
+            warn!(
+                user_uuid = %identity.user_uuid,
+                ms_id = %removed_id,
+                sessions_revoked = revoked,
+                "Entra ID reported user removed: revoked sessions, kept user row for attribution",
+            );
         }
     }
 
@@ -2303,15 +2359,25 @@ async fn sync_devices(
     let removed_device_ids = delta_result.removed_device_ids;
     let _access_token = delta_result.access_token;
 
-    // Handle removed devices first (if delta sync returned any)
+    // Handle removed devices first (if delta sync returned any).
+    //
+    // Design choice: warn-log the removal but keep the device row.
+    // Devices have no auth implication (unlike users) — the only
+    // hazard of a stale device row is inventory drift, not access.
+    // Operators reviewing the warning can choose to delete the
+    // device manually via the admin UI. This matches the
+    // "preserve history, surface the signal" stance used for user
+    // removals above.
     if !removed_device_ids.is_empty() {
         info!(count = removed_device_ids.len(), "Processing removed devices from delta response");
         for removed_id in &removed_device_ids {
-            // Find the device by Entra ID and mark it as removed/inactive
-            // The removed_id is the Entra Object ID from the /devices endpoint
             if let Ok(device) = device_repo::get_device_by_entra_id(conn, removed_id) {
-                info!(device_id = %device.id, device_name = %device.name, entra_id = %removed_id, "Device removed from Entra ID - consider deactivating");
-                // TODO: Implement device deactivation if desired
+                warn!(
+                    device_id = %device.id,
+                    device_name = %device.name,
+                    entra_id = %removed_id,
+                    "Entra ID reported device removed: kept device row (no auth impact); delete manually via admin if desired",
+                );
             }
         }
     }
@@ -2544,11 +2610,21 @@ async fn sync_groups(
 
         processed_count += 1;
 
-        // Handle removed groups
+        // Handle removed groups.
+        //
+        // Design choice: warn-log and skip. Groups in Nosdesk are
+        // membership pivots (visibility scopes, assignment pools);
+        // removing the row would cascade-orphan memberships and
+        // could break ticket visibility for users who weren't
+        // themselves removed from Entra ID. Keeping the row
+        // preserves those memberships until an operator decides
+        // to clean up manually via the admin UI. Same "preserve
+        // history, surface the signal" stance as users + devices.
         if group_item.is_removed {
-            info!(group_id = %group_item.group_id, "Group removed from Microsoft - consider deactivating");
-            // TODO: Implement group deactivation if desired
-            // For now, we skip removed groups
+            warn!(
+                group_id = %group_item.group_id,
+                "Entra ID reported group removed: kept group row to preserve memberships; delete manually via admin if desired",
+            );
             continue;
         }
 
