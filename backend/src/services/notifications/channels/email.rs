@@ -229,12 +229,14 @@ impl NotificationDeliveryChannel for EmailChannel {
 
         let subject = self.generate_subject(notification, &branding.app_name, &recipient_locale);
         let entity_url = self.generate_entity_url(notification);
-        let body_text = notification
-            .payload
-            .body
-            .as_deref()
-            .unwrap_or("You have a new notification.")
-            .to_string();
+        let body_text = match notification.payload.body.as_deref() {
+            Some(text) if !text.is_empty() => text.to_string(),
+            _ => crate::utils::i18n::tr_with(
+                &recipient_locale,
+                "notif-body-fallback",
+                &[],
+            ),
+        };
         let title = notification.payload.title.clone();
         let actor_name = notification.payload.actor.name.clone();
 
@@ -269,6 +271,7 @@ impl NotificationDeliveryChannel for EmailChannel {
                 &entity_url,
                 &event_id,
                 &recipient_uuid_str,
+                &recipient_locale,
             ) {
                 Ok(row) => tracing::debug!(
                     queue_id = row.id,

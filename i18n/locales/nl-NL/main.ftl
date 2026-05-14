@@ -53,6 +53,21 @@ notif-comment-added = [{ $app }] Nieuwe reactie: { $title }
 notif-mentioned = [{ $app }] { $actor } heeft u genoemd
 notif-ticket-created-requester = [{ $app }] Ticket aangemaakt: { $title }
 notif-doc-page-updated = [{ $app }] Pagina bijgewerkt: { $title }
+# Notification email body.
+notif-body-fallback = U hebt een nieuwe melding.
+notif-from-row = <strong>Van:</strong> { $actor }
+notif-cta-view-in = Openen in { $app }
+notif-footer-preferences = U ontvangt deze e-mail vanwege uw meldingsvoorkeuren.
+notif-body-text =
+    { $title }
+
+    { $body }
+
+    Van: { $actor }
+
+    Openen in { $app }: { $cta }
+
+    -- U ontvangt deze e-mail vanwege uw meldingsvoorkeuren in { $app }.
 
 # Settings.
 settings-localization-title = Taal en tijdzone

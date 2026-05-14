@@ -976,12 +976,13 @@ impl EmailService {
         actor_name: &str,
         cta_url: &str,
         branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
     ) -> Result<(), String> {
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
         }
         let (html_body, _text_body) = self.compose_notification(
-            title, body, actor_name, cta_url, branding,
+            title, body, actor_name, cta_url, branding, locale,
         );
         self.send_html_email(to, subject, &html_body).await
     }
@@ -989,6 +990,11 @@ impl EmailService {
     /// Render the notification email without sending. Returns
     /// `(body_html, body_text)`; the caller already has the subject
     /// (notifications synthesise it from the notification type).
+    ///
+    /// `title` and `body` are user-authored content (entity title /
+    /// comment body) and stay verbatim — we don't machine-translate
+    /// what humans wrote. Only the connector copy (From label, CTA,
+    /// footer) gets translated against the recipient's locale.
     pub fn compose_notification(
         &self,
         title: &str,
@@ -996,16 +1002,29 @@ impl EmailService {
         actor_name: &str,
         cta_url: &str,
         branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
     ) -> (String, String) {
         let template = EmailTemplate::new(branding);
+        let tr = |key: &str, args: &[(&str, fluent_bundle::FluentValue<'static>)]| {
+            crate::utils::i18n::tr_with(locale, key, args)
+        };
+
+        let from_row = tr(
+            "notif-from-row",
+            &[("actor", escape_html(actor_name).into())],
+        );
         let content = format!(
             r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">{}</p>
-            <p style="margin: 0 0 24px 0; color: #6b7280; font-size: 14px;"><strong>From:</strong> {}</p>"#,
+            <p style="margin: 0 0 24px 0; color: #6b7280; font-size: 14px;">{}</p>"#,
             escape_html(body),
-            escape_html(actor_name),
+            from_row,
         );
 
-        let button_label = format!("View in {}", branding.app_name);
+        let button_label = tr(
+            "notif-cta-view-in",
+            &[("app", branding.app_name.clone().into())],
+        );
+        let footer = tr("notif-footer-preferences", &[]);
         let html_body = template.build(
             title,
             &branding.primary_color,
@@ -1015,20 +1034,18 @@ impl EmailService {
             &branding.primary_color,
             NoticeType::Info,
             &[],
-            "You're receiving this because of your notification preferences.",
+            &footer,
         );
 
-        let body_text = format!(
-            "{title}\n\n\
-             {body}\n\n\
-             From: {actor}\n\n\
-             View in {app}: {cta}\n\n\
-             — You're receiving this because of your notification preferences in {app}.\n",
-            title = title,
-            body = body,
-            actor = actor_name,
-            app = branding.app_name,
-            cta = cta_url,
+        let body_text = tr(
+            "notif-body-text",
+            &[
+                ("title", title.to_string().into()),
+                ("body", body.to_string().into()),
+                ("actor", actor_name.to_string().into()),
+                ("app", branding.app_name.clone().into()),
+                ("cta", cta_url.to_string().into()),
+            ],
         );
 
         (html_body, body_text)

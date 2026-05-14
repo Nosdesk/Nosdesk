@@ -56,6 +56,21 @@ notif-comment-added = [{ $app }] Nouveau commentaire : { $title }
 notif-mentioned = [{ $app }] { $actor } vous a mentionné
 notif-ticket-created-requester = [{ $app }] Ticket créé : { $title }
 notif-doc-page-updated = [{ $app }] Page mise à jour : { $title }
+# Notification email body.
+notif-body-fallback = Vous avez une nouvelle notification.
+notif-from-row = <strong>De :</strong> { $actor }
+notif-cta-view-in = Ouvrir dans { $app }
+notif-footer-preferences = Vous recevez cet e-mail en raison de vos préférences de notification.
+notif-body-text =
+    { $title }
+
+    { $body }
+
+    De : { $actor }
+
+    Ouvrir dans { $app } : { $cta }
+
+    -- Vous recevez cet e-mail en raison de vos préférences de notification dans { $app }.
 
 # Settings.
 settings-localization-title = Langue et fuseau horaire

@@ -79,6 +79,20 @@ notif-comment-added = [{ $app }] New comment on: { $title }
 notif-mentioned = [{ $app }] { $actor } mentioned you
 notif-ticket-created-requester = [{ $app }] Ticket created: { $title }
 notif-doc-page-updated = [{ $app }] Page updated: { $title }
+notif-body-fallback = You have a new notification.
+notif-from-row = <strong>From:</strong> { $actor }
+notif-cta-view-in = View in { $app }
+notif-footer-preferences = You're receiving this because of your notification preferences.
+notif-body-text =
+    { $title }
+
+    { $body }
+
+    From: { $actor }
+
+    View in { $app }: { $cta }
+
+    -- You're receiving this because of your notification preferences in { $app }.
 
 # en-AU diverges from en-US on a couple of words ("Timezone" stays
 # the same; the help copy nudges to AU phrasing). The Save button

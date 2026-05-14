@@ -75,6 +75,20 @@ notif-comment-added = [{ $app }] New comment on: { $title }
 notif-mentioned = [{ $app }] { $actor } mentioned you
 notif-ticket-created-requester = [{ $app }] Ticket created: { $title }
 notif-doc-page-updated = [{ $app }] Page updated: { $title }
+notif-body-fallback = You have a new notification.
+notif-from-row = <strong>From:</strong> { $actor }
+notif-cta-view-in = View in { $app }
+notif-footer-preferences = You're receiving this because of your notification preferences.
+notif-body-text =
+    { $title }
+
+    { $body }
+
+    From: { $actor }
+
+    View in { $app }: { $cta }
+
+    -- You're receiving this because of your notification preferences in { $app }.
 
 # en-GB: same wording as en-US for now; this section exists so the
 # locale ships its own catalogue end-to-end. Spelling differences

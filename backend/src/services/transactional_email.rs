@@ -208,6 +208,7 @@ pub fn prepare_notification(
     cta_url: &str,
     event_id: &str,
     recipient_uuid: &str,
+    locale: &unic_langid::LanguageIdentifier,
 ) -> NewOutboundEmail {
     let (body_html, body_text) = svc.compose_notification(
         title,
@@ -215,6 +216,7 @@ pub fn prepare_notification(
         actor_name,
         cta_url,
         branding,
+        locale,
     );
     let message_id = make_message_id("notify", &from_email_domain(svc));
     // Notification emails are system-generated but represent a
@@ -260,9 +262,20 @@ pub fn enqueue_notification(
     cta_url: &str,
     event_id: &str,
     recipient_uuid: &str,
+    locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
     let row = prepare_notification(
-        svc, branding, recipient, subject, title, body, actor_name, cta_url, event_id, recipient_uuid,
+        svc,
+        branding,
+        recipient,
+        subject,
+        title,
+        body,
+        actor_name,
+        cta_url,
+        event_id,
+        recipient_uuid,
+        locale,
     );
     outbound_emails::enqueue_idempotent(conn, row)
 }
@@ -447,6 +460,7 @@ mod tests {
             "https://desk.example.com/tickets/42",
             "notif-uuid-1",
             "user-uuid-9",
+            &en_us(),
         );
 
         assert!(row.channel_id.is_none());
