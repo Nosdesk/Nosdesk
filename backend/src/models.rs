@@ -1467,6 +1467,16 @@ pub struct UserResponse {
     /// from site default".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
+    /// Resolved locale after walking user pref -> site default ->
+    /// hardcoded fallback. Populated only by /auth/me; admin user
+    /// listings leave it None to avoid the extra site_settings
+    /// fetch per row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_locale: Option<String>,
+    /// Resolved timezone after the same fallback chain. Same /me-
+    /// only population rule as `effective_locale`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_timezone: Option<String>,
 }
 
 // ============================================================================
@@ -1547,6 +1557,8 @@ impl From<User> for UserResponse {
             signature: None,
             locale: None,
             timezone: None,
+            effective_locale: None,
+            effective_timezone: None,
         }
     }
 }

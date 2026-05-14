@@ -132,6 +132,45 @@ pub fn parse_timezone(tz: &str) -> Result<Tz, LocaleError> {
     Tz::from_str(tz.trim()).map_err(|_| LocaleError::InvalidTimezone(tz.to_string()))
 }
 
+/// Resolve the effective locale for a user. Walks the chain:
+///
+/// 1. The user's stored preference (`user_preferences.locale`),
+///    if it parses + is in `SUPPORTED_LOCALES`.
+/// 2. The site-wide default (`site_settings.default_locale`), if
+///    it parses + is supported. Operators set this in admin.
+/// 3. The hardcoded `DEFAULT_LOCALE` (`en-US`).
+///
+/// An invalid stored value silently falls through to the next
+/// link rather than 500ing a request: a bad row shouldn't take
+/// down /auth/me.
+pub fn effective_locale(user_locale: Option<&str>, site_default: &str) -> LanguageIdentifier {
+    if let Some(s) = user_locale {
+        if let Ok(l) = parse_supported(s) {
+            return l;
+        }
+    }
+    if let Ok(l) = parse_supported(site_default) {
+        return l;
+    }
+    LanguageIdentifier::from_str(DEFAULT_LOCALE).expect("DEFAULT_LOCALE parses")
+}
+
+/// Resolve the effective IANA timezone for a user. Same chain as
+/// `effective_locale`, with `UTC` as the final fallback. IANA-
+/// only; Windows-style names ("Pacific Standard Time") and bogus
+/// zones fall through.
+pub fn effective_timezone(user_tz: Option<&str>, site_default: &str) -> Tz {
+    if let Some(s) = user_tz {
+        if let Ok(t) = parse_timezone(s) {
+            return t;
+        }
+    }
+    if let Ok(t) = parse_timezone(site_default) {
+        return t;
+    }
+    Tz::UTC
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +248,64 @@ mod tests {
         assert!(parse_timezone("Australia/Sydney").is_ok());
         assert!(parse_timezone("America/New_York").is_ok());
         assert!(parse_timezone("UTC").is_ok());
+    }
+
+    #[test]
+    fn effective_locale_prefers_user_preference() {
+        let l = effective_locale(Some("en-AU"), "en-GB");
+        assert_eq!(l.to_string(), "en-AU");
+    }
+
+    #[test]
+    fn effective_locale_falls_back_to_site_default() {
+        let l = effective_locale(None, "en-GB");
+        assert_eq!(l.to_string(), "en-GB");
+    }
+
+    #[test]
+    fn effective_locale_falls_back_to_hardcoded_when_chain_empty() {
+        let l = effective_locale(None, "");
+        assert_eq!(l.to_string(), DEFAULT_LOCALE);
+    }
+
+    #[test]
+    fn effective_locale_skips_invalid_user_preference() {
+        // Garbage stored value falls through to site default.
+        let l = effective_locale(Some("not-a-real-tag!!!"), "en-AU");
+        assert_eq!(l.to_string(), "en-AU");
+    }
+
+    #[test]
+    fn effective_locale_skips_unsupported_user_preference() {
+        // Well-formed but we don't ship catalogues for fr-FR yet, so
+        // fall through to site default rather than promise something
+        // we can't deliver.
+        let l = effective_locale(Some("fr-FR"), "en-AU");
+        assert_eq!(l.to_string(), "en-AU");
+    }
+
+    #[test]
+    fn effective_timezone_prefers_user_preference() {
+        let tz = effective_timezone(Some("Australia/Sydney"), "UTC");
+        assert_eq!(tz.name(), "Australia/Sydney");
+    }
+
+    #[test]
+    fn effective_timezone_falls_back_to_site_default() {
+        let tz = effective_timezone(None, "America/New_York");
+        assert_eq!(tz.name(), "America/New_York");
+    }
+
+    #[test]
+    fn effective_timezone_falls_back_to_utc_when_chain_empty() {
+        let tz = effective_timezone(None, "");
+        assert_eq!(tz.name(), "UTC");
+    }
+
+    #[test]
+    fn effective_timezone_skips_invalid_user_preference() {
+        let tz = effective_timezone(Some("Pacific Standard Time"), "Australia/Sydney");
+        assert_eq!(tz.name(), "Australia/Sydney");
     }
 
     #[test]

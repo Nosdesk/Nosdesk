@@ -10,7 +10,7 @@ use crate::handlers::helpers;
 use crate::handlers::errors;
 use crate::models::{
     LoginRequest, PasswordChangeRequest,
-    UserRegistration, UserResponse
+    UserRegistration,
 };
 use crate::repository;
 use crate::utils::{self, ValidationError, parse_uuid};
@@ -798,7 +798,33 @@ pub async fn get_current_user(
         Err(_) => return errors::not_found_msg("User not found"),
     };
 
-    HttpResponse::Ok().json(UserResponse::from(user))
+    // Flatten user_preferences + primary_email into the response so
+    // /me carries the same shape it did before the preferences
+    // refactor.
+    let mut response = crate::repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+
+    // Populate effective_locale / effective_timezone by walking the
+    // chain: user pref -> site default -> hardcoded fallback. A
+    // failed site_settings read shouldn't sink the response; the
+    // resolver treats an empty string as "no site default" and
+    // falls through cleanly.
+    let (default_locale, default_timezone) =
+        match crate::repository::site_settings::get_site_settings(&mut conn) {
+            Ok(s) => (s.default_locale, s.default_timezone),
+            Err(_) => (String::new(), String::new()),
+        };
+    let eff_locale = crate::utils::locale::effective_locale(
+        response.locale.as_deref(),
+        &default_locale,
+    );
+    let eff_timezone = crate::utils::locale::effective_timezone(
+        response.timezone.as_deref(),
+        &default_timezone,
+    );
+    response.effective_locale = Some(eff_locale.to_string());
+    response.effective_timezone = Some(eff_timezone.name().to_string());
+
+    HttpResponse::Ok().json(response)
 }
 
 /// Check if system requires initial setup

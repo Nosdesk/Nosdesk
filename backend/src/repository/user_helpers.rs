@@ -325,6 +325,8 @@ pub fn get_user_with_primary_email(
         signature: prefs.as_ref().and_then(|p| p.signature.clone()),
         locale: prefs.as_ref().and_then(|p| p.locale.clone()),
         timezone: prefs.as_ref().and_then(|p| p.timezone.clone()),
+        effective_locale: None,
+        effective_timezone: None,
     }
 }
 
@@ -392,6 +394,8 @@ pub fn get_users_with_primary_emails(
                 signature: prefs.and_then(|p| p.signature.clone()),
                 locale: prefs.and_then(|p| p.locale.clone()),
                 timezone: prefs.and_then(|p| p.timezone.clone()),
+                effective_locale: None,
+                effective_timezone: None,
             }
         })
         .collect()
