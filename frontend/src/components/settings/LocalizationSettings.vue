@@ -14,6 +14,7 @@
  * On API failure revert.
  */
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDateStore } from '@/stores/dateStore'
 import { SUPPORTED_LOCALES } from '@/i18n'
@@ -23,6 +24,10 @@ import Spinner from '@/components/common/Spinner.vue'
 
 const authStore = useAuthStore()
 const dateStore = useDateStore()
+// `$t` from fluent-vue. Templates can call `$t('key')` directly
+// via the registered global property; script-side strings (toast
+// messages) go through `format()`.
+const fluent = useFluent()
 
 const emit = defineEmits<{
   (e: 'success', message: string): void
@@ -64,17 +69,15 @@ const selectedTimezone = ref<string>(initialTimezone.value)
 
 // Locale options. Empty-string sentinel = "Site default" → sends
 // '' in the PATCH which the backend normalises to null via the
-// empty-string-clears semantic in handlers/users.rs.
-const localeLabels: Record<string, string> = {
-  'en-US': 'English (United States)',
-  'en-GB': 'English (United Kingdom)',
-  'en-AU': 'English (Australia)',
-}
+// empty-string-clears semantic in handlers/users.rs. Labels go
+// through Fluent so the picker itself reflects the active locale
+// (recomputed when `dateStore.locale` flips because `$t` reads
+// from the reactive bundle).
 const localeOptions = computed(() => [
-  { value: '', label: 'Site default' },
+  { value: '', label: fluent.$t('settings-locale-site-default') },
   ...SUPPORTED_LOCALES.map((code) => ({
     value: code,
-    label: localeLabels[code] ?? code,
+    label: fluent.$t(`settings-locale-${code}`) || code,
   })),
 ])
 
@@ -137,7 +140,7 @@ async function save() {
     if (!isAdminMode.value) {
       dateStore.loadFromUser(updated)
     }
-    emit('success', 'Language and timezone preferences saved')
+    emit('success', fluent.$t('settings-localization-saved'))
   } catch (e) {
     // Revert optimistic state.
     selectedLocale.value = previousLocale
@@ -150,7 +153,10 @@ async function save() {
           : previousTimezone,
       )
     }
-    emit('error', e instanceof Error ? e.message : 'Failed to save preferences')
+    emit(
+      'error',
+      e instanceof Error ? e.message : fluent.$t('settings-localization-save-failed'),
+    )
   } finally {
     isUpdating.value = false
   }
@@ -181,15 +187,14 @@ const dirty = computed(
         />
       </svg>
     </template>
-    <template #title>Language &amp; Timezone</template>
+    <template #title>{{ $t('settings-localization-title') }}</template>
     <template #headerActions>
       <Spinner v-if="isUpdating" class="text-accent" />
     </template>
 
     <div class="flex flex-col gap-5">
       <p class="text-xs text-tertiary">
-        Affects message language and how dates render. Site default
-        applies when you don't pick one explicitly.
+        {{ $t('settings-localization-help') }}
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -199,7 +204,7 @@ const dirty = computed(
             for="locale-select"
             class="text-sm font-medium text-primary"
           >
-            Language
+            {{ $t('settings-language-label') }}
           </label>
           <select
             id="locale-select"
@@ -223,7 +228,7 @@ const dirty = computed(
             for="timezone-select"
             class="text-sm font-medium text-primary"
           >
-            Timezone
+            {{ $t('settings-timezone-label') }}
           </label>
           <select
             id="timezone-select"
@@ -232,7 +237,7 @@ const dirty = computed(
             class="w-full px-3 py-2 bg-surface-alt text-primary rounded-lg border border-default focus:ring-2 focus:ring-accent focus:outline-none text-sm"
           >
             <option value="system">
-              Browser-detected ({{ browserTimezone }})
+              {{ $t('settings-timezone-browser-detected', { tz: browserTimezone }) }}
             </option>
             <option
               v-for="tz in ianaTimezones"
@@ -253,7 +258,7 @@ const dirty = computed(
           @click="save"
         >
           <Spinner v-if="isUpdating" />
-          {{ isUpdating ? 'Saving...' : 'Save' }}
+          {{ isUpdating ? $t('settings-saving') : $t('settings-save') }}
         </button>
       </div>
     </div>
