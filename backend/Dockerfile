@@ -93,6 +93,11 @@ RUN npm ci
 
 # Copy frontend source
 COPY frontend .
+# Shared Fluent catalogues. Vite's `import.meta.glob` in
+# src/i18n/index.ts resolves `../../../i18n/locales/...` to `/i18n`
+# from inside `/frontend/src/i18n/`, so mirror the workspace
+# layout there.
+COPY i18n /i18n
 
 # Build frontend for production (skip type checking for faster builds)
 RUN npm run build-only

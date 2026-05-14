@@ -62,6 +62,14 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
+    // Widen Vite's dev-server file-read sandbox to the workspace
+    // root so `import.meta.glob('../../../i18n/locales/...')` can
+    // reach the shared Fluent catalogues outside `frontend/`.
+    // Production builds bundle the files at compile time and
+    // don't go through this gate.
+    fs: {
+      allow: ["..", "./"],
+    },
     // Docker-specific optimizations for file watching and HMR
     watch: {
       usePolling: true,  // Required for Docker on macOS/Windows

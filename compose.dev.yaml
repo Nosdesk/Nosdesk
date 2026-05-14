@@ -192,6 +192,12 @@ services:
       - ./frontend:/app
       - ./backend/public:/app/dist # Mount the backend public directory to dist
       - frontend_node_modules:/app/node_modules
+      # Shared Fluent catalogues — same files the backend
+      # include_str!s. Mounted read-only so Vite can resolve
+      # `import.meta.glob('../../../i18n/locales/*/main.ftl')`
+      # from frontend/src/i18n/index.ts (three `..` from there
+      # reach `/`, where this mount lives).
+      - ./i18n:/i18n:ro
     environment:
       - CHOKIDAR_USEPOLLING=true # Required for file watching in Docker on macOS/Windows
     command: sh -c "npm install && npm run dev:unified"

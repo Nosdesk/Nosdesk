@@ -25,6 +25,14 @@ app.directive('prefetch', vPrefetch)
 
 const pinia = createPinia()
 app.use(pinia)
+
+// Fluent-based i18n. Must register after Pinia (the i18n module
+// reads dateStore.locale for the active bundle) and before
+// components render so the first paint already speaks the right
+// language. Locale follows dateStore.locale, which auth.ts seeds
+// from /me's effective_locale on login.
+import { createI18n as createI18nPlugin } from './i18n'
+app.use(createI18nPlugin(pinia))
 // Pinia Colada must register AFTER Pinia. Provides the canonical
 // async data layer (queries, mutations, optimistic updates,
 // query cache, route loader integration). See
