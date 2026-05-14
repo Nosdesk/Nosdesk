@@ -130,15 +130,10 @@ mod tests {
             avatar_url: None,
             banner_url: None,
             avatar_thumb: None,
-            theme: None,
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
         };
         let (user, _) = create_user_with_email(
             user,

@@ -487,7 +487,6 @@ mod tests {
             avatar_url: None,
             banner_url: None,
             avatar_thumb: None,
-            theme: None,
             created_at: now,
             updated_at: now,
             password_changed_at: None,
@@ -495,11 +494,7 @@ mod tests {
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            signature: None,
-            dashboard_layout: None,
             feature_flag_overrides: serde_json::json!({}),
-            locale: None,
-            timezone: None,
         };
 
         assert!(!user_has_mfa_enabled(&base_user));

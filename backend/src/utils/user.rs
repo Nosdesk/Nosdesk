@@ -70,15 +70,10 @@ impl NewUserBuilder {
             avatar_url: self.avatar_url,
             banner_url: self.banner_url,
             avatar_thumb: self.avatar_thumb,
-            theme: None, // Default to system theme (handled by database default)
             microsoft_uuid: self.microsoft_uuid,
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
         };
         (new_user, self.email)
     }
@@ -94,15 +89,10 @@ impl NewUserBuilder {
             avatar_url: self.avatar_url,
             banner_url: self.banner_url,
             avatar_thumb: self.avatar_thumb,
-            theme: None, // Default to system theme (handled by database default)
             microsoft_uuid: self.microsoft_uuid,
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
         }
     }
 }

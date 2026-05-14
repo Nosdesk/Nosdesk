@@ -1271,13 +1271,8 @@ pub async fn upload_user_image(
             avatar_url: if image_type == "avatar" { Some(final_url.clone()) } else { None },
             banner_url: if image_type == "banner" { Some(final_url.clone()) } else { None },
             avatar_thumb: thumbnail_url,
-            theme: None, // Don't update theme when uploading images
             microsoft_uuid: None, // Don't update Microsoft UUID in regular user updates
             updated_at: Some(chrono::Utc::now().naive_utc()),
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
         };
         
         match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
@@ -1655,21 +1650,26 @@ pub async fn update_user_by_uuid(
         }
     }
 
-    // Update user
+    // Update user (core identity fields only — preferences land
+    // separately in user_preferences below).
     let user_update = UserUpdate {
         name: user_data.name.clone(),
-        // Email removed - use dedicated email endpoints
         role: user_data.role.as_ref().and_then(|r| utils::parse_role(r).ok()),
         pronouns: user_data.pronouns.clone(),
         avatar_url: user_data.avatar_url.clone(),
         banner_url: user_data.banner_url.clone(),
         avatar_thumb: user_data.avatar_thumb.clone(),
-        theme: user_data.theme.clone(),
-        microsoft_uuid: None, // Don't update Microsoft UUID in regular user updates
+        microsoft_uuid: None,
         updated_at: Some(chrono::Utc::now().naive_utc()),
-        // Signature: treat empty string as "clear". None leaves it
-        // as-is. Keeps the round-trip sane when the agent deletes all
-        // the text in the signature textarea.
+    };
+
+    // Compose the preferences patch. Empty-string signature is
+    // treated as "clear back to None" (matches the previous
+    // textarea-emptied semantic). theme + dashboard_layout pass
+    // through; locale/timezone are not exposed on this endpoint
+    // (use PATCH /api/users/me/preferences instead).
+    let prefs_update = crate::models::UpdateUserPreferences {
+        theme: user_data.theme.clone().map(Some),
         signature: user_data.signature.as_ref().map(|s| {
             if s.trim().is_empty() {
                 None
@@ -1677,16 +1677,35 @@ pub async fn update_user_by_uuid(
                 Some(s.clone())
             }
         }),
-        dashboard_layout: user_data.dashboard_layout.clone(),
-        // Preference updates go through the dedicated
-        // PATCH /api/users/me/preferences endpoint, not this
-        // general-purpose user update.
+        dashboard_layout: user_data.dashboard_layout.clone().map(Some),
         locale: None,
         timezone: None,
     };
+    let prefs_changed = user_data.theme.is_some()
+        || user_data.signature.is_some()
+        || user_data.dashboard_layout.is_some();
 
     match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
         Ok(updated_user) => {
+            // Apply preference changes (if any) right after the
+            // core-user update. Best-effort: a transient prefs-table
+            // write failure logs but doesn't fail the whole request,
+            // since the core fields already committed.
+            if prefs_changed {
+                if let Err(e) = repository::user_preferences::update(
+                    &mut conn,
+                    user.uuid,
+                    prefs_update,
+                ) {
+                    tracing::error!(
+                        error = ?e,
+                        user_uuid = %user.uuid,
+                        "Failed to update user_preferences after user update",
+                    );
+                }
+            }
+            let updated_prefs =
+                repository::user_preferences::get(&mut conn, user.uuid).ok();
             // Broadcast SSE events for changed fields. One event per
             // field so other tabs/devices can mirror the change at
             // field granularity. The dashboard_layout payload is the
@@ -1704,7 +1723,11 @@ pub async fn update_user_by_uuid(
                 ("pronouns", user_data.pronouns.is_some(), json!(updated_user.pronouns.clone())),
                 ("avatar_url", user_data.avatar_url.is_some(), json!(updated_user.avatar_url.clone())),
                 ("avatar_thumb", user_data.avatar_thumb.is_some(), json!(updated_user.avatar_thumb.clone())),
-                ("dashboard_layout", user_data.dashboard_layout.is_some(), json!(updated_user.dashboard_layout.clone())),
+                (
+                    "dashboard_layout",
+                    user_data.dashboard_layout.is_some(),
+                    json!(updated_prefs.as_ref().and_then(|p| p.dashboard_layout.clone())),
+                ),
             ];
             for (field, requested, value) in updates {
                 if !requested {
@@ -2337,13 +2360,8 @@ pub async fn bulk_users(
                     avatar_url: None,
                     banner_url: None,
                     avatar_thumb: None,
-                    theme: None,
                     microsoft_uuid: None,
                     updated_at: Some(chrono::Utc::now().naive_utc()),
-                    signature: None,
-                    dashboard_layout: None,
-                    locale: None,
-                    timezone: None,
                 };
 
                 if repository::update_user(&uuid, user_update, &mut conn, Some(search_service.get_ref())).is_ok() {

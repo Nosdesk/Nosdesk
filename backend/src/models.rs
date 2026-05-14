@@ -1331,33 +1331,17 @@ pub struct User {
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
-    pub theme: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
     pub mfa_secret: Option<String>,
     pub mfa_enabled: bool,
     pub mfa_backup_codes: Option<serde_json::Value>,
-    /// Free-form text appended to outbound channel replies as the
-    /// agent's email signature. Stored as-is; user owns formatting.
-    /// `None` / empty → no signature appended.
-    pub signature: Option<String>,
-    /// Per-user dashboard customization. `None` means the client falls
-    /// back to the role default. Shape is authoritative client-side
-    /// (`{ widgets: [{ id, visible }] }`) and validated on update.
-    pub dashboard_layout: Option<serde_json::Value>,
     /// Per-user feature flag overrides merged on top of the
     /// workspace defaults at request time. Same JSONB shape as
     /// `site_settings.feature_flags`. Used to opt individuals into
     /// staged rollouts before flipping the workspace default.
+    /// Stays on `users` (not in `user_preferences`) because it's
+    /// an admin-set override, not a user-chosen preference.
     pub feature_flag_overrides: serde_json::Value,
-    /// Preferred BCP-47 locale (e.g. `en-US`, `en-GB`, `de-DE`).
-    /// `None` means "inherit from site_settings.default_locale".
-    /// Resolved via `utils::locale::resolve_locale`.
-    pub locale: Option<String>,
-    /// Preferred IANA timezone (e.g. `Europe/Berlin`). Never a
-    /// bare offset — those don't encode DST. `None` means
-    /// "inherit from site_settings.default_timezone". Resolved
-    /// via `utils::locale::resolve_timezone`.
-    pub timezone: Option<String>,
 }
 
 // New user for creation
@@ -1373,23 +1357,10 @@ pub struct NewUser {
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
-    pub theme: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
     pub mfa_secret: Option<String>,
     pub mfa_enabled: bool,
     pub mfa_backup_codes: Option<serde_json::Value>,
-    #[serde(default)]
-    pub signature: Option<String>,
-    #[serde(default)]
-    pub dashboard_layout: Option<serde_json::Value>,
-    /// Locale parsed from inbound mail (Content-Language) at
-    /// guest-user creation time. Staff users start as `None` and
-    /// pick up an auto-detected zone from the frontend on first
-    /// login.
-    #[serde(default)]
-    pub locale: Option<String>,
-    #[serde(default)]
-    pub timezone: Option<String>,
 }
 
 // Add a separate struct for user registration with password
@@ -1416,22 +1387,8 @@ pub struct UserUpdate {
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
-    pub theme: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
     pub updated_at: Option<chrono::NaiveDateTime>,
-    /// `Option<Option<String>>` semantics: outer `None` = leave as-is;
-    /// `Some(None)` = clear; `Some(Some(s))` = set.
-    pub signature: Option<Option<String>>,
-    /// `None` = no change. `Some(value)` = persist this JSON blob as
-    /// the user's dashboard layout. Reset-to-defaults is handled
-    /// client-side: the frontend computes the role default and sends
-    /// it as a concrete payload.
-    pub dashboard_layout: Option<serde_json::Value>,
-    /// `Option<Option<String>>` so the API can distinguish
-    /// "don't touch" from "clear back to site default". Validated
-    /// upstream against BCP-47 / IANA TZDB.
-    pub locale: Option<Option<String>>,
-    pub timezone: Option<Option<String>>,
 }
 
 // User update with password for admin/user management
@@ -1470,7 +1427,13 @@ pub struct UserProfileUpdate {
     pub signature: Option<String>,
 }
 
-// User response with minimal information
+// User response with minimal information.
+//
+// `theme` / `dashboard_layout` / `signature` / `locale` /
+// `timezone` are flattened in from the `user_preferences` row by
+// `repository::user_helpers::get_user_with_primary_email` so the
+// API shape stays stable for the frontend even though these
+// fields now live in a separate table.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserResponse {
     pub uuid: Uuid,
@@ -1492,6 +1455,52 @@ pub struct UserResponse {
     /// Per-user dashboard layout JSON, or null = client uses defaults.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dashboard_layout: Option<serde_json::Value>,
+    /// Free-form email signature appended to outbound replies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    /// BCP-47 locale (e.g. en-US). None means "inherit from
+    /// site default". Frontend reads this on app boot to decide
+    /// the i18n bundle to load.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+    /// IANA timezone (e.g. Europe/Berlin). None means "inherit
+    /// from site default".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
+}
+
+// ============================================================================
+// User preferences — split from `users` in 2026-05-14 once the
+// preference set grew past the few-columns-on-the-main-table
+// threshold. A row exists for every user (auto-created by trigger).
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Clone)]
+#[diesel(table_name = crate::schema::user_preferences)]
+#[diesel(primary_key(user_uuid))]
+pub struct UserPreferences {
+    pub user_uuid: Uuid,
+    pub theme: Option<String>,
+    pub signature: Option<String>,
+    pub dashboard_layout: Option<serde_json::Value>,
+    pub locale: Option<String>,
+    pub timezone: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Partial update payload. Each field uses the `Option<Option<T>>`
+/// convention so the API can distinguish "leave as-is" (outer
+/// None) from "clear back to site default / role default"
+/// (Some(None)) from "set to this value" (Some(Some(_))).
+#[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::user_preferences)]
+pub struct UpdateUserPreferences {
+    pub theme: Option<Option<String>>,
+    pub signature: Option<Option<String>>,
+    pub dashboard_layout: Option<Option<serde_json::Value>>,
+    pub locale: Option<Option<String>>,
+    pub timezone: Option<Option<String>>,
 }
 
 // User info for comments - minimal user data to include with comments
@@ -1510,27 +1519,34 @@ pub struct UserInfoWithAvatar {
     pub avatar_thumb: Option<String>,
 }
 
-// Convert User to UserResponse
-// Note: This From implementation sets email to None
-// Use repository::user_helpers::get_user_with_primary_email() to include email
+// Convert a bare User to UserResponse.
+//
+// Email + preference fields (theme, signature, dashboard_layout,
+// locale, timezone) all come from other tables; this From impl
+// leaves them None. Callers that need the fully-populated shape
+// use `repository::user_helpers::get_user_with_primary_email`,
+// which does the joins and fills them in.
 impl From<User> for UserResponse {
     fn from(user: User) -> Self {
         UserResponse {
             uuid: user.uuid,
             name: user.name,
-            email: None, // Email must be fetched from user_emails table separately
+            email: None,
             role: user.role,
             pronouns: user.pronouns,
             avatar_url: user.avatar_url,
             banner_url: user.banner_url,
             avatar_thumb: user.avatar_thumb,
-            theme: user.theme,
+            theme: None,
             microsoft_uuid: user.microsoft_uuid,
             created_at: user.created_at,
             updated_at: user.updated_at,
             open_ticket_count: None,
             device_count: None,
-            dashboard_layout: user.dashboard_layout,
+            dashboard_layout: None,
+            signature: None,
+            locale: None,
+            timezone: None,
         }
     }
 }

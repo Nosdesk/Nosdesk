@@ -2066,13 +2066,8 @@ async fn update_existing_microsoft_user_optimized(
         avatar_url: None, // Preserve avatar
         banner_url: None, // Preserve banner
         avatar_thumb: None, // Preserve avatar thumb
-        theme: None, // Preserve user's theme preference
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?), // Always update Microsoft UUID with proper conversion
         updated_at: Some(chrono::Utc::now().naive_utc()),
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
     };
 
     // Update user if there are changes
@@ -2179,13 +2174,8 @@ async fn link_existing_user_to_microsoft_optimized(
         avatar_url: None,
         banner_url: None,
         avatar_thumb: None,
-        theme: None, // Preserve user's theme preference
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?), // Store Microsoft UUID with proper conversion
         updated_at: Some(chrono::Utc::now().naive_utc()),
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
     };
 
     // Always update to store the Microsoft UUID
@@ -3502,13 +3492,8 @@ async fn update_user_avatar_by_id(
             avatar_url: avatar_url.clone(),
             banner_url: None,
             avatar_thumb: avatar_thumb.clone(),
-            theme: None, // Preserve user's theme preference
             microsoft_uuid: None, // Don't update Microsoft UUID when updating avatar
             updated_at: Some(chrono::Utc::now().naive_utc()),
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
         };
 
         match user_repo::update_user(user_uuid, user_update, conn, None) {
@@ -4278,13 +4263,8 @@ async fn update_existing_microsoft_user_no_photos(
         avatar_url: None,
         banner_url: None,
         avatar_thumb: None,
-        theme: None, // Preserve user's theme preference
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
     };
 
     if user_update.name.is_some() || user_update.microsoft_uuid.is_some() {
@@ -4345,13 +4325,8 @@ async fn link_existing_user_to_microsoft_no_photos(
         avatar_url: None,
         banner_url: None,
         avatar_thumb: None,
-        theme: None, // Preserve user's theme preference
         microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
     };
 
     user_repo::update_user(&existing_user.uuid, user_update, conn, None)

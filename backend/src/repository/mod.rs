@@ -36,6 +36,7 @@ pub mod workflow_states;
 pub mod user_auth_identities;
 pub mod user_emails;
 pub mod user_helpers; // Helper functions for user/email operations
+pub mod user_preferences;
 pub mod user_profile;
 pub mod users;
 

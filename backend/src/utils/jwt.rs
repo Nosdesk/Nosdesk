@@ -553,7 +553,6 @@ mod tests {
             avatar_url: None,
             banner_url: None,
             avatar_thumb: None,
-            theme: None,
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
@@ -561,11 +560,7 @@ mod tests {
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
             password_changed_at: None,
-            signature: None,
-            dashboard_layout: None,
             feature_flag_overrides: serde_json::json!({}),
-            locale: None,
-            timezone: None,
         };
 
         let sid = uuid::Uuid::new_v4();

@@ -66,15 +66,10 @@ fn insert_user(conn: &mut diesel::PgConnection, name: &str) -> User {
         avatar_url: None,
         banner_url: None,
         avatar_thumb: None,
-        theme: None,
         microsoft_uuid: None,
         mfa_secret: None,
         mfa_enabled: false,
         mfa_backup_codes: None,
-        signature: None,
-        dashboard_layout: None,
-        locale: None,
-        timezone: None,
     };
     diesel::insert_into(users::table)
         .values(&new_user)

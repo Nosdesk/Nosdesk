@@ -180,15 +180,10 @@ pub fn find_or_create_guest_user(
             avatar_url: None,
             banner_url: None,
             avatar_thumb: None,
-            theme: None,
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
         };
 
         match create_user_with_email(
@@ -294,29 +289,42 @@ fn lookup_for_guest(
     }))
 }
 
-/// Helper to get user with their primary email for responses
+/// Helper to get user with their primary email + preferences for
+/// API responses. Flattens `user_preferences` columns back into
+/// the response shape so the frontend doesn't need to know the
+/// fields moved tables.
+///
+/// Falls back to `None` for preference fields if the row is
+/// missing (shouldn't happen — the `trg_users_auto_create_preferences`
+/// trigger ensures one exists per user — but the lookup is
+/// best-effort so a corrupt DB doesn't 500 the whole `/auth/me`
+/// flow).
 pub fn get_user_with_primary_email(
     user: crate::models::User,
     conn: &mut DbConnection,
 ) -> crate::models::UserResponse {
     let primary_email = get_primary_email(&user.uuid, conn);
+    let prefs = crate::repository::user_preferences::get(conn, user.uuid).ok();
 
     crate::models::UserResponse {
         uuid: user.uuid,
         name: user.name,
-        email: primary_email, // Fetched from user_emails table
+        email: primary_email,
         role: user.role,
         pronouns: user.pronouns,
         avatar_url: user.avatar_url,
         banner_url: user.banner_url,
         avatar_thumb: user.avatar_thumb,
-        theme: user.theme,
+        theme: prefs.as_ref().and_then(|p| p.theme.clone()),
         microsoft_uuid: user.microsoft_uuid,
         created_at: user.created_at,
         updated_at: user.updated_at,
         open_ticket_count: None,
         device_count: None,
-        dashboard_layout: user.dashboard_layout,
+        dashboard_layout: prefs.as_ref().and_then(|p| p.dashboard_layout.clone()),
+        signature: prefs.as_ref().and_then(|p| p.signature.clone()),
+        locale: prefs.as_ref().and_then(|p| p.locale.clone()),
+        timezone: prefs.as_ref().and_then(|p| p.timezone.clone()),
     }
 }
 
@@ -338,38 +346,55 @@ pub fn get_primary_emails_batch(
     emails.into_iter().collect()
 }
 
-/// Helper to convert multiple users to UserResponses with their emails
+/// Helper to convert multiple users to UserResponses with their
+/// emails AND preferences. Batches both queries so a 100-row
+/// table load fires 3 SELECTs (users + emails + prefs) rather
+/// than 1 + 2N.
 pub fn get_users_with_primary_emails(
     users: Vec<crate::models::User>,
     conn: &mut DbConnection,
 ) -> Vec<crate::models::UserResponse> {
-    // Collect all user UUIDs
     let user_uuids: Vec<Uuid> = users.iter().map(|u| u.uuid).collect();
 
-    // Batch fetch all primary emails
     let email_map = get_primary_emails_batch(&user_uuids, conn);
 
-    // Convert users to UserResponses with their emails
-    users.into_iter().map(|user| {
-        let email = email_map.get(&user.uuid).cloned();
-        crate::models::UserResponse {
-            uuid: user.uuid,
-            name: user.name,
-            email,
-            role: user.role,
-            pronouns: user.pronouns,
-            avatar_url: user.avatar_url,
-            banner_url: user.banner_url,
-            avatar_thumb: user.avatar_thumb,
-            theme: user.theme,
-            microsoft_uuid: user.microsoft_uuid,
-            created_at: user.created_at,
-            updated_at: user.updated_at,
-            open_ticket_count: None,
-            device_count: None,
-            dashboard_layout: user.dashboard_layout,
-        }
-    }).collect()
+    // Batch-fetch preferences keyed by user_uuid. Missing rows
+    // (shouldn't happen given the auto-create trigger) fall
+    // through to None on every preference field.
+    let prefs_map: std::collections::HashMap<Uuid, crate::models::UserPreferences> =
+        crate::repository::user_preferences::get_many(conn, &user_uuids)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| (p.user_uuid, p))
+            .collect();
+
+    users
+        .into_iter()
+        .map(|user| {
+            let email = email_map.get(&user.uuid).cloned();
+            let prefs = prefs_map.get(&user.uuid);
+            crate::models::UserResponse {
+                uuid: user.uuid,
+                name: user.name,
+                email,
+                role: user.role,
+                pronouns: user.pronouns,
+                avatar_url: user.avatar_url,
+                banner_url: user.banner_url,
+                avatar_thumb: user.avatar_thumb,
+                theme: prefs.and_then(|p| p.theme.clone()),
+                microsoft_uuid: user.microsoft_uuid,
+                created_at: user.created_at,
+                updated_at: user.updated_at,
+                open_ticket_count: None,
+                device_count: None,
+                dashboard_layout: prefs.and_then(|p| p.dashboard_layout.clone()),
+                signature: prefs.and_then(|p| p.signature.clone()),
+                locale: prefs.and_then(|p| p.locale.clone()),
+                timezone: prefs.and_then(|p| p.timezone.clone()),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -429,15 +454,10 @@ mod tests {
             avatar_url: None,
             banner_url: None,
             avatar_thumb: None,
-            theme: None,
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
             mfa_backup_codes: None,
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
         };
 
         let (user, email_record) = create_user_with_email(

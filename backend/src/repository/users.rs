@@ -456,13 +456,8 @@ mod tests {
             avatar_url: None,
             banner_url: None,
             avatar_thumb: None,
-            theme: None,
             microsoft_uuid: None,
             updated_at: None,
-            signature: None,
-            dashboard_layout: None,
-            locale: None,
-            timezone: None,
         };
 
         let updated = update_user(&user.uuid, update, &mut conn, None).unwrap();

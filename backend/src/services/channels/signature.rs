@@ -1,11 +1,12 @@
 //! Append the agent's email signature to outbound channel replies in
 //! both HTML and plaintext form.
 //!
-//! The signature itself lives on `users.signature` as user-authored
-//! plaintext. We render it into both forms of the reply body so the
-//! `multipart/alternative` email shows the same signature in either
-//! view, and so future HTML-only / plaintext-only transports each get
-//! a faithful version.
+//! The signature itself lives on `user_preferences.signature` as
+//! user-authored plaintext (split out from `users` on 2026-05-14
+//! into the preferences table). We render it into both forms of the
+//! reply body so the `multipart/alternative` email shows the same
+//! signature in either view, and so future HTML-only / plaintext-
+//! only transports each get a faithful version.
 //!
 //! Plaintext side uses the RFC 3676 `"-- \n"` separator (dash, dash,
 //! space, newline) so mail clients recognize the signature block and
@@ -15,7 +16,6 @@
 //!
 //! No-op when the user has no signature or it's empty / whitespace.
 
-use diesel::prelude::*;
 use uuid::Uuid;
 
 use super::reply_body::ReplyBody;
@@ -23,15 +23,14 @@ use crate::db::DbConnection;
 
 /// Fetch the user's stored signature; `None` if unset or whitespace.
 fn signature_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> Option<String> {
-    use crate::schema::users;
-    let raw: Option<Option<String>> = users::table
-        .filter(users::uuid.eq(user_uuid))
-        .select(users::signature)
-        .first(conn)
-        .ok();
+    let raw = crate::repository::user_preferences::get_signature(conn, user_uuid).ok();
     raw.flatten().and_then(|s| {
         let t = s.trim();
-        if t.is_empty() { None } else { Some(s) }
+        if t.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     })
 }
 

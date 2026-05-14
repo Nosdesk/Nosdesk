@@ -344,12 +344,17 @@ async fn full_cycle_inbound_internal_outbound() {
         comments_repo::create_comment(
             &mut conn,
             NewComment {
-                content: "internal note — don't email the customer".into(),
+                content: "internal note, don't email the customer".into(),
                 ticket_id: ticket.id,
                 user_uuid: commenter,
                 channel_metadata: None,
                 is_internal: true,
                 content_format: Default::default(),
+                body_text: None,
+                body_html: None,
+                new_content: None,
+                quoted_content: None,
+                raw_source_uri: None,
             },
             None,
         )
@@ -372,12 +377,17 @@ async fn full_cycle_inbound_internal_outbound() {
         comments_repo::create_comment(
             &mut conn,
             NewComment {
-                content: "We've restarted the node — try again.".into(),
+                content: "We've restarted the node, try again.".into(),
                 ticket_id: ticket.id,
                 user_uuid: commenter,
                 channel_metadata: None,
                 is_internal: false,
                 content_format: Default::default(),
+                body_text: None,
+                body_html: None,
+                new_content: None,
+                quoted_content: None,
+                raw_source_uri: None,
             },
             None,
         )
