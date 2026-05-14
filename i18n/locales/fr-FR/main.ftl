@@ -184,6 +184,30 @@ empty-categories-description = Créez des catégories pour organiser les tickets
 empty-plugins-installed-title = Aucun plugin installé
 empty-plugins-installed-description = Les plugins étendent { $app } avec des intégrations et fonctionnalités personnalisées. Parcourez le registre pour une installation en un clic.
 
+# Persistent shell.
+nav-group-work = Travail
+nav-group-resources = Ressources
+nav-dashboard = Tableau de bord
+nav-tickets = Tickets
+nav-cycles = Cycles
+nav-projects = Projets
+nav-devices = Appareils
+nav-assets = Ressources matérielles
+nav-users = Utilisateurs
+nav-documentation = Documentation
+nav-inbox = Boîte de réception
+nav-collapse = Réduire
+nav-search = Rechercher
+nav-more = Plus
+nav-toggle-sidebar = Basculer la barre latérale
+nav-secondary = Navigation secondaire
+user-menu-aria = Menu utilisateur
+user-menu-view-profile = Voir le profil
+user-menu-account = Compte
+user-menu-administration = Administration
+user-menu-sign-out = Se déconnecter
+user-menu-guest-name = Invité
+
 # Settings.
 settings-localization-title = Langue et fuseau horaire
 settings-localization-help = Détermine la langue des messages et l'affichage des dates. La valeur par défaut du site s'applique si rien n'est sélectionné.

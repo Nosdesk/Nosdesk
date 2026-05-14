@@ -181,6 +181,30 @@ empty-categories-description = Maak categorieën om tickets te organiseren
 empty-plugins-installed-title = Geen plugins geïnstalleerd
 empty-plugins-installed-description = Plugins breiden { $app } uit met aangepaste integraties en functies. Blader door het register voor één-klik-installaties.
 
+# Persistent shell.
+nav-group-work = Werk
+nav-group-resources = Bronnen
+nav-dashboard = Dashboard
+nav-tickets = Tickets
+nav-cycles = Cycli
+nav-projects = Projecten
+nav-devices = Apparaten
+nav-assets = Activa
+nav-users = Gebruikers
+nav-documentation = Documentatie
+nav-inbox = Postvak
+nav-collapse = Inklappen
+nav-search = Zoeken
+nav-more = Meer
+nav-toggle-sidebar = Zijbalk wisselen
+nav-secondary = Secundaire navigatie
+user-menu-aria = Gebruikersmenu
+user-menu-view-profile = Profiel bekijken
+user-menu-account = Account
+user-menu-administration = Beheer
+user-menu-sign-out = Afmelden
+user-menu-guest-name = Gast
+
 # Settings.
 settings-localization-title = Taal en tijdzone
 settings-localization-help = Bepaalt de taal van berichten en hoe datums worden weergegeven. De siteinstelling wordt gebruikt als u niets selecteert.

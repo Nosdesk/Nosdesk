@@ -240,6 +240,30 @@ empty-categories-description = Create categories to organize tickets
 empty-plugins-installed-title = No plugins installed
 empty-plugins-installed-description = Plugins extend { $app } with custom integrations and features. Browse the registry for one-click installs.
 
+# Persistent shell — strings that render on every page.
+nav-group-work = Work
+nav-group-resources = Resources
+nav-dashboard = Dashboard
+nav-tickets = Tickets
+nav-cycles = Cycles
+nav-projects = Projects
+nav-devices = Devices
+nav-assets = Assets
+nav-users = Users
+nav-documentation = Documentation
+nav-inbox = Inbox
+nav-collapse = Collapse
+nav-search = Search
+nav-more = More
+nav-toggle-sidebar = Toggle sidebar
+nav-secondary = Secondary navigation
+user-menu-aria = User menu
+user-menu-view-profile = View Profile
+user-menu-account = Account
+user-menu-administration = Administration
+user-menu-sign-out = Sign out
+user-menu-guest-name = Guest
+
 # Localization settings panel. Every string in
 # components/settings/LocalizationSettings.vue resolves through
 # this section, so flipping the active locale immediately re-

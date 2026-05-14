@@ -134,58 +134,61 @@ interface NavGroup {
     label: string;
     links: NavLink[];
 }
+// `text` and `label` are FTL keys; templates render them via
+// `$t(link.text)` / `$t(group.label)` so the nav re-renders
+// when the active locale flips.
 const navGroups: NavGroup[] = [
     {
-        label: "Work",
+        label: "nav-group-work",
         links: [
             {
                 to: "/",
                 icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
-                text: "Dashboard",
+                text: "nav-dashboard",
                 exact: true,
             },
             {
                 to: "/tickets",
                 icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
-                text: "Tickets",
+                text: "nav-tickets",
             },
             {
                 to: "/cycles",
                 // Calendar / iteration glyph: small block with a marker line.
                 icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
-                text: "Cycles",
+                text: "nav-cycles",
             },
             {
                 to: "/projects",
                 icon: "M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z",
-                text: "Projects",
+                text: "nav-projects",
             },
         ],
     },
     {
-        label: "Resources",
+        label: "nav-group-resources",
         links: [
             {
                 to: "/devices",
                 icon: "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
-                text: "Devices",
+                text: "nav-devices",
             },
             {
                 to: "/assets",
                 // Stacked-layers / planning glyph distinct from the
                 // single-monitor Devices icon above.
                 icon: "M3 7l9-4 9 4-9 4-9-4zm0 5l9 4 9-4M3 17l9 4 9-4",
-                text: "Assets",
+                text: "nav-assets",
             },
             {
                 to: "/users",
                 icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z",
-                text: "Users",
+                text: "nav-users",
             },
             {
                 to: "/documentation",
                 icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
-                text: "Documentation",
+                text: "nav-documentation",
             },
         ],
     },
@@ -204,7 +207,7 @@ const navLinks: NavLink[] = navGroups.flatMap((g) => g.links);
 const INBOX_MOBILE_LINK: NavLink = {
     to: '/inbox',
     icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4',
-    text: 'Inbox',
+    text: 'nav-inbox',
 };
 
 /** Routes that get a permanent slot in the mobile bottom bar.
@@ -378,7 +381,7 @@ const isOverflowRouteActive = computed(() =>
                             ? 'bg-surface-alt/80 text-primary font-medium'
                             : 'text-secondary hover:bg-surface-hover hover:text-primary'
                     "
-                    :title="link.text"
+                    :title="$t(link.text)"
                 >
                     <div
                         v-if="isRouteActive(link.to, link.exact)"
@@ -406,7 +409,7 @@ const isOverflowRouteActive = computed(() =>
                             ? 'bg-surface-alt/80 text-primary font-medium'
                             : 'text-secondary hover:bg-surface-hover hover:text-primary'
                     "
-                    :title="link.text"
+                    :title="$t(link.text)"
                 >
                     <div
                         v-if="isRouteActive(link.to, link.exact)"
@@ -432,7 +435,7 @@ const isOverflowRouteActive = computed(() =>
                     <h3
                         class="px-2.5 text-[10px] font-semibold text-tertiary tracking-wide uppercase select-none"
                     >
-                        {{ group.label }}
+                        {{ $t(group.label) }}
                     </h3>
                     <RouterLink
                         v-for="link in group.links"
@@ -457,7 +460,7 @@ const isOverflowRouteActive = computed(() =>
                                 :d="link.icon"
                             />
                         </svg>
-                        <span class="text-sm whitespace-nowrap">{{ link.text }}</span>
+                        <span class="text-sm whitespace-nowrap">{{ $t(link.text) }}</span>
                     </RouterLink>
                 </div>
             </div>
@@ -520,7 +523,7 @@ const isOverflowRouteActive = computed(() =>
             <button
                 @click="toggleCollapsed"
                 class="w-full h-8 px-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors group flex items-center justify-center"
-                aria-label="Toggle sidebar"
+                :aria-label="$t('nav-toggle-sidebar')"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -547,7 +550,7 @@ const isOverflowRouteActive = computed(() =>
                 <span
                     v-if="!isCollapsed"
                     class="ml-1.5 text-xs whitespace-nowrap"
-                    >Collapse</span
+                    >{{ $t('nav-collapse') }}</span
                 >
             </button>
         </div>
@@ -572,9 +575,9 @@ const isOverflowRouteActive = computed(() =>
                     isRouteActive(link.to, link.exact) ? 'text-accent' : 'text-secondary'
                 "
                 :aria-label="link.to === '/inbox' && unreadCount > 0
-                    ? `${link.text}, ${unreadCount} unread`
-                    : link.text"
-                :title="link.text"
+                    ? `${$t(link.text)}, ${unreadCount} unread`
+                    : $t(link.text)"
+                :title="$t(link.text)"
             >
                 <svg
                     class="w-6 h-6"
@@ -605,8 +608,8 @@ const isOverflowRouteActive = computed(() =>
                 type="button"
                 @click="() => openSearch()"
                 class="flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px] text-secondary"
-                aria-label="Search"
-                title="Search"
+                :aria-label="$t('nav-search')"
+                :title="$t('nav-search')"
             >
                 <Icon name="search" size="lg" />
             </button>
@@ -622,8 +625,8 @@ const isOverflowRouteActive = computed(() =>
                 "
                 :aria-expanded="isMobileMoreOpen"
                 aria-controls="mobile-nav-more-sheet"
-                aria-label="More navigation"
-                title="More"
+                :aria-label="$t('nav-more')"
+                :title="$t('nav-more')"
             >
                 <svg
                     class="w-6 h-6"
@@ -657,7 +660,7 @@ const isOverflowRouteActive = computed(() =>
             class="mobile-nav-sheet-panel bg-surface border-t border-default rounded-t-2xl shadow-xl"
         >
             <h2 id="mobile-nav-more-heading" class="sr-only">More navigation</h2>
-            <nav aria-label="Secondary navigation">
+            <nav :aria-label="$t('nav-secondary')">
                 <ul class="grid grid-cols-2 gap-2 p-3">
                     <li v-for="link in overflowMobileLinks" :key="link.to">
                         <RouterLink
@@ -684,7 +687,7 @@ const isOverflowRouteActive = computed(() =>
                                     :d="link.icon"
                                 />
                             </svg>
-                            <span class="text-sm font-medium truncate">{{ link.text }}</span>
+                            <span class="text-sm font-medium truncate">{{ $t(link.text) }}</span>
                         </RouterLink>
                     </li>
                 </ul>

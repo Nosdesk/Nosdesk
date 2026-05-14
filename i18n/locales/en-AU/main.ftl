@@ -208,6 +208,29 @@ empty-categories-description = Create categories to organise tickets
 empty-plugins-installed-title = No plugins installed
 empty-plugins-installed-description = Plugins extend { $app } with custom integrations and features. Browse the registry for one-click installs.
 
+nav-group-work = Work
+nav-group-resources = Resources
+nav-dashboard = Dashboard
+nav-tickets = Tickets
+nav-cycles = Cycles
+nav-projects = Projects
+nav-devices = Devices
+nav-assets = Assets
+nav-users = Users
+nav-documentation = Documentation
+nav-inbox = Inbox
+nav-collapse = Collapse
+nav-search = Search
+nav-more = More
+nav-toggle-sidebar = Toggle sidebar
+nav-secondary = Secondary navigation
+user-menu-aria = User menu
+user-menu-view-profile = View Profile
+user-menu-account = Account
+user-menu-administration = Administration
+user-menu-sign-out = Sign out
+user-menu-guest-name = Guest
+
 # en-AU diverges from en-US on a couple of words ("Timezone" stays
 # the same; the help copy nudges to AU phrasing). The Save button
 # label is slightly different to make the locale flip visibly

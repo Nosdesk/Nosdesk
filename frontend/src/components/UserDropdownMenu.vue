@@ -13,6 +13,7 @@
  */
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import UserAvatar from './UserAvatar.vue'
 import Popover from './common/Popover.vue'
@@ -29,6 +30,7 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const router = useRouter()
 const authStore = useAuthStore()
+const fluent = useFluent()
 
 const user = computed(() => {
   if (authStore.user) {
@@ -38,7 +40,11 @@ const user = computed(() => {
       avatar: authStore.user.avatar_url,
     }
   }
-  return { name: 'Guest', email: 'guest@example.com', avatar: null }
+  return {
+    name: fluent.$t('user-menu-guest-name'),
+    email: 'guest@example.com',
+    avatar: null,
+  }
 })
 
 const anchor = computed(() => ({
@@ -48,12 +54,12 @@ const anchor = computed(() => ({
 
 const items = computed<MenuItem[]>(() => {
   const out: MenuItem[] = [
-    { id: 'settings', label: 'Account', icon: ICON_REGISTRY.account.d },
+    { id: 'settings', label: fluent.$t('user-menu-account'), icon: ICON_REGISTRY.account.d },
   ]
   if (authStore.user?.role === 'admin') {
-    out.push({ id: 'admin', label: 'Administration', icon: ICON_REGISTRY.admin.d })
+    out.push({ id: 'admin', label: fluent.$t('user-menu-administration'), icon: ICON_REGISTRY.admin.d })
   }
-  out.push({ id: 'logout', label: 'Sign out', danger: true, divider: true })
+  out.push({ id: 'logout', label: fluent.$t('user-menu-sign-out'), danger: true, divider: true })
   return out
 })
 
@@ -90,7 +96,7 @@ function handleSelect(id: string) {
     react-to-scroll="reposition"
     :auto-focus="false"
     role="menu"
-    aria-label="User menu"
+    :aria-label="$t('user-menu-aria')"
     popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[12rem]"
     @close="emit('close')"
   >
@@ -112,7 +118,7 @@ function handleSelect(id: string) {
       />
       <div class="min-w-0 flex-1">
         <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
-        <div class="text-xs text-accent mt-1">View Profile</div>
+        <div class="text-xs text-accent mt-1">{{ $t('user-menu-view-profile') }}</div>
       </div>
     </button>
 

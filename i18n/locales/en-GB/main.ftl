@@ -198,6 +198,29 @@ empty-categories-description = Create categories to organise tickets
 empty-plugins-installed-title = No plugins installed
 empty-plugins-installed-description = Plugins extend { $app } with custom integrations and features. Browse the registry for one-click installs.
 
+nav-group-work = Work
+nav-group-resources = Resources
+nav-dashboard = Dashboard
+nav-tickets = Tickets
+nav-cycles = Cycles
+nav-projects = Projects
+nav-devices = Devices
+nav-assets = Assets
+nav-users = Users
+nav-documentation = Documentation
+nav-inbox = Inbox
+nav-collapse = Collapse
+nav-search = Search
+nav-more = More
+nav-toggle-sidebar = Toggle sidebar
+nav-secondary = Secondary navigation
+user-menu-aria = User menu
+user-menu-view-profile = View Profile
+user-menu-account = Account
+user-menu-administration = Administration
+user-menu-sign-out = Sign out
+user-menu-guest-name = Guest
+
 # en-GB: same wording as en-US for now; this section exists so the
 # locale ships its own catalogue end-to-end. Spelling differences
 # (organise / customise) will land here when those keys are added.
