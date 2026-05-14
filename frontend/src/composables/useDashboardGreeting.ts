@@ -6,7 +6,9 @@
  * switches when a user toggles Red Horizon or the Christmas theme.
  */
 import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useBrandingStore } from '@/stores/branding'
+import { useDateStore } from '@/stores/dateStore'
 
 interface WeightedMessage {
   message: string
@@ -203,6 +205,8 @@ function periodForHour(hour: number): Period {
 
 export function useDashboardGreeting(username: Ref<string>) {
   const brandingStore = useBrandingStore()
+  const dateStore = useDateStore()
+  const fluent = useFluent()
 
   const currentTheme = ref(
     typeof document !== 'undefined'
@@ -229,13 +233,35 @@ export function useDashboardGreeting(username: Ref<string>) {
 
   const formattedGreeting = computed(() => {
     const theme = currentTheme.value
+    const period = periodForHour(new Date().getHours())
+
+    // The themed pools (HAL persona, Christmas) and the rich
+    // English variety stay in code for en-* locales — that's
+    // the personality we author deliberately. Other locales
+    // get one canonical greeting per period from FTL, which
+    // also keeps the demo (G'day, Bonjour, Goedemorgen) sharp.
+    const isEnglish = dateStore.locale.startsWith('en')
+    if (!isEnglish || (theme !== 'red-horizon' && theme !== 'christmas')) {
+      const periodKey: Record<Period, string> = {
+        morning: 'dashboard-greeting-morning',
+        afternoon: 'dashboard-greeting-afternoon',
+        evening: 'dashboard-greeting-evening',
+        lateNight: 'dashboard-greeting-late-night',
+      }
+      // Touch dateStore.locale so the computed re-runs on a
+      // locale flip (fluent.$t reads the active bundle but the
+      // dep tracker needs an explicit reference).
+      void dateStore.locale
+      return fluent.$t(periodKey[period], { name: username.value })
+    }
+
     const pool =
       theme === 'red-horizon'
         ? redHorizonGreetings
         : theme === 'christmas'
           ? christmasGreetings
           : standardGreetings
-    const template = pickWeighted(pool[periodForHour(new Date().getHours())])
+    const template = pickWeighted(pool[period])
     return template.replace('{0}', username.value)
   })
 
@@ -247,7 +273,9 @@ export function useDashboardGreeting(username: Ref<string>) {
     if (theme === 'christmas') {
       return christmasSubtitles[Math.floor(Math.random() * christmasSubtitles.length)]
     }
-    return `Welcome to your ${brandingStore.appName} dashboard`
+    // Touch reactivity so a locale flip re-renders.
+    void dateStore.locale
+    return fluent.$t('dashboard-subtitle', { app: brandingStore.appName })
   })
 
   return { currentTheme, formattedGreeting, subtitle }

@@ -153,6 +153,14 @@ settings-loading-user = Loading User Settings...
 settings-user-heading = User Settings
 settings-section-suffix = Settings
 
+dashboard-greeting-morning = Good morning, { $name }.
+dashboard-greeting-afternoon = Good afternoon, { $name }.
+dashboard-greeting-evening = Good evening, { $name }.
+dashboard-greeting-late-night = Hello { $name }, it's getting late.
+dashboard-subtitle = Welcome to your { $app } dashboard
+dashboard-edit-button = Edit dashboard
+dashboard-guest-fallback = Guest
+
 # en-GB: same wording as en-US for now; this section exists so the
 # locale ships its own catalogue end-to-end. Spelling differences
 # (organise / customise) will land here when those keys are added.

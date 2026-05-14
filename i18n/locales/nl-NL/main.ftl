@@ -134,6 +134,15 @@ settings-loading-user = Gebruikersinstellingen laden...
 settings-user-heading = Gebruikersinstellingen
 settings-section-suffix = - Instellingen
 
+# Dashboard.
+dashboard-greeting-morning = Goedemorgen { $name }.
+dashboard-greeting-afternoon = Goedemiddag { $name }.
+dashboard-greeting-evening = Goedenavond { $name }.
+dashboard-greeting-late-night = Hallo { $name }, het wordt laat.
+dashboard-subtitle = Welkom op uw { $app }-dashboard
+dashboard-edit-button = Dashboard bewerken
+dashboard-guest-fallback = Gast
+
 # Settings.
 settings-localization-title = Taal en tijdzone
 settings-localization-help = Bepaalt de taal van berichten en hoe datums worden weergegeven. De siteinstelling wordt gebruikt als u niets selecteert.

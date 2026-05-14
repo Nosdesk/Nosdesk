@@ -185,6 +185,19 @@ settings-loading-user = Loading User Settings...
 settings-user-heading = User Settings
 settings-section-suffix = Settings
 
+# Dashboard greeting + subtitle. The English variety pool
+# (HAL, Christmas, standard) stays in useDashboardGreeting for
+# en-* locales because the personality reads as deliberate.
+# Other locales render a single canonical greeting per period
+# from these keys, falling through to en-US naturally.
+dashboard-greeting-morning = Good morning, { $name }.
+dashboard-greeting-afternoon = Good afternoon, { $name }.
+dashboard-greeting-evening = Good evening, { $name }.
+dashboard-greeting-late-night = Hello { $name }, it's getting late.
+dashboard-subtitle = Welcome to your { $app } dashboard
+dashboard-edit-button = Edit dashboard
+dashboard-guest-fallback = Guest
+
 # Localization settings panel. Every string in
 # components/settings/LocalizationSettings.vue resolves through
 # this section, so flipping the active locale immediately re-

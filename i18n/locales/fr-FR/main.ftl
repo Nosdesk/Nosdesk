@@ -137,6 +137,15 @@ settings-loading-user = Chargement des paramètres utilisateur...
 settings-user-heading = Paramètres utilisateur
 settings-section-suffix = - Paramètres
 
+# Dashboard.
+dashboard-greeting-morning = Bonjour { $name }.
+dashboard-greeting-afternoon = Bon après-midi { $name }.
+dashboard-greeting-evening = Bonsoir { $name }.
+dashboard-greeting-late-night = Bonsoir { $name }, il se fait tard.
+dashboard-subtitle = Bienvenue sur votre tableau de bord { $app }
+dashboard-edit-button = Modifier le tableau de bord
+dashboard-guest-fallback = Invité
+
 # Settings.
 settings-localization-title = Langue et fuseau horaire
 settings-localization-help = Détermine la langue des messages et l'affichage des dates. La valeur par défaut du site s'applique si rien n'est sélectionné.

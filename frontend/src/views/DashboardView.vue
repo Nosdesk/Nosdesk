@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, provide, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardGreeting } from '@/composables/useDashboardGreeting'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
@@ -14,6 +15,7 @@ import Icon from '@/components/common/Icon.vue'
 
 const authStore = useAuthStore()
 const dashboardLayout = useDashboardLayoutStore()
+const fluent = useFluent()
 
 // Single shared stats query for all stat-bearing widgets. The
 // coordinator collects `dataNeeds` from active widgets and fires
@@ -22,8 +24,11 @@ const dashboardLayout = useDashboardLayoutStore()
 provide(DASHBOARD_STATS_KEY, useDashboardStats())
 
 // First name only; the greeting template substitutes `{0}`.
+// "Guest" fallback fires on the rare race where the dashboard
+// mounts before /auth/me settles — falls through to the active
+// locale's word for guest.
 const username = computed(() => {
-  if (!authStore.user?.name) return 'Guest'
+  if (!authStore.user?.name) return fluent.$t('dashboard-guest-fallback')
   return authStore.user.name.split(' ')[0]
 })
 
@@ -66,7 +71,7 @@ useCreateTicketAction()
           @click="enterEditMode"
         >
           <Icon name="rename" />
-          Edit dashboard
+          {{ $t('dashboard-edit-button') }}
         </button>
       </header>
 

@@ -159,6 +159,16 @@ settings-loading-user = Loading User Settings...
 settings-user-heading = User Settings
 settings-section-suffix = Settings
 
+# en-AU greeting uses G'day across all periods — earns its keep
+# as the demo divergence.
+dashboard-greeting-morning = G'day { $name }.
+dashboard-greeting-afternoon = G'day { $name }.
+dashboard-greeting-evening = G'day { $name }, evening already?
+dashboard-greeting-late-night = G'day { $name }, late night?
+dashboard-subtitle = Welcome to your { $app } dashboard
+dashboard-edit-button = Edit dashboard
+dashboard-guest-fallback = Guest
+
 # en-AU diverges from en-US on a couple of words ("Timezone" stays
 # the same; the help copy nudges to AU phrasing). The Save button
 # label is slightly different to make the locale flip visibly
