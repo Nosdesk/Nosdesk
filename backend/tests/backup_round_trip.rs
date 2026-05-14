@@ -129,7 +129,7 @@ fn backup_round_trip_preserves_seeded_rows() {
     // Create the backup. The zip lands under UPLOAD_DIR/backups/ (default
     // /app/uploads/backups in the dev container); we reach back in to
     // delete it during cleanup so a re-run starts clean.
-    let backup_path = backup_service::create_backup(&mut conn, job.id, false, None)
+    let backup_path = backup_service::create_backup(&mut conn, job.id, None)
         .expect("create_backup succeeded");
     assert!(backup_path.exists(), "backup zip exists on disk");
 
@@ -157,7 +157,10 @@ fn backup_round_trip_preserves_seeded_rows() {
         &mut conn,
         &backup_path,
         None,
-        backup_service::RestoreOptions { force_non_empty: true },
+        backup_service::RestoreOptions {
+            force_non_empty: true,
+            ignore_schema_mismatch: false,
+        },
     )
     .expect("restore_database succeeded");
     assert!(stats.tables_restored > 0, "at least one table restored");

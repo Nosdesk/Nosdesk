@@ -77,7 +77,12 @@ pub async fn start_export(
             }
         };
 
-        match backup_service::create_backup(&mut conn, job_id, include_sensitive, password.as_deref()) {
+        // `include_sensitive` is gone; the password's presence
+        // decides everything. With a password, the whole archive
+        // is sealed and sensitive fields are included. Without,
+        // the zip is plaintext and sensitive fields are stripped.
+        let _ = include_sensitive;
+        match backup_service::create_backup(&mut conn, job_id, password.as_deref()) {
             Ok(path) => {
                 log::info!("Backup completed successfully: {path:?}");
             }
@@ -297,14 +302,10 @@ pub async fn upload_restore(
         None => return errors::bad_request("No file uploaded"),
     };
 
-    // Validate the backup file
-    match backup_service::read_backup_manifest(&filepath) {
-        Ok(_) => {}
-        Err(e) => {
-            let _ = std::fs::remove_file(&filepath);
-            return errors::bad_request(format!("Invalid backup file: {}", e));
-        }
-    }
+    // Upload-time validation removed: the manifest now lives
+    // inside the encryption envelope, so an encrypted backup
+    // can't be parsed without the password (which we don't have
+    // here). The restore endpoint validates with the password.
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -378,7 +379,11 @@ pub async fn preview_restore(
         None => return errors::bad_request("No backup file available"),
     };
 
-    match backup_service::preview_restore(&file_path) {
+    // GET preview has no body to carry a password; encrypted
+    // backups will fail here with "password required" and the
+    // operator can drive the actual restore via POST which does
+    // take the password.
+    match backup_service::preview_restore(&file_path, None) {
         Ok(preview) => HttpResponse::Ok().json(preview),
         Err(e) => errors::internal(format!("Failed to preview: {}", e)),
     }
@@ -428,23 +433,15 @@ pub async fn execute_restore(
         None => return errors::bad_request("No backup file available"),
     };
 
-    // Verify password if backup has encrypted sensitive data
-    let preview = match backup_service::preview_restore(&file_path) {
-        Ok(p) => p,
-        Err(e) => return errors::internal(format!("Failed to preview: {}", e)),
-    };
-
-    if preview.has_encrypted_sensitive {
-        match &body.password {
-            Some(password) => {
-                match backup_service::verify_backup_password(&file_path, password) {
-                    Ok(true) => {}
-                    Ok(false) => return errors::bad_request("Invalid password"),
-                    Err(e) => return errors::internal(format!("Password verification failed: {}", e)),
-                }
-            }
-            None => return errors::bad_request("Password required for encrypted backup"),
-        }
+    // Preview now drives password verification too — a
+    // successful preview means decryption worked. Encrypted
+    // backups without a password fail here with a clear
+    // "password required" error; wrong-password backups fail
+    // with a decryption error.
+    if let Err(e) =
+        backup_service::preview_restore(&file_path, body.password.as_deref())
+    {
+        return errors::bad_request(format!("Preview failed: {}", e));
     }
 
     // Update job status
@@ -466,7 +463,10 @@ pub async fn execute_restore(
         body.password.as_deref(),
         // Admin auth is the upstream gate for this endpoint; the
         // operator explicitly chose to restore over the live DB.
-        backup_service::RestoreOptions { force_non_empty: true },
+        backup_service::RestoreOptions {
+            force_non_empty: true,
+            ignore_schema_mismatch: false,
+        },
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -483,7 +483,10 @@ pub async fn execute_restore(
 
     // Files restore is best-effort: a missing or partial files payload
     // shouldn't undo the database restore that just completed.
-    let files_restored = match backup_service::restore_backup_files(&file_path) {
+    let files_restored = match backup_service::restore_backup_files(
+        &file_path,
+        body.password.as_deref(),
+    ) {
         Ok(count) => count,
         Err(e) => {
             tracing::warn!(error = %e, "File restore had issues during admin restore");

@@ -3109,21 +3109,40 @@ pub struct ExecuteRestoreRequest {
     pub password: Option<String>,
 }
 
-// Backup manifest for archive metadata
+// Backup manifest for archive metadata.
+//
+// Lives inside the zip (encrypted-or-not) as `manifest.json`.
+// The encryption envelope is OUTSIDE the manifest — when a
+// backup is password-protected, the entire zip is wrapped in an
+// AES-GCM container whose header carries the salt + nonce; this
+// struct is read after that decryption.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BackupManifest {
-    pub version: String,
-    pub created_at: String,
+    /// Bumped on every breaking change to the on-disk shape.
+    /// Restorers refuse archives with an unknown version (the
+    /// pg_dump `K_VERS_*` pattern). Starts at 1.
+    pub backup_format_version: u32,
+    /// `CARGO_PKG_VERSION` of the binary that wrote the backup.
+    /// Operator-readable, not gate-load-bearing.
     pub nosdesk_version: String,
-    pub include_sensitive: bool,
+    /// The migrations-derived hash computed at build time via
+    /// `env!("NOSDESK_SCHEMA_HASH")`. Restore refuses by default
+    /// when this doesn't match the running server; the CLI's
+    /// `--ignore-schema-mismatch` is the explicit override.
+    pub schema_hash: String,
+    pub created_at: String,
     pub tables: std::collections::HashMap<String, TableManifest>,
     pub files: FilesManifest,
-    pub encryption: Option<EncryptionManifest>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TableManifest {
     pub count: i64,
+    /// Hex SHA-256 of the table's `data/<name>.json` payload as
+    /// stored in the zip. Restore recomputes and refuses on
+    /// mismatch — catches truncated downloads, corrupt storage,
+    /// and post-creation tampering.
+    pub sha256: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -3132,19 +3151,16 @@ pub struct FilesManifest {
     pub total_size_bytes: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct EncryptionManifest {
-    pub algorithm: String,
-    pub kdf: String,
-    pub salt: String,
-    pub nonce: String,
-}
-
 // Restore preview response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RestorePreview {
     pub manifest: BackupManifest,
-    pub has_encrypted_sensitive: bool,
+    /// True when the source file uses the encrypted wrapper.
+    /// The preview can still be returned without the password
+    /// only for unencrypted archives; encrypted previews
+    /// require the password to be passed in to decrypt the
+    /// manifest first.
+    pub encrypted: bool,
     pub warnings: Vec<String>,
 }
 

@@ -159,6 +159,11 @@ enum DbCommand {
             help = "Allow restore over a non-empty target database (replaces existing data)"
         )]
         force: bool,
+        #[arg(
+            long,
+            help = "Restore even if the backup's schema hash doesn't match this build (use only if you've verified compatibility)"
+        )]
+        ignore_schema_mismatch: bool,
     },
 }
 
@@ -552,7 +557,8 @@ fn run_db(cmd: DbCommand) -> Result<()> {
             password_env,
             yes,
             force,
-        } => db_restore(&file, password, password_env, yes, force),
+            ignore_schema_mismatch,
+        } => db_restore(&file, password, password_env, yes, force, ignore_schema_mismatch),
     }
 }
 
@@ -562,6 +568,7 @@ fn db_restore(
     password_env: Option<String>,
     yes: bool,
     force: bool,
+    ignore_schema_mismatch: bool,
 ) -> Result<()> {
     if !file.exists() {
         bail!("backup file not found: {}", file.display());
@@ -569,19 +576,12 @@ fn db_restore(
 
     let password = resolve_password(password, password_env)?;
 
-    let preview = backup_service::preview_restore(file)
-        .map_err(|e| anyhow!("invalid backup archive: {e}"))?;
-
-    if preview.has_encrypted_sensitive {
-        let pw = password
-            .as_deref()
-            .ok_or_else(|| anyhow!("backup is encrypted; pass --password or --password-env"))?;
-        let ok = backup_service::verify_backup_password(file, pw)
-            .map_err(|e| anyhow!("password verification failed: {e}"))?;
-        if !ok {
-            bail!("backup password is incorrect");
-        }
-    }
+    // preview_restore now drives both metadata-read AND password
+    // verification — a successful preview means the archive
+    // header parsed and (if encrypted) the password decrypted
+    // the inner zip.
+    let preview = backup_service::preview_restore(file, password.as_deref())
+        .map_err(|e| anyhow!("preview failed: {e}"))?;
 
     let manifest = &preview.manifest;
     println!("Restore preview:");
@@ -612,10 +612,13 @@ fn db_restore(
         &mut conn,
         file,
         password.as_deref(),
-        backup_service::RestoreOptions { force_non_empty: force },
+        backup_service::RestoreOptions {
+            force_non_empty: force,
+            ignore_schema_mismatch,
+        },
     )
     .map_err(|e| anyhow!("database restore failed: {e}"))?;
-    let files_restored = backup_service::restore_backup_files(file)
+    let files_restored = backup_service::restore_backup_files(file, password.as_deref())
         .map_err(|e| anyhow!("file restore failed: {e}"))?;
 
     println!();

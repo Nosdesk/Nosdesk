@@ -14,16 +14,43 @@ use ring::pbkdf2;
 
 use crate::db::DbConnection;
 use crate::models::{
-    BackupManifest, TableManifest, FilesManifest, EncryptionManifest, RestorePreview,
+    BackupManifest, TableManifest, FilesManifest, RestorePreview,
     BackupJobUpdate,
 };
 use crate::repository::backup as backup_repo;
 
-// Encryption constants
+// Encryption constants. AES-256-GCM + PBKDF2-HMAC-SHA256 are the
+// same primitives the MFA encryption path uses; reusing them keeps
+// the crypto surface area small.
 const SALT_LENGTH: usize = 32;
 const PBKDF2_ITERATIONS: u32 = 100_000;
 
-/// Sensitive fields to exclude or encrypt per table
+/// Outer wrapper magic — 4 bytes prepended to encrypted backups so
+/// the reader can tell at a glance whether to decrypt before
+/// parsing. A plaintext backup IS a zip (starts with `PK\x03\x04`)
+/// and skips this wrapper entirely.
+const ENCRYPTED_MAGIC: &[u8; 4] = b"NODB";
+
+/// Outer wrapper header: 4 magic + 4 format-version + 32 salt + 12 nonce.
+const ENCRYPTED_HEADER_LEN: usize = 4 + 4 + SALT_LENGTH + NONCE_LEN;
+
+/// Current on-disk backup format. Bumped only on breaking changes
+/// to the wire shape (manifest schema, encryption envelope, etc.).
+/// Pre-launch we start at 1; the field exists so future bumps can
+/// refuse archives they can't parse.
+const BACKUP_FORMAT_VERSION: u32 = 1;
+
+/// Server schema hash baked in at compile time from the migrations
+/// directory (see `build.rs`). Restore refuses backups whose
+/// `schema_hash` doesn't match this value unless the operator
+/// passes `--ignore-schema-mismatch`.
+const SERVER_SCHEMA_HASH: &str = env!("NOSDESK_SCHEMA_HASH");
+
+/// Fields that contain authentication material. Stripped from
+/// plaintext (no-password) backups so a leaked zip can't be used
+/// to recover credentials. Encrypted backups include them
+/// normally — the whole archive is sealed by AES-GCM, so a
+/// sidecar would just add complexity for no gain.
 const SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("users", &["mfa_secret", "mfa_backup_codes"]),
     ("user_auth_identities", &["password_hash", "metadata"]),
@@ -210,6 +237,98 @@ fn encrypt_data(data: &[u8], key: &[u8; 32]) -> Result<(Vec<u8>, [u8; NONCE_LEN]
     Ok((in_out, nonce_bytes))
 }
 
+/// Wrap a plaintext inner-zip blob in the encrypted outer
+/// envelope: `NODB` magic, format version, fresh salt, fresh
+/// nonce, then the AES-GCM ciphertext. The header is plaintext
+/// by design so the reader can recognise the file before having
+/// the password; everything that could leak schema info or row
+/// counts lives inside the ciphertext.
+fn seal_inner_zip(inner_zip: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
+    let rng = SystemRandom::new();
+    let mut salt = [0u8; SALT_LENGTH];
+    rng.fill(&mut salt)
+        .map_err(|_| BackupError::EncryptionError("Failed to generate salt".to_string()))?;
+
+    let key = derive_key(password, &salt);
+    let (ciphertext, nonce) = encrypt_data(inner_zip, &key)?;
+
+    let mut out = Vec::with_capacity(ENCRYPTED_HEADER_LEN + ciphertext.len());
+    out.extend_from_slice(ENCRYPTED_MAGIC);
+    out.extend_from_slice(&BACKUP_FORMAT_VERSION.to_le_bytes());
+    out.extend_from_slice(&salt);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ciphertext);
+    Ok(out)
+}
+
+/// Parse the encrypted outer envelope and return the plaintext
+/// inner-zip bytes. The header is validated up front so a
+/// malformed file fails fast with a clear error instead of a
+/// generic decryption failure.
+fn unseal_inner_zip(file_bytes: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
+    if file_bytes.len() < ENCRYPTED_HEADER_LEN {
+        return Err(BackupError::CorruptedBackup(
+            "encrypted backup is shorter than its header".to_string(),
+        ));
+    }
+    if &file_bytes[0..4] != ENCRYPTED_MAGIC {
+        return Err(BackupError::CorruptedBackup(
+            "missing NODB magic on encrypted backup".to_string(),
+        ));
+    }
+    let version = u32::from_le_bytes(file_bytes[4..8].try_into().unwrap());
+    if version != BACKUP_FORMAT_VERSION {
+        return Err(BackupError::CorruptedBackup(format!(
+            "unsupported backup format version {version}; this build expects {BACKUP_FORMAT_VERSION}"
+        )));
+    }
+    let mut salt = [0u8; SALT_LENGTH];
+    let mut nonce = [0u8; NONCE_LEN];
+    salt.copy_from_slice(&file_bytes[8..8 + SALT_LENGTH]);
+    nonce.copy_from_slice(&file_bytes[8 + SALT_LENGTH..ENCRYPTED_HEADER_LEN]);
+
+    let key = derive_key(password, &salt);
+    decrypt_data(&file_bytes[ENCRYPTED_HEADER_LEN..], &key, &nonce)
+}
+
+/// True when the file starts with the encrypted-wrapper magic.
+/// Cheap byte check; callers use this to decide whether to
+/// require a password.
+fn is_encrypted_backup(backup_path: &Path) -> Result<bool, BackupError> {
+    use std::io::Read as _;
+    let mut f = File::open(backup_path)?;
+    let mut magic = [0u8; 4];
+    match f.read_exact(&mut magic) {
+        Ok(()) => Ok(&magic == ENCRYPTED_MAGIC),
+        // Shorter than 4 bytes — definitely not one of ours; let
+        // the zip reader fail with its own message.
+        Err(_) => Ok(false),
+    }
+}
+
+/// Load the backup's inner zip bytes into memory. For plaintext
+/// backups this is just the file contents; for encrypted ones
+/// it's the result of unsealing the wrapper.
+///
+/// The whole zip lives in memory after this returns. That's
+/// acceptable because the existing flow (which read every
+/// `data/*.json` and `files/*` entry through `ZipArchive::by_name`)
+/// already paged it all in, just with the kernel doing the work
+/// instead of us.
+fn load_inner_zip(backup_path: &Path, password: Option<&str>) -> Result<Vec<u8>, BackupError> {
+    if is_encrypted_backup(backup_path)? {
+        let bytes = fs::read(backup_path)?;
+        let password = password.ok_or_else(|| {
+            BackupError::EncryptionError(
+                "backup is encrypted; password is required".to_string(),
+            )
+        })?;
+        unseal_inner_zip(&bytes, password)
+    } else {
+        Ok(fs::read(backup_path)?)
+    }
+}
+
 /// Decrypt data using AES-256-GCM
 fn decrypt_data(encrypted_data: &[u8], key: &[u8; 32], nonce_bytes: &[u8; NONCE_LEN]) -> Result<Vec<u8>, BackupError> {
     let unbound_key = UnboundKey::new(&AES_256_GCM, key)
@@ -300,56 +419,103 @@ fn get_backups_dir() -> PathBuf {
     base.join("backups")
 }
 
-/// Create a backup export
+/// SHA-256 of arbitrary bytes, returned as lowercase hex. Used
+/// for per-table integrity hashes in the backup manifest.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use ring::digest::{digest, SHA256};
+    hex::encode(digest(&SHA256, bytes).as_ref())
+}
+
+/// Create a backup export.
+///
+/// Builds the zip in memory and writes it to disk in one go.
+/// When `password` is `Some`, the bytes are wrapped in the
+/// AES-GCM envelope before writing (so the on-disk file is
+/// `NODB...`). When `password` is `None`, the zip is written
+/// as-is and sensitive fields are stripped from each table's
+/// JSON.
 pub fn create_backup(
     conn: &mut DbConnection,
     job_id: Uuid,
-    include_sensitive: bool,
     password: Option<&str>,
 ) -> Result<PathBuf, BackupError> {
     let backups_dir = get_backups_dir();
     fs::create_dir_all(&backups_dir)?;
 
     let timestamp = Utc::now().format("%Y-%m-%d-%H%M%S");
+    // Encrypted backups still carry the `.zip` extension because
+    // the wrapped inner format IS a zip; the only difference is
+    // the 52-byte header. Operators can still tell them apart
+    // with `file` (zip vs data) but the extension stays familiar.
     let filename = format!("backup-{timestamp}.zip");
     let backup_path = backups_dir.join(&filename);
 
-    let file = File::create(&backup_path)?;
-    let mut zip = ZipWriter::new(file);
+    let include_sensitive = password.is_some();
+    let zip_bytes = build_inner_zip(conn, include_sensitive)?;
+
+    let final_bytes = match password {
+        Some(pw) => seal_inner_zip(&zip_bytes, pw)?,
+        None => zip_bytes,
+    };
+    fs::write(&backup_path, &final_bytes)?;
+
+    let file_size = final_bytes.len() as i64;
+    backup_repo::update_backup_job(
+        conn,
+        job_id,
+        BackupJobUpdate {
+            status: Some("completed".to_string()),
+            file_path: Some(backup_path.to_string_lossy().to_string()),
+            file_size: Some(file_size),
+            error_message: None,
+            completed_at: Some(Utc::now().naive_utc()),
+        },
+    )?;
+
+    Ok(backup_path)
+}
+
+/// Build the inner zip blob (the thing that gets either written
+/// straight to disk or sealed by `seal_inner_zip`). Encapsulated
+/// here so `create_backup` is small and the in-memory pipeline
+/// is easy to audit.
+fn build_inner_zip(
+    conn: &mut DbConnection,
+    include_sensitive: bool,
+) -> Result<Vec<u8>, BackupError> {
+    use std::io::Cursor;
+
+    // Owned cursor over a Vec<u8> so we can pull the buffer back
+    // out of the writer via `finish()` without lifetime gymnastics.
+    let cursor: Cursor<Vec<u8>> = Cursor::new(Vec::new());
+    let mut zip = ZipWriter::new(cursor);
     let options = FileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
 
     let mut table_manifests = HashMap::new();
-    let mut sensitive_data: HashMap<String, serde_json::Value> = HashMap::new();
-
-    // Export each table that the running schema knows about.
-    // Future tables added by migrations land here automatically;
-    // the EXCLUDE_FROM_BACKUP const is the small explicit set we
-    // skip.
     let tables_to_export = discover_user_tables(conn)?;
+
     for table_name in &tables_to_export {
         let table_name: &str = table_name;
-        // Always export without sensitive data first
-        let (data, count) = export_table_data(conn, table_name, false)?;
+        let (data, count) = export_table_data(conn, table_name, include_sensitive)?;
 
         let json_content = serde_json::to_string_pretty(&data)?;
-        let path = format!("data/{table_name}.json");
+        let sha256 = sha256_hex(json_content.as_bytes());
 
+        let path = format!("data/{table_name}.json");
         zip.start_file(&path, options)?;
         zip.write_all(json_content.as_bytes())?;
 
-        table_manifests.insert(table_name.to_string(), TableManifest { count });
-
-        // If including sensitive data, also export the sensitive fields separately
-        if include_sensitive && password.is_some()
-            && SENSITIVE_FIELDS.iter().any(|(t, _)| *t == table_name) {
-                let (full_data, _) = export_table_data(conn, table_name, true)?;
-                sensitive_data.insert(table_name.to_string(), full_data);
-            }
+        table_manifests.insert(
+            table_name.to_string(),
+            TableManifest { count, sha256 },
+        );
     }
 
-    // Export files
+    // Files. Same skip-rules as before: avoid recursing into our
+    // own backups dir, and skip thumbnails (cheap to regenerate
+    // from the originals).
     let uploads_dir = get_uploads_dir();
     let mut file_count = 0i64;
     let mut total_size = 0i64;
@@ -360,25 +526,24 @@ pub fn create_backup(
             .into_iter()
             .filter_entry(|e| {
                 let path = e.path();
-                // Skip the backups directory and thumbnails (can be regenerated)
                 !path.starts_with(get_backups_dir()) && !path.starts_with(&thumbs_dir)
             })
             .filter_map(|e| e.ok())
         {
             if entry.file_type().is_file() {
                 let file_path = entry.path();
-                let relative_path = file_path.strip_prefix(&uploads_dir)
-                    .map_err(|e| BackupError::IoError(std::io::Error::other(
-                        e.to_string()
-                    )))?;
-
+                let relative_path = file_path
+                    .strip_prefix(&uploads_dir)
+                    .map_err(|e| {
+                        BackupError::IoError(std::io::Error::other(e.to_string()))
+                    })?;
                 let archive_path = format!("files/{}", relative_path.display());
 
                 zip.start_file(&archive_path, options)?;
                 let mut file = File::open(file_path)?;
-                let mut buffer = Vec::new();
-                let size = file.read_to_end(&mut buffer)?;
-                zip.write_all(&buffer)?;
+                let mut buf = Vec::new();
+                let size = file.read_to_end(&mut buf)?;
+                zip.write_all(&buf)?;
 
                 file_count += 1;
                 total_size += size as i64;
@@ -386,91 +551,66 @@ pub fn create_backup(
         }
     }
 
-    // Handle sensitive data encryption
-    let encryption_manifest = if include_sensitive && password.is_some() && !sensitive_data.is_empty() {
-        let password = password.unwrap();
-
-        // Generate salt
-        let rng = SystemRandom::new();
-        let mut salt = [0u8; SALT_LENGTH];
-        rng.fill(&mut salt)
-            .map_err(|_| BackupError::EncryptionError("Failed to generate salt".to_string()))?;
-
-        // Derive key and encrypt
-        let key = derive_key(password, &salt);
-        let sensitive_json = serde_json::to_string(&sensitive_data)?;
-        let (encrypted, nonce) = encrypt_data(sensitive_json.as_bytes(), &key)?;
-
-        // Write encrypted sensitive data
-        zip.start_file("data/sensitive.json.enc", options)?;
-        zip.write_all(&encrypted)?;
-
-        Some(EncryptionManifest {
-            algorithm: "AES-256-GCM".to_string(),
-            kdf: "PBKDF2-HMAC-SHA256".to_string(),
-            salt: hex::encode(salt),
-            nonce: hex::encode(nonce),
-        })
-    } else {
-        None
-    };
-
-    // Create manifest
     let manifest = BackupManifest {
-        version: "1.0".to_string(),
-        created_at: Utc::now().to_rfc3339(),
+        backup_format_version: BACKUP_FORMAT_VERSION,
         nosdesk_version: env!("CARGO_PKG_VERSION").to_string(),
-        include_sensitive,
+        schema_hash: SERVER_SCHEMA_HASH.to_string(),
+        created_at: Utc::now().to_rfc3339(),
         tables: table_manifests,
         files: FilesManifest {
             total_count: file_count,
             total_size_bytes: total_size,
         },
-        encryption: encryption_manifest,
     };
 
     let manifest_json = serde_json::to_string_pretty(&manifest)?;
     zip.start_file("manifest.json", options)?;
     zip.write_all(manifest_json.as_bytes())?;
-
-    zip.finish()?;
-
-    // Update job with file info
-    let file_size = fs::metadata(&backup_path)?.len() as i64;
-    backup_repo::update_backup_job(conn, job_id, BackupJobUpdate {
-        status: Some("completed".to_string()),
-        file_path: Some(backup_path.to_string_lossy().to_string()),
-        file_size: Some(file_size),
-        error_message: None,
-        completed_at: Some(Utc::now().naive_utc()),
-    })?;
-
-    Ok(backup_path)
+    let finished = zip.finish()?;
+    Ok(finished.into_inner())
 }
 
-/// Read and parse a backup archive
-pub fn read_backup_manifest(backup_path: &Path) -> Result<BackupManifest, BackupError> {
-    let file = File::open(backup_path)?;
-    let mut archive = ZipArchive::new(file)?;
-
+/// Read and parse the manifest from a backup archive. For
+/// encrypted backups the password is required (and acts as the
+/// password verification — successful decryption is the proof).
+pub fn read_backup_manifest(
+    backup_path: &Path,
+    password: Option<&str>,
+) -> Result<BackupManifest, BackupError> {
+    use std::io::Cursor;
+    let inner = load_inner_zip(backup_path, password)?;
+    let mut archive = ZipArchive::new(Cursor::new(inner))?;
     let mut manifest_file = archive.by_name("manifest.json")?;
     let mut manifest_content = String::new();
     manifest_file.read_to_string(&mut manifest_content)?;
-
-    let manifest: BackupManifest = serde_json::from_str(&manifest_content)?;
-    Ok(manifest)
+    Ok(serde_json::from_str(&manifest_content)?)
 }
 
-/// Preview what a restore would do
-pub fn preview_restore(backup_path: &Path) -> Result<RestorePreview, BackupError> {
-    let manifest = read_backup_manifest(backup_path)?;
+/// Preview what a restore would do. Always decrypts when needed
+/// (so a successful preview also proves the password works,
+/// replacing the dropped `verify_backup_password` helper).
+pub fn preview_restore(
+    backup_path: &Path,
+    password: Option<&str>,
+) -> Result<RestorePreview, BackupError> {
+    let encrypted = is_encrypted_backup(backup_path)?;
+    let manifest = read_backup_manifest(backup_path, password)?;
 
-    let has_encrypted_sensitive = manifest.encryption.is_some();
-
-    // Generate warnings
     let mut warnings = Vec::new();
 
-    // Version mismatch warning
+    if manifest.backup_format_version != BACKUP_FORMAT_VERSION {
+        warnings.push(format!(
+            "Backup format version {} differs from current ({}); restore will refuse",
+            manifest.backup_format_version, BACKUP_FORMAT_VERSION
+        ));
+    }
+    if manifest.schema_hash != SERVER_SCHEMA_HASH {
+        warnings.push(format!(
+            "Schema hash mismatch: backup={} server={}; pass --ignore-schema-mismatch to override",
+            manifest.schema_hash, SERVER_SCHEMA_HASH
+        ));
+    }
+
     let current_version = env!("CARGO_PKG_VERSION");
     if manifest.nosdesk_version != current_version {
         warnings.push(format!(
@@ -479,7 +619,6 @@ pub fn preview_restore(backup_path: &Path) -> Result<RestorePreview, BackupError
         ));
     }
 
-    // Large file warning
     if manifest.files.total_size_bytes > 1024 * 1024 * 1024 {
         warnings.push(format!(
             "Backup contains {} GB of files, restore may take a while",
@@ -489,17 +628,20 @@ pub fn preview_restore(backup_path: &Path) -> Result<RestorePreview, BackupError
 
     Ok(RestorePreview {
         manifest,
-        has_encrypted_sensitive,
+        encrypted,
         warnings,
     })
 }
 
-/// Restore files from a backup archive
+/// Restore files from a backup archive. For encrypted backups
+/// the password is required to unwrap the outer envelope.
 pub fn restore_backup_files(
     backup_path: &Path,
+    password: Option<&str>,
 ) -> Result<u64, BackupError> {
-    let file = File::open(backup_path)?;
-    let mut archive = ZipArchive::new(file)?;
+    use std::io::Cursor;
+    let inner = load_inner_zip(backup_path, password)?;
+    let mut archive = ZipArchive::new(Cursor::new(inner))?;
 
     let uploads_dir = get_uploads_dir();
     let mut restored_count = 0u64;
@@ -523,49 +665,6 @@ pub fn restore_backup_files(
     }
 
     Ok(restored_count)
-}
-
-/// Verify if a password can decrypt the sensitive data
-pub fn verify_backup_password(backup_path: &Path, password: &str) -> Result<bool, BackupError> {
-    let manifest = read_backup_manifest(backup_path)?;
-
-    if manifest.encryption.is_none() {
-        return Ok(true); // No encryption, no password needed
-    }
-
-    let encryption = manifest.encryption.unwrap();
-
-    // Read encrypted file
-    let file = File::open(backup_path)?;
-    let mut archive = ZipArchive::new(file)?;
-
-    let mut enc_file = archive.by_name("data/sensitive.json.enc")
-        .map_err(|_| BackupError::CorruptedBackup("Missing encrypted sensitive data".to_string()))?;
-    let mut encrypted_data = Vec::new();
-    enc_file.read_to_end(&mut encrypted_data)?;
-
-    // Decode salt and nonce
-    let salt = hex::decode(&encryption.salt)
-        .map_err(|e| BackupError::EncryptionError(format!("Invalid salt: {e}")))?;
-    let nonce = hex::decode(&encryption.nonce)
-        .map_err(|e| BackupError::EncryptionError(format!("Invalid nonce: {e}")))?;
-
-    if salt.len() != SALT_LENGTH || nonce.len() != NONCE_LEN {
-        return Err(BackupError::CorruptedBackup("Invalid encryption parameters".to_string()));
-    }
-
-    let mut salt_arr = [0u8; SALT_LENGTH];
-    let mut nonce_arr = [0u8; NONCE_LEN];
-    salt_arr.copy_from_slice(&salt);
-    nonce_arr.copy_from_slice(&nonce);
-
-    // Try to decrypt
-    let key = derive_key(password, &salt_arr);
-    match decrypt_data(&encrypted_data, &key, &nonce_arr) {
-        Ok(_) => Ok(true),
-        Err(BackupError::InvalidPassword) => Ok(false),
-        Err(e) => Err(e),
-    }
 }
 
 /// Delete a backup file
@@ -606,6 +705,13 @@ pub struct RestoreOptions {
     /// exposes this as `--force`; the web handler sets it
     /// implicitly because admin-auth is the upstream gate.
     pub force_non_empty: bool,
+    /// Bypass the schema-hash check. The backup carries the
+    /// hash of the migrations directory it was taken at; the
+    /// server compares against its own compile-time hash and
+    /// refuses on mismatch by default. Operators who know the
+    /// schemas are compatible (e.g. a no-op migration was
+    /// added between versions) can pass `--ignore-schema-mismatch`.
+    pub ignore_schema_mismatch: bool,
 }
 
 /// Restore tables from a backup archive into the live database.
@@ -641,28 +747,40 @@ pub fn restore_database(
     use diesel::prelude::*;
     use diesel::sql_query;
     use diesel::sql_types::BigInt;
+    use std::io::Cursor;
 
-    // ---- Phase 1: open the archive and read the manifest ----
+    // ---- Phase 1: load the inner zip (decrypts if encrypted) ----
+    let inner_zip = load_inner_zip(backup_path, password)?;
+    let mut archive = ZipArchive::new(Cursor::new(inner_zip))?;
+
+    // ---- Phase 2: read + validate manifest ----
     let manifest: BackupManifest = {
-        let file = File::open(backup_path)?;
-        let mut archive = ZipArchive::new(file)?;
         let mut manifest_file = archive.by_name("manifest.json")?;
         let mut content = String::new();
         manifest_file.read_to_string(&mut content)?;
         serde_json::from_str(&content)?
     };
 
-    // ---- Phase 2: pre-flight empty-target check ----
+    if manifest.backup_format_version != BACKUP_FORMAT_VERSION {
+        return Err(BackupError::CorruptedBackup(format!(
+            "unsupported backup format version {} (this build expects {})",
+            manifest.backup_format_version, BACKUP_FORMAT_VERSION
+        )));
+    }
+    if manifest.schema_hash != SERVER_SCHEMA_HASH && !options.ignore_schema_mismatch {
+        return Err(BackupError::CorruptedBackup(format!(
+            "schema hash mismatch (backup={}, server={}); pass --ignore-schema-mismatch to override",
+            manifest.schema_hash, SERVER_SCHEMA_HASH
+        )));
+    }
+
+    // ---- Phase 3: pre-flight empty-target check ----
     if !options.force_non_empty {
         #[derive(QueryableByName)]
         struct CountRow {
             #[diesel(sql_type = BigInt)]
             n: i64,
         }
-        // `users` is the canonical "is there an instance here?"
-        // table — onboarding gates on it, and a completed install
-        // always has at least one row. Cheaper than counting
-        // every table.
         let count: CountRow = sql_query("SELECT COUNT(*)::bigint AS n FROM users")
             .get_result(conn)
             .map_err(BackupError::DatabaseError)?;
@@ -674,7 +792,7 @@ pub fn restore_database(
         }
     }
 
-    // ---- Phase 3: figure out what to restore ----
+    // ---- Phase 4: figure out what to restore ----
     let live_tables: std::collections::HashSet<String> =
         discover_user_tables(conn)?.into_iter().collect();
     let mut backup_tables: Vec<String> = manifest.tables.keys().cloned().collect();
@@ -698,83 +816,50 @@ pub fn restore_database(
         );
     }
 
-    // ---- Phase 4: optional decrypt of sensitive sidecar ----
-    // Done outside the transaction because it doesn't touch the
-    // DB; the decrypted map is held in memory and applied inside
-    // the transaction below.
-    let decrypted_sensitive: Option<std::collections::HashMap<String, Vec<serde_json::Value>>> =
-        if let (Some(enc_info), Some(password)) = (manifest.encryption.as_ref(), password) {
-            let encrypted_data: Option<Vec<u8>> = {
-                let file = File::open(backup_path)?;
-                let mut archive = ZipArchive::new(file)?;
-                let result: Option<Vec<u8>> =
-                    if let Ok(mut enc_file) = archive.by_name("data/sensitive.json.enc") {
-                        let mut data = Vec::new();
-                        enc_file.read_to_end(&mut data)?;
-                        Some(data)
-                    } else {
-                        None
-                    };
-                result
-            };
-
-            if let Some(encrypted) = encrypted_data {
-                let salt = hex::decode(&enc_info.salt)
-                    .map_err(|e| BackupError::EncryptionError(format!("Invalid salt: {e}")))?;
-                let nonce = hex::decode(&enc_info.nonce)
-                    .map_err(|e| BackupError::EncryptionError(format!("Invalid nonce: {e}")))?;
-                let mut salt_arr = [0u8; SALT_LENGTH];
-                let mut nonce_arr = [0u8; NONCE_LEN];
-                salt_arr.copy_from_slice(&salt);
-                nonce_arr.copy_from_slice(&nonce);
-                let key = derive_key(password, &salt_arr);
-                let decrypted = decrypt_data(&encrypted, &key, &nonce_arr)?;
-                Some(serde_json::from_slice(&decrypted)?)
-            } else {
-                None
+    // ---- Phase 5: load + hash-check every table BEFORE the
+    //              transaction. Cheaper to bail on a corrupt
+    //              hash here than to roll back a half-done
+    //              restore inside the transaction.
+    let mut table_payloads: Vec<(String, Vec<serde_json::Value>)> =
+        Vec::with_capacity(restore_order.len());
+    for table_name in &restore_order {
+        let data_path = format!("data/{table_name}.json");
+        let content = match archive.by_name(&data_path) {
+            Ok(mut data_file) => {
+                let mut buf = String::new();
+                data_file.read_to_string(&mut buf)?;
+                buf
             }
-        } else {
-            None
+            Err(_) => continue,
         };
 
-    // ---- Phase 5: do the restore in a single transaction ----
+        let expected = &manifest
+            .tables
+            .get(table_name)
+            .expect("table present in restore_order is in manifest by construction")
+            .sha256;
+        let actual = sha256_hex(content.as_bytes());
+        if &actual != expected {
+            return Err(BackupError::CorruptedBackup(format!(
+                "sha256 mismatch for table '{table_name}': manifest={expected} computed={actual}"
+            )));
+        }
+
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&content)?;
+        table_payloads.push((table_name.clone(), rows));
+    }
+
+    // ---- Phase 6: single transaction with FK + trigger
+    //              suppression. First row failure rolls back
+    //              the entire restore.
     conn.transaction::<RestoreStats, BackupError, _>(|c| {
-        // `SET LOCAL` scopes the change to this transaction;
-        // commit or rollback restores the original value. The
-        // session_replication_role = 'replica' setting disables
-        // user triggers AND FK-check triggers for the duration,
-        // so we can insert in any table order. UNIQUE / CHECK
-        // constraints still fire normally.
         sql_query("SET LOCAL session_replication_role = 'replica'")
             .execute(c)
-            .map_err(|e| BackupError::DatabaseError(e))?;
+            .map_err(BackupError::DatabaseError)?;
 
         let mut stats = RestoreStats::default();
 
-        // Open a fresh archive handle per table — ZipArchive
-        // owns the File and we can't `by_name` twice while
-        // holding the prior reader, so we lift it for clarity.
-        let file = File::open(backup_path)?;
-        let mut archive = ZipArchive::new(file)?;
-
-        for table_name in &restore_order {
-            let data_path = format!("data/{table_name}.json");
-            let content = match archive.by_name(&data_path) {
-                Ok(mut data_file) => {
-                    let mut buf = String::new();
-                    data_file.read_to_string(&mut buf)?;
-                    buf
-                }
-                Err(_) => {
-                    // Manifest claims this table, archive doesn't
-                    // have the JSON. Treat as zero rows; don't
-                    // fail the whole restore on a malformed
-                    // archive entry.
-                    continue;
-                }
-            };
-
-            let rows: Vec<serde_json::Value> = serde_json::from_str(&content)?;
+        for (table_name, rows) in &table_payloads {
             let rows_attempted = rows.len();
             if rows.is_empty() {
                 stats.per_table.push(TableRestoreResult {
@@ -784,8 +869,7 @@ pub fn restore_database(
                 });
                 continue;
             }
-
-            let rows_loaded = restore_table_data(c, table_name, &rows)?;
+            let rows_loaded = restore_table_data(c, table_name, rows)?;
             if rows_loaded > 0 {
                 stats.tables_restored += 1;
                 stats.records_restored += rows_loaded;
@@ -797,26 +881,8 @@ pub fn restore_database(
             });
         }
 
-        // Apply decrypted sensitive sidecar inside the same
-        // transaction so a decrypt-but-fail-mid-update still
-        // rolls back the entire restore.
-        if let Some(sensitive_tables) = decrypted_sensitive {
-            for (table_name, rows) in sensitive_tables {
-                if !live_tables.contains(&table_name) {
-                    log::warn!(
-                        "restore: sensitive update skipped for unknown table '{table_name}'"
-                    );
-                    continue;
-                }
-                update_sensitive_fields(c, &table_name, &rows)?;
-            }
-        }
-
-        // Reset sequences inside the transaction so a rollback
-        // also unwinds the sequence advancement. setval is
-        // transactional in PG 18.
+        // setval is transactional in PG 18; rollback unwinds it.
         reset_sequences(c)?;
-
         Ok(stats)
     })
 }
@@ -930,11 +996,11 @@ fn restore_table_data(
 }
 
 /// Convert JSON value to SQL literal. Single-quote escaping via
-/// doubling is the standard Postgres pattern and is safe as long as
-/// `standard_conforming_strings` is on (default since Postgres 9.1+).
-/// The column-name allowlist in [`restore_table_data`] and
-/// [`update_sensitive_fields`] is the load-bearing protection;
-/// this helper is the second layer.
+/// doubling is the standard Postgres pattern and is safe as long
+/// as `standard_conforming_strings` is on (default since
+/// Postgres 9.1+). The column-name allowlist in
+/// [`restore_table_data`] is the load-bearing protection; this
+/// helper is the second layer.
 fn json_to_sql_value(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Null => "NULL".to_string(),
@@ -945,67 +1011,6 @@ fn json_to_sql_value(value: &serde_json::Value) -> String {
             format!("'{}'::jsonb", value.to_string().replace('\'', "''"))
         }
     }
-}
-
-/// Update sensitive fields in existing rows.
-///
-/// AUD-008: column names come from the hardcoded `sensitive_fields`
-/// match arm and the primary-key column from the same arm. The
-/// table name is validated against `information_schema.tables` to
-/// keep poisoned backups from pivoting to arbitrary identifiers.
-fn update_sensitive_fields(
-    conn: &mut DbConnection,
-    table_name: &str,
-    rows: &[serde_json::Value],
-) -> Result<(), BackupError> {
-    use diesel::sql_query;
-    use diesel::RunQueryDsl;
-
-    if !table_exists_in_db(conn, table_name)? {
-        return Err(BackupError::CorruptedBackup(format!(
-            "sensitive update references unknown table '{table_name}'"
-        )));
-    }
-
-    let (pk_column, sensitive_fields): (&str, &[&str]) = match table_name {
-        "users" => ("uuid", &["mfa_secret", "mfa_backup_codes"]),
-        "user_auth_identities" => ("id", &["password_hash", "metadata"]),
-        "refresh_tokens" => ("id", &["token_hash"]),
-        "reset_tokens" => ("id", &["token_hash", "metadata"]),
-        _ => return Ok(()),
-    };
-
-    for (row_index, row) in rows.iter().enumerate() {
-        let Some(map) = row.as_object() else { continue };
-        let Some(pk_value) = map.get(pk_column).map(json_to_sql_value) else {
-            continue;
-        };
-
-        let updates: Vec<String> = sensitive_fields
-            .iter()
-            .filter_map(|field| {
-                map.get(*field)
-                    .map(|v| format!("{field} = {}", json_to_sql_value(v)))
-            })
-            .collect();
-        if updates.is_empty() {
-            continue;
-        }
-
-        let query = format!(
-            "UPDATE {table_name} SET {} WHERE {pk_column} = {pk_value}",
-            updates.join(", "),
-        );
-        // Bubble errors instead of swallowing — same reasoning as
-        // restore_table_data. The enclosing transaction rolls
-        // back on first failure.
-        sql_query(&query).execute(conn).map_err(|e| {
-            BackupError::DatabaseError(diesel::result::Error::QueryBuilderError(
-                format!("sensitive row {row_index} of '{table_name}': {e}").into(),
-            ))
-        })?;
-    }
-    Ok(())
 }
 
 /// Look up the column names of a table from `information_schema`.
