@@ -39,11 +39,14 @@ use crate::repository::{channels as channels_repo, site_settings as site_setting
 use crate::services::channels::threading::{format_outbound_message_id, format_outbound_subject};
 use crate::utils::email::{EmailService, OutboundEmailMessage};
 
-/// Built-in fallback template. Deliberately terse — Zendesk's
-/// default is a single sentence, and customers typically read the
-/// first line and triage; long templates read as promotional. The
-/// ticket reference is the one piece of information they actually
-/// need, so it goes up front.
+/// Built-in fallback template, retained as a compile-time
+/// constant for tests that snapshot the wording. At runtime the
+/// `auto-ack-default-template` FTL key is used so the message
+/// arrives in the customer's language (driven by their inbound
+/// Content-Language header). When an admin sets
+/// `channel_auto_ack_template` on site_settings, their wording
+/// wins outright; localisation is bypassed in that case because
+/// the admin's custom copy is the source of truth.
 pub const DEFAULT_TEMPLATE: &str = "Your request (#{{ticket_id}}) has been received and is being reviewed by our support team. To add additional comments, reply to this email.";
 
 /// Fire-and-forget entry point used by the pipeline. Detached so a
@@ -59,9 +62,19 @@ pub fn spawn_auto_ack(
     channel: Channel,
     ticket: Ticket,
     in_reply_to: String,
+    inbound_locale: Option<String>,
 ) {
     tokio::spawn(async move {
-        if let Err(e) = send_auto_ack(&pool, &email, &channel, &ticket, &in_reply_to).await {
+        if let Err(e) = send_auto_ack(
+            &pool,
+            &email,
+            &channel,
+            &ticket,
+            &in_reply_to,
+            inbound_locale.as_deref(),
+        )
+        .await
+        {
             warn!(
                 channel_id = channel.id,
                 ticket_id = ticket.id,
@@ -78,6 +91,7 @@ async fn send_auto_ack(
     channel: &Channel,
     ticket: &Ticket,
     in_reply_to: &str,
+    inbound_locale: Option<&str>,
 ) -> Result<(), String> {
     let mut conn = pool.get().map_err(|e| format!("db pool: {e}"))?;
 
@@ -105,12 +119,37 @@ async fn send_auto_ack(
         .map(|u| u.name)
         .unwrap_or_else(|_| recipient_email.clone());
 
-    // Render template.
-    let template = settings
-        .channel_auto_ack_template
-        .as_deref()
-        .unwrap_or(DEFAULT_TEMPLATE);
-    let body = render_template(template, &settings, ticket, &customer_name);
+    // Render template. Admin-customised wording wins outright;
+    // the inbound's Content-Language only drives the *default*
+    // template's localisation (we have one canonical FTL key per
+    // locale for the built-in copy, but no machine translation of
+    // arbitrary admin text). When no admin override is set,
+    // resolve the locale via inbound -> site default -> en-US.
+    let body = match settings.channel_auto_ack_template.as_deref() {
+        Some(custom) => render_template(custom, &settings, ticket, &customer_name),
+        None => {
+            let locale = crate::utils::locale::effective_locale(
+                inbound_locale,
+                &settings.default_locale,
+            );
+            let default_localised = crate::utils::i18n::tr_with(
+                &locale,
+                "auto-ack-default-template",
+                &[
+                    ("ticket_id", ticket.id.to_string().into()),
+                    ("ticket_title", ticket.title.clone().into()),
+                    ("customer_name", customer_name.clone().into()),
+                    ("app_name", settings.app_name.clone().into()),
+                ],
+            );
+            // The FTL value carries its own placeholders pre-
+            // substituted, but admins may have copy/pasted the
+            // legacy `{{var}}` syntax into a custom template that
+            // later got cleared — running render_template here as
+            // a no-op keeps both shapes safe.
+            render_template(&default_localised, &settings, ticket, &customer_name)
+        }
+    };
 
     // Build outbound email. The Message-ID is stamped by the threading
     // helper so the recipient's reply matches back to this ticket via

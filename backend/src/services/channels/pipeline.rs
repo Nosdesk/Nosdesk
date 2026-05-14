@@ -489,6 +489,7 @@ pub async fn process_event(
                 channel.clone(),
                 ticket.clone(),
                 msg.external_id.clone(),
+                msg.content_language.clone(),
             );
         }
     }
@@ -1091,6 +1092,7 @@ mod tests {
             is_bounce: false,
             bounce_reports: Vec::new(),
             raw_bytes: None,
+            content_language: None,
         }
     }
 

@@ -849,6 +849,14 @@ pub fn parse_rfc822_into_inbound_message(
         .or_else(|| header_first(headers, "Date").and_then(parse_rfc2822_to_utc))
         .unwrap_or_else(Utc::now);
 
+    // RFC 3282 Content-Language is comma-separated when multi-
+    // lingual; take the first tag. Trimmed and lower-cased so the
+    // downstream locale parser ("en-au" -> "en-AU") doesn't have
+    // to deal with whatever casing the sender produced.
+    let content_language = header_first(headers, "Content-Language")
+        .and_then(|raw| raw.split(',').next().map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty());
+
     // Keep *all* headers verbatim so debugging, audit, or future features
     // (e.g. DKIM/SPF extraction) never need a re-fetch.
     let raw_metadata = serde_json::json!({
@@ -878,6 +886,7 @@ pub fn parse_rfc822_into_inbound_message(
         // be to pass the bytes through alongside the parsed
         // message and that complicates every adapter signature.
         raw_bytes: Some(raw.to_vec()),
+        content_language,
     })
 }
 
@@ -1495,6 +1504,45 @@ Date: Mon, 1 Jan 2024 12:00:00 +0000\r\n\
 Content-Type: text/plain; charset=utf-8\r\n\
 \r\n\
 Thanks for the help!\r\n";
+
+    #[test]
+    fn content_language_header_is_extracted() {
+        const WITH_LANG: &[u8] = b"\
+From: alice@example.com\r\n\
+To: support@yourco.com\r\n\
+Subject: Bonjour\r\n\
+Message-ID: <fr-msg@customer>\r\n\
+Date: Mon, 1 Jan 2024 12:00:00 +0000\r\n\
+Content-Language: fr-FR\r\n\
+\r\n\
+Bonjour.\r\n";
+        let msg = parse_rfc822_into_inbound_message(WITH_LANG, None).unwrap();
+        assert_eq!(msg.content_language.as_deref(), Some("fr-FR"));
+    }
+
+    #[test]
+    fn content_language_takes_first_when_comma_separated() {
+        // RFC 3282 permits a comma-separated list (multilingual
+        // documents). We pick the first tag — that's the sender's
+        // primary language, the one the auto-ack should match.
+        const MULTI: &[u8] = b"\
+From: alice@example.com\r\n\
+To: support@yourco.com\r\n\
+Subject: x\r\n\
+Message-ID: <multi@customer>\r\n\
+Date: Mon, 1 Jan 2024 12:00:00 +0000\r\n\
+Content-Language: en-AU, fr-FR\r\n\
+\r\n\
+hi\r\n";
+        let msg = parse_rfc822_into_inbound_message(MULTI, None).unwrap();
+        assert_eq!(msg.content_language.as_deref(), Some("en-AU"));
+    }
+
+    #[test]
+    fn content_language_absent_yields_none() {
+        let msg = parse_rfc822_into_inbound_message(SIMPLE, None).unwrap();
+        assert!(msg.content_language.is_none());
+    }
 
     #[test]
     fn parses_headers_into_inbound_message() {

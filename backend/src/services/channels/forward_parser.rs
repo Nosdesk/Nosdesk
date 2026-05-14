@@ -204,6 +204,7 @@ mod tests {
             is_bounce: false,
             bounce_reports: Vec::new(),
             raw_bytes: None,
+            content_language: None,
         }
     }
 

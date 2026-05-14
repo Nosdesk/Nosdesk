@@ -204,6 +204,14 @@ pub struct InboundMessage {
     /// from upstream. `None` for chat / webhook channels that
     /// don't have an equivalent.
     pub raw_bytes: Option<Vec<u8>>,
+    /// Sender-declared content language, surfaced from the
+    /// `Content-Language` header (RFC 3282). First tag if the
+    /// header carries a comma-separated list. Used downstream to
+    /// pick the locale for auto-ack and other system replies so a
+    /// French-written ticket doesn't get answered in English.
+    /// `None` when the header was missing or empty; the resolver
+    /// falls through to site default in that case.
+    pub content_language: Option<String>,
 }
 
 /// Either bytes we already have (IMAP) or a URL we fetch later (Slack

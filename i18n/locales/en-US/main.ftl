@@ -52,3 +52,10 @@ settings-save = Save
 settings-saving = Saving...
 settings-localization-saved = Language and timezone preferences saved
 settings-localization-save-failed = Failed to save preferences
+
+# Default body for the channel auto-acknowledgement reply when no
+# admin-customised template is set. Picked by the inbound's
+# Content-Language so a French-written ticket gets a French ack.
+# Admin customisation in `site_settings.channel_auto_ack_template`
+# bypasses this entirely (custom copy is the source of truth).
+auto-ack-default-template = Your request (#{ $ticket_id }) has been received and is being reviewed by our support team. To add additional comments, reply to this email.
