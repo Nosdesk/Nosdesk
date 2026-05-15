@@ -1,53 +1,53 @@
 import type { IconName } from '@/components/common/icons';
 
 export interface AdminNavItem {
-  title: string;
-  description: string;
+  titleKey: string;
+  descriptionKey: string;
   icon: IconName;
   route: string;
   keywords: string[];
 }
 
 export interface AdminNavGroup {
-  label: string;
+  labelKey: string;
   items: AdminNavItem[];
 }
 
 export const adminNavGroups: AdminNavGroup[] = [
   {
-    label: 'Tickets & Workflow',
+    labelKey: 'admin-nav-group-tickets',
     items: [
       {
-        title: 'Groups',
-        description: 'Manage user groups and memberships',
+        titleKey: 'admin-nav-groups-title',
+        descriptionKey: 'admin-nav-groups-description',
         icon: 'team',
         route: '/admin/groups',
         keywords: ['groups', 'teams', 'members', 'membership']
       },
       {
-        title: 'Categories',
-        description: 'Configure ticket categories and group visibility',
+        titleKey: 'admin-nav-categories-title',
+        descriptionKey: 'admin-nav-categories-description',
         icon: 'tag',
         route: '/admin/categories',
         keywords: ['categories', 'tags', 'ticket types', 'visibility']
       },
       {
-        title: 'Assignment Rules',
-        description: 'Configure automatic ticket assignment based on rules',
+        titleKey: 'admin-nav-assignment-rules-title',
+        descriptionKey: 'admin-nav-assignment-rules-description',
         icon: 'lightning',
         route: '/admin/assignment-rules',
         keywords: ['assignment', 'rules', 'auto-assign', 'routing', 'automation']
       },
       {
-        title: 'Workflow',
-        description: 'Add named ticket states inside the standard workflow categories',
+        titleKey: 'admin-nav-workflow-title',
+        descriptionKey: 'admin-nav-workflow-description',
         icon: 'tag',
         route: '/admin/workflow',
         keywords: ['workflow', 'states', 'status', 'kanban', 'categories']
       },
       {
-        title: 'SLA',
-        description: 'Service-level policies and working-hours calendars',
+        titleKey: 'admin-nav-sla-title',
+        descriptionKey: 'admin-nav-sla-description',
         icon: 'clock',
         route: '/admin/sla',
         keywords: ['sla', 'service level', 'response time', 'resolution time', 'breach', 'policies', 'calendars', 'working hours']
@@ -55,53 +55,53 @@ export const adminNavGroups: AdminNavGroup[] = [
     ]
   },
   {
-    label: 'Integrations',
+    labelKey: 'admin-nav-group-integrations',
     items: [
       {
-        title: 'API Tokens',
-        description: 'Manage API tokens for programmatic access',
+        titleKey: 'admin-nav-api-tokens-title',
+        descriptionKey: 'admin-nav-api-tokens-description',
         icon: 'key',
         route: '/admin/api-tokens',
         keywords: ['api', 'tokens', 'keys', 'programmatic', 'access']
       },
       {
-        title: 'Webhooks',
-        description: 'Configure webhooks to send events to external services',
+        titleKey: 'admin-nav-webhooks-title',
+        descriptionKey: 'admin-nav-webhooks-description',
         icon: 'link',
         route: '/admin/webhooks',
         keywords: ['webhooks', 'hooks', 'events', 'external', 'integrations']
       },
       {
-        title: 'Plugins',
-        description: 'Manage installed plugins and integrations',
+        titleKey: 'admin-nav-plugins-title',
+        descriptionKey: 'admin-nav-plugins-description',
         icon: 'puzzle',
         route: '/admin/plugins',
         keywords: ['plugins', 'extensions', 'addons', 'integrations']
       },
       {
-        title: 'Data Import',
-        description: 'Import data from Intune, CSV files, and other sources',
+        titleKey: 'admin-nav-data-import-title',
+        descriptionKey: 'admin-nav-data-import-description',
         icon: 'database',
         route: '/admin/data-import',
         keywords: ['import', 'data', 'intune', 'csv', 'microsoft', 'graph', 'migration']
       },
       {
-        title: 'Email Ingestion',
-        description: 'Poll a support mailbox over IMAP and turn messages into tickets',
+        titleKey: 'admin-nav-channels-email-title',
+        descriptionKey: 'admin-nav-channels-email-description',
         icon: 'email',
         route: '/admin/channels/email',
         keywords: ['email', 'imap', 'ingestion', 'inbox', 'mailbox', 'channel', 'pipeline', 'tickets']
       },
       {
-        title: 'Email Queue',
-        description: 'Outbound email durable queue: status, retries, bounces, and per-row actions',
+        titleKey: 'admin-nav-email-queue-title',
+        descriptionKey: 'admin-nav-email-queue-description',
         icon: 'email',
         route: '/admin/email-queue',
         keywords: ['email', 'outbound', 'queue', 'smtp', 'send', 'retry', 'bounce', 'delivery', 'spool']
       },
       {
-        title: 'Email Suppressions',
-        description: 'Addresses blocked from outbound delivery, auto-populated by hard bounces',
+        titleKey: 'admin-nav-email-suppressions-title',
+        descriptionKey: 'admin-nav-email-suppressions-description',
         icon: 'email',
         route: '/admin/email-suppressions',
         keywords: ['email', 'suppressions', 'block', 'bounce', 'blocklist', 'unsubscribe', 'complaint']
@@ -109,11 +109,11 @@ export const adminNavGroups: AdminNavGroup[] = [
     ]
   },
   {
-    label: 'Compliance',
+    labelKey: 'admin-nav-group-compliance',
     items: [
       {
-        title: 'Audit Log',
-        description: 'Forensic record of who changed what, drawn from per-table triggers',
+        titleKey: 'admin-nav-audit-log-title',
+        descriptionKey: 'admin-nav-audit-log-description',
         icon: 'clock',
         route: '/admin/audit-log',
         keywords: ['audit', 'log', 'history', 'forensic', 'compliance', 'changes', 'who', 'when']
@@ -121,18 +121,18 @@ export const adminNavGroups: AdminNavGroup[] = [
     ]
   },
   {
-    label: 'Appearance & Notifications',
+    labelKey: 'admin-nav-group-appearance',
     items: [
       {
-        title: 'Branding',
-        description: 'Customize the appearance and branding of the application',
+        titleKey: 'admin-nav-branding-title',
+        descriptionKey: 'admin-nav-branding-description',
         icon: 'paint',
         route: '/admin/settings/branding',
         keywords: ['branding', 'logo', 'theme', 'appearance', 'colors', 'customization']
       },
       {
-        title: 'Email Configuration',
-        description: 'Configure SMTP settings and send test emails',
+        titleKey: 'admin-nav-email-settings-title',
+        descriptionKey: 'admin-nav-email-settings-description',
         icon: 'email',
         route: '/admin/email-settings',
         keywords: ['email', 'smtp', 'mail', 'notifications', 'configuration']
@@ -140,39 +140,39 @@ export const adminNavGroups: AdminNavGroup[] = [
     ]
   },
   {
-    label: 'System',
+    labelKey: 'admin-nav-group-system',
     items: [
       {
-        title: 'Guest Access',
-        description: 'Control what unauthenticated visitors can see and submit',
+        titleKey: 'admin-nav-guest-access-title',
+        descriptionKey: 'admin-nav-guest-access-description',
         icon: 'user',
         route: '/admin/guest-access',
         keywords: ['guest', 'public', 'anonymous', 'ticket submission', 'access', 'self-service']
       },
       {
-        title: 'Authentication Providers',
-        description: 'Configure SSO, Microsoft Entra, and local authentication',
+        titleKey: 'admin-nav-auth-providers-title',
+        descriptionKey: 'admin-nav-auth-providers-description',
         icon: 'lock',
         route: '/admin/auth-providers',
         keywords: ['auth', 'authentication', 'sso', 'saml', 'oidc', 'oauth', 'microsoft', 'entra', 'ldap', 'login', 'providers']
       },
       {
-        title: 'Search',
-        description: 'Manage the search index and view indexing statistics',
+        titleKey: 'admin-nav-search-title',
+        descriptionKey: 'admin-nav-search-description',
         icon: 'search',
         route: '/admin/search',
         keywords: ['search', 'index', 'indexing', 'reindex', 'statistics']
       },
       {
-        title: 'System Settings',
-        description: 'Manage storage, cleanup stale files, and system maintenance',
+        titleKey: 'admin-nav-system-settings-title',
+        descriptionKey: 'admin-nav-system-settings-description',
         icon: 'settings',
         route: '/admin/system-settings',
         keywords: ['system', 'settings', 'storage', 'maintenance', 'cleanup', 'configuration']
       },
       {
-        title: 'Backup & Restore',
-        description: 'Export and restore system data and attachments',
+        titleKey: 'admin-nav-backup-restore-title',
+        descriptionKey: 'admin-nav-backup-restore-description',
         icon: 'archive',
         route: '/admin/backup-restore',
         keywords: ['backup', 'restore', 'export', 'import', 'data', 'recovery']
@@ -192,8 +192,17 @@ export function isAdminRouteActive(currentPath: string, itemRoute: string): bool
   return false;
 }
 
-/** Filter nav groups by a search query (matches title, description, keywords) */
-export function filterAdminNavGroups(groups: AdminNavGroup[], query: string): AdminNavGroup[] {
+/**
+ * Filter nav groups by a search query. Matches the user-visible
+ * translated title and description plus the locale-independent
+ * `keywords` list, so a search for "logo" hits Branding regardless
+ * of whether the active locale spells the title that way.
+ */
+export function filterAdminNavGroups(
+  groups: AdminNavGroup[],
+  query: string,
+  translate: (key: string) => string,
+): AdminNavGroup[] {
   const q = query.toLowerCase().trim();
   if (!q) return groups;
 
@@ -201,8 +210,8 @@ export function filterAdminNavGroups(groups: AdminNavGroup[], query: string): Ad
     .map(group => ({
       ...group,
       items: group.items.filter(item =>
-        item.title.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
+        translate(item.titleKey).toLowerCase().includes(q) ||
+        translate(item.descriptionKey).toLowerCase().includes(q) ||
         item.keywords.some(k => k.toLowerCase().includes(q))
       )
     }))

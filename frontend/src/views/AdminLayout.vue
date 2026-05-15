@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import AdminSidebar from '@/components/admin/AdminSidebar.vue';
 import { allAdminNavItems, isAdminRouteActive } from '@/components/admin/adminNavData';
 
 const route = useRoute();
+const fluent = useFluent();
 
 // Index-page check via the named route, not a string compare.
 // The router resolves trailing slashes, query strings, hashes, and
@@ -16,6 +18,10 @@ const isIndexPage = computed(() => route.name === 'admin-index');
 const activeItem = computed(() => {
   return allAdminNavItems.find(item => isAdminRouteActive(route.path, item.route));
 });
+
+const activeItemTitle = computed(() =>
+  activeItem.value ? fluent.$t(activeItem.value.titleKey) : ''
+);
 </script>
 
 <template>
@@ -32,13 +38,13 @@ const activeItem = computed(() => {
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
-          Administration
+          {{ $t('admin-heading') }}
         </RouterLink>
         <template v-if="activeItem">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
           </svg>
-          <span class="text-sm text-primary font-medium truncate">{{ activeItem.title }}</span>
+          <span class="text-sm text-primary font-medium truncate">{{ activeItemTitle }}</span>
         </template>
       </div>
     </div>
@@ -49,7 +55,7 @@ const activeItem = computed(() => {
            (and its sidebar) stays mounted across admin sub-route
            navigations. The transition here lives on the inner
            RouterView so the *content area* still gets the same
-           page fade — sidebar persists, content swaps. -->
+           page fade. Sidebar persists, content swaps. -->
       <RouterView v-slot="{ Component, route: childRoute }">
         <Transition name="page" mode="out-in">
           <component

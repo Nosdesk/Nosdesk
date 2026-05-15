@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import {
   adminNavGroups,
   isAdminRouteActive,
@@ -9,9 +10,12 @@ import {
 import Icon from '@/components/common/Icon.vue';
 
 const route = useRoute();
+const fluent = useFluent();
 const searchQuery = ref('');
 
-const filteredGroups = computed(() => filterAdminNavGroups(adminNavGroups, searchQuery.value));
+const filteredGroups = computed(() =>
+  filterAdminNavGroups(adminNavGroups, searchQuery.value, (key) => fluent.$t(key))
+);
 
 const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute);
 </script>
@@ -25,13 +29,13 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
         class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
       >
         <Icon name="chevronLeft" />
-        Back to Dashboard
+        {{ $t('admin-back-to-dashboard') }}
       </RouterLink>
     </div>
 
     <!-- Heading -->
     <div class="px-4 pb-3">
-      <h2 class="text-lg font-bold text-primary">Administration</h2>
+      <h2 class="text-lg font-bold text-primary">{{ $t('admin-heading') }}</h2>
     </div>
 
     <!-- Search -->
@@ -43,7 +47,7 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search settings..."
+          :placeholder="$t('admin-search-placeholder')"
           class="w-full pl-8 pr-3 py-1.5 text-sm bg-surface-alt text-primary rounded-lg border border-default focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none placeholder:text-tertiary"
         />
         <button
@@ -58,9 +62,9 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
 
     <!-- Nav Groups -->
     <nav class="flex-1 px-2 pb-4 flex flex-col gap-4 overflow-y-auto">
-      <div v-for="group in filteredGroups" :key="group.label">
+      <div v-for="group in filteredGroups" :key="group.labelKey">
         <h3 class="px-2 mb-1 text-[11px] font-semibold uppercase tracking-wider text-tertiary">
-          {{ group.label }}
+          {{ $t(group.labelKey) }}
         </h3>
         <div class="flex flex-col gap-0.5">
           <RouterLink
@@ -84,13 +88,13 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
             >
               <Icon :name="item.icon" />
             </div>
-            <span class="truncate">{{ item.title }}</span>
+            <span class="truncate">{{ $t(item.titleKey) }}</span>
           </RouterLink>
         </div>
       </div>
 
       <div v-if="filteredGroups.length === 0" class="px-3 py-4 text-center">
-        <p class="text-sm text-tertiary">No settings match "{{ searchQuery }}"</p>
+        <p class="text-sm text-tertiary">{{ $t('admin-search-empty', { query: searchQuery }) }}</p>
       </div>
     </nav>
   </aside>
