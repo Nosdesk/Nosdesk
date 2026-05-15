@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Icon from '@/components/common/Icon.vue'
@@ -18,6 +19,8 @@ import {
 import { paletteForColor, SUPPORTED_COLOR_TOKENS } from '@/utils/workflowColors'
 
 const store = useWorkflowStatesStore()
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const isLoading = ref(false)
 const errorMessage = ref('')
@@ -54,7 +57,7 @@ async function reload() {
       drafts.value[s.id] = { name: s.name, color: s.color }
     }
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : 'Failed to load workflow states'
+    errorMessage.value = e instanceof Error ? e.message : t('admin-workflow-states-error-load')
   } finally {
     isLoading.value = false
   }
@@ -72,7 +75,7 @@ async function saveDraft(state: WorkflowState) {
   if (!draft) return
   const trimmed = draft.name.trim()
   if (!trimmed) {
-    errorMessage.value = 'Name is required'
+    errorMessage.value = t('admin-workflow-states-error-name-required')
     return
   }
   const patch: UpdateWorkflowStateBody = {}
@@ -83,9 +86,9 @@ async function saveDraft(state: WorkflowState) {
   try {
     await workflowStatesService.update(state.id, patch)
     await reload()
-    flash('Saved')
+    flash(t('admin-workflow-states-saved'))
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : 'Failed to save state'
+    errorMessage.value = e instanceof Error ? e.message : t('admin-workflow-states-error-save')
   }
 }
 
@@ -94,24 +97,24 @@ async function promoteDefault(state: WorkflowState) {
   try {
     await workflowStatesService.update(state.id, { is_default: true })
     await reload()
-    flash(`${state.name} is now the default for new tickets`)
+    flash(t('admin-workflow-states-default-flash', { name: state.name }))
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : 'Failed to set default'
+    errorMessage.value = e instanceof Error ? e.message : t('admin-workflow-states-error-default')
   }
 }
 
 async function archive(state: WorkflowState) {
   if (state.is_default) {
-    errorMessage.value = 'Promote another state as default before archiving this one.'
+    errorMessage.value = t('admin-workflow-states-error-promote-first')
     return
   }
-  if (!confirm(`Archive "${state.name}"? Existing tickets will keep this state.`)) return
+  if (!confirm(t('admin-workflow-states-archive-confirm', { name: state.name }))) return
   try {
     await workflowStatesService.archive(state.id)
     await reload()
-    flash(`${state.name} archived`)
+    flash(t('admin-workflow-states-archived-flash', { name: state.name }))
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : 'Failed to archive state'
+    errorMessage.value = e instanceof Error ? e.message : t('admin-workflow-states-error-archive')
   }
 }
 
@@ -119,7 +122,7 @@ async function createInCategory(category: WorkflowStateCategory) {
   const draft = newStateInputs.value[category]
   const trimmed = draft.name.trim()
   if (!trimmed) {
-    errorMessage.value = 'Name is required'
+    errorMessage.value = t('admin-workflow-states-error-name-required')
     return
   }
   const body: CreateWorkflowStateBody = {
@@ -131,9 +134,9 @@ async function createInCategory(category: WorkflowStateCategory) {
     await workflowStatesService.create(body)
     draft.name = ''
     await reload()
-    flash(`${trimmed} added to ${CATEGORY_LABELS[category]}`)
+    flash(t('admin-workflow-states-added-flash', { name: trimmed, category: CATEGORY_LABELS[category] }))
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : 'Failed to create state'
+    errorMessage.value = e instanceof Error ? e.message : t('admin-workflow-states-error-create')
   }
 }
 
@@ -145,11 +148,9 @@ onMounted(() => {
 <template>
   <div class="px-4 sm:px-6 py-6 max-w-4xl mx-auto w-full">
     <header class="mb-6">
-      <h1 class="text-2xl font-semibold text-primary">Workflow</h1>
+      <h1 class="text-2xl font-semibold text-primary">{{ $t('admin-workflow-states-title') }}</h1>
       <p class="text-sm text-secondary mt-1">
-        Add named ticket states inside the standard workflow categories. Categories are fixed so
-        SLA, dashboards, and automation keep working consistently across teams. New tickets land in
-        the state marked as default.
+        {{ $t('admin-workflow-states-description') }}
       </p>
     </header>
 
@@ -169,7 +170,7 @@ onMounted(() => {
             {{ CATEGORY_LABELS[cat] }}
           </h2>
           <span class="text-xs text-tertiary">
-            {{ grouped[cat]?.length || 0 }} state{{ (grouped[cat]?.length || 0) === 1 ? '' : 's' }}
+            {{ grouped[cat]?.length || 0 }} {{ (grouped[cat]?.length || 0) === 1 ? $t('admin-workflow-states-count-singular') : $t('admin-workflow-states-count-plural') }}
           </span>
         </header>
 
@@ -204,7 +205,7 @@ onMounted(() => {
               v-if="state.is_default"
               class="text-[10px] uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
             >
-              Default
+              {{ $t('admin-workflow-states-default-badge') }}
             </span>
             <button
               v-else
@@ -212,20 +213,20 @@ onMounted(() => {
               class="text-xs text-secondary hover:text-accent transition-colors"
               @click="promoteDefault(state)"
             >
-              Make default
+              {{ $t('admin-workflow-states-make-default') }}
             </button>
             <button
               type="button"
               class="text-tertiary hover:text-status-error transition-colors p-1"
               :disabled="state.is_default"
-              :title="state.is_default ? 'Cannot archive the default state' : 'Archive state'"
+              :title="state.is_default ? $t('admin-workflow-states-archive-disabled-title') : $t('admin-workflow-states-archive-title')"
               @click="archive(state)"
             >
               <Icon name="trash" />
             </button>
           </li>
           <li v-if="!grouped[cat] || grouped[cat].length === 0" class="px-4 py-3 text-sm text-tertiary italic">
-            No states in this category.
+            {{ $t('admin-workflow-states-empty-category') }}
           </li>
         </ul>
 
@@ -234,7 +235,7 @@ onMounted(() => {
             v-model="newStateInputs[cat].name"
             type="text"
             maxlength="64"
-            placeholder="Add state name"
+            :placeholder="$t('admin-workflow-states-add-placeholder')"
             class="flex-1 min-w-[150px] bg-surface border border-subtle rounded px-2 py-1 text-sm text-primary focus:border-accent focus:outline-none"
             @keydown.enter.prevent="createInCategory(cat)"
           />
@@ -249,7 +250,7 @@ onMounted(() => {
             class="text-sm text-accent hover:underline"
             @click="createInCategory(cat)"
           >
-            Add
+            {{ $t('admin-workflow-states-add') }}
           </button>
         </div>
       </section>
