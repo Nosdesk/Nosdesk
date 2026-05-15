@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -23,6 +24,9 @@ import type { GroupWithMemberCount } from '@/types/group';
 
 const { isMobile } = useMobileDetection('xl');
 
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+
 // State
 const isLoading = ref(false);
 const isSaving = ref(false);
@@ -39,7 +43,7 @@ const { dragState, listRef, handleGripDown } = useListReorder(categories, {
     categoryService.reorderCategories({ orders }).catch((error) => {
       categories.value = previous;
       const axiosError = error as { response?: { data?: { message?: string } } };
-      errorMessage.value = axiosError.response?.data?.message || 'Failed to reorder categories';
+      errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-reorder');
     });
   },
 });
@@ -55,18 +59,18 @@ const sortField = ref('custom');
 const sortAsc = ref(true);
 const filterBy = ref('all');
 
-const sortFieldOptions = [
-  { value: 'custom', label: 'Custom Order' },
-  { value: 'name', label: 'Name' },
-];
+const sortFieldOptions = computed(() => [
+  { value: 'custom', label: t('admin-categories-sort-custom') },
+  { value: 'name', label: t('admin-categories-sort-name') },
+]);
 
-const filterOptions = [
-  { value: 'all', label: 'All Categories' },
-  { value: 'active', label: 'Active Only' },
-  { value: 'inactive', label: 'Inactive Only' },
-  { value: 'public', label: 'Public Only' },
-  { value: 'restricted', label: 'Restricted Only' },
-];
+const filterOptions = computed(() => [
+  { value: 'all', label: t('admin-categories-filter-all') },
+  { value: 'active', label: t('admin-categories-filter-active') },
+  { value: 'inactive', label: t('admin-categories-filter-inactive') },
+  { value: 'public', label: t('admin-categories-filter-public') },
+  { value: 'restricted', label: t('admin-categories-filter-restricted') },
+]);
 
 const onSortFieldChange = (value: string | string[]) => {
   const field = Array.isArray(value) ? value[0] : value;
@@ -156,7 +160,7 @@ const loadCategories = async () => {
   } catch (error) {
     console.error('Failed to load categories:', error);
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to load categories';
+    errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-load');
   } finally {
     isLoading.value = false;
   }
@@ -227,7 +231,7 @@ const saveCategoryFromForm = async (formData: {
   visible_to_group_ids: number[];
 }) => {
   if (!formData.name.trim()) {
-    errorMessage.value = 'Category name is required';
+    errorMessage.value = t('admin-categories-error-name-required');
     return;
   }
 
@@ -250,7 +254,7 @@ const saveCategoryFromForm = async (formData: {
           : undefined
       };
       await categoryService.updateCategory(editing.id, updateData);
-      successMessage.value = 'Category updated successfully';
+      successMessage.value = t('admin-categories-success-update');
     } else {
       const createData: CreateCategoryRequest = {
         name: formData.name,
@@ -262,7 +266,7 @@ const saveCategoryFromForm = async (formData: {
           : undefined
       };
       await categoryService.createCategory(createData);
-      successMessage.value = 'Category created successfully';
+      successMessage.value = t('admin-categories-success-create');
     }
 
     showCategoryModal.value = false;
@@ -282,7 +286,7 @@ const saveCategoryFromForm = async (formData: {
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to save category';
+    errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-save');
   } finally {
     isSaving.value = false;
   }
@@ -317,7 +321,7 @@ const toggleActive = async (category: CategoryWithVisibility) => {
   } catch (error) {
     category.is_active = previousState;
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to update category';
+    errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-update');
   }
 };
 
@@ -346,7 +350,7 @@ const deleteCategory = async () => {
 
   try {
     await categoryService.deleteCategory(categoryToDelete.value.id);
-    successMessage.value = 'Category deleted successfully';
+    successMessage.value = t('admin-categories-success-delete');
     showDeleteConfirm.value = false;
 
     // Close panel if the deleted category was selected
@@ -360,7 +364,7 @@ const deleteCategory = async () => {
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to delete category';
+    errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-delete');
   } finally {
     isSaving.value = false;
   }
@@ -384,22 +388,22 @@ onMounted(() => {
       <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full" :class="isPanelOpen && !isMobile ? '' : 'max-w-8xl'">
         <div class="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 class="text-xl sm:text-2xl font-bold text-primary">Categories</h1>
-            <p class="text-secondary mt-1">Manage ticket categories and group visibility</p>
+            <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-categories-title') }}</h1>
+            <p class="text-secondary mt-1">{{ $t('admin-categories-description') }}</p>
           </div>
           <button
             @click="openCreateModal"
             class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:opacity-90 font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
           >
             <Icon name="add" />
-            New Category
+            {{ $t('admin-categories-new') }}
           </button>
         </div>
 
         <!-- Info notice -->
         <div class="bg-accent/10 border border-accent/30 rounded-lg p-3 text-sm text-accent flex items-start gap-2">
           <Icon name="info" size="md" class="flex-shrink-0" />
-          <span>Categories with no group restrictions are visible to all users. Assign groups to restrict visibility.</span>
+          <span>{{ $t('admin-categories-info') }}</span>
         </div>
 
         <!-- Success message -->
@@ -409,13 +413,13 @@ onMounted(() => {
         <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
         <!-- Loading state -->
-        <LoadingSpinner v-if="isLoading" text="Loading categories..." />
+        <LoadingSpinner v-if="isLoading" :text="$t('admin-categories-loading')" />
 
         <!-- Search, filter & sort toolbar -->
         <div v-if="!isLoading && categories.length > 0" class="flex items-center gap-2">
           <DebouncedSearchInput
             v-model="searchQuery"
-            placeholder="Search categories..."
+            :placeholder="$t('admin-categories-search-placeholder')"
             :debounce-ms="0"
             class="max-w-xs"
           />
@@ -434,7 +438,7 @@ onMounted(() => {
             v-if="sortField !== 'custom'"
             @click="toggleSortDirection"
             class="p-1.5 border border-default rounded-lg bg-surface-alt hover:border-strong hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
-            :title="sortAsc ? 'Ascending' : 'Descending'"
+            :title="sortAsc ? $t('admin-categories-sort-ascending') : $t('admin-categories-sort-descending')"
           >
             <Icon
               name="chevronUp"
@@ -479,7 +483,7 @@ onMounted(() => {
                   v-if="canDrag"
                   @pointerdown="handleGripDown(category.id, index, $event)"
                   class="flex-shrink-0 p-1 text-tertiary hover:text-secondary cursor-grab active:cursor-grabbing touch-none"
-                  title="Drag to reorder"
+                  :title="$t('admin-categories-drag-handle')"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M7 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
@@ -512,19 +516,19 @@ onMounted(() => {
                       v-if="category.is_public"
                       class="px-2 py-0.5 text-xs bg-status-success/20 text-status-success rounded-full"
                     >
-                      Public
+                      {{ $t('admin-categories-badge-public') }}
                     </span>
                     <span
                       v-else
                       class="px-2 py-0.5 text-xs bg-status-warning/20 text-status-warning rounded-full"
                     >
-                      {{ category.visible_to_groups.length }} group{{ category.visible_to_groups.length !== 1 ? 's' : '' }}
+                      {{ $t('admin-categories-badge-groups', { count: category.visible_to_groups.length }) }}
                     </span>
                     <span
                       v-if="!category.is_active"
                       class="px-2 py-0.5 text-xs bg-surface-alt text-tertiary rounded-full"
                     >
-                      Inactive
+                      {{ $t('admin-categories-badge-inactive') }}
                     </span>
                   </div>
                   <p v-if="category.description" class="text-sm text-secondary mt-0.5 truncate">
@@ -543,7 +547,7 @@ onMounted(() => {
                       v-if="category.visible_to_groups.length > 3"
                       class="text-xs text-tertiary"
                     >
-                      +{{ category.visible_to_groups.length - 3 }} more
+                      {{ $t('admin-categories-groups-more', { count: category.visible_to_groups.length - 3 }) }}
                     </span>
                   </div>
                 </div>
@@ -555,21 +559,21 @@ onMounted(() => {
                     @click.stop="toggleActive(category)"
                     class="p-2 rounded-lg transition-colors"
                     :class="category.is_active ? 'text-status-success hover:bg-status-success/10' : 'text-tertiary hover:bg-surface-hover'"
-                    :title="category.is_active ? 'Deactivate' : 'Activate'"
+                    :title="category.is_active ? $t('admin-categories-action-deactivate') : $t('admin-categories-action-activate')"
                   >
                     <Icon :name="category.is_active ? 'eye' : 'eyeOff'" />
                   </button>
                   <button
                     @click.stop="openEditModal(category)"
                     class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-                    title="Edit category"
+                    :title="$t('admin-categories-action-edit')"
                   >
                     <Icon name="rename" />
                   </button>
                   <button
                     @click.stop="confirmDelete(category)"
                     class="p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
-                    title="Delete category"
+                    :title="$t('admin-categories-action-delete')"
                   >
                     <Icon name="trash" />
                   </button>
@@ -586,8 +590,8 @@ onMounted(() => {
 
           <!-- No results -->
           <div v-if="filteredCategories.length === 0 && categories.length > 0" class="text-center py-8 text-secondary text-sm">
-            <template v-if="searchQuery.trim()">No categories matching "{{ searchQuery }}"</template>
-            <template v-else>No categories match the current filter</template>
+            <template v-if="searchQuery.trim()">{{ $t('admin-categories-no-search-results', { query: searchQuery }) }}</template>
+            <template v-else>{{ $t('admin-categories-no-filter-results') }}</template>
           </div>
 
           <!-- Empty state -->
@@ -596,7 +600,7 @@ onMounted(() => {
             icon="folder"
             :title="$t('empty-categories-title')"
             :description="$t('empty-categories-description')"
-            action-label="Create Category"
+            :action-label="$t('admin-categories-empty-action')"
             variant="card"
             @action="openCreateModal"
           />
@@ -621,18 +625,18 @@ onMounted(() => {
   <Modal
     v-if="isMobile"
     :show="showCategoryModal"
-    :title="editingCategory ? 'Edit Category' : 'Create Category'"
+    :title="editingCategory ? $t('admin-categories-modal-edit-title') : $t('admin-categories-modal-create-title')"
     size="md"
     @close="showCategoryModal = false"
   >
     <form @submit.prevent="saveCategory" class="flex flex-col gap-4">
       <!-- Name -->
       <div>
-        <label class="block text-sm font-medium text-primary mb-1">Name</label>
+        <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-categories-modal-name-label') }}</label>
         <input
           v-model="categoryForm.name"
           type="text"
-          placeholder="Enter category name"
+          :placeholder="$t('admin-categories-modal-name-placeholder')"
           class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
           required
         />
@@ -640,10 +644,10 @@ onMounted(() => {
 
       <!-- Description -->
       <div>
-        <label class="block text-sm font-medium text-primary mb-1">Description</label>
+        <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-categories-modal-description-label') }}</label>
         <textarea
           v-model="categoryForm.description"
-          placeholder="Optional description"
+          :placeholder="$t('admin-categories-modal-description-placeholder')"
           rows="2"
           class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-none"
         />
@@ -651,7 +655,7 @@ onMounted(() => {
 
       <!-- Icon -->
       <div>
-        <label class="block text-sm font-medium text-primary mb-2">Icon</label>
+        <label class="block text-sm font-medium text-primary mb-2">{{ $t('admin-categories-modal-icon-label') }}</label>
         <div class="flex flex-wrap gap-2">
           <button
             v-for="icon in iconOptions"
@@ -677,21 +681,21 @@ onMounted(() => {
       </div>
 
       <!-- Color -->
-      <ColorHueSlider v-model="categoryForm.color" label="Color" />
+      <ColorHueSlider v-model="categoryForm.color" :label="$t('admin-categories-modal-color-label')" />
 
       <!-- Active status (only for editing) -->
       <ToggleSwitch
         v-if="editingCategory"
         v-model="categoryForm.is_active"
         size="sm"
-        label="Active"
+        :label="$t('admin-categories-modal-active-label')"
       />
 
       <!-- Group visibility -->
       <div>
         <label class="block text-sm font-medium text-primary mb-2">
-          Visible to Groups
-          <span class="text-tertiary font-normal ml-1">(leave empty for public)</span>
+          {{ $t('admin-categories-modal-visibility-label') }}
+          <span class="text-tertiary font-normal ml-1">{{ $t('admin-categories-modal-visibility-hint') }}</span>
         </label>
         <div v-if="availableGroups.length > 0" class="max-h-40 overflow-y-auto border border-default rounded-lg divide-y divide-default">
           <div
@@ -703,7 +707,7 @@ onMounted(() => {
             <Checkbox
               :model-value="categoryForm.visible_to_group_ids.includes(group.id)"
               size="sm"
-              :aria-label="`Toggle visibility for ${group.name}`"
+              :aria-label="$t('admin-categories-modal-visibility-toggle-aria', { name: group.name })"
               @change="toggleGroupVisibility(group.id)"
               @click.stop
             />
@@ -712,11 +716,11 @@ onMounted(() => {
               :style="{ backgroundColor: group.color || '#6366f1' }"
             />
             <span class="text-sm text-primary">{{ group.name }}</span>
-            <span class="text-xs text-tertiary ml-auto">{{ group.member_count }} members</span>
+            <span class="text-xs text-tertiary ml-auto">{{ $t('admin-categories-modal-group-members', { count: group.member_count }) }}</span>
           </div>
         </div>
         <p v-else class="text-sm text-tertiary py-2">
-          No groups available. <router-link to="/admin/groups" class="text-accent hover:underline">Create groups</router-link> first.
+          {{ $t('admin-categories-modal-no-groups') }} <router-link to="/admin/groups" class="text-accent hover:underline">{{ $t('admin-categories-modal-create-groups-link') }}</router-link> {{ $t('admin-categories-modal-create-groups-suffix') }}
         </p>
       </div>
 
@@ -727,7 +731,7 @@ onMounted(() => {
           @click="showCategoryModal = false"
           class="px-4 py-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
         >
-          Cancel
+          {{ $t('admin-categories-modal-cancel') }}
         </button>
         <button
           type="submit"
@@ -735,7 +739,7 @@ onMounted(() => {
           class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
         >
           <Spinner v-if="isSaving" />
-          {{ editingCategory ? 'Save Changes' : 'Create Category' }}
+          {{ editingCategory ? $t('admin-categories-modal-save') : $t('admin-categories-modal-create') }}
         </button>
       </div>
     </form>
@@ -744,14 +748,13 @@ onMounted(() => {
   <!-- Delete Confirmation Modal -->
   <Modal
     :show="showDeleteConfirm"
-    title="Delete Category"
+    :title="$t('admin-categories-delete-title')"
     size="sm"
     @close="showDeleteConfirm = false"
   >
     <div class="flex flex-col gap-4">
       <p class="text-secondary">
-        Are you sure you want to delete the category <strong class="text-primary">{{ categoryToDelete?.name }}</strong>?
-        Tickets using this category will have their category cleared.
+        {{ $t('admin-categories-delete-message', { name: categoryToDelete?.name ?? '' }) }}
       </p>
 
       <div class="flex justify-end gap-2 pt-2">
@@ -760,7 +763,7 @@ onMounted(() => {
           @click="showDeleteConfirm = false"
           class="px-4 py-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
         >
-          Cancel
+          {{ $t('admin-categories-delete-cancel') }}
         </button>
         <button
           @click="deleteCategory"
@@ -768,7 +771,7 @@ onMounted(() => {
           class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
         >
           <Spinner v-if="isSaving" />
-          Delete Category
+          {{ $t('admin-categories-delete-confirm') }}
         </button>
       </div>
     </div>

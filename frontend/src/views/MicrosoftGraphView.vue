@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { formatDateTime } from '@/utils/dateUtils';
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { useFluent } from 'fluent-vue';
 import apiClient from "@/services/apiConfig";
 import BackButton from "@/components/common/BackButton.vue";
 import Modal from "@/components/Modal.vue";
@@ -14,6 +15,9 @@ import type {
   ActiveSync,
   LastSyncDetails,
 } from "@/types";
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Connection state
 const connectionStatus = ref<
@@ -46,23 +50,23 @@ const isValidatingConfig = ref(false);
 // Import options
 const selectedEntities = ref(["users", "devices", "groups"]);
 const fullSyncMode = ref(false);
-const availableEntities = [
+const availableEntities = computed(() => [
   {
     id: "users",
-    name: "Users",
-    description: "Import user accounts and profiles from Microsoft Entra ID",
+    name: t("admin-msgraph-entity-users-name"),
+    description: t("admin-msgraph-entity-users-description"),
   },
   {
     id: "devices",
-    name: "Devices",
-    description: "Import managed devices from Microsoft Intune with user assignments",
+    name: t("admin-msgraph-entity-devices-name"),
+    description: t("admin-msgraph-entity-devices-description"),
   },
   {
     id: "groups",
-    name: "Groups",
-    description: "Import security and distribution groups from Microsoft Entra ID",
+    name: t("admin-msgraph-entity-groups-name"),
+    description: t("admin-msgraph-entity-groups-description"),
   },
-];
+]);
 
 // Modals
 const showSyncModal = ref(false);
@@ -78,7 +82,7 @@ const validateConfiguration = async () => {
   } catch (error) {
     console.error("Failed to validate configuration:", error);
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || "Failed to validate configuration";
+    errorMessage.value = axiosError.response?.data?.message || t("admin-msgraph-error-validate-config");
     configValidation.value = null;
   } finally {
     isValidatingConfig.value = false;
@@ -101,7 +105,7 @@ const fetchConnectionStatus = async () => {
     await validateConfiguration();
   } catch (error) {
     console.error("Failed to fetch MS Graph connection status:", error);
-    errorMessage.value = "Failed to fetch connection status";
+    errorMessage.value = t("admin-msgraph-error-fetch-status");
     connectionStatus.value = "error";
 
     // Still try to validate configuration even if status fetch fails
@@ -174,13 +178,13 @@ const cancelSync = async (sessionId: string) => {
     const response = await apiClient.post(`/integrations/graph/cancel/${sessionId}`);
 
     if (response.data.success) {
-      successMessage.value = response.data.message || "Sync cancellation requested";
+      successMessage.value = response.data.message || t("admin-msgraph-success-cancel-requested");
 
       if (currentSessionId.value === sessionId) {
         stopProgressPolling();
       }
     } else {
-      errorMessage.value = response.data.message || "Failed to cancel sync";
+      errorMessage.value = response.data.message || t("admin-msgraph-error-cancel-sync");
     }
 
     setTimeout(() => {
@@ -190,7 +194,7 @@ const cancelSync = async (sessionId: string) => {
   } catch (error) {
     console.error("Failed to cancel sync:", error);
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || "Failed to cancel sync";
+    errorMessage.value = axiosError.response?.data?.message || t("admin-msgraph-error-cancel-sync");
 
     setTimeout(() => {
       errorMessage.value = null;
@@ -213,10 +217,10 @@ const startSyncWithMode = async (useDelta: boolean) => {
     showSyncModal.value = false;
 
     if (response.data.success && response.data.session_id) {
-      successMessage.value = response.data.message || "Sync started successfully";
+      successMessage.value = response.data.message || t("admin-msgraph-success-sync-started");
       startProgressPolling(response.data.session_id);
     } else {
-      errorMessage.value = response.data.message || "Failed to start sync";
+      errorMessage.value = response.data.message || t("admin-msgraph-error-start-sync");
     }
 
     setTimeout(() => {
@@ -226,7 +230,7 @@ const startSyncWithMode = async (useDelta: boolean) => {
     console.error("Failed to start sync:", error);
     const axiosError = error as { response?: { data?: { message?: string } } };
     errorMessage.value =
-      axiosError.response?.data?.message || "Failed to start sync";
+      axiosError.response?.data?.message || t("admin-msgraph-error-start-sync");
   } finally {
     isLoading.value = false;
   }
@@ -241,11 +245,39 @@ onUnmounted(() => {
 const formatSyncType = (syncType?: string): string => {
   const type = syncType ?? 'unknown';
   switch (type) {
-    case 'users': return 'User Accounts';
-    case 'profile_photos': return 'Profile Photos';
-    case 'devices': return 'Managed Devices';
-    case 'groups': return 'Security Groups';
+    case 'users': return t('admin-msgraph-sync-type-users');
+    case 'profile_photos': return t('admin-msgraph-sync-type-profile-photos');
+    case 'devices': return t('admin-msgraph-sync-type-devices');
+    case 'groups': return t('admin-msgraph-sync-type-groups');
     default: return type.charAt(0).toUpperCase() + type.slice(1);
+  }
+};
+
+// Format progress status for display
+const formatProgressStatus = (status?: string): string => {
+  switch (status) {
+    case 'running': return t('admin-msgraph-progress-status-running');
+    case 'starting': return t('admin-msgraph-progress-status-starting');
+    case 'completed': return t('admin-msgraph-progress-status-completed');
+    case 'completed_with_errors': return t('admin-msgraph-progress-status-completed-with-errors');
+    case 'cancelling': return t('admin-msgraph-progress-status-cancelling');
+    case 'cancelled': return t('admin-msgraph-progress-status-cancelled');
+    case 'error': return t('admin-msgraph-progress-status-error');
+    default: return status ?? '';
+  }
+};
+
+// Format last sync status for display (title-cased variants)
+const formatLastSyncStatus = (status?: string): string => {
+  switch (status) {
+    case 'completed': return t('admin-msgraph-last-sync-status-completed');
+    case 'completed_with_errors': return t('admin-msgraph-last-sync-status-completed-with-errors');
+    case 'error': return t('admin-msgraph-last-sync-status-error');
+    case 'cancelled': return t('admin-msgraph-last-sync-status-cancelled');
+    default: {
+      const s = status ?? '';
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    }
   }
 };
 
@@ -256,14 +288,14 @@ const formatTimeAgo = (dateString: string) => {
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
 
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffMins < 1) return t('admin-msgraph-time-just-now');
+  if (diffMins < 60) return t('admin-msgraph-time-minutes', { count: diffMins });
 
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return t('admin-msgraph-time-hours', { count: diffHours });
 
   const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
+  return t('admin-msgraph-time-days', { count: diffDays });
 };
 
 // Format duration between two dates
@@ -273,13 +305,13 @@ const formatDuration = (startDate: string, endDate: string) => {
   const diffMs = end.getTime() - start.getTime();
   const diffSeconds = Math.floor(diffMs / 1000);
 
-  if (diffSeconds < 60) return `${diffSeconds}s`;
+  if (diffSeconds < 60) return t('admin-msgraph-duration-seconds', { seconds: diffSeconds });
 
   const diffMins = Math.floor(diffSeconds / 60);
-  if (diffMins < 60) return `${diffMins}m ${diffSeconds % 60}s`;
+  if (diffMins < 60) return t('admin-msgraph-duration-minutes', { minutes: diffMins, seconds: diffSeconds % 60 });
 
   const diffHours = Math.floor(diffMins / 60);
-  return `${diffHours}h ${diffMins % 60}m`;
+  return t('admin-msgraph-duration-hours', { hours: diffHours, minutes: diffMins % 60 });
 };
 
 // Overall progress computed from completed_items + current entity progress
@@ -371,10 +403,10 @@ onMounted(async () => {
         <div>
           <BackButton
             fallbackRoute="/admin/data-import"
-            label="Back to Data Import"
+            :label="$t('admin-msgraph-back')"
           />
-          <h1 class="text-xl sm:text-2xl font-bold text-primary mt-2">Microsoft Graph</h1>
-          <p class="text-secondary text-sm sm:text-base mt-1">Manage data synchronization from Microsoft 365 services</p>
+          <h1 class="text-xl sm:text-2xl font-bold text-primary mt-2">{{ $t('admin-msgraph-title') }}</h1>
+          <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('admin-msgraph-subtitle') }}</p>
         </div>
 
         <!-- Sync button -->
@@ -385,7 +417,7 @@ onMounted(async () => {
         >
           <Spinner v-if="isSyncing" />
           <Icon v-else name="refresh" />
-          {{ isSyncing ? 'Syncing...' : 'Sync Data' }}
+          {{ isSyncing ? $t('admin-msgraph-syncing') : $t('admin-msgraph-sync-action') }}
         </button>
       </div>
 
@@ -405,7 +437,7 @@ onMounted(async () => {
               </div>
 
               <div class="flex-1 flex items-center gap-2 flex-wrap">
-                <span class="font-medium text-primary">Microsoft Graph API</span>
+                <span class="font-medium text-primary">{{ $t('admin-msgraph-api-name') }}</span>
                 <!-- Skeleton badges while loading -->
                 <template v-if="isLoading && !configValidation">
                   <span class="h-5 w-20 bg-surface-hover rounded-full animate-pulse"></span>
@@ -422,7 +454,7 @@ onMounted(async () => {
                       'bg-status-error/20 text-status-error border-status-error/50': connectionStatus === 'error'
                     }"
                   >
-                    {{ connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'disconnected' ? 'Not Connected' : connectionStatus === 'connecting' ? 'Connecting...' : 'Error' }}
+                    {{ connectionStatus === 'connected' ? $t('admin-msgraph-status-connected') : connectionStatus === 'disconnected' ? $t('admin-msgraph-status-disconnected') : connectionStatus === 'connecting' ? $t('admin-msgraph-status-connecting') : $t('admin-msgraph-status-error') }}
                   </span>
                   <span
                     v-if="configValidation"
@@ -431,7 +463,7 @@ onMounted(async () => {
                       ? 'bg-status-success/20 text-status-success border-status-success/50'
                       : 'bg-status-error/20 text-status-error border-status-error/50'"
                   >
-                    {{ configValidation.valid ? 'Configured' : 'Not Configured' }}
+                    {{ configValidation.valid ? $t('admin-msgraph-config-valid') : $t('admin-msgraph-config-invalid') }}
                   </span>
                 </template>
               </div>
@@ -441,17 +473,17 @@ onMounted(async () => {
             <div v-if="isLoading && !configValidation" class="flex flex-col md:flex-row gap-4 text-sm animate-pulse">
               <div class="flex-1 flex flex-col gap-2">
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Client ID</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-msgraph-field-client-id') }}</span>
                   <div class="h-7 bg-surface-hover rounded w-full"></div>
                 </div>
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Tenant ID</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-msgraph-field-tenant-id') }}</span>
                   <div class="h-7 bg-surface-hover rounded w-full"></div>
                 </div>
               </div>
               <div class="flex flex-row md:flex-col gap-4 md:gap-2 md:w-28 md:flex-shrink-0">
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Secret</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-msgraph-field-secret') }}</span>
                   <div class="h-7 bg-surface-hover rounded w-full"></div>
                 </div>
               </div>
@@ -462,25 +494,25 @@ onMounted(async () => {
               <div v-if="configValidation" class="flex flex-col md:flex-row gap-4 text-sm">
                 <div class="flex-1 flex flex-col gap-2">
                   <div class="flex flex-col gap-0.5">
-                    <span class="text-tertiary text-xs">Client ID</span>
-                    <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidation.client_id || 'Not set' }}</span>
+                    <span class="text-tertiary text-xs">{{ $t('admin-msgraph-field-client-id') }}</span>
+                    <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidation.client_id || $t('admin-msgraph-field-not-set') }}</span>
                   </div>
                   <div class="flex flex-col gap-0.5">
-                    <span class="text-tertiary text-xs">Tenant ID</span>
-                    <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidation.tenant_id || 'Not set' }}</span>
+                    <span class="text-tertiary text-xs">{{ $t('admin-msgraph-field-tenant-id') }}</span>
+                    <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidation.tenant_id || $t('admin-msgraph-field-not-set') }}</span>
                   </div>
                 </div>
                 <div class="flex flex-row md:flex-col gap-4 md:gap-2 md:w-28 md:flex-shrink-0">
                   <div class="flex flex-col gap-0.5">
-                    <span class="text-tertiary text-xs">Secret</span>
-                    <span :class="configValidation.client_secret_configured ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ configValidation.client_secret_configured ? 'Configured' : 'Not Set' }}</span>
+                    <span class="text-tertiary text-xs">{{ $t('admin-msgraph-field-secret') }}</span>
+                    <span :class="configValidation.client_secret_configured ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ configValidation.client_secret_configured ? $t('admin-msgraph-secret-configured') : $t('admin-msgraph-secret-not-set') }}</span>
                   </div>
                 </div>
               </div>
 
               <!-- Last sync info -->
               <div v-if="lastSync" class="flex items-center gap-2 text-xs">
-                <span class="text-tertiary">Last synchronized:</span>
+                <span class="text-tertiary">{{ $t('admin-msgraph-last-synced') }}</span>
                 <span class="text-primary">{{ lastSync }}</span>
               </div>
 
@@ -491,7 +523,7 @@ onMounted(async () => {
               >
                 <Icon name="info" class="flex-shrink-0 mt-0.5" />
                 <div>
-                  Missing required configuration:
+                  {{ $t('admin-msgraph-missing-config') }}
                   <span v-for="(field, index) in configValidation.missing_fields" :key="field">
                     {{ field }}<span v-if="index < configValidation.missing_fields.length - 1">, </span>
                   </span>
@@ -501,7 +533,7 @@ onMounted(async () => {
 
             <!-- Required environment variables -->
             <div class="flex items-center gap-2 text-xs">
-              <span class="text-tertiary">Env:</span>
+              <span class="text-tertiary">{{ $t('admin-msgraph-env-label') }}</span>
               <div class="flex flex-wrap gap-1">
                 <code class="bg-surface-alt text-secondary px-1 py-0.5 rounded">MICROSOFT_CLIENT_ID</code>
                 <code class="bg-surface-alt text-secondary px-1 py-0.5 rounded">MICROSOFT_CLIENT_SECRET</code>
@@ -527,8 +559,8 @@ onMounted(async () => {
 
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-medium text-primary">Synchronizing</span>
-                  <span v-if="syncProgress.entity !== 'initializing'" class="text-xs text-tertiary">Step {{ currentEntityIndex }} of {{ totalEntities }}</span>
+                  <span class="font-medium text-primary">{{ $t('admin-msgraph-progress-title') }}</span>
+                  <span v-if="syncProgress.entity !== 'initializing'" class="text-xs text-tertiary">{{ $t('admin-msgraph-progress-step', { current: currentEntityIndex, total: totalEntities }) }}</span>
                   <span
                     class="px-1.5 py-0.5 text-xs rounded-full border"
                     :class="{
@@ -539,7 +571,7 @@ onMounted(async () => {
                       'bg-surface-alt text-tertiary border-default': syncProgress.status === 'cancelled'
                     }"
                   >
-                    {{ syncProgress.status === 'completed_with_errors' ? 'Completed with errors' : syncProgress.status }}
+                    {{ formatProgressStatus(syncProgress.status) }}
                   </span>
                 </div>
                 <div class="text-xs text-secondary mt-0.5 truncate">{{ syncProgress.message }}</div>
@@ -550,7 +582,7 @@ onMounted(async () => {
                 @click="cancelSync(currentSessionId!)"
                 class="px-3 py-1.5 bg-status-error/20 text-status-error border border-status-error/50 rounded-lg text-sm hover:bg-status-error/30 font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
               >
-                Cancel
+                {{ $t('admin-msgraph-cancel') }}
               </button>
             </div>
 
@@ -558,7 +590,7 @@ onMounted(async () => {
             <div>
               <div class="flex items-center justify-between text-xs mb-1.5">
                 <span class="text-secondary font-medium">{{ formatSyncType(syncProgress.entity) }}</span>
-                <span class="text-primary font-medium tabular-nums">{{ overallProgressCounts.current }} / {{ overallProgressCounts.total }} <span class="text-tertiary">({{ overallProgress }}%)</span></span>
+                <span class="text-primary font-medium tabular-nums">{{ overallProgressCounts.current }} / {{ overallProgressCounts.total }} <span class="text-tertiary">{{ $t('admin-msgraph-results-percent', { percent: overallProgress }) }}</span></span>
               </div>
               <div class="w-full bg-surface-alt rounded-full h-2">
                 <div
@@ -582,7 +614,7 @@ onMounted(async () => {
             <!-- Entity-level detail (current entity progress) -->
             <div v-if="syncProgress.entity !== 'initializing' && syncProgress.total > 0" class="flex items-center gap-3 text-xs text-tertiary">
               <span>{{ formatSyncType(syncProgress.entity) }}: {{ syncProgress.current }} / {{ syncProgress.total }}</span>
-              <span v-if="syncProgress.is_delta" class="px-1 py-0.5 bg-surface-alt rounded text-tertiary">Delta</span>
+              <span v-if="syncProgress.is_delta" class="px-1 py-0.5 bg-surface-alt rounded text-tertiary">{{ $t('admin-msgraph-delta-badge') }}</span>
             </div>
           </div>
         </div>
@@ -610,12 +642,12 @@ onMounted(async () => {
                 <div class="text-xs text-secondary truncate">{{ sync.message }}</div>
               </div>
               <div class="flex items-center gap-2 flex-shrink-0">
-                <span class="text-xs text-accent font-medium">Monitor</span>
+                <span class="text-xs text-accent font-medium">{{ $t('admin-msgraph-monitor') }}</span>
                 <button
                   @click.stop="cancelSync(sync.session_id)"
                   class="px-2 py-1 bg-status-error/10 text-status-error rounded text-xs hover:bg-status-error/20 transition-colors"
                 >
-                  Cancel
+                  {{ $t('admin-msgraph-cancel') }}
                 </button>
               </div>
             </div>
@@ -634,7 +666,7 @@ onMounted(async () => {
               </div>
 
               <div class="flex-1 flex items-center gap-2 flex-wrap">
-                <span class="font-medium text-primary">Last Synchronization</span>
+                <span class="font-medium text-primary">{{ $t('admin-msgraph-last-sync-title') }}</span>
                 <span
                   v-if="lastSyncDetails"
                   class="px-1.5 py-0.5 text-xs rounded-full border"
@@ -645,7 +677,7 @@ onMounted(async () => {
                     'bg-surface-alt text-tertiary border-default': lastSyncDetails.status === 'cancelled'
                   }"
                 >
-                  {{ lastSyncDetails.status === 'completed_with_errors' ? 'Completed with Errors' : lastSyncDetails.status.charAt(0).toUpperCase() + lastSyncDetails.status.slice(1) }}
+                  {{ formatLastSyncStatus(lastSyncDetails.status) }}
                 </span>
               </div>
             </div>
@@ -664,23 +696,23 @@ onMounted(async () => {
             <div v-else-if="lastSyncDetails">
               <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div class="flex flex-col">
-                  <span class="text-tertiary text-xs">Type</span>
-                  <span class="text-primary text-sm font-medium">{{ lastSyncDetails.is_delta ? 'Delta' : 'Full' }}</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-msgraph-last-sync-type') }}</span>
+                  <span class="text-primary text-sm font-medium">{{ lastSyncDetails.is_delta ? $t('admin-msgraph-last-sync-type-delta') : $t('admin-msgraph-last-sync-type-full') }}</span>
                 </div>
                 <div class="flex flex-col">
-                  <span class="text-tertiary text-xs">Started</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-msgraph-last-sync-started') }}</span>
                   <span class="text-primary text-sm font-medium">{{ formatTimeAgo(lastSyncDetails.started_at) }}</span>
                 </div>
                 <div class="flex flex-col">
-                  <span class="text-tertiary text-xs">Duration</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-msgraph-last-sync-duration') }}</span>
                   <span class="text-primary text-sm font-medium">{{ formatDuration(lastSyncDetails.started_at, lastSyncDetails.updated_at) }}</span>
                 </div>
                 <div class="flex flex-col">
-                  <span class="text-tertiary text-xs">Items processed</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-msgraph-last-sync-items-processed') }}</span>
                   <span class="text-primary text-sm font-medium">
                     <span v-if="lastSyncDetails.total > 0">{{ lastSyncDetails.current + (lastSyncDetails.completed_items || 0) }}</span>
-                    <span v-else-if="lastSyncDetails.status === 'cancelled'" class="text-tertiary">Cancelled</span>
-                    <span v-else-if="lastSyncDetails.status === 'error'" class="text-status-error">Failed</span>
+                    <span v-else-if="lastSyncDetails.status === 'cancelled'" class="text-tertiary">{{ $t('admin-msgraph-last-sync-cancelled-value') }}</span>
+                    <span v-else-if="lastSyncDetails.status === 'error'" class="text-status-error">{{ $t('admin-msgraph-last-sync-failed-value') }}</span>
                     <span v-else class="text-tertiary">-</span>
                   </span>
                 </div>
@@ -698,13 +730,13 @@ onMounted(async () => {
     <!-- Sync Data Modal -->
     <Modal
       :show="showSyncModal"
-      title="Sync Data from Microsoft Graph"
+      :title="$t('admin-msgraph-modal-title')"
       contentClass="max-w-lg"
       @close="showSyncModal = false"
     >
       <div class="flex flex-col gap-4">
         <p class="text-secondary text-sm">
-          Select the data entities you want to import from Microsoft Graph:
+          {{ $t('admin-msgraph-modal-description') }}
         </p>
 
         <div class="flex flex-col gap-2">
@@ -727,12 +759,12 @@ onMounted(async () => {
         <!-- Info notice -->
         <div class="p-3 bg-accent/10 border border-accent/30 rounded-lg text-sm text-accent flex items-start gap-2">
           <Icon name="info" class="flex-shrink-0 mt-0.5" />
-          <span>Synchronization will import the latest data from Microsoft services. This may take several minutes depending on the amount of data.</span>
+          <span>{{ $t('admin-msgraph-modal-info') }}</span>
         </div>
 
         <!-- Sync Progress Results -->
         <div v-if="syncResults" class="p-4 bg-surface-alt rounded-lg border border-default">
-          <h4 class="text-sm font-medium text-primary mb-3">Sync Results</h4>
+          <h4 class="text-sm font-medium text-primary mb-3">{{ $t('admin-msgraph-results-title') }}</h4>
 
           <div class="flex flex-col gap-2">
             <div
@@ -749,9 +781,9 @@ onMounted(async () => {
                 <div>
                   <h5 class="font-medium text-primary text-sm capitalize">{{ result.entity }}</h5>
                   <p class="text-xs text-secondary">
-                    {{ result.processed }} / {{ result.total }} items
+                    {{ $t('admin-msgraph-results-items', { processed: result.processed, total: result.total }) }}
                     <span v-if="result.total > 0" class="text-tertiary">
-                      ({{ Math.round((result.processed / result.total) * 100) }}%)
+                      {{ $t('admin-msgraph-results-percent', { percent: Math.round((result.processed / result.total) * 100) }) }}
                     </span>
                   </p>
                 </div>
@@ -768,7 +800,7 @@ onMounted(async () => {
                     {{ error }}
                   </li>
                   <li v-if="result.errors.length > 3" class="text-status-error/70 italic pl-2">
-                    ... and {{ result.errors.length - 3 }} more errors
+                    {{ $t('admin-msgraph-results-more-errors', { count: result.errors.length - 3 }) }}
                   </li>
                 </ul>
               </div>
@@ -777,11 +809,11 @@ onMounted(async () => {
 
           <div class="mt-3 pt-3 border-t border-default">
             <div class="flex justify-between items-center text-sm">
-              <span class="text-tertiary">Total processed:</span>
-              <span class="font-medium text-primary">{{ syncResults.total_processed }} items</span>
+              <span class="text-tertiary">{{ $t('admin-msgraph-results-total-processed') }}</span>
+              <span class="font-medium text-primary">{{ $t('admin-msgraph-results-total-processed-value', { count: syncResults.total_processed }) }}</span>
             </div>
             <div v-if="syncResults.total_errors > 0" class="flex justify-between items-center text-sm mt-1">
-              <span class="text-tertiary">Total errors:</span>
+              <span class="text-tertiary">{{ $t('admin-msgraph-results-total-errors') }}</span>
               <span class="font-medium text-status-error">{{ syncResults.total_errors }}</span>
             </div>
           </div>
@@ -792,7 +824,7 @@ onMounted(async () => {
           <Checkbox
             id="full-sync-mode"
             v-model="fullSyncMode"
-            label="Full sync"
+            :label="$t('admin-msgraph-full-sync')"
           />
 
           <button
@@ -802,7 +834,7 @@ onMounted(async () => {
           >
             <Spinner v-if="isLoading || isSyncing" />
             <Icon v-else name="refresh" />
-            {{ isLoading ? 'Starting...' : isSyncing ? 'Syncing...' : 'Start Sync' }}
+            {{ isLoading ? $t('admin-msgraph-starting') : isSyncing ? $t('admin-msgraph-syncing') : $t('admin-msgraph-start-sync') }}
           </button>
         </div>
       </div>

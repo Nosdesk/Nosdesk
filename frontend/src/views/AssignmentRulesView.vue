@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -21,6 +22,8 @@ import type { GroupWithMemberCount } from '@/types/group'
 import type { TicketCategory } from '@/types/category'
 import type { User } from '@/types/user'
 
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 // State
 const isLoading = ref(false)
@@ -53,13 +56,14 @@ const ruleForm = ref<CreateAssignmentRuleRequest>({
   is_active: true
 })
 
-// Method options
-const methodOptions: { value: AssignmentMethod; label: string; description: string }[] = [
-  { value: 'direct_user', label: 'Direct User', description: 'Assign directly to a specific user' },
-  { value: 'group_round_robin', label: 'Round-Robin (Group)', description: 'Rotate assignment among group members evenly' },
-  { value: 'group_random', label: 'Random (Group)', description: 'Randomly select a group member for each ticket' },
-  { value: 'group_queue', label: 'Group Queue', description: 'Assign to group queue (users claim tickets)' }
-]
+// Method options. Labels and descriptions read through fluent so
+// they re-render on locale change without remounting the view.
+const methodOptions = computed<{ value: AssignmentMethod; label: string; description: string }[]>(() => [
+  { value: 'direct_user', label: t('admin-assignment-rules-method-direct-label'), description: t('admin-assignment-rules-method-direct-description') },
+  { value: 'group_round_robin', label: t('admin-assignment-rules-method-round-robin-label'), description: t('admin-assignment-rules-method-round-robin-description') },
+  { value: 'group_random', label: t('admin-assignment-rules-method-random-label'), description: t('admin-assignment-rules-method-random-description') },
+  { value: 'group_queue', label: t('admin-assignment-rules-method-queue-label'), description: t('admin-assignment-rules-method-queue-description') }
+])
 
 // Computed
 const isGroupMethod = computed(() => {
@@ -80,7 +84,7 @@ const loadRules = async () => {
   } catch (error) {
     console.error('Failed to load assignment rules:', error)
     const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to load assignment rules'
+    errorMessage.value = axiosError.response?.data?.message || t('admin-assignment-rules-error-load')
   } finally {
     isLoading.value = false
   }
@@ -139,17 +143,17 @@ const openEditModal = (rule: AssignmentRuleWithDetails) => {
 // Save rule
 const saveRule = async () => {
   if (!ruleForm.value.name.trim()) {
-    errorMessage.value = 'Rule name is required'
+    errorMessage.value = t('admin-assignment-rules-error-name')
     return
   }
 
   // Validate method requirements
   if (isDirectUserMethod.value && !ruleForm.value.target_user_uuid) {
-    errorMessage.value = 'Please select a target user'
+    errorMessage.value = t('admin-assignment-rules-error-user')
     return
   }
   if (isGroupMethod.value && !ruleForm.value.target_group_id) {
-    errorMessage.value = 'Please select a target group'
+    errorMessage.value = t('admin-assignment-rules-error-group')
     return
   }
 
@@ -166,10 +170,10 @@ const saveRule = async () => {
 
     if (editingRule.value) {
       await assignmentRuleService.updateRule(editingRule.value.id, request as UpdateAssignmentRuleRequest)
-      successMessage.value = 'Rule updated successfully'
+      successMessage.value = t('admin-assignment-rules-success-update')
     } else {
       await assignmentRuleService.createRule(request)
-      successMessage.value = 'Rule created successfully'
+      successMessage.value = t('admin-assignment-rules-success-create')
     }
 
     showRuleModal.value = false
@@ -177,7 +181,7 @@ const saveRule = async () => {
     setTimeout(() => (successMessage.value = ''), 3000)
   } catch (error) {
     const axiosError = error as { response?: { data?: string } }
-    errorMessage.value = axiosError.response?.data || 'Failed to save rule'
+    errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-save')
   } finally {
     isSaving.value = false
   }
@@ -190,7 +194,7 @@ const toggleRuleActive = async (rule: AssignmentRuleWithDetails) => {
     await loadRules()
   } catch (error) {
     const axiosError = error as { response?: { data?: string } }
-    errorMessage.value = axiosError.response?.data || 'Failed to update rule'
+    errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-update')
   }
 }
 
@@ -209,14 +213,14 @@ const deleteRule = async () => {
 
   try {
     await assignmentRuleService.deleteRule(ruleToDelete.value.id)
-    successMessage.value = 'Rule deleted successfully'
+    successMessage.value = t('admin-assignment-rules-success-delete')
     showDeleteConfirm.value = false
     ruleToDelete.value = null
     await loadRules()
     setTimeout(() => (successMessage.value = ''), 3000)
   } catch (error) {
     const axiosError = error as { response?: { data?: string } }
-    errorMessage.value = axiosError.response?.data || 'Failed to delete rule'
+    errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-delete')
   } finally {
     isSaving.value = false
   }
@@ -244,13 +248,13 @@ const moveRule = async (rule: AssignmentRuleWithDetails, direction: 'up' | 'down
     await loadRules()
   } catch (error) {
     const axiosError = error as { response?: { data?: string } }
-    errorMessage.value = axiosError.response?.data || 'Failed to reorder rules'
+    errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-reorder')
   }
 }
 
 // Get method display info
 const getMethodInfo = (method: AssignmentMethod) => {
-  return methodOptions.find(m => m.value === method) || { label: method, description: '' }
+  return methodOptions.value.find(m => m.value === method) || { label: method, description: '' }
 }
 
 // Get target display
@@ -261,7 +265,7 @@ const getTargetDisplay = (rule: AssignmentRuleWithDetails) => {
   if (rule.target_group) {
     return rule.target_group.name
   }
-  return 'Not configured'
+  return t('admin-assignment-rules-target-none')
 }
 
 onMounted(() => {
@@ -275,15 +279,15 @@ onMounted(() => {
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 class="text-xl sm:text-2xl font-bold text-primary">Assignment Rules</h1>
-          <p class="text-secondary mt-1">Configure automatic ticket assignment based on rules</p>
+          <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-assignment-rules-title') }}</h1>
+          <p class="text-secondary mt-1">{{ $t('admin-assignment-rules-description') }}</p>
         </div>
         <button
           @click="openCreateModal"
           class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:opacity-90 font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
           <Icon name="add" />
-          New Rule
+          {{ $t('admin-assignment-rules-new') }}
         </button>
       </div>
 
@@ -291,7 +295,7 @@ onMounted(() => {
       <div class="bg-status-info/10 border border-status-info/30 rounded-lg p-4 text-sm text-status-info">
         <div class="flex items-start gap-2">
           <Icon name="info" size="md" class="flex-shrink-0" />
-          <p>Rules are evaluated in priority order (top to bottom). The first matching rule wins. Tickets with an existing assignee are not auto-assigned.</p>
+          <p>{{ $t('admin-assignment-rules-info') }}</p>
         </div>
       </div>
 
@@ -302,7 +306,7 @@ onMounted(() => {
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
       <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" text="Loading rules..." />
+      <LoadingSpinner v-if="isLoading" :text="$t('admin-assignment-rules-loading')" />
 
       <!-- Rules list -->
       <div v-else class="flex flex-col gap-3">
@@ -319,7 +323,7 @@ onMounted(() => {
                 @click="moveRule(rule, 'up')"
                 :disabled="index === 0"
                 class="p-1 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Move up (higher priority)"
+                :title="$t('admin-assignment-rules-move-up')"
               >
                 <Icon name="chevronUp" />
               </button>
@@ -328,7 +332,7 @@ onMounted(() => {
                 @click="moveRule(rule, 'down')"
                 :disabled="index === rules.length - 1"
                 class="p-1 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Move down (lower priority)"
+                :title="$t('admin-assignment-rules-move-down')"
               >
                 <Icon name="chevronDown" />
               </button>
@@ -342,7 +346,7 @@ onMounted(() => {
                   class="px-2 py-0.5 text-xs rounded-full"
                   :class="rule.is_active ? 'bg-status-success/20 text-status-success' : 'bg-surface-alt text-tertiary'"
                 >
-                  {{ rule.is_active ? 'Active' : 'Inactive' }}
+                  {{ rule.is_active ? $t('admin-assignment-rules-active') : $t('admin-assignment-rules-inactive') }}
                 </span>
                 <span class="px-2 py-0.5 text-xs bg-accent/20 text-accent rounded-full">
                   {{ getMethodInfo(rule.method).label }}
@@ -364,14 +368,14 @@ onMounted(() => {
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
-                  <span v-if="rule.trigger_on_create && rule.trigger_on_category_change">Both triggers</span>
-                  <span v-else-if="rule.trigger_on_create">On create</span>
-                  <span v-else-if="rule.trigger_on_category_change">On category change</span>
-                  <span v-else>No triggers</span>
+                  <span v-if="rule.trigger_on_create && rule.trigger_on_category_change">{{ $t('admin-assignment-rules-trigger-both') }}</span>
+                  <span v-else-if="rule.trigger_on_create">{{ $t('admin-assignment-rules-trigger-create') }}</span>
+                  <span v-else-if="rule.trigger_on_category_change">{{ $t('admin-assignment-rules-trigger-category') }}</span>
+                  <span v-else>{{ $t('admin-assignment-rules-trigger-none') }}</span>
                 </span>
                 <span v-if="rule.state" class="flex items-center gap-1">
                   <Icon name="insights" />
-                  {{ rule.state.total_assignments }} assigned
+                  {{ t('admin-assignment-rules-assigned-count', { count: rule.state.total_assignments }) }}
                 </span>
               </div>
             </div>
@@ -381,7 +385,7 @@ onMounted(() => {
               <button
                 @click="toggleRuleActive(rule)"
                 class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-                :title="rule.is_active ? 'Deactivate rule' : 'Activate rule'"
+                :title="rule.is_active ? $t('admin-assignment-rules-toggle-deactivate') : $t('admin-assignment-rules-toggle-activate')"
               >
                 <Icon v-if="rule.is_active" name="close" />
                 <Icon v-else name="checkCircle" />
@@ -389,14 +393,14 @@ onMounted(() => {
               <button
                 @click="openEditModal(rule)"
                 class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-                title="Edit rule"
+                :title="$t('admin-assignment-rules-edit')"
               >
                 <Icon name="rename" />
               </button>
               <button
                 @click="confirmDelete(rule)"
                 class="p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
-                title="Delete rule"
+                :title="$t('admin-assignment-rules-delete')"
               >
                 <Icon name="trash" />
               </button>
@@ -410,7 +414,7 @@ onMounted(() => {
           icon="ticket"
           :title="$t('empty-assignment-rules-title')"
           :description="$t('empty-assignment-rules-description')"
-          action-label="Create Rule"
+          :action-label="$t('admin-assignment-rules-create-action')"
           variant="card"
           @action="openCreateModal"
         />
@@ -420,36 +424,36 @@ onMounted(() => {
     <!-- Create/Edit Rule Modal -->
     <Modal
       :show="showRuleModal"
-      :title="editingRule ? 'Edit Assignment Rule' : 'Create Assignment Rule'"
+      :title="editingRule ? $t('admin-assignment-rules-modal-edit-title') : $t('admin-assignment-rules-modal-create-title')"
       size="lg"
       @close="showRuleModal = false"
     >
       <form @submit.prevent="saveRule" class="flex flex-col gap-4">
         <!-- Name -->
         <div>
-          <label class="block text-sm font-medium text-primary mb-1">Rule Name</label>
+          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-assignment-rules-modal-name-label') }}</label>
           <input
             v-model="ruleForm.name"
             type="text"
             class="w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent"
-            placeholder="e.g., IT Support Round-Robin"
+            :placeholder="$t('admin-assignment-rules-modal-name-placeholder')"
           />
         </div>
 
         <!-- Description -->
         <div>
-          <label class="block text-sm font-medium text-primary mb-1">Description (optional)</label>
+          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-assignment-rules-modal-description-label') }}</label>
           <textarea
             v-model="ruleForm.description"
             rows="2"
             class="w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent resize-none"
-            placeholder="Describe what this rule does..."
+            :placeholder="$t('admin-assignment-rules-modal-description-placeholder')"
           ></textarea>
         </div>
 
         <!-- Assignment Method -->
         <div>
-          <label class="block text-sm font-medium text-primary mb-2">Assignment Method</label>
+          <label class="block text-sm font-medium text-primary mb-2">{{ $t('admin-assignment-rules-modal-method-label') }}</label>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button
               v-for="option in methodOptions"
@@ -467,12 +471,12 @@ onMounted(() => {
 
         <!-- Target User (for direct_user method) -->
         <div v-if="isDirectUserMethod">
-          <label class="block text-sm font-medium text-primary mb-1">Target User</label>
+          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-assignment-rules-modal-user-label') }}</label>
           <select
             v-model="ruleForm.target_user_uuid"
             class="w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent"
           >
-            <option :value="undefined">Select a user...</option>
+            <option :value="undefined">{{ $t('admin-assignment-rules-modal-user-placeholder') }}</option>
             <option v-for="user in users" :key="user.uuid" :value="user.uuid">
               {{ user.name }}
             </option>
@@ -481,53 +485,53 @@ onMounted(() => {
 
         <!-- Target Group (for group methods) -->
         <div v-if="isGroupMethod">
-          <label class="block text-sm font-medium text-primary mb-1">Target Group</label>
+          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-assignment-rules-modal-group-label') }}</label>
           <select
             v-model="ruleForm.target_group_id"
             class="w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent"
           >
-            <option :value="undefined">Select a group...</option>
+            <option :value="undefined">{{ $t('admin-assignment-rules-modal-group-placeholder') }}</option>
             <option v-for="group in groups" :key="group.id" :value="group.id">
-              {{ group.name }} ({{ group.member_count }} members)
+              {{ group.name }} ({{ t('admin-assignment-rules-modal-group-members', { count: group.member_count }) }})
             </option>
           </select>
         </div>
 
         <!-- Category Filter -->
         <div>
-          <label class="block text-sm font-medium text-primary mb-1">Category Filter (optional)</label>
+          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-assignment-rules-modal-category-label') }}</label>
           <select
             v-model="ruleForm.category_id"
             class="w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent"
           >
-            <option :value="undefined">All categories</option>
+            <option :value="undefined">{{ $t('admin-assignment-rules-modal-category-all') }}</option>
             <option v-for="category in categories" :key="category.id" :value="category.id">
               {{ category.name }}
             </option>
           </select>
-          <p class="text-xs text-tertiary mt-1">Only assign tickets with this category (leave empty for all)</p>
+          <p class="text-xs text-tertiary mt-1">{{ $t('admin-assignment-rules-modal-category-hint') }}</p>
         </div>
 
         <!-- Triggers -->
         <div>
-          <label class="block text-sm font-medium text-primary mb-2">Triggers</label>
+          <label class="block text-sm font-medium text-primary mb-2">{{ $t('admin-assignment-rules-modal-triggers-label') }}</label>
           <div class="flex flex-col gap-3">
             <Checkbox
               :model-value="ruleForm.trigger_on_create ?? false"
               @update:model-value="ruleForm.trigger_on_create = $event"
-              label="When a ticket is created"
+              :label="$t('admin-assignment-rules-modal-trigger-create-label')"
             />
             <Checkbox
               :model-value="ruleForm.trigger_on_category_change ?? false"
               @update:model-value="ruleForm.trigger_on_category_change = $event"
-              label="When a ticket's category changes"
+              :label="$t('admin-assignment-rules-modal-trigger-category-label')"
             />
           </div>
         </div>
 
         <!-- Active toggle -->
         <div class="flex items-center justify-between pt-2">
-          <span class="text-sm text-secondary">Rule is active</span>
+          <span class="text-sm text-secondary">{{ $t('admin-assignment-rules-modal-active-label') }}</span>
           <button
             type="button"
             @click="ruleForm.is_active = !ruleForm.is_active"
@@ -548,14 +552,14 @@ onMounted(() => {
             @click="showRuleModal = false"
             class="px-4 py-2 text-secondary hover:text-primary transition-colors"
           >
-            Cancel
+            {{ $t('admin-assignment-rules-modal-cancel') }}
           </button>
           <button
             @click="saveRule"
             :disabled="isSaving"
             class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
           >
-            {{ isSaving ? 'Saving...' : editingRule ? 'Update Rule' : 'Create Rule' }}
+            {{ isSaving ? $t('admin-assignment-rules-modal-saving') : editingRule ? $t('admin-assignment-rules-modal-update') : $t('admin-assignment-rules-modal-create') }}
           </button>
         </div>
       </template>
@@ -564,12 +568,12 @@ onMounted(() => {
     <!-- Delete Confirmation Modal -->
     <Modal
       :show="showDeleteConfirm"
-      title="Delete Assignment Rule"
+      :title="$t('admin-assignment-rules-delete-title')"
       size="sm"
       @close="showDeleteConfirm = false"
     >
       <p class="text-secondary">
-        Are you sure you want to delete the rule "{{ ruleToDelete?.name }}"? This action cannot be undone.
+        {{ t('admin-assignment-rules-delete-message', { name: ruleToDelete?.name ?? '' }) }}
       </p>
 
       <template #footer>
@@ -578,14 +582,14 @@ onMounted(() => {
             @click="showDeleteConfirm = false"
             class="px-4 py-2 text-secondary hover:text-primary transition-colors"
           >
-            Cancel
+            {{ $t('admin-assignment-rules-delete-cancel') }}
           </button>
           <button
             @click="deleteRule"
             :disabled="isSaving"
             class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
           >
-            {{ isSaving ? 'Deleting...' : 'Delete' }}
+            {{ isSaving ? $t('admin-assignment-rules-deleting') : $t('admin-assignment-rules-delete-confirm') }}
           </button>
         </div>
       </template>

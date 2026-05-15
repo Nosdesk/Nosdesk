@@ -15,6 +15,7 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -36,6 +37,8 @@ import type {
 } from '@/types/plugin';
 
 const router = useRouter();
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const state = ref<RegistryState | null>(null);
 const installedPlugins = ref<Plugin[]>([]);
@@ -64,7 +67,7 @@ async function loadRegistry() {
   try {
     state.value = await pluginService.getRegistry();
   } catch (err: unknown) {
-    errorMessage.value = 'Failed to load the registry.';
+    errorMessage.value = t('admin-plugins-registry-error-load');
     logger.error('Failed to load registry', { error: err });
   } finally {
     isLoading.value = false;
@@ -85,7 +88,7 @@ async function retryRegistrySync() {
   try {
     state.value = await pluginService.refreshRegistry();
   } catch (err: unknown) {
-    errorMessage.value = 'Failed to retry the registry sync.';
+    errorMessage.value = t('admin-plugins-registry-error-refresh');
     logger.error('Failed to refresh registry', { error: err });
   } finally {
     isRefreshing.value = false;
@@ -145,8 +148,8 @@ function publisherFor(plugin: RegistryPlugin): RegistryPublisher | null {
 }
 
 function publisherName(plugin: RegistryPlugin): string {
-  if (plugin.tier === 'official') return 'Nosdesk';
-  return publisherFor(plugin)?.display_name ?? 'Unknown publisher';
+  if (plugin.tier === 'official') return t('admin-plugins-registry-publisher-nosdesk');
+  return publisherFor(plugin)?.display_name ?? t('admin-plugins-registry-publisher-unknown');
 }
 
 function toggleTier(tier: PluginTrustLevel) {
@@ -204,7 +207,7 @@ async function confirmInstall() {
     plugin.tier === 'community' &&
     communityConfirmText.value.trim() !== plugin.name
   ) {
-    errorMessage.value = 'Type the plugin name exactly to confirm installation.';
+    errorMessage.value = t('admin-plugins-registry-error-confirm-name');
     return;
   }
 
@@ -215,13 +218,16 @@ async function confirmInstall() {
       plugin_name: plugin.name,
     });
     installedPlugins.value = [...installedPlugins.value, installed];
-    successMessage.value = `Installed ${installed.display_name} v${installed.version}`;
+    successMessage.value = t('admin-plugins-registry-success-installed', {
+      name: installed.display_name,
+      version: installed.version,
+    });
     setTimeout(() => (successMessage.value = ''), 4000);
     pendingInstall.value = null;
   } catch (err: unknown) {
     const message =
-      (err as { response?: { data?: string } })?.response?.data ?? 'Install failed.';
-    errorMessage.value = typeof message === 'string' ? message : 'Install failed.';
+      (err as { response?: { data?: string } })?.response?.data ?? t('admin-plugins-registry-error-install');
+    errorMessage.value = typeof message === 'string' ? message : t('admin-plugins-registry-error-install');
     logger.error('Registry install failed', { error: err, plugin: plugin.name });
   } finally {
     installing.value = null;
@@ -235,22 +241,22 @@ function cancelInstall() {
 
 const TIER_FILTER_ORDER: PluginTrustLevel[] = ['official', 'verified', 'community'];
 
-const TIER_LABELS: Record<PluginTrustLevel, string> = {
-  official: 'Official',
-  verified: 'Verified',
-  community: 'Community',
-  local: 'Local',
-};
+const tierLabels = computed<Record<PluginTrustLevel, string>>(() => ({
+  official: t('admin-plugins-registry-tier-official'),
+  verified: t('admin-plugins-registry-tier-verified'),
+  community: t('admin-plugins-registry-tier-community'),
+  local: t('admin-plugins-registry-tier-local'),
+}));
 
 function formatRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const minutes = Math.round(diff / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 1) return t('admin-plugins-registry-relative-just-now');
+  if (minutes < 60) return t('admin-plugins-registry-relative-minutes', { count: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
+  if (hours < 24) return t('admin-plugins-registry-relative-hours', { count: hours });
   const days = Math.round(hours / 24);
-  return `${days} day${days === 1 ? '' : 's'} ago`;
+  return t('admin-plugins-registry-relative-days', { count: days });
 }
 </script>
 
@@ -274,14 +280,13 @@ function formatRelative(iso: string): string {
           >
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-          Installed plugins
+          {{ $t('admin-plugins-registry-back') }}
         </RouterLink>
-        <h1 class="text-xl font-bold text-primary sm:text-2xl">Plugin registry</h1>
+        <h1 class="text-xl font-bold text-primary sm:text-2xl">{{ $t('admin-plugins-registry-title') }}</h1>
         <p class="mt-1 text-sm text-secondary sm:text-base">
-          Browse and install plugins published to <code
+          {{ $t('admin-plugins-registry-subtitle-before') }} <code
             class="rounded bg-surface-alt px-1.5 py-0.5 font-mono text-xs"
-          >nosdesk.com/registry</code>. Signatures are verified against the Nosdesk root key before
-          any bundle executes.
+          >nosdesk.com/registry</code>{{ $t('admin-plugins-registry-subtitle-after') }}
         </p>
       </div>
       <button
@@ -307,26 +312,26 @@ function formatRelative(iso: string): string {
             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
           />
         </svg>
-        {{ isRefreshing ? 'Refreshing' : 'Refresh' }}
+        {{ isRefreshing ? $t('admin-plugins-registry-refreshing') : $t('admin-plugins-registry-refresh') }}
       </button>
     </header>
 
     <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
     <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-    <LoadingSpinner v-if="isLoading" text="Loading registry..." />
+    <LoadingSpinner v-if="isLoading" :text="$t('admin-plugins-registry-loading')" />
 
     <!-- Sync disabled: operator opted out via NOSDESK_REGISTRY_URL=. -->
     <EmptyState
       v-else-if="state?.status === 'disabled'"
       icon="plugin"
-      title="Registry sync is disabled"
+      :title="$t('admin-plugins-registry-disabled-title')"
       :description="
         adminConfig?.web_sideload_enabled
-          ? 'This instance has NOSDESK_REGISTRY_URL set to empty, so it isn\'t fetching the published plugin catalog. You can still sideload a signed zip.'
-          : 'This instance has NOSDESK_REGISTRY_URL set to empty, so it isn\'t fetching the published plugin catalog. Use the CLI to install local-signed plugins.'
+          ? $t('admin-plugins-registry-disabled-description-sideload')
+          : $t('admin-plugins-registry-disabled-description-cli')
       "
-      :action-label="adminConfig?.web_sideload_enabled ? 'Sideload signed zip' : undefined"
+      :action-label="adminConfig?.web_sideload_enabled ? $t('admin-plugins-registry-disabled-action') : undefined"
       variant="card"
       @action="router.push('/admin/plugins/install')"
     />
@@ -335,9 +340,9 @@ function formatRelative(iso: string): string {
     <EmptyState
       v-else-if="state?.status === 'pending'"
       icon="plugin"
-      title="Registry is syncing"
-      description="The instance is fetching the published plugin catalog. This usually completes within a few seconds of boot."
-      action-label="Retry now"
+      :title="$t('admin-plugins-registry-pending-title')"
+      :description="$t('admin-plugins-registry-pending-description')"
+      :action-label="$t('admin-plugins-registry-retry-now')"
       variant="card"
       @action="retryRegistrySync"
     />
@@ -346,19 +351,19 @@ function formatRelative(iso: string): string {
     <EmptyState
       v-else-if="state?.status === 'failed'"
       icon="plugin"
-      title="Registry sync failed"
-      :description="`${state.reason}. Retry now to fetch again, or wait for the next scheduled attempt.`"
-      action-label="Retry now"
+      :title="$t('admin-plugins-registry-failed-title')"
+      :description="$t('admin-plugins-registry-failed-description', { reason: state.reason })"
+      :action-label="$t('admin-plugins-registry-retry-now')"
       variant="card"
       @action="retryRegistrySync"
     />
 
     <div v-else-if="snapshot" class="lg:grid lg:grid-cols-[16rem_1fr] lg:gap-6">
       <!-- Sidebar: search + tier filters -->
-      <aside class="mb-6 lg:sticky lg:top-4 lg:mb-0 lg:self-start" aria-label="Filter registry">
+      <aside class="mb-6 lg:sticky lg:top-4 lg:mb-0 lg:self-start" :aria-label="$t('admin-plugins-registry-filter-aria')">
         <div class="flex flex-col gap-4 rounded-xl border border-default bg-surface p-4">
           <div class="relative">
-            <label for="registry-search" class="sr-only">Search plugins</label>
+            <label for="registry-search" class="sr-only">{{ $t('admin-plugins-registry-search-label') }}</label>
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-tertiary"
@@ -378,14 +383,14 @@ function formatRelative(iso: string): string {
               id="registry-search"
               v-model="searchQuery"
               type="search"
-              placeholder="Search plugins"
+              :placeholder="$t('admin-plugins-registry-search-placeholder')"
               class="w-full rounded-lg border border-default bg-surface-alt py-2 pr-3 pl-9 text-sm text-primary placeholder:text-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none"
             />
           </div>
 
           <fieldset>
             <legend class="text-xs font-semibold tracking-wide text-tertiary uppercase">
-              Trust tier
+              {{ $t('admin-plugins-registry-trust-tier') }}
             </legend>
             <ul class="mt-2 flex flex-col gap-1" role="list">
               <li
@@ -396,7 +401,7 @@ function formatRelative(iso: string): string {
                 <Checkbox
                   size="sm"
                   :model-value="activeTiers.has(tier)"
-                  :label="TIER_LABELS[tier]"
+                  :label="tierLabels[tier]"
                   class="flex-1"
                   @update:model-value="toggleTier(tier)"
                 />
@@ -411,11 +416,11 @@ function formatRelative(iso: string): string {
             @click="resetFilters"
             class="self-start text-xs text-accent hover:underline focus:underline focus:outline-none"
           >
-            Reset filters
+            {{ $t('admin-plugins-registry-reset-filters') }}
           </button>
 
           <p class="border-t border-default pt-3 text-xs text-tertiary">
-            Snapshot fetched {{ formatRelative(snapshot.fetched_at) }}
+            {{ $t('admin-plugins-registry-snapshot-fetched', { relative: formatRelative(snapshot.fetched_at) }) }}
           </p>
         </div>
       </aside>
@@ -423,8 +428,7 @@ function formatRelative(iso: string): string {
       <!-- Card list -->
       <section :aria-busy="isRefreshing">
         <p class="mb-3 text-sm text-tertiary" aria-live="polite">
-          {{ filteredPlugins.length }} of {{ snapshot.index.plugins.length }}
-          plugin{{ snapshot.index.plugins.length === 1 ? '' : 's' }}
+          {{ $t('admin-plugins-registry-result-count', { filtered: filteredPlugins.length, total: snapshot.index.plugins.length }) }}
         </p>
 
         <div
@@ -432,14 +436,14 @@ function formatRelative(iso: string): string {
           role="status"
           class="rounded-xl border border-default bg-surface p-10 text-center"
         >
-          <p class="text-sm text-secondary">No plugins match those filters.</p>
+          <p class="text-sm text-secondary">{{ $t('admin-plugins-registry-no-matches') }}</p>
           <button
             v-if="filtersActive"
             type="button"
             @click="resetFilters"
             class="mt-3 text-sm text-accent hover:underline focus:underline focus:outline-none"
           >
-            Reset filters
+            {{ $t('admin-plugins-registry-reset-filters') }}
           </button>
         </div>
 
@@ -475,7 +479,7 @@ function formatRelative(iso: string): string {
                         >
                           <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                         </svg>
-                        Installed
+                        {{ $t('admin-plugins-registry-installed-badge') }}
                       </span>
                     </header>
 
@@ -489,18 +493,18 @@ function formatRelative(iso: string): string {
                     <dl
                       class="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-tertiary"
                     >
-                      <dt class="sr-only">Plugin name</dt>
+                      <dt class="sr-only">{{ $t('admin-plugins-registry-sr-plugin-name') }}</dt>
                       <dd>
                         <code class="rounded bg-surface-alt px-1.5 py-0.5 font-mono">
                           {{ plugin.name }}
                         </code>
                       </dd>
                       <span aria-hidden="true" class="text-border">·</span>
-                      <dt class="sr-only">Publisher</dt>
-                      <dd>by {{ publisherName(plugin) }}</dd>
+                      <dt class="sr-only">{{ $t('admin-plugins-registry-sr-publisher') }}</dt>
+                      <dd>{{ $t('admin-plugins-registry-by-publisher', { publisher: publisherName(plugin) }) }}</dd>
                       <template v-if="plugin.homepage">
                         <span aria-hidden="true" class="text-border">·</span>
-                        <dt class="sr-only">Homepage</dt>
+                        <dt class="sr-only">{{ $t('admin-plugins-registry-sr-homepage') }}</dt>
                         <dd>
                           <a
                             :href="plugin.homepage"
@@ -509,7 +513,7 @@ function formatRelative(iso: string): string {
                             class="inline-flex items-center gap-1 hover:text-secondary"
                             @click.stop
                           >
-                            Homepage
+                            {{ $t('admin-plugins-registry-homepage-link') }}
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
                               class="h-3 w-3"
@@ -537,7 +541,7 @@ function formatRelative(iso: string): string {
                       :to="`/admin/plugins/${installedByName.get(plugin.name)!.uuid}`"
                       class="rounded-lg border border-default bg-surface px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-surface-hover"
                     >
-                      Manage
+                      {{ $t('admin-plugins-registry-manage') }}
                     </RouterLink>
                     <button
                       v-else
@@ -546,7 +550,7 @@ function formatRelative(iso: string): string {
                       @click="startInstall(plugin)"
                       class="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
                     >
-                      {{ installing === plugin.name ? 'Installing...' : 'Install' }}
+                      {{ installing === plugin.name ? $t('admin-plugins-registry-installing') : $t('admin-plugins-registry-install') }}
                     </button>
                   </div>
                 </div>
@@ -560,7 +564,7 @@ function formatRelative(iso: string): string {
     <Modal
       v-if="pendingInstall && pendingInstall.tier !== 'official'"
       :show="true"
-      :title="`Install ${pendingInstall.display_name}?`"
+      :title="$t('admin-plugins-registry-modal-title', { name: pendingInstall.display_name })"
       @close="cancelInstall"
     >
       <div class="flex flex-col gap-3 text-sm">
@@ -568,23 +572,22 @@ function formatRelative(iso: string): string {
           v-if="pendingInstall.tier === 'community'"
           class="rounded-lg border border-status-warning/30 bg-status-warning/10 p-3 text-status-warning"
         >
-          <strong>Community plugin.</strong>
-          Nosdesk does not vouch for the safety of community plugins beyond verifying
-          the publisher's signature. Review the source before trusting it with your data.
+          <strong>{{ $t('admin-plugins-registry-community-warning-strong') }}</strong>
+          {{ $t('admin-plugins-registry-community-warning-body') }}
         </div>
         <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2">
-          <dt class="text-xs text-tertiary">Publisher</dt>
+          <dt class="text-xs text-tertiary">{{ $t('admin-plugins-registry-field-publisher') }}</dt>
           <dd class="text-primary">{{ publisherName(pendingInstall) }}</dd>
-          <dt class="text-xs text-tertiary">Fingerprint</dt>
+          <dt class="text-xs text-tertiary">{{ $t('admin-plugins-registry-field-fingerprint') }}</dt>
           <dd class="font-mono text-xs text-secondary">{{ pendingFingerprint }}</dd>
-          <dt class="text-xs text-tertiary">Version</dt>
+          <dt class="text-xs text-tertiary">{{ $t('admin-plugins-registry-field-version') }}</dt>
           <dd class="text-primary">v{{ pendingInstall.versions[0]?.version }}</dd>
         </dl>
         <label v-if="pendingInstall.tier === 'community'" class="flex flex-col gap-1">
           <span class="text-xs text-tertiary">
-            Type
+            {{ $t('admin-plugins-registry-type-to-confirm-before') }}
             <code class="rounded bg-surface-alt px-1 font-mono">{{ pendingInstall.name }}</code>
-            to confirm
+            {{ $t('admin-plugins-registry-type-to-confirm-after') }}
           </span>
           <input
             v-model="communityConfirmText"
@@ -600,7 +603,7 @@ function formatRelative(iso: string): string {
           @click="cancelInstall"
           class="px-4 py-2 text-sm text-secondary transition-colors hover:text-primary"
         >
-          Cancel
+          {{ $t('admin-plugins-registry-cancel') }}
         </button>
         <button
           type="button"
@@ -612,7 +615,7 @@ function formatRelative(iso: string): string {
           @click="confirmInstall"
           class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
-          {{ installing === pendingInstall.name ? 'Installing...' : 'Install' }}
+          {{ installing === pendingInstall.name ? $t('admin-plugins-registry-installing') : $t('admin-plugins-registry-install') }}
         </button>
       </template>
     </Modal>

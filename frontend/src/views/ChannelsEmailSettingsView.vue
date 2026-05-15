@@ -2,17 +2,16 @@
   <div class="flex-1">
     <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-6xl">
       <div class="flex flex-col gap-2">
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Email Ingestion</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-channels-email-title') }}</h1>
         <p class="text-secondary">
-          Poll a support mailbox over IMAP and turn inbound messages into tickets.
-          Replies from techs are relayed back through the same thread.
+          {{ $t('admin-channels-email-description') }}
         </p>
       </div>
 
       <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-      <LoadingSpinner v-if="loading" text="Loading channel..." />
+      <LoadingSpinner v-if="loading" :text="$t('admin-channels-email-loading')" />
 
       <div v-else class="flex flex-col gap-6">
         <!-- Status card (only shown when a channel exists). -->
@@ -22,9 +21,9 @@
         >
           <div class="flex items-start justify-between gap-4 flex-wrap">
             <div class="flex flex-col gap-1">
-              <h2 class="text-lg font-semibold text-primary">Status</h2>
+              <h2 class="text-lg font-semibold text-primary">{{ $t('admin-channels-email-status-heading') }}</h2>
               <p class="text-sm text-secondary">
-                Live view of what the ingestion worker last did.
+                {{ $t('admin-channels-email-status-subtitle') }}
               </p>
             </div>
             <div class="flex items-center gap-2">
@@ -40,28 +39,28 @@
                   class="inline-block w-1.5 h-1.5 rounded-full"
                   :class="channel.enabled ? 'bg-status-success' : 'bg-status-muted'"
                 ></span>
-                {{ channel.enabled ? 'Enabled' : 'Disabled' }}
+                {{ channel.enabled ? $t('admin-channels-email-status-enabled') : $t('admin-channels-email-status-disabled') }}
               </span>
             </div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="flex flex-col gap-1">
-              <span class="text-xs uppercase tracking-wide text-tertiary">Last polled</span>
+              <span class="text-xs uppercase tracking-wide text-tertiary">{{ $t('admin-channels-email-status-last-polled') }}</span>
               <span class="text-sm text-primary">
-                {{ channel.last_polled_at ? formatRelative(channel.last_polled_at) : 'never' }}
+                {{ channel.last_polled_at ? formatRelative(channel.last_polled_at) : $t('admin-channels-email-status-never') }}
               </span>
             </div>
             <div class="flex flex-col gap-1">
-              <span class="text-xs uppercase tracking-wide text-tertiary">Last seen UID</span>
+              <span class="text-xs uppercase tracking-wide text-tertiary">{{ $t('admin-channels-email-status-last-uid') }}</span>
               <span class="text-sm text-primary font-mono">
                 {{ runtimeState.last_seen_uid ?? 0 }}
               </span>
             </div>
             <div class="flex flex-col gap-1">
-              <span class="text-xs uppercase tracking-wide text-tertiary">UIDVALIDITY</span>
+              <span class="text-xs uppercase tracking-wide text-tertiary">{{ $t('admin-channels-email-status-uid-validity') }}</span>
               <span class="text-sm text-primary font-mono">
-                {{ runtimeState.uid_validity ?? '—' }}
+                {{ runtimeState.uid_validity ?? '-' }}
               </span>
             </div>
           </div>
@@ -71,14 +70,13 @@
             class="bg-status-error-bg border border-status-error-border rounded-lg p-3 flex flex-col gap-1"
           >
             <span class="text-xs uppercase tracking-wide text-status-error font-semibold">
-              Last error
+              {{ $t('admin-channels-email-status-last-error') }}
             </span>
             <span class="text-sm text-status-error font-mono break-words">
               {{ runtimeState.last_error }}
             </span>
             <span class="text-xs text-status-error">
-              The worker will keep retrying with exponential backoff. Fix the
-              underlying issue and it'll clear on the next successful poll.
+              {{ $t('admin-channels-email-status-last-error-hint') }}
             </span>
           </div>
         </div>
@@ -91,18 +89,17 @@
         >
           <div class="flex flex-col gap-1">
             <h2 class="text-lg font-semibold text-primary">
-              {{ channel ? 'Configuration' : 'Connect a mailbox' }}
+              {{ channel ? $t('admin-channels-email-form-heading-edit') : $t('admin-channels-email-form-heading-create') }}
             </h2>
             <p class="text-sm text-secondary">
-              IMAP over TLS only. For self-hosted test servers with a
-              self-signed cert, see the advanced toggle below.
+              {{ $t('admin-channels-email-form-subtitle') }}
             </p>
           </div>
 
           <ToggleSwitch
             v-if="channel"
-            label="Enabled"
-            description="When off, the worker stops polling but stored config + credentials are preserved."
+            :label="$t('admin-channels-email-toggle-enabled-label')"
+            :description="$t('admin-channels-email-toggle-enabled-description')"
             :model-value="form.enabled"
             @update:model-value="form.enabled = $event"
           />
@@ -110,30 +107,30 @@
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="flex flex-col gap-2 md:col-span-2">
               <label for="channel-name" class="text-sm font-medium text-primary">
-                Display name
+                {{ $t('admin-channels-email-field-name-label') }}
               </label>
               <input
                 id="channel-name"
                 v-model="form.name"
                 type="text"
-                placeholder="e.g. Support Inbox"
+                :placeholder="$t('admin-channels-email-field-name-placeholder')"
                 required
                 :class="inputClasses"
               />
               <p class="text-xs text-tertiary">
-                Only shown in the admin UI. Customers never see it.
+                {{ $t('admin-channels-email-field-name-hint') }}
               </p>
             </div>
 
             <div class="flex flex-col gap-2">
               <label for="channel-host" class="text-sm font-medium text-primary">
-                IMAP host
+                {{ $t('admin-channels-email-field-host-label') }}
               </label>
               <input
                 id="channel-host"
                 v-model="form.host"
                 type="text"
-                placeholder="imap.example.com"
+                :placeholder="$t('admin-channels-email-field-host-placeholder')"
                 required
                 autocomplete="off"
                 :class="inputClasses"
@@ -142,7 +139,7 @@
 
             <div class="flex flex-col gap-2">
               <label for="channel-port" class="text-sm font-medium text-primary">
-                Port
+                {{ $t('admin-channels-email-field-port-label') }}
               </label>
               <input
                 id="channel-port"
@@ -152,18 +149,18 @@
                 max="65535"
                 :class="inputClasses"
               />
-              <p class="text-xs text-tertiary">993 for IMAPS. 143 requires STARTTLS (not supported yet).</p>
+              <p class="text-xs text-tertiary">{{ $t('admin-channels-email-field-port-hint') }}</p>
             </div>
 
             <div class="flex flex-col gap-2">
               <label for="channel-username" class="text-sm font-medium text-primary">
-                Username
+                {{ $t('admin-channels-email-field-username-label') }}
               </label>
               <input
                 id="channel-username"
                 v-model="form.username"
                 type="text"
-                placeholder="support@example.com"
+                :placeholder="$t('admin-channels-email-field-username-placeholder')"
                 required
                 autocomplete="off"
                 :class="inputClasses"
@@ -172,43 +169,41 @@
 
             <div class="flex flex-col gap-2">
               <label for="channel-mailbox" class="text-sm font-medium text-primary">
-                Mailbox
+                {{ $t('admin-channels-email-field-mailbox-label') }}
               </label>
               <input
                 id="channel-mailbox"
                 v-model="form.mailbox"
                 type="text"
-                placeholder="INBOX"
+                :placeholder="$t('admin-channels-email-field-mailbox-placeholder')"
                 :class="inputClasses"
               />
-              <p class="text-xs text-tertiary">Gmail users may want "[Gmail]/All Mail".</p>
+              <p class="text-xs text-tertiary">{{ $t('admin-channels-email-field-mailbox-hint') }}</p>
             </div>
 
             <div class="flex flex-col gap-2 md:col-span-2">
               <label for="channel-reply-domain" class="text-sm font-medium text-primary">
-                Reply domain
+                {{ $t('admin-channels-email-field-reply-domain-label') }}
               </label>
               <input
                 id="channel-reply-domain"
                 v-model="form.reply_domain"
                 type="text"
-                placeholder="example.com"
+                :placeholder="$t('admin-channels-email-field-reply-domain-placeholder')"
                 required
                 autocomplete="off"
                 :class="inputClasses"
               />
               <p class="text-xs text-tertiary">
-                Used when we stamp Message-IDs on outbound replies so the
-                customer's reply threads back to the same ticket. Usually
-                the same domain as the username.
+                {{ $t('admin-channels-email-field-reply-domain-hint') }}
               </p>
             </div>
 
             <div class="flex flex-col gap-2 md:col-span-2">
               <label for="channel-password" class="text-sm font-medium text-primary">
-                Password
+                {{ $t('admin-channels-email-field-password-label') }}
                 <span v-if="channel?.has_credential" class="text-tertiary font-normal">
-                  (leave blank to keep existing)
+                  {{ $t('admin-channels-email-field-password-keep-existing') }}
                 </span>
               </label>
               <input
@@ -216,7 +211,7 @@
                 v-model="form.password"
                 type="password"
                 autocomplete="new-password"
-                :placeholder="channel?.has_credential ? '•••••••••• (stored)' : 'App password or account password'"
+                :placeholder="channel?.has_credential ? $t('admin-channels-email-field-password-placeholder-stored') : $t('admin-channels-email-field-password-placeholder-new')"
                 :class="inputClasses"
               />
               <div v-if="channel?.has_credential" class="flex items-center gap-4 mt-1">
@@ -226,7 +221,7 @@
                   :disabled="clearing"
                   @click="clearCredential"
                 >
-                  {{ clearing ? 'Removing...' : 'Remove stored password' }}
+                  {{ clearing ? $t('admin-channels-email-removing-password') : $t('admin-channels-email-remove-password') }}
                 </button>
               </div>
             </div>
@@ -235,12 +230,12 @@
           <!-- Advanced / dev options -->
           <details class="border-t border-default pt-4">
             <summary class="cursor-pointer text-sm text-secondary hover:text-primary">
-              Advanced
+              {{ $t('admin-channels-email-advanced') }}
             </summary>
             <div class="pt-4 flex flex-col gap-3">
               <ToggleSwitch
-                label="Skip TLS certificate verification"
-                description="ONLY for Greenmail or self-hosted test servers with a self-signed cert. Leave off in production."
+                :label="$t('admin-channels-email-toggle-insecure-label')"
+                :description="$t('admin-channels-email-toggle-insecure-description')"
                 :model-value="form.insecure_skip_cert_verify"
                 @update:model-value="form.insecure_skip_cert_verify = $event"
               />
@@ -257,11 +252,11 @@
                 @click="testConnection"
               >
                 <LoadingSpinner v-if="testing" size="sm" variant="inline" />
-                {{ testing ? 'Testing...' : 'Test connection' }}
+                {{ testing ? $t('admin-channels-email-testing') : $t('admin-channels-email-test') }}
               </button>
               <span v-if="testResult === 'ok'" class="text-sm text-status-success inline-flex items-center gap-1.5">
                 <span class="inline-block w-1.5 h-1.5 rounded-full bg-status-success"></span>
-                Connected
+                {{ $t('admin-channels-email-test-connected') }}
               </span>
               <span
                 v-else-if="testResult === 'failed'"
@@ -269,7 +264,7 @@
                 :title="testErrorMessage"
               >
                 <span class="inline-block w-1.5 h-1.5 rounded-full bg-status-error"></span>
-                {{ testErrorMessage || 'Failed' }}
+                {{ testErrorMessage || $t('admin-channels-email-test-failed') }}
               </span>
             </div>
             <div class="flex items-center gap-3">
@@ -280,7 +275,7 @@
                 :disabled="deleting"
                 @click="confirmAndDelete"
               >
-                {{ deleting ? 'Deleting...' : 'Delete' }}
+                {{ deleting ? $t('admin-channels-email-deleting') : $t('admin-channels-email-delete') }}
               </button>
               <button
                 type="submit"
@@ -288,7 +283,7 @@
                 :disabled="saving || !canSave"
               >
                 <LoadingSpinner v-if="saving" size="sm" variant="inline" />
-                {{ channel ? (saving ? 'Saving...' : 'Save changes') : (saving ? 'Creating...' : 'Create channel') }}
+                {{ channel ? (saving ? $t('admin-channels-email-saving') : $t('admin-channels-email-save')) : (saving ? $t('admin-channels-email-creating') : $t('admin-channels-email-create')) }}
               </button>
             </div>
           </div>
@@ -299,9 +294,9 @@
     <ConfirmModal
       :show="showClearCredentialConfirm"
       variant="danger"
-      title="Remove stored password?"
-      message="The worker will stop authenticating until a new one is saved."
-      confirm-label="Remove"
+      :title="$t('admin-channels-email-clear-credential-title')"
+      :message="$t('admin-channels-email-clear-credential-message')"
+      :confirm-label="$t('admin-channels-email-clear-credential-confirm')"
       @confirm="doClearCredential"
       @close="showClearCredentialConfirm = false"
     />
@@ -309,9 +304,9 @@
     <ConfirmModal
       :show="showDeleteChannelConfirm"
       variant="danger"
-      title="Delete this email channel?"
-      message="Tickets already opened from it stay intact, but no new messages will be ingested. This cannot be undone."
-      confirm-label="Delete channel"
+      :title="$t('admin-channels-email-delete-title')"
+      :message="$t('admin-channels-email-delete-message')"
+      :confirm-label="$t('admin-channels-email-delete-confirm')"
       @confirm="doDeleteChannel"
       @close="showDeleteChannelConfirm = false"
     />
@@ -320,6 +315,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useFluent } from 'fluent-vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
@@ -331,6 +327,9 @@ import {
   type ImapRuntimeState
 } from '@/services/channelsService';
 import { createErrorFromResponse } from '@/utils/errors';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const EMAIL_PROVIDER = 'email_imap';
 
@@ -421,7 +420,7 @@ function populateForm(ch: Channel) {
 }
 
 // Typed locally, then widened to the `Record<string, unknown>` shape the
-// service accepts — the channels endpoint is generic over providers and
+// service accepts. The channels endpoint is generic over providers and
 // only `email_imap`'s shape is validated server-side.
 function buildConfig(): Record<string, unknown> {
   const cfg: ImapChannelConfig = {
@@ -445,13 +444,13 @@ function formatRelative(iso: string): string {
   const then = new Date(iso).getTime();
   const now = Date.now();
   const diffSec = Math.max(0, Math.floor((now - then) / 1000));
-  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 60) return t('admin-channels-email-relative-seconds', { count: diffSec });
   const mins = Math.floor(diffSec / 60);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return t('admin-channels-email-relative-minutes', { count: mins });
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return t('admin-channels-email-relative-hours', { count: hrs });
   const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+  return t('admin-channels-email-relative-days', { count: days });
 }
 
 onMounted(async () => {
@@ -466,7 +465,7 @@ async function loadExisting() {
     channel.value = match;
     if (match) populateForm(match);
   } catch {
-    errorMessage.value = 'Failed to load email channel';
+    errorMessage.value = t('admin-channels-email-error-load');
   } finally {
     loading.value = false;
   }
@@ -483,14 +482,14 @@ async function save() {
         name: form.name.trim(),
         enabled: form.enabled,
         config: buildConfig(),
-        // Only send password when the admin typed one — empty string
+        // Only send password when the admin typed one. An empty string
         // must not nuke the stored secret. See channelsService's
         // `UpdateChannelRequest` contract.
         ...(form.password.length > 0 ? { password: form.password } : {})
       });
       channel.value = updated;
       populateForm(updated);
-      successMessage.value = 'Channel updated';
+      successMessage.value = t('admin-channels-email-success-update');
     } else {
       const created = await channelsService.create({
         provider: EMAIL_PROVIDER,
@@ -501,7 +500,7 @@ async function save() {
       });
       channel.value = created;
       populateForm(created);
-      successMessage.value = 'Channel created';
+      successMessage.value = t('admin-channels-email-success-create');
     }
     setTimeout(() => (successMessage.value = ''), 3000);
   } catch (e: unknown) {
@@ -526,7 +525,7 @@ async function testConnection() {
       testResult.value = 'ok';
     } else {
       testResult.value = 'failed';
-      testErrorMessage.value = result.error ?? 'Unknown error';
+      testErrorMessage.value = result.error ?? t('admin-channels-email-test-unknown-error');
     }
   } catch (e: unknown) {
     testResult.value = 'failed';
@@ -552,7 +551,7 @@ async function doClearCredential() {
   try {
     await channelsService.clearCredential(channel.value.id);
     await loadExisting();
-    successMessage.value = 'Password removed';
+    successMessage.value = t('admin-channels-email-success-password-removed');
     setTimeout(() => (successMessage.value = ''), 3000);
   } catch (e: unknown) {
     errorMessage.value = createErrorFromResponse(e).getUserMessage();
@@ -575,7 +574,7 @@ async function doDeleteChannel() {
     await channelsService.remove(channel.value.id);
     channel.value = null;
     Object.assign(form, emptyForm());
-    successMessage.value = 'Channel deleted';
+    successMessage.value = t('admin-channels-email-success-delete');
     setTimeout(() => (successMessage.value = ''), 3000);
   } catch (e: unknown) {
     errorMessage.value = createErrorFromResponse(e).getUserMessage();
