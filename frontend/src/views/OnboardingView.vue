@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import { useAutoLogin } from '@/composables/useAutoLogin';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import Icon from '@/components/common/Icon.vue';
@@ -8,6 +9,9 @@ import Spinner from '@/components/common/Spinner.vue';
 import authService, {
   type AdminSetupRequest,
 } from '@/services/authService';
+
+const fluent = useFluent();
+const t = (key: string) => fluent.$t(key);
 
 const router = useRouter();
 
@@ -41,28 +45,28 @@ const isComplete = computed(() => currentStep.value === 'complete');
 
 const validateForm = (): boolean => {
   if (!bootstrapToken.value.trim()) {
-    errorMessage.value = 'Bootstrap token is required';
+    errorMessage.value = t('onboarding-validation-token');
     return false;
   }
   if (!adminData.value.name.trim()) {
-    errorMessage.value = 'Administrator name is required';
+    errorMessage.value = t('onboarding-validation-name');
     return false;
   }
   if (!adminData.value.email.trim()) {
-    errorMessage.value = 'Email address is required';
+    errorMessage.value = t('onboarding-validation-email');
     return false;
   }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(adminData.value.email)) {
-    errorMessage.value = 'Please enter a valid email address';
+    errorMessage.value = t('onboarding-validation-email-format');
     return false;
   }
   if (adminData.value.password.length < 8) {
-    errorMessage.value = 'Password must be at least 8 characters long';
+    errorMessage.value = t('onboarding-validation-password-length');
     return false;
   }
   if (adminData.value.password !== confirmPassword.value) {
-    errorMessage.value = 'Passwords do not match';
+    errorMessage.value = t('onboarding-validation-password-mismatch');
     return false;
   }
   return true;
@@ -105,7 +109,7 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error('Error checking setup status:', error);
-    errorMessage.value = 'Failed to verify setup status. Please try again.';
+    errorMessage.value = t('onboarding-error-setup-status');
   }
 });
 
@@ -117,12 +121,12 @@ const clearSensitiveData = () => {
 
 const handleLoginFallback = () => {
   errorMessage.value = '';
-  successMessage.value = 'Account created successfully. Please log in with your credentials.';
+  successMessage.value = t('onboarding-success-fallback');
   setTimeout(() => {
     router.push({
       path: '/login',
       query: {
-        message: 'Account created successfully. Please log in.',
+        message: t('onboarding-success-fallback-redirect'),
         email: adminData.value.email,
       },
     });
@@ -148,7 +152,7 @@ const handleSetup = async () => {
     if (response.success) {
       authService.clearSetupStatusCache();
       currentStep.value = 'logging-in';
-      successMessage.value = 'Admin account created. Logging you in...';
+      successMessage.value = t('onboarding-success-logging-in');
       autoLoginAttempted.value = true;
 
       const loginSuccess = await attemptLogin(adminData.value.email, adminData.value.password);
@@ -160,7 +164,7 @@ const handleSetup = async () => {
         handleLoginFallback();
       }
     } else {
-      errorMessage.value = response.message || 'Setup failed. Please try again.';
+      errorMessage.value = response.message || t('onboarding-error-setup-failed');
       currentStep.value = 'setup';
     }
   } catch (error) {
@@ -171,9 +175,9 @@ const handleSetup = async () => {
     if (axiosError.response?.data?.message) {
       errorMessage.value = axiosError.response.data.message;
     } else if (axiosError.response?.data?.status === 'error') {
-      errorMessage.value = axiosError.response.data.message || 'Setup failed. Please try again.';
+      errorMessage.value = axiosError.response.data.message || t('onboarding-error-setup-failed');
     } else {
-      errorMessage.value = 'An unexpected error occurred. Please try again.';
+      errorMessage.value = t('onboarding-error-unexpected');
     }
     // 401 from this endpoint means the bootstrap token was
     // rejected (missing, mismatched, or expired). Surface the
@@ -200,9 +204,9 @@ onUnmounted(() => {
       <!-- Logo / Brand -->
       <div class="flex flex-col gap-2 items-center">
         <LogoIcon class="h-12 px-4 text-accent" aria-label="Nosdesk Logo" />
-        <h1 class="text-2xl font-bold text-primary mt-4">Welcome to Nosdesk</h1>
+        <h1 class="text-2xl font-bold text-primary mt-4">{{ $t('onboarding-welcome-title') }}</h1>
         <p class="text-secondary text-center">
-          Let's get started by creating your administrator account
+          {{ $t('onboarding-welcome-subtitle') }}
         </p>
       </div>
 
@@ -233,7 +237,7 @@ onUnmounted(() => {
           we did supply.
         -->
         <div v-if="!tokenFromUrl">
-          <label for="bootstrap-token" class="block text-sm font-medium text-secondary">Bootstrap Token</label>
+          <label for="bootstrap-token" class="block text-sm font-medium text-secondary">{{ $t('onboarding-token-label') }}</label>
           <input
             id="bootstrap-token"
             v-model="bootstrapToken"
@@ -242,16 +246,16 @@ onUnmounted(() => {
             autocomplete="off"
             :disabled="isLoading"
             class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors font-mono text-sm"
-            placeholder="Paste the one-shot token from the server"
+            :placeholder="$t('onboarding-token-placeholder')"
           />
           <p class="text-xs text-tertiary mt-1">
-            Check the server startup logs for a setup URL, or retrieve manually with
+            {{ $t('onboarding-token-hint') }}
             <code class="text-secondary bg-app rounded px-1 py-0.5">docker compose exec backend cat /app/uploads/bootstrap.token</code>
           </p>
         </div>
 
         <div>
-          <label for="admin-name" class="block text-sm font-medium text-secondary">Administrator Name</label>
+          <label for="admin-name" class="block text-sm font-medium text-secondary">{{ $t('onboarding-name-label') }}</label>
           <input
             id="admin-name"
             v-model="adminData.name"
@@ -260,12 +264,12 @@ onUnmounted(() => {
             autocomplete="name"
             :disabled="isLoading"
             class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
-            placeholder="Enter your full name"
+            :placeholder="$t('onboarding-name-placeholder')"
           />
         </div>
 
         <div>
-          <label for="admin-email" class="block text-sm font-medium text-secondary">Email Address</label>
+          <label for="admin-email" class="block text-sm font-medium text-secondary">{{ $t('onboarding-email-label') }}</label>
           <input
             id="admin-email"
             v-model="adminData.email"
@@ -274,12 +278,12 @@ onUnmounted(() => {
             autocomplete="email"
             :disabled="isLoading"
             class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
-            placeholder="Enter your email address"
+            :placeholder="$t('onboarding-email-placeholder')"
           />
         </div>
 
         <div>
-          <label for="admin-password" class="block text-sm font-medium text-secondary">Password</label>
+          <label for="admin-password" class="block text-sm font-medium text-secondary">{{ $t('onboarding-password-label') }}</label>
           <input
             id="admin-password"
             v-model="adminData.password"
@@ -288,12 +292,12 @@ onUnmounted(() => {
             autocomplete="new-password"
             :disabled="isLoading"
             class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
-            placeholder="Choose a secure password (8+ characters)"
+            :placeholder="$t('onboarding-password-placeholder')"
           />
         </div>
 
         <div>
-          <label for="confirm-password" class="block text-sm font-medium text-secondary">Confirm Password</label>
+          <label for="confirm-password" class="block text-sm font-medium text-secondary">{{ $t('onboarding-confirm-password-label') }}</label>
           <input
             id="confirm-password"
             v-model="confirmPassword"
@@ -302,7 +306,7 @@ onUnmounted(() => {
             autocomplete="new-password"
             :disabled="isLoading"
             class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
-            placeholder="Confirm your password"
+            :placeholder="$t('onboarding-confirm-password-placeholder')"
           />
         </div>
 
@@ -314,9 +318,9 @@ onUnmounted(() => {
           >
             <span v-if="isLoading" class="flex items-center gap-2">
               <Spinner class="-ml-1 mr-2 text-white" />
-              Creating Administrator...
+              {{ $t('onboarding-submit-loading') }}
             </span>
-            <span v-else>Create Administrator Account</span>
+            <span v-else>{{ $t('onboarding-submit') }}</span>
           </button>
         </div>
       </form>
@@ -327,8 +331,8 @@ onUnmounted(() => {
           <Spinner size="lg" class="text-accent" />
         </div>
         <div class="flex flex-col gap-2">
-          <h3 class="text-lg font-semibold text-primary">Setting up your account</h3>
-          <p class="text-secondary">This will only take a moment...</p>
+          <h3 class="text-lg font-semibold text-primary">{{ $t('onboarding-progress-title') }}</h3>
+          <p class="text-secondary">{{ $t('onboarding-progress-subtitle') }}</p>
         </div>
       </div>
 
@@ -338,8 +342,8 @@ onUnmounted(() => {
           <Icon name="check" size="lg" class="text-status-success" />
         </div>
         <div class="flex flex-col gap-2">
-          <h3 class="text-lg font-semibold text-primary">Welcome to Nosdesk</h3>
-          <p class="text-secondary">Your administrator account is ready.</p>
+          <h3 class="text-lg font-semibold text-primary">{{ $t('onboarding-complete-title') }}</h3>
+          <p class="text-secondary">{{ $t('onboarding-complete-subtitle') }}</p>
         </div>
       </div>
 
@@ -348,12 +352,11 @@ onUnmounted(() => {
         <div class="flex flex-row items-start gap-3">
           <Icon name="info" size="md" class="text-tertiary mt-0.5 flex-shrink-0" />
           <div class="flex-1 min-w-0">
-            <h4 class="font-medium text-primary mb-1 text-sm">Migrating from another Nosdesk instance?</h4>
+            <h4 class="font-medium text-primary mb-1 text-sm">{{ $t('onboarding-migration-title') }}</h4>
             <p class="text-xs text-tertiary">
-              Create an admin here, then run
+              {{ $t('onboarding-migration-body-prefix') }}
               <code class="text-primary bg-app rounded px-1 py-0.5">docker compose exec backend nosdesk-cli db restore /path/to/backup.zip</code>
-              on the host. The restore replaces the admin with the
-              imported users.
+              {{ $t('onboarding-migration-body-suffix') }}
             </p>
           </div>
         </div>
@@ -366,11 +369,9 @@ onUnmounted(() => {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
           </svg>
           <div class="flex-1 min-w-0">
-            <h4 class="font-medium text-primary mb-1 text-sm">Security Notice</h4>
+            <h4 class="font-medium text-primary mb-1 text-sm">{{ $t('onboarding-security-title') }}</h4>
             <p class="text-xs text-tertiary">
-              This will create the first administrator account for your
-              Nosdesk installation. Choose a strong password; this account
-              will have full system access.
+              {{ $t('onboarding-security-body') }}
             </p>
           </div>
         </div>

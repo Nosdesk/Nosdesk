@@ -310,3 +310,75 @@ password-reset-body-text =
     Pour toute question, contactez votre administrateur système.
 
     -- { $app }
+
+# Onboarding administrateur (premier démarrage).
+onboarding-welcome-title = Bienvenue dans Nosdesk
+onboarding-welcome-subtitle = Commençons par créer votre compte administrateur
+onboarding-error-setup-status = Impossible de vérifier l'état de l'installation. Veuillez réessayer.
+onboarding-success-logging-in = Compte administrateur créé. Connexion en cours...
+onboarding-success-fallback = Compte créé avec succès. Veuillez vous connecter avec vos identifiants.
+onboarding-success-fallback-redirect = Compte créé avec succès. Veuillez vous connecter.
+onboarding-error-setup-failed = L'installation a échoué. Veuillez réessayer.
+onboarding-error-unexpected = Une erreur inattendue s'est produite. Veuillez réessayer.
+onboarding-validation-token = Le jeton d'amorçage est requis
+onboarding-validation-name = Le nom de l'administrateur est requis
+onboarding-validation-email = L'adresse e-mail est requise
+onboarding-validation-email-format = Veuillez saisir une adresse e-mail valide
+onboarding-validation-password-length = Le mot de passe doit comporter au moins 8 caractères
+onboarding-validation-password-mismatch = Les mots de passe ne correspondent pas
+onboarding-token-label = Jeton d'amorçage
+onboarding-token-placeholder = Collez le jeton à usage unique du serveur
+onboarding-token-hint = Consultez les journaux de démarrage du serveur pour l'URL d'installation, ou récupérez-le manuellement avec
+onboarding-name-label = Nom de l'administrateur
+onboarding-name-placeholder = Saisissez votre nom complet
+onboarding-email-label = Adresse e-mail
+onboarding-email-placeholder = Saisissez votre adresse e-mail
+onboarding-password-label = Mot de passe
+onboarding-password-placeholder = Choisissez un mot de passe sécurisé (8 caractères minimum)
+onboarding-confirm-password-label = Confirmer le mot de passe
+onboarding-confirm-password-placeholder = Confirmez votre mot de passe
+onboarding-submit = Créer le compte administrateur
+onboarding-submit-loading = Création de l'administrateur...
+onboarding-progress-title = Configuration de votre compte
+onboarding-progress-subtitle = Cela ne prendra qu'un instant...
+onboarding-complete-title = Bienvenue dans Nosdesk
+onboarding-complete-subtitle = Votre compte administrateur est prêt.
+onboarding-migration-title = Migrer depuis une autre instance Nosdesk ?
+onboarding-migration-body-prefix = Créez un administrateur ici, puis exécutez
+onboarding-migration-body-suffix = sur l'hôte. La restauration remplace l'administrateur par les utilisateurs importés.
+onboarding-security-title = Avis de sécurité
+onboarding-security-body = Cela crée le premier compte administrateur de votre installation Nosdesk. Choisissez un mot de passe fort ; ce compte aura un accès complet au système.
+
+# Assistant de configuration MFA.
+mfa-setup-header-default = Finalisez la configuration de votre compte
+mfa-setup-header-offer = Ajouter une autre méthode ?
+mfa-setup-header-additional = Ajouter une méthode de secours
+mfa-setup-subtitle-default = Votre type de compte exige une authentification multifacteur pour la sécurité
+mfa-setup-subtitle-choose = Choisissez votre méthode d'authentification préférée
+mfa-setup-subtitle-offer-passkey = Les passkeys offrent une connexion plus rapide et sans mot de passe
+mfa-setup-subtitle-offer-totp = Une application d'authentification sert de secours si vous perdez votre passkey
+mfa-setup-subtitle-passkey-additional = Configurez une passkey pour une connexion plus rapide
+mfa-setup-subtitle-totp-additional = Configurez une application d'authentification en tant que secours
+mfa-setup-totp-name = Application d'authentification
+mfa-setup-totp-description = Utilisez une application comme Google Authenticator, Authy ou 1Password pour générer des codes temporels
+mfa-setup-passkey-name = Passkey
+mfa-setup-passkey-description = Utilisez la biométrie (Face ID, Touch ID) ou une clé de sécurité matérielle pour une connexion sans mot de passe
+mfa-setup-which-title = Laquelle choisir ?
+mfa-setup-which-passkey-label = Les passkeys
+mfa-setup-which-passkey-body = sont plus sûres et plus pratiques, utilisez simplement votre empreinte ou votre visage.
+mfa-setup-which-totp-label = Les applications d'authentification
+mfa-setup-which-totp-body = fonctionnent sur tout appareil et ne nécessitent pas la biométrie.
+mfa-setup-totp-success-title = Application d'authentification configurée !
+mfa-setup-totp-success-body = Souhaitez-vous également ajouter une passkey pour une connexion plus rapide et sans mot de passe ?
+mfa-setup-passkey-success-title = Passkey créée !
+mfa-setup-passkey-success-body = Souhaitez-vous également configurer une application d'authentification comme méthode de secours ?
+mfa-setup-add-passkey-title = Ajouter une passkey
+mfa-setup-add-passkey-description = Utilisez Face ID, Touch ID ou une clé de sécurité
+mfa-setup-add-totp-title = Configurer une application d'authentification
+mfa-setup-add-totp-description = À utiliser en secours si vous perdez l'accès à votre passkey
+mfa-setup-skip-now = Ignorer pour l'instant
+mfa-setup-back-to-login = Retour à la connexion
+mfa-setup-back-skip = Ignorer
+mfa-setup-back-different = Choisir une autre méthode
+mfa-setup-error-session-expired = Session expirée. Veuillez vous reconnecter pour configurer la MFA.
+mfa-setup-error-invalid-access = Accès invalide. Redirection vers la connexion...

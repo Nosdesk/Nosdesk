@@ -307,3 +307,75 @@ password-reset-body-text =
     Neem voor vragen contact op met uw systeembeheerder.
 
     -- { $app }
+
+# Beheerders-onboarding (eerste start).
+onboarding-welcome-title = Welkom bij Nosdesk
+onboarding-welcome-subtitle = Laten we beginnen door uw beheerdersaccount aan te maken
+onboarding-error-setup-status = Kan de installatiestatus niet verifiëren. Probeer het opnieuw.
+onboarding-success-logging-in = Beheerdersaccount aangemaakt. U wordt aangemeld...
+onboarding-success-fallback = Account aangemaakt. Log in met uw gegevens.
+onboarding-success-fallback-redirect = Account aangemaakt. Log in om door te gaan.
+onboarding-error-setup-failed = De installatie is mislukt. Probeer het opnieuw.
+onboarding-error-unexpected = Er is een onverwachte fout opgetreden. Probeer het opnieuw.
+onboarding-validation-token = Bootstraptoken is vereist
+onboarding-validation-name = Beheerdersnaam is vereist
+onboarding-validation-email = E-mailadres is vereist
+onboarding-validation-email-format = Voer een geldig e-mailadres in
+onboarding-validation-password-length = Wachtwoord moet minimaal 8 tekens lang zijn
+onboarding-validation-password-mismatch = Wachtwoorden komen niet overeen
+onboarding-token-label = Bootstraptoken
+onboarding-token-placeholder = Plak het eenmalige token van de server
+onboarding-token-hint = Bekijk de opstartlogs van de server voor een installatie-URL, of haal het handmatig op met
+onboarding-name-label = Beheerdersnaam
+onboarding-name-placeholder = Voer uw volledige naam in
+onboarding-email-label = E-mailadres
+onboarding-email-placeholder = Voer uw e-mailadres in
+onboarding-password-label = Wachtwoord
+onboarding-password-placeholder = Kies een sterk wachtwoord (8+ tekens)
+onboarding-confirm-password-label = Wachtwoord bevestigen
+onboarding-confirm-password-placeholder = Bevestig uw wachtwoord
+onboarding-submit = Beheerdersaccount aanmaken
+onboarding-submit-loading = Beheerder aanmaken...
+onboarding-progress-title = Uw account instellen
+onboarding-progress-subtitle = Dit duurt slechts een moment...
+onboarding-complete-title = Welkom bij Nosdesk
+onboarding-complete-subtitle = Uw beheerdersaccount is klaar.
+onboarding-migration-title = Migreren vanaf een andere Nosdesk-instantie?
+onboarding-migration-body-prefix = Maak hier een beheerder aan en voer dan
+onboarding-migration-body-suffix = uit op de host. De restore vervangt de beheerder door de geïmporteerde gebruikers.
+onboarding-security-title = Beveiligingsmelding
+onboarding-security-body = Hiermee wordt het eerste beheerdersaccount voor uw Nosdesk-installatie aangemaakt. Kies een sterk wachtwoord; dit account krijgt volledige systeemtoegang.
+
+# MFA-installatiewizard.
+mfa-setup-header-default = Voltooi het instellen van uw account
+mfa-setup-header-offer = Nog een methode toevoegen?
+mfa-setup-header-additional = Reservemethode toevoegen
+mfa-setup-subtitle-default = Uw accounttype vereist multifactor-authenticatie voor beveiliging
+mfa-setup-subtitle-choose = Kies uw voorkeursmethode voor authenticatie
+mfa-setup-subtitle-offer-passkey = Passkeys bieden een snellere, wachtwoordvrije aanmelding
+mfa-setup-subtitle-offer-totp = Een authenticator-app biedt een reservemogelijkheid als u uw passkey verliest
+mfa-setup-subtitle-passkey-additional = Stel een passkey in voor sneller aanmelden
+mfa-setup-subtitle-totp-additional = Stel een authenticator-app in als reserve
+mfa-setup-totp-name = Authenticator-app
+mfa-setup-totp-description = Gebruik een app als Google Authenticator, Authy of 1Password om tijdgebaseerde codes te genereren
+mfa-setup-passkey-name = Passkey
+mfa-setup-passkey-description = Gebruik biometrie zoals Face ID, Touch ID of een hardwarebeveiligingssleutel voor wachtwoordvrije aanmelding
+mfa-setup-which-title = Welke moet ik kiezen?
+mfa-setup-which-passkey-label = Passkeys
+mfa-setup-which-passkey-body = zijn veiliger en gemakkelijker, gewoon uw vingerafdruk of gezicht gebruiken.
+mfa-setup-which-totp-label = Authenticator-apps
+mfa-setup-which-totp-body = werken op elk apparaat en vereisen geen biometrie.
+mfa-setup-totp-success-title = Authenticator-app ingesteld!
+mfa-setup-totp-success-body = Wilt u ook een passkey toevoegen voor snellere, wachtwoordvrije aanmelding?
+mfa-setup-passkey-success-title = Passkey aangemaakt!
+mfa-setup-passkey-success-body = Wilt u ook een authenticator-app instellen als reservemethode?
+mfa-setup-add-passkey-title = Passkey toevoegen
+mfa-setup-add-passkey-description = Gebruik Face ID, Touch ID of een beveiligingssleutel
+mfa-setup-add-totp-title = Authenticator-app instellen
+mfa-setup-add-totp-description = Gebruik als reserve als u geen toegang meer heeft tot uw passkey
+mfa-setup-skip-now = Voor nu overslaan
+mfa-setup-back-to-login = Terug naar aanmelden
+mfa-setup-back-skip = Overslaan
+mfa-setup-back-different = Andere methode kiezen
+mfa-setup-error-session-expired = Sessie verlopen. Meld opnieuw aan om MFA in te stellen.
+mfa-setup-error-invalid-access = Ongeldige toegang. Doorverwijzen naar aanmelden...

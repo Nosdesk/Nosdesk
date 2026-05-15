@@ -35,8 +35,8 @@
             </svg>
           </div>
           <div class="flex-1 min-w-0">
-            <h3 class="text-primary font-medium text-base sm:text-lg">Authenticator App</h3>
-            <p class="text-sm text-secondary">Use an app like Google Authenticator, Authy, or 1Password to generate time-based codes</p>
+            <h3 class="text-primary font-medium text-base sm:text-lg">{{ $t('mfa-setup-totp-name') }}</h3>
+            <p class="text-sm text-secondary">{{ $t('mfa-setup-totp-description') }}</p>
           </div>
           <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
@@ -51,8 +51,8 @@
             </svg>
           </div>
           <div class="flex-1 min-w-0">
-            <h3 class="text-primary font-medium text-base sm:text-lg">Passkey</h3>
-            <p class="text-sm text-secondary">Use biometrics like Face ID, Touch ID, or a hardware security key for passwordless login</p>
+            <h3 class="text-primary font-medium text-base sm:text-lg">{{ $t('mfa-setup-passkey-name') }}</h3>
+            <p class="text-sm text-secondary">{{ $t('mfa-setup-passkey-description') }}</p>
           </div>
           <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
@@ -62,10 +62,10 @@
           <div class="flex flex-row items-start gap-3">
             <Icon name="info" size="md" class="text-accent mt-0.5 flex-shrink-0" />
             <div class="flex-1 min-w-0">
-              <h4 class="font-medium text-primary mb-1 text-sm">Which should I choose?</h4>
+              <h4 class="font-medium text-primary mb-1 text-sm">{{ $t('mfa-setup-which-title') }}</h4>
               <p class="text-xs text-tertiary">
-                <strong>Passkeys</strong> are more secure and convenient - just use your fingerprint or face.
-                <strong>Authenticator apps</strong> work on any device and don't require biometrics.
+                <strong>{{ $t('mfa-setup-which-passkey-label') }}</strong> {{ $t('mfa-setup-which-passkey-body') }}
+                <strong>{{ $t('mfa-setup-which-totp-label') }}</strong> {{ $t('mfa-setup-which-totp-body') }}
               </p>
             </div>
           </div>
@@ -99,9 +99,9 @@
               <Icon name="check" size="lg" class="text-status-success" />
             </div>
             <div>
-              <h3 class="text-lg font-semibold text-primary mb-2">Authenticator App Set Up!</h3>
+              <h3 class="text-lg font-semibold text-primary mb-2">{{ $t('mfa-setup-totp-success-title') }}</h3>
               <p class="text-secondary text-sm">
-                Would you also like to add a passkey for faster, passwordless sign-in?
+                {{ $t('mfa-setup-totp-success-body') }}
               </p>
             </div>
           </div>
@@ -117,8 +117,8 @@
             </svg>
           </div>
           <div class="flex-1 min-w-0">
-            <h3 class="text-primary font-medium">Add a Passkey</h3>
-            <p class="text-sm text-secondary">Use Face ID, Touch ID, or a security key</p>
+            <h3 class="text-primary font-medium">{{ $t('mfa-setup-add-passkey-title') }}</h3>
+            <p class="text-sm text-secondary">{{ $t('mfa-setup-add-passkey-description') }}</p>
           </div>
           <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
@@ -127,7 +127,7 @@
           @click="finishSetup"
           class="w-full py-3 px-4 border border-default text-secondary rounded-lg hover:bg-surface-hover transition-colors text-sm"
         >
-          Skip for now
+          {{ $t('mfa-setup-skip-now') }}
         </button>
       </div>
 
@@ -139,9 +139,9 @@
               <Icon name="check" size="lg" class="text-status-success" />
             </div>
             <div>
-              <h3 class="text-lg font-semibold text-primary mb-2">Passkey Created!</h3>
+              <h3 class="text-lg font-semibold text-primary mb-2">{{ $t('mfa-setup-passkey-success-title') }}</h3>
               <p class="text-secondary text-sm">
-                Would you also like to set up an authenticator app as a backup method?
+                {{ $t('mfa-setup-passkey-success-body') }}
               </p>
             </div>
           </div>
@@ -157,8 +157,8 @@
             </svg>
           </div>
           <div class="flex-1 min-w-0">
-            <h3 class="text-primary font-medium">Set Up Authenticator App</h3>
-            <p class="text-sm text-secondary">Use as a backup if you lose access to your passkey</p>
+            <h3 class="text-primary font-medium">{{ $t('mfa-setup-add-totp-title') }}</h3>
+            <p class="text-sm text-secondary">{{ $t('mfa-setup-add-totp-description') }}</p>
           </div>
           <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
@@ -167,7 +167,7 @@
           @click="finishSetup"
           class="w-full py-3 px-4 border border-default text-secondary rounded-lg hover:bg-surface-hover transition-colors text-sm"
         >
-          Skip for now
+          {{ $t('mfa-setup-skip-now') }}
         </button>
       </div>
 
@@ -198,7 +198,7 @@
           class="flex items-center gap-2 px-4 py-2 text-sm text-tertiary hover:text-primary transition-colors"
         >
           <Icon name="chevronLeft" />
-          Back to Login
+          {{ $t('mfa-setup-back-to-login') }}
         </button>
         <button
           v-else-if="showBackButton"
@@ -218,6 +218,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
 import MFASettings from '@/components/settings/MFASettings.vue';
@@ -229,6 +230,8 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const mfaSetupStore = useMfaSetupStore();
+const fluent = useFluent();
+const t = (key: string) => fluent.$t(key);
 
 const errorMessage = ref('');
 const successMessage = ref('');
@@ -245,29 +248,29 @@ const headerTitle = computed(() => {
   switch (mfaMethod.value) {
     case 'offer-passkey':
     case 'offer-totp':
-      return 'Add Another Method?';
+      return t('mfa-setup-header-offer');
     case 'passkey-additional':
     case 'totp-additional':
-      return 'Add Backup Method';
+      return t('mfa-setup-header-additional');
     default:
-      return 'Complete Your Account Setup';
+      return t('mfa-setup-header-default');
   }
 });
 
 const headerSubtitle = computed(() => {
   switch (mfaMethod.value) {
     case 'choose':
-      return 'Choose your preferred authentication method';
+      return t('mfa-setup-subtitle-choose');
     case 'offer-passkey':
-      return 'Passkeys provide a faster, passwordless sign-in experience';
+      return t('mfa-setup-subtitle-offer-passkey');
     case 'offer-totp':
-      return 'An authenticator app provides a backup if you lose your passkey';
+      return t('mfa-setup-subtitle-offer-totp');
     case 'passkey-additional':
-      return 'Set up a passkey for faster sign-in';
+      return t('mfa-setup-subtitle-passkey-additional');
     case 'totp-additional':
-      return 'Set up an authenticator app as a backup';
+      return t('mfa-setup-subtitle-totp-additional');
     default:
-      return 'Your account type requires multi-factor authentication for security';
+      return t('mfa-setup-subtitle-default');
   }
 });
 
@@ -277,9 +280,9 @@ const showBackButton = computed(() => {
 
 const backButtonText = computed(() => {
   if (mfaMethod.value === 'passkey-additional' || mfaMethod.value === 'totp-additional') {
-    return 'Skip';
+    return t('mfa-setup-back-skip');
   }
-  return 'Choose Different Method';
+  return t('mfa-setup-back-different');
 });
 
 // Security check and credential setup
@@ -310,7 +313,7 @@ onMounted(async () => {
   // No valid credentials - redirect back to login
   if (authStore.mfaSetupRequired && authStore.mfaUserUuid) {
     console.log('🔄 No credentials found, but auth store indicates MFA setup required');
-    errorMessage.value = 'Session expired. Please log in again to set up MFA.';
+    errorMessage.value = t('mfa-setup-error-session-expired');
     setTimeout(() => {
       mfaSetupStore.clearCredentials();
       authStore.clearMfaState();
@@ -318,7 +321,7 @@ onMounted(async () => {
     }, 3000);
   } else {
     console.error('❌ No valid credentials found');
-    errorMessage.value = 'Invalid access. Redirecting to login...';
+    errorMessage.value = t('mfa-setup-error-invalid-access');
     setTimeout(() => {
       mfaSetupStore.clearCredentials();
       router.push('/login');
