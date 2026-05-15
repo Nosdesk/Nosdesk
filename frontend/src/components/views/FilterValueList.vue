@@ -148,7 +148,7 @@ watch(
           ref="searchInputRef"
           v-model="query"
           type="text"
-          placeholder="Search…"
+          :placeholder="$t('views-filter-value-search-placeholder')"
           class="bg-surface border border-subtle rounded-md text-xs pl-7 pr-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
           @keydown="onSearchKeydown"
         />
@@ -159,7 +159,7 @@ watch(
       <p
         v-if="filteredOptions.length === 0"
         class="px-3 py-2 text-xs text-tertiary italic"
-      >{{ query ? 'No matches' : (emptyMessage ?? 'No options') }}</p>
+      >{{ query ? $t('views-filter-value-no-matches') : (emptyMessage ?? $t('views-filter-value-no-options')) }}</p>
       <button
         v-for="(opt, i) in filteredOptions"
         :key="opt.value"
@@ -207,7 +207,7 @@ watch(
         type="button"
         class="text-[11px] text-tertiary hover:text-primary"
         @click="emit('clear')"
-      >Clear</button>
+      >{{ $t('views-filter-value-clear') }}</button>
     </footer>
   </div>
 </template>

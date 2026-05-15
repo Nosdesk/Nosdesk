@@ -77,7 +77,7 @@ async function confirmDelete(): Promise<void> {
 <template>
   <Modal
     :show="view !== null"
-    title="Edit view"
+    :title="$t('views-saved-editor-title')"
     size="sm"
     @close="emit('close')"
   >
@@ -91,7 +91,7 @@ async function confirmDelete(): Promise<void> {
           for="saved-view-name"
           class="text-xs font-medium text-secondary"
         >
-          Name
+          {{ $t('views-saved-editor-name-label') }}
         </label>
         <input
           id="saved-view-name"
@@ -111,7 +111,7 @@ async function confirmDelete(): Promise<void> {
           class="px-3 py-2 text-sm rounded-lg text-status-error hover:bg-status-error/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           @click="showConfirmDelete = true"
         >
-          Delete view
+          {{ $t('views-saved-editor-delete') }}
         </button>
         <div class="flex items-center gap-2">
           <button
@@ -119,7 +119,7 @@ async function confirmDelete(): Promise<void> {
             class="px-4 py-2 text-sm rounded-lg text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
             @click="emit('close')"
           >
-            Cancel
+            {{ $t('views-saved-editor-cancel') }}
           </button>
           <button
             type="submit"
@@ -127,7 +127,7 @@ async function confirmDelete(): Promise<void> {
             class="px-4 py-2 text-sm rounded-lg text-white bg-accent hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <Spinner v-if="saving" size="sm" />
-            <span>{{ saving ? 'Saving' : 'Save' }}</span>
+            <span>{{ saving ? $t('views-saved-editor-saving') : $t('views-saved-editor-save') }}</span>
           </button>
         </div>
       </div>
@@ -137,13 +137,9 @@ async function confirmDelete(): Promise<void> {
   <ConfirmModal
     :show="showConfirmDelete"
     variant="danger"
-    title="Delete view?"
-    :message="
-      view
-        ? `Delete “${view.name}”? This can't be undone — recreate the view if you need it back.`
-        : ''
-    "
-    confirm-label="Delete view"
+    :title="$t('views-saved-editor-confirm-title')"
+    :message="view ? $t('views-saved-editor-confirm-message', { name: view.name }) : ''"
+    :confirm-label="$t('views-saved-editor-delete')"
     @confirm="confirmDelete"
     @close="showConfirmDelete = false"
   />

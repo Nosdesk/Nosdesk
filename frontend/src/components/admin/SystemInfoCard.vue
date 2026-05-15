@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import axios from 'axios'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
+
+const fluent = useFluent()
 
 interface SystemInfo {
   version: string
@@ -41,10 +44,10 @@ const formattedUptime = computed(() => {
   const secs = seconds % 60
 
   const parts: string[] = []
-  if (days > 0) parts.push(`${days}d`)
-  if (hours > 0) parts.push(`${hours}h`)
-  if (mins > 0) parts.push(`${mins}m`)
-  parts.push(`${secs}s`)
+  if (days > 0) parts.push(fluent.$t('admin-system-info-uptime-days', { count: days }))
+  if (hours > 0) parts.push(fluent.$t('admin-system-info-uptime-hours', { count: hours }))
+  if (mins > 0) parts.push(fluent.$t('admin-system-info-uptime-minutes', { count: mins }))
+  parts.push(fluent.$t('admin-system-info-uptime-seconds', { count: secs }))
 
   return parts.join(' ')
 })
@@ -95,7 +98,7 @@ onUnmounted(() => {
 <template>
   <div class="bg-surface border border-default rounded-xl p-6 flex flex-col gap-4">
     <div class="flex items-center justify-between">
-      <h2 class="text-lg font-semibold text-primary">System Information</h2>
+      <h2 class="text-lg font-semibold text-primary">{{ $t('admin-system-info-title') }}</h2>
       <a
         v-if="updateInfo?.update_available && updateInfo?.release_url"
         :href="updateInfo.release_url"
@@ -105,7 +108,7 @@ onUnmounted(() => {
         <span class="text-status-success inline-flex">
           <Icon name="download" />
         </span>
-        Update to {{ updateInfo.latest_version }}
+        {{ $t('admin-system-info-update-to', { version: updateInfo.latest_version }) }}
       </a>
     </div>
 
@@ -120,15 +123,15 @@ onUnmounted(() => {
     <!-- System info cards -->
     <div v-else class="grid grid-cols-1 sm:grid-cols-3 gap-4">
       <div class="bg-surface-alt rounded-lg p-4">
-        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide mb-1">Version</h3>
+        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide mb-1">{{ $t('admin-system-info-version') }}</h3>
         <p class="text-primary font-medium">{{ systemInfo.version }}</p>
       </div>
       <div class="bg-surface-alt rounded-lg p-4">
-        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide mb-1">Environment</h3>
+        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide mb-1">{{ $t('admin-system-info-environment') }}</h3>
         <p class="text-primary font-medium">{{ systemInfo.environment }}</p>
       </div>
       <div class="bg-surface-alt rounded-lg p-4">
-        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide mb-1">Uptime</h3>
+        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide mb-1">{{ $t('admin-system-info-uptime') }}</h3>
         <p class="text-primary font-medium font-mono tabular-nums">{{ formattedUptime }}</p>
       </div>
     </div>

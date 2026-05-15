@@ -27,6 +27,7 @@
  * keybinding can jump straight to stage 2 for the title facet.
  */
 import { computed, nextTick, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import FilterValueList from '@/components/views/FilterValueList.vue'
@@ -38,6 +39,16 @@ import {
   FACET_ORDER,
   type FilterOption,
 } from '@/components/views/filterFacets'
+
+const fluent = useFluent()
+
+/** Map a FilterFacet to its localised label. The FACET_META
+ * registry is the source of truth for facet ordering + multi
+ * semantics, but its English `label` is overridden here so the
+ * Add-filter menu and pill labels follow the active locale. */
+function facetLabel(facet: FilterFacet): string {
+  return fluent.$t(`views-add-filter-facet-${facet}`)
+}
 
 const props = withDefaults(defineProps<{
   activeFacets: FilterFacet[]
@@ -84,7 +95,7 @@ interface FacetNavItem extends KeyboardNavItem {
 }
 
 const facetItems = computed<FacetNavItem[]>(() =>
-  props.facetOrder.map((f) => ({ label: FACET_META[f].label, facet: f })),
+  props.facetOrder.map((f) => ({ label: facetLabel(f), facet: f })),
 )
 
 const facetNav = useMenuKeyboardNav<FacetNavItem>((item) => pickFacet(item.facet))
@@ -176,7 +187,9 @@ const stageTextValue = computed<string>(() =>
   activeFacet.value ? props.textValueFor(activeFacet.value) : '',
 )
 const stageMeta = computed(() =>
-  activeFacet.value ? FACET_META[activeFacet.value] : null,
+  activeFacet.value
+    ? { ...FACET_META[activeFacet.value], label: facetLabel(activeFacet.value) }
+    : null,
 )
 </script>
 
@@ -194,13 +207,13 @@ const stageMeta = computed(() =>
       @click="open = !open"
     >
       <Icon name="add" class="w-3 h-3" />
-      <span>Add filter</span>
+      <span>{{ $t('views-add-filter-trigger') }}</span>
     </button>
 
     <ResponsiveMenu
       :open="open"
       :anchor="anchor"
-      :title="stage === 'values' && stageMeta ? stageMeta.label : 'Add filter'"
+      :title="stage === 'values' && stageMeta ? stageMeta.label : $t('views-add-filter-trigger')"
       placement="bottom-start"
       react-to-scroll="reposition"
       :offset="4"
@@ -240,7 +253,7 @@ const stageMeta = computed(() =>
               @click.stop="pickFacet(facet)"
               @mouseenter="facetNav.setHighlighted(i)"
             >
-              <span class="flex-1 text-xs text-primary">{{ FACET_META[facet].label }}</span>
+              <span class="flex-1 text-xs text-primary">{{ facetLabel(facet) }}</span>
               <Icon
                 v-if="activeSet.has(facet)"
                 name="check"
@@ -258,7 +271,7 @@ const stageMeta = computed(() =>
               <button
                 type="button"
                 class="text-tertiary hover:text-primary transition-colors p-0.5 -ml-0.5 rounded hover:bg-surface-hover"
-                title="Back (Backspace)"
+                :title="$t('views-add-filter-back-tooltip')"
                 @click="back"
               >
                 <Icon name="chevronLeft" class="w-3.5 h-3.5" />
@@ -271,7 +284,7 @@ const stageMeta = computed(() =>
                 ref="textInputRef"
                 type="text"
                 :value="stageTextValue"
-                placeholder="Search title…"
+                :placeholder="$t('views-add-filter-search-title-placeholder')"
                 class="bg-surface border border-subtle rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
                 @input="onTextInput"
                 @keydown="onTextKeydown"
@@ -282,7 +295,7 @@ const stageMeta = computed(() =>
               v-else
               :options="stageOptions"
               :selected="stageSelected"
-              empty-message="No values match"
+              :empty-message="$t('views-add-filter-no-matches')"
               @toggle="(v) => activeFacet && emit('toggle', activeFacet, v)"
               @clear="activeFacet && emit('clear', activeFacet)"
             />

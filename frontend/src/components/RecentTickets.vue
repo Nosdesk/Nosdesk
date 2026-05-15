@@ -2,6 +2,7 @@
 import { RouterLink } from 'vue-router'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
 import { ref, onMounted, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
@@ -12,6 +13,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import type { RecentTicket } from '@/types/ticket'
 
 const recentTicketsStore = useRecentTicketsStore()
+const fluent = useFluent()
 const {
   dragState,
   handleDragStart: baseDragStart,
@@ -29,11 +31,14 @@ const contextMenuTicket = ref<RecentTicket | null>(null)
 const contextMenuPos = ref({ x: 0, y: 0 })
 const showContextMenu = ref(false)
 
-const ticketContextMenuItems: MenuItem[] = [
-  { id: 'open-new-tab', label: 'Open in new tab', icon: 'M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25' },
-  { id: 'copy-link', label: 'Copy link', icon: 'M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244' },
-  { id: 'remove-recent', label: 'Remove from recent', icon: 'M6 18L18 6M6 6l12 12', danger: true, divider: true },
-]
+// Context menu items. Labels resolve through Fluent so the menu
+// reads in the active locale. Icon paths stay literal SVG d-attrs;
+// `id` values are stable action keys.
+const ticketContextMenuItems = computed<MenuItem[]>(() => [
+  { id: 'open-new-tab', label: fluent.$t('recent-tickets-context-open-new-tab'), icon: 'M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25' },
+  { id: 'copy-link', label: fluent.$t('recent-tickets-context-copy-link'), icon: 'M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244' },
+  { id: 'remove-recent', label: fluent.$t('recent-tickets-context-remove'), icon: 'M6 18L18 6M6 6l12 12', danger: true, divider: true },
+])
 
 const handleTicketContextMenu = (ticket: RecentTicket, event: MouseEvent) => {
   event.preventDefault()
@@ -226,7 +231,7 @@ onMounted(async () => {
 
     <!-- Empty -->
     <div v-else class="flex-1 flex items-center justify-center p-2">
-      <p class="text-xs text-tertiary">No recent tickets</p>
+      <p class="text-xs text-tertiary">{{ $t('recent-tickets-empty') }}</p>
     </div>
 
     <!-- Context Menu. Always mounted; `:open` lets Popover's

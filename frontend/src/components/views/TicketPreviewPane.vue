@@ -75,7 +75,7 @@ function onOpen(): void {
 <template>
   <aside
     class="flex flex-col h-full bg-surface min-w-0"
-    aria-label="Ticket preview"
+    :aria-label="$t('views-ticket-preview-aria')"
   >
     <!-- Empty state: no selection -->
     <div
@@ -85,12 +85,12 @@ function onOpen(): void {
       <div class="w-12 h-12 rounded-full bg-surface-hover flex items-center justify-center mb-4">
         <Icon name="document" class="w-5 h-5 text-tertiary/60" />
       </div>
-      <p class="text-sm font-medium text-secondary mb-2">No ticket selected</p>
+      <p class="text-sm font-medium text-secondary mb-2">{{ $t('views-ticket-preview-empty-title') }}</p>
       <p class="text-xs leading-relaxed max-w-[16rem]">
-        Click any row, or scrub with
+        {{ $t('views-ticket-preview-empty-prefix') }}
         <kbd class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-hover rounded border border-subtle">↑</kbd>
         <kbd class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-hover rounded border border-subtle ml-1">↓</kbd>
-        to preview.
+        {{ $t('views-ticket-preview-empty-suffix') }}
       </p>
     </div>
 
@@ -120,14 +120,14 @@ function onOpen(): void {
             class="inline-flex items-center gap-1 text-[11px] text-secondary hover:text-primary px-2 h-7 rounded-md hover:bg-surface-hover transition-colors"
             @click="onOpen"
           >
-            Open
+            {{ $t('views-ticket-preview-open') }}
             <Icon name="chevronRight" class="w-3 h-3" />
           </button>
           <button
             type="button"
             class="text-tertiary hover:text-primary p-1 rounded hover:bg-surface-hover transition-colors"
-            title="Close preview (Esc)"
-            aria-label="Close preview"
+            :title="$t('views-ticket-preview-close-tooltip')"
+            :aria-label="$t('views-ticket-preview-close-aria')"
             @click="emit('close')"
           >
             <Icon name="close" class="w-3.5 h-3.5" />
@@ -175,7 +175,7 @@ function onOpen(): void {
                   : 'bg-surface-hover text-secondary'"
               >
                 <Icon name="warning" class="w-3 h-3" />
-                KB gap
+                {{ $t('views-ticket-preview-kb-gap') }}
               </span>
               <span
                 v-if="card.recurrence_rule"
@@ -186,7 +186,7 @@ function onOpen(): void {
                   <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6M13 6V3M13 6h-3" stroke-linecap="round" stroke-linejoin="round" />
                   <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10M3 10v3M3 10h3" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
-                Recurring
+                {{ $t('views-ticket-preview-recurring') }}
               </span>
             </div>
           </div>
@@ -194,20 +194,20 @@ function onOpen(): void {
           <!-- PROPERTIES section -->
           <section class="px-5 pt-5 pb-4 border-t border-subtle/60">
             <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-3">
-              Properties
+              {{ $t('views-ticket-preview-properties') }}
             </h3>
             <div class="flex flex-col gap-3 text-xs">
               <div class="flex items-center gap-3">
                 <span class="flex items-center gap-1.5 w-24 text-tertiary shrink-0">
                   <Icon name="user" class="w-3 h-3" />
-                  Assignee
+                  {{ $t('views-ticket-preview-assignee') }}
                 </span>
                 <UserCell :uuid="card.assignee_uuid" size="xs" />
               </div>
               <div class="flex items-center gap-3">
                 <span class="flex items-center gap-1.5 w-24 text-tertiary shrink-0">
                   <Icon name="userPlus" class="w-3 h-3" />
-                  Requester
+                  {{ $t('views-ticket-preview-requester') }}
                 </span>
                 <UserCell :uuid="card.requester_uuid" size="xs" />
               </div>
@@ -219,12 +219,12 @@ function onOpen(): void {
                     <line x1="5.5" y1="2" x2="5.5" y2="4" stroke-linecap="round" />
                     <line x1="10.5" y1="2" x2="10.5" y2="4" stroke-linecap="round" />
                   </svg>
-                  Due date
+                  {{ $t('views-ticket-preview-due-date') }}
                 </span>
                 <span
                   class="tabular-nums"
                   :class="card.due_date ? 'text-secondary' : 'text-tertiary italic'"
-                >{{ card.due_date ? shortDate(card.due_date) : 'Not set' }}</span>
+                >{{ card.due_date ? shortDate(card.due_date) : $t('views-ticket-preview-not-set') }}</span>
               </div>
               <div v-if="card.cycle_id != null" class="flex items-center gap-3">
                 <span class="flex items-center gap-1.5 w-24 text-tertiary shrink-0">
@@ -232,14 +232,14 @@ function onOpen(): void {
                     <circle cx="8" cy="8" r="6" stroke-dasharray="3 2" />
                     <circle cx="8" cy="8" r="1.5" fill="currentColor" />
                   </svg>
-                  Cycle
+                  {{ $t('views-ticket-preview-cycle') }}
                 </span>
-                <span class="text-accent">Cycle #{{ card.cycle_id }}</span>
+                <span class="text-accent">{{ $t('views-ticket-preview-cycle-label', { id: card.cycle_id }) }}</span>
               </div>
               <div v-if="card.category_id != null" class="flex items-center gap-3">
                 <span class="flex items-center gap-1.5 w-24 text-tertiary shrink-0">
                   <Icon name="tag" class="w-3 h-3" />
-                  Category
+                  {{ $t('views-ticket-preview-category') }}
                 </span>
                 <span class="text-secondary">#{{ card.category_id }}</span>
               </div>
@@ -251,7 +251,7 @@ function onOpen(): void {
                the precise time + target. -->
           <section v-if="slaState" class="px-5 pt-5 pb-5 border-t border-subtle/60">
             <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-3">
-              SLA
+              {{ $t('views-ticket-preview-sla') }}
             </h3>
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between text-xs">
@@ -281,12 +281,12 @@ function onOpen(): void {
                size, which inline-SVG mixed with Icon does not. -->
           <section class="px-5 pt-5 pb-4 border-t border-subtle/60">
             <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-3">
-              Activity
+              {{ $t('views-ticket-preview-activity') }}
             </h3>
             <div class="flex flex-col gap-3 text-xs">
               <div class="flex items-center gap-3">
                 <Icon name="clock" class="w-3.5 h-3.5 text-tertiary shrink-0" />
-                <span class="text-secondary flex-1">Last activity</span>
+                <span class="text-secondary flex-1">{{ $t('views-ticket-preview-last-activity') }}</span>
                 <span
                   class="text-tertiary tabular-nums"
                   :title="fullDateTime(card.last_activity_at)"
@@ -294,7 +294,7 @@ function onOpen(): void {
               </div>
               <div class="flex items-center gap-3">
                 <Icon name="circleDot" class="w-3.5 h-3.5 text-tertiary shrink-0" />
-                <span class="text-secondary flex-1">Created</span>
+                <span class="text-secondary flex-1">{{ $t('views-ticket-preview-created') }}</span>
                 <span
                   class="text-tertiary tabular-nums"
                   :title="fullDateTime(card.created_at)"
@@ -309,7 +309,7 @@ function onOpen(): void {
             class="px-5 pt-5 pb-4 border-t border-subtle/60"
           >
             <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-3">
-              Affected devices
+              {{ $t('views-ticket-preview-affected-devices') }}
             </h3>
             <div class="text-xs text-secondary flex items-center gap-2">
               <Icon name="device" class="w-3.5 h-3.5 text-tertiary shrink-0" />
@@ -319,7 +319,7 @@ function onOpen(): void {
               <span
                 v-if="card.affected_devices.count > 1"
                 class="text-tertiary text-[11px] tabular-nums shrink-0"
-              >+{{ card.affected_devices.count - 1 }} more</span>
+              >{{ $t('views-ticket-preview-more-devices', { count: card.affected_devices.count - 1 }) }}</span>
             </div>
           </section>
 
@@ -333,7 +333,7 @@ function onOpen(): void {
               class="w-full inline-flex items-center justify-center gap-1.5 text-xs font-medium text-secondary hover:text-primary px-3 py-2 rounded-md border border-subtle hover:border-default hover:bg-surface-hover transition-colors"
               @click="onOpen"
             >
-              View description, comments, and devices
+              {{ $t('views-ticket-preview-view-full') }}
               <Icon name="chevronRight" class="w-3 h-3" />
             </button>
           </div>

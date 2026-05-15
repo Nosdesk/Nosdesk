@@ -3135,3 +3135,288 @@ ticket-chip-dropdown-status = Sélectionner un statut
 ticket-chip-dropdown-priority = Sélectionner une priorité
 ticket-chip-dropdown-category = Sélectionner une catégorie
 ticket-chip-dropdown-option = Sélectionner une option
+# Admin : notice de configuration par variables d'environnement
+admin-env-notice-title = Configuration par variables d'environnement
+admin-env-notice-prefix = Les paramètres sont configurés via des variables d'environnement dans votre fichier
+admin-env-notice-suffix = ou l'environnement Docker.
+
+# Admin : carte d'informations système (SystemInfoCard)
+admin-system-info-title = Informations système
+admin-system-info-version = Version
+admin-system-info-environment = Environnement
+admin-system-info-uptime = Disponibilité
+admin-system-info-update-to = Mettre à jour vers { $version }
+admin-system-info-uptime-days = { $count } j
+admin-system-info-uptime-hours = { $count } h
+admin-system-info-uptime-minutes = { $count } min
+admin-system-info-uptime-seconds = { $count } s
+
+# Admin : éditeur de catégories (CategoryEditPanel)
+admin-categories-edit-title-edit = Modifier la catégorie
+admin-categories-edit-title-create = Créer une catégorie
+admin-categories-edit-delete-tooltip = Supprimer la catégorie
+admin-categories-edit-close-tooltip = Fermer le panneau
+admin-categories-edit-name-label = Nom
+admin-categories-edit-name-placeholder = Saisir le nom de la catégorie
+admin-categories-edit-description-label = Description
+admin-categories-edit-description-placeholder = Description facultative
+admin-categories-edit-icon-label = Icône
+admin-categories-edit-icon-folder = Dossier
+admin-categories-edit-icon-tag = Étiquette
+admin-categories-edit-icon-bug = Anomalie
+admin-categories-edit-icon-settings = Paramètres
+admin-categories-edit-icon-idea = Idée
+admin-categories-edit-icon-question = Question
+admin-categories-edit-icon-alert = Alerte
+admin-categories-edit-icon-star = Étoile
+admin-categories-edit-color-label = Couleur
+admin-categories-edit-active-label = Actif
+admin-categories-edit-visibility-label = Visible aux groupes
+admin-categories-edit-visibility-hint = (laisser vide pour public)
+admin-categories-edit-visibility-toggle-aria = Basculer la visibilité pour { $name }
+admin-categories-edit-member-count = { $count ->
+    [one] { $count } membre
+   *[other] { $count } membres
+    }
+admin-categories-edit-no-groups = Aucun groupe disponible. Créez d'abord des groupes.
+admin-categories-edit-cancel = Annuler
+admin-categories-edit-save = Enregistrer les modifications
+admin-categories-edit-create = Créer la catégorie
+
+# Admin : configuration des groupes (GroupConfigurationPanel)
+admin-groups-config-subtitle = Configuration du groupe
+admin-groups-config-delete-tooltip = Supprimer le groupe
+admin-groups-config-close-tooltip = Fermer le panneau
+admin-groups-config-source-microsoft = Microsoft Entra ID
+admin-groups-config-managed-by = Géré par { $source }
+admin-groups-config-last-synced = Dernière synchronisation le { $date }
+admin-groups-config-unmanage = Reprendre la gestion
+admin-groups-config-unmanage-processing = Traitement...
+admin-groups-config-sync-settings = Paramètres de synchronisation
+admin-groups-config-general = Informations générales
+admin-groups-config-name-label = Nom
+admin-groups-config-name-placeholder = Saisir le nom du groupe
+admin-groups-config-description-label = Description
+admin-groups-config-description-placeholder = Description facultative
+admin-groups-config-color-label = Couleur
+admin-groups-config-save-changes = Enregistrer les modifications
+admin-groups-config-members = Membres
+admin-groups-config-no-members = Aucun membre
+admin-groups-config-devices = Appareils
+admin-groups-config-device-sn = N° de série : { $sn }
+admin-groups-config-no-devices = Aucun appareil
+admin-groups-config-included-in = Inclus dans
+admin-groups-config-included-groups = Groupes inclus
+admin-groups-config-includes-hint = Les membres des groupes inclus sont considérés comme membres de ce groupe pour la visibilité, l'accès et l'attribution.
+admin-groups-config-source-direct = Direct
+admin-groups-config-source-via = via
+admin-groups-config-source-also-via = également via
+admin-groups-config-section-assigned = Affectés
+admin-groups-config-section-included-via = Inclus via les groupes
+admin-groups-config-section-not-assigned = Non affectés
+admin-groups-config-search-users = Rechercher des utilisateurs...
+admin-groups-config-search-devices = Rechercher des appareils par nom, hôte, numéro de série...
+admin-groups-config-search-groups = Rechercher des groupes...
+admin-groups-config-no-users-found = Aucun utilisateur trouvé
+admin-groups-config-no-devices-found = Aucun appareil trouvé
+admin-groups-config-no-groups-found = Aucun groupe trouvé
+admin-groups-config-synced-badge = Synchronisé
+admin-groups-config-synced-intune-tooltip = Synchronisé depuis Microsoft Intune
+admin-groups-config-selected-count = { $count } sélectionné(s)
+admin-groups-config-member-count = { $count ->
+    [one] { $count } membre
+   *[other] { $count } membres
+    }
+admin-groups-config-save-members = Enregistrer les membres
+admin-groups-config-save-devices = Enregistrer les appareils
+admin-groups-config-save-includes = Enregistrer les groupes inclus
+admin-groups-config-not-found = Groupe introuvable
+admin-groups-config-cancel = Annuler
+admin-groups-config-delete-title = Supprimer le groupe
+admin-groups-config-delete-confirm = Supprimer le groupe
+admin-groups-config-delete-prompt-prefix = Êtes-vous sûr de vouloir supprimer le groupe
+admin-groups-config-delete-prompt-suffix = ? Toutes les associations de membres seront supprimées, mais pas les utilisateurs.
+admin-groups-config-unmanage-title = Reprendre la gestion du groupe ?
+admin-groups-config-unmanage-title-named = Reprendre la gestion de { $name } ?
+admin-groups-config-unmanage-message = Le groupe ne sera plus synchronisé avec Microsoft Entra ID. Les modifications manuelles seront autorisées, mais l'historique de synchronisation est conservé.
+admin-groups-config-error-invalid-id = Identifiant de groupe invalide
+admin-groups-config-error-load = Échec du chargement des détails du groupe
+admin-groups-config-error-name-required = Le nom du groupe est requis
+admin-groups-config-error-save = Échec de l'enregistrement du groupe
+admin-groups-config-error-members = Échec de la mise à jour des membres
+admin-groups-config-error-devices = Échec de la mise à jour des appareils
+admin-groups-config-error-includes = Échec de la mise à jour des groupes inclus
+admin-groups-config-error-delete = Échec de la suppression du groupe
+admin-groups-config-error-unmanage = Échec de la reprise de gestion
+admin-groups-config-success-updated = Groupe mis à jour
+admin-groups-config-success-members = Membres mis à jour
+admin-groups-config-success-devices = Appareils mis à jour
+admin-groups-config-success-includes = Groupes inclus mis à jour
+admin-groups-config-success-unmanage = Le groupe est désormais géré localement
+
+# Chrome de la table des tickets (TicketsTable, TicketRow, TicketPreviewPane)
+views-tickets-table-select-all-aria = Sélectionner tous les tickets visibles
+views-tickets-table-resize-handle-tooltip = Glisser pour redimensionner · double-clic pour ajuster
+views-ticket-row-select-aria = Sélectionner le ticket n°{ $id }
+views-ticket-row-recurring-tooltip = Ticket récurrent
+views-ticket-row-sla-badge = SLA
+views-ticket-row-sla-breached-tooltip = SLA dépassé
+views-ticket-row-sla-breached = Dépassé
+views-ticket-row-sla-paused = En pause
+views-ticket-row-sla-on-track = Dans les temps
+views-ticket-row-cycle-tooltip = Appartient à un cycle
+views-ticket-row-cycle-label = cycle n°{ $id }
+views-ticket-row-no-due-date = Aucune échéance
+views-ticket-row-kb-badge = KB
+views-ticket-row-kb-gap-tooltip = Signal de lacune de connaissance : { $signal }
+views-ticket-row-devices-count = { $count ->
+    [one] { $count } appareil
+   *[other] { $count } appareils
+    }
+
+# Volet d'aperçu du ticket (TicketPreviewPane)
+views-ticket-preview-aria = Aperçu du ticket
+views-ticket-preview-empty-title = Aucun ticket sélectionné
+views-ticket-preview-empty-prefix = Cliquez sur une ligne, ou parcourez avec
+views-ticket-preview-empty-suffix = pour afficher l'aperçu.
+views-ticket-preview-open = Ouvrir
+views-ticket-preview-close-tooltip = Fermer l'aperçu (Échap)
+views-ticket-preview-close-aria = Fermer l'aperçu
+views-ticket-preview-kb-gap = Lacune KB
+views-ticket-preview-recurring = Récurrent
+views-ticket-preview-properties = Propriétés
+views-ticket-preview-assignee = Assigné à
+views-ticket-preview-requester = Demandeur
+views-ticket-preview-due-date = Échéance
+views-ticket-preview-not-set = Non définie
+views-ticket-preview-cycle = Cycle
+views-ticket-preview-cycle-label = Cycle n°{ $id }
+views-ticket-preview-category = Catégorie
+views-ticket-preview-sla = SLA
+views-ticket-preview-activity = Activité
+views-ticket-preview-last-activity = Dernière activité
+views-ticket-preview-created = Créé
+views-ticket-preview-affected-devices = Appareils concernés
+views-ticket-preview-more-devices = { $count ->
+    [one] +{ $count } autre
+   *[other] +{ $count } autres
+    }
+views-ticket-preview-view-full = Voir description, commentaires et appareils
+
+# Carte thermique des tickets (TicketHeatmap)
+ticket-heatmap-title-closed = Tickets clôturés
+ticket-heatmap-title-activity = Activité des tickets
+ticket-heatmap-error-load = Échec du chargement des données. Veuillez réessayer.
+ticket-heatmap-tooltip-empty = Aucun ticket
+ticket-heatmap-tooltip-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+    }
+ticket-heatmap-day-sun = Dim
+ticket-heatmap-day-mon = Lun
+ticket-heatmap-day-tue = Mar
+ticket-heatmap-day-wed = Mer
+ticket-heatmap-day-thu = Jeu
+ticket-heatmap-day-fri = Ven
+ticket-heatmap-day-sat = Sam
+ticket-heatmap-days-with-activity = { $count ->
+    [one] { $count } jour avec activité
+   *[other] { $count } jours avec activité
+    }
+ticket-heatmap-legend-less = Moins
+ticket-heatmap-legend-more = Plus
+
+# Vues : menu d'ajout de filtre (AddFilterMenu)
+views-add-filter-trigger = Ajouter un filtre
+views-add-filter-back-tooltip = Retour (Retour arrière)
+views-add-filter-search-title-placeholder = Rechercher un titre…
+views-add-filter-no-matches = Aucune valeur correspondante
+views-add-filter-facet-title = Titre
+views-add-filter-facet-status = Statut
+views-add-filter-facet-priority = Priorité
+views-add-filter-facet-assignee = Assigné à
+views-add-filter-facet-sla = SLA
+views-add-filter-facet-cycle = Cycle
+
+# Vues : liste de valeurs de filtre (FilterValueList)
+views-filter-value-search-placeholder = Rechercher…
+views-filter-value-no-matches = Aucun résultat
+views-filter-value-no-options = Aucune option
+views-filter-value-clear = Effacer
+
+# Vues : menu d'affichage (DisplayMenu)
+views-display-menu-trigger = Affichage
+views-display-menu-trigger-tooltip = Options d'affichage
+views-display-menu-grouping = Regroupement
+views-display-menu-density = Densité
+views-display-menu-density-aria = Densité des lignes
+views-display-menu-density-compact = Compact
+views-display-menu-density-cosy = Confortable
+views-display-menu-density-comfortable = Spacieux
+views-display-menu-group-none = Aucun
+views-display-menu-group-status = Statut
+views-display-menu-group-priority = Priorité
+views-display-menu-group-assignee = Assigné
+views-display-menu-group-sla = SLA
+views-display-menu-group-cycle = Cycle
+views-display-menu-properties = Propriétés
+views-display-menu-column-ticket-id = N° ticket
+views-display-menu-reset = Réinitialiser les colonnes
+views-display-menu-reset-tooltip = Restaurer l'ordre, la largeur et la visibilité par défaut
+views-display-menu-save-to-view = Enregistrer dans la vue
+
+# Vues : barres d'onglets
+views-tab-bar-aria = Vue
+views-project-tab-aria = Vue du projet
+views-project-tab-board = Tableau
+views-project-tab-gantt = Gantt
+views-project-tab-cycles = Cycles
+
+# Vues : modale d'édition de vue enregistrée (SavedViewEditorModal)
+views-saved-editor-title = Modifier la vue
+views-saved-editor-name-label = Nom
+views-saved-editor-delete = Supprimer la vue
+views-saved-editor-cancel = Annuler
+views-saved-editor-save = Enregistrer
+views-saved-editor-saving = Enregistrement
+views-saved-editor-confirm-title = Supprimer la vue ?
+views-saved-editor-confirm-message = Supprimer « { $name } » ? Action irréversible, recréez la vue si besoin.
+
+# Vues : pastille de filtre (FilterPill)
+views-filter-pill-remove-tooltip = Supprimer le filtre { $label }
+views-filter-pill-search-title-placeholder = Rechercher un titre…
+
+# Vues : sélecteur de vue (ViewSwitcher)
+views-view-switcher-placeholder = Vue
+views-view-switcher-edit-view = Modifier la vue…
+
+# Tableau de bord : widget tickets assignés (UserAssignedTickets)
+user-assigned-tickets-title-assigned = Tickets assignés
+user-assigned-tickets-title-requested = Tickets demandés
+user-assigned-tickets-empty-title-assigned = Aucun ticket assigné
+user-assigned-tickets-empty-title-requested = Aucun ticket demandé
+user-assigned-tickets-empty-current = Tout est à jour !
+user-assigned-tickets-error-assigned = Échec du chargement des tickets assignés
+user-assigned-tickets-error-requested = Échec du chargement des tickets demandés
+user-assigned-tickets-status-active = Actifs
+user-assigned-tickets-status-active-desc = Ouverts + En cours
+user-assigned-tickets-status-open = Ouverts
+user-assigned-tickets-status-in-progress = En cours
+user-assigned-tickets-status-closed = Clôturés
+user-assigned-tickets-status-all = Tous
+user-assigned-tickets-status-all-desc = Tous les statuts
+user-assigned-tickets-status-filter-aria = Filtre de statut { $title }
+user-assigned-tickets-sort-priority = Priorité
+user-assigned-tickets-sort-priority-desc = Priorité, puis récents
+user-assigned-tickets-sort-recent = Récents
+user-assigned-tickets-sort-recent-desc = Modifiés en dernier
+user-assigned-tickets-sort-oldest = Anciens
+user-assigned-tickets-sort-oldest-desc = Les plus anciens d'abord, pour le tri
+user-assigned-tickets-filter-high-priority = Priorité élevée uniquement
+user-assigned-tickets-filter-new-activity = Nouvelle activité uniquement
+
+# Tableau de bord : widget tickets récents (RecentTickets)
+recent-tickets-empty = Aucun ticket récent
+recent-tickets-context-open-new-tab = Ouvrir dans un nouvel onglet
+recent-tickets-context-copy-link = Copier le lien
+recent-tickets-context-remove = Retirer des récents

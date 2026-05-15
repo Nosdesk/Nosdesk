@@ -165,7 +165,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
                 :model-value="bulkSelection.areAllOnPageSelected.value"
                 :indeterminate="bulkIndeterminate"
                 size="sm"
-                aria-label="Select all visible tickets"
+                :aria-label="$t('views-tickets-table-select-all-aria')"
                 @change="onLeadingHeaderClick"
               />
             </span>
@@ -251,7 +251,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
             <span
               class="absolute top-0 right-0 h-full w-2 cursor-col-resize touch-none group/resize z-10"
               :class="layout.resizingId.value === col.id && 'bg-accent/50'"
-              title="Drag to resize · double-click to fit"
+              :title="$t('views-tickets-table-resize-handle-tooltip')"
               @pointerdown="layout.beginResize(col.id, $event)"
               @click.stop
             >

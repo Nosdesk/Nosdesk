@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
+import { useFluent } from 'fluent-vue';
 import { useAuthStore } from "@/stores/auth";
 import { useSSEListeners } from "@/composables/useSSEListeners";
 import { useWidgetConfigState } from "@/composables/useWidgetConfigState";
@@ -28,6 +29,7 @@ const props = withDefaults(defineProps<{
     showFilters: true,
 });
 
+const fluent = useFluent();
 const auth = useAuthStore();
 
 // When this widget is rendered on the dashboard (current user's own
@@ -51,12 +53,13 @@ const config = useWidgetConfigState(dashboardWidgetId, {
 const targetUserUuid = computed(() => props.userUuid || auth.user?.uuid || "");
 const isCurrentUser = computed(() => !props.userUuid || props.userUuid === auth.user?.uuid);
 
-// `You're` in a template string needs escaping, so keep it in script.
-const emptyDescription = computed(() => (isCurrentUser.value ? "You're all caught up!" : ''));
+const emptyDescription = computed(() => (isCurrentUser.value ? fluent.$t('user-assigned-tickets-empty-current') : ''));
 
 const displayTitle = computed(() => {
     if (props.title) return props.title;
-    return props.ticketType === 'requested' ? 'Requested Tickets' : 'Assigned Tickets';
+    return props.ticketType === 'requested'
+        ? fluent.$t('user-assigned-tickets-title-requested')
+        : fluent.$t('user-assigned-tickets-title-assigned');
 });
 
 const seeAllLink = computed(() => {
@@ -69,21 +72,23 @@ const seeAllLink = computed(() => {
 // colours it represents. Single statuses get one dot, meta options
 // that span multiple get a cluster (Active unions open + in-progress,
 // All unions all three), so the gutter always carries information.
-const statusOptions: DropdownOption[] = [
-    { value: "active", label: "Active", description: "Open + In Progress", tones: ["bg-status-open", "bg-status-in-progress"] },
-    { value: "open", label: "Open", tones: ["bg-status-open"] },
-    { value: "in-progress", label: "In Progress", tones: ["bg-status-in-progress"] },
-    { value: "closed", label: "Closed", tones: ["bg-status-closed"] },
-    { value: "", label: "All", description: "Every status", tones: ["bg-status-open", "bg-status-in-progress", "bg-status-closed"] },
-];
+// Computed so labels follow the active locale; the `value` strings
+// stay as canonical filter keys consumed by the API.
+const statusOptions = computed<DropdownOption[]>(() => [
+    { value: "active", label: fluent.$t('user-assigned-tickets-status-active'), description: fluent.$t('user-assigned-tickets-status-active-desc'), tones: ["bg-status-open", "bg-status-in-progress"] },
+    { value: "open", label: fluent.$t('user-assigned-tickets-status-open'), tones: ["bg-status-open"] },
+    { value: "in-progress", label: fluent.$t('user-assigned-tickets-status-in-progress'), tones: ["bg-status-in-progress"] },
+    { value: "closed", label: fluent.$t('user-assigned-tickets-status-closed'), tones: ["bg-status-closed"] },
+    { value: "", label: fluent.$t('user-assigned-tickets-status-all'), description: fluent.$t('user-assigned-tickets-status-all-desc'), tones: ["bg-status-open", "bg-status-in-progress", "bg-status-closed"] },
+]);
 
 // Sort options. Strictly-by-priority was dropped intentionally:
 // without a date tiebreak the intra-tier order is arbitrary.
-const sortOptions: DropdownOption[] = [
-    { value: "priority-date", label: "Priority", description: "Priority, then recent" },
-    { value: "date", label: "Recent", description: "Most recently modified" },
-    { value: "oldest", label: "Oldest", description: "Oldest first, for triage" },
-];
+const sortOptions = computed<DropdownOption[]>(() => [
+    { value: "priority-date", label: fluent.$t('user-assigned-tickets-sort-priority'), description: fluent.$t('user-assigned-tickets-sort-priority-desc') },
+    { value: "date", label: fluent.$t('user-assigned-tickets-sort-recent'), description: fluent.$t('user-assigned-tickets-sort-recent-desc') },
+    { value: "oldest", label: fluent.$t('user-assigned-tickets-sort-oldest'), description: fluent.$t('user-assigned-tickets-sort-oldest-desc') },
+]);
 
 const PRIORITY_ORDER: Record<string, number> = {
     'critical': 0,
@@ -207,7 +212,9 @@ async function fetchTickets() {
         rawTickets.value = data;
     } catch (err) {
         console.error(`Error fetching ${props.ticketType} tickets:`, err);
-        error.value = `Failed to load ${props.ticketType} tickets`;
+        error.value = props.ticketType === 'requested'
+            ? fluent.$t('user-assigned-tickets-error-requested')
+            : fluent.$t('user-assigned-tickets-error-assigned');
     } finally {
         loading.value = false;
         refreshing.value = false;
@@ -302,7 +309,7 @@ on('ticket-deleted', (data) => {
         :refreshing="refreshing"
         :error="error"
         :empty="!loading && !error && tickets.length === 0"
-        :empty-title="`No ${props.ticketType === 'requested' ? 'requested' : 'assigned'} tickets`"
+        :empty-title="props.ticketType === 'requested' ? $t('user-assigned-tickets-empty-title-requested') : $t('user-assigned-tickets-empty-title-assigned')"
         :empty-description="emptyDescription"
         min-body-height="200px"
     >
@@ -317,7 +324,7 @@ on('ticket-deleted', (data) => {
                     :options="statusOptions"
                     size="xs"
                     class="flex-shrink-0"
-                    :aria-label="`${displayTitle} status filter`"
+                    :aria-label="$t('user-assigned-tickets-status-filter-aria', { title: displayTitle })"
                 />
 
                 <div class="flex-1 min-w-0" />
@@ -325,7 +332,7 @@ on('ticket-deleted', (data) => {
                 <div class="flex items-center gap-1 flex-shrink-0">
                     <FilterToggle
                         v-model="config.highPriority"
-                        label="High priority only"
+                        :label="$t('user-assigned-tickets-filter-high-priority')"
                         active-class="bg-priority-high/15 text-priority-high"
                     >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
@@ -334,7 +341,7 @@ on('ticket-deleted', (data) => {
                     </FilterToggle>
                     <FilterToggle
                         v-model="config.newActivity"
-                        label="New activity only"
+                        :label="$t('user-assigned-tickets-filter-new-activity')"
                         active-class="bg-accent/15 text-accent"
                     >
                         <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">

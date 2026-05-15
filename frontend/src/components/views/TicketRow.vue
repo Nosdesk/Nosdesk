@@ -19,6 +19,7 @@
  * parent's `rowMemoKey(card)` array stays the source of truth
  * for which field changes trigger a re-render of which row.
  */
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserCell from '@/components/views/UserCell.vue'
@@ -32,6 +33,8 @@ import {
 } from '@/utils/dateUtils'
 import type { ListColumn } from '@/sync/views/ticketColumns'
 import type { CardData } from '@/sync/views/types'
+
+const fluent = useFluent()
 
 const props = defineProps<{
   card: CardData
@@ -88,6 +91,13 @@ function slaToneClass(card: CardData): string {
 
 function slaLabel(card: CardData): string {
   return deriveSlaState(card)?.compactLabel ?? '—'
+}
+
+function slaTitle(card: CardData): string {
+  if (!card.sla) return ''
+  if (card.sla.breached) return fluent.$t('views-ticket-row-sla-breached')
+  if (card.sla.paused) return fluent.$t('views-ticket-row-sla-paused')
+  return fluent.$t('views-ticket-row-sla-on-track')
 }
 
 /** Single-letter RRULE frequency code for the dense Recur
@@ -193,7 +203,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
         <Checkbox
           :model-value="!!bulkSelected"
           size="sm"
-          :aria-label="`Select ticket #${card.id}`"
+          :aria-label="$t('views-ticket-row-select-aria', { id: card.id })"
           @change="(e: Event) => onLeadingClick(e as unknown as MouseEvent)"
         />
       </span>
@@ -232,13 +242,13 @@ function recurrenceLabel(rule: string | null | undefined): string {
           <span
             v-if="card.recurrence_rule"
             class="text-tertiary text-xs leading-none shrink-0"
-            title="Recurring ticket"
+            :title="$t('views-ticket-row-recurring-tooltip')"
           >↻</span>
           <span
             v-if="card.sla?.breached"
             class="text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
-            title="SLA breached"
-          >SLA</span>
+            :title="$t('views-ticket-row-sla-breached-tooltip')"
+          >{{ $t('views-ticket-row-sla-badge') }}</span>
         </div>
       </template>
 
@@ -287,8 +297,8 @@ function recurrenceLabel(rule: string | null | undefined): string {
         <span
           v-if="card.cycle_id != null"
           class="text-[11px] text-accent bg-accent/10 rounded px-1.5 py-0.5"
-          title="Belongs to a cycle"
-        >cycle #{{ card.cycle_id }}</span>
+          :title="$t('views-ticket-row-cycle-tooltip')"
+        >{{ $t('views-ticket-row-cycle-label', { id: card.cycle_id }) }}</span>
         <span v-else class="text-xs text-tertiary">—</span>
       </template>
 
@@ -296,7 +306,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
         <span
           class="text-[11px] tabular-nums"
           :class="card.due_date ? 'text-secondary' : 'text-tertiary'"
-          :title="card.due_date ? new Date(card.due_date).toLocaleString() : 'No due date'"
+          :title="card.due_date ? new Date(card.due_date).toLocaleString() : $t('views-ticket-row-no-due-date')"
         >{{ shortDate(card.due_date) }}</span>
       </template>
 
@@ -319,7 +329,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
           v-if="card.sla"
           class="inline-flex items-center gap-1 text-[11px] tabular-nums"
           :class="slaToneClass(card)"
-          :title="card.sla.breached ? 'Breached' : (card.sla.paused ? 'Paused' : 'On track')"
+          :title="slaTitle(card)"
         >
           <Icon name="clock" class="w-3 h-3" />
           {{ slaLabel(card) }}
@@ -334,8 +344,8 @@ function recurrenceLabel(rule: string | null | undefined): string {
           :class="card.kb_gap_signal === 'strong'
             ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
             : 'bg-surface-hover text-secondary'"
-          :title="`${card.kb_gap_signal} knowledge gap signal`"
-        >KB</span>
+          :title="$t('views-ticket-row-kb-gap-tooltip', { signal: card.kb_gap_signal })"
+        >{{ $t('views-ticket-row-kb-badge') }}</span>
         <span v-else class="text-xs text-tertiary">—</span>
       </template>
 
@@ -343,7 +353,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
         <span
           v-if="card.affected_devices && card.affected_devices.count > 0"
           class="text-[11px] text-secondary tabular-nums inline-flex items-center gap-1"
-          :title="card.affected_devices.first?.name ?? `${card.affected_devices.count} device(s)`"
+          :title="card.affected_devices.first?.name ?? $t('views-ticket-row-devices-count', { count: card.affected_devices.count })"
         >
           <Icon name="device" class="w-3 h-3" />
           {{ card.affected_devices.count }}

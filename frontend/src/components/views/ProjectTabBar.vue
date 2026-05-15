@@ -16,11 +16,13 @@
  */
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 
 const props = defineProps<{ projectId: number | string }>()
 
 const route = useRoute()
 const router = useRouter()
+const fluent = useFluent()
 
 interface Tab {
   id: 'board' | 'gantt' | 'cycles'
@@ -29,9 +31,9 @@ interface Tab {
 }
 
 const tabs = computed<Tab[]>(() => [
-  { id: 'board', label: 'Board', to: `/projects/${props.projectId}` },
-  { id: 'gantt', label: 'Gantt', to: `/projects/${props.projectId}/gantt` },
-  { id: 'cycles', label: 'Cycles', to: `/projects/${props.projectId}/cycles` },
+  { id: 'board', label: fluent.$t('views-project-tab-board'), to: `/projects/${props.projectId}` },
+  { id: 'gantt', label: fluent.$t('views-project-tab-gantt'), to: `/projects/${props.projectId}/gantt` },
+  { id: 'cycles', label: fluent.$t('views-project-tab-cycles'), to: `/projects/${props.projectId}/cycles` },
 ])
 
 const activeId = computed<string>(() => {
@@ -51,7 +53,7 @@ function go(tab: Tab): void {
   <nav
     class="flex items-center gap-0.5 px-6 border-b border-subtle bg-app"
     role="tablist"
-    aria-label="Project view"
+    :aria-label="$t('views-project-tab-aria')"
   >
     <button
       v-for="tab in tabs"

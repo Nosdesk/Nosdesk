@@ -2,9 +2,12 @@
 import { formatDate } from '@/utils/dateUtils';
 import { ref, onMounted, computed, onActivated } from "vue";
 import { useRouter } from "vue-router";
+import { useFluent } from 'fluent-vue';
 import { getTickets } from "@/services/ticketService";
 import HeatmapTooltip from "@/components/HeatmapTooltip.vue";
 import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
+
+const fluent = useFluent();
 
 interface Props {
     ticketStatus?: "open" | "in-progress" | "closed";
@@ -111,7 +114,7 @@ const fetchTicketData = async () => {
         }));
     } catch (err) {
         console.error("Error fetching ticket data for heatmap:", err);
-        error.value = "Failed to load ticket data. Please try again.";
+        error.value = fluent.$t('ticket-heatmap-error-load');
     } finally {
         isLoading.value = false;
     }
@@ -139,14 +142,13 @@ const formatHeatmapDate = (date: string) => {
 const getTooltipDetails = (day: DayData) => {
     if (day.count === 0) {
         return {
-            title: "No tickets",
+            title: fluent.$t('ticket-heatmap-tooltip-empty'),
             date: formatHeatmapDate(day.date),
         };
     }
 
-    const ticketWord = day.count === 1 ? "ticket" : "tickets";
     return {
-        title: `${day.count} ${ticketWord}`,
+        title: fluent.$t('ticket-heatmap-tooltip-count', { count: day.count }),
         date: formatHeatmapDate(day.date),
         tickets: day.tickets.slice(0, 5).map((ticket) => ({
             id: ticket.id,
@@ -248,7 +250,7 @@ onActivated(() => {
       it.
     -->
     <DashboardWidgetShell
-        :title="props.title || (props.ticketStatus === 'closed' ? 'Closed Tickets' : 'Ticket Activity')"
+        :title="props.title || (props.ticketStatus === 'closed' ? $t('ticket-heatmap-title-closed') : $t('ticket-heatmap-title-activity'))"
         :error="error"
         :flush-body="false"
     >
@@ -261,13 +263,13 @@ onActivated(() => {
                     <div
                         class="flex flex-col gap-0.5 text-[10px] text-secondary justify-around flex-shrink-0"
                     >
-                        <span class="h-2.5 flex items-center">Sun</span>
-                        <span class="h-2.5 flex items-center">Mon</span>
-                        <span class="h-2.5 flex items-center">Tue</span>
-                        <span class="h-2.5 flex items-center">Wed</span>
-                        <span class="h-2.5 flex items-center">Thu</span>
-                        <span class="h-2.5 flex items-center">Fri</span>
-                        <span class="h-2.5 flex items-center">Sat</span>
+                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-sun') }}</span>
+                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-mon') }}</span>
+                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-tue') }}</span>
+                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-wed') }}</span>
+                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-thu') }}</span>
+                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-fri') }}</span>
+                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-sat') }}</span>
                     </div>
 
                     <!-- Skeleton grid while loading -->
@@ -327,14 +329,14 @@ onActivated(() => {
                 <div class="flex justify-between items-center">
                     <div class="text-[10px] text-secondary">
                         <template v-if="!isLoading">
-                            {{ heatmapData.filter((d) => d.count > 0).length }} days with activity
+                            {{ $t('ticket-heatmap-days-with-activity', { count: heatmapData.filter((d) => d.count > 0).length }) }}
                         </template>
-                        <span v-else class="invisible">0 days with activity</span>
+                        <span v-else class="invisible">{{ $t('ticket-heatmap-days-with-activity', { count: 0 }) }}</span>
                     </div>
 
                     <!-- Legend -->
                     <div class="flex items-center gap-2 text-[10px] text-secondary">
-                        <span>Less</span>
+                        <span>{{ $t('ticket-heatmap-legend-less') }}</span>
                         <div class="flex gap-0.5">
                             <div
                                 v-for="i in 5"
@@ -343,7 +345,7 @@ onActivated(() => {
                                 :class="getColorClass(i - 1)"
                             />
                         </div>
-                        <span>More</span>
+                        <span>{{ $t('ticket-heatmap-legend-more') }}</span>
                     </div>
                 </div>
             </div>

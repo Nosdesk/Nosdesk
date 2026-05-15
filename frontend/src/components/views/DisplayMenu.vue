@@ -13,6 +13,7 @@
  * reopening the popover for every pick.
  */
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
@@ -23,6 +24,8 @@ import {
 } from '@/sync/views/ticketColumns'
 import type { Density } from '@/composables/useTicketsDensity'
 import type { GroupBy } from '@/composables/useTicketsGrouping'
+
+const fluent = useFluent()
 
 const props = withDefaults(defineProps<{
   visible: ColumnId[]
@@ -66,20 +69,24 @@ function isOn(col: ListColumn): boolean {
   return visibleSet.value.has(col.id)
 }
 
-const densityOptions: ReadonlyArray<{ value: Density; label: string }> = [
-  { value: 'compact', label: 'Compact' },
-  { value: 'cosy', label: 'Cosy' },
-  { value: 'comfortable', label: 'Comfortable' },
-]
+/** Density + group choices are static + ordered, so the picker
+ * arrays are computeds rather than `const` so the labels follow
+ * the active locale. The `value` strings stay as canonical enum
+ * keys consumed by the parent. */
+const densityOptions = computed<ReadonlyArray<{ value: Density; label: string }>>(() => [
+  { value: 'compact', label: fluent.$t('views-display-menu-density-compact') },
+  { value: 'cosy', label: fluent.$t('views-display-menu-density-cosy') },
+  { value: 'comfortable', label: fluent.$t('views-display-menu-density-comfortable') },
+])
 
-const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
-  { value: 'none', label: 'None' },
-  { value: 'status', label: 'Status' },
-  { value: 'priority', label: 'Priority' },
-  { value: 'assignee', label: 'Assignee' },
-  { value: 'sla', label: 'SLA' },
-  { value: 'cycle', label: 'Cycle' },
-]
+const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(() => [
+  { value: 'none', label: fluent.$t('views-display-menu-group-none') },
+  { value: 'status', label: fluent.$t('views-display-menu-group-status') },
+  { value: 'priority', label: fluent.$t('views-display-menu-group-priority') },
+  { value: 'assignee', label: fluent.$t('views-display-menu-group-assignee') },
+  { value: 'sla', label: fluent.$t('views-display-menu-group-sla') },
+  { value: 'cycle', label: fluent.$t('views-display-menu-group-cycle') },
+])
 </script>
 
 <template>
@@ -93,17 +100,17 @@ const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
         : 'text-secondary hover:text-primary hover:bg-surface-hover'"
       :aria-expanded="open"
       aria-haspopup="menu"
-      title="Display options"
+      :title="$t('views-display-menu-trigger-tooltip')"
       @click="open = !open"
     >
       <Icon name="settings" class="w-3.5 h-3.5" />
-      <span>Display</span>
+      <span>{{ $t('views-display-menu-trigger') }}</span>
     </button>
 
     <ResponsiveMenu
       :open="open"
       :anchor="anchor"
-      title="Display"
+      :title="$t('views-display-menu-trigger')"
       placement="bottom-end"
       react-to-scroll="reposition"
       :offset="4"
@@ -116,7 +123,7 @@ const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
         <!-- Grouping -->
         <section class="px-3 pb-2">
           <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary mb-1.5">
-            Grouping
+            {{ $t('views-display-menu-grouping') }}
           </h3>
           <div class="grid grid-cols-3 gap-1">
             <button
@@ -136,12 +143,12 @@ const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
         <!-- Density -->
         <section class="px-3 pb-2 border-t border-subtle pt-2">
           <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary mb-1.5">
-            Density
+            {{ $t('views-display-menu-density') }}
           </h3>
           <div
             class="inline-flex w-full items-center rounded-md border border-subtle overflow-hidden"
             role="group"
-            aria-label="Row density"
+            :aria-label="$t('views-display-menu-density-aria')"
           >
             <button
               v-for="opt in densityOptions"
@@ -160,7 +167,7 @@ const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
         <!-- Properties -->
         <section class="border-t border-subtle pt-2">
           <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary px-3 mb-1">
-            Properties
+            {{ $t('views-display-menu-properties') }}
           </h3>
           <div class="max-h-[20rem] overflow-y-auto">
             <button
@@ -185,7 +192,7 @@ const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
               </span>
               <span class="flex-1 min-w-0">
                 <span class="block text-xs text-primary">
-                  {{ col.label === '#' ? 'Ticket #' : col.label }}
+                  {{ col.label === '#' ? $t('views-display-menu-column-ticket-id') : col.label }}
                 </span>
                 <span class="block text-[10px] text-tertiary truncate">
                   {{ col.description }}
@@ -208,10 +215,10 @@ const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
           type="button"
           class="inline-flex items-center gap-1 text-[11px] text-tertiary hover:text-primary px-1.5 py-0.5 rounded hover:bg-surface-hover transition-colors"
           @click="emit('reset')"
-          title="Restore the view's default column order, widths, and visibility"
+          :title="$t('views-display-menu-reset-tooltip')"
         >
           <Icon name="refresh" class="w-3 h-3" />
-          Reset columns
+          {{ $t('views-display-menu-reset') }}
         </button>
         <button
           v-if="canSaveToView"
@@ -219,7 +226,7 @@ const groupOptions: ReadonlyArray<{ value: GroupBy; label: string }> = [
           class="text-[11px] font-medium px-2 py-1 rounded bg-accent text-on-accent disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="!layoutDirty"
           @click="emit('save')"
-        >Save to view</button>
+        >{{ $t('views-display-menu-save-to-view') }}</button>
       </footer>
     </ResponsiveMenu>
   </div>

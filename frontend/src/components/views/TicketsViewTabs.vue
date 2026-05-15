@@ -58,7 +58,7 @@ const emit = defineEmits<{
   <div
     class="hidden lg:inline-flex items-center gap-0.5 rounded-md bg-surface-alt p-0.5"
     role="tablist"
-    aria-label="View"
+    :aria-label="$t('views-tab-bar-aria')"
   >
     <button
       v-for="item in items"

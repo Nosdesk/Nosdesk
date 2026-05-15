@@ -82,7 +82,7 @@ function onRemove(e: MouseEvent): void {
       <button
         type="button"
         class="inline-flex items-center justify-center h-full pr-1.5 pl-0.5 hover:bg-amber-500/15 transition-colors"
-        :title="`Remove ${label} filter`"
+        :title="$t('views-filter-pill-remove-tooltip', { label })"
         @click="onRemove"
       >
         <Icon name="close" class="w-3 h-3" />
@@ -105,7 +105,7 @@ function onRemove(e: MouseEvent): void {
         <input
           type="text"
           :value="textValue ?? ''"
-          placeholder="Search title…"
+          :placeholder="$t('views-filter-pill-search-title-placeholder')"
           class="bg-surface border border-subtle rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
           @input="onTextInput"
         />

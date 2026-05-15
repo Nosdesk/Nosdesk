@@ -6,11 +6,12 @@ defineProps<{
 
 <template>
   <div class="p-4 bg-surface-alt rounded-xl border border-default mb-4">
-    <p class="font-medium text-primary">Configuration via Environment Variables</p>
+    <p class="font-medium text-primary">{{ $t('admin-env-notice-title') }}</p>
     <p class="text-sm text-secondary mt-1">
       <slot>
-        Settings are configured through environment variables in your
-        <code class="bg-surface px-1 rounded text-primary">.env</code> file or Docker environment.
+        {{ $t('admin-env-notice-prefix') }}
+        <code class="bg-surface px-1 rounded text-primary">.env</code>
+        {{ $t('admin-env-notice-suffix') }}
       </slot>
     </p>
   </div>

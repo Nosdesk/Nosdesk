@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
+import { useFluent } from 'fluent-vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -28,6 +29,7 @@ const emit = defineEmits<{
   updated: [];
 }>();
 
+const fluent = useFluent();
 const { colorFilterStyle } = useColorFilter();
 
 // State
@@ -233,7 +235,7 @@ const loadGroup = async (silent = false) => {
     errorMessage.value = '';
 
     if (!props.groupUuid) {
-      errorMessage.value = 'Invalid group ID';
+      errorMessage.value = fluent.$t('admin-groups-config-error-invalid-id');
       loading.value = false;
       return;
     }
@@ -256,7 +258,7 @@ const loadGroup = async (silent = false) => {
     // Populate selected includes
     selectedIncludeIds.value = group.value.included_groups.map(g => g.id);
   } catch (e) {
-    errorMessage.value = 'Failed to load group details';
+    errorMessage.value = fluent.$t('admin-groups-config-error-load');
     console.error('Error loading group:', e);
   } finally {
     loading.value = false;
@@ -295,7 +297,7 @@ const loadAvailableGroups = async () => {
 // Save general info
 const saveGeneralInfo = async () => {
   if (!group.value || !generalForm.value.name.trim()) {
-    errorMessage.value = 'Group name is required';
+    errorMessage.value = fluent.$t('admin-groups-config-error-name-required');
     return;
   }
 
@@ -316,12 +318,12 @@ const saveGeneralInfo = async () => {
     group.value.description = generalForm.value.description || null;
     group.value.color = generalForm.value.color;
 
-    successMessage.value = 'Group updated successfully';
+    successMessage.value = fluent.$t('admin-groups-config-success-updated');
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to save group';
+    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-save');
   } finally {
     saving.value = false;
   }
@@ -352,12 +354,12 @@ const saveMembers = async () => {
     // Reload group to get updated member list
     await loadGroup();
 
-    successMessage.value = 'Members updated successfully';
+    successMessage.value = fluent.$t('admin-groups-config-success-members');
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to update members';
+    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-members');
   } finally {
     savingMembers.value = false;
   }
@@ -388,12 +390,12 @@ const saveDevices = async () => {
     // Reload group to get updated device list
     await loadGroup();
 
-    successMessage.value = 'Devices updated successfully';
+    successMessage.value = fluent.$t('admin-groups-config-success-devices');
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to update devices';
+    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-devices');
   } finally {
     savingDevices.value = false;
   }
@@ -424,12 +426,12 @@ const saveIncludes = async () => {
     // Reload group to get updated include list
     await loadGroup();
 
-    successMessage.value = 'Included groups updated successfully';
+    successMessage.value = fluent.$t('admin-groups-config-success-includes');
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to update included groups';
+    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-includes');
   } finally {
     savingIncludes.value = false;
   }
@@ -447,7 +449,7 @@ const deleteGroup = async () => {
     emit('deleted');
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to delete group';
+    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-delete');
     showDeleteConfirm.value = false;
   } finally {
     isDeleting.value = false;
@@ -472,12 +474,12 @@ const doUnmanageGroup = async () => {
     await groupService.unmanageGroup(group.value.id);
     // Reload group to get updated data
     await loadGroup();
-    successMessage.value = 'Group is now locally managed';
+    successMessage.value = fluent.$t('admin-groups-config-success-unmanage');
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to unmanage group';
+    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-unmanage');
   } finally {
     isUnmanaging.value = false;
   }
@@ -571,21 +573,21 @@ onMounted(() => {
           </div>
           <div class="min-w-0">
             <h2 class="text-lg font-semibold text-primary truncate">{{ group.name }}</h2>
-            <p class="text-xs text-secondary">Group Configuration</p>
+            <p class="text-xs text-secondary">{{ $t('admin-groups-config-subtitle') }}</p>
           </div>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
           <button
             @click="showDeleteConfirm = true"
             class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
-            title="Delete group"
+            :title="$t('admin-groups-config-delete-tooltip')"
           >
             <Icon name="trash" />
           </button>
           <button
             @click="emit('close')"
             class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-            title="Close panel"
+            :title="$t('admin-groups-config-close-tooltip')"
           >
             <Icon name="close" size="md" />
           </button>
@@ -606,8 +608,8 @@ onMounted(() => {
                 <Icon name="refresh" size="md" />
               </span>
               <div class="min-w-0">
-                <p class="text-sm font-medium text-primary truncate">Managed by {{ group.external_source === 'microsoft' ? 'Microsoft Entra ID' : group.external_source }}</p>
-                <p v-if="group.last_synced_at" class="text-xs text-tertiary">Last synced {{ new Date(group.last_synced_at).toLocaleDateString() }}</p>
+                <p class="text-sm font-medium text-primary truncate">{{ $t('admin-groups-config-managed-by', { source: group.external_source === 'microsoft' ? $t('admin-groups-config-source-microsoft') : group.external_source }) }}</p>
+                <p v-if="group.last_synced_at" class="text-xs text-tertiary">{{ $t('admin-groups-config-last-synced', { date: new Date(group.last_synced_at).toLocaleDateString() }) }}</p>
               </div>
             </div>
             <div class="flex items-center gap-3 text-sm flex-shrink-0">
@@ -616,11 +618,11 @@ onMounted(() => {
                 :disabled="isUnmanaging"
                 class="text-secondary hover:text-primary transition-colors disabled:opacity-50"
               >
-                {{ isUnmanaging ? 'Processing...' : 'Unmanage' }}
+                {{ isUnmanaging ? $t('admin-groups-config-unmanage-processing') : $t('admin-groups-config-unmanage') }}
               </button>
               <span class="text-tertiary">|</span>
               <router-link to="/admin/microsoft-graph" class="text-accent hover:underline whitespace-nowrap">
-                Sync Settings
+                {{ $t('admin-groups-config-sync-settings') }}
               </router-link>
             </div>
           </div>
@@ -631,7 +633,7 @@ onMounted(() => {
           <SectionCard content-padding="p-0">
             <template #title>
               <div class="flex items-center justify-between">
-                <span>Members</span>
+                <span>{{ $t('admin-groups-config-members') }}</span>
                 <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">{{ consolidatedMembers.length }}</span>
               </div>
             </template>
@@ -642,7 +644,7 @@ onMounted(() => {
                   <div class="text-sm text-primary truncate">{{ member.name }}</div>
                   <div class="flex items-center gap-1.5 mt-0.5">
                     <template v-for="(source, i) in member.sources" :key="i">
-                      <span v-if="source.type === 'direct'" class="text-xs text-tertiary">Direct</span>
+                      <span v-if="source.type === 'direct'" class="text-xs text-tertiary">{{ $t('admin-groups-config-source-direct') }}</span>
                       <span v-else class="inline-flex items-center gap-1 text-xs text-secondary">
                         <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ backgroundColor: source.color }"></span>
                         {{ source.name }}
@@ -653,14 +655,14 @@ onMounted(() => {
                 </div>
               </div>
             </div>
-            <p v-else class="px-4 py-3 text-tertiary text-sm">No members</p>
+            <p v-else class="px-4 py-3 text-tertiary text-sm">{{ $t('admin-groups-config-no-members') }}</p>
           </SectionCard>
 
           <!-- Devices -->
           <SectionCard content-padding="p-0">
             <template #title>
               <div class="flex items-center justify-between">
-                <span>Devices</span>
+                <span>{{ $t('admin-groups-config-devices') }}</span>
                 <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">{{ group.devices.length }}</span>
               </div>
             </template>
@@ -671,20 +673,20 @@ onMounted(() => {
                   <div class="text-sm text-primary truncate">{{ device.name }}</div>
                   <div class="text-xs text-tertiary truncate">
                     <template v-if="device.manufacturer || device.model">{{ [device.manufacturer, device.model].filter(Boolean).join(' ') }}</template>
-                    <template v-if="device.serial_number"><span v-if="device.manufacturer || device.model"> · </span>SN: {{ device.serial_number }}</template>
+                    <template v-if="device.serial_number"><span v-if="device.manufacturer || device.model"> · </span>{{ $t('admin-groups-config-device-sn', { sn: device.serial_number }) }}</template>
                     <template v-if="!device.manufacturer && !device.model && !device.serial_number && device.operating_system">{{ device.operating_system }}</template>
                   </div>
                 </div>
               </div>
             </div>
-            <p v-else class="px-4 py-3 text-tertiary text-sm">No devices</p>
+            <p v-else class="px-4 py-3 text-tertiary text-sm">{{ $t('admin-groups-config-no-devices') }}</p>
           </SectionCard>
 
           <!-- Included In (read-only) -->
           <SectionCard v-if="group.included_in && group.included_in.length > 0" content-padding="p-0">
             <template #title>
               <div class="flex items-center justify-between">
-                <span>Included In</span>
+                <span>{{ $t('admin-groups-config-included-in') }}</span>
                 <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">{{ group.included_in.length }}</span>
               </div>
             </template>
@@ -697,7 +699,7 @@ onMounted(() => {
                   {{ parentGroup.name.charAt(0).toUpperCase() }}
                 </div>
                 <span class="text-sm text-primary truncate flex-1">{{ parentGroup.name }}</span>
-                <span class="text-xs text-tertiary">{{ parentGroup.member_count }} member{{ parentGroup.member_count !== 1 ? 's' : '' }}</span>
+                <span class="text-xs text-tertiary">{{ $t('admin-groups-config-member-count', { count: parentGroup.member_count }) }}</span>
               </div>
             </div>
           </SectionCard>
@@ -708,29 +710,29 @@ onMounted(() => {
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <!-- General Information -->
             <SectionCard content-padding="p-4">
-              <template #title>General Information</template>
+              <template #title>{{ $t('admin-groups-config-general') }}</template>
               <form @submit.prevent="saveGeneralInfo" class="flex flex-col gap-4">
                 <div>
-                  <label class="block text-sm font-medium text-primary mb-1">Name</label>
+                  <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-groups-config-name-label') }}</label>
                   <input
                     v-model="generalForm.name"
                     type="text"
-                    placeholder="Enter group name"
+                    :placeholder="$t('admin-groups-config-name-placeholder')"
                     class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
                     required
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-primary mb-1">Description</label>
+                  <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-groups-config-description-label') }}</label>
                   <textarea
                     v-model="generalForm.description"
-                    placeholder="Optional description"
+                    :placeholder="$t('admin-groups-config-description-placeholder')"
                     rows="3"
                     class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-none"
                   />
                 </div>
                 <div>
-                  <ColorHueSlider v-model="generalForm.color" label="Color" />
+                  <ColorHueSlider v-model="generalForm.color" :label="$t('admin-groups-config-color-label')" />
                 </div>
                 <div class="flex justify-end pt-2">
                   <button
@@ -739,7 +741,7 @@ onMounted(() => {
                     class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     <Spinner v-if="saving" />
-                    Save Changes
+                    {{ $t('admin-groups-config-save-changes') }}
                   </button>
                 </div>
               </form>
@@ -749,7 +751,7 @@ onMounted(() => {
             <SectionCard content-padding="p-4">
               <template #title>
                 <div class="flex items-center justify-between">
-                  <span>Members</span>
+                  <span>{{ $t('admin-groups-config-members') }}</span>
                   <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">{{ selectedMemberUuids.length + categorizedUsers.included.length }} / {{ availableUsers.length }}</span>
                 </div>
               </template>
@@ -761,14 +763,14 @@ onMounted(() => {
                   <input
                     v-model="userSearchQuery"
                     type="text"
-                    placeholder="Search users..."
+                    :placeholder="$t('admin-groups-config-search-users')"
                     class="w-full pl-10 pr-4 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
                   />
                 </div>
                 <div class="max-h-72 overflow-y-auto border border-default rounded-lg">
                   <!-- Assigned (explicitly selected) -->
                   <template v-if="categorizedUsers.assigned.length > 0">
-                    <div class="px-3 py-1.5 bg-surface-alt text-xs font-medium text-secondary uppercase tracking-wide sticky top-0 z-[1] border-b border-default">Assigned <span class="text-tertiary font-normal normal-case">({{ categorizedUsers.assigned.length }})</span></div>
+                    <div class="px-3 py-1.5 bg-surface-alt text-xs font-medium text-secondary uppercase tracking-wide sticky top-0 z-[1] border-b border-default">{{ $t('admin-groups-config-section-assigned') }} <span class="text-tertiary font-normal normal-case">({{ categorizedUsers.assigned.length }})</span></div>
                     <div class="divide-y divide-default">
                       <div
                         v-for="user in categorizedUsers.assigned"
@@ -784,7 +786,7 @@ onMounted(() => {
                           <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
                           <div v-if="user.email" class="text-xs text-tertiary truncate">{{ user.email }}</div>
                           <div v-if="effectiveGroupSources.has(user.uuid)" class="flex items-center gap-1.5 mt-0.5">
-                            <span class="text-xs text-tertiary">also via</span>
+                            <span class="text-xs text-tertiary">{{ $t('admin-groups-config-source-also-via') }}</span>
                             <span v-for="(source, i) in effectiveGroupSources.get(user.uuid)" :key="i" class="inline-flex items-center gap-1 text-xs text-secondary">
                               <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ backgroundColor: source.color }"></span>
                               {{ source.name }}<span v-if="i < effectiveGroupSources.get(user.uuid)!.length - 1" class="text-tertiary">,</span>
@@ -797,7 +799,7 @@ onMounted(() => {
 
                   <!-- Included via groups (not explicitly assigned, but effectively members) -->
                   <template v-if="categorizedUsers.included.length > 0">
-                    <div class="px-3 py-1.5 bg-surface-alt text-xs font-medium text-secondary uppercase tracking-wide sticky top-0 z-[1] border-y border-default">Included via Groups <span class="text-tertiary font-normal normal-case">({{ categorizedUsers.included.length }})</span></div>
+                    <div class="px-3 py-1.5 bg-surface-alt text-xs font-medium text-secondary uppercase tracking-wide sticky top-0 z-[1] border-y border-default">{{ $t('admin-groups-config-section-included-via') }} <span class="text-tertiary font-normal normal-case">({{ categorizedUsers.included.length }})</span></div>
                     <div class="divide-y divide-default">
                       <div
                         v-for="user in categorizedUsers.included"
@@ -813,7 +815,7 @@ onMounted(() => {
                           <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
                           <div v-if="user.email" class="text-xs text-tertiary truncate">{{ user.email }}</div>
                           <div class="flex items-center gap-1.5 mt-0.5">
-                            <span class="text-xs text-tertiary">via</span>
+                            <span class="text-xs text-tertiary">{{ $t('admin-groups-config-source-via') }}</span>
                             <span v-for="(source, i) in effectiveGroupSources.get(user.uuid)" :key="i" class="inline-flex items-center gap-1 text-xs text-secondary">
                               <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ backgroundColor: source.color }"></span>
                               {{ source.name }}<span v-if="i < effectiveGroupSources.get(user.uuid)!.length - 1" class="text-tertiary">,</span>
@@ -826,7 +828,7 @@ onMounted(() => {
 
                   <!-- Not assigned -->
                   <template v-if="categorizedUsers.other.length > 0">
-                    <div class="px-3 py-1.5 bg-surface-alt text-xs font-medium text-tertiary uppercase tracking-wide sticky top-0 z-[1] border-y border-default">Not Assigned <span class="font-normal normal-case">({{ categorizedUsers.other.length }})</span></div>
+                    <div class="px-3 py-1.5 bg-surface-alt text-xs font-medium text-tertiary uppercase tracking-wide sticky top-0 z-[1] border-y border-default">{{ $t('admin-groups-config-section-not-assigned') }} <span class="font-normal normal-case">({{ categorizedUsers.other.length }})</span></div>
                     <div class="divide-y divide-default">
                       <div
                         v-for="user in categorizedUsers.other"
@@ -846,7 +848,7 @@ onMounted(() => {
                     </div>
                   </template>
 
-                  <div v-if="filteredUsers.length === 0" class="p-4 text-center text-tertiary text-sm">No users found</div>
+                  <div v-if="filteredUsers.length === 0" class="p-4 text-center text-tertiary text-sm">{{ $t('admin-groups-config-no-users-found') }}</div>
                 </div>
                 <div class="flex justify-end pt-2">
                   <button
@@ -855,7 +857,7 @@ onMounted(() => {
                     class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     <Spinner v-if="savingMembers" />
-                    Save Members
+                    {{ $t('admin-groups-config-save-members') }}
                   </button>
                 </div>
               </div>
@@ -866,8 +868,8 @@ onMounted(() => {
           <SectionCard content-padding="p-4">
             <template #title>
               <div class="flex items-center justify-between">
-                <span>Devices</span>
-                <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">{{ selectedDeviceIds.length }} selected</span>
+                <span>{{ $t('admin-groups-config-devices') }}</span>
+                <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">{{ $t('admin-groups-config-selected-count', { count: selectedDeviceIds.length }) }}</span>
               </div>
             </template>
             <div class="flex flex-col gap-4">
@@ -878,7 +880,7 @@ onMounted(() => {
                 <input
                   v-model="deviceSearchQuery"
                   type="text"
-                  placeholder="Search devices by name, hostname, serial number..."
+                  :placeholder="$t('admin-groups-config-search-devices')"
                   class="w-full pl-10 pr-4 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
                 />
               </div>
@@ -899,20 +901,20 @@ onMounted(() => {
                       <span
                         v-if="isDeviceExternallySynced(device)"
                         class="px-1.5 py-0.5 text-xs bg-accent/10 text-accent rounded-full flex items-center gap-1"
-                        title="Synced from Microsoft Intune"
+                        :title="$t('admin-groups-config-synced-intune-tooltip')"
                       >
                         <Icon name="refresh" size="xs" />
-                        Synced
+                        {{ $t('admin-groups-config-synced-badge') }}
                       </span>
                     </div>
                     <div class="text-xs text-tertiary truncate">
                       <template v-if="device.manufacturer || device.model">{{ [device.manufacturer, device.model].filter(Boolean).join(' ') }}</template>
-                      <template v-if="device.serial_number"><span v-if="device.manufacturer || device.model"> · </span>SN: {{ device.serial_number }}</template>
+                      <template v-if="device.serial_number"><span v-if="device.manufacturer || device.model"> · </span>{{ $t('admin-groups-config-device-sn', { sn: device.serial_number }) }}</template>
                       <template v-if="!device.manufacturer && !device.model && !device.serial_number && device.operating_system">{{ device.operating_system }}</template>
                     </div>
                   </div>
                 </div>
-                <div v-if="filteredDevices.length === 0" class="p-4 text-center text-tertiary text-sm">No devices found</div>
+                <div v-if="filteredDevices.length === 0" class="p-4 text-center text-tertiary text-sm">{{ $t('admin-groups-config-no-devices-found') }}</div>
               </div>
               <div class="flex justify-end pt-2">
                 <button
@@ -921,7 +923,7 @@ onMounted(() => {
                   class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   <Spinner v-if="savingDevices" />
-                  Save Devices
+                  {{ $t('admin-groups-config-save-devices') }}
                 </button>
               </div>
             </div>
@@ -931,12 +933,12 @@ onMounted(() => {
           <SectionCard content-padding="p-4">
             <template #title>
               <div class="flex items-center justify-between">
-                <span>Included Groups</span>
-                <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">{{ selectedIncludeIds.length }} selected</span>
+                <span>{{ $t('admin-groups-config-included-groups') }}</span>
+                <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">{{ $t('admin-groups-config-selected-count', { count: selectedIncludeIds.length }) }}</span>
               </div>
             </template>
             <div class="flex flex-col gap-4">
-              <p class="text-xs text-tertiary">Members of included groups are treated as members of this group for visibility, access, and assignment.</p>
+              <p class="text-xs text-tertiary">{{ $t('admin-groups-config-includes-hint') }}</p>
               <div class="relative">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary inline-flex">
                   <Icon name="search" />
@@ -944,7 +946,7 @@ onMounted(() => {
                 <input
                   v-model="includeSearchQuery"
                   type="text"
-                  placeholder="Search groups..."
+                  :placeholder="$t('admin-groups-config-search-groups')"
                   class="w-full pl-10 pr-4 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
                 />
               </div>
@@ -972,13 +974,13 @@ onMounted(() => {
                         class="px-1.5 py-0.5 text-xs bg-accent/10 text-accent rounded-full flex items-center gap-1"
                       >
                         <Icon name="refresh" size="xs" />
-                        Synced
+                        {{ $t('admin-groups-config-synced-badge') }}
                       </span>
                     </div>
-                    <div class="text-xs text-tertiary">{{ availableGroup.member_count }} member{{ availableGroup.member_count !== 1 ? 's' : '' }}</div>
+                    <div class="text-xs text-tertiary">{{ $t('admin-groups-config-member-count', { count: availableGroup.member_count }) }}</div>
                   </div>
                 </div>
-                <div v-if="filteredAvailableGroups.length === 0" class="p-4 text-center text-tertiary text-sm">No groups found</div>
+                <div v-if="filteredAvailableGroups.length === 0" class="p-4 text-center text-tertiary text-sm">{{ $t('admin-groups-config-no-groups-found') }}</div>
               </div>
               <div class="flex justify-end pt-2">
                 <button
@@ -987,7 +989,7 @@ onMounted(() => {
                   class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   <Spinner v-if="savingIncludes" />
-                  Save Included Groups
+                  {{ $t('admin-groups-config-save-includes') }}
                 </button>
               </div>
             </div>
@@ -997,7 +999,7 @@ onMounted(() => {
           <SectionCard v-if="group.included_in && group.included_in.length > 0" content-padding="p-0">
             <template #title>
               <div class="flex items-center justify-between">
-                <span>Included In</span>
+                <span>{{ $t('admin-groups-config-included-in') }}</span>
                 <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">{{ group.included_in.length }}</span>
               </div>
             </template>
@@ -1010,7 +1012,7 @@ onMounted(() => {
                   {{ parentGroup.name.charAt(0).toUpperCase() }}
                 </div>
                 <span class="text-sm text-primary truncate flex-1">{{ parentGroup.name }}</span>
-                <span class="text-xs text-tertiary">{{ parentGroup.member_count }} member{{ parentGroup.member_count !== 1 ? 's' : '' }}</span>
+                <span class="text-xs text-tertiary">{{ $t('admin-groups-config-member-count', { count: parentGroup.member_count }) }}</span>
               </div>
             </div>
           </SectionCard>
@@ -1025,20 +1027,20 @@ onMounted(() => {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       </div>
-      <p class="text-secondary">Group not found</p>
+      <p class="text-secondary">{{ $t('admin-groups-config-not-found') }}</p>
     </div>
 
     <!-- Delete Confirmation Modal -->
     <Modal
       :show="showDeleteConfirm"
-      title="Delete Group"
+      :title="$t('admin-groups-config-delete-title')"
       size="sm"
       @close="showDeleteConfirm = false"
     >
       <div class="flex flex-col gap-4">
         <p class="text-secondary">
-          Are you sure you want to delete the group <strong class="text-primary">{{ group?.name }}</strong>?
-          This will remove all member associations but will not delete the users.
+          {{ $t('admin-groups-config-delete-prompt-prefix') }}
+          <strong class="text-primary">{{ group?.name }}</strong>{{ $t('admin-groups-config-delete-prompt-suffix') }}
         </p>
 
         <div class="flex justify-end gap-2 pt-2">
@@ -1047,7 +1049,7 @@ onMounted(() => {
             @click="showDeleteConfirm = false"
             class="px-4 py-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
           >
-            Cancel
+            {{ $t('admin-groups-config-cancel') }}
           </button>
           <button
             @click="deleteGroup"
@@ -1055,7 +1057,7 @@ onMounted(() => {
             class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             <Spinner v-if="isDeleting" />
-            Delete Group
+            {{ $t('admin-groups-config-delete-confirm') }}
           </button>
         </div>
       </div>
@@ -1064,9 +1066,9 @@ onMounted(() => {
     <ConfirmModal
       :show="showUnmanageConfirm"
       variant="warning"
-      :title="group ? `Unmanage ${group.name}?` : 'Unmanage group?'"
-      message="The group will no longer sync with Microsoft Entra ID. Manual edits become allowed, but existing sync history is preserved."
-      confirm-label="Unmanage"
+      :title="group ? $t('admin-groups-config-unmanage-title-named', { name: group.name }) : $t('admin-groups-config-unmanage-title')"
+      :message="$t('admin-groups-config-unmanage-message')"
+      :confirm-label="$t('admin-groups-config-unmanage')"
       @confirm="doUnmanageGroup"
       @close="showUnmanageConfirm = false"
     />

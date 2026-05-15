@@ -3126,3 +3126,288 @@ ticket-chip-dropdown-status = Status selecteren
 ticket-chip-dropdown-priority = Prioriteit selecteren
 ticket-chip-dropdown-category = Categorie selecteren
 ticket-chip-dropdown-option = Optie selecteren
+# Beheer: omgevingsconfiguratie-melding (EnvConfigNotice)
+admin-env-notice-title = Configuratie via omgevingsvariabelen
+admin-env-notice-prefix = Instellingen worden geconfigureerd via omgevingsvariabelen in uw
+admin-env-notice-suffix = bestand of Docker-omgeving.
+
+# Beheer: systeeminformatie-kaart (SystemInfoCard)
+admin-system-info-title = Systeeminformatie
+admin-system-info-version = Versie
+admin-system-info-environment = Omgeving
+admin-system-info-uptime = Beschikbaarheid
+admin-system-info-update-to = Bijwerken naar { $version }
+admin-system-info-uptime-days = { $count } d
+admin-system-info-uptime-hours = { $count } u
+admin-system-info-uptime-minutes = { $count } m
+admin-system-info-uptime-seconds = { $count } s
+
+# Beheer: categorie-editor (CategoryEditPanel)
+admin-categories-edit-title-edit = Categorie bewerken
+admin-categories-edit-title-create = Categorie aanmaken
+admin-categories-edit-delete-tooltip = Categorie verwijderen
+admin-categories-edit-close-tooltip = Paneel sluiten
+admin-categories-edit-name-label = Naam
+admin-categories-edit-name-placeholder = Categorienaam invoeren
+admin-categories-edit-description-label = Beschrijving
+admin-categories-edit-description-placeholder = Optionele beschrijving
+admin-categories-edit-icon-label = Pictogram
+admin-categories-edit-icon-folder = Map
+admin-categories-edit-icon-tag = Label
+admin-categories-edit-icon-bug = Bug
+admin-categories-edit-icon-settings = Instellingen
+admin-categories-edit-icon-idea = Idee
+admin-categories-edit-icon-question = Vraag
+admin-categories-edit-icon-alert = Waarschuwing
+admin-categories-edit-icon-star = Ster
+admin-categories-edit-color-label = Kleur
+admin-categories-edit-active-label = Actief
+admin-categories-edit-visibility-label = Zichtbaar voor groepen
+admin-categories-edit-visibility-hint = (leeg laten voor openbaar)
+admin-categories-edit-visibility-toggle-aria = Zichtbaarheid voor { $name } wisselen
+admin-categories-edit-member-count = { $count ->
+    [one] { $count } lid
+   *[other] { $count } leden
+    }
+admin-categories-edit-no-groups = Geen groepen beschikbaar. Maak eerst groepen aan.
+admin-categories-edit-cancel = Annuleren
+admin-categories-edit-save = Wijzigingen opslaan
+admin-categories-edit-create = Categorie aanmaken
+
+# Beheer: groepsconfiguratiepaneel (GroupConfigurationPanel)
+admin-groups-config-subtitle = Groepsconfiguratie
+admin-groups-config-delete-tooltip = Groep verwijderen
+admin-groups-config-close-tooltip = Paneel sluiten
+admin-groups-config-source-microsoft = Microsoft Entra ID
+admin-groups-config-managed-by = Beheerd door { $source }
+admin-groups-config-last-synced = Laatst gesynchroniseerd { $date }
+admin-groups-config-unmanage = Beheer ontkoppelen
+admin-groups-config-unmanage-processing = Bezig...
+admin-groups-config-sync-settings = Synchronisatie-instellingen
+admin-groups-config-general = Algemene informatie
+admin-groups-config-name-label = Naam
+admin-groups-config-name-placeholder = Groepsnaam invoeren
+admin-groups-config-description-label = Beschrijving
+admin-groups-config-description-placeholder = Optionele beschrijving
+admin-groups-config-color-label = Kleur
+admin-groups-config-save-changes = Wijzigingen opslaan
+admin-groups-config-members = Leden
+admin-groups-config-no-members = Geen leden
+admin-groups-config-devices = Apparaten
+admin-groups-config-device-sn = SN: { $sn }
+admin-groups-config-no-devices = Geen apparaten
+admin-groups-config-included-in = Opgenomen in
+admin-groups-config-included-groups = Opgenomen groepen
+admin-groups-config-includes-hint = Leden van opgenomen groepen worden behandeld als leden van deze groep voor zichtbaarheid, toegang en toewijzing.
+admin-groups-config-source-direct = Direct
+admin-groups-config-source-via = via
+admin-groups-config-source-also-via = ook via
+admin-groups-config-section-assigned = Toegewezen
+admin-groups-config-section-included-via = Opgenomen via groepen
+admin-groups-config-section-not-assigned = Niet toegewezen
+admin-groups-config-search-users = Gebruikers zoeken...
+admin-groups-config-search-devices = Zoek apparaten op naam, hostnaam, serienummer...
+admin-groups-config-search-groups = Groepen zoeken...
+admin-groups-config-no-users-found = Geen gebruikers gevonden
+admin-groups-config-no-devices-found = Geen apparaten gevonden
+admin-groups-config-no-groups-found = Geen groepen gevonden
+admin-groups-config-synced-badge = Gesynchroniseerd
+admin-groups-config-synced-intune-tooltip = Gesynchroniseerd vanaf Microsoft Intune
+admin-groups-config-selected-count = { $count } geselecteerd
+admin-groups-config-member-count = { $count ->
+    [one] { $count } lid
+   *[other] { $count } leden
+    }
+admin-groups-config-save-members = Leden opslaan
+admin-groups-config-save-devices = Apparaten opslaan
+admin-groups-config-save-includes = Opgenomen groepen opslaan
+admin-groups-config-not-found = Groep niet gevonden
+admin-groups-config-cancel = Annuleren
+admin-groups-config-delete-title = Groep verwijderen
+admin-groups-config-delete-confirm = Groep verwijderen
+admin-groups-config-delete-prompt-prefix = Weet je zeker dat je de groep
+admin-groups-config-delete-prompt-suffix = wilt verwijderen? Alle lidassociaties worden verwijderd, maar de gebruikers blijven bestaan.
+admin-groups-config-unmanage-title = Groep losmaken van beheer?
+admin-groups-config-unmanage-title-named = { $name } losmaken van beheer?
+admin-groups-config-unmanage-message = De groep wordt niet langer gesynchroniseerd met Microsoft Entra ID. Handmatige bewerkingen worden toegestaan, maar de bestaande synchronisatiegeschiedenis blijft behouden.
+admin-groups-config-error-invalid-id = Ongeldige groeps-ID
+admin-groups-config-error-load = Kan groepsgegevens niet laden
+admin-groups-config-error-name-required = Groepsnaam is verplicht
+admin-groups-config-error-save = Kan groep niet opslaan
+admin-groups-config-error-members = Kan leden niet bijwerken
+admin-groups-config-error-devices = Kan apparaten niet bijwerken
+admin-groups-config-error-includes = Kan opgenomen groepen niet bijwerken
+admin-groups-config-error-delete = Kan groep niet verwijderen
+admin-groups-config-error-unmanage = Kan beheer niet ontkoppelen
+admin-groups-config-success-updated = Groep bijgewerkt
+admin-groups-config-success-members = Leden bijgewerkt
+admin-groups-config-success-devices = Apparaten bijgewerkt
+admin-groups-config-success-includes = Opgenomen groepen bijgewerkt
+admin-groups-config-success-unmanage = Groep wordt nu lokaal beheerd
+
+# Ticketstabel-onderdelen (TicketsTable, TicketRow, TicketPreviewPane)
+views-tickets-table-select-all-aria = Selecteer alle zichtbare tickets
+views-tickets-table-resize-handle-tooltip = Sleep om te wijzigen · dubbelklik om passend te maken
+views-ticket-row-select-aria = Ticket #{ $id } selecteren
+views-ticket-row-recurring-tooltip = Terugkerend ticket
+views-ticket-row-sla-badge = SLA
+views-ticket-row-sla-breached-tooltip = SLA overschreden
+views-ticket-row-sla-breached = Overschreden
+views-ticket-row-sla-paused = Gepauzeerd
+views-ticket-row-sla-on-track = Op schema
+views-ticket-row-cycle-tooltip = Hoort bij een cyclus
+views-ticket-row-cycle-label = cyclus #{ $id }
+views-ticket-row-no-due-date = Geen vervaldatum
+views-ticket-row-kb-badge = KB
+views-ticket-row-kb-gap-tooltip = Kennishiaat-signaal: { $signal }
+views-ticket-row-devices-count = { $count ->
+    [one] { $count } apparaat
+   *[other] { $count } apparaten
+    }
+
+# Ticket-voorbeeldpaneel (TicketPreviewPane)
+views-ticket-preview-aria = Ticketvoorbeeld
+views-ticket-preview-empty-title = Geen ticket geselecteerd
+views-ticket-preview-empty-prefix = Klik op een rij of navigeer met
+views-ticket-preview-empty-suffix = voor een voorbeeld.
+views-ticket-preview-open = Openen
+views-ticket-preview-close-tooltip = Voorbeeld sluiten (Esc)
+views-ticket-preview-close-aria = Voorbeeld sluiten
+views-ticket-preview-kb-gap = KB-hiaat
+views-ticket-preview-recurring = Terugkerend
+views-ticket-preview-properties = Eigenschappen
+views-ticket-preview-assignee = Toegewezen aan
+views-ticket-preview-requester = Aanvrager
+views-ticket-preview-due-date = Vervaldatum
+views-ticket-preview-not-set = Niet ingesteld
+views-ticket-preview-cycle = Cyclus
+views-ticket-preview-cycle-label = Cyclus #{ $id }
+views-ticket-preview-category = Categorie
+views-ticket-preview-sla = SLA
+views-ticket-preview-activity = Activiteit
+views-ticket-preview-last-activity = Laatste activiteit
+views-ticket-preview-created = Aangemaakt
+views-ticket-preview-affected-devices = Betrokken apparaten
+views-ticket-preview-more-devices = { $count ->
+    [one] +{ $count } meer
+   *[other] +{ $count } meer
+    }
+views-ticket-preview-view-full = Beschrijving, opmerkingen en apparaten bekijken
+
+# Ticket-heatmap (TicketHeatmap)
+ticket-heatmap-title-closed = Afgesloten tickets
+ticket-heatmap-title-activity = Ticketactiviteit
+ticket-heatmap-error-load = Kan ticketgegevens niet laden. Probeer het opnieuw.
+ticket-heatmap-tooltip-empty = Geen tickets
+ticket-heatmap-tooltip-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+    }
+ticket-heatmap-day-sun = Zo
+ticket-heatmap-day-mon = Ma
+ticket-heatmap-day-tue = Di
+ticket-heatmap-day-wed = Wo
+ticket-heatmap-day-thu = Do
+ticket-heatmap-day-fri = Vr
+ticket-heatmap-day-sat = Za
+ticket-heatmap-days-with-activity = { $count ->
+    [one] { $count } dag met activiteit
+   *[other] { $count } dagen met activiteit
+    }
+ticket-heatmap-legend-less = Minder
+ticket-heatmap-legend-more = Meer
+
+# Weergaven: filter toevoegen-menu (AddFilterMenu)
+views-add-filter-trigger = Filter toevoegen
+views-add-filter-back-tooltip = Terug (Backspace)
+views-add-filter-search-title-placeholder = Titel zoeken…
+views-add-filter-no-matches = Geen overeenkomstige waarden
+views-add-filter-facet-title = Titel
+views-add-filter-facet-status = Status
+views-add-filter-facet-priority = Prioriteit
+views-add-filter-facet-assignee = Toegewezen aan
+views-add-filter-facet-sla = SLA
+views-add-filter-facet-cycle = Cyclus
+
+# Weergaven: filterwaardenlijst (FilterValueList)
+views-filter-value-search-placeholder = Zoeken…
+views-filter-value-no-matches = Geen resultaten
+views-filter-value-no-options = Geen opties
+views-filter-value-clear = Wissen
+
+# Weergaven: weergavemenu (DisplayMenu)
+views-display-menu-trigger = Weergave
+views-display-menu-trigger-tooltip = Weergaveopties
+views-display-menu-grouping = Groepering
+views-display-menu-density = Dichtheid
+views-display-menu-density-aria = Rijdichtheid
+views-display-menu-density-compact = Compact
+views-display-menu-density-cosy = Knus
+views-display-menu-density-comfortable = Comfortabel
+views-display-menu-group-none = Geen
+views-display-menu-group-status = Status
+views-display-menu-group-priority = Prioriteit
+views-display-menu-group-assignee = Toegewezen aan
+views-display-menu-group-sla = SLA
+views-display-menu-group-cycle = Cyclus
+views-display-menu-properties = Eigenschappen
+views-display-menu-column-ticket-id = Ticket-nr.
+views-display-menu-reset = Kolommen resetten
+views-display-menu-reset-tooltip = Standaardvolgorde, breedte en zichtbaarheid van kolommen herstellen
+views-display-menu-save-to-view = Opslaan in weergave
+
+# Weergaven: tabbalken
+views-tab-bar-aria = Weergave
+views-project-tab-aria = Projectweergave
+views-project-tab-board = Bord
+views-project-tab-gantt = Gantt
+views-project-tab-cycles = Cycli
+
+# Weergaven: editor voor opgeslagen weergave (SavedViewEditorModal)
+views-saved-editor-title = Weergave bewerken
+views-saved-editor-name-label = Naam
+views-saved-editor-delete = Weergave verwijderen
+views-saved-editor-cancel = Annuleren
+views-saved-editor-save = Opslaan
+views-saved-editor-saving = Opslaan
+views-saved-editor-confirm-title = Weergave verwijderen?
+views-saved-editor-confirm-message = "{ $name }" verwijderen? Deze actie is onomkeerbaar, maak de weergave opnieuw aan als je hem nog nodig hebt.
+
+# Weergaven: filterpil (FilterPill)
+views-filter-pill-remove-tooltip = Filter { $label } verwijderen
+views-filter-pill-search-title-placeholder = Titel zoeken…
+
+# Weergaven: weergaveschakelaar (ViewSwitcher)
+views-view-switcher-placeholder = Weergave
+views-view-switcher-edit-view = Weergave bewerken…
+
+# Dashboard: widget toegewezen tickets (UserAssignedTickets)
+user-assigned-tickets-title-assigned = Toegewezen tickets
+user-assigned-tickets-title-requested = Aangevraagde tickets
+user-assigned-tickets-empty-title-assigned = Geen toegewezen tickets
+user-assigned-tickets-empty-title-requested = Geen aangevraagde tickets
+user-assigned-tickets-empty-current = Je bent helemaal bij!
+user-assigned-tickets-error-assigned = Kan toegewezen tickets niet laden
+user-assigned-tickets-error-requested = Kan aangevraagde tickets niet laden
+user-assigned-tickets-status-active = Actief
+user-assigned-tickets-status-active-desc = Open + In behandeling
+user-assigned-tickets-status-open = Open
+user-assigned-tickets-status-in-progress = In behandeling
+user-assigned-tickets-status-closed = Afgesloten
+user-assigned-tickets-status-all = Alle
+user-assigned-tickets-status-all-desc = Elke status
+user-assigned-tickets-status-filter-aria = Statusfilter { $title }
+user-assigned-tickets-sort-priority = Prioriteit
+user-assigned-tickets-sort-priority-desc = Prioriteit, daarna recent
+user-assigned-tickets-sort-recent = Recent
+user-assigned-tickets-sort-recent-desc = Recent gewijzigd
+user-assigned-tickets-sort-oldest = Oudste
+user-assigned-tickets-sort-oldest-desc = Oudste eerst, voor triage
+user-assigned-tickets-filter-high-priority = Alleen hoge prioriteit
+user-assigned-tickets-filter-new-activity = Alleen nieuwe activiteit
+
+# Dashboard: widget recente tickets (RecentTickets)
+recent-tickets-empty = Geen recente tickets
+recent-tickets-context-open-new-tab = Openen in nieuw tabblad
+recent-tickets-context-copy-link = Link kopiëren
+recent-tickets-context-remove = Verwijderen uit recent

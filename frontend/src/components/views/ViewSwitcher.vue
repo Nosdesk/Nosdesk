@@ -14,10 +14,13 @@
  * Touch-friendly without a hover-row pattern.
  */
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
+
+const fluent = useFluent()
 
 export interface ViewSwitcherItem {
   id: string
@@ -87,7 +90,7 @@ const menuItems = computed<MenuItem[]>(() => {
   if (editableActive) {
     out.push({
       id: `__edit:${editableActive.id}`,
-      label: 'Edit view…',
+      label: fluent.$t('views-view-switcher-edit-view'),
       divider: true,
     })
   }
@@ -125,7 +128,7 @@ function handleSelect(id: string): void {
       aria-haspopup="menu"
       @click="open = !open"
     >
-      <span>{{ active?.name ?? props.placeholder }}</span>
+      <span>{{ active?.name ?? props.placeholder ?? $t('views-view-switcher-placeholder') }}</span>
       <Icon
         name="chevronDown"
         class="text-tertiary"
@@ -136,7 +139,7 @@ function handleSelect(id: string): void {
     <ResponsiveMenu
       :open="open"
       :anchor="anchor"
-      :title="active?.name ?? props.placeholder"
+      :title="active?.name ?? props.placeholder ?? $t('views-view-switcher-placeholder')"
       placement="bottom-start"
       react-to-scroll="reposition"
       :offset="4"
