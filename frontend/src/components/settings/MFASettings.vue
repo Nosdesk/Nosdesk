@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { logger } from "@/utils/logger";
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { useFluent } from "fluent-vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import OtpInput from "@/components/common/OtpInput.vue";
 import Icon from "@/components/common/Icon.vue";
@@ -10,6 +11,9 @@ import { useAuthStore } from "@/stores/auth";
 import { useMfaSetupStore } from "@/stores/mfaSetup";
 import { useMfa } from "@/composables/useMfa";
 import userService from "@/services/userService";
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Props for different modes
 const props = defineProps<{
@@ -48,10 +52,10 @@ const adminDisableMfa = async () => {
             adminMfaStatus.value.mfa_enabled = false;
             adminMfaStatus.value.has_backup_codes = false;
         }
-        emit("success", "Two-factor authentication has been disabled for this user");
+        emit("success", t("settings-mfa-admin-disable-success"));
     } catch (err) {
         const axiosError = err as { response?: { data?: { message?: string } } };
-        emit("error", axiosError.response?.data?.message || "Failed to disable MFA");
+        emit("error", axiosError.response?.data?.message || t("settings-mfa-admin-disable-error"));
     } finally {
         adminDisabling.value = false;
     }
@@ -167,7 +171,7 @@ onMounted(async () => {
             };
         } catch (error) {
             logger.error("Failed to fetch user security info:", error);
-            emit("error", "Failed to load MFA status for this user");
+            emit("error", t("settings-mfa-admin-load-error"));
         } finally {
             adminLoading.value = false;
         }
@@ -176,7 +180,7 @@ onMounted(async () => {
             await setupMFAData();
         } catch (error) {
             logger.error("Failed to initialize MFA setup:", error);
-            emit("error", "Failed to initialize MFA setup");
+            emit("error", t("settings-mfa-setup-init-error"));
         }
     } else {
         await mfa.checkMFAStatus();
@@ -201,7 +205,7 @@ const startMFASetup = async () => {
 
     if (props.isLoginSetup) {
         if (!mfa.qrCodeUrl.value) {
-            emit("error", "MFA setup not initialized properly");
+            emit("error", t("settings-mfa-setup-not-ready"));
             return;
         }
     } else {
@@ -214,14 +218,14 @@ const verifyMFA = async () => {
     logger.debug("🔐 verifyMFA called, isLoginSetup:", props.isLoginSetup);
 
     if (verificationCode.value.length !== 6) {
-        emit("error", "Please enter a valid 6-digit code");
+        emit("error", t("settings-mfa-verify-invalid-length"));
         return;
     }
 
     if (!mfa.mfaSecret.value) {
         emit(
             "error",
-            "MFA secret is missing. Please restart the setup process.",
+            t("settings-mfa-verify-missing-secret"),
         );
         return;
     }
@@ -248,7 +252,7 @@ const verifyMFA = async () => {
             "error",
             err instanceof Error
                 ? err.message
-                : "Invalid verification code. Please try again.",
+                : t("settings-mfa-verify-invalid-code"),
         );
     }
 };
@@ -278,7 +282,7 @@ const enableMFAForLogin = async () => {
             emit("mfa-enabled");
             emitMfaMessages();
         } else {
-            emit("error", "MFA enabled but login response was incomplete");
+            emit("error", t("settings-mfa-verify-incomplete-login"));
         }
     } else {
         emitMfaMessages();
@@ -302,7 +306,7 @@ const disableMFA = async () => {
     let password = "";
     if (!isLimitedSession.value) {
         const userPassword = prompt(
-            "Please enter your password to disable MFA:",
+            t("settings-mfa-disable-password-prompt"),
         );
         if (!userPassword) return;
         password = userPassword;
@@ -554,7 +558,7 @@ const copySecret = async () => {
         }, 2000);
     } catch (err) {
         logger.error("Failed to copy secret:", err);
-        emit("error", "Failed to copy to clipboard");
+        emit("error", t("settings-mfa-copy-error"));
     }
 };
 
@@ -563,15 +567,15 @@ const downloadBackupCodes = () => {
     if (!mfa.backupCodes.value.length) return;
 
     try {
-        const content = `Nosdesk Backup Codes
+        const content = `${t("settings-mfa-backup-file-title")}
 
-IMPORTANT: Save these backup codes in a secure location.
-Each code can only be used once to access your account if you lose your authenticator device.
+${t("settings-mfa-backup-file-warning")}
+${t("settings-mfa-backup-file-usage")}
 
-Backup Codes:
+${t("settings-mfa-backup-file-codes-heading")}
 ${mfa.backupCodes.value.map((code, index) => `${index + 1}. ${code}`).join("\n")}
 
-Generated on: ${new Date().toISOString()}`;
+${t("settings-mfa-backup-file-generated", { date: new Date().toISOString() })}`;
 
         const blob = new Blob([content], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
@@ -584,10 +588,10 @@ Generated on: ${new Date().toISOString()}`;
         document.body.removeChild(link);
 
         URL.revokeObjectURL(url);
-        emit("success", "Backup codes downloaded successfully");
+        emit("success", t("settings-mfa-backup-codes-download-success"));
     } catch (err) {
         logger.error("Failed to download backup codes:", err);
-        emit("error", "Failed to download backup codes");
+        emit("error", t("settings-mfa-backup-codes-download-error"));
     }
 };
 
@@ -671,10 +675,10 @@ defineExpose({
         <template #title>
             {{
                 isManagingOtherUser
-                    ? "Two-Factor Authentication"
+                    ? $t('settings-mfa-title')
                     : isInSuccessState
-                        ? "Setup Complete!"
-                        : "Two-Factor Authentication"
+                        ? $t('settings-mfa-title-success')
+                        : $t('settings-mfa-title')
             }}
         </template>
 
@@ -692,10 +696,10 @@ defineExpose({
                                 :class="adminMfaStatus.mfa_enabled ? 'bg-status-success' : 'bg-tertiary'"
                             ></div>
                             <span class="text-sm font-medium text-primary">
-                                {{ adminMfaStatus.mfa_enabled ? 'Enabled' : 'Not enabled' }}
+                                {{ adminMfaStatus.mfa_enabled ? $t('settings-mfa-admin-status-enabled') : $t('settings-mfa-admin-status-disabled') }}
                             </span>
                             <span v-if="adminMfaStatus.mfa_enabled && adminMfaStatus.has_backup_codes" class="text-xs text-tertiary">
-                                · Backup codes generated
+                                {{ $t('settings-mfa-admin-backup-codes-generated') }}
                             </span>
                         </div>
                         <button
@@ -705,12 +709,12 @@ defineExpose({
                             class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50 flex items-center gap-1.5"
                         >
                             <Spinner v-if="adminDisabling" />
-                            {{ adminDisabling ? 'Disabling...' : 'Disable' }}
+                            {{ adminDisabling ? $t('settings-mfa-admin-disabling') : $t('settings-mfa-admin-disable') }}
                         </button>
                     </div>
                 </template>
                 <p class="text-xs text-tertiary">
-                    MFA setup requires the account owner's authenticator app.
+                    {{ $t('settings-mfa-admin-note') }}
                 </p>
             </div>
 
@@ -720,11 +724,11 @@ defineExpose({
                     v-if="!props.isLoginSetup"
                     :modelValue="mfa.mfaEnabled.value"
                     :disabled="mfa.loading.value"
-                    label="Enable Two-Factor Authentication"
+                    :label="$t('settings-mfa-toggle-label')"
                     :description="
                         mfa.mfaEnabled.value
-                            ? 'Your account is protected with 2FA'
-                            : 'Secure your account with an authenticator app'
+                            ? $t('settings-mfa-toggle-description-enabled')
+                            : $t('settings-mfa-toggle-description-disabled')
                     "
                     @update:modelValue="toggleMFA"
                 />
@@ -775,7 +779,7 @@ defineExpose({
                                 >
                                     <Icon name="chevronRight" />
                                 </span>
-                                Can't scan? Enter the code manually
+                                {{ $t('settings-mfa-manual-toggle') }}
                             </button>
 
                             <div
@@ -783,8 +787,7 @@ defineExpose({
                                 class="mt-4 flex flex-col gap-3"
                             >
                                 <p class="text-sm text-tertiary">
-                                    Enter this secret key in your authenticator
-                                    app:
+                                    {{ $t('settings-mfa-manual-instructions') }}
                                 </p>
                                 <div
                                     class="bg-surface-alt rounded-lg p-3 border border-subtle"
@@ -811,14 +814,14 @@ defineExpose({
                                             "
                                             :title="
                                                 secretCopied
-                                                    ? 'Copied to clipboard!'
-                                                    : 'Copy to clipboard'
+                                                    ? $t('settings-mfa-copied-tooltip')
+                                                    : $t('settings-mfa-copy-tooltip')
                                             "
                                         >
                                             {{
                                                 secretCopied
-                                                    ? "Copied!"
-                                                    : "Copy"
+                                                    ? $t('settings-mfa-copied-button')
+                                                    : $t('settings-mfa-copy-button')
                                             }}
                                         </button>
                                     </div>
@@ -832,11 +835,10 @@ defineExpose({
                                 <h4
                                     class="text-sm font-medium text-primary mb-2"
                                 >
-                                    Enter Verification Code
+                                    {{ $t('settings-mfa-verify-heading') }}
                                 </h4>
                                 <p class="text-sm text-tertiary">
-                                    Enter the 6-digit code from your
-                                    authenticator app:
+                                    {{ $t('settings-mfa-verify-instructions') }}
                                 </p>
                             </div>
 
@@ -850,7 +852,7 @@ defineExpose({
                                     <OtpInput
                                         v-model="verificationCode"
                                         @complete="handleOtpComplete"
-                                        aria-label="MFA verification code"
+                                        :aria-label="$t('settings-mfa-verify-aria-label')"
                                     />
                                 </div>
 
@@ -867,8 +869,8 @@ defineExpose({
                                     </span>
                                     {{
                                         mfa.verifying.value
-                                            ? "Verifying..."
-                                            : "Verify"
+                                            ? $t('settings-mfa-verifying-button')
+                                            : $t('settings-mfa-verify-button')
                                     }}
                                 </button>
                             </div>
@@ -887,7 +889,7 @@ defineExpose({
                             <img
                                 v-if="mfa.qrCodeUrl.value"
                                 :src="mfa.qrCodeUrl.value"
-                                alt="MFA QR Code"
+                                :alt="$t('settings-mfa-qr-alt')"
                                 class="w-48 h-48 lg:w-44 lg:h-44"
                             />
                         </div>
@@ -904,11 +906,10 @@ defineExpose({
                                     <h3
                                         class="text-lg font-medium text-primary mb-2"
                                     >
-                                        Verifying Code
+                                        {{ $t('settings-mfa-verifying-heading') }}
                                     </h3>
                                     <p class="text-sm text-tertiary">
-                                        Please wait while we verify your
-                                        authenticator code...
+                                        {{ $t('settings-mfa-verifying-message') }}
                                     </p>
                                 </div>
                             </div>
@@ -930,24 +931,22 @@ defineExpose({
                     >
                         <div class="flex-1">
                             <h2 class="text-lg font-semibold text-primary mb-2">
-                                Backup Codes
+                                {{ $t('settings-mfa-backup-codes-heading') }}
                             </h2>
                             <p class="text-secondary text-sm">
-                                Save these backup codes in a secure location.
-                                You can use them to access your account if you
-                                lose your authenticator device.
+                                {{ $t('settings-mfa-backup-codes-description') }}
                             </p>
                         </div>
                         <div class="flex-shrink-0">
                             <button
                                 @click="downloadBackupCodes"
                                 class="px-4 py-2 bg-surface hover:bg-surface-hover border border-status-warning text-primary rounded-lg transition-colors flex items-center gap-2"
-                                title="Download backup codes as text file"
+                                :title="$t('settings-mfa-backup-codes-download-tooltip')"
                             >
                                 <span class="text-status-warning inline-flex">
                                     <Icon name="download" />
                                 </span>
-                                Download
+                                {{ $t('settings-mfa-backup-codes-download') }}
                             </button>
                         </div>
                     </div>
@@ -978,12 +977,10 @@ defineExpose({
                             </div>
                             <div>
                                 <h3 class="text-lg font-medium text-status-success">
-                                    Two-Factor Authentication Enabled!
+                                    {{ $t('settings-mfa-success-heading') }}
                                 </h3>
                                 <p class="text-sm text-secondary">
-                                    Your account is now protected with 2FA.
-                                    You'll need to enter a code from your
-                                    authenticator app when signing in.
+                                    {{ $t('settings-mfa-success-message') }}
                                 </p>
                             </div>
                         </div>
@@ -994,7 +991,7 @@ defineExpose({
                                 @click="completeSetup"
                                 class="w-full sm:w-auto px-8 py-3 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent transition-colors font-medium min-h-[52px] active:scale-[0.98]"
                             >
-                                Start Using Nosdesk!
+                                {{ $t('settings-mfa-success-cta') }}
                             </button>
                         </div>
                     </div>

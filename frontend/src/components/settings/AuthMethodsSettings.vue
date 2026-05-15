@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import authService from '@/services/authService';
 import userService from '@/services/userService';
@@ -7,6 +8,9 @@ import { formatDate } from '@/utils/dateUtils';
 import { logger } from '@/utils/logger';
 import Icon from '@/components/common/Icon.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const props = defineProps<{
   targetUserUuid?: string;
@@ -56,8 +60,8 @@ onMounted(() => loadAuthData());
 
 const getAuthMethodLabel = (type: string) => {
   switch (type) {
-    case 'local': return 'Email / Password';
-    case 'microsoft': return 'Microsoft';
+    case 'local': return t('settings-auth-methods-type-local');
+    case 'microsoft': return t('settings-auth-methods-type-microsoft');
     default: return type;
   }
 };
@@ -102,7 +106,7 @@ const loadActiveSessions = async () => {
     activeSessions.value = sessions;
   } catch (error) {
     logger.error('Failed to load active sessions', { error });
-    emit('error', 'Failed to load active sessions');
+    emit('error', t('settings-auth-methods-sessions-load-error'));
   } finally {
     loading.value = false;
   }
@@ -111,6 +115,7 @@ const loadActiveSessions = async () => {
 // Auth method functions
 const addAuthMethod = async (type: 'microsoft') => {
   loading.value = true;
+  const providerName = type.charAt(0).toUpperCase() + type.slice(1);
   try {
     // Use authService to connect OAuth provider
     const data = await authService.connectOAuthProvider(type);
@@ -122,11 +127,11 @@ const addAuthMethod = async (type: 'microsoft') => {
       return;
     }
 
-    emit('success', `${type.charAt(0).toUpperCase() + type.slice(1)} account linked successfully`);
+    emit('success', t('settings-auth-methods-link-success', { provider: providerName }));
     // Reload auth methods to show the newly connected account
     await loadAuthData();
   } catch (err) {
-    emit('error', `Failed to link ${type} account`);
+    emit('error', t('settings-auth-methods-link-error', { provider: providerName }));
     logger.error('Failed to link account', { error: err, type });
   } finally {
     loading.value = false;
@@ -143,11 +148,11 @@ const removeAuthMethod = async (methodId: string, methodType: string) => {
 
     // Reload auth methods after deletion
     await loadAuthData();
-    emit('success', 'Authentication method removed successfully');
+    emit('success', t('settings-auth-methods-remove-success'));
   } catch (err) {
     // Extract error message from backend response
     const axiosError = err as { response?: { data?: { message?: string } } };
-    const errorMessage = axiosError.response?.data?.message || 'Failed to remove authentication method';
+    const errorMessage = axiosError.response?.data?.message || t('settings-auth-methods-remove-error');
     emit('error', errorMessage);
     logger.error('Failed to remove auth method', { error: err, methodId, methodType });
   } finally {
@@ -162,10 +167,10 @@ const adminRemoveAuthMethod = async (methodId: string) => {
   try {
     await userService.adminDeleteUserAuthIdentity(props.targetUserUuid, parseInt(methodId));
     await loadAuthData();
-    emit('success', 'Authentication method removed successfully');
+    emit('success', t('settings-auth-methods-remove-success'));
   } catch (err) {
     const axiosError = err as { response?: { data?: { message?: string } } };
-    const errorMessage = axiosError.response?.data?.message || 'Failed to remove authentication method';
+    const errorMessage = axiosError.response?.data?.message || t('settings-auth-methods-remove-error');
     emit('error', errorMessage);
     logger.error('Failed to remove auth method (admin)', { error: err, methodId });
   } finally {
@@ -180,9 +185,9 @@ const revokeSession = async (sessionId: number) => {
     await authService.revokeSession(sessionId);
     // Refresh sessions list
     await loadActiveSessions();
-    emit('success', 'Session revoked successfully');
+    emit('success', t('settings-auth-methods-sessions-revoke-success'));
   } catch (err) {
-    emit('error', 'Failed to revoke session');
+    emit('error', t('settings-auth-methods-sessions-revoke-error'));
     logger.error('Failed to revoke session', { error: err, sessionId });
   } finally {
     loading.value = false;
@@ -195,9 +200,9 @@ const revokeAllSessions = async () => {
     await authService.revokeAllOtherSessions();
     // Refresh sessions list
     await loadActiveSessions();
-    emit('success', 'All other sessions revoked successfully');
+    emit('success', t('settings-auth-methods-sessions-revoke-all-success'));
   } catch (err) {
-    emit('error', 'Failed to revoke sessions');
+    emit('error', t('settings-auth-methods-sessions-revoke-all-error'));
     logger.error('Failed to revoke all sessions', { error: err });
   } finally {
     loading.value = false;
@@ -219,7 +224,7 @@ const getAuthMethodIcon = (type: string) => {
   <div class="flex flex-col gap-6">
     <!-- Authentication Methods -->
     <SectionCard content-padding="p-4">
-      <template #title>Authentication Methods</template>
+      <template #title>{{ $t('settings-auth-methods-section-title') }}</template>
 
       <div class="flex flex-col gap-3">
         <!-- Auth Methods -->
@@ -244,10 +249,10 @@ const getAuthMethodIcon = (type: string) => {
                 <div>
                   <div class="text-sm font-medium text-primary">
                     {{ getAuthMethodLabel(method.type) }}
-                    <span v-if="method.isPrimary" class="ml-2 px-2 py-1 bg-accent/20 text-accent rounded text-xs">Primary</span>
+                    <span v-if="method.isPrimary" class="ml-2 px-2 py-1 bg-accent/20 text-accent rounded text-xs">{{ $t('settings-auth-methods-primary-badge') }}</span>
                   </div>
                   <div v-if="method.identifier" class="text-xs text-tertiary">
-                    {{ method.identifier }}<template v-if="method.createdAt"> · Added {{ formatDate(method.createdAt, 'MMM d, yyyy') }}</template>
+                    {{ method.identifier }}<template v-if="method.createdAt"> {{ $t('settings-auth-methods-added-suffix', { date: formatDate(method.createdAt, 'MMM d, yyyy') }) }}</template>
                   </div>
                 </div>
               </div>
@@ -257,7 +262,7 @@ const getAuthMethodIcon = (type: string) => {
                 :disabled="loading"
                 class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50"
               >
-                Remove
+                {{ $t('settings-auth-methods-remove') }}
               </button>
             </div>
         </div>
@@ -278,9 +283,9 @@ const getAuthMethodIcon = (type: string) => {
             </svg>
           </div>
           <div class="flex flex-col items-start">
-            <span class="text-sm font-medium text-primary">Connect Microsoft Account</span>
+            <span class="text-sm font-medium text-primary">{{ $t('settings-auth-methods-connect-microsoft') }}</span>
             <span class="text-xs text-tertiary">
-              {{ hasMicrosoftConnection ? 'Already connected' : 'Azure AD / Entra ID' }}
+              {{ hasMicrosoftConnection ? $t('settings-auth-methods-connect-microsoft-already') : $t('settings-auth-methods-connect-microsoft-provider') }}
             </span>
           </div>
         </button>
@@ -289,14 +294,14 @@ const getAuthMethodIcon = (type: string) => {
 
     <!-- Active Sessions (hidden for admin viewing another user) -->
     <SectionCard v-if="!isManagingOtherUser" content-padding="p-4">
-      <template #title>Active Sessions</template>
+      <template #title>{{ $t('settings-auth-methods-sessions-section-title') }}</template>
       <template #headerActions>
         <button
           @click="revokeAllSessions"
           :disabled="loading || activeSessions.length <= 1"
           class="text-[11px] font-medium text-status-error hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
         >
-          Revoke All Others
+          {{ $t('settings-auth-methods-sessions-revoke-all') }}
         </button>
       </template>
 
@@ -310,11 +315,11 @@ const getAuthMethodIcon = (type: string) => {
                 </div>
                 <div>
                   <div class="text-sm font-medium text-primary">
-                    {{ session.device_name || session.user_agent || 'Unknown Device' }}
-                    <span v-if="session.is_current" class="ml-2 px-2 py-1 bg-status-success/20 text-status-success rounded text-xs">Current</span>
+                    {{ session.device_name || session.user_agent || $t('settings-auth-methods-sessions-unknown-device') }}
+                    <span v-if="session.is_current" class="ml-2 px-2 py-1 bg-status-success/20 text-status-success rounded text-xs">{{ $t('settings-auth-methods-sessions-current-badge') }}</span>
                   </div>
                   <div class="text-xs text-tertiary">
-                    {{ session.location || session.ip_address || 'Unknown location' }} • Last active {{ formatDate(session.last_active, 'MMM d, yyyy') }}
+                    {{ $t('settings-auth-methods-sessions-last-active', { location: session.location || session.ip_address || $t('settings-auth-methods-sessions-unknown-location'), date: formatDate(session.last_active, 'MMM d, yyyy') }) }}
                   </div>
                 </div>
               </div>
@@ -324,7 +329,7 @@ const getAuthMethodIcon = (type: string) => {
                 :disabled="loading"
                 class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50"
               >
-                Revoke
+                {{ $t('settings-auth-methods-sessions-revoke') }}
               </button>
             </div>
       </div>
