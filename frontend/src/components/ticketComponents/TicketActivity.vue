@@ -24,6 +24,7 @@
  * hot DOM small.
  */
 import { computed, onMounted, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import {
   getTicketActivity,
   type TicketActivityEvent,
@@ -34,6 +35,9 @@ import { formatCompactRelativeTime } from '@/utils/dateUtils'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Icon from '@/components/common/Icon.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
   ticketId: number
@@ -56,7 +60,7 @@ async function loadInitial() {
     events.value = res.events
     nextCursor.value = res.next_cursor
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load activity'
+    error.value = e instanceof Error ? e.message : t('ticket-activity-load-error')
   } finally {
     loading.value = false
   }
@@ -73,7 +77,7 @@ async function loadMore() {
     events.value = [...events.value, ...res.events]
     nextCursor.value = res.next_cursor
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load more activity'
+    error.value = e instanceof Error ? e.message : t('ticket-activity-load-more-error')
   } finally {
     loadingMore.value = false
   }
@@ -159,17 +163,17 @@ function readCreatedVia(ev: TicketActivityEvent): CreatedVia | null {
  * `channel:<provider>`.
  */
 function creationSourceLabel(source: string): string | null {
-  if (source.startsWith('channel:email')) return 'email'
-  if (source.startsWith('channel:slack')) return 'Slack'
-  if (source.startsWith('channel:teams')) return 'Microsoft Teams'
-  if (source.startsWith('channel:discord')) return 'Discord'
+  if (source.startsWith('channel:email')) return t('ticket-activity-channel-email')
+  if (source.startsWith('channel:slack')) return t('ticket-activity-channel-slack')
+  if (source.startsWith('channel:teams')) return t('ticket-activity-channel-teams')
+  if (source.startsWith('channel:discord')) return t('ticket-activity-channel-discord')
   if (source.startsWith('channel:')) {
     // Generic fallback: turn "channel:custom_provider" into
     // "custom provider" so a new adapter renders meaningfully
     // before someone adds a bespoke label here.
     return source.slice('channel:'.length).replace(/_/g, ' ')
   }
-  if (source === 'guest_portal') return 'the public portal'
+  if (source === 'guest_portal') return t('ticket-activity-actor-portal-label')
   return null
 }
 
@@ -178,23 +182,25 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
   switch (ev.event_type) {
     case 'ticket.created': {
       const cv = readCreatedVia(ev)
-      if (!cv) return 'created this ticket'
+      if (!cv) return t('ticket-activity-phrase-created')
       const label = creationSourceLabel(cv.source!)
-      if (!label) return 'created this ticket'
+      if (!label) return t('ticket-activity-phrase-created')
       // Email/chat: "opened... via email". Portal: "submitted...
       // via the public portal". The two verbs match how the agent
-      // would think about each surface — emails get opened,
-      // portal forms get submitted.
+      // would think about each surface, emails get opened, portal
+      // forms get submitted.
       return cv.source === 'guest_portal'
-        ? `submitted this ticket via ${label}`
-        : `opened this ticket via ${label}`
+        ? t('ticket-activity-phrase-submitted-via', { channel: label })
+        : t('ticket-activity-phrase-opened-via', { channel: label })
     }
     case 'ticket.deleted':
-      return 'deleted this ticket'
+      return t('ticket-activity-phrase-deleted')
     case 'ticket.workflow_state_changed': {
       const id = data.workflow_state_id as number | undefined
       const name = id != null ? ctx.workflowName(id) : null
-      return name ? `set status to ${name}` : 'changed status'
+      return name
+        ? t('ticket-activity-phrase-status-set', { name })
+        : t('ticket-activity-phrase-status-changed')
     }
     case 'ticket.assignee_changed': {
       const uuid = data.assignee_uuid as string | null | undefined
@@ -202,74 +208,83 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
       // assignee's name via the directory; the verb just signals
       // assignment vs unassignment so the line scans cleanly even
       // before the user data resolves.
-      return uuid ? 'reassigned this ticket' : 'unassigned this ticket'
+      return uuid
+        ? t('ticket-activity-phrase-reassigned')
+        : t('ticket-activity-phrase-unassigned')
     }
     case 'ticket.priority_changed': {
       const p = data.priority as string | undefined
-      return p ? `set priority to ${p}` : 'changed priority'
+      return p
+        ? t('ticket-activity-phrase-priority-set', { priority: p })
+        : t('ticket-activity-phrase-priority-changed')
     }
     case 'ticket.title_changed': {
-      const t = data.title as string | undefined
-      return t ? `renamed the ticket to "${t}"` : 'renamed the ticket'
+      const titleVal = data.title as string | undefined
+      return titleVal
+        ? t('ticket-activity-phrase-renamed', { title: titleVal })
+        : t('ticket-activity-phrase-renamed-plain')
     }
     case 'ticket.category_changed':
-      return 'changed the category'
+      return t('ticket-activity-phrase-category-changed')
     case 'ticket.verification_changed':
-      return 'updated verification state'
+      return t('ticket-activity-phrase-verification-changed')
     case 'ticket.tags_changed': {
       const added = (data.added as number[] | undefined)?.length ?? 0
       const removed = (data.removed as number[] | undefined)?.length ?? 0
       if (added > 0 && removed === 0) {
-        return added === 1 ? 'added a tag' : `added ${added} tags`
+        return t('ticket-activity-phrase-tags-added', { count: added })
       }
       if (removed > 0 && added === 0) {
-        return removed === 1 ? 'removed a tag' : `removed ${removed} tags`
+        return t('ticket-activity-phrase-tags-removed', { count: removed })
       }
-      return 'updated the tags'
+      return t('ticket-activity-phrase-tags-updated')
     }
     case 'ticket.resolution_notes_changed':
-      return 'updated the resolution notes'
+      return t('ticket-activity-phrase-resolution-changed')
     case 'ticket.watcher_added': {
       const target = data.user_uuid as string | undefined
       const isSelf = !!target && !!ev.actor_uuid && target === ev.actor_uuid
       if (isSelf) {
         return data.auto_added
-          ? 'started watching (auto-subscribed on first reply)'
-          : 'started watching this ticket'
+          ? t('ticket-activity-phrase-watcher-self-auto')
+          : t('ticket-activity-phrase-watcher-self-start')
       }
-      if (!target) return 'added a watcher'
+      if (!target) return t('ticket-activity-phrase-watcher-added')
       const name = ctx.userName(target)
-      return name ? `added ${name} as a watcher` : 'added a watcher'
+      return name
+        ? t('ticket-activity-phrase-watcher-added-named', { name })
+        : t('ticket-activity-phrase-watcher-added')
     }
     case 'ticket.watcher_removed': {
       const target = data.user_uuid as string | undefined
       const isSelf = !!target && !!ev.actor_uuid && target === ev.actor_uuid
-      if (isSelf) return 'stopped watching this ticket'
-      if (!target) return 'removed a watcher'
+      if (isSelf) return t('ticket-activity-phrase-watcher-self-stop')
+      if (!target) return t('ticket-activity-phrase-watcher-removed')
       const name = ctx.userName(target)
-      return name ? `removed ${name} as a watcher` : 'removed a watcher'
+      return name
+        ? t('ticket-activity-phrase-watcher-removed-named', { name })
+        : t('ticket-activity-phrase-watcher-removed')
     }
     case 'ticket.updated':
-      return 'updated the ticket'
+      return t('ticket-activity-phrase-updated')
     case 'comment.created': {
-      if (data.is_internal) return 'added an internal note'
+      if (data.is_internal) return t('ticket-activity-phrase-internal-note')
       const cv = readCreatedVia(ev)
       const label = cv?.source ? creationSourceLabel(cv.source) : null
-      if (!cv || !label) return 'commented on this ticket'
-      // Email channels: "replied via email" — the activity is a
+      if (!cv || !label) return t('ticket-activity-phrase-commented')
+      // Email channels: "replied via email" - the activity is a
       // genuine response, not a fresh comment, when it threads onto
-      // an existing ticket. Portal: "added a comment via the
-      // public portal" — kept distinct from "submitted this ticket
-      // via the public portal" (the ticket.created entry) so the
+      // an existing ticket. Portal: "added a comment via the public
+      // portal", kept distinct from the ticket.created entry so the
       // two rows don't read identically.
       return cv.source === 'guest_portal'
-        ? `added a comment via ${label}`
-        : `replied via ${label}`
+        ? t('ticket-activity-phrase-comment-via', { channel: label })
+        : t('ticket-activity-phrase-replied-via', { channel: label })
     }
     case 'comment.deleted':
-      return 'deleted a comment'
+      return t('ticket-activity-phrase-comment-deleted')
     default:
-      return 'made a change'
+      return t('ticket-activity-phrase-generic')
   }
 }
 
@@ -326,10 +341,17 @@ interface ActorDisplay {
 function actorFor(ev: TicketActivityEvent): ActorDisplay {
   const cv = readCreatedVia(ev)
   if (cv && (cv.from_name || cv.from_email)) {
-    const name = cv.from_name?.trim() || cv.from_email || 'Sender'
-    const title = cv.from_name && cv.from_email
-      ? `${cv.from_name} <${cv.from_email}>${cv.subject ? ` — Subject: ${cv.subject}` : ''}`
-      : (cv.subject ? `${name} — Subject: ${cv.subject}` : name)
+    const name = cv.from_name?.trim() || cv.from_email || t('ticket-activity-actor-sender')
+    let title: string
+    if (cv.from_name && cv.from_email) {
+      title = cv.subject
+        ? t('ticket-activity-actor-title-named-subject', { name: cv.from_name, email: cv.from_email, subject: cv.subject })
+        : t('ticket-activity-actor-title-named', { name: cv.from_name, email: cv.from_email })
+    } else {
+      title = cv.subject
+        ? t('ticket-activity-actor-title-subject', { name, subject: cv.subject })
+        : name
+    }
     return {
       name,
       title,
@@ -339,14 +361,14 @@ function actorFor(ev: TicketActivityEvent): ActorDisplay {
   }
   if (ev.actor_uuid) {
     return {
-      name: getUserHandle(ev.actor_uuid).user.value?.name ?? 'Someone',
+      name: getUserHandle(ev.actor_uuid).user.value?.name ?? t('ticket-activity-actor-someone'),
       title: null,
       kind: 'user',
       userUuid: ev.actor_uuid,
     }
   }
   return {
-    name: ev.actor_kind === 'system' ? 'System' : ev.actor_kind,
+    name: ev.actor_kind === 'system' ? t('ticket-activity-actor-system') : ev.actor_kind,
     title: ev.actor_ref ?? ev.actor_kind,
     kind: 'system',
     userUuid: null,
@@ -359,7 +381,7 @@ function actorFor(ev: TicketActivityEvent): ActorDisplay {
     <!-- Section header. Matches the "Comments" / "Devices"
          headers used elsewhere in the right column so the
          timeline reads as a peer surface, not a popover. -->
-    <h3 class="text-sm font-medium text-secondary px-1">Activity</h3>
+    <h3 class="text-sm font-medium text-secondary px-1">{{ t('ticket-activity-section-title') }}</h3>
 
     <div
       v-if="loading"
@@ -379,7 +401,7 @@ function actorFor(ev: TicketActivityEvent): ActorDisplay {
       v-else-if="events.length === 0"
       class="px-3 py-6 text-xs text-tertiary text-center"
     >
-      No activity yet.
+      {{ t('ticket-activity-empty') }}
     </div>
 
     <ul v-else class="flex flex-col gap-1.5">
@@ -421,13 +443,13 @@ function actorFor(ev: TicketActivityEvent): ActorDisplay {
           v-else-if="actorFor(ev).kind === 'email'"
           class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-status-info-bg text-status-info-border text-[10px] mt-0.5 shrink-0"
           :title="actorFor(ev).title ?? undefined"
-          aria-label="Email sender"
+          :aria-label="t('ticket-activity-actor-email-aria')"
         >@</span>
         <span
           v-else-if="actorFor(ev).kind === 'portal'"
           class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-[9px] mt-0.5 shrink-0"
           :title="actorFor(ev).title ?? undefined"
-          aria-label="Public portal submission"
+          :aria-label="t('ticket-activity-actor-portal-aria')"
         >www</span>
         <span
           v-else
@@ -441,9 +463,9 @@ function actorFor(ev: TicketActivityEvent): ActorDisplay {
             :title="actorFor(ev).title ?? undefined"
           >{{ actorFor(ev).name }}</span>
           {{ phraseFor(ev, ctx) }}
-          <template v-if="assigneeNameFor(ev)">
-            to <span class="font-medium text-primary">{{ assigneeNameFor(ev) }}</span>
-          </template>
+          <span v-if="assigneeNameFor(ev)" class="font-medium text-primary">
+            {{ t('ticket-activity-to-assignee', { name: assigneeNameFor(ev) ?? '' }) }}
+          </span>
           <span class="text-tertiary tabular-nums">
             · {{ formatCompactRelativeTime(ev.occurred_at) }}
           </span>
@@ -464,7 +486,7 @@ function actorFor(ev: TicketActivityEvent): ActorDisplay {
     >
       <Spinner v-if="loadingMore" size="xs" />
       <Icon v-else name="history" class="w-3.5 h-3.5" />
-      <span>{{ loadingMore ? 'Loading…' : 'Load older activity' }}</span>
+      <span>{{ loadingMore ? t('ticket-activity-loading') : t('ticket-activity-load-more') }}</span>
     </button>
   </div>
 </template>

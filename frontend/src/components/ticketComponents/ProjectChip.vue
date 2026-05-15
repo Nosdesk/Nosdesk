@@ -4,7 +4,8 @@
  * name for the property-list surface. Falls back to `Project
  * #{id}` while loading.
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import projectService from '@/services/projectService'
 import PropertyChip from '@/components/ticketComponents/PropertyChip.vue'
 
@@ -18,6 +19,12 @@ const emit = defineEmits<{
 
 const name = ref<string | null>(null)
 const loading = ref(true)
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+
+const chipLabel = computed(() => name.value || t('ticket-field-projects-fallback', { id: props.projectId }))
+const removeTitle = computed(() => t('ticket-field-projects-remove'))
 
 watch(
   () => props.projectId,
@@ -39,12 +46,12 @@ watch(
 
 <template>
   <PropertyChip
-    :label="name || `Project #${projectId}`"
-    :title="name || `Project #${projectId}`"
+    :label="chipLabel"
+    :title="chipLabel"
     :to="`/projects/${projectId}`"
     :loading="loading"
     removable
-    remove-title="Remove from project"
+    :remove-title="removeTitle"
     @remove="emit('remove', projectId)"
   />
 </template>

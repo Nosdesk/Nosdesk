@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue';
 import { useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import { stripHtml } from '@/composables/useSanitise';
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
 import { useWorkflowStatesStore } from '@/stores/workflowStates';
@@ -31,6 +32,9 @@ import { useBrandingStore } from "@/stores/branding";
 import { useAuthStore } from "@/stores/auth";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
 import { formatCompactDate } from "@/utils/dateUtils";
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Refs for user picker components
 const requesterRef = ref<InstanceType<typeof UserPicker> | null>(null);
@@ -272,12 +276,12 @@ const handleTitleUpdate = (newTitle: string) => {
 // Print-friendly display values
 const statusLabel = computed(() => {
   const option = props.statusOptions.find(o => o.value === props.selectedStatus);
-  return option?.label || props.selectedStatus || 'Unknown';
+  return option?.label || props.selectedStatus || t('ticket-detail-print-unknown');
 });
 
 const priorityLabel = computed(() => {
   const option = props.priorityOptions.find(o => o.value === props.selectedPriority);
-  return option?.label || props.selectedPriority || 'Unknown';
+  return option?.label || props.selectedPriority || t('ticket-detail-print-unknown');
 });
 
 const categoryLabel = computed(() => {
@@ -312,22 +316,22 @@ function handleDueDateChange(event: Event): void {
  * exposes a small list rather than the full RFC; an admin who
  * needs WEEKDAYS-only or interval=2 rules can edit the raw string
  * directly through the API. */
-const RECURRENCE_PRESETS: { value: string; label: string }[] = [
-  { value: '', label: 'Not recurring' },
-  { value: 'FREQ=DAILY', label: 'Daily' },
-  { value: 'FREQ=WEEKLY', label: 'Weekly' },
-  { value: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', label: 'Weekdays' },
-  { value: 'FREQ=MONTHLY', label: 'Monthly' },
-  { value: 'FREQ=YEARLY', label: 'Yearly' },
-];
+const RECURRENCE_PRESETS = computed<{ value: string; label: string }[]>(() => [
+  { value: '', label: t('ticket-detail-recurrence-none') },
+  { value: 'FREQ=DAILY', label: t('ticket-detail-recurrence-daily') },
+  { value: 'FREQ=WEEKLY', label: t('ticket-detail-recurrence-weekly') },
+  { value: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', label: t('ticket-detail-recurrence-weekdays') },
+  { value: 'FREQ=MONTHLY', label: t('ticket-detail-recurrence-monthly') },
+  { value: 'FREQ=YEARLY', label: t('ticket-detail-recurrence-yearly') },
+]);
 
-const RECURRENCE_LABELS: Record<string, string> = {
-  'FREQ=DAILY': 'Daily',
-  'FREQ=WEEKLY': 'Weekly',
-  'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR': 'Weekdays',
-  'FREQ=MONTHLY': 'Monthly',
-  'FREQ=YEARLY': 'Yearly',
-};
+const RECURRENCE_LABELS = computed<Record<string, string>>(() => ({
+  'FREQ=DAILY': t('ticket-detail-recurrence-daily'),
+  'FREQ=WEEKLY': t('ticket-detail-recurrence-weekly'),
+  'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR': t('ticket-detail-recurrence-weekdays'),
+  'FREQ=MONTHLY': t('ticket-detail-recurrence-monthly'),
+  'FREQ=YEARLY': t('ticket-detail-recurrence-yearly'),
+}));
 
 /** True when the ticket carries either a due date or a recurrence
  * rule — drives whether the Scheduling group opens by default. */
@@ -347,11 +351,11 @@ const schedulingPreview = computed<string>(() => {
       month: 'short',
       day: 'numeric',
     });
-    parts.push(`Due ${formatted}`);
+    parts.push(t('ticket-detail-scheduling-due-prefix', { date: formatted }));
   }
   const rule = props.ticket.recurrence_rule;
   if (rule) {
-    parts.push(RECURRENCE_LABELS[rule] ?? 'Recurring');
+    parts.push(RECURRENCE_LABELS.value[rule] ?? t('ticket-detail-recurrence-recurring'));
   }
   return parts.join(' · ');
 });
@@ -361,7 +365,7 @@ const recurrenceSelectValue = computed<string>(() => {
   // Show 'custom' when the rule isn't one of our presets so the
   // dropdown stays honest about not being able to edit it here.
   if (!rule) return '';
-  return RECURRENCE_PRESETS.some(p => p.value === rule) ? rule : '__custom__';
+  return RECURRENCE_PRESETS.value.some(p => p.value === rule) ? rule : '__custom__';
 });
 
 function handleRecurrenceChange(event: Event): void {
@@ -381,12 +385,12 @@ function handleRecurrenceChange(event: Event): void {
 const sourceLabel = computed<string | null>(() => {
   if (!props.ticket.origin_channel_id) return null;
   const provider = props.ticket.submitted_via ?? 'channel';
-  if (provider === 'email_imap') return 'Email';
-  if (provider === 'email_smtp') return 'Email';
-  if (provider === 'slack') return 'Slack';
-  if (provider === 'teams') return 'Microsoft Teams';
+  if (provider === 'email_imap') return t('ticket-detail-source-email');
+  if (provider === 'email_smtp') return t('ticket-detail-source-email');
+  if (provider === 'slack') return t('ticket-detail-source-slack');
+  if (provider === 'teams') return t('ticket-detail-source-teams');
   // Fall through to the raw provider name for channels we
-  // haven't pretty-named yet — better than masking the source.
+  // haven't pretty-named yet, better than masking the source.
   return provider;
 });
 
@@ -506,7 +510,7 @@ watchEffect(async () => {
   <div class="w-full">
     <!-- Print-only branding header -->
     <div class="hidden print:block print-branding-header">
-      <img v-if="customLogoUrl" :src="customLogoUrl" alt="Logo" class="print-logo-image" />
+      <img v-if="customLogoUrl" :src="customLogoUrl" :alt="t('ticket-detail-print-logo-alt')" class="print-logo-image" />
       <LogoIcon v-else class="print-logo-icon" />
     </div>
 
@@ -523,15 +527,15 @@ watchEffect(async () => {
         <!-- Status & Priority Row -->
         <div class="print-meta-row">
           <div class="print-meta-item">
-            <span class="print-meta-label">Status</span>
+            <span class="print-meta-label">{{ t('ticket-detail-print-status') }}</span>
             <span class="print-badge" :class="`print-badge-${selectedStatus}`">{{ statusLabel }}</span>
           </div>
           <div class="print-meta-item">
-            <span class="print-meta-label">Priority</span>
+            <span class="print-meta-label">{{ t('ticket-detail-print-priority') }}</span>
             <span class="print-badge" :class="`print-badge-${selectedPriority}`">{{ priorityLabel }}</span>
           </div>
           <div v-if="categoryLabel" class="print-meta-item">
-            <span class="print-meta-label">Category</span>
+            <span class="print-meta-label">{{ t('ticket-detail-print-category') }}</span>
             <span class="print-badge">{{ categoryLabel }}</span>
           </div>
         </div>
@@ -539,7 +543,7 @@ watchEffect(async () => {
         <!-- People Row -->
         <div class="print-meta-row print-people-row">
           <div class="print-meta-item print-person">
-            <span class="print-meta-label">Requester</span>
+            <span class="print-meta-label">{{ t('ticket-detail-print-requester') }}</span>
             <div v-if="ticket.requester_user" class="print-user">
               <UserAvatar
                 :name="ticket.requester_user.uuid"
@@ -551,10 +555,10 @@ watchEffect(async () => {
               />
               <span class="print-user-name">{{ ticket.requester_user.name }}</span>
             </div>
-            <span v-else class="print-meta-empty">Unassigned</span>
+            <span v-else class="print-meta-empty">{{ t('ticket-detail-print-unassigned') }}</span>
           </div>
           <div class="print-meta-item print-person">
-            <span class="print-meta-label">Assignee</span>
+            <span class="print-meta-label">{{ t('ticket-detail-print-assignee') }}</span>
             <div v-if="ticket.assignee_user" class="print-user">
               <UserAvatar
                 :name="ticket.assignee_user.uuid"
@@ -566,18 +570,18 @@ watchEffect(async () => {
               />
               <span class="print-user-name">{{ ticket.assignee_user.name }}</span>
             </div>
-            <span v-else class="print-meta-empty">Unassigned</span>
+            <span v-else class="print-meta-empty">{{ t('ticket-detail-print-unassigned') }}</span>
           </div>
         </div>
 
         <!-- Dates Row -->
         <div class="print-meta-row print-dates-row">
           <div class="print-meta-item">
-            <span class="print-meta-label">Created</span>
+            <span class="print-meta-label">{{ t('ticket-detail-print-created') }}</span>
             <span class="print-meta-value">{{ createdDate }}</span>
           </div>
           <div class="print-meta-item">
-            <span class="print-meta-label">Modified</span>
+            <span class="print-meta-label">{{ t('ticket-detail-print-modified') }}</span>
             <span class="print-meta-value">{{ modifiedDate }}</span>
           </div>
         </div>
@@ -585,8 +589,8 @@ watchEffect(async () => {
 
       <!-- QR Code (bottom right) -->
       <div v-if="qrCodeDataUrl" class="print-qr-code">
-        <span class="print-qr-label">Scan to open</span>
-        <img :src="qrCodeDataUrl" alt="Ticket QR Code" />
+        <span class="print-qr-label">{{ t('ticket-detail-print-qr-label') }}</span>
+        <img :src="qrCodeDataUrl" :alt="t('ticket-detail-print-qr-alt')" />
       </div>
     </div>
 
@@ -606,7 +610,7 @@ watchEffect(async () => {
       labels sit.
     -->
     <SectionCard class="print:hidden" content-padding="px-1 py-3">
-      <template #title>Ticket Details</template>
+      <template #title>{{ t('ticket-detail-section-details') }}</template>
 
       <template #default>
         <div class="flex flex-col gap-3 px-2">
@@ -617,7 +621,7 @@ watchEffect(async () => {
                and the channel reads as a proper field rather than
                a header decoration. -->
           <div class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-tertiary">Title</h3>
+            <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-title-label') }}</h3>
             <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
               <!-- 255 mirrors the backend's `tickets.title
                    VARCHAR(255) NOT NULL` cap. Enforcing it
@@ -643,10 +647,10 @@ watchEffect(async () => {
             v-if="sourceLabel"
             class="flex items-center justify-between gap-2 text-xs"
           >
-            <span class="text-tertiary font-medium">Source</span>
+            <span class="text-tertiary font-medium">{{ t('ticket-detail-source-label') }}</span>
             <span
               class="inline-flex items-center gap-1.5 text-secondary"
-              :title="`Opened via ${ticket.submitted_via ?? 'channel'} — replies are relayed back through the thread`"
+              :title="t('ticket-detail-source-tooltip', { provider: ticket.submitted_via ?? 'channel' })"
             >
               <Icon name="email" class="w-3.5 h-3.5" />
               {{ sourceLabel }}
@@ -658,14 +662,14 @@ watchEffect(async () => {
             <!-- Requester -->
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
-                <h3 class="text-xs font-medium text-tertiary">Requester</h3>
+                <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-requester') }}</h3>
                 <div class="print:hidden flex items-center gap-0.5">
                   <button
                     v-if="selectedRequester"
                     @click="emit('update:requester', '')"
                     class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
                     type="button"
-                    title="Clear requester"
+                    :title="t('ticket-detail-clear-requester')"
                   >
                     <Icon name="close" />
                   </button>
@@ -673,7 +677,7 @@ watchEffect(async () => {
                     @click="requesterRef?.focus()"
                     class="p-1 text-tertiary hover:text-accent hover:bg-accent-muted rounded transition-colors"
                     type="button"
-                    title="Add requester"
+                    :title="t('ticket-detail-add-requester')"
                   >
                     <Icon name="add" />
                   </button>
@@ -685,7 +689,7 @@ watchEffect(async () => {
                   :modelValue="selectedRequester"
                   @update:modelValue="emit('update:requester', $event)"
                   :currentUser="ticket.requester_user"
-                  placeholder="Find a user..."
+                  :placeholder="t('ticket-detail-find-user-placeholder')"
                   type="requester"
                   :hideInlineClear="true"
                   class="w-full"
@@ -696,10 +700,10 @@ watchEffect(async () => {
             <!-- Assignee -->
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
-                <h3 class="text-xs font-medium text-tertiary">Assignee</h3>
+                <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-assignee') }}</h3>
                 <div class="print:hidden flex items-center gap-1">
                   <!-- One-click self-assign for staff. Only surfaced
-                       on unassigned tickets — taking an unassigned
+                       on unassigned tickets, taking an unassigned
                        ticket is the daily-driver case, while reassign-
                        from-someone-else is a deliberate action that
                        should go through the picker. -->
@@ -708,16 +712,16 @@ watchEffect(async () => {
                     @click="toggleSelfAssign"
                     type="button"
                     class="text-[11px] font-medium px-2 h-6 rounded text-accent hover:bg-accent-muted transition-colors"
-                    title="Assign this ticket to yourself"
+                    :title="t('ticket-detail-claim-title')"
                   >
-                    Claim
+                    {{ t('ticket-detail-claim') }}
                   </button>
                   <button
                     v-if="selectedAssignee"
                     @click="emit('update:assignee', '')"
                     class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
                     type="button"
-                    title="Clear assignee"
+                    :title="t('ticket-detail-clear-assignee')"
                   >
                     <Icon name="close" />
                   </button>
@@ -725,7 +729,7 @@ watchEffect(async () => {
                     @click="assigneeRef?.focus()"
                     class="p-1 text-tertiary hover:text-accent hover:bg-accent-muted rounded transition-colors"
                     type="button"
-                    title="Add assignee"
+                    :title="t('ticket-detail-add-assignee')"
                   >
                     <Icon name="add" />
                   </button>
@@ -737,7 +741,7 @@ watchEffect(async () => {
                   :modelValue="selectedAssignee"
                   @update:modelValue="emit('update:assignee', $event)"
                   :currentUser="ticket.assignee_user"
-                  placeholder="Assign to..."
+                  :placeholder="t('ticket-detail-assign-to-placeholder')"
                   type="assignee"
                   :hideInlineClear="true"
                   class="w-full"
@@ -750,7 +754,7 @@ watchEffect(async () => {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <!-- Status -->
             <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-tertiary">Status</h3>
+              <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-status') }}</h3>
               <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
                 <CustomDropdown
                   :value="workflowDropdownValue"
@@ -764,7 +768,7 @@ watchEffect(async () => {
 
             <!-- Priority -->
             <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-tertiary">Priority</h3>
+              <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-priority') }}</h3>
               <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
                 <CustomDropdown
                   :value="selectedPriority"
@@ -789,7 +793,7 @@ watchEffect(async () => {
             class="flex items-center justify-between gap-2 text-xs"
             :title="slaState.detail"
           >
-            <span class="text-tertiary font-medium">SLA</span>
+            <span class="text-tertiary font-medium">{{ t('ticket-detail-sla-label') }}</span>
             <span class="inline-flex items-center gap-1.5" :class="slaState.toneClass">
               <Icon name="clock" class="w-3.5 h-3.5" />
               <span class="font-medium">{{ slaState.statusLabel }}</span>
@@ -819,17 +823,17 @@ watchEffect(async () => {
                   class="w-3 h-3 text-tertiary transition-transform"
                   :class="{ '-rotate-90': !schedulingOpen }"
                 />
-                Scheduling
+                {{ t('ticket-detail-scheduling-label') }}
               </button>
             </template>
             <template #headerActions>
               <span class="text-[11px] text-tertiary truncate">
-                {{ schedulingPreview || 'None' }}
+                {{ schedulingPreview || t('ticket-detail-scheduling-none') }}
               </span>
             </template>
             <div v-if="schedulingOpen" class="px-3 py-3 flex flex-col gap-3 border-t border-default">
               <label class="flex flex-col gap-1">
-                <span class="text-[11px] text-tertiary">Due date</span>
+                <span class="text-[11px] text-tertiary">{{ t('ticket-detail-scheduling-due-date') }}</span>
                 <div class="flex items-center bg-app rounded-md border border-subtle">
                   <input
                     type="date"
@@ -841,13 +845,13 @@ watchEffect(async () => {
                     v-if="ticket.due_date"
                     type="button"
                     class="text-xs text-tertiary hover:text-primary px-2"
-                    title="Clear due date"
+                    :title="t('ticket-detail-scheduling-clear-due')"
                     @click="emit('update:dueDate', null)"
                   >×</button>
                 </div>
               </label>
               <label class="flex flex-col gap-1">
-                <span class="text-[11px] text-tertiary">Recurrence</span>
+                <span class="text-[11px] text-tertiary">{{ t('ticket-detail-scheduling-recurrence') }}</span>
                 <select
                   class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
                   :value="recurrenceSelectValue"
@@ -860,18 +864,18 @@ watchEffect(async () => {
                 <span
                   v-if="recurrenceSelectValue === '__custom__'"
                   class="text-[10px] text-tertiary italic"
-                >Custom RRULE in use ({{ ticket.recurrence_rule }}). Edit via API.</span>
+                >{{ t('ticket-detail-recurrence-custom-note', { rule: ticket.recurrence_rule ?? '' }) }}</span>
                 <span
                   v-else-if="ticket.recurrence_rule"
                   class="text-[10px] text-tertiary italic"
-                >Closing this ticket spawns the next occurrence.</span>
+                >{{ t('ticket-detail-recurrence-respawn-note') }}</span>
               </label>
             </div>
           </SectionCard>
 
           <!-- Category Section -->
           <div v-if="categoryOptions && categoryOptions.length > 0" class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-tertiary">Category</h3>
+            <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-category') }}</h3>
             <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
               <CustomDropdown
                 :value="selectedCategory?.toString() || ''"
@@ -879,7 +883,7 @@ watchEffect(async () => {
                 type="category"
                 @update:value="emit('update:selectedCategory', $event)"
                 class="w-full"
-                placeholder="Select category..."
+                :placeholder="t('ticket-detail-category-placeholder')"
               />
             </div>
           </div>
@@ -893,11 +897,11 @@ watchEffect(async () => {
             v-if="ticket.cycle"
             class="flex items-center justify-between gap-2 text-xs"
           >
-            <span class="text-tertiary font-medium">Cycle</span>
+            <span class="text-tertiary font-medium">{{ t('ticket-detail-cycle-label') }}</span>
             <button
               type="button"
               class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-accent-muted text-accent hover:bg-accent/20 transition-colors"
-              :title="`Cycle ${ticket.cycle.name} (${ticket.cycle.state})`"
+              :title="t('ticket-detail-cycle-tooltip', { name: ticket.cycle.name, state: ticket.cycle.state })"
               @click="openCycle"
             >
               {{ ticket.cycle.name }}
@@ -979,11 +983,11 @@ watchEffect(async () => {
               <h3
                 class="text-xs font-medium"
                 :class="isTerminalState ? 'text-primary' : 'text-tertiary'"
-              >Resolution</h3>
+              >{{ t('ticket-detail-resolution-label') }}</h3>
               <div class="flex items-center gap-2">
                 <!-- Promote internal notes into the resolution draft.
                      Hidden when the ticket has no internal notes
-                     yet — nothing to pull from, so the affordance
+                     yet, nothing to pull from, so the affordance
                      would just confuse. The notes append (don't
                      replace) so a half-written resolution survives
                      the pull. -->
@@ -991,26 +995,26 @@ watchEffect(async () => {
                   v-if="(props.internalComments?.length ?? 0) > 0"
                   type="button"
                   class="inline-flex items-center gap-1 px-2 h-6 rounded text-[11px] font-medium text-status-warning hover:bg-status-warning-muted transition-colors"
-                  :title="`Append ${props.internalComments?.length ?? 0} internal note${(props.internalComments?.length ?? 0) === 1 ? '' : 's'} to the resolution draft`"
+                  :title="t('ticket-detail-resolution-draft-from-notes-title', { count: props.internalComments?.length ?? 0 })"
                   @click="draftResolutionFromInternalNotes"
                 >
                   <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                     <path d="M13 7H7v6h6V7z" />
                     <path fill-rule="evenodd" d="M7 2a1 1 0 012 0v1h2V2a1 1 0 112 0v1h2a2 2 0 012 2v2h1a1 1 0 110 2h-1v2h1a1 1 0 110 2h-1v2a2 2 0 01-2 2h-2v1a1 1 0 11-2 0v-1H9v1a1 1 0 11-2 0v-1H5a2 2 0 01-2-2v-2H2a1 1 0 110-2h1V9H2a1 1 0 010-2h1V5a2 2 0 012-2h2V2zM5 5h10v10H5V5z" clip-rule="evenodd" />
                   </svg>
-                  <span>Draft from notes</span>
+                  <span>{{ t('ticket-detail-resolution-draft-from-notes') }}</span>
                 </button>
                 <span
                   v-if="isTerminalState"
                   class="text-[10px] font-semibold text-status-closed"
-                >Closed</span>
+                >{{ t('ticket-detail-resolution-closed') }}</span>
               </div>
             </div>
             <textarea
               v-model="localResolutionNotes"
               :placeholder="isTerminalState
-                ? 'Capture what fixed this — the answer the next person will need.'
-                : 'Notes on the fix can be drafted here while you work the ticket.'"
+                ? t('ticket-detail-resolution-placeholder-active')
+                : t('ticket-detail-resolution-placeholder-draft')"
               rows="3"
               maxlength="4000"
               class="w-full bg-surface-alt rounded-lg border text-sm text-primary px-2.5 py-2 outline-none transition-colors resize-y min-h-[3.5rem] focus:border-accent"
@@ -1036,7 +1040,7 @@ watchEffect(async () => {
           <div class="pt-2 border-t border-default flex flex-col gap-2 -mx-2 px-2">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="flex flex-col gap-1">
-                <span class="text-xs text-tertiary font-medium">Created</span>
+                <span class="text-xs text-tertiary font-medium">{{ t('ticket-detail-audit-created') }}</span>
                 <span class="text-secondary text-sm font-medium">{{ createdDate }}</span>
                 <UserCell
                   v-if="ticket.created_by"
@@ -1046,7 +1050,7 @@ watchEffect(async () => {
               </div>
 
               <div class="flex flex-col gap-1">
-                <span class="text-xs text-tertiary font-medium">Last Modified</span>
+                <span class="text-xs text-tertiary font-medium">{{ t('ticket-detail-audit-modified') }}</span>
                 <span class="text-secondary text-sm font-medium">{{ modifiedDate }}</span>
               </div>
             </div>
@@ -1055,7 +1059,7 @@ watchEffect(async () => {
               v-if="ticket.closed_at"
               class="flex flex-col gap-1"
             >
-              <span class="text-xs text-tertiary font-medium">Closed</span>
+              <span class="text-xs text-tertiary font-medium">{{ t('ticket-detail-audit-closed') }}</span>
               <span class="text-secondary text-sm font-medium">{{ closedDateLabel }}</span>
               <UserCell
                 v-if="ticket.closed_by"

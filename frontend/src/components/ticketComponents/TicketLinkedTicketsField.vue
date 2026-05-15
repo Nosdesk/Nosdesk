@@ -7,8 +7,12 @@
  * still links it, preserving the existing power-user flow.
  */
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import PropertyChipRow from '@/components/ticketComponents/PropertyChipRow.vue'
 import LinkedTicketChip from '@/components/ticketComponents/LinkedTicketChip.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
   linkedTicketIds: number[]
@@ -34,8 +38,8 @@ const hasContent = computed(
 
 <template>
   <PropertyChipRow
-    label="Linked Tickets"
-    add-label="Link ticket"
+    :label="t('ticket-field-linked-tickets-label')"
+    :add-label="t('ticket-field-linked-tickets-add')"
     :hide-chips="!hasContent"
     @add="emit('add')"
   >
@@ -46,7 +50,7 @@ const hasContent = computed(
         ? 'border-accent bg-accent/10 text-accent'
         : 'border-accent/40 text-accent/70'"
     >
-      {{ isDropTarget && dragLabel ? dragLabel : 'Drop to link' }}
+      {{ isDropTarget && dragLabel ? dragLabel : t('ticket-field-linked-tickets-drop') }}
     </span>
 
     <LinkedTicketChip

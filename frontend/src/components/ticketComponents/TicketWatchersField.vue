@@ -17,11 +17,15 @@
  * component just exposes the toggle.
  */
 import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { watcherService } from '@/services/watcherService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Icon from '@/components/common/Icon.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
   ticketId: number
@@ -75,7 +79,7 @@ async function refreshMyWatchPref() {
     notifyOnInternalNotes.value = state.notify_on_internal_notes
     prefError.value = null
   } catch (e) {
-    prefError.value = e instanceof Error ? e.message : 'Failed to load preference'
+    prefError.value = e instanceof Error ? e.message : t('ticket-field-watchers-pref-load-error')
   }
 }
 
@@ -98,7 +102,7 @@ async function toggleInternalNotify() {
     })
   } catch (e) {
     notifyOnInternalNotes.value = previous
-    prefError.value = e instanceof Error ? e.message : 'Failed to save preference'
+    prefError.value = e instanceof Error ? e.message : t('ticket-field-watchers-pref-save-error')
   }
 }
 </script>
@@ -112,7 +116,7 @@ async function toggleInternalNotify() {
          the label text with button-style siblings. -->
     <div class="flex items-center justify-between gap-2 -mx-2 px-2">
       <h3 class="text-xs font-medium text-tertiary">
-        Watchers
+        {{ t('ticket-field-watchers-label') }}
         <span v-if="watcherCount > 0" class="text-tertiary tabular-nums">({{ watcherCount }})</span>
       </h3>
       <!-- Bell toggle. Filled bell = watching; outlined = not.
@@ -127,12 +131,12 @@ async function toggleInternalNotify() {
           ? 'bg-accent-muted text-accent'
           : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
         :aria-pressed="isWatching"
-        :title="isWatching ? 'Stop watching this ticket' : 'Watch this ticket for updates'"
+        :title="isWatching ? t('ticket-field-watchers-unwatch-title') : t('ticket-field-watchers-watch-title')"
         :disabled="!currentUserUuid"
         @click="handleToggle"
       >
         <Icon name="bell" class="w-3.5 h-3.5" />
-        <span>{{ isWatching ? 'Watching' : 'Watch' }}</span>
+        <span>{{ isWatching ? t('ticket-field-watchers-watching') : t('ticket-field-watchers-watch') }}</span>
       </button>
     </div>
 
@@ -156,7 +160,7 @@ async function toggleInternalNotify() {
           :class="notifyOnInternalNotes ? '' : 'opacity-40'"
         />
         <span class="truncate">
-          {{ notifyOnInternalNotes ? 'Notify on internal notes' : 'Public replies only' }}
+          {{ notifyOnInternalNotes ? t('ticket-field-watchers-notify-internal') : t('ticket-field-watchers-public-only') }}
         </span>
       </span>
       <span
@@ -165,7 +169,7 @@ async function toggleInternalNotify() {
           ? 'bg-accent-muted text-accent'
           : 'bg-surface-alt text-tertiary'"
       >
-        {{ notifyOnInternalNotes ? 'ON' : 'OFF' }}
+        {{ notifyOnInternalNotes ? t('ticket-field-watchers-toggle-on') : t('ticket-field-watchers-toggle-off') }}
       </span>
     </button>
     <p
@@ -196,7 +200,7 @@ async function toggleInternalNotify() {
       <span
         v-if="overflowCount > 0"
         class="inline-flex items-center justify-center h-5 min-w-[1.25rem] px-1 rounded-full bg-surface-alt text-tertiary text-[10px] font-medium"
-        :title="`${overflowCount} more`"
+        :title="t('ticket-field-watchers-overflow-title', { count: overflowCount })"
       >+{{ overflowCount }}</span>
     </div>
   </div>

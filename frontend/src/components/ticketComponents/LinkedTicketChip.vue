@@ -5,7 +5,8 @@
  * loading the chip shows `#{id}` as a placeholder so the chip
  * still occupies its slot and the row doesn't reflow.
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import ticketService from '@/services/ticketService'
 import PropertyChip from '@/components/ticketComponents/PropertyChip.vue'
 
@@ -19,6 +20,15 @@ const emit = defineEmits<{
 
 const title = ref<string | null>(null)
 const loading = ref(true)
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+
+const chipLabel = computed(() => title.value || `#${props.ticketId}`)
+const chipTooltip = computed(() => title.value
+  ? t('ticket-chip-linked-ticket-title', { id: props.ticketId, title: title.value })
+  : t('ticket-chip-linked-ticket-fallback', { id: props.ticketId }))
+const unlinkTitle = computed(() => t('ticket-chip-unlink-ticket'))
 
 watch(
   () => props.ticketId,
@@ -40,12 +50,12 @@ watch(
 
 <template>
   <PropertyChip
-    :label="title || `#${ticketId}`"
-    :title="title ? `#${ticketId} · ${title}` : `Ticket #${ticketId}`"
+    :label="chipLabel"
+    :title="chipTooltip"
     :to="`/tickets/${ticketId}`"
     :loading="loading"
     removable
-    remove-title="Unlink ticket"
+    :remove-title="unlinkTitle"
     @remove="emit('remove', ticketId)"
   >
     <template v-if="title" #leading>

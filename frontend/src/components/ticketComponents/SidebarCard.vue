@@ -7,6 +7,8 @@
  * The `#header` slot collapses into the title row; the only piece of
  * chrome SidebarCard adds is a remove button in the header actions.
  */
+import { computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Icon from '@/components/common/Icon.vue';
 
@@ -19,11 +21,16 @@ interface Props {
   removeDisabled?: boolean;
 }
 
-withDefaults(defineProps<Props>(), {
-  removeTitle: 'Remove',
+const props = withDefaults(defineProps<Props>(), {
+  removeTitle: '',
   clickable: false,
   removeDisabled: false,
 });
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+
+const resolvedRemoveTitle = computed(() => props.removeTitle || t('ticket-chip-sidebar-remove'));
 
 defineEmits<{
   (e: 'remove'): void;
@@ -49,9 +56,9 @@ defineEmits<{
           @click.stop="$emit('remove')"
           :disabled="removeDisabled"
           class="p-1 flex-shrink-0 text-tertiary hover:text-status-error hover:bg-status-error/20 rounded transition-colors disabled:opacity-50"
-          :title="removeTitle"
+          :title="resolvedRemoveTitle"
         >
-          <Icon name="close" :label="removeTitle" />
+          <Icon name="close" :label="resolvedRemoveTitle" />
         </button>
       </template>
 

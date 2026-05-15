@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { formatDate, formatDateTime } from '@/utils/dateUtils';
 import { computed, ref } from "vue";
+import { useFluent } from 'fluent-vue';
 import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
@@ -20,6 +21,9 @@ import { useTicketUiStore } from "@/stores/ticketUi";
 // them without churn through every consumer.
 import type { UserInfo } from '@/types/user';
 import type { CommentWithAttachments } from '@/types/comment';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const props = defineProps<{
     comments: CommentWithAttachments[];
@@ -263,7 +267,7 @@ const handleRecordingComplete = (recording: {
     console.log('[CommentsAndAttachments] Recording complete, transcription:', recording.transcription);
 
     // Auto-stage the voice note as an attachment
-    const fileName = `Voice Note ${formatDate(new Date(), "MMM d, yyyy")}.webm`;
+    const fileName = `${t('ticket-comments-voice-note-filename', { date: formatDate(new Date(), 'MMM d, yyyy') })}.webm`;
     const audioFile = new File([recording.blob], fileName, {
         type: recording.blob.type,
     }) as File & { _transcription?: string };
@@ -322,10 +326,10 @@ const isAudioOnlyComment = (comment: CommentWithAttachments): boolean => {
 
 // Get display name for audio - "Voice Message" for voice notes
 const getAudioDisplayName = (filename: string): string => {
-    if (!filename) return 'Audio';
+    if (!filename) return t('ticket-comments-audio-default');
     const lower = filename.toLowerCase();
     if (lower.startsWith('voice note') || lower.startsWith('voicenote')) {
-        return 'Voice Message';
+        return t('ticket-comments-audio-voice-message');
     }
     return filename;
 };
@@ -407,7 +411,7 @@ const handlePastedFiles = async (files: File[]) => {
       cards keep their own `p-3` for visual chunking.
     -->
     <SectionCard content-padding="">
-        <template #title>Comments and Attachments</template>
+        <template #title>{{ $t('ticket-comments-section-title') }}</template>
 
         <template #default>
             <div class="flex flex-col">
@@ -490,7 +494,7 @@ const handlePastedFiles = async (files: File[]) => {
                                 />
                                 <path d="M9 13h2v5a1 1 0 11-2 0v-5z" />
                             </svg>
-                            Drop files here
+                            {{ $t('ticket-comments-drop-files') }}
                         </div>
                     </div>
 
@@ -515,11 +519,11 @@ const handlePastedFiles = async (files: File[]) => {
                                     clip-rule="evenodd"
                                 />
                             </svg>
-                            <span>Visible to staff only. Not sent through the ticket's channel.</span>
+                            <span>{{ $t('ticket-comments-internal-banner') }}</span>
                         </div>
                         <SimpleEditor
                             v-model="newCommentContent"
-                            :placeholder="isInternal ? 'Note for the team…' : 'Add a new comment...'"
+                            :placeholder="isInternal ? $t('ticket-comments-placeholder-internal') : $t('ticket-comments-placeholder-public')"
                             min-height="60px"
                             max-height="200px"
                             @submit="addComment"
@@ -593,8 +597,8 @@ const handlePastedFiles = async (files: File[]) => {
                                 @click="startVoiceRecording"
                                 class="touch-target sm:h-9 px-3 sm:px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
                                 :class="{ 'text-error': showRecordingInterface }"
-                                aria-label="Record voice note"
-                                title="Record voice note"
+                                :aria-label="$t('ticket-comments-record-voice')"
+                                :title="$t('ticket-comments-record-voice')"
                             >
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
@@ -614,8 +618,8 @@ const handlePastedFiles = async (files: File[]) => {
                                 type="button"
                                 @click="triggerFileUpload"
                                 class="touch-target sm:h-9 px-3 sm:px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
-                                aria-label="Upload file"
-                                title="Upload file"
+                                :aria-label="$t('ticket-comments-upload-file')"
+                                :title="$t('ticket-comments-upload-file')"
                             >
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
@@ -643,7 +647,7 @@ const handlePastedFiles = async (files: File[]) => {
                             <div
                                 class="flex items-center rounded-md bg-surface-alt border border-default p-0.5 text-xs font-medium"
                                 role="group"
-                                aria-label="Reply visibility"
+                                :aria-label="$t('ticket-comments-visibility-group')"
                             >
                                 <button
                                     type="button"
@@ -654,9 +658,9 @@ const handlePastedFiles = async (files: File[]) => {
                                             ? 'bg-accent text-white'
                                             : 'text-secondary hover:text-primary'
                                     ]"
-                                    title="Sent to the requester through the ticket's channel"
+                                    :title="$t('ticket-comments-public-reply-title')"
                                 >
-                                    Public reply
+                                    {{ $t('ticket-comments-public-reply') }}
                                 </button>
                                 <button
                                     type="button"
@@ -667,9 +671,9 @@ const handlePastedFiles = async (files: File[]) => {
                                             ? 'bg-status-warning text-white'
                                             : 'text-secondary hover:text-primary'
                                     ]"
-                                    title="Visible only to techs; not relayed back through the ticket's channel"
+                                    :title="$t('ticket-comments-internal-note-title')"
                                 >
-                                    Internal note
+                                    {{ $t('ticket-comments-internal-note') }}
                                 </button>
                             </div>
 
@@ -683,7 +687,7 @@ const handlePastedFiles = async (files: File[]) => {
                                     isInternal ? 'bg-status-warning' : 'bg-accent'
                                 ]"
                             >
-                                {{ isInternal ? 'Add note' : 'Add reply' }}
+                                {{ isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply') }}
                             </button>
                         </div>
                     </form>
@@ -702,7 +706,7 @@ const handlePastedFiles = async (files: File[]) => {
                         v-if="internalCommentCount > 0"
                         class="flex items-center gap-1 text-xs"
                         role="group"
-                        aria-label="Comment visibility filter"
+                        :aria-label="$t('ticket-comments-filter-group')"
                     >
                         <button
                             type="button"
@@ -714,7 +718,7 @@ const handlePastedFiles = async (files: File[]) => {
                             "
                             @click="commentFilter = 'all'"
                         >
-                            All ({{ props.comments.length }})
+                            {{ $t('ticket-comments-filter-all', { count: props.comments.length }) }}
                         </button>
                         <button
                             type="button"
@@ -726,7 +730,7 @@ const handlePastedFiles = async (files: File[]) => {
                             "
                             @click="commentFilter = 'public'"
                         >
-                            Public ({{ publicCommentCount }})
+                            {{ $t('ticket-comments-filter-public', { count: publicCommentCount }) }}
                         </button>
                         <button
                             type="button"
@@ -738,7 +742,7 @@ const handlePastedFiles = async (files: File[]) => {
                             "
                             @click="commentFilter = 'internal'"
                         >
-                            Internal ({{ internalCommentCount }})
+                            {{ $t('ticket-comments-filter-internal', { count: internalCommentCount }) }}
                         </button>
                     </div>
                     <div
@@ -774,14 +778,14 @@ const handlePastedFiles = async (files: File[]) => {
                                         v-if="comment.is_internal"
                                         class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-status-warning text-white"
                                     >
-                                        Internal
+                                        {{ $t('ticket-comments-badge-internal') }}
                                     </span>
                                     <span
                                         v-if="comment.channel_metadata?.forwarded_by_user_uuid"
                                         class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent"
-                                        title="A technician forwarded this email into the helpdesk"
+                                        :title="$t('ticket-comments-badge-forwarded-title')"
                                     >
-                                        Forwarded
+                                        {{ $t('ticket-comments-badge-forwarded') }}
                                     </span>
                                     <span class="text-xs text-tertiary block">
                                         {{ formattedDate(comment.createdAt ?? comment.created_at) }}
@@ -795,7 +799,7 @@ const handlePastedFiles = async (files: File[]) => {
                                         :download="comment.attachments?.[0]?.name"
                                         target="_blank"
                                         class="inline-flex items-center justify-center touch-target text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-                                        title="Download"
+                                        :title="$t('ticket-comments-action-download')"
                                         @click.stop
                                     >
                                         <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -807,7 +811,7 @@ const handlePastedFiles = async (files: File[]) => {
                                         type="button"
                                         @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
                                         class="inline-flex items-center justify-center touch-target text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-                                        :title="isAudioOnlyComment(comment) ? 'Delete voice message' : 'Delete comment'"
+                                        :title="isAudioOnlyComment(comment) ? $t('ticket-comments-action-delete-voice') : $t('ticket-comments-action-delete-comment')"
                                     >
                                         <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                                             <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
@@ -894,7 +898,7 @@ const handlePastedFiles = async (files: File[]) => {
                                                 :download="comment.attachments?.[0]?.name"
                                                 target="_blank"
                                                 class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-                                                title="Download"
+                                                :title="$t('ticket-comments-action-download')"
                                                 @click.stop
                                             >
                                                 <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -906,7 +910,7 @@ const handlePastedFiles = async (files: File[]) => {
                                                 type="button"
                                                 @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
                                                 class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
-                                                :title="isAudioOnlyComment(comment) ? 'Delete voice message' : 'Delete comment'"
+                                                :title="isAudioOnlyComment(comment) ? $t('ticket-comments-action-delete-voice') : $t('ticket-comments-action-delete-comment')"
                                             >
                                                 <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                                                     <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
@@ -941,9 +945,9 @@ const handlePastedFiles = async (files: File[]) => {
                                         <span
                                             v-if="comment.channel_metadata?.forwarded_by_user_uuid"
                                             class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
-                                            title="A technician forwarded this email into the helpdesk"
+                                            :title="$t('ticket-comments-badge-forwarded-title')"
                                         >
-                                            Forwarded
+                                            {{ $t('ticket-comments-badge-forwarded') }}
                                         </span>
                                         <span
                                             v-if="comment.from_address"
@@ -1023,7 +1027,7 @@ const handlePastedFiles = async (files: File[]) => {
                             <!-- Block layout: header above body so the
                                  body can flow across page breaks. -->
                             <div class="print-comment-header">
-                                <span class="print-comment-author">{{ comment.user?.name || 'Unknown' }}</span>
+                                <span class="print-comment-author">{{ comment.user?.name || $t('ticket-comments-print-unknown-author') }}</span>
                                 <span class="print-comment-date">{{ formattedDate(comment.createdAt ?? comment.created_at) }}</span>
                             </div>
                             <div class="print-email-body" v-html="sanitiseHtml(comment.content)" />
@@ -1039,7 +1043,7 @@ const handlePastedFiles = async (files: File[]) => {
                         </template>
                         <template v-else>
                             <!-- Inline format: "Author (Date): Content" -->
-                            <span class="print-comment-author">{{ comment.user?.name || 'Unknown' }}</span>
+                            <span class="print-comment-author">{{ comment.user?.name || $t('ticket-comments-print-unknown-author') }}</span>
                             <span class="print-comment-date">({{ formattedDate(comment.createdAt ?? comment.created_at) }}):</span>
                             <span v-if="hasRealContent(comment)" class="print-comment-content">
                                 <MarkdownRenderer :content="comment.content" />

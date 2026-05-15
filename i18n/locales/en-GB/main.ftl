@@ -2869,3 +2869,246 @@ docs-author-badge-interval-180d = 180d
 docs-author-badge-interval-1y = 1y
 docs-author-badge-interval-never = Never
 docs-author-badge-clear = Clear verification
+# Ticket: detail sidebar fields & print header (TicketDetails).
+ticket-detail-title-label = Title
+ticket-detail-source-label = Source
+ticket-detail-source-tooltip = Opened via { $provider }. Replies are relayed back through the thread.
+ticket-detail-source-email = Email
+ticket-detail-source-slack = Slack
+ticket-detail-source-teams = Microsoft Teams
+ticket-detail-clear-requester = Clear requester
+ticket-detail-add-requester = Add requester
+ticket-detail-find-user-placeholder = Find a user...
+ticket-detail-assign-to-placeholder = Assign to...
+ticket-detail-clear-assignee = Clear assignee
+ticket-detail-add-assignee = Add assignee
+ticket-detail-claim = Claim
+ticket-detail-claim-title = Assign this ticket to yourself
+ticket-detail-sla-label = SLA
+ticket-detail-scheduling-label = Scheduling
+ticket-detail-scheduling-none = None
+ticket-detail-scheduling-due-date = Due date
+ticket-detail-scheduling-due-prefix = Due { $date }
+ticket-detail-scheduling-clear-due = Clear due date
+ticket-detail-scheduling-recurrence = Recurrence
+ticket-detail-recurrence-none = Not recurring
+ticket-detail-recurrence-daily = Daily
+ticket-detail-recurrence-weekly = Weekly
+ticket-detail-recurrence-weekdays = Weekdays
+ticket-detail-recurrence-monthly = Monthly
+ticket-detail-recurrence-yearly = Yearly
+ticket-detail-recurrence-recurring = Recurring
+ticket-detail-recurrence-custom-note = Custom RRULE in use ({ $rule }). Edit via API.
+ticket-detail-recurrence-respawn-note = Closing this ticket spawns the next occurrence.
+ticket-detail-category-placeholder = Select category...
+ticket-detail-cycle-label = Cycle
+ticket-detail-cycle-tooltip = Cycle { $name } ({ $state })
+ticket-detail-resolution-label = Resolution
+ticket-detail-resolution-closed = Closed
+ticket-detail-resolution-draft-from-notes = Draft from notes
+ticket-detail-resolution-draft-from-notes-title = { $count ->
+    [one] Append { $count } internal note to the resolution draft
+   *[other] Append { $count } internal notes to the resolution draft
+  }
+ticket-detail-resolution-placeholder-active = Capture what fixed this: the answer the next person will need.
+ticket-detail-resolution-placeholder-draft = Notes on the fix can be drafted here while you work the ticket.
+ticket-detail-audit-created = Created
+ticket-detail-audit-modified = Last Modified
+ticket-detail-audit-closed = Closed
+ticket-detail-print-status = Status
+ticket-detail-print-priority = Priority
+ticket-detail-print-category = Category
+ticket-detail-print-requester = Requester
+ticket-detail-print-assignee = Assignee
+ticket-detail-print-created = Created
+ticket-detail-print-modified = Modified
+ticket-detail-print-unassigned = Unassigned
+ticket-detail-print-unknown = Unknown
+ticket-detail-print-logo-alt = Logo
+ticket-detail-print-qr-alt = Ticket QR Code
+ticket-detail-print-qr-label = Scan to open
+
+# Ticket: comments & attachments composer (CommentsAndAttachments).
+ticket-comments-section-title = Comments and Attachments
+ticket-comments-drop-files = Drop files here
+ticket-comments-internal-banner = Visible to staff only. Not sent through the ticket's channel.
+ticket-comments-placeholder-public = Add a new comment...
+ticket-comments-placeholder-internal = Note for the team…
+ticket-comments-record-voice = Record voice note
+ticket-comments-upload-file = Upload file
+ticket-comments-visibility-group = Reply visibility
+ticket-comments-public-reply = Public reply
+ticket-comments-public-reply-title = Sent to the requester through the ticket's channel
+ticket-comments-internal-note = Internal note
+ticket-comments-internal-note-title = Visible only to techs; not relayed back through the ticket's channel
+ticket-comments-submit-reply = Add reply
+ticket-comments-submit-note = Add note
+ticket-comments-voice-note-filename = Voice Note { $date }
+ticket-comments-filter-group = Comment visibility filter
+ticket-comments-filter-all = All ({ $count })
+ticket-comments-filter-public = Public ({ $count })
+ticket-comments-filter-internal = Internal ({ $count })
+ticket-comments-badge-internal = Internal
+ticket-comments-badge-forwarded = Forwarded
+ticket-comments-badge-forwarded-title = A technician forwarded this email into the helpdesk
+ticket-comments-action-download = Download
+ticket-comments-action-delete-comment = Delete comment
+ticket-comments-action-delete-voice = Delete voice message
+ticket-comments-audio-default = Audio
+ticket-comments-audio-voice-message = Voice Message
+ticket-comments-print-unknown-author = Unknown
+ticket-comments-show-quoted-thread = Show quoted thread
+ticket-comments-show-quoted-reply = { $lines ->
+    [one] Show quoted reply ({ $lines } line)
+   *[other] Show quoted reply ({ $lines } lines)
+  }
+ticket-comments-show-original = Show original message
+ticket-comments-show-original-title = Open the raw RFC-822 source in a new tab
+
+# Ticket: activity timeline (TicketActivity).
+ticket-activity-section-title = Activity
+ticket-activity-load-error = Failed to load activity
+ticket-activity-load-more-error = Failed to load more activity
+ticket-activity-empty = No activity yet.
+ticket-activity-load-more = Load older activity
+ticket-activity-loading = Loading…
+ticket-activity-actor-someone = Someone
+ticket-activity-actor-system = System
+ticket-activity-actor-sender = Sender
+ticket-activity-actor-email-aria = Email sender
+ticket-activity-actor-portal-aria = Public portal submission
+ticket-activity-actor-portal-label = the public portal
+ticket-activity-channel-email = email
+ticket-activity-channel-slack = Slack
+ticket-activity-channel-teams = Microsoft Teams
+ticket-activity-channel-discord = Discord
+ticket-activity-actor-title-subject = { $name } — Subject: { $subject }
+ticket-activity-actor-title-named = { $name } <{ $email }>
+ticket-activity-actor-title-named-subject = { $name } <{ $email }> — Subject: { $subject }
+ticket-activity-to-assignee = to { $name }
+ticket-activity-phrase-created = created this ticket
+ticket-activity-phrase-opened-via = opened this ticket via { $channel }
+ticket-activity-phrase-submitted-via = submitted this ticket via { $channel }
+ticket-activity-phrase-deleted = deleted this ticket
+ticket-activity-phrase-status-set = set status to { $name }
+ticket-activity-phrase-status-changed = changed status
+ticket-activity-phrase-reassigned = reassigned this ticket
+ticket-activity-phrase-unassigned = unassigned this ticket
+ticket-activity-phrase-priority-set = set priority to { $priority }
+ticket-activity-phrase-priority-changed = changed priority
+ticket-activity-phrase-renamed = renamed the ticket to "{ $title }"
+ticket-activity-phrase-renamed-plain = renamed the ticket
+ticket-activity-phrase-category-changed = changed the category
+ticket-activity-phrase-verification-changed = updated verification state
+ticket-activity-phrase-tags-added = { $count ->
+    [one] added a tag
+   *[other] added { $count } tags
+  }
+ticket-activity-phrase-tags-removed = { $count ->
+    [one] removed a tag
+   *[other] removed { $count } tags
+  }
+ticket-activity-phrase-tags-updated = updated the tags
+ticket-activity-phrase-resolution-changed = updated the resolution notes
+ticket-activity-phrase-watcher-self-start = started watching this ticket
+ticket-activity-phrase-watcher-self-auto = started watching (auto-subscribed on first reply)
+ticket-activity-phrase-watcher-self-stop = stopped watching this ticket
+ticket-activity-phrase-watcher-added-named = added { $name } as a watcher
+ticket-activity-phrase-watcher-added = added a watcher
+ticket-activity-phrase-watcher-removed-named = removed { $name } as a watcher
+ticket-activity-phrase-watcher-removed = removed a watcher
+ticket-activity-phrase-updated = updated the ticket
+ticket-activity-phrase-internal-note = added an internal note
+ticket-activity-phrase-replied-via = replied via { $channel }
+ticket-activity-phrase-comment-via = added a comment via { $channel }
+ticket-activity-phrase-commented = commented on this ticket
+ticket-activity-phrase-comment-deleted = deleted a comment
+ticket-activity-phrase-generic = made a change
+
+# Ticket: tag picker sidebar surface (TicketTagsField).
+ticket-field-tags-label = Tags
+ticket-field-tags-add = Add tag
+ticket-field-tags-remove = Remove { $name }
+ticket-field-tags-picker-placeholder = Find or create a tag…
+ticket-field-tags-loading = Loading…
+ticket-field-tags-no-match = No matching tags.
+ticket-field-tags-create = Create "{ $name }"
+ticket-field-tags-creating = Creating…
+ticket-field-tags-done = Done
+
+# Ticket: watchers sidebar surface (TicketWatchersField).
+ticket-field-watchers-label = Watchers
+ticket-field-watchers-watching = Watching
+ticket-field-watchers-watch = Watch
+ticket-field-watchers-watch-title = Watch this ticket for updates
+ticket-field-watchers-unwatch-title = Stop watching this ticket
+ticket-field-watchers-notify-internal = Notify on internal notes
+ticket-field-watchers-public-only = Public replies only
+ticket-field-watchers-toggle-on = ON
+ticket-field-watchers-toggle-off = OFF
+ticket-field-watchers-pref-load-error = Failed to load preference
+ticket-field-watchers-pref-save-error = Failed to save preference
+ticket-field-watchers-overflow-title = { $count ->
+    [one] { $count } more
+   *[other] { $count } more
+  }
+
+# Ticket: device chip row (TicketDevicesField).
+ticket-field-devices-label = Devices
+ticket-field-devices-add = Add device
+ticket-field-devices-detach = Detach device
+ticket-field-devices-fallback-name = Device #{ $id }
+ticket-field-devices-title-with-model = { $hostname } · { $model }
+
+# Ticket: linked tickets chip row (TicketLinkedTicketsField).
+ticket-field-linked-tickets-label = Linked Tickets
+ticket-field-linked-tickets-add = Link ticket
+ticket-field-linked-tickets-drop = Drop to link
+
+# Ticket: projects chip row (TicketProjectsField).
+ticket-field-projects-label = Projects
+ticket-field-projects-add = Add to project
+ticket-field-projects-remove = Remove from project
+ticket-field-projects-fallback = Project #{ $id }
+
+# Ticket: linked documentation chip row (TicketLinkedDocs).
+ticket-field-docs-label = Documentation
+ticket-field-docs-add = Save as doc
+ticket-field-docs-resolves-title = { $title } · resolves this ticket
+
+# Ticket: chips/badges.
+ticket-chip-remove = Remove { $label }
+ticket-chip-sidebar-remove = Remove
+ticket-chip-linked-ticket-fallback = Ticket #{ $id }
+ticket-chip-linked-ticket-title = #{ $id } · { $title }
+ticket-chip-unlink-ticket = Unlink ticket
+ticket-chip-gap-flagged = Flagged for documentation
+ticket-chip-gap-view-queue = View in queue →
+ticket-chip-gap-remove-flag = Remove flag
+ticket-chip-preview-priority = Priority
+ticket-chip-preview-created = Created
+ticket-chip-preview-requester = Requester
+ticket-chip-preview-assignee = Assignee
+ticket-chip-preview-unassigned = Unassigned
+ticket-chip-preview-unlink = Unlink ticket
+ticket-chip-device-warranty-active = Active
+ticket-chip-device-warranty-warning = Warning
+ticket-chip-device-warranty-expired = Expired
+ticket-chip-device-remove = Remove device
+ticket-chip-device-view-title = View device
+ticket-chip-device-unnamed = Unnamed Device
+ticket-chip-device-field-serial = Serial
+ticket-chip-device-field-model = Model
+ticket-chip-device-field-manufacturer = Manufacturer
+ticket-chip-device-field-hostname = Hostname
+ticket-chip-device-value-na = N/A
+ticket-chip-device-value-unknown = Unknown
+ticket-chip-device-copy-tooltip = Click to copy
+ticket-chip-device-copied = Copied!
+
+# Ticket: status/priority/category picker (CustomDropdown).
+ticket-chip-dropdown-select = Select...
+ticket-chip-dropdown-status = Select status
+ticket-chip-dropdown-priority = Select priority
+ticket-chip-dropdown-category = Select category
+ticket-chip-dropdown-option = Select option

@@ -9,6 +9,7 @@
   cache entry powers any other widget that surfaces this list.
 -->
 <script setup lang="ts">
+import { useFluent } from 'fluent-vue'
 import PropertyChipRow from '@/components/ticketComponents/PropertyChipRow.vue'
 import PropertyChip from '@/components/ticketComponents/PropertyChip.vue'
 import { useTicketDocs } from '@/composables/usePageTicketLinks'
@@ -23,19 +24,22 @@ const emit = defineEmits<{
 }>()
 
 const { links } = useTicketDocs(() => props.ticketId)
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 </script>
 
 <template>
   <PropertyChipRow
-    label="Documentation"
-    add-label="Save as doc"
+    :label="t('ticket-field-docs-label')"
+    :add-label="t('ticket-field-docs-add')"
     @add="emit('add')"
   >
     <PropertyChip
       v-for="link in links"
       :key="link.page_id"
       :label="link.page_title"
-      :title="link.link_type === 'resolves' ? `${link.page_title} · resolves this ticket` : link.page_title"
+      :title="link.link_type === 'resolves' ? t('ticket-field-docs-resolves-title', { title: link.page_title }) : link.page_title"
       :to="docUrl({ slug: link.page_slug, id: link.page_id })"
     >
       <template #leading>

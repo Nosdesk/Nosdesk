@@ -40,7 +40,7 @@ directly.
           <svg :class="summaryIconClass" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
           </svg>
-          <span>Show quoted thread</span>
+          <span>{{ $t('ticket-comments-show-quoted-thread') }}</span>
         </summary>
         <div class="mt-1">
           <EmailHtmlBody :html="trimmedHtml" :pre-sanitised="htmlIsPreSanitised" />
@@ -54,7 +54,7 @@ directly.
           <svg :class="summaryIconClass" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
           </svg>
-          <span>Show quoted reply ({{ trimmedTextLines }} {{ trimmedTextLines === 1 ? 'line' : 'lines' }})</span>
+          <span>{{ $t('ticket-comments-show-quoted-reply', { lines: trimmedTextLines }) }}</span>
         </summary>
         <div class="mt-1 border-l-2 border-subtle pl-3 text-secondary">
           <MarkdownRenderer :content="trimmedText" />
@@ -73,9 +73,9 @@ directly.
       target="_blank"
       rel="noopener noreferrer"
       class="self-start text-[11px] text-tertiary hover:text-secondary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info rounded"
-      title="Open the raw RFC-822 source in a new tab"
+      :title="$t('ticket-comments-show-original-title')"
     >
-      Show original message
+      {{ $t('ticket-comments-show-original') }}
     </a>
   </div>
 </template>

@@ -18,8 +18,8 @@ const emit = defineEmits<{
 
 <template>
   <PropertyChipRow
-    label="Projects"
-    add-label="Add to project"
+    :label="$t('ticket-field-projects-label')"
+    :add-label="$t('ticket-field-projects-add')"
     @add="emit('add')"
   >
     <ProjectChip

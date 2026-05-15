@@ -2883,3 +2883,246 @@ docs-author-badge-interval-180d = 180 d
 docs-author-badge-interval-1y = 1 j
 docs-author-badge-interval-never = Nooit
 docs-author-badge-clear = Verificatie wissen
+# Ticket: zijbalkvelden & afdrukkop (TicketDetails).
+ticket-detail-title-label = Titel
+ticket-detail-source-label = Bron
+ticket-detail-source-tooltip = Geopend via { $provider }. Reacties worden via de thread teruggestuurd.
+ticket-detail-source-email = E-mail
+ticket-detail-source-slack = Slack
+ticket-detail-source-teams = Microsoft Teams
+ticket-detail-clear-requester = Aanvrager wissen
+ticket-detail-add-requester = Aanvrager toevoegen
+ticket-detail-find-user-placeholder = Zoek een gebruiker...
+ticket-detail-assign-to-placeholder = Toewijzen aan...
+ticket-detail-clear-assignee = Toewijzing wissen
+ticket-detail-add-assignee = Toegewezene toevoegen
+ticket-detail-claim = Claimen
+ticket-detail-claim-title = Ken dit ticket aan jezelf toe
+ticket-detail-sla-label = SLA
+ticket-detail-scheduling-label = Planning
+ticket-detail-scheduling-none = Geen
+ticket-detail-scheduling-due-date = Vervaldatum
+ticket-detail-scheduling-due-prefix = Vervalt { $date }
+ticket-detail-scheduling-clear-due = Vervaldatum wissen
+ticket-detail-scheduling-recurrence = Herhaling
+ticket-detail-recurrence-none = Niet terugkerend
+ticket-detail-recurrence-daily = Dagelijks
+ticket-detail-recurrence-weekly = Wekelijks
+ticket-detail-recurrence-weekdays = Werkdagen
+ticket-detail-recurrence-monthly = Maandelijks
+ticket-detail-recurrence-yearly = Jaarlijks
+ticket-detail-recurrence-recurring = Terugkerend
+ticket-detail-recurrence-custom-note = Aangepaste RRULE in gebruik ({ $rule }). Bewerk via de API.
+ticket-detail-recurrence-respawn-note = Het sluiten van dit ticket maakt het volgende voorkomen aan.
+ticket-detail-category-placeholder = Categorie selecteren...
+ticket-detail-cycle-label = Cyclus
+ticket-detail-cycle-tooltip = Cyclus { $name } ({ $state })
+ticket-detail-resolution-label = Oplossing
+ticket-detail-resolution-closed = Gesloten
+ticket-detail-resolution-draft-from-notes = Concept op basis van notities
+ticket-detail-resolution-draft-from-notes-title = { $count ->
+    [one] { $count } interne notitie aan het oplossingsconcept toevoegen
+   *[other] { $count } interne notities aan het oplossingsconcept toevoegen
+  }
+ticket-detail-resolution-placeholder-active = Leg vast wat het probleem heeft opgelost: het antwoord dat de volgende nodig heeft.
+ticket-detail-resolution-placeholder-draft = Hier kun je notities over de oplossing maken terwijl je het ticket behandelt.
+ticket-detail-audit-created = Aangemaakt
+ticket-detail-audit-modified = Laatst gewijzigd
+ticket-detail-audit-closed = Gesloten
+ticket-detail-print-status = Status
+ticket-detail-print-priority = Prioriteit
+ticket-detail-print-category = Categorie
+ticket-detail-print-requester = Aanvrager
+ticket-detail-print-assignee = Toegewezen aan
+ticket-detail-print-created = Aangemaakt
+ticket-detail-print-modified = Gewijzigd
+ticket-detail-print-unassigned = Niet toegewezen
+ticket-detail-print-unknown = Onbekend
+ticket-detail-print-logo-alt = Logo
+ticket-detail-print-qr-alt = QR-code van ticket
+ticket-detail-print-qr-label = Scan om te openen
+
+# Ticket: reacties en bijlagen (CommentsAndAttachments).
+ticket-comments-section-title = Reacties en bijlagen
+ticket-comments-drop-files = Bestanden hier neerzetten
+ticket-comments-internal-banner = Alleen zichtbaar voor medewerkers. Niet verzonden via het kanaal van het ticket.
+ticket-comments-placeholder-public = Voeg een nieuwe reactie toe...
+ticket-comments-placeholder-internal = Notitie voor het team…
+ticket-comments-record-voice = Spraaknotitie opnemen
+ticket-comments-upload-file = Bestand uploaden
+ticket-comments-visibility-group = Zichtbaarheid van reactie
+ticket-comments-public-reply = Openbare reactie
+ticket-comments-public-reply-title = Verzonden naar de aanvrager via het kanaal van het ticket
+ticket-comments-internal-note = Interne notitie
+ticket-comments-internal-note-title = Alleen zichtbaar voor technici; niet doorgestuurd via het kanaal van het ticket
+ticket-comments-submit-reply = Reactie versturen
+ticket-comments-submit-note = Notitie toevoegen
+ticket-comments-voice-note-filename = Spraaknotitie { $date }
+ticket-comments-filter-group = Filter zichtbaarheid reacties
+ticket-comments-filter-all = Alle ({ $count })
+ticket-comments-filter-public = Openbaar ({ $count })
+ticket-comments-filter-internal = Intern ({ $count })
+ticket-comments-badge-internal = Intern
+ticket-comments-badge-forwarded = Doorgestuurd
+ticket-comments-badge-forwarded-title = Een technicus heeft deze e-mail naar de helpdesk doorgestuurd
+ticket-comments-action-download = Downloaden
+ticket-comments-action-delete-comment = Reactie verwijderen
+ticket-comments-action-delete-voice = Spraakbericht verwijderen
+ticket-comments-audio-default = Audio
+ticket-comments-audio-voice-message = Spraakbericht
+ticket-comments-print-unknown-author = Onbekend
+ticket-comments-show-quoted-thread = Geciteerde thread tonen
+ticket-comments-show-quoted-reply = { $lines ->
+    [one] Geciteerde reactie tonen ({ $lines } regel)
+   *[other] Geciteerde reactie tonen ({ $lines } regels)
+  }
+ticket-comments-show-original = Oorspronkelijk bericht tonen
+ticket-comments-show-original-title = Open de ruwe RFC-822-bron in een nieuw tabblad
+
+# Ticket: activiteitenlogboek (TicketActivity).
+ticket-activity-section-title = Activiteit
+ticket-activity-load-error = Kan activiteit niet laden
+ticket-activity-load-more-error = Kan meer activiteit niet laden
+ticket-activity-empty = Nog geen activiteit.
+ticket-activity-load-more = Oudere activiteit laden
+ticket-activity-loading = Laden…
+ticket-activity-actor-someone = Iemand
+ticket-activity-actor-system = Systeem
+ticket-activity-actor-sender = Afzender
+ticket-activity-actor-email-aria = Afzender van e-mail
+ticket-activity-actor-portal-aria = Inzending via openbaar portaal
+ticket-activity-actor-portal-label = het openbare portaal
+ticket-activity-channel-email = e-mail
+ticket-activity-channel-slack = Slack
+ticket-activity-channel-teams = Microsoft Teams
+ticket-activity-channel-discord = Discord
+ticket-activity-actor-title-subject = { $name } — Onderwerp: { $subject }
+ticket-activity-actor-title-named = { $name } <{ $email }>
+ticket-activity-actor-title-named-subject = { $name } <{ $email }> — Onderwerp: { $subject }
+ticket-activity-to-assignee = aan { $name }
+ticket-activity-phrase-created = heeft dit ticket aangemaakt
+ticket-activity-phrase-opened-via = heeft dit ticket geopend via { $channel }
+ticket-activity-phrase-submitted-via = heeft dit ticket ingediend via { $channel }
+ticket-activity-phrase-deleted = heeft dit ticket verwijderd
+ticket-activity-phrase-status-set = heeft de status ingesteld op { $name }
+ticket-activity-phrase-status-changed = heeft de status gewijzigd
+ticket-activity-phrase-reassigned = heeft dit ticket opnieuw toegewezen
+ticket-activity-phrase-unassigned = heeft de toewijzing van dit ticket opgeheven
+ticket-activity-phrase-priority-set = heeft de prioriteit ingesteld op { $priority }
+ticket-activity-phrase-priority-changed = heeft de prioriteit gewijzigd
+ticket-activity-phrase-renamed = heeft het ticket hernoemd naar "{ $title }"
+ticket-activity-phrase-renamed-plain = heeft het ticket hernoemd
+ticket-activity-phrase-category-changed = heeft de categorie gewijzigd
+ticket-activity-phrase-verification-changed = heeft de verificatiestatus bijgewerkt
+ticket-activity-phrase-tags-added = { $count ->
+    [one] heeft een label toegevoegd
+   *[other] heeft { $count } labels toegevoegd
+  }
+ticket-activity-phrase-tags-removed = { $count ->
+    [one] heeft een label verwijderd
+   *[other] heeft { $count } labels verwijderd
+  }
+ticket-activity-phrase-tags-updated = heeft de labels bijgewerkt
+ticket-activity-phrase-resolution-changed = heeft de oplossingsnotities bijgewerkt
+ticket-activity-phrase-watcher-self-start = volgt dit ticket nu
+ticket-activity-phrase-watcher-self-auto = volgt dit ticket (automatisch geabonneerd bij eerste reactie)
+ticket-activity-phrase-watcher-self-stop = volgt dit ticket niet meer
+ticket-activity-phrase-watcher-added-named = heeft { $name } als volger toegevoegd
+ticket-activity-phrase-watcher-added = heeft een volger toegevoegd
+ticket-activity-phrase-watcher-removed-named = heeft { $name } als volger verwijderd
+ticket-activity-phrase-watcher-removed = heeft een volger verwijderd
+ticket-activity-phrase-updated = heeft het ticket bijgewerkt
+ticket-activity-phrase-internal-note = heeft een interne notitie toegevoegd
+ticket-activity-phrase-replied-via = heeft gereageerd via { $channel }
+ticket-activity-phrase-comment-via = heeft een reactie toegevoegd via { $channel }
+ticket-activity-phrase-commented = heeft op dit ticket gereageerd
+ticket-activity-phrase-comment-deleted = heeft een reactie verwijderd
+ticket-activity-phrase-generic = heeft een wijziging aangebracht
+
+# Ticket: labelkiezer (TicketTagsField).
+ticket-field-tags-label = Labels
+ticket-field-tags-add = Label toevoegen
+ticket-field-tags-remove = { $name } verwijderen
+ticket-field-tags-picker-placeholder = Zoek of maak een label…
+ticket-field-tags-loading = Laden…
+ticket-field-tags-no-match = Geen overeenkomende labels.
+ticket-field-tags-create = "{ $name }" aanmaken
+ticket-field-tags-creating = Aanmaken…
+ticket-field-tags-done = Klaar
+
+# Ticket: volgers (TicketWatchersField).
+ticket-field-watchers-label = Volgers
+ticket-field-watchers-watching = Volgt
+ticket-field-watchers-watch = Volgen
+ticket-field-watchers-watch-title = Volg dit ticket voor updates
+ticket-field-watchers-unwatch-title = Niet meer volgen
+ticket-field-watchers-notify-internal = Melden bij interne notities
+ticket-field-watchers-public-only = Alleen openbare reacties
+ticket-field-watchers-toggle-on = AAN
+ticket-field-watchers-toggle-off = UIT
+ticket-field-watchers-pref-load-error = Kan voorkeur niet laden
+ticket-field-watchers-pref-save-error = Kan voorkeur niet opslaan
+ticket-field-watchers-overflow-title = { $count ->
+    [one] nog { $count }
+   *[other] nog { $count }
+  }
+
+# Ticket: apparatenrij (TicketDevicesField).
+ticket-field-devices-label = Apparaten
+ticket-field-devices-add = Apparaat toevoegen
+ticket-field-devices-detach = Apparaat loskoppelen
+ticket-field-devices-fallback-name = Apparaat #{ $id }
+ticket-field-devices-title-with-model = { $hostname } · { $model }
+
+# Ticket: gekoppelde tickets (TicketLinkedTicketsField).
+ticket-field-linked-tickets-label = Gekoppelde tickets
+ticket-field-linked-tickets-add = Ticket koppelen
+ticket-field-linked-tickets-drop = Sleep hierheen om te koppelen
+
+# Ticket: projecten (TicketProjectsField).
+ticket-field-projects-label = Projecten
+ticket-field-projects-add = Aan project toevoegen
+ticket-field-projects-remove = Uit project verwijderen
+ticket-field-projects-fallback = Project #{ $id }
+
+# Ticket: gekoppelde documentatie (TicketLinkedDocs).
+ticket-field-docs-label = Documentatie
+ticket-field-docs-add = Opslaan als doc
+ticket-field-docs-resolves-title = { $title } · lost dit ticket op
+
+# Ticket: chips/badges.
+ticket-chip-remove = { $label } verwijderen
+ticket-chip-sidebar-remove = Verwijderen
+ticket-chip-linked-ticket-fallback = Ticket #{ $id }
+ticket-chip-linked-ticket-title = #{ $id } · { $title }
+ticket-chip-unlink-ticket = Ticket loskoppelen
+ticket-chip-gap-flagged = Gemarkeerd voor documentatie
+ticket-chip-gap-view-queue = Bekijk in wachtrij →
+ticket-chip-gap-remove-flag = Markering verwijderen
+ticket-chip-preview-priority = Prioriteit
+ticket-chip-preview-created = Aangemaakt
+ticket-chip-preview-requester = Aanvrager
+ticket-chip-preview-assignee = Toegewezen aan
+ticket-chip-preview-unassigned = Niet toegewezen
+ticket-chip-preview-unlink = Ticket loskoppelen
+ticket-chip-device-warranty-active = Actief
+ticket-chip-device-warranty-warning = Waarschuwing
+ticket-chip-device-warranty-expired = Verlopen
+ticket-chip-device-remove = Apparaat verwijderen
+ticket-chip-device-view-title = Apparaat bekijken
+ticket-chip-device-unnamed = Naamloos apparaat
+ticket-chip-device-field-serial = Serienummer
+ticket-chip-device-field-model = Model
+ticket-chip-device-field-manufacturer = Fabrikant
+ticket-chip-device-field-hostname = Hostnaam
+ticket-chip-device-value-na = N.v.t.
+ticket-chip-device-value-unknown = Onbekend
+ticket-chip-device-copy-tooltip = Klik om te kopiëren
+ticket-chip-device-copied = Gekopieerd!
+
+# Ticket: status/prioriteit/categoriekiezer (CustomDropdown).
+ticket-chip-dropdown-select = Selecteer...
+ticket-chip-dropdown-status = Status selecteren
+ticket-chip-dropdown-priority = Prioriteit selecteren
+ticket-chip-dropdown-category = Categorie selecteren
+ticket-chip-dropdown-option = Optie selecteren

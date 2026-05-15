@@ -2892,3 +2892,246 @@ docs-author-badge-interval-180d = 180 j
 docs-author-badge-interval-1y = 1 an
 docs-author-badge-interval-never = Jamais
 docs-author-badge-clear = Effacer la vérification
+# Ticket : champs latéraux du détail & en-tête d'impression (TicketDetails).
+ticket-detail-title-label = Titre
+ticket-detail-source-label = Source
+ticket-detail-source-tooltip = Ouvert via { $provider }. Les réponses sont relayées dans le fil.
+ticket-detail-source-email = E-mail
+ticket-detail-source-slack = Slack
+ticket-detail-source-teams = Microsoft Teams
+ticket-detail-clear-requester = Effacer le demandeur
+ticket-detail-add-requester = Ajouter un demandeur
+ticket-detail-find-user-placeholder = Rechercher un utilisateur...
+ticket-detail-assign-to-placeholder = Attribuer à...
+ticket-detail-clear-assignee = Effacer l'attribution
+ticket-detail-add-assignee = Ajouter un destinataire
+ticket-detail-claim = Prendre
+ticket-detail-claim-title = M'attribuer ce ticket
+ticket-detail-sla-label = SLA
+ticket-detail-scheduling-label = Planification
+ticket-detail-scheduling-none = Aucune
+ticket-detail-scheduling-due-date = Échéance
+ticket-detail-scheduling-due-prefix = Échéance { $date }
+ticket-detail-scheduling-clear-due = Effacer l'échéance
+ticket-detail-scheduling-recurrence = Récurrence
+ticket-detail-recurrence-none = Non récurrent
+ticket-detail-recurrence-daily = Quotidien
+ticket-detail-recurrence-weekly = Hebdomadaire
+ticket-detail-recurrence-weekdays = Jours ouvrés
+ticket-detail-recurrence-monthly = Mensuel
+ticket-detail-recurrence-yearly = Annuel
+ticket-detail-recurrence-recurring = Récurrent
+ticket-detail-recurrence-custom-note = Règle RRULE personnalisée ({ $rule }). Modifiez via l'API.
+ticket-detail-recurrence-respawn-note = La clôture de ce ticket génère la prochaine occurrence.
+ticket-detail-category-placeholder = Sélectionner une catégorie...
+ticket-detail-cycle-label = Cycle
+ticket-detail-cycle-tooltip = Cycle { $name } ({ $state })
+ticket-detail-resolution-label = Résolution
+ticket-detail-resolution-closed = Fermé
+ticket-detail-resolution-draft-from-notes = Brouillon depuis les notes
+ticket-detail-resolution-draft-from-notes-title = { $count ->
+    [one] Ajouter { $count } note interne au brouillon de résolution
+   *[other] Ajouter { $count } notes internes au brouillon de résolution
+  }
+ticket-detail-resolution-placeholder-active = Notez ce qui a corrigé le problème : la réponse pour le prochain intervenant.
+ticket-detail-resolution-placeholder-draft = Vous pouvez rédiger ici vos notes sur la résolution pendant le traitement.
+ticket-detail-audit-created = Créé
+ticket-detail-audit-modified = Dernière modification
+ticket-detail-audit-closed = Fermé
+ticket-detail-print-status = Statut
+ticket-detail-print-priority = Priorité
+ticket-detail-print-category = Catégorie
+ticket-detail-print-requester = Demandeur
+ticket-detail-print-assignee = Attribué à
+ticket-detail-print-created = Créé
+ticket-detail-print-modified = Modifié
+ticket-detail-print-unassigned = Non attribué
+ticket-detail-print-unknown = Inconnu
+ticket-detail-print-logo-alt = Logo
+ticket-detail-print-qr-alt = QR Code du ticket
+ticket-detail-print-qr-label = Scannez pour ouvrir
+
+# Ticket : commentaires & pièces jointes (CommentsAndAttachments).
+ticket-comments-section-title = Commentaires et pièces jointes
+ticket-comments-drop-files = Déposez les fichiers ici
+ticket-comments-internal-banner = Visible par l'équipe uniquement. Non transmis via le canal du ticket.
+ticket-comments-placeholder-public = Ajouter un nouveau commentaire...
+ticket-comments-placeholder-internal = Note pour l'équipe…
+ticket-comments-record-voice = Enregistrer une note vocale
+ticket-comments-upload-file = Téléverser un fichier
+ticket-comments-visibility-group = Visibilité de la réponse
+ticket-comments-public-reply = Réponse publique
+ticket-comments-public-reply-title = Envoyé au demandeur via le canal du ticket
+ticket-comments-internal-note = Note interne
+ticket-comments-internal-note-title = Visible uniquement par les techniciens ; jamais transmis via le canal du ticket
+ticket-comments-submit-reply = Envoyer la réponse
+ticket-comments-submit-note = Ajouter la note
+ticket-comments-voice-note-filename = Note vocale { $date }
+ticket-comments-filter-group = Filtre de visibilité des commentaires
+ticket-comments-filter-all = Tous ({ $count })
+ticket-comments-filter-public = Publics ({ $count })
+ticket-comments-filter-internal = Internes ({ $count })
+ticket-comments-badge-internal = Interne
+ticket-comments-badge-forwarded = Transféré
+ticket-comments-badge-forwarded-title = Un technicien a transféré cet e-mail dans le helpdesk
+ticket-comments-action-download = Télécharger
+ticket-comments-action-delete-comment = Supprimer le commentaire
+ticket-comments-action-delete-voice = Supprimer le message vocal
+ticket-comments-audio-default = Audio
+ticket-comments-audio-voice-message = Message vocal
+ticket-comments-print-unknown-author = Inconnu
+ticket-comments-show-quoted-thread = Afficher le fil cité
+ticket-comments-show-quoted-reply = { $lines ->
+    [one] Afficher la réponse citée ({ $lines } ligne)
+   *[other] Afficher la réponse citée ({ $lines } lignes)
+  }
+ticket-comments-show-original = Afficher le message d'origine
+ticket-comments-show-original-title = Ouvrir la source RFC-822 brute dans un nouvel onglet
+
+# Ticket : journal d'activité (TicketActivity).
+ticket-activity-section-title = Activité
+ticket-activity-load-error = Échec du chargement de l'activité
+ticket-activity-load-more-error = Échec du chargement d'activité supplémentaire
+ticket-activity-empty = Aucune activité pour l'instant.
+ticket-activity-load-more = Charger l'historique plus ancien
+ticket-activity-loading = Chargement…
+ticket-activity-actor-someone = Quelqu'un
+ticket-activity-actor-system = Système
+ticket-activity-actor-sender = Expéditeur
+ticket-activity-actor-email-aria = Expéditeur de l'e-mail
+ticket-activity-actor-portal-aria = Soumission via le portail public
+ticket-activity-actor-portal-label = le portail public
+ticket-activity-channel-email = e-mail
+ticket-activity-channel-slack = Slack
+ticket-activity-channel-teams = Microsoft Teams
+ticket-activity-channel-discord = Discord
+ticket-activity-actor-title-subject = { $name } — Objet : { $subject }
+ticket-activity-actor-title-named = { $name } <{ $email }>
+ticket-activity-actor-title-named-subject = { $name } <{ $email }> — Objet : { $subject }
+ticket-activity-to-assignee = à { $name }
+ticket-activity-phrase-created = a créé ce ticket
+ticket-activity-phrase-opened-via = a ouvert ce ticket via { $channel }
+ticket-activity-phrase-submitted-via = a soumis ce ticket via { $channel }
+ticket-activity-phrase-deleted = a supprimé ce ticket
+ticket-activity-phrase-status-set = a défini le statut sur { $name }
+ticket-activity-phrase-status-changed = a changé le statut
+ticket-activity-phrase-reassigned = a réattribué ce ticket
+ticket-activity-phrase-unassigned = a retiré l'attribution de ce ticket
+ticket-activity-phrase-priority-set = a défini la priorité sur { $priority }
+ticket-activity-phrase-priority-changed = a changé la priorité
+ticket-activity-phrase-renamed = a renommé le ticket en « { $title } »
+ticket-activity-phrase-renamed-plain = a renommé le ticket
+ticket-activity-phrase-category-changed = a changé la catégorie
+ticket-activity-phrase-verification-changed = a mis à jour l'état de vérification
+ticket-activity-phrase-tags-added = { $count ->
+    [one] a ajouté une étiquette
+   *[other] a ajouté { $count } étiquettes
+  }
+ticket-activity-phrase-tags-removed = { $count ->
+    [one] a retiré une étiquette
+   *[other] a retiré { $count } étiquettes
+  }
+ticket-activity-phrase-tags-updated = a mis à jour les étiquettes
+ticket-activity-phrase-resolution-changed = a mis à jour les notes de résolution
+ticket-activity-phrase-watcher-self-start = a commencé à suivre ce ticket
+ticket-activity-phrase-watcher-self-auto = a commencé à suivre (abonnement automatique à la première réponse)
+ticket-activity-phrase-watcher-self-stop = a arrêté de suivre ce ticket
+ticket-activity-phrase-watcher-added-named = a ajouté { $name } comme observateur
+ticket-activity-phrase-watcher-added = a ajouté un observateur
+ticket-activity-phrase-watcher-removed-named = a retiré { $name } des observateurs
+ticket-activity-phrase-watcher-removed = a retiré un observateur
+ticket-activity-phrase-updated = a mis à jour le ticket
+ticket-activity-phrase-internal-note = a ajouté une note interne
+ticket-activity-phrase-replied-via = a répondu via { $channel }
+ticket-activity-phrase-comment-via = a ajouté un commentaire via { $channel }
+ticket-activity-phrase-commented = a commenté ce ticket
+ticket-activity-phrase-comment-deleted = a supprimé un commentaire
+ticket-activity-phrase-generic = a effectué une modification
+
+# Ticket : sélecteur d'étiquettes (TicketTagsField).
+ticket-field-tags-label = Étiquettes
+ticket-field-tags-add = Ajouter une étiquette
+ticket-field-tags-remove = Retirer { $name }
+ticket-field-tags-picker-placeholder = Rechercher ou créer une étiquette…
+ticket-field-tags-loading = Chargement…
+ticket-field-tags-no-match = Aucune étiquette correspondante.
+ticket-field-tags-create = Créer « { $name } »
+ticket-field-tags-creating = Création…
+ticket-field-tags-done = Terminé
+
+# Ticket : observateurs (TicketWatchersField).
+ticket-field-watchers-label = Observateurs
+ticket-field-watchers-watching = Suivi
+ticket-field-watchers-watch = Suivre
+ticket-field-watchers-watch-title = Suivre ce ticket pour recevoir les mises à jour
+ticket-field-watchers-unwatch-title = Arrêter de suivre ce ticket
+ticket-field-watchers-notify-internal = Notifier sur les notes internes
+ticket-field-watchers-public-only = Réponses publiques uniquement
+ticket-field-watchers-toggle-on = ACTIVÉ
+ticket-field-watchers-toggle-off = DÉSACTIVÉ
+ticket-field-watchers-pref-load-error = Échec du chargement de la préférence
+ticket-field-watchers-pref-save-error = Échec de l'enregistrement de la préférence
+ticket-field-watchers-overflow-title = { $count ->
+    [one] { $count } de plus
+   *[other] { $count } de plus
+  }
+
+# Ticket : ligne d'appareils (TicketDevicesField).
+ticket-field-devices-label = Appareils
+ticket-field-devices-add = Ajouter un appareil
+ticket-field-devices-detach = Détacher l'appareil
+ticket-field-devices-fallback-name = Appareil n°{ $id }
+ticket-field-devices-title-with-model = { $hostname } · { $model }
+
+# Ticket : tickets liés (TicketLinkedTicketsField).
+ticket-field-linked-tickets-label = Tickets liés
+ticket-field-linked-tickets-add = Lier un ticket
+ticket-field-linked-tickets-drop = Déposer pour lier
+
+# Ticket : projets (TicketProjectsField).
+ticket-field-projects-label = Projets
+ticket-field-projects-add = Ajouter à un projet
+ticket-field-projects-remove = Retirer du projet
+ticket-field-projects-fallback = Projet n°{ $id }
+
+# Ticket : documentation liée (TicketLinkedDocs).
+ticket-field-docs-label = Documentation
+ticket-field-docs-add = Enregistrer comme doc
+ticket-field-docs-resolves-title = { $title } · résout ce ticket
+
+# Ticket : puces / badges.
+ticket-chip-remove = Retirer { $label }
+ticket-chip-sidebar-remove = Retirer
+ticket-chip-linked-ticket-fallback = Ticket n°{ $id }
+ticket-chip-linked-ticket-title = n°{ $id } · { $title }
+ticket-chip-unlink-ticket = Délier le ticket
+ticket-chip-gap-flagged = Signalé pour documentation
+ticket-chip-gap-view-queue = Voir la file →
+ticket-chip-gap-remove-flag = Retirer le signalement
+ticket-chip-preview-priority = Priorité
+ticket-chip-preview-created = Créé
+ticket-chip-preview-requester = Demandeur
+ticket-chip-preview-assignee = Attribué à
+ticket-chip-preview-unassigned = Non attribué
+ticket-chip-preview-unlink = Délier le ticket
+ticket-chip-device-warranty-active = Active
+ticket-chip-device-warranty-warning = Avertissement
+ticket-chip-device-warranty-expired = Expirée
+ticket-chip-device-remove = Retirer l'appareil
+ticket-chip-device-view-title = Voir l'appareil
+ticket-chip-device-unnamed = Appareil sans nom
+ticket-chip-device-field-serial = N° de série
+ticket-chip-device-field-model = Modèle
+ticket-chip-device-field-manufacturer = Fabricant
+ticket-chip-device-field-hostname = Nom d'hôte
+ticket-chip-device-value-na = N/D
+ticket-chip-device-value-unknown = Inconnu
+ticket-chip-device-copy-tooltip = Cliquez pour copier
+ticket-chip-device-copied = Copié !
+
+# Ticket : sélecteur statut/priorité/catégorie (CustomDropdown).
+ticket-chip-dropdown-select = Sélectionner...
+ticket-chip-dropdown-status = Sélectionner un statut
+ticket-chip-dropdown-priority = Sélectionner une priorité
+ticket-chip-dropdown-category = Sélectionner une catégorie
+ticket-chip-dropdown-option = Sélectionner une option

@@ -1,12 +1,25 @@
 <!-- components/DeviceDetails.vue -->
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useFluent } from 'fluent-vue';
 import type { Device } from '@/types/ticket';
 import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
 
 const props = defineProps<{
   device: Device;
 }>();
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+
+const warrantyLabel = computed<string | null>(() => {
+  switch (props.device.warranty_status) {
+    case 'Active': return t('ticket-chip-device-warranty-active');
+    case 'Warning': return t('ticket-chip-device-warranty-warning');
+    case 'Expired': return t('ticket-chip-device-warranty-expired');
+    default: return props.device.warranty_status ?? null;
+  }
+});
 
 const emit = defineEmits<{
   (e: 'remove'): void;
@@ -43,16 +56,16 @@ const warrantyStatusClass = computed(() => {
 </script>
 
 <template>
-  <SidebarCard remove-title="Remove device" @remove="emit('remove')">
+  <SidebarCard :remove-title="t('ticket-chip-device-remove')" @remove="emit('remove')">
     <template #header>
       <div class="w-2 h-2 bg-accent rounded-full flex-shrink-0"></div>
 
       <h3
         @click="emit('view', device.id)"
         class="truncate cursor-pointer hover:text-accent transition-colors"
-        :title="device.name || 'View device'"
+        :title="device.name || t('ticket-chip-device-view-title')"
       >
-        {{ device.name || 'Unnamed Device' }}
+        {{ device.name || t('ticket-chip-device-unnamed') }}
       </h3>
 
       <!-- Warranty status badge -->
@@ -61,7 +74,7 @@ const warrantyStatusClass = computed(() => {
         class="px-2 py-1 rounded-md text-xs font-medium border flex-shrink-0"
         :class="warrantyStatusClass"
       >
-        {{ device.warranty_status }}
+        {{ warrantyLabel }}
       </div>
     </template>
 
@@ -70,27 +83,27 @@ const warrantyStatusClass = computed(() => {
       <div class="grid grid-cols-2 gap-3 text-sm">
         <!-- Serial Number -->
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-tertiary uppercase tracking-wide">Serial</span>
+          <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('ticket-chip-device-field-serial') }}</span>
           <span
             @click="copyValue('serial_number', device.serial_number)"
             class="text-secondary font-mono text-sm cursor-pointer hover:text-accent transition-colors"
-            :title="device.serial_number ? 'Click to copy' : ''"
+            :title="device.serial_number ? t('ticket-chip-device-copy-tooltip') : ''"
           >
-            <span v-if="copiedField === 'serial_number'" class="text-status-success">Copied!</span>
-            <template v-else>{{ device.serial_number || 'N/A' }}</template>
+            <span v-if="copiedField === 'serial_number'" class="text-status-success">{{ t('ticket-chip-device-copied') }}</span>
+            <template v-else>{{ device.serial_number || t('ticket-chip-device-value-na') }}</template>
           </span>
         </div>
 
         <!-- Model -->
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-tertiary uppercase tracking-wide">Model</span>
+          <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('ticket-chip-device-field-model') }}</span>
           <span
             @click="copyValue('model', device.model)"
             class="text-secondary text-sm truncate cursor-pointer hover:text-accent transition-colors"
-            :title="device.model ? 'Click to copy' : ''"
+            :title="device.model ? t('ticket-chip-device-copy-tooltip') : ''"
           >
-            <span v-if="copiedField === 'model'" class="text-status-success">Copied!</span>
-            <template v-else>{{ device.model || 'Unknown' }}</template>
+            <span v-if="copiedField === 'model'" class="text-status-success">{{ t('ticket-chip-device-copied') }}</span>
+            <template v-else>{{ device.model || t('ticket-chip-device-value-unknown') }}</template>
           </span>
         </div>
       </div>
@@ -98,27 +111,27 @@ const warrantyStatusClass = computed(() => {
       <div class="grid grid-cols-2 gap-3 text-sm">
         <!-- Manufacturer -->
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-tertiary uppercase tracking-wide">Manufacturer</span>
+          <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('ticket-chip-device-field-manufacturer') }}</span>
           <span
             @click="copyValue('manufacturer', device.manufacturer)"
             class="text-secondary text-sm truncate cursor-pointer hover:text-accent transition-colors"
-            :title="device.manufacturer ? 'Click to copy' : ''"
+            :title="device.manufacturer ? t('ticket-chip-device-copy-tooltip') : ''"
           >
-            <span v-if="copiedField === 'manufacturer'" class="text-status-success">Copied!</span>
-            <template v-else>{{ device.manufacturer || 'Unknown' }}</template>
+            <span v-if="copiedField === 'manufacturer'" class="text-status-success">{{ t('ticket-chip-device-copied') }}</span>
+            <template v-else>{{ device.manufacturer || t('ticket-chip-device-value-unknown') }}</template>
           </span>
         </div>
 
         <!-- Hostname -->
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-tertiary uppercase tracking-wide">Hostname</span>
+          <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('ticket-chip-device-field-hostname') }}</span>
           <span
             @click="copyValue('hostname', device.hostname)"
             class="text-secondary font-mono text-sm truncate cursor-pointer hover:text-accent transition-colors"
-            :title="device.hostname ? 'Click to copy' : ''"
+            :title="device.hostname ? t('ticket-chip-device-copy-tooltip') : ''"
           >
-            <span v-if="copiedField === 'hostname'" class="text-status-success">Copied!</span>
-            <template v-else>{{ device.hostname || 'N/A' }}</template>
+            <span v-if="copiedField === 'hostname'" class="text-status-success">{{ t('ticket-chip-device-copied') }}</span>
+            <template v-else>{{ device.hostname || t('ticket-chip-device-value-na') }}</template>
           </span>
         </div>
       </div>
@@ -129,7 +142,7 @@ const warrantyStatusClass = computed(() => {
         <div class="print-device-header">
           <span class="print-device-name">{{ device.name || 'Unnamed Device' }}</span>
           <span v-if="device.warranty_status" class="print-device-warranty" :class="`print-warranty-${device.warranty_status.toLowerCase()}`">
-            {{ device.warranty_status }}
+            {{ warrantyLabel }}
           </span>
         </div>
         <div class="print-device-details">

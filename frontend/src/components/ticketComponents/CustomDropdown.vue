@@ -15,10 +15,14 @@
  * every other dropdown in the app already has.
  */
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import { paletteForColor } from '@/utils/workflowColors'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 interface DropdownOption {
   value: string
@@ -68,13 +72,13 @@ const sheetTitle = computed(() => {
   if (props.placeholder) return props.placeholder
   switch (props.type) {
     case 'status':
-      return 'Select status'
+      return t('ticket-chip-dropdown-status')
     case 'priority':
-      return 'Select priority'
+      return t('ticket-chip-dropdown-priority')
     case 'category':
-      return 'Select category'
+      return t('ticket-chip-dropdown-category')
     default:
-      return 'Select option'
+      return t('ticket-chip-dropdown-option')
   }
 })
 
@@ -115,7 +119,7 @@ function selectOption(option: DropdownOption) {
           :priority="value as 'low' | 'medium' | 'high'"
           size="sm"
         />
-        <span class="text-sm font-medium">{{ selectedOption?.label || 'Select...' }}</span>
+        <span class="text-sm font-medium">{{ selectedOption?.label || $t('ticket-chip-dropdown-select') }}</span>
       </div>
       <svg
         class="w-4 h-4 text-tertiary transition-transform duration-200"

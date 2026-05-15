@@ -20,6 +20,7 @@
  * priority writes.
  */
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useTagsStore } from '@/stores/tags'
 import { useAuthStore } from '@/stores/auth'
 import { tagService } from '@/services/tagService'
@@ -27,6 +28,9 @@ import { useQueryCache } from '@pinia/colada'
 import { TAGS_QUERY_KEY } from '@/stores/tags'
 import type { Tag } from '@/types/tag'
 import Icon from '@/components/common/Icon.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
   /** Ticket id — only needed when the user creates a brand-new
@@ -175,10 +179,10 @@ function chipClass(tag: Tag): string {
     <button
       type="button"
       class="group flex items-center justify-between gap-2 -mx-2 px-2 py-1 rounded text-left hover:bg-surface-hover transition-colors"
-      title="Add tag"
+      :title="t('ticket-field-tags-add')"
       @click="openPicker"
     >
-      <h3 class="text-xs font-medium text-tertiary group-hover:text-secondary transition-colors">Tags</h3>
+      <h3 class="text-xs font-medium text-tertiary group-hover:text-secondary transition-colors">{{ t('ticket-field-tags-label') }}</h3>
       <Icon
         name="add"
         class="w-3.5 h-3.5 text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
@@ -208,7 +212,7 @@ function chipClass(tag: Tag): string {
         <button
           type="button"
           class="inline-flex items-center justify-center w-4 h-4 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-          :title="`Remove ${tag.name}`"
+          :title="t('ticket-field-tags-remove', { name: tag.name })"
           @click="detachTag(tag.id)"
         >
           <Icon name="close" class="w-3 h-3" />
@@ -228,19 +232,19 @@ function chipClass(tag: Tag): string {
         ref="inputRef"
         v-model="query"
         type="text"
-        placeholder="Find or create a tag…"
+        :placeholder="t('ticket-field-tags-picker-placeholder')"
         class="w-full bg-app rounded-md border border-subtle text-sm text-primary px-2 py-1 outline-none focus:border-accent"
         @keydown.escape.prevent="closePicker"
         @keydown.enter.prevent="canCreateInline ? createAndAttach() : pickerResults[0] && attachTag(pickerResults[0].id)"
       />
       <div v-if="tagsStore.isLoading" class="px-2 py-1 text-xs text-tertiary">
-        Loading…
+        {{ t('ticket-field-tags-loading') }}
       </div>
       <div
         v-else-if="pickerResults.length === 0 && !canCreateInline"
         class="px-2 py-1 text-xs text-tertiary"
       >
-        No matching tags.
+        {{ t('ticket-field-tags-no-match') }}
       </div>
       <button
         v-for="tag in pickerResults"
@@ -264,13 +268,13 @@ function chipClass(tag: Tag): string {
         @click="createAndAttach"
       >
         <Icon name="add" class="w-3.5 h-3.5" />
-        <span>{{ creating ? 'Creating…' : `Create "${query.trim()}"` }}</span>
+        <span>{{ creating ? t('ticket-field-tags-creating') : t('ticket-field-tags-create', { name: query.trim() }) }}</span>
       </button>
       <button
         type="button"
         class="text-[11px] text-tertiary hover:text-primary px-2 py-1 self-end"
         @click="closePicker"
-      >Done</button>
+      >{{ t('ticket-field-tags-done') }}</button>
     </div>
   </div>
 </template>

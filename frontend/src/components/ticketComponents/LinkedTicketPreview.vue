@@ -2,11 +2,15 @@
 import { formatDate } from '@/utils/dateUtils';
 import { ref, onMounted, onBeforeUnmount, computed } from "vue";
 import { useRouter } from "vue-router";
+import { useFluent } from 'fluent-vue';
 import StatusBadge from "@/components/StatusBadge.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
 import ticketService from "@/services/ticketService";
 import type { Ticket } from "@/services/ticketService";
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const props = defineProps<{
   linkedTicketId: number;
@@ -79,7 +83,7 @@ const formattedDate = (dateString: string) => formatDate(dateString, "MMM d, yyy
 <template>
   <SidebarCard
     v-if="linkedTicket && !isSameAsCurrentTicket"
-    remove-title="Unlink ticket"
+    :remove-title="t('ticket-chip-preview-unlink')"
     :remove-disabled="isNavigating"
     clickable
     @click="viewTicket"
@@ -99,15 +103,15 @@ const formattedDate = (dateString: string) => formatDate(dateString, "MMM d, yyy
 
     <div class="grid grid-cols-2 gap-3 text-sm">
       <div class="flex flex-col gap-1 items-start">
-        <span class="text-xs text-tertiary uppercase tracking-wide">Priority</span>
+        <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('ticket-chip-preview-priority') }}</span>
         <StatusBadge type="priority" :value="linkedTicket.priority" short />
       </div>
       <div class="flex flex-col gap-1">
-        <span class="text-xs text-tertiary uppercase tracking-wide">Created</span>
+        <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('ticket-chip-preview-created') }}</span>
         <span class="text-secondary">{{ formattedDate(linkedTicket.created) }}</span>
       </div>
       <div class="flex flex-col gap-1">
-        <span class="text-xs text-tertiary uppercase tracking-wide">Requester</span>
+        <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('ticket-chip-preview-requester') }}</span>
         <div
           v-if="linkedTicket.requester_user || linkedTicket.requester"
           @click.stop="router.push(`/users/${linkedTicket.requester_user?.uuid || linkedTicket.requester}`)"
@@ -121,10 +125,10 @@ const formattedDate = (dateString: string) => formatDate(dateString, "MMM d, yyy
             :showName="true"
           />
         </div>
-        <span v-else class="text-tertiary text-sm">Unassigned</span>
+        <span v-else class="text-tertiary text-sm">{{ t('ticket-chip-preview-unassigned') }}</span>
       </div>
       <div class="flex flex-col gap-1">
-        <span class="text-xs text-tertiary uppercase tracking-wide">Assignee</span>
+        <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('ticket-chip-preview-assignee') }}</span>
         <div
           v-if="linkedTicket.assignee_user || linkedTicket.assignee"
           @click.stop="router.push(`/users/${linkedTicket.assignee_user?.uuid || linkedTicket.assignee}`)"
@@ -138,7 +142,7 @@ const formattedDate = (dateString: string) => formatDate(dateString, "MMM d, yyy
             :showName="true"
           />
         </div>
-        <span v-else class="text-tertiary text-sm">Unassigned</span>
+        <span v-else class="text-tertiary text-sm">{{ t('ticket-chip-preview-unassigned') }}</span>
       </div>
     </div>
 

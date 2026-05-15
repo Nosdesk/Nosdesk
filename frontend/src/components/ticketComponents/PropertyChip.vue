@@ -7,11 +7,13 @@
  * button that emits `remove`. Optional leading slot lets
  * consumers prepend an emoji / icon / status dot.
  */
+import { computed } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import { RouterLink } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 
-defineProps<{
+const props = defineProps<{
   label: string
   title?: string
   to?: RouteLocationRaw
@@ -24,6 +26,11 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'remove'): void
 }>()
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+
+const removeAriaLabel = computed(() => props.removeTitle || t('ticket-chip-remove', { label: props.label }))
 </script>
 
 <template>
@@ -40,8 +47,8 @@ const emit = defineEmits<{
       v-if="removable"
       type="button"
       class="inline-flex items-center justify-center w-4 h-4 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors print:hidden"
-      :title="removeTitle || `Remove ${label}`"
-      :aria-label="removeTitle || `Remove ${label}`"
+      :title="removeAriaLabel"
+      :aria-label="removeAriaLabel"
       @click.stop.prevent="emit('remove')"
     >
       <Icon name="close" class="w-3 h-3" />
