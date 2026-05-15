@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import authService from '@/services/authService';
 import userService from '@/services/userService';
 import Spinner from '@/components/common/Spinner.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const props = defineProps<{
   targetUserUuid?: string;
@@ -55,7 +59,7 @@ const isAdminFormValid = computed(() => {
 // Password change function (self)
 const changePassword = async () => {
   if (!isFormValid.value) {
-    emit('error', 'Please fill in all fields correctly');
+    emit('error', t('settings-security-error-form-invalid'));
     return;
   }
 
@@ -69,10 +73,10 @@ const changePassword = async () => {
     newPassword.value = '';
     confirmPassword.value = '';
 
-    emit('success', 'Password changed successfully');
+    emit('success', t('settings-security-success-changed'));
   } catch (err) {
     const axiosError = err as { response?: { data?: { message?: string } } };
-    const errorMessage = axiosError.response?.data?.message || 'Failed to change password. Please check your current password.';
+    const errorMessage = axiosError.response?.data?.message || t('settings-security-error-change-failed');
     emit('error', errorMessage);
     console.error('Error changing password:', err);
   } finally {
@@ -92,10 +96,10 @@ const adminResetPassword = async () => {
     adminNewPassword.value = '';
     adminConfirmPassword.value = '';
 
-    emit('success', 'Password has been reset for this user');
+    emit('success', t('settings-security-success-reset'));
   } catch (err) {
     const axiosError = err as { response?: { data?: { message?: string } } };
-    const errorMessage = axiosError.response?.data?.message || 'Failed to reset password';
+    const errorMessage = axiosError.response?.data?.message || t('settings-security-error-reset-failed');
     emit('error', errorMessage);
   } finally {
     loading.value = false;
@@ -105,41 +109,41 @@ const adminResetPassword = async () => {
 
 <template>
   <SectionCard content-padding="p-6">
-    <template #title>Password</template>
+    <template #title>{{ t('settings-security-title') }}</template>
 
     <div>
       <!-- Admin: reset password form -->
       <form v-if="isManagingOtherUser" @submit.prevent="adminResetPassword" class="flex flex-col gap-4">
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">New Password</label>
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-new') }}</label>
           <div class="bg-surface-alt rounded-lg border border-subtle">
             <input
               v-model="adminNewPassword"
               type="password"
               autocomplete="new-password"
               class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              placeholder="Enter new password"
+              :placeholder="t('settings-security-placeholder-admin-new')"
               minlength="8"
               required
             />
           </div>
-          <p class="text-xs text-tertiary">Password must be at least 8 characters long</p>
+          <p class="text-xs text-tertiary">{{ t('settings-security-hint-length') }}</p>
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">Confirm New Password</label>
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-confirm') }}</label>
           <div class="bg-surface-alt rounded-lg border border-subtle">
             <input
               v-model="adminConfirmPassword"
               type="password"
               autocomplete="new-password"
               class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              placeholder="Confirm new password"
+              :placeholder="t('settings-security-placeholder-admin-confirm')"
               required
             />
           </div>
           <p v-if="adminConfirmPassword && !adminPasswordsMatch" class="text-xs text-status-error">
-            Passwords do not match
+            {{ t('settings-security-error-mismatch') }}
           </p>
         </div>
 
@@ -152,7 +156,7 @@ const adminResetPassword = async () => {
             <span v-if="loading" class="mr-2 inline-flex">
               <Spinner />
             </span>
-            Reset Password
+            {{ t('settings-security-submit-reset') }}
           </button>
         </div>
       </form>
@@ -171,14 +175,14 @@ const adminResetPassword = async () => {
 
         <!-- Current Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">Current Password</label>
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-current') }}</label>
           <div class="bg-surface-alt rounded-lg border border-subtle">
             <input
               v-model="currentPassword"
               type="password"
               autocomplete="current-password"
               class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              placeholder="Enter your current password"
+              :placeholder="t('settings-security-placeholder-current')"
               required
             />
           </div>
@@ -186,36 +190,36 @@ const adminResetPassword = async () => {
 
         <!-- New Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">New Password</label>
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-new') }}</label>
           <div class="bg-surface-alt rounded-lg border border-subtle">
             <input
               v-model="newPassword"
               type="password"
               autocomplete="new-password"
               class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              placeholder="Enter your new password"
+              :placeholder="t('settings-security-placeholder-new')"
               minlength="8"
               required
             />
           </div>
-          <p class="text-xs text-tertiary">Password must be at least 8 characters long</p>
+          <p class="text-xs text-tertiary">{{ t('settings-security-hint-length') }}</p>
         </div>
 
         <!-- Confirm New Password -->
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">Confirm New Password</label>
+          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-confirm') }}</label>
           <div class="bg-surface-alt rounded-lg border border-subtle">
             <input
               v-model="confirmPassword"
               type="password"
               autocomplete="new-password"
               class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              placeholder="Confirm your new password"
+              :placeholder="t('settings-security-placeholder-confirm')"
               required
             />
           </div>
           <p v-if="confirmPassword && !passwordsMatch" class="text-xs text-status-error">
-            Passwords do not match
+            {{ t('settings-security-error-mismatch') }}
           </p>
         </div>
 
@@ -229,7 +233,7 @@ const adminResetPassword = async () => {
             <span v-if="loading" class="mr-2 inline-flex">
               <Spinner />
             </span>
-            Change Password
+            {{ t('settings-security-submit-change') }}
           </button>
         </div>
       </form>

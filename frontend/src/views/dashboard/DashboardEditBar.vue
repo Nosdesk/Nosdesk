@@ -6,10 +6,14 @@ Done as the primary.
 -->
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import AddWidgetModal from './AddWidgetModal.vue'
 import Icon from '@/components/common/Icon.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const store = useDashboardLayoutStore()
 
@@ -31,7 +35,7 @@ function doReset() {
   <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-alt border border-default">
     <span class="inline-flex items-center gap-1.5 text-xs font-medium text-secondary">
       <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" aria-hidden="true" />
-      Editing dashboard
+      {{ t('dashboard-edit-bar-editing') }}
     </span>
 
     <span class="flex-1" />
@@ -42,7 +46,7 @@ function doReset() {
       @click="showAdd = true"
     >
       <Icon name="add" />
-      Add widget
+      {{ t('dashboard-edit-bar-add-widget') }}
     </button>
 
     <button
@@ -50,7 +54,7 @@ function doReset() {
       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
       @click="showResetConfirm = true"
     >
-      Reset
+      {{ t('dashboard-edit-bar-reset') }}
     </button>
 
     <button
@@ -58,7 +62,7 @@ function doReset() {
       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:opacity-90 transition-opacity"
       @click="done"
     >
-      Done
+      {{ t('dashboard-edit-bar-done') }}
     </button>
   </div>
 
@@ -67,9 +71,9 @@ function doReset() {
   <ConfirmModal
     :show="showResetConfirm"
     variant="warning"
-    title="Reset dashboard layout?"
-    message="Your customised layout will be replaced with the default for your role."
-    confirm-label="Reset"
+    :title="t('dashboard-edit-bar-reset-confirm-title')"
+    :message="t('dashboard-edit-bar-reset-confirm-message')"
+    :confirm-label="t('dashboard-edit-bar-reset-confirm-label')"
     @confirm="doReset"
     @close="showResetConfirm = false"
   />

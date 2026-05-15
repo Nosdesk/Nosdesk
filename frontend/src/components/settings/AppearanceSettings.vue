@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { getTheme } from '@/themes'
@@ -9,6 +10,9 @@ import SectionCard from '@/components/common/SectionCard.vue'
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import userService from '@/services/userService'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
@@ -98,11 +102,11 @@ const selectTheme = async (themeId: ThemeMode) => {
     // Admin mode: update target user's theme on backend without changing admin's local theme
     try {
       await userService.updateUser(props.targetUserUuid!, { theme: themeId })
-      const themeName = themeId === 'system' ? 'System' : (getTheme(themeId)?.meta.name || themeId)
-      emit('success', `Theme changed to ${themeName}`)
+      const themeName = themeId === 'system' ? t('settings-appearance-system-theme-name') : (getTheme(themeId)?.meta.name || themeId)
+      emit('success', t('settings-appearance-theme-changed', { name: themeName }))
       showRedHorizonEasterEgg.value = themeId === 'red-horizon'
     } catch {
-      emit('error', 'Failed to save theme preference')
+      emit('error', t('settings-appearance-theme-save-failed'))
       selectedTheme.value = previousTheme
     }
   } else {
@@ -113,16 +117,19 @@ const selectTheme = async (themeId: ThemeMode) => {
       const success = await themeStore.syncThemeToBackend(userUuid.value)
 
       if (success) {
-        const themeName = themeId === 'system' ? 'System' : themeStore.effectiveTheme.meta.name
-        emit('success', `Theme changed to ${themeName}`)
+        const themeName = themeId === 'system' ? t('settings-appearance-system-theme-name') : themeStore.effectiveTheme.meta.name
+        emit('success', t('settings-appearance-theme-changed', { name: themeName }))
       } else {
-        emit('error', 'Failed to save theme preference')
+        emit('error', t('settings-appearance-theme-save-failed'))
         selectedTheme.value = previousTheme
         themeStore.setTheme(previousTheme)
       }
     } else {
-      const themeName = themeId === 'system' ? 'System' : themeStore.effectiveTheme.meta.name
-      emit('success', `Theme changed to ${themeName}${deviceLocalTheme.value ? ' (device only)' : ''}`)
+      const themeName = themeId === 'system' ? t('settings-appearance-system-theme-name') : themeStore.effectiveTheme.meta.name
+      const key = deviceLocalTheme.value
+        ? 'settings-appearance-theme-changed-device-only'
+        : 'settings-appearance-theme-changed'
+      emit('success', t(key, { name: themeName }))
     }
   }
 
@@ -131,17 +138,17 @@ const selectTheme = async (themeId: ThemeMode) => {
 
 // Handle color blind mode toggle
 const handleColorBlindModeToggle = () => {
-  emit('success', `Color blind friendly mode ${colorBlindMode.value ? 'enabled' : 'disabled'}`)
+  emit('success', t('settings-appearance-colorblind-toggled', { state: colorBlindMode.value ? 'enabled' : 'disabled' }))
 }
 
 // Handle device local theme toggle
 const handleDeviceLocalThemeToggle = () => {
-  emit('success', `Device-only theme ${deviceLocalTheme.value ? 'enabled' : 'disabled'}`)
+  emit('success', t('settings-appearance-device-local-toggled', { state: deviceLocalTheme.value ? 'enabled' : 'disabled' }))
 }
 
 // Handle compact view toggle
 const handleCompactViewToggle = () => {
-  emit('success', `Compact view ${compactView.value ? 'enabled' : 'disabled'}`)
+  emit('success', t('settings-appearance-compact-toggled', { state: compactView.value ? 'enabled' : 'disabled' }))
 }
 </script>
 
@@ -164,7 +171,7 @@ const handleCompactViewToggle = () => {
         />
       </svg>
     </template>
-    <template #title>Appearance</template>
+    <template #title>{{ t('settings-appearance-title') }}</template>
     <template #headerActions>
       <Spinner v-if="isUpdating || themeStore.isSyncing" class="text-accent" />
     </template>
@@ -174,8 +181,8 @@ const handleCompactViewToggle = () => {
       <div class="flex flex-col gap-4">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-sm font-medium text-primary">Theme</h3>
-            <p class="text-xs text-tertiary mt-0.5">Choose your preferred color scheme</p>
+            <h3 class="text-sm font-medium text-primary">{{ t('settings-appearance-theme-heading') }}</h3>
+            <p class="text-xs text-tertiary mt-0.5">{{ t('settings-appearance-theme-description') }}</p>
           </div>
         </div>
 
@@ -183,15 +190,15 @@ const handleCompactViewToggle = () => {
         <ToggleSwitch
           v-if="!isAdminMode"
           v-model="deviceLocalTheme"
-          label="Device-only theme"
-          description="Don't sync theme across devices (e.g., use E-Paper theme on your tablet while keeping dark mode on your laptop)"
+          :label="t('settings-appearance-device-local-label')"
+          :description="t('settings-appearance-device-local-description')"
           @update:modelValue="handleDeviceLocalThemeToggle"
         />
 
         <!-- System Theme Option -->
         <div>
           <h4 class="text-xs font-medium text-tertiary uppercase tracking-wider mb-2">
-            Automatic
+            {{ t('settings-appearance-section-automatic') }}
           </h4>
           <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
             <ThemeCard
@@ -206,7 +213,7 @@ const handleCompactViewToggle = () => {
         <!-- Light Themes -->
         <div>
           <h4 class="text-xs font-medium text-tertiary uppercase tracking-wider mb-2">
-            Light Themes
+            {{ t('settings-appearance-section-light') }}
           </h4>
           <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
             <ThemeCard
@@ -223,7 +230,7 @@ const handleCompactViewToggle = () => {
         <!-- Dark Themes -->
         <div>
           <h4 class="text-xs font-medium text-tertiary uppercase tracking-wider mb-2">
-            Dark Themes
+            {{ t('settings-appearance-section-dark') }}
           </h4>
           <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
             <ThemeCard
@@ -242,7 +249,7 @@ const handleCompactViewToggle = () => {
             v-if="showRedHorizonEasterEgg"
             class="flex items-center gap-2 p-3 bg-status-error/10 border border-status-error/30 rounded-lg"
           >
-            <span class="text-sm text-status-error">Why would you do this to them 😭</span>
+            <span class="text-sm text-status-error">{{ t('settings-appearance-red-horizon-easter-egg') }}</span>
           </div>
         </Transition>
       </div>
@@ -250,17 +257,17 @@ const handleCompactViewToggle = () => {
       <!-- Accessibility Options (self mode only) -->
       <div v-if="!isAdminMode" class="flex flex-col gap-4 pt-2 border-t border-default">
         <div>
-          <h3 class="text-sm font-medium text-primary">Accessibility</h3>
-          <p class="text-xs text-tertiary mt-0.5">Improve readability and visual distinction</p>
+          <h3 class="text-sm font-medium text-primary">{{ t('settings-appearance-accessibility-heading') }}</h3>
+          <p class="text-xs text-tertiary mt-0.5">{{ t('settings-appearance-accessibility-description') }}</p>
         </div>
 
         <!-- Color Blind Friendly Mode Toggle -->
         <ToggleSwitch
           v-model="colorBlindMode"
-          label="Color blind friendly mode"
+          :label="t('settings-appearance-colorblind-label')"
           :description="isMonochromaticTheme
-            ? 'Always enabled for monochromatic themes like E-Paper and Red Horizon'
-            : 'Use distinct shapes for status indicators instead of relying only on colors'"
+            ? t('settings-appearance-colorblind-description-monochrome')
+            : t('settings-appearance-colorblind-description-default')"
           :disabled="isMonochromaticTheme"
           @update:modelValue="handleColorBlindModeToggle"
         />
@@ -269,15 +276,15 @@ const handleCompactViewToggle = () => {
       <!-- Display Options (self mode only) -->
       <div v-if="!isAdminMode" class="flex flex-col gap-4 pt-2 border-t border-default">
         <div>
-          <h3 class="text-sm font-medium text-primary">Display</h3>
-          <p class="text-xs text-tertiary mt-0.5">Adjust layout preferences</p>
+          <h3 class="text-sm font-medium text-primary">{{ t('settings-appearance-display-heading') }}</h3>
+          <p class="text-xs text-tertiary mt-0.5">{{ t('settings-appearance-display-description') }}</p>
         </div>
 
         <!-- Compact View Toggle -->
         <ToggleSwitch
           v-model="compactView"
-          label="Compact view"
-          description="Reduce spacing between elements for a denser layout"
+          :label="t('settings-appearance-compact-label')"
+          :description="t('settings-appearance-compact-description')"
           @update:modelValue="handleCompactViewToggle"
         />
       </div>

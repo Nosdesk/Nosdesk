@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import type { SearchResult, SearchEntityType } from '@/types/search';
 import { ENTITY_TYPE_CONFIG } from '@/types/search';
 import Icon from '@/components/common/Icon.vue';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const props = defineProps<{
   result: SearchResult;
@@ -38,12 +42,12 @@ const formattedTime = computed(() => {
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
-  return `${Math.floor(diffDays / 365)}y ago`;
+  if (diffDays === 0) return t('search-result-item-today');
+  if (diffDays === 1) return t('search-result-item-yesterday');
+  if (diffDays < 7) return t('search-result-item-days-ago', { count: diffDays });
+  if (diffDays < 30) return t('search-result-item-weeks-ago', { count: Math.floor(diffDays / 7) });
+  if (diffDays < 365) return t('search-result-item-months-ago', { count: Math.floor(diffDays / 30) });
+  return t('search-result-item-years-ago', { count: Math.floor(diffDays / 365) });
 });
 </script>
 
@@ -83,9 +87,9 @@ const formattedTime = computed(() => {
         <span
           v-if="result.is_internal"
           class="flex-shrink-0 inline-flex items-center px-1.5 h-[15px] rounded text-[9px] font-semibold uppercase tracking-wide bg-status-warning-muted text-status-warning"
-          title="Internal note — visible to staff only"
+          :title="t('search-result-item-internal-title')"
         >
-          Internal
+          {{ t('search-result-item-internal-badge') }}
         </span>
         <span
           v-if="formattedTime"

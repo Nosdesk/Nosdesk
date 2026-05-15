@@ -44,7 +44,7 @@ render is more useful than a fitting one.
       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       :style="{ height: heightPx }"
       class="block w-full rounded-md border border-subtle bg-white"
-      title="Email body"
+      :title="t('tickets-email-html-iframe-title')"
       loading="lazy"
       referrerpolicy="no-referrer"
       @load="adjustLayout"
@@ -56,10 +56,10 @@ render is more useful than a fitting one.
         class="text-xs text-tertiary hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info rounded px-1 py-0.5"
         @click="expanded = !expanded"
       >
-        {{ expanded ? 'Show less' : 'Show full email' }}
+        {{ expanded ? t('tickets-email-html-show-less') : t('tickets-email-html-show-full') }}
       </button>
       <span v-if="hasOverflowed && !expanded" class="text-[11px] text-tertiary">
-        Scaled to fit ({{ Math.round(activeScale * 100) }}%)
+        {{ t('tickets-email-html-scaled', { pct: Math.round(activeScale * 100) }) }}
       </span>
     </div>
   </div>
@@ -67,7 +67,11 @@ render is more useful than a fitting one.
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import DOMPurify from 'dompurify'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
   html: string

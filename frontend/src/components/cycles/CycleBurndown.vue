@@ -11,8 +11,12 @@
  * representation of what we can derive.
  */
 import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { cyclesService, type CycleStats } from '@/services/cyclesService'
 import type { Cycle } from '@/services/cyclesService'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{ cycle: Cycle }>()
 
@@ -26,7 +30,7 @@ async function load(): Promise<void> {
   try {
     stats.value = await cyclesService.stats(props.cycle.uuid)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load stats'
+    error.value = e instanceof Error ? e.message : t('tickets-cycle-burndown-load-error')
   } finally {
     isLoading.value = false
   }
@@ -52,14 +56,14 @@ const sortedCategories = computed<[string, number][]>(() => {
   return Object.entries(stats.value.by_category).sort(([a], [b]) => a.localeCompare(b))
 })
 
-const CATEGORY_LABELS: Record<string, string> = {
-  triage: 'Triage',
-  backlog: 'Backlog',
-  active: 'Active',
-  in_review: 'In review',
-  done: 'Done',
-  cancelled: 'Cancelled',
-}
+const categoryLabels = computed<Record<string, string>>(() => ({
+  triage: t('tickets-cycle-burndown-cat-triage'),
+  backlog: t('tickets-cycle-burndown-cat-backlog'),
+  active: t('tickets-cycle-burndown-cat-active'),
+  in_review: t('tickets-cycle-burndown-cat-in-review'),
+  done: t('tickets-cycle-burndown-cat-done'),
+  cancelled: t('tickets-cycle-burndown-cat-cancelled'),
+}))
 </script>
 
 <template>
@@ -69,10 +73,10 @@ const CATEGORY_LABELS: Record<string, string> = {
       <span
         class="text-[10px] uppercase tracking-wide font-semibold"
         :class="isFrozen ? 'text-tertiary' : 'text-accent'"
-      >{{ isFrozen ? 'Frozen' : 'Live' }}</span>
+      >{{ isFrozen ? t('tickets-cycle-burndown-frozen') : t('tickets-cycle-burndown-live') }}</span>
     </header>
 
-    <div v-if="isLoading" class="text-xs text-tertiary italic">Loading…</div>
+    <div v-if="isLoading" class="text-xs text-tertiary italic">{{ t('tickets-cycle-burndown-loading') }}</div>
     <div v-else-if="error" class="text-xs text-status-error">{{ error }}</div>
 
     <div v-else-if="stats" class="flex flex-col gap-3">
@@ -82,16 +86,16 @@ const CATEGORY_LABELS: Record<string, string> = {
           <div class="text-2xl font-semibold text-primary tabular-nums">
             {{ stats.completed }}<span class="text-tertiary">/{{ stats.tickets }}</span>
           </div>
-          <div class="text-[10px] uppercase tracking-wide text-tertiary">Tickets done</div>
+          <div class="text-[10px] uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-tickets-done') }}</div>
         </div>
         <div>
           <div class="text-2xl font-semibold text-primary tabular-nums">{{ completionPct }}%</div>
-          <div class="text-[10px] uppercase tracking-wide text-tertiary">Complete</div>
+          <div class="text-[10px] uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-complete') }}</div>
         </div>
         <div v-if="daysRemaining != null">
           <div class="text-2xl font-semibold text-primary tabular-nums">{{ daysRemaining }}</div>
           <div class="text-[10px] uppercase tracking-wide text-tertiary">
-            Day{{ daysRemaining === 1 ? '' : 's' }} remaining
+            {{ t('tickets-cycle-burndown-days-remaining', { count: daysRemaining }) }}
           </div>
         </div>
       </div>
@@ -111,14 +115,14 @@ const CATEGORY_LABELS: Record<string, string> = {
           :key="cat"
           class="flex items-center justify-between text-xs"
         >
-          <span class="text-secondary">{{ CATEGORY_LABELS[cat] ?? cat }}</span>
+          <span class="text-secondary">{{ categoryLabels[cat] ?? cat }}</span>
           <span class="text-tertiary tabular-nums">{{ count }}</span>
         </div>
       </div>
 
       <!-- Frozen-snapshot timestamp -->
       <p v-if="isFrozen" class="text-[10px] text-tertiary italic">
-        Snapshot frozen {{ new Date(stats.frozen_at).toLocaleString() }}
+        {{ t('tickets-cycle-burndown-snapshot-frozen', { date: new Date(stats.frozen_at).toLocaleString() }) }}
       </p>
     </div>
   </div>

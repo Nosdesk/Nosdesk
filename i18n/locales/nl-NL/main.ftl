@@ -3632,6 +3632,100 @@ help-card-reset-title = Wachtwoord opnieuw instellen
 help-card-reset-desc = Geen toegang meer tot je account? Begin hier.
 help-card-signin-title = Inloggen
 help-card-signin-desc = Heb je al een account?
+
+# Settings: appearance pane (AppearanceSettings).
+settings-appearance-title = Weergave
+settings-appearance-theme-heading = Thema
+settings-appearance-theme-description = Kies je voorkeurskleurenschema
+settings-appearance-device-local-label = Thema alleen voor dit apparaat
+settings-appearance-device-local-description = Synchroniseer het thema niet tussen apparaten (gebruik bijvoorbeeld het E-Paper-thema op je tablet en houd de donkere modus op je laptop)
+settings-appearance-section-automatic = Automatisch
+settings-appearance-section-light = Lichte thema's
+settings-appearance-section-dark = Donkere thema's
+settings-appearance-red-horizon-easter-egg = Waarom zou je ze dit aandoen 😭
+settings-appearance-accessibility-heading = Toegankelijkheid
+settings-appearance-accessibility-description = Verbeter de leesbaarheid en het visuele onderscheid
+settings-appearance-colorblind-label = Kleurenblindvriendelijke modus
+settings-appearance-colorblind-description-monochrome = Altijd ingeschakeld voor monochromatische thema's zoals E-Paper en Red Horizon
+settings-appearance-colorblind-description-default = Gebruik onderscheidende vormen voor statusindicatoren in plaats van alleen op kleur te vertrouwen
+settings-appearance-display-heading = Weergave
+settings-appearance-display-description = Pas indelingsvoorkeuren aan
+settings-appearance-compact-label = Compacte weergave
+settings-appearance-compact-description = Verminder de ruimte tussen elementen voor een compactere indeling
+settings-appearance-theme-changed = Thema gewijzigd naar { $name }
+settings-appearance-theme-changed-device-only = Thema gewijzigd naar { $name } (alleen op dit apparaat)
+settings-appearance-theme-save-failed = Kan themavoorkeur niet opslaan
+settings-appearance-colorblind-toggled = Kleurenblindvriendelijke modus { $state ->
+    [enabled] ingeschakeld
+   *[disabled] uitgeschakeld
+}
+settings-appearance-device-local-toggled = Thema alleen voor dit apparaat { $state ->
+    [enabled] ingeschakeld
+   *[disabled] uitgeschakeld
+}
+settings-appearance-compact-toggled = Compacte weergave { $state ->
+    [enabled] ingeschakeld
+   *[disabled] uitgeschakeld
+}
+settings-appearance-system-theme-name = Systeem
+
+# Settings: ThemeCard.
+settings-appearance-card-system-name = Systeem
+
+# Settings: security pane (SecuritySettings).
+settings-security-title = Wachtwoord
+settings-security-label-current = Huidig wachtwoord
+settings-security-label-new = Nieuw wachtwoord
+settings-security-label-confirm = Bevestig nieuw wachtwoord
+settings-security-placeholder-current = Voer je huidige wachtwoord in
+settings-security-placeholder-new = Voer je nieuwe wachtwoord in
+settings-security-placeholder-confirm = Bevestig je nieuwe wachtwoord
+settings-security-placeholder-admin-new = Voer nieuw wachtwoord in
+settings-security-placeholder-admin-confirm = Bevestig nieuw wachtwoord
+settings-security-hint-length = Het wachtwoord moet minimaal 8 tekens lang zijn
+settings-security-error-mismatch = Wachtwoorden komen niet overeen
+settings-security-submit-change = Wachtwoord wijzigen
+settings-security-submit-reset = Wachtwoord opnieuw instellen
+settings-security-error-form-invalid = Vul alle velden correct in
+settings-security-success-changed = Wachtwoord succesvol gewijzigd
+settings-security-error-change-failed = Wachtwoord wijzigen mislukt. Controleer je huidige wachtwoord.
+settings-security-success-reset = Wachtwoord opnieuw ingesteld voor deze gebruiker
+settings-security-error-reset-failed = Wachtwoord opnieuw instellen mislukt
+
+# OAuth callback view + card.
+auth-callback-loading-default = Aanmelding voltooien...
+auth-callback-loading-processing = Authenticatie verwerken...
+auth-callback-loading-success = Gelukt! Doorverwijzen...
+auth-callback-loading-subtitle = Even geduld terwijl we de authenticatie voltooien
+auth-callback-success-title = Authenticatie geslaagd
+auth-callback-success-subtitle = Doorverwijzen...
+auth-callback-technical-details = Technische details
+auth-callback-provider-microsoft = Microsoft
+auth-callback-provider-sso = SSO
+auth-callback-error-missing-params = Vereiste authenticatieparameters ontbreken
+auth-callback-error-missing-detail = Ontbreekt: { $fields }
+auth-callback-error-missing-field-code = code
+auth-callback-error-missing-field-state = state
+auth-callback-error-invalid-response = Ongeldige reactie van de server
+auth-callback-error-no-response = Geen reactie van de server ontvangen
+auth-callback-error-unknown = Onbekende fout
+auth-callback-error-generic-message = Er is een onverwachte fout opgetreden tijdens de authenticatie
+auth-callback-error-status-prefix = Status: { $status }
+auth-callback-already-title = Account al gekoppeld
+auth-callback-already-message = Dit { $provider }-account is al gekoppeld aan een andere gebruiker in het systeem.
+auth-callback-already-suggestion-microsoft = Probeer in te loggen met een ander { $provider }-account of neem contact op met je beheerder.
+auth-callback-already-suggestion-generic = Probeer in te loggen met een ander account of neem contact op met je beheerder.
+auth-callback-invalid-title = Authenticatie mislukt
+auth-callback-invalid-message = Het authenticatieverzoek was ongeldig of verlopen.
+auth-callback-invalid-suggestion-microsoft = Probeer je { $provider }-account opnieuw te koppelen.
+auth-callback-invalid-suggestion-generic = Probeer opnieuw in te loggen.
+auth-callback-generic-title = Authenticatie mislukt
+auth-callback-generic-suggestion = Probeer het opnieuw of neem contact op met support als het probleem aanhoudt.
+auth-callback-action-try-different = Probeer een ander account
+auth-callback-action-back-settings = Terug naar instellingen
+auth-callback-action-return-login = Terug naar inloggen
+auth-callback-action-try-again = Opnieuw proberen
+
 # Dashboard-widgets
 dashboard-widget-shell-action-view-all = Alles tonen
 dashboard-widget-shell-empty-title-default = Nog niets om te tonen.
@@ -3733,6 +3827,7 @@ dashboard-unassigned-queue-title = Niet-toegewezen wachtrij
 dashboard-unassigned-queue-error = Kan wachtrij niet laden
 dashboard-unassigned-queue-empty-title = Lege inbox
 dashboard-unassigned-queue-empty-description = Niets staat in de wachtrij.
+
 # Basis-UI-laag
 ui-site-header-untitled-ticket = Ticket zonder titel
 ui-site-header-unknown-device = Onbekend apparaat
@@ -3772,3 +3867,67 @@ ui-status-badge-priority-high-full = hoge prioriteit
 ui-heatmap-tooltip-more = ...en nog { $count -> [one] { $count } meer *[other] { $count } meer }
 ui-device-groups-title = Groepen
 ui-header-title-placeholder = Titel invoeren...
+
+# Search + ticket remnants
+search-global-filter-documentation = Documentatie
+search-global-filter-tickets = Tickets
+search-global-filter-devices = Apparaten
+search-global-filter-users = Gebruikers
+search-global-placeholder = Zoek tickets, docs, apparaten, gebruikers
+search-global-placeholder-filtered = Zoek in { $filter }
+search-global-aria-label = Zoeken
+search-global-prompt-title = Doorzoek je helpdesk
+search-global-prompt-subtitle = Vind tickets, documentatie, apparaten en meer
+search-global-empty-prefix = Geen resultaten voor
+search-global-empty-hint = Probeer andere zoektermen of controleer de spelling
+search-global-hint-navigate = Navigeren
+search-global-hint-open = Openen
+search-global-hint-close = Sluiten
+search-global-results-count = { $count -> [one] { $count } resultaat *[other] { $count } resultaten }
+search-global-results-took = { $ms } ms
+search-result-item-today = Vandaag
+search-result-item-yesterday = Gisteren
+search-result-item-days-ago = { $count } d geleden
+search-result-item-weeks-ago = { $count } w geleden
+search-result-item-months-ago = { $count } mnd geleden
+search-result-item-years-ago = { $count } j geleden
+search-result-item-internal-title = Interne notitie, alleen zichtbaar voor medewerkers
+search-result-item-internal-badge = Intern
+search-result-group-ticket = Tickets
+search-result-group-comment = Reacties
+search-result-group-documentation = Documentatie
+search-result-group-attachment = Bijlagen
+search-result-group-device = Apparaten
+search-result-group-user = Gebruikers
+tickets-cycle-burndown-load-error = Kan statistieken niet laden
+tickets-cycle-burndown-cat-triage = Triage
+tickets-cycle-burndown-cat-backlog = Backlog
+tickets-cycle-burndown-cat-active = Actief
+tickets-cycle-burndown-cat-in-review = In review
+tickets-cycle-burndown-cat-done = Klaar
+tickets-cycle-burndown-cat-cancelled = Geannuleerd
+tickets-cycle-burndown-frozen = Bevroren
+tickets-cycle-burndown-live = Live
+tickets-cycle-burndown-loading = Laden...
+tickets-cycle-burndown-tickets-done = Tickets klaar
+tickets-cycle-burndown-complete = Voltooid
+tickets-cycle-burndown-days-remaining = { $count -> [one] Dag te gaan *[other] Dagen te gaan }
+tickets-cycle-burndown-snapshot-frozen = Snapshot bevroren { $date }
+tickets-collaborative-article-title = Ticketnotities
+tickets-collaborative-article-doc-title = Documentatie: ticket #{ $id }
+tickets-collaborative-article-revision-history = Versiegeschiedenis
+tickets-collaborative-article-convert-doc = Omzetten naar documentatiepagina
+tickets-collaborative-article-open-full = Volledige editor openen
+tickets-project-info-remove = Uit project verwijderen
+tickets-project-info-description = Beschrijving
+tickets-project-info-project-id = Project-ID
+tickets-project-info-status = Status
+tickets-project-info-tickets = Tickets
+tickets-project-info-print-tickets = { $count -> [one] { $count } ticket *[other] { $count } tickets }
+tickets-project-info-status-active = actief
+tickets-project-info-status-completed = voltooid
+tickets-project-info-status-archived = gearchiveerd
+tickets-email-html-iframe-title = E-mailinhoud
+tickets-email-html-show-less = Minder weergeven
+tickets-email-html-show-full = Volledige e-mail weergeven
+tickets-email-html-scaled = Aangepast aan ({ $pct }%)

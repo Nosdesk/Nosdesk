@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import apiClient from '@/services/apiConfig'
 import { useMicrosoftAuth } from '@/composables/useMicrosoftAuth'
 import AuthCallbackCard, { type ErrorInfo } from '@/components/auth/AuthCallbackCard.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const route = useRoute()
 const router = useRouter()
@@ -16,12 +20,14 @@ const provider = computed(
   () => (route.meta.oauthProvider as 'microsoft' | 'local' | 'oidc') || 'oidc',
 )
 const isMicrosoft = computed(() => provider.value === 'microsoft')
-const providerLabel = computed(() => isMicrosoft.value ? 'Microsoft' : 'SSO')
+const providerLabel = computed(() => isMicrosoft.value
+  ? t('auth-callback-provider-microsoft')
+  : t('auth-callback-provider-sso'))
 
 const error = ref<string | null>(null)
 const detailedError = ref<string | null>(null)
 const loading = ref(true)
-const message = ref('Completing sign-in...')
+const message = ref('')
 const showTechnicalDetails = ref(false)
 
 const errorInfo = computed<ErrorInfo | null>(() => {
@@ -32,19 +38,19 @@ const errorInfo = computed<ErrorInfo | null>(() => {
   if (errorMsg.includes('already connected') || errorMsg.includes('already linked')) {
     const actions = isMicrosoft.value
       ? [
-          { label: 'Try a Different Account', action: 'logout_and_retry', primary: true },
-          { label: 'Back to Settings', action: 'settings' },
-          { label: 'Return to Login', action: 'login' }
+          { label: t('auth-callback-action-try-different'), action: 'logout_and_retry', primary: true },
+          { label: t('auth-callback-action-back-settings'), action: 'settings' },
+          { label: t('auth-callback-action-return-login'), action: 'login' }
         ]
-      : [{ label: 'Return to Login', action: 'login', primary: true }]
+      : [{ label: t('auth-callback-action-return-login'), action: 'login', primary: true }]
 
     return {
       type: 'already_connected',
-      title: 'Account Already Connected',
-      message: `This ${providerLabel.value} account is already linked to another user in the system.`,
+      title: t('auth-callback-already-title'),
+      message: t('auth-callback-already-message', { provider: providerLabel.value }),
       suggestion: isMicrosoft.value
-        ? `Try signing in with a different ${providerLabel.value} account, or contact your administrator.`
-        : 'Try signing in with a different account, or contact your administrator.',
+        ? t('auth-callback-already-suggestion-microsoft', { provider: providerLabel.value })
+        : t('auth-callback-already-suggestion-generic'),
       icon: 'link',
       actions
     }
@@ -53,30 +59,30 @@ const errorInfo = computed<ErrorInfo | null>(() => {
   if (errorMsg.includes('not found') || errorMsg.includes('invalid')) {
     return {
       type: 'invalid_request',
-      title: 'Authentication Failed',
-      message: 'The authentication request was invalid or has expired.',
+      title: t('auth-callback-invalid-title'),
+      message: t('auth-callback-invalid-message'),
       suggestion: isMicrosoft.value
-        ? `Please try connecting your ${providerLabel.value} account again.`
-        : 'Please try signing in again.',
+        ? t('auth-callback-invalid-suggestion-microsoft', { provider: providerLabel.value })
+        : t('auth-callback-invalid-suggestion-generic'),
       icon: 'warning',
       actions: isMicrosoft.value
         ? [
-            { label: 'Try Again', action: 'retry', primary: true },
-            { label: 'Back to Settings', action: 'settings' }
+            { label: t('auth-callback-action-try-again'), action: 'retry', primary: true },
+            { label: t('auth-callback-action-back-settings'), action: 'settings' }
           ]
-        : [{ label: 'Try Again', action: 'login', primary: true }]
+        : [{ label: t('auth-callback-action-try-again'), action: 'login', primary: true }]
     }
   }
 
   return {
     type: 'generic',
-    title: 'Authentication Failed',
+    title: t('auth-callback-generic-title'),
     message: error.value,
-    suggestion: 'Please try again or contact support if the problem persists.',
+    suggestion: t('auth-callback-generic-suggestion'),
     icon: 'error',
     actions: [
-      { label: isMicrosoft.value ? 'Try Again' : 'Return to Login', action: isMicrosoft.value ? 'retry' : 'login', primary: true },
-      ...(isMicrosoft.value ? [{ label: 'Return to Login', action: 'login' }] : [])
+      { label: isMicrosoft.value ? t('auth-callback-action-try-again') : t('auth-callback-action-return-login'), action: isMicrosoft.value ? 'retry' : 'login', primary: true },
+      ...(isMicrosoft.value ? [{ label: t('auth-callback-action-return-login'), action: 'login' }] : [])
     ]
   }
 })
@@ -109,14 +115,18 @@ onMounted(async () => {
   }
 
   if (!code || !state) {
-    error.value = 'Missing required authentication parameters'
-    detailedError.value = `Missing: ${!code ? 'code' : ''} ${!state ? 'state' : ''}`
+    error.value = t('auth-callback-error-missing-params')
+    const missing = [
+      !code ? t('auth-callback-error-missing-field-code') : '',
+      !state ? t('auth-callback-error-missing-field-state') : ''
+    ].filter(Boolean).join(' ')
+    detailedError.value = t('auth-callback-error-missing-detail', { fields: missing })
     loading.value = false
     return
   }
 
   try {
-    message.value = 'Processing authentication...'
+    message.value = t('auth-callback-loading-processing')
 
     const response = await apiClient.get('/auth/oauth/callback', {
       params: { code, state }
@@ -125,7 +135,7 @@ onMounted(async () => {
     const data = response.data
 
     if (data?.success && data.csrf_token) {
-      message.value = 'Success! Redirecting...'
+      message.value = t('auth-callback-loading-success')
       loading.value = false
 
       authStore.setAuthProvider(provider.value)
@@ -153,7 +163,7 @@ onMounted(async () => {
 
       setTimeout(() => router.push(redirectPath), 500)
     } else {
-      error.value = 'Invalid response from server'
+      error.value = t('auth-callback-error-invalid-response')
       detailedError.value = JSON.stringify(data, null, 2)
       loading.value = false
     }
@@ -162,14 +172,14 @@ onMounted(async () => {
 
     error.value = axiosError.response?.data?.message ||
                   axiosError.response?.data?.error ||
-                  'An unexpected error occurred during authentication'
+                  t('auth-callback-error-generic-message')
 
     if (axiosError.response) {
-      detailedError.value = `Status: ${axiosError.response.status}\n${JSON.stringify(axiosError.response.data, null, 2)}`
+      detailedError.value = `${t('auth-callback-error-status-prefix', { status: axiosError.response.status ?? '' })}\n${JSON.stringify(axiosError.response.data, null, 2)}`
     } else if (axiosError.request) {
-      detailedError.value = 'No response received from server'
+      detailedError.value = t('auth-callback-error-no-response')
     } else {
-      detailedError.value = axiosError.message || 'Unknown error'
+      detailedError.value = axiosError.message || t('auth-callback-error-unknown')
     }
 
     loading.value = false

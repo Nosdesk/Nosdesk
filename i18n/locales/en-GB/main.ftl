@@ -3618,6 +3618,100 @@ help-card-reset-title = Reset your password
 help-card-reset-desc = Lost access to your account? Start here.
 help-card-signin-title = Sign in
 help-card-signin-desc = Already have an account?
+
+# Settings: appearance pane (AppearanceSettings).
+settings-appearance-title = Appearance
+settings-appearance-theme-heading = Theme
+settings-appearance-theme-description = Choose your preferred colour scheme
+settings-appearance-device-local-label = Device-only theme
+settings-appearance-device-local-description = Don't sync theme across devices (e.g. use E-Paper theme on your tablet while keeping dark mode on your laptop)
+settings-appearance-section-automatic = Automatic
+settings-appearance-section-light = Light Themes
+settings-appearance-section-dark = Dark Themes
+settings-appearance-red-horizon-easter-egg = Why would you do this to them 😭
+settings-appearance-accessibility-heading = Accessibility
+settings-appearance-accessibility-description = Improve readability and visual distinction
+settings-appearance-colorblind-label = Colour-blind friendly mode
+settings-appearance-colorblind-description-monochrome = Always enabled for monochromatic themes like E-Paper and Red Horizon
+settings-appearance-colorblind-description-default = Use distinct shapes for status indicators instead of relying only on colours
+settings-appearance-display-heading = Display
+settings-appearance-display-description = Adjust layout preferences
+settings-appearance-compact-label = Compact view
+settings-appearance-compact-description = Reduce spacing between elements for a denser layout
+settings-appearance-theme-changed = Theme changed to { $name }
+settings-appearance-theme-changed-device-only = Theme changed to { $name } (device only)
+settings-appearance-theme-save-failed = Failed to save theme preference
+settings-appearance-colorblind-toggled = Colour-blind friendly mode { $state ->
+    [enabled] enabled
+   *[disabled] disabled
+}
+settings-appearance-device-local-toggled = Device-only theme { $state ->
+    [enabled] enabled
+   *[disabled] disabled
+}
+settings-appearance-compact-toggled = Compact view { $state ->
+    [enabled] enabled
+   *[disabled] disabled
+}
+settings-appearance-system-theme-name = System
+
+# Settings: ThemeCard.
+settings-appearance-card-system-name = System
+
+# Settings: security pane (SecuritySettings).
+settings-security-title = Password
+settings-security-label-current = Current Password
+settings-security-label-new = New Password
+settings-security-label-confirm = Confirm New Password
+settings-security-placeholder-current = Enter your current password
+settings-security-placeholder-new = Enter your new password
+settings-security-placeholder-confirm = Confirm your new password
+settings-security-placeholder-admin-new = Enter new password
+settings-security-placeholder-admin-confirm = Confirm new password
+settings-security-hint-length = Password must be at least 8 characters long
+settings-security-error-mismatch = Passwords do not match
+settings-security-submit-change = Change Password
+settings-security-submit-reset = Reset Password
+settings-security-error-form-invalid = Please fill in all fields correctly
+settings-security-success-changed = Password changed successfully
+settings-security-error-change-failed = Failed to change password. Please check your current password.
+settings-security-success-reset = Password has been reset for this user
+settings-security-error-reset-failed = Failed to reset password
+
+# OAuth callback view + card.
+auth-callback-loading-default = Completing sign-in...
+auth-callback-loading-processing = Processing authentication...
+auth-callback-loading-success = Success! Redirecting...
+auth-callback-loading-subtitle = Please wait while we complete authentication
+auth-callback-success-title = Authentication successful
+auth-callback-success-subtitle = Redirecting...
+auth-callback-technical-details = Technical Details
+auth-callback-provider-microsoft = Microsoft
+auth-callback-provider-sso = SSO
+auth-callback-error-missing-params = Missing required authentication parameters
+auth-callback-error-missing-detail = Missing: { $fields }
+auth-callback-error-missing-field-code = code
+auth-callback-error-missing-field-state = state
+auth-callback-error-invalid-response = Invalid response from server
+auth-callback-error-no-response = No response received from server
+auth-callback-error-unknown = Unknown error
+auth-callback-error-generic-message = An unexpected error occurred during authentication
+auth-callback-error-status-prefix = Status: { $status }
+auth-callback-already-title = Account Already Connected
+auth-callback-already-message = This { $provider } account is already linked to another user in the system.
+auth-callback-already-suggestion-microsoft = Try signing in with a different { $provider } account, or contact your administrator.
+auth-callback-already-suggestion-generic = Try signing in with a different account, or contact your administrator.
+auth-callback-invalid-title = Authentication Failed
+auth-callback-invalid-message = The authentication request was invalid or has expired.
+auth-callback-invalid-suggestion-microsoft = Please try connecting your { $provider } account again.
+auth-callback-invalid-suggestion-generic = Please try signing in again.
+auth-callback-generic-title = Authentication Failed
+auth-callback-generic-suggestion = Please try again or contact support if the problem persists.
+auth-callback-action-try-different = Try a Different Account
+auth-callback-action-back-settings = Back to Settings
+auth-callback-action-return-login = Return to Login
+auth-callback-action-try-again = Try Again
+
 # Dashboard widgets
 dashboard-widget-shell-action-view-all = View all
 dashboard-widget-shell-empty-title-default = Nothing here yet.
@@ -3719,6 +3813,7 @@ dashboard-unassigned-queue-title = Unassigned queue
 dashboard-unassigned-queue-error = Failed to load queue
 dashboard-unassigned-queue-empty-title = Inbox zero
 dashboard-unassigned-queue-empty-description = Nothing waiting in the queue.
+
 # Core UI layer
 ui-site-header-untitled-ticket = Untitled ticket
 ui-site-header-unknown-device = Unknown device
@@ -3758,3 +3853,67 @@ ui-status-badge-priority-high-full = high priority
 ui-heatmap-tooltip-more = ...and { $count -> [one] { $count } more *[other] { $count } more }
 ui-device-groups-title = Groups
 ui-header-title-placeholder = Enter title...
+
+# Search + ticket remnants
+search-global-filter-documentation = Documentation
+search-global-filter-tickets = Tickets
+search-global-filter-devices = Devices
+search-global-filter-users = Users
+search-global-placeholder = Search tickets, docs, devices, users
+search-global-placeholder-filtered = Search { $filter }
+search-global-aria-label = Search
+search-global-prompt-title = Search your helpdesk
+search-global-prompt-subtitle = Find tickets, documentation, devices and more
+search-global-empty-prefix = No results for
+search-global-empty-hint = Try different keywords or check your spelling
+search-global-hint-navigate = Navigate
+search-global-hint-open = Open
+search-global-hint-close = Close
+search-global-results-count = { $count -> [one] { $count } result *[other] { $count } results }
+search-global-results-took = { $ms }ms
+search-result-item-today = Today
+search-result-item-yesterday = Yesterday
+search-result-item-days-ago = { $count }d ago
+search-result-item-weeks-ago = { $count }w ago
+search-result-item-months-ago = { $count }mo ago
+search-result-item-years-ago = { $count }y ago
+search-result-item-internal-title = Internal note, visible to staff only
+search-result-item-internal-badge = Internal
+search-result-group-ticket = Tickets
+search-result-group-comment = Comments
+search-result-group-documentation = Documentation
+search-result-group-attachment = Attachments
+search-result-group-device = Devices
+search-result-group-user = Users
+tickets-cycle-burndown-load-error = Failed to load stats
+tickets-cycle-burndown-cat-triage = Triage
+tickets-cycle-burndown-cat-backlog = Backlog
+tickets-cycle-burndown-cat-active = Active
+tickets-cycle-burndown-cat-in-review = In review
+tickets-cycle-burndown-cat-done = Done
+tickets-cycle-burndown-cat-cancelled = Cancelled
+tickets-cycle-burndown-frozen = Frozen
+tickets-cycle-burndown-live = Live
+tickets-cycle-burndown-loading = Loading...
+tickets-cycle-burndown-tickets-done = Tickets done
+tickets-cycle-burndown-complete = Complete
+tickets-cycle-burndown-days-remaining = { $count -> [one] Day remaining *[other] Days remaining }
+tickets-cycle-burndown-snapshot-frozen = Snapshot frozen { $date }
+tickets-collaborative-article-title = Ticket Notes
+tickets-collaborative-article-doc-title = Documentation: Ticket #{ $id }
+tickets-collaborative-article-revision-history = Revision history
+tickets-collaborative-article-convert-doc = Convert to documentation page
+tickets-collaborative-article-open-full = Open full editor
+tickets-project-info-remove = Remove from project
+tickets-project-info-description = Description
+tickets-project-info-project-id = Project ID
+tickets-project-info-status = Status
+tickets-project-info-tickets = Tickets
+tickets-project-info-print-tickets = { $count -> [one] { $count } ticket *[other] { $count } tickets }
+tickets-project-info-status-active = active
+tickets-project-info-status-completed = completed
+tickets-project-info-status-archived = archived
+tickets-email-html-iframe-title = Email body
+tickets-email-html-show-less = Show less
+tickets-email-html-show-full = Show full email
+tickets-email-html-scaled = Scaled to fit ({ $pct }%)

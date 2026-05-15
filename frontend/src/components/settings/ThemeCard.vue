@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import type { Theme } from '@/themes'
 import { useThemeStore } from '@/stores/theme'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
   theme?: Theme
@@ -124,7 +128,7 @@ const colors = getPreviewColors()
       class="text-xs font-medium truncate max-w-full"
       :class="selected ? 'text-accent' : 'text-secondary group-hover:text-primary'"
     >
-      {{ isSystem ? 'System' : theme?.meta.name }}
+      {{ isSystem ? t('settings-appearance-card-system-name') : theme?.meta.name }}
     </span>
 
     <!-- Selected Indicator -->

@@ -2,12 +2,16 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue';
 import RevisionList from '@/components/editor/RevisionList.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Icon from '@/components/common/Icon.vue';
 import apiClient from '@/services/apiConfig';
 import { docUrl } from '@/utils/docUrl';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Define props
 interface Props {
@@ -104,7 +108,7 @@ const handleConvertToDocumentation = async () => {
   try {
     // Backend handles both cases: returns existing page or creates new one
     const response = await apiClient.post(`/tickets/${props.ticketId}/documentation/create`, {
-      title: `Documentation: Ticket #${props.ticketId}`,
+      title: t('tickets-collaborative-article-doc-title', { id: props.ticketId }),
       icon: '📋',
       parent_id: null
     });
@@ -121,27 +125,27 @@ const handleConvertToDocumentation = async () => {
 
 <template>
   <SectionCard content-padding="">
-    <template #title>Ticket Notes</template>
+    <template #title>{{ t('tickets-collaborative-article-title') }}</template>
     <template #headerActions>
       <button
         @click="toggleRevisionHistory"
         class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
         :class="{ 'bg-surface text-primary': showRevisionHistory }"
-        title="Revision history"
+        :title="t('tickets-collaborative-article-revision-history')"
       >
         <Icon name="clock" />
       </button>
       <button
         @click="handleConvertToDocumentation"
         class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-        title="Convert to documentation page"
+        :title="t('tickets-collaborative-article-convert-doc')"
       >
         <Icon name="documentEdit" />
       </button>
       <button
         @click="handleExpand"
         class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-        title="Open full editor"
+        :title="t('tickets-collaborative-article-open-full')"
       >
         <Icon name="openExternal" />
       </button>
@@ -167,7 +171,7 @@ const handleConvertToDocumentation = async () => {
       <aside
         v-if="showRevisionHistory"
         class="w-72 flex-shrink-0 flex flex-col border-l border-default bg-surface-alt/30"
-        aria-label="Revision history"
+        :aria-label="t('tickets-collaborative-article-revision-history')"
       >
         <RevisionList
           :ticket-id="ticketId"

@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import LogoIcon from '@/components/icons/LogoIcon.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useBrandingStore } from '@/stores/branding'
 import { useThemeStore } from '@/stores/theme'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 export interface ErrorAction {
   label: string
@@ -64,8 +68,8 @@ const toggleTechnicalDetails = () => {
           <div class="w-12 h-12 rounded-full border-2 border-surface-hover"></div>
           <div class="absolute inset-0 w-12 h-12 rounded-full border-2 border-accent border-t-transparent animate-spin"></div>
         </div>
-        <h2 class="text-lg font-medium text-primary">{{ loadingMessage || 'Completing sign-in...' }}</h2>
-        <p class="text-sm text-tertiary text-center">Please wait while we complete authentication</p>
+        <h2 class="text-lg font-medium text-primary">{{ loadingMessage || t('auth-callback-loading-default') }}</h2>
+        <p class="text-sm text-tertiary text-center">{{ t('auth-callback-loading-subtitle') }}</p>
       </div>
 
       <!-- Error State -->
@@ -118,7 +122,7 @@ const toggleTechnicalDetails = () => {
             >
               <Icon name="chevronRight" />
             </span>
-            Technical Details
+            {{ t('auth-callback-technical-details') }}
           </button>
 
           <Transition
@@ -143,8 +147,8 @@ const toggleTechnicalDetails = () => {
         <div class="rounded-full p-3 bg-green-500/10 text-green-500">
           <Icon name="checkCircle" size="lg" />
         </div>
-        <h2 class="text-lg font-medium text-primary">Authentication successful</h2>
-        <p class="text-sm text-tertiary">Redirecting...</p>
+        <h2 class="text-lg font-medium text-primary">{{ t('auth-callback-success-title') }}</h2>
+        <p class="text-sm text-tertiary">{{ t('auth-callback-success-subtitle') }}</p>
       </div>
     </div>
   </div>

@@ -12,10 +12,14 @@ they'll dedup into a single network request per session.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import { getRecentTickets, type RecentTicket } from '@/services/ticketService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import TicketRow from '@/components/TicketRow.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 // `isPending` = first-ever fetch, `isLoading` = any in-flight
 // request. The shell wants the first-only signal for `loading` so
@@ -29,30 +33,30 @@ const { data, isPending, isLoading, error } = useQuery({
 const tickets = computed<RecentTicket[]>(() => (data.value ?? []).slice(0, 5))
 const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
-  error.value ? 'Failed to load recently viewed' : null,
+  error.value ? t('dashboard-recently-viewed-error') : null,
 )
 </script>
 
 <template>
   <DashboardWidgetShell
-    title="Recently Viewed"
+    :title="t('dashboard-recently-viewed-title')"
     action-to="/tickets"
     :loading="isPending"
     :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && tickets.length === 0"
-    empty-title="Nothing here yet"
-    empty-description="Tickets you open will show up here."
+    :empty-title="t('dashboard-recently-viewed-empty-title')"
+    :empty-description="t('dashboard-recently-viewed-empty-description')"
     min-body-height="200px"
   >
     <ul class="divide-y divide-default">
-      <li v-for="t in tickets" :key="t.id">
+      <li v-for="ticket in tickets" :key="ticket.id">
         <TicketRow
-          :id="t.id"
-          :title="t.title"
-          :status="t.status"
-          :timestamp="t.last_viewed_at"
-          :to="`/tickets/${t.id}`"
+          :id="ticket.id"
+          :title="ticket.title"
+          :status="ticket.status"
+          :timestamp="ticket.last_viewed_at"
+          :to="`/tickets/${ticket.id}`"
         />
       </li>
     </ul>

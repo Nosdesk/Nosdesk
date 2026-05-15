@@ -3,11 +3,15 @@ Devices whose primary user is the current user.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import { useAuthStore } from '@/stores/auth'
 import { getDevicesByUser } from '@/services/deviceService'
 import type { Device } from '@/types'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const auth = useAuthStore()
 
@@ -32,20 +36,20 @@ const { data, isPending, isLoading, error } = useQuery({
 const devices = computed<Device[]>(() => data.value ?? [])
 const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
-  error.value ? 'Failed to load devices' : null,
+  error.value ? t('dashboard-my-devices-error') : null,
 )
 </script>
 
 <template>
   <DashboardWidgetShell
-    title="My Devices"
+    :title="t('dashboard-my-devices-title')"
     action-to="/devices"
     :loading="isPending"
     :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && devices.length === 0"
-    empty-title="No devices assigned"
-    empty-description="Devices linked to your account will show here."
+    :empty-title="t('dashboard-my-devices-empty-title')"
+    :empty-description="t('dashboard-my-devices-empty-description')"
     min-body-height="200px"
   >
     <ul class="divide-y divide-default">
@@ -56,7 +60,7 @@ const errorMessage = computed(() =>
         >
           <p class="text-sm text-primary truncate group-hover:text-accent transition-colors">{{ d.name }}</p>
           <p class="mt-0.5 text-[11px] text-tertiary truncate">
-            {{ d.model || 'Unknown model' }}<template v-if="d.hostname"> · {{ d.hostname }}</template>
+            {{ d.model || t('dashboard-my-devices-unknown-model') }}<template v-if="d.hostname"> · {{ d.hostname }}</template>
           </p>
         </router-link>
       </li>

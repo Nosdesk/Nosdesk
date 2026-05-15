@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { useGlobalSearch } from '@/composables/useGlobalSearch';
 import SearchResultGroup from './SearchResultGroup.vue';
 import { ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@/types/search';
 import Icon from '@/components/common/Icon.vue';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const {
   isOpen,
@@ -21,12 +25,20 @@ const {
   navigateToResult,
 } = useGlobalSearch();
 
-const FILTER_LABELS: Record<string, string> = {
-  documentation: 'Documentation',
-  ticket: 'Tickets',
-  device: 'Devices',
-  user: 'Users',
-};
+const filterLabels = computed<Record<string, string>>(() => ({
+  documentation: t('search-global-filter-documentation'),
+  ticket: t('search-global-filter-tickets'),
+  device: t('search-global-filter-devices'),
+  user: t('search-global-filter-users'),
+}));
+
+const placeholder = computed(() => {
+  if (activeTypes.value) {
+    const label = filterLabels.value[activeTypes.value] || activeTypes.value;
+    return t('search-global-placeholder-filtered', { filter: label.toLowerCase() });
+  }
+  return t('search-global-placeholder');
+});
 
 const inputRef = ref<HTMLInputElement | null>(null);
 const resultsRef = ref<HTMLDivElement | null>(null);
@@ -81,7 +93,7 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
           class="relative w-full max-w-[640px] min-h-[420px] max-h-[80vh] bg-surface rounded-2xl shadow-2xl shadow-black/20 dark:shadow-black/40 overflow-hidden flex flex-col ring-1 ring-default"
           role="dialog"
           aria-modal="true"
-          aria-label="Search"
+          :aria-label="t('search-global-aria-label')"
         >
           <!-- Search header. Single row, no border on the input. -->
           <div class="flex items-center gap-2.5 px-4 h-12 border-b border-default">
@@ -92,7 +104,7 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               @click="clearTypes"
               class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
             >
-              {{ FILTER_LABELS[activeTypes] || activeTypes }}
+              {{ filterLabels[activeTypes] || activeTypes }}
               <Icon name="close" size="xs" />
             </button>
 
@@ -100,7 +112,7 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               ref="inputRef"
               v-model="query"
               type="text"
-              :placeholder="activeTypes ? `Search ${FILTER_LABELS[activeTypes]?.toLowerCase() || activeTypes}` : 'Search tickets, docs, devices, users'"
+              :placeholder="placeholder"
               class="flex-1 bg-transparent text-primary placeholder-tertiary/60 outline-none text-sm font-medium"
               autocomplete="off"
               spellcheck="false"
@@ -129,9 +141,9 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               v-else-if="searchState === 'prompt'"
               class="px-4 py-12 text-center"
             >
-              <p class="text-sm text-secondary font-medium">Search your helpdesk</p>
+              <p class="text-sm text-secondary font-medium">{{ t('search-global-prompt-title') }}</p>
               <p class="text-xs text-tertiary mt-1">
-                Find tickets, documentation, devices, and more
+                {{ t('search-global-prompt-subtitle') }}
               </p>
             </div>
 
@@ -162,10 +174,10 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               class="px-4 py-12 text-center"
             >
               <p class="text-sm text-secondary font-medium">
-                No results for "<span class="text-primary">{{ query }}</span>"
+                {{ t('search-global-empty-prefix') }}"<span class="text-primary">{{ query }}</span>"
               </p>
               <p class="text-xs text-tertiary mt-1">
-                Try different keywords or check your spelling
+                {{ t('search-global-empty-hint') }}
               </p>
             </div>
           </div>
@@ -180,21 +192,21 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               <span class="inline-flex items-center gap-1">
                 <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-[9px] font-medium text-secondary">↑</kbd>
                 <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-[9px] font-medium text-secondary">↓</kbd>
-                <span>Navigate</span>
+                <span>{{ t('search-global-hint-navigate') }}</span>
               </span>
               <span v-if="searchState === 'results'" class="inline-flex items-center gap-1">
                 <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary">↵</kbd>
-                <span>Open</span>
+                <span>{{ t('search-global-hint-open') }}</span>
               </span>
               <span class="inline-flex items-center gap-1">
                 <kbd class="inline-flex items-center justify-center min-w-[1.5rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary">esc</kbd>
-                <span>Close</span>
+                <span>{{ t('search-global-hint-close') }}</span>
               </span>
             </div>
             <div v-if="searchState === 'results'" class="tabular-nums">
-              {{ totalResults }} result{{ totalResults === 1 ? '' : 's' }}
+              {{ t('search-global-results-count', { count: totalResults }) }}
               <span class="text-tertiary/60">·</span>
-              {{ searchTookMs }}ms
+              {{ t('search-global-results-took', { ms: searchTookMs }) }}
             </div>
           </div>
         </div>

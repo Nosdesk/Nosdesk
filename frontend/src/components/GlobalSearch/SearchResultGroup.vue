@@ -1,9 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import type { SearchResult, SearchEntityType } from '@/types/search';
 import { getEntityTypeLabel } from '@/types/search';
 import SearchResultItem from './SearchResultItem.vue';
 
-defineProps<{
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+
+const props = defineProps<{
   type: SearchEntityType;
   results: SearchResult[];
   selectedId: string | null;
@@ -12,6 +17,14 @@ defineProps<{
 const emit = defineEmits<{
   select: [result: SearchResult];
 }>();
+
+const groupLabel = computed(() => {
+  const key = `search-result-group-${props.type}`;
+  const localized = t(key);
+  // fluent-vue returns the key unchanged when missing; fall back to the
+  // built-in English label in that case so we don't render raw keys.
+  return localized === key ? getEntityTypeLabel(props.type) : localized;
+});
 </script>
 
 <template>
@@ -22,7 +35,7 @@ const emit = defineEmits<{
          alone do the work. -->
     <div class="flex items-baseline gap-2 px-2 pt-2 pb-1">
       <span class="text-[10px] font-semibold uppercase tracking-wider text-tertiary">
-        {{ getEntityTypeLabel(type) }}
+        {{ groupLabel }}
       </span>
       <span class="text-[10px] text-tertiary/60 tabular-nums">
         {{ results.length }}

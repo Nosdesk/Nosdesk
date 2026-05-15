@@ -1,9 +1,13 @@
 <!-- components/ProjectInfo.vue -->
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useFluent } from 'fluent-vue';
 import type { Project } from '@/services/ticketService';
 import { projectService } from '@/services/projectService';
 import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const props = defineProps<{
   projectId: string | number;
@@ -33,6 +37,13 @@ const fetchProject = async () => {
 
 const ticketCount = computed(() => {
   return project.value?.ticket_count ?? '—';
+});
+
+const statusLabel = computed(() => {
+  if (!project.value) return '';
+  const key = `tickets-project-info-status-${project.value.status}`;
+  const localized = t(key);
+  return localized === key ? project.value.status : localized;
 });
 
 onMounted(() => {
@@ -65,7 +76,7 @@ const getStatusClass = (status: string) => {
 
   <SidebarCard
     v-else-if="project"
-    remove-title="Remove from project"
+    :remove-title="t('tickets-project-info-remove')"
     @remove="emit('remove')"
   >
     <template #header>
@@ -79,26 +90,26 @@ const getStatusClass = (status: string) => {
 
     <div class="flex flex-col gap-3">
       <div v-if="project.description" class="flex flex-col gap-1">
-        <span class="text-xs text-tertiary uppercase tracking-wide">Description</span>
+        <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('tickets-project-info-description') }}</span>
         <p class="text-sm text-secondary">{{ project.description }}</p>
       </div>
 
       <div class="grid grid-cols-3 gap-3 text-sm">
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-tertiary uppercase tracking-wide">Project ID</span>
+          <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('tickets-project-info-project-id') }}</span>
           <span class="text-secondary font-mono text-sm">#{{ projectId }}</span>
         </div>
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-tertiary uppercase tracking-wide">Status</span>
+          <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('tickets-project-info-status') }}</span>
           <span
             :class="getStatusClass(project.status)"
             class="text-sm px-2 py-1 rounded-md border w-fit"
           >
-            {{ project.status }}
+            {{ statusLabel }}
           </span>
         </div>
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-tertiary uppercase tracking-wide">Tickets</span>
+          <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('tickets-project-info-tickets') }}</span>
           <span class="text-secondary text-sm">{{ ticketCount }}</span>
         </div>
       </div>
@@ -108,10 +119,10 @@ const getStatusClass = (status: string) => {
       <div class="hidden print:block print-project-card">
         <div class="print-project-header">
           <span class="print-project-name">{{ project.name }}</span>
-          <span class="print-project-status" :class="`print-status-${project.status}`">{{ project.status }}</span>
+          <span class="print-project-status" :class="`print-status-${project.status}`">{{ statusLabel }}</span>
           <span class="print-project-meta">
             <span class="print-project-id">#{{ projectId }}</span>
-            <span v-if="ticketCount !== '—'">{{ ticketCount }} tickets</span>
+            <span v-if="ticketCount !== '—'">{{ t('tickets-project-info-print-tickets', { count: ticketCount }) }}</span>
           </span>
         </div>
         <p v-if="project.description" class="print-project-description">{{ project.description }}</p>

@@ -6,10 +6,14 @@ the fetch parameters (open + unassigned + oldest first).
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import ticketService, { type Ticket } from '@/services/ticketService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import TicketRow from '@/components/TicketRow.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 // Pinia Colada exposes both `isPending` (initial fetch only) and
 // `isLoading` (every in-flight request). The widget shell wants the
@@ -37,32 +41,32 @@ const { data, isPending, isLoading, error } = useQuery({
 const tickets = computed<Ticket[]>(() => data.value ?? [])
 const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
-  error.value ? 'Failed to load queue' : null,
+  error.value ? t('dashboard-unassigned-queue-error') : null,
 )
 </script>
 
 <template>
   <DashboardWidgetShell
-    title="Unassigned Queue"
+    :title="t('dashboard-unassigned-queue-title')"
     action-to="/tickets?assignee=unassigned&status=open"
     :loading="isPending"
     :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && tickets.length === 0"
-    empty-title="Inbox zero"
-    empty-description="Nothing waiting in the queue."
+    :empty-title="t('dashboard-unassigned-queue-empty-title')"
+    :empty-description="t('dashboard-unassigned-queue-empty-description')"
     min-body-height="200px"
   >
     <ul class="divide-y divide-default">
-      <li v-for="t in tickets" :key="t.id">
+      <li v-for="ticket in tickets" :key="ticket.id">
         <TicketRow
-          :id="t.id"
-          :title="t.title"
-          :status="t.status"
-          :priority="t.priority"
-          :timestamp="t.created"
-          :requester="t.requester_user"
-          :to="`/tickets/${t.id}`"
+          :id="ticket.id"
+          :title="ticket.title"
+          :status="ticket.status"
+          :priority="ticket.priority"
+          :timestamp="ticket.created"
+          :requester="ticket.requester_user"
+          :to="`/tickets/${ticket.id}`"
         />
       </li>
     </ul>

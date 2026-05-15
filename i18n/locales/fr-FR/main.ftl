@@ -3641,6 +3641,100 @@ help-card-reset-title = Réinitialiser votre mot de passe
 help-card-reset-desc = Vous n'arrivez plus à accéder à votre compte ? C'est par ici.
 help-card-signin-title = Se connecter
 help-card-signin-desc = Vous avez déjà un compte ?
+
+# Settings: appearance pane (AppearanceSettings).
+settings-appearance-title = Apparence
+settings-appearance-theme-heading = Thème
+settings-appearance-theme-description = Choisissez votre palette de couleurs préférée
+settings-appearance-device-local-label = Thème propre à l'appareil
+settings-appearance-device-local-description = Ne pas synchroniser le thème entre les appareils (par exemple, utilisez le thème E-Paper sur votre tablette tout en gardant le mode sombre sur votre ordinateur portable)
+settings-appearance-section-automatic = Automatique
+settings-appearance-section-light = Thèmes clairs
+settings-appearance-section-dark = Thèmes sombres
+settings-appearance-red-horizon-easter-egg = Pourquoi leur infliger ça 😭
+settings-appearance-accessibility-heading = Accessibilité
+settings-appearance-accessibility-description = Améliorez la lisibilité et la distinction visuelle
+settings-appearance-colorblind-label = Mode adapté au daltonisme
+settings-appearance-colorblind-description-monochrome = Toujours activé pour les thèmes monochromatiques comme E-Paper et Red Horizon
+settings-appearance-colorblind-description-default = Utiliser des formes distinctes pour les indicateurs de statut au lieu de se reposer uniquement sur les couleurs
+settings-appearance-display-heading = Affichage
+settings-appearance-display-description = Ajustez les préférences de mise en page
+settings-appearance-compact-label = Vue compacte
+settings-appearance-compact-description = Réduire l'espacement entre les éléments pour une mise en page plus dense
+settings-appearance-theme-changed = Thème changé pour { $name }
+settings-appearance-theme-changed-device-only = Thème changé pour { $name } (cet appareil uniquement)
+settings-appearance-theme-save-failed = Échec de l'enregistrement du thème
+settings-appearance-colorblind-toggled = Mode adapté au daltonisme { $state ->
+    [enabled] activé
+   *[disabled] désactivé
+}
+settings-appearance-device-local-toggled = Thème propre à l'appareil { $state ->
+    [enabled] activé
+   *[disabled] désactivé
+}
+settings-appearance-compact-toggled = Vue compacte { $state ->
+    [enabled] activée
+   *[disabled] désactivée
+}
+settings-appearance-system-theme-name = Système
+
+# Settings: ThemeCard.
+settings-appearance-card-system-name = Système
+
+# Settings: security pane (SecuritySettings).
+settings-security-title = Mot de passe
+settings-security-label-current = Mot de passe actuel
+settings-security-label-new = Nouveau mot de passe
+settings-security-label-confirm = Confirmer le nouveau mot de passe
+settings-security-placeholder-current = Saisissez votre mot de passe actuel
+settings-security-placeholder-new = Saisissez votre nouveau mot de passe
+settings-security-placeholder-confirm = Confirmez votre nouveau mot de passe
+settings-security-placeholder-admin-new = Saisissez le nouveau mot de passe
+settings-security-placeholder-admin-confirm = Confirmez le nouveau mot de passe
+settings-security-hint-length = Le mot de passe doit comporter au moins 8 caractères
+settings-security-error-mismatch = Les mots de passe ne correspondent pas
+settings-security-submit-change = Changer le mot de passe
+settings-security-submit-reset = Réinitialiser le mot de passe
+settings-security-error-form-invalid = Veuillez remplir tous les champs correctement
+settings-security-success-changed = Mot de passe modifié avec succès
+settings-security-error-change-failed = Échec du changement de mot de passe. Vérifiez votre mot de passe actuel.
+settings-security-success-reset = Mot de passe réinitialisé pour cet utilisateur
+settings-security-error-reset-failed = Échec de la réinitialisation du mot de passe
+
+# OAuth callback view + card.
+auth-callback-loading-default = Finalisation de la connexion...
+auth-callback-loading-processing = Traitement de l'authentification...
+auth-callback-loading-success = Réussi ! Redirection...
+auth-callback-loading-subtitle = Veuillez patienter pendant que nous terminons l'authentification
+auth-callback-success-title = Authentification réussie
+auth-callback-success-subtitle = Redirection...
+auth-callback-technical-details = Détails techniques
+auth-callback-provider-microsoft = Microsoft
+auth-callback-provider-sso = SSO
+auth-callback-error-missing-params = Paramètres d'authentification requis manquants
+auth-callback-error-missing-detail = Manquant : { $fields }
+auth-callback-error-missing-field-code = code
+auth-callback-error-missing-field-state = état
+auth-callback-error-invalid-response = Réponse du serveur invalide
+auth-callback-error-no-response = Aucune réponse reçue du serveur
+auth-callback-error-unknown = Erreur inconnue
+auth-callback-error-generic-message = Une erreur inattendue s'est produite lors de l'authentification
+auth-callback-error-status-prefix = Statut : { $status }
+auth-callback-already-title = Compte déjà connecté
+auth-callback-already-message = Ce compte { $provider } est déjà lié à un autre utilisateur dans le système.
+auth-callback-already-suggestion-microsoft = Essayez de vous connecter avec un autre compte { $provider }, ou contactez votre administrateur.
+auth-callback-already-suggestion-generic = Essayez de vous connecter avec un autre compte, ou contactez votre administrateur.
+auth-callback-invalid-title = Échec de l'authentification
+auth-callback-invalid-message = La demande d'authentification était invalide ou a expiré.
+auth-callback-invalid-suggestion-microsoft = Veuillez réessayer de connecter votre compte { $provider }.
+auth-callback-invalid-suggestion-generic = Veuillez réessayer de vous connecter.
+auth-callback-generic-title = Échec de l'authentification
+auth-callback-generic-suggestion = Veuillez réessayer ou contacter le support si le problème persiste.
+auth-callback-action-try-different = Essayer un autre compte
+auth-callback-action-back-settings = Retour aux paramètres
+auth-callback-action-return-login = Retour à la connexion
+auth-callback-action-try-again = Réessayer
+
 # Widgets du tableau de bord
 dashboard-widget-shell-action-view-all = Tout voir
 dashboard-widget-shell-empty-title-default = Rien à afficher pour le moment.
@@ -3742,6 +3836,7 @@ dashboard-unassigned-queue-title = File non attribuée
 dashboard-unassigned-queue-error = Impossible de charger la file
 dashboard-unassigned-queue-empty-title = Boîte vide
 dashboard-unassigned-queue-empty-description = Rien n'attend dans la file.
+
 # Couche UI de base
 ui-site-header-untitled-ticket = Ticket sans titre
 ui-site-header-unknown-device = Appareil inconnu
@@ -3781,3 +3876,67 @@ ui-status-badge-priority-high-full = priorité haute
 ui-heatmap-tooltip-more = ...et { $count -> [one] { $count } de plus *[other] { $count } de plus }
 ui-device-groups-title = Groupes
 ui-header-title-placeholder = Saisir un titre...
+
+# Search + ticket remnants
+search-global-filter-documentation = Documentation
+search-global-filter-tickets = Tickets
+search-global-filter-devices = Appareils
+search-global-filter-users = Utilisateurs
+search-global-placeholder = Rechercher tickets, docs, appareils, utilisateurs
+search-global-placeholder-filtered = Rechercher dans { $filter }
+search-global-aria-label = Recherche
+search-global-prompt-title = Recherchez dans votre helpdesk
+search-global-prompt-subtitle = Trouvez des tickets, de la documentation, des appareils et plus encore
+search-global-empty-prefix = Aucun résultat pour
+search-global-empty-hint = Essayez d'autres mots-clés ou vérifiez l'orthographe
+search-global-hint-navigate = Naviguer
+search-global-hint-open = Ouvrir
+search-global-hint-close = Fermer
+search-global-results-count = { $count -> [one] { $count } résultat *[other] { $count } résultats }
+search-global-results-took = { $ms } ms
+search-result-item-today = Aujourd'hui
+search-result-item-yesterday = Hier
+search-result-item-days-ago = il y a { $count } j
+search-result-item-weeks-ago = il y a { $count } sem
+search-result-item-months-ago = il y a { $count } mois
+search-result-item-years-ago = il y a { $count } an
+search-result-item-internal-title = Note interne, visible uniquement par le personnel
+search-result-item-internal-badge = Interne
+search-result-group-ticket = Tickets
+search-result-group-comment = Commentaires
+search-result-group-documentation = Documentation
+search-result-group-attachment = Pièces jointes
+search-result-group-device = Appareils
+search-result-group-user = Utilisateurs
+tickets-cycle-burndown-load-error = Échec du chargement des statistiques
+tickets-cycle-burndown-cat-triage = Tri
+tickets-cycle-burndown-cat-backlog = Backlog
+tickets-cycle-burndown-cat-active = En cours
+tickets-cycle-burndown-cat-in-review = En relecture
+tickets-cycle-burndown-cat-done = Terminé
+tickets-cycle-burndown-cat-cancelled = Annulé
+tickets-cycle-burndown-frozen = Figé
+tickets-cycle-burndown-live = En direct
+tickets-cycle-burndown-loading = Chargement...
+tickets-cycle-burndown-tickets-done = Tickets terminés
+tickets-cycle-burndown-complete = Terminé
+tickets-cycle-burndown-days-remaining = { $count -> [one] Jour restant *[other] Jours restants }
+tickets-cycle-burndown-snapshot-frozen = Instantané figé { $date }
+tickets-collaborative-article-title = Notes du ticket
+tickets-collaborative-article-doc-title = Documentation : Ticket n°{ $id }
+tickets-collaborative-article-revision-history = Historique des révisions
+tickets-collaborative-article-convert-doc = Convertir en page de documentation
+tickets-collaborative-article-open-full = Ouvrir l'éditeur complet
+tickets-project-info-remove = Retirer du projet
+tickets-project-info-description = Description
+tickets-project-info-project-id = ID projet
+tickets-project-info-status = Statut
+tickets-project-info-tickets = Tickets
+tickets-project-info-print-tickets = { $count -> [one] { $count } ticket *[other] { $count } tickets }
+tickets-project-info-status-active = actif
+tickets-project-info-status-completed = terminé
+tickets-project-info-status-archived = archivé
+tickets-email-html-iframe-title = Corps de l'e-mail
+tickets-email-html-show-less = Réduire
+tickets-email-html-show-full = Afficher l'e-mail complet
+tickets-email-html-scaled = Mis à l'échelle ({ $pct } %)

@@ -4,12 +4,16 @@ title only, 6 rows max.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import {
   getStarredPages,
   type StarredPageInfo,
 } from '@/services/documentationService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 // `isPending` is the first-fetch signal, `isLoading` flips on every
 // in-flight request. The shell wants the first-only signal so the
@@ -23,20 +27,20 @@ const { data, isPending, isLoading, error } = useQuery({
 const pages = computed<StarredPageInfo[]>(() => data.value ?? [])
 const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
-  error.value ? 'Failed to load starred docs' : null,
+  error.value ? t('dashboard-starred-docs-error') : null,
 )
 </script>
 
 <template>
   <DashboardWidgetShell
-    title="Starred Docs"
+    :title="t('dashboard-starred-docs-title')"
     action-to="/documentation"
     :loading="isPending"
     :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && pages.length === 0"
-    empty-title="No starred pages"
-    empty-description="Star a doc to keep it handy."
+    :empty-title="t('dashboard-starred-docs-empty-title')"
+    :empty-description="t('dashboard-starred-docs-empty-description')"
     min-body-height="200px"
   >
     <ul class="divide-y divide-default">

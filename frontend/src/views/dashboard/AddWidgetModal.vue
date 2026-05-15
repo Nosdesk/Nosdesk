@@ -6,7 +6,11 @@ closes the modal.
 -->
 <script setup lang="ts">
 import Modal from '@/components/Modal.vue'
+import { useFluent } from 'fluent-vue'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 defineProps<{ show: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -20,9 +24,9 @@ function choose(id: string) {
 </script>
 
 <template>
-  <Modal :show="show" title="Add widget" size="sm" @close="emit('close')">
+  <Modal :show="show" :title="t('dashboard-add-widget-title')" size="sm" @close="emit('close')">
     <div v-if="store.addable.length === 0" class="text-sm text-tertiary py-4 text-center">
-      All available widgets are already on your dashboard.
+      {{ t('dashboard-add-widget-all-added') }}
     </div>
     <ul v-else class="flex flex-col gap-1">
       <li v-for="w in store.addable" :key="w.id">
