@@ -21,7 +21,11 @@
  * with a discrete on/off instead of the smooth fill animation.
  */
 import { computed, onScopeDispose, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useNetworkActivity } from '@/composables/useNetworkActivity'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const { hasPending } = useNetworkActivity()
 
@@ -102,7 +106,7 @@ const opacity = computed(() => (state.value === 'finishing' ? 0 : 1))
       class="route-progress"
       :style="{ width: `${progress}%`, opacity }"
       role="progressbar"
-      aria-label="Loading"
+      :aria-label="t('common-route-progress-aria')"
       aria-hidden="true"
     />
   </Transition>

@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import { useToastStore, type Toast } from '@/stores/toast';
 import Icon from '@/components/common/Icon.vue';
+
+const fluent = useFluent();
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
 
 const toastStore = useToastStore();
 const router = useRouter();
@@ -173,7 +177,7 @@ const invokeAction = async (toast: Toast, event: Event) => {
                 <button
                   @click="dismissToast(toast, $event)"
                   class="inline-flex rounded-md p-1.5 text-tertiary hover:text-secondary hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-accent transition-colors"
-                  aria-label="Dismiss"
+                  :aria-label="t('common-toast-dismiss')"
                 >
                   <Icon name="close" />
                 </button>

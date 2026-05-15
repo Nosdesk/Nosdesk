@@ -224,7 +224,7 @@ function onClearSelection() {
       <div v-if="isLoadingMore" class="py-4 flex justify-center bg-app">
         <div
           class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"
-          aria-label="Loading more"
+          :aria-label="fluent.$t('common-loading-more-aria')"
         />
       </div>
     </div>
@@ -247,7 +247,7 @@ function onClearSelection() {
       <div v-if="isLoadingMore" class="py-4 flex justify-center bg-app">
         <div
           class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"
-          aria-label="Loading more"
+          :aria-label="fluent.$t('common-loading-more-aria')"
         />
       </div>
     </div>

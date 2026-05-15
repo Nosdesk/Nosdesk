@@ -24,6 +24,10 @@ own the buttons + handlers in the `#actions` slot.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const props = withDefaults(
   defineProps<{
@@ -94,7 +98,7 @@ const countCopy = computed(() => {
       v-if="selectedCount > 0"
       class="fixed bottom-6 inset-x-0 z-overlay flex justify-center px-4 pointer-events-none"
       role="region"
-      aria-label="Bulk actions"
+      :aria-label="t('common-bulk-actions-aria')"
     >
       <div
         class="pointer-events-auto inline-flex items-stretch gap-2 px-2 py-1.5 rounded-full bg-surface border border-default shadow-lg"

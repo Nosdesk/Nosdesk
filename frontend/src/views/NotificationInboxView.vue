@@ -342,7 +342,7 @@ onBeforeUnmount(() => {
       <div class="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8">
         <div class="flex flex-wrap items-end justify-between gap-3 pb-3 pt-5 sm:pt-6">
           <div class="min-w-0">
-            <h1 class="text-xl font-semibold text-primary sm:text-2xl">Inbox</h1>
+            <h1 class="text-xl font-semibold text-primary sm:text-2xl">{{ t('inbox-title') }}</h1>
             <p class="mt-0.5 text-sm text-tertiary">
               {{
                 unreadCount > 0
@@ -362,7 +362,7 @@ onBeforeUnmount(() => {
         </div>
         <div
           role="tablist"
-          aria-label="Filter notifications"
+          :aria-label="t('inbox-aria-filter')"
           class="-mx-2 flex items-center gap-1 overflow-x-auto"
         >
           <button
@@ -411,7 +411,7 @@ onBeforeUnmount(() => {
         v-if="hasSelection"
         class="flex-shrink-0 border-b border-default bg-accent/5"
         role="region"
-        aria-label="Bulk actions"
+        :aria-label="t('inbox-aria-bulk-actions')"
       >
         <div class="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:px-6 lg:px-8">
           <div class="flex items-center gap-3">
@@ -419,7 +419,7 @@ onBeforeUnmount(() => {
               type="button"
               @click="clearSelection"
               class="rounded p-1 text-tertiary hover:bg-surface-hover hover:text-primary"
-              aria-label="Clear selection"
+              :aria-label="t('inbox-aria-clear-selection')"
             >
               <Icon name="close" size="sm" />
             </button>
@@ -483,7 +483,7 @@ onBeforeUnmount(() => {
               :model-value="isAllSelected"
               :indeterminate="hasSelection && !isAllSelected"
               size="sm"
-              aria-label="Select all notifications"
+              :aria-label="t('inbox-aria-select-all')"
               @change="toggleSelectAll"
             />
             <span class="text-xs text-tertiary">

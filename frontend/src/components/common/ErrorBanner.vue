@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 defineProps<{
   message: string
@@ -32,7 +36,7 @@ const emit = defineEmits<{
       v-if="dismissible"
       @click="emit('dismiss')"
       class="flex-shrink-0 text-status-error hover:opacity-80 focus:outline-none"
-      aria-label="Dismiss error"
+      :aria-label="t('common-error-banner-dismiss')"
     >
       <Icon name="close" />
     </button>

@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import BaseDropdown from './BaseDropdown.vue'
 import Icon from './Icon.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const props = withDefaults(defineProps<{
   currentPage: number
@@ -141,7 +145,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
           <span>{{ totalItems }} items</span>
         </template>
         <template v-else>
-          <span>Page</span>
+          <span>{{ t('pagination-controls-page') }}</span>
           <input
             v-model="pageInputValue"
             @blur="handlePageInput"
@@ -198,7 +202,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
     <div v-else class="flex items-center justify-between px-3 py-1.5 gap-4">
       <!-- Left: Page size selector -->
       <div class="flex items-center gap-1.5 text-sm text-secondary flex-shrink-0">
-        <span>Show</span>
+        <span>{{ t('pagination-controls-show') }}</span>
         <BaseDropdown
           :model-value="pageSize.toString()"
           :options="pageSizeDropdownOptions"
@@ -277,7 +281,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
               @focus="handleInputFocus"
               type="number"
               min="1"
-              placeholder="ID"
+              :placeholder="t('pagination-controls-id-placeholder')"
               class="w-14 px-1.5 py-0.5 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
               ref="goToItemInput"
             />
@@ -287,7 +291,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
         <template v-else>
           <!-- Page info with direct input -->
           <div class="flex items-center gap-1.5 text-sm text-secondary">
-            <span>Page</span>
+            <span>{{ t('pagination-controls-page') }}</span>
             <input
               v-model="pageInputValue"
               @blur="handlePageInput"

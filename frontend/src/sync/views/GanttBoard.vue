@@ -17,8 +17,12 @@
  * events. Dragging bars to reschedule due_date is a follow-up.
  */
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import type { CardData } from './types'
 import type { DependencyEdge } from '@/services/dependenciesService'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 // `defineProps` is hoisted out of the setup fn entirely, so the
 // default factories can't reference module-level helpers below.
@@ -224,13 +228,13 @@ const monthHeaders = computed<{ label: string; col: number; span: number }[]>(()
           type="button"
           class="text-xs font-medium text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
           @click="goToday"
-        >Today</button>
+        >{{ t('gantt-today') }}</button>
         <button
           type="button"
           class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
           @click="shiftDays(14)"
         >›</button>
-        <h2 class="text-sm font-semibold text-primary ml-2">Gantt</h2>
+        <h2 class="text-sm font-semibold text-primary ml-2">{{ t('gantt-title') }}</h2>
       </div>
       <p class="text-[11px] text-tertiary">
         {{ visibleRows.length }} of {{ cards.length }} ticket{{ cards.length === 1 ? '' : 's' }} in view

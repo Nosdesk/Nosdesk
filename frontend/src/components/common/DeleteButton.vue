@@ -60,7 +60,7 @@ const confirmDelete = () => {
   </button>
 
   <!-- Confirmation Modal -->
-  <Modal :show="showConfirmModal" title="Confirm Delete" @close="closeConfirmModal">
+  <Modal :show="showConfirmModal" :title="t('common-confirm-delete-title')" @close="closeConfirmModal">
     <div class="flex flex-col items-center gap-4">
       <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-status-error/20 mb-4">
         <svg class="h-6 w-6 text-status-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -222,7 +222,7 @@ onMounted(() => {
       type="button"
       @click="toggleOpen"
       class="relative rounded-lg p-2 text-secondary transition-colors hover:bg-surface-hover hover:text-primary focus:outline-none focus:ring-2 focus:ring-accent"
-      aria-label="Notifications"
+      :aria-label="t('notifications-bell-aria-trigger')"
       :aria-expanded="isOpen"
     >
       <Icon name="bell" size="md" />
@@ -237,7 +237,7 @@ onMounted(() => {
       react-to-scroll="reposition"
       :auto-focus="false"
       role="dialog"
-      aria-label="Notifications"
+      :aria-label="t('notifications-bell-aria-trigger')"
       popover-class="flex w-[380px] max-h-[520px] flex-col overflow-hidden rounded-xl border border-default bg-surface shadow-xl"
       @close="close"
     >
@@ -260,7 +260,7 @@ onMounted(() => {
 
       <div
         role="tablist"
-        aria-label="Filter notifications"
+        :aria-label="t('notifications-bell-aria-filter')"
         class="flex flex-shrink-0 items-center gap-1 border-b border-default px-2"
       >
         <button

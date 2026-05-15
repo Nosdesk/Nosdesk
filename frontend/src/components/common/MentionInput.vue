@@ -10,7 +10,11 @@
  * - Click outside to close
  */
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { useFluent } from 'fluent-vue';
 import userService from '@/services/userService';
+
+const fluent = useFluent();
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
 import UserAvatar from '@/components/UserAvatar.vue';
 import Spinner from '@/components/common/Spinner.vue';
 
@@ -341,8 +345,8 @@ defineExpose({
         <!-- Hint -->
         <div class="px-3 py-2 text-xs text-tertiary border-t border-default bg-surface-alt flex items-center gap-4">
           <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">↑↓</kbd> Navigate</span>
-          <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Enter</kbd> Select</span>
-          <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Esc</kbd> Close</span>
+          <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Enter</kbd> {{ t('editor-mentions-hint-select') }}</span>
+          <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Esc</kbd> {{ t('editor-mentions-hint-close') }}</span>
         </div>
       </div>
     </Transition>
@@ -351,7 +355,7 @@ defineExpose({
     <!-- Helper text -->
     <div class="mt-1 flex items-center justify-between text-xs text-tertiary">
       <span>
-        <span class="hidden sm:inline">Type </span><kbd class="px-1 py-0.5 bg-surface-alt rounded">@</kbd> to mention someone
+        <span class="hidden sm:inline">{{ t('editor-mentions-helper-type') }} </span><kbd class="px-1 py-0.5 bg-surface-alt rounded">@</kbd> {{ t('editor-mentions-helper-suffix') }}
         <span class="hidden sm:inline"> · Supports **markdown**</span>
       </span>
       <span v-if="maxLength">{{ modelValue.length }}/{{ maxLength }}</span>

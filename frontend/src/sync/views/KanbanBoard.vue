@@ -23,6 +23,11 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useFluent } from 'fluent-vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
+
 import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import {
@@ -512,8 +517,8 @@ function affectedDevicesTooltip(card: CardData): string {
                     <span
                       v-if="card.recurrence_rule"
                       class="text-tertiary text-xs shrink-0"
-                      title="Recurring ticket"
-                      aria-label="Recurring"
+                      :title="t('kanban-recurring-tooltip')"
+                      :aria-label="t('kanban-recurring-aria')"
                     >↻</span>
                     <span class="flex-1">{{ card.title }}</span>
                   </h4>
@@ -523,7 +528,7 @@ function affectedDevicesTooltip(card: CardData): string {
                       class="text-xs leading-none"
                       :class="slaIconTone(card)"
                       :title="slaTooltip(card)"
-                      aria-label="SLA status"
+                      :aria-label="t('kanban-sla-aria')"
                     >⏱</span>
                     <PriorityIndicator
                       v-if="card.priority !== 'none'"

@@ -19,9 +19,13 @@
  * - SLA breach overlay — needs the SLA engine.
  */
 import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import type { CardData } from './types'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import { priorityForBadge } from '@/utils/priorityHelpers'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 type DateField = 'due_date' | 'created_at' | 'last_activity_at'
 
@@ -227,7 +231,7 @@ watch(grid, (cells) => {
           type="button"
           class="text-xs font-medium text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
           @click="goToday"
-        >Today</button>
+        >{{ t('calendar-today') }}</button>
         <button
           type="button"
           class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
@@ -236,16 +240,16 @@ watch(grid, (cells) => {
         <h2 class="text-sm font-semibold text-primary ml-2 tabular-nums">{{ monthLabel }}</h2>
       </div>
       <div class="flex items-center gap-3">
-        <span class="text-[10px] uppercase tracking-wide text-tertiary">Anchor</span>
+        <span class="text-[10px] uppercase tracking-wide text-tertiary">{{ t('calendar-anchor-label') }}</span>
         <select
           class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary"
           :value="dateField"
           disabled
-          title="Anchor field is set by the saved view; future commits surface the picker."
+          :title="t('calendar-anchor-tooltip')"
         >
-          <option value="due_date">Due date</option>
-          <option value="created_at">Created</option>
-          <option value="last_activity_at">Last activity</option>
+          <option value="due_date">{{ t('calendar-anchor-due-date') }}</option>
+          <option value="created_at">{{ t('calendar-anchor-created') }}</option>
+          <option value="last_activity_at">{{ t('calendar-anchor-last-activity') }}</option>
         </select>
       </div>
     </header>

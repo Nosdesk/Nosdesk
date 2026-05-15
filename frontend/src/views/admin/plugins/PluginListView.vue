@@ -19,7 +19,11 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import { useBrandingStore } from '@/stores/branding';
+
+const fluent = useFluent();
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -130,7 +134,7 @@ const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined
     <!-- Header -->
     <header class="mb-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h1 class="text-xl font-bold text-primary sm:text-2xl">Plugins</h1>
+        <h1 class="text-xl font-bold text-primary sm:text-2xl">{{ t('admin-plugins-list-title') }}</h1>
         <p class="mt-1 text-sm text-secondary sm:text-base">
           Manage installed plugins. Browse the
           <RouterLink to="/admin/plugins/registry" class="text-accent hover:underline">
@@ -189,7 +193,7 @@ const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined
 
     <div v-else class="lg:grid lg:grid-cols-[16rem_1fr] lg:gap-6">
       <!-- Sidebar: search + state filters -->
-      <aside class="mb-6 lg:sticky lg:top-4 lg:mb-0 lg:self-start" aria-label="Filter plugins">
+      <aside class="mb-6 lg:sticky lg:top-4 lg:mb-0 lg:self-start" :aria-label="t('admin-plugins-list-aria-filter')">
         <div class="flex flex-col gap-4 rounded-xl border border-default bg-surface p-4">
           <div class="relative">
             <label for="plugin-search" class="sr-only">Search plugins</label>
@@ -212,7 +216,7 @@ const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined
               id="plugin-search"
               v-model="searchQuery"
               type="search"
-              placeholder="Search plugins"
+              :placeholder="t('admin-plugins-list-search-placeholder')"
               class="w-full rounded-lg border border-default bg-surface-alt py-2 pr-3 pl-9 text-sm text-primary placeholder:text-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none"
             />
           </div>
@@ -383,7 +387,7 @@ const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined
     <!-- Uninstall confirmation -->
     <Modal
       :show="uninstallTarget !== null"
-      title="Uninstall plugin"
+      :title="t('admin-plugins-list-uninstall-title')"
       size="sm"
       @close="uninstallTarget = null"
     >

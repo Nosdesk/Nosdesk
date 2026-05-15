@@ -11,11 +11,15 @@ row degrades gracefully — missing fields simply aren't rendered.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
 import UserAvatar from './UserAvatar.vue'
 import TicketStatusIcon from './TicketStatusIcon.vue'
 import { useCollabSessionStore } from '@/stores/collabSession'
 import type { UserInfo } from '@/types/user'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const collab = useCollabSessionStore()
 
@@ -104,8 +108,8 @@ const ariaLabel = computed(() => {
         <span
           v-if="newActivity"
           class="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0"
-          title="New activity since you last viewed this"
-          aria-label="New activity"
+          :title="t('tickets-row-new-activity-tooltip')"
+          :aria-label="t('tickets-row-new-activity-aria')"
         />
         <span>#{{ id }}</span>
       </span>

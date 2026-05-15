@@ -10,7 +10,11 @@
  * - v-model binding
  */
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { EditorView } from 'prosemirror-view';
+
+const fluent = useFluent();
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
 import { EditorState } from 'prosemirror-state';
 import { schema } from '@/components/editor/schema';
 import Spinner from '@/components/common/Spinner.vue';
@@ -449,8 +453,8 @@ defineExpose({ focus, clear });
           <!-- Hint -->
           <div class="px-3 py-2 text-xs text-tertiary border-t border-default bg-surface-alt flex items-center gap-4">
             <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">↑↓</kbd> Navigate</span>
-            <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Enter</kbd> Select</span>
-            <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Esc</kbd> Close</span>
+            <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Enter</kbd> {{ t('editor-mentions-hint-select') }}</span>
+            <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Esc</kbd> {{ t('editor-mentions-hint-close') }}</span>
           </div>
         </div>
       </Transition>

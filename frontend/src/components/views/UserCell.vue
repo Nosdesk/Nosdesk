@@ -19,8 +19,12 @@
  * reactivity continues to track its computeds.
  */
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = withDefaults(defineProps<{
   uuid: string | null | undefined
@@ -79,8 +83,8 @@ const avatarSrc = computed<string | null>(
       <span
         v-else
         class="text-[11px] text-tertiary italic shrink-0"
-        title="This user no longer exists"
-      >Unknown</span>
+        :title="t('user-cell-missing-tooltip')"
+      >{{ t('user-cell-unknown') }}</span>
     </template>
   </div>
   <span v-else class="text-xs text-tertiary italic">—</span>

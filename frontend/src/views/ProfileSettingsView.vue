@@ -33,6 +33,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const fluent = useFluent();
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
 const { colorFilterStyle } = useColorFilter();
 
 // Groups state
@@ -434,7 +435,7 @@ const cancelDelete = () => {
             <div class="min-w-0 flex-1 overflow-hidden">
               <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('settings-user-heading') }}</h1>
               <p class="text-sm sm:text-base text-secondary">
-                <span class="block sm:inline">Managing settings for </span>
+                <span class="block sm:inline">{{ t('user-settings-managing-for') }} </span>
                 <span class="text-accent font-medium break-all">{{ targetUser.name }}</span>
                 <span class="text-tertiary break-all"> ({{ targetUser.email }})</span>
               </p>
@@ -527,7 +528,7 @@ const cancelDelete = () => {
               <template #leading>
                 <span class="text-accent inline-flex"><Icon name="team" /></span>
               </template>
-              <template #title>Groups</template>
+              <template #title>{{ t('user-settings-groups-title') }}</template>
               <template #headerActions>
                 <router-link
                   to="/admin/groups"
@@ -577,7 +578,7 @@ const cancelDelete = () => {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
               </template>
-              <template #title>Role Management</template>
+              <template #title>{{ t('user-settings-role-management-title') }}</template>
 
               <div>
                 <div class="flex flex-col gap-5">
@@ -634,9 +635,9 @@ const cancelDelete = () => {
               <template #leading>
                 <span class="text-accent inline-flex"><Icon name="email" /></span>
               </template>
-              <template #title>Account Setup</template>
+              <template #title>{{ t('user-settings-account-setup-title') }}</template>
               <template #headerActions>
-                <span class="text-[11px] px-2 py-0.5 bg-status-warning/20 text-status-warning rounded-full font-medium">Pending</span>
+                <span class="text-[11px] px-2 py-0.5 bg-status-warning/20 text-status-warning rounded-full font-medium">{{ t('user-settings-account-setup-pending') }}</span>
               </template>
 
               <div>
@@ -645,7 +646,7 @@ const cancelDelete = () => {
                   <div class="flex items-start gap-3 p-4 bg-status-warning/10 border border-status-warning/30 rounded-lg">
                     <Icon name="clock" size="md" class="text-status-warning flex-shrink-0" />
                     <div class="flex flex-col gap-1">
-                      <p class="text-sm font-medium text-status-warning">Invitation pending</p>
+                      <p class="text-sm font-medium text-status-warning">{{ t('user-settings-invitation-pending') }}</p>
                       <p class="text-xs text-status-warning/80">
                         {{ targetUser.name }} has not yet set up their account. You can resend the invitation email with a new setup link.
                       </p>
@@ -655,7 +656,7 @@ const cancelDelete = () => {
                   <!-- Resend invitation action -->
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div class="flex-1">
-                      <h3 class="text-base font-medium text-primary">Resend Invitation Email</h3>
+                      <h3 class="text-base font-medium text-primary">{{ t('user-settings-resend-invitation-title') }}</h3>
                       <p class="text-sm text-secondary">
                         Send a new invitation email to <span class="text-primary font-medium">{{ targetUser.email }}</span> with a secure link to set up their password.
                       </p>
@@ -736,9 +737,9 @@ const cancelDelete = () => {
               <div class="px-4 py-3 bg-status-error/10 border-b border-status-error">
                 <div class="flex items-center gap-2">
                   <Icon name="warning" size="md" class="text-status-error" />
-                  <h2 class="text-lg font-medium text-status-error">Danger Zone</h2>
+                  <h2 class="text-lg font-medium text-status-error">{{ t('user-settings-danger-zone-title') }}</h2>
                 </div>
-                <p class="text-sm text-status-error/80 mt-1">Irreversible and destructive actions</p>
+                <p class="text-sm text-status-error/80 mt-1">{{ t('user-settings-danger-zone-subtitle') }}</p>
               </div>
 
               <div class="p-6">
@@ -774,7 +775,7 @@ const cancelDelete = () => {
     <!-- Delete Confirmation Modal -->
     <Modal
       :show="showDeleteModal"
-      title="Confirm Account Deletion"
+      :title="t('user-settings-delete-modal-title')"
       @close="cancelDelete"
     >
       <div class="flex flex-col gap-4">
@@ -790,10 +791,10 @@ const cancelDelete = () => {
                 }}
               </p>
               <ul class="list-disc list-inside text-sm text-status-error/80 mt-2 space-y-1">
-                <li>Profile information and settings</li>
-                <li>All tickets created or assigned to this user</li>
-                <li>Comments and activity history</li>
-                <li>Access to all systems and resources</li>
+                <li>{{ t('user-settings-delete-item-profile') }}</li>
+                <li>{{ t('user-settings-delete-item-tickets') }}</li>
+                <li>{{ t('user-settings-delete-item-comments') }}</li>
+                <li>{{ t('user-settings-delete-item-access') }}</li>
               </ul>
             </div>
           </div>
@@ -830,7 +831,7 @@ const cancelDelete = () => {
             type="password"
             autocomplete="current-password"
             class="w-full px-4 py-2 bg-surface-alt text-primary rounded-lg border border-default focus:ring-2 focus:ring-status-error focus:outline-none"
-            placeholder="Enter your password"
+            :placeholder="t('user-settings-password-placeholder')"
             @keyup.enter="deleteAccount"
           />
           <p class="text-xs text-secondary">

@@ -126,7 +126,7 @@ const selectProject = (project: Project) => {
 <template>
   <Modal
     :show="show"
-    title="Add to Project"
+    :title="t('project-modal-title')"
     @close="emit('close')"
     size="lg"
   >
@@ -141,7 +141,7 @@ const selectProject = (project: Project) => {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search projects by name or description..."
+          :placeholder="t('project-modal-search-placeholder')"
           class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-default bg-surface-alt text-primary placeholder-tertiary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
         />
         <div v-if="isLoading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -209,11 +209,11 @@ const selectProject = (project: Project) => {
           <!-- Table header -->
           <div class="bg-surface-alt px-4 py-3 border-b border-default sticky top-0 z-10">
             <div class="grid grid-cols-12 gap-3 text-xs font-medium text-secondary uppercase tracking-wide">
-              <div class="col-span-4">Project Name</div>
-              <div class="col-span-4">Description</div>
-              <div class="col-span-2">Status</div>
-              <div class="col-span-1">Tickets</div>
-              <div class="col-span-1 text-right">Action</div>
+              <div class="col-span-4">{{ t('project-modal-col-name') }}</div>
+              <div class="col-span-4">{{ t('project-modal-col-description') }}</div>
+              <div class="col-span-2">{{ t('project-modal-col-status') }}</div>
+              <div class="col-span-1">{{ t('project-modal-col-tickets') }}</div>
+              <div class="col-span-1 text-right">{{ t('project-modal-col-action') }}</div>
             </div>
           </div>
           
