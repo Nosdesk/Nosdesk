@@ -28,7 +28,7 @@
         class="bg-surface rounded-xl border border-default shadow-sm p-8 flex flex-col items-center gap-3"
       >
         <Spinner size="lg" class="text-accent" />
-        <p class="text-sm text-secondary">Checking your link…</p>
+        <p class="text-sm text-secondary">{{ $t('accept-invitation-checking') }}</p>
       </div>
 
       <!-- Error (invalid / expired link) -->
@@ -47,7 +47,7 @@
           @click="goToLogin"
           class="px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg text-sm font-medium transition-colors"
         >
-          Go to sign in
+          {{ $t('accept-invitation-go-to-signin') }}
         </button>
       </div>
 
@@ -61,7 +61,7 @@
         </div>
         <div class="flex flex-col gap-1">
           <h2 class="text-lg font-semibold text-primary">{{ successTitleActivating }}</h2>
-          <p class="text-sm text-secondary">{{ loginMessage || 'Signing you in…' }}</p>
+          <p class="text-sm text-secondary">{{ loginMessage || $t('accept-invitation-signing-in') }}</p>
         </div>
       </div>
 
@@ -89,13 +89,13 @@
         </div>
         <div class="flex flex-col gap-1">
           <h2 class="text-lg font-semibold text-primary">{{ successTitleComplete }}</h2>
-          <p class="text-sm text-secondary">{{ loginMessage || 'Please sign in with the password you just set.' }}</p>
+          <p class="text-sm text-secondary">{{ loginMessage || $t('accept-invitation-manual-login') }}</p>
         </div>
         <button
           @click="goToLogin"
           class="px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg text-sm font-medium transition-colors"
         >
-          Go to sign in
+          {{ $t('accept-invitation-go-to-signin') }}
         </button>
       </div>
 
@@ -121,7 +121,7 @@
         <form @submit.prevent="handleSubmit" class="p-5 sm:p-6 flex flex-col gap-4">
           <!-- New password -->
           <div class="flex flex-col gap-2">
-            <label for="new-password" class="text-sm font-medium text-primary">Password</label>
+            <label for="new-password" class="text-sm font-medium text-primary">{{ $t('accept-invitation-password-label') }}</label>
             <div class="relative">
               <input
                 id="new-password"
@@ -129,7 +129,7 @@
                 :type="showPassword ? 'text' : 'password'"
                 required
                 autocomplete="new-password"
-                placeholder="At least 8 characters"
+                :placeholder="$t('accept-invitation-password-placeholder')"
                 class="w-full px-3 py-2.5 pr-11 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
                 :disabled="loading"
                 @input="validatePassword"
@@ -138,7 +138,7 @@
                 type="button"
                 @click="showPassword = !showPassword"
                 class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-tertiary hover:text-primary transition-colors"
-                :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                :aria-label="showPassword ? $t('accept-invitation-hide-password') : $t('accept-invitation-show-password')"
                 tabindex="-1"
               >
                 <Icon v-if="showPassword" name="eye" size="md" />
@@ -150,14 +150,14 @@
               :class="passwordValidation.length ? 'text-status-success' : 'text-tertiary'"
             >
               <Icon :name="passwordValidation.length ? 'check' : 'warning'" />
-              At least 8 characters
+              {{ $t('accept-invitation-req-length') }}
             </p>
           </div>
 
           <!-- Confirm password -->
           <div class="flex flex-col gap-2">
             <label for="confirm-password" class="text-sm font-medium text-primary">
-              Confirm password
+              {{ $t('accept-invitation-confirm-label') }}
             </label>
             <div class="relative">
               <input
@@ -166,7 +166,7 @@
                 :type="showConfirmPassword ? 'text' : 'password'"
                 required
                 autocomplete="new-password"
-                placeholder="Enter it again"
+                :placeholder="$t('accept-invitation-confirm-placeholder')"
                 class="w-full px-3 py-2.5 pr-11 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
                 :disabled="loading"
                 @input="validatePasswordMatch"
@@ -175,7 +175,7 @@
                 type="button"
                 @click="showConfirmPassword = !showConfirmPassword"
                 class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-tertiary hover:text-primary transition-colors"
-                :aria-label="showConfirmPassword ? 'Hide password' : 'Show password'"
+                :aria-label="showConfirmPassword ? $t('accept-invitation-hide-password') : $t('accept-invitation-show-password')"
                 tabindex="-1"
               >
                 <Icon v-if="showConfirmPassword" name="eye" size="md" />
@@ -188,7 +188,7 @@
               :class="passwordsMatch ? 'text-status-success' : 'text-status-error'"
             >
               <Icon :name="passwordsMatch ? 'check' : 'close'" />
-              {{ passwordsMatch ? 'Passwords match' : 'Passwords do not match' }}
+              {{ passwordsMatch ? $t('accept-invitation-match-yes') : $t('accept-invitation-match-no') }}
             </p>
           </div>
 
@@ -219,7 +219,7 @@
         class="self-center inline-flex items-center gap-1.5 text-xs text-tertiary hover:text-primary transition-colors"
       >
         <Icon name="chevronLeft" />
-        Back to sign in
+        {{ $t('accept-invitation-back-to-signin') }}
       </button>
     </div>
   </div>
@@ -228,6 +228,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute, RouterLink } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import authService from '@/services/authService';
 import { useAutoLogin } from '@/composables/useAutoLogin';
 import { usePasswordForm } from '@/composables/usePasswordForm';
@@ -241,6 +242,8 @@ const router = useRouter();
 const route = useRoute();
 const brandingStore = useBrandingStore();
 const themeStore = useThemeStore();
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string>) => fluent.$t(key, args);
 
 const {
   isLoggingIn: loggingIn,
@@ -290,36 +293,44 @@ const initials = computed(() => {
 // template reads them and re-renders when the token validation resolves.
 const heading = computed(() =>
   validating.value
-    ? 'Just a moment…'
+    ? t('accept-invitation-heading-validating')
     : isGuestTicket.value
-    ? 'Confirm your ticket submission'
-    : `Welcome to ${appName.value}`
+    ? t('accept-invitation-heading-guest')
+    : t('accept-invitation-heading-welcome', { app: appName.value })
 );
 
 const subheading = computed(() => {
-  if (validating.value) return 'Verifying your link.';
-  // The identity summary shows the email and the password label carries the
-  // instruction — the subheading stays short and contextual.
-  if (isGuestTicket.value) return 'Set a password to release your ticket.';
-  return 'Finish setting up your account.';
+  if (validating.value) return t('accept-invitation-subheading-validating');
+  if (isGuestTicket.value) return t('accept-invitation-subheading-guest');
+  return t('accept-invitation-subheading-invitation');
 });
 
 const invalidTitle = computed(() =>
-  isGuestTicket.value ? 'This confirmation link is no longer valid' : 'Invitation invalid'
+  isGuestTicket.value
+    ? t('accept-invitation-invalid-title-guest')
+    : t('accept-invitation-invalid-title-invitation')
 );
 
 const successTitleActivating = computed(() =>
-  isGuestTicket.value ? 'Releasing your ticket…' : 'Activating your account…'
+  isGuestTicket.value
+    ? t('accept-invitation-activating-title-guest')
+    : t('accept-invitation-activating-title-invitation')
 );
 const successTitleComplete = computed(() =>
-  isGuestTicket.value ? "You're all set" : `Welcome to ${appName.value}`
+  isGuestTicket.value
+    ? t('accept-invitation-success-title-guest')
+    : t('accept-invitation-success-title-invitation', { app: appName.value })
 );
 
 const submitLabel = computed(() =>
-  isGuestTicket.value ? 'Confirm & release ticket' : 'Activate account'
+  isGuestTicket.value
+    ? t('accept-invitation-submit-guest')
+    : t('accept-invitation-submit-invitation')
 );
 const submitLoadingLabel = computed(() =>
-  isGuestTicket.value ? 'Confirming…' : 'Activating…'
+  isGuestTicket.value
+    ? t('accept-invitation-submit-loading-guest')
+    : t('accept-invitation-submit-loading-invitation')
 );
 
 onMounted(async () => {
@@ -330,7 +341,7 @@ onMounted(async () => {
   token.value = (route.query.token as string) || '';
 
   if (!token.value) {
-    errorMessage.value = 'Invalid or missing confirmation link.';
+    errorMessage.value = t('accept-invitation-error-missing-token');
     validating.value = false;
     return;
   }
@@ -343,14 +354,14 @@ onMounted(async () => {
       context.value = response.context ?? 'invitation';
     } else {
       errorMessage.value =
-        response.message || 'This link is invalid or has expired.';
+        response.message || t('accept-invitation-error-default');
     }
   } catch (error) {
     console.error('Invitation validation error:', error);
     const axiosError = error as { response?: { data?: { message?: string } } };
     errorMessage.value =
       axiosError.response?.data?.message ||
-      'Failed to validate link. Please try again later.';
+      t('accept-invitation-error-validation-failed');
   } finally {
     validating.value = false;
   }
@@ -371,7 +382,7 @@ const handleSubmit = async () => {
     const axiosError = error as { response?: { data?: { message?: string } } };
     submitError.value =
       axiosError.response?.data?.message ||
-      'Failed to complete confirmation. The link may have expired.';
+      t('accept-invitation-error-submit');
   } finally {
     loading.value = false;
   }

@@ -421,3 +421,61 @@ mfa-setup-back-skip = Skip
 mfa-setup-back-different = Choose Different Method
 mfa-setup-error-session-expired = Session expired. Please log in again to set up MFA.
 mfa-setup-error-invalid-access = Invalid access. Redirecting to login...
+
+# Password reset (PasswordResetView). Reached from the email link;
+# form takes a new password + confirmation, then routes to login.
+password-reset-title = Reset Your Password
+password-reset-subtitle = Enter your new password below
+password-reset-success-title = Password Reset Complete!
+password-reset-success-body = Your password has been successfully updated. You can now log in with your new password.
+password-reset-success-cta = Go to Login
+password-reset-field-new = New Password
+password-reset-field-new-placeholder = Enter new password
+password-reset-field-confirm = Confirm New Password
+password-reset-field-confirm-placeholder = Confirm new password
+password-reset-req-length = At least 8 characters
+password-reset-match-yes = Passwords match
+password-reset-match-no = Passwords do not match
+password-reset-submit = Reset Password
+password-reset-submit-loading = Resetting Password...
+password-reset-back-to-login = Back to Login
+password-reset-error-no-token = Invalid or missing reset token. Please request a new password reset.
+password-reset-error-failed = Failed to reset password. The link may have expired.
+
+# Invitation / guest-ticket accept (AcceptInvitationView). Same
+# form serves invitations and guest-ticket confirmations; copy
+# pivots on `context`.
+accept-invitation-heading-validating = Just a moment…
+accept-invitation-heading-guest = Confirm your ticket submission
+accept-invitation-heading-welcome = Welcome to { $app }
+accept-invitation-subheading-validating = Verifying your link.
+accept-invitation-subheading-guest = Set a password to release your ticket.
+accept-invitation-subheading-invitation = Finish setting up your account.
+accept-invitation-checking = Checking your link…
+accept-invitation-invalid-title-guest = This confirmation link is no longer valid
+accept-invitation-invalid-title-invitation = Invitation invalid
+accept-invitation-go-to-signin = Go to sign in
+accept-invitation-activating-title-guest = Releasing your ticket…
+accept-invitation-activating-title-invitation = Activating your account…
+accept-invitation-signing-in = Signing you in…
+accept-invitation-success-title-guest = You're all set
+accept-invitation-success-title-invitation = Welcome to { $app }
+accept-invitation-manual-login = Please sign in with the password you just set.
+accept-invitation-password-label = Password
+accept-invitation-password-placeholder = At least 8 characters
+accept-invitation-confirm-label = Confirm password
+accept-invitation-confirm-placeholder = Enter it again
+accept-invitation-req-length = At least 8 characters
+accept-invitation-match-yes = Passwords match
+accept-invitation-match-no = Passwords do not match
+accept-invitation-show-password = Show password
+accept-invitation-hide-password = Hide password
+accept-invitation-submit-guest = Confirm & release ticket
+accept-invitation-submit-loading-guest = Confirming…
+accept-invitation-submit-invitation = Activate account
+accept-invitation-submit-loading-invitation = Activating…
+accept-invitation-back-to-signin = Back to sign in
+accept-invitation-error-missing-token = Invalid or missing confirmation link.
+accept-invitation-error-default = This link is invalid or has expired.
+accept-invitation-error-validation-failed = Failed to validate link. Please try again later.
+accept-invitation-error-submit = Failed to complete confirmation. The link may have expired.

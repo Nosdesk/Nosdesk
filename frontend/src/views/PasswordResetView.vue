@@ -4,9 +4,9 @@
       <!-- Header -->
       <div class="flex flex-col gap-2 items-center">
         <LogoIcon class="h-12 px-4 text-accent" aria-label="Nosdesk Logo" />
-        <h1 class="text-2xl font-bold text-primary mt-4">Reset Your Password</h1>
+        <h1 class="text-2xl font-bold text-primary mt-4">{{ $t('password-reset-title') }}</h1>
         <p class="text-secondary text-center text-sm">
-          Enter your new password below
+          {{ $t('password-reset-subtitle') }}
         </p>
       </div>
 
@@ -31,16 +31,16 @@
               </svg>
             </div>
             <div>
-              <h2 class="text-xl font-semibold text-primary mb-2">Password Reset Complete!</h2>
+              <h2 class="text-xl font-semibold text-primary mb-2">{{ $t('password-reset-success-title') }}</h2>
               <p class="text-sm text-secondary">
-                Your password has been successfully updated. You can now log in with your new password.
+                {{ $t('password-reset-success-body') }}
               </p>
             </div>
             <button
               @click="goToLogin"
               class="w-full px-6 py-3 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium mt-2"
             >
-              Go to Login
+              {{ $t('password-reset-success-cta') }}
             </button>
           </div>
         </div>
@@ -56,7 +56,7 @@
             <!-- New Password -->
             <div>
               <label for="new-password" class="block text-sm font-medium text-secondary mb-2">
-                New Password
+                {{ $t('password-reset-field-new') }}
               </label>
               <div class="relative">
                 <input
@@ -65,7 +65,7 @@
                   :type="showPassword ? 'text' : 'password'"
                   required
                   autocomplete="new-password"
-                  placeholder="Enter new password"
+                  :placeholder="$t('password-reset-field-new-placeholder')"
                   class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePassword"
@@ -88,7 +88,7 @@
                   :class="passwordValidation.length ? 'text-status-success' : 'text-tertiary'"
                 >
                   <Icon :name="passwordValidation.length ? 'check' : 'close'" />
-                  At least 8 characters
+                  {{ $t('password-reset-req-length') }}
                 </p>
               </div>
             </div>
@@ -96,7 +96,7 @@
             <!-- Confirm Password -->
             <div>
               <label for="confirm-password" class="block text-sm font-medium text-secondary mb-2">
-                Confirm New Password
+                {{ $t('password-reset-field-confirm') }}
               </label>
               <div class="relative">
                 <input
@@ -105,7 +105,7 @@
                   :type="showConfirmPassword ? 'text' : 'password'"
                   required
                   autocomplete="new-password"
-                  placeholder="Confirm new password"
+                  :placeholder="$t('password-reset-field-confirm-placeholder')"
                   class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors pr-12"
                   :disabled="loading"
                   @input="validatePasswordMatch"
@@ -128,7 +128,7 @@
                 :class="passwordsMatch ? 'text-status-success' : 'text-status-error'"
               >
                 <Icon :name="passwordsMatch ? 'check' : 'close'" />
-                {{ passwordsMatch ? 'Passwords match' : 'Passwords do not match' }}
+                {{ passwordsMatch ? $t('password-reset-match-yes') : $t('password-reset-match-no') }}
               </p>
             </div>
 
@@ -139,7 +139,7 @@
               :disabled="loading || !isFormValid"
             >
               <Spinner v-if="loading" size="md" />
-              <span>{{ loading ? 'Resetting Password...' : 'Reset Password' }}</span>
+              <span>{{ loading ? $t('password-reset-submit-loading') : $t('password-reset-submit') }}</span>
             </button>
           </form>
         </div>
@@ -152,7 +152,7 @@
         class="flex items-center justify-center gap-2 text-sm text-tertiary hover:text-primary transition-colors py-2"
       >
         <Icon name="chevronLeft" />
-        Back to Login
+        {{ $t('password-reset-back-to-login') }}
       </button>
     </div>
   </div>
@@ -161,6 +161,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import authService from '@/services/authService';
 import { usePasswordForm } from '@/composables/usePasswordForm';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
@@ -169,6 +170,8 @@ import Spinner from '@/components/common/Spinner.vue';
 
 const router = useRouter();
 const route = useRoute();
+const fluent = useFluent();
+const t = (key: string) => fluent.$t(key);
 
 // Password form composable (handles state, validation, cleanup)
 const {
@@ -194,7 +197,7 @@ onMounted(() => {
   token.value = (route.query.token as string) || '';
 
   if (!token.value) {
-    errorMessage.value = 'Invalid or missing reset token. Please request a new password reset.';
+    errorMessage.value = t('password-reset-error-no-token');
   }
 });
 
@@ -212,7 +215,7 @@ const handleSubmit = async () => {
   } catch (error) {
     console.error('Password reset error:', error);
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to reset password. The link may have expired.';
+    errorMessage.value = axiosError.response?.data?.message || t('password-reset-error-failed');
   } finally {
     loading.value = false;
   }
