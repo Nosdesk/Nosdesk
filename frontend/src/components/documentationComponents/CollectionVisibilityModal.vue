@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { setCollectionVisibility } from '@/services/collectionService'
 import type { VisibleUser } from '@/services/collectionService'
 import AssignmentPicker from '@/components/common/AssignmentPicker.vue'
 import type { SelectedPrincipal } from '@/components/common/AssignmentPicker.vue'
 import Icon from '@/components/common/Icon.vue'
+
+useFluent()
 
 const props = defineProps<{
   collectionId: number
@@ -89,7 +92,7 @@ onMounted(async () => {
     <div class="bg-surface border border-default rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
       <!-- Header -->
       <div class="flex items-center justify-between p-4 border-b border-default">
-        <h3 class="text-sm font-semibold text-primary">Collection Access</h3>
+        <h3 class="text-sm font-semibold text-primary">{{ $t('docs-collection-visibility-title') }}</h3>
         <button
           @click="emit('close')"
           class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
@@ -107,7 +110,7 @@ onMounted(async () => {
         <template v-else>
           <div class="flex flex-col gap-3">
             <p class="text-xs text-tertiary">
-              Select which groups and users can access this collection. Empty selection means the collection is public (visible to everyone).
+              {{ $t('docs-collection-visibility-description') }}
             </p>
 
             <!-- Public indicator -->
@@ -115,13 +118,13 @@ onMounted(async () => {
               <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span class="text-xs text-emerald-600 dark:text-emerald-400">Public, visible to all users</span>
+              <span class="text-xs text-emerald-600 dark:text-emerald-400">{{ $t('docs-collection-visibility-public') }}</span>
             </div>
 
             <AssignmentPicker
               :selectedItems="selectedItems"
               @update:selectedItems="selectedItems = $event"
-              placeholder="Search users and groups..."
+              :placeholder="$t('docs-collection-visibility-picker-placeholder')"
             />
           </div>
         </template>
@@ -133,14 +136,14 @@ onMounted(async () => {
           @click="emit('close')"
           class="px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
         >
-          Cancel
+          {{ $t('docs-collection-visibility-cancel') }}
         </button>
         <button
           @click="save"
           :disabled="!hasChanges || saving"
           class="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         >
-          {{ saving ? 'Saving...' : 'Save' }}
+          {{ saving ? $t('docs-collection-visibility-saving') : $t('docs-collection-visibility-save') }}
         </button>
       </div>
     </div>

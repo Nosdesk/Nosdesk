@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { defineProps, computed } from "vue";
+import { useFluent } from "fluent-vue";
 import type { Page } from "@/services/documentationService";
+
+const fluent = useFluent();
 
 // Define props for the component
 const props = defineProps<{
@@ -10,7 +13,7 @@ const props = defineProps<{
 
 // Create safe computed properties to handle potential data issues
 const safeTitle = computed(() => {
-  return props.page?.title || "Untitled Page";
+  return props.page?.title || fluent.$t("docs-toc-item-untitled");
 });
 
 const safeDescription = computed(() => {

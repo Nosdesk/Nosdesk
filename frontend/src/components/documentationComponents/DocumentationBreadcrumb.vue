@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { getCollectionsForPage, getCollection } from '@/services/collectionService'
 import { getAncestorChain } from '@/utils/treeUtils'
 import { docUrl } from '@/utils/docUrl'
+
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
 
 const props = defineProps<{
   pageId: number | string
@@ -29,7 +33,7 @@ const buildBreadcrumbs = async () => {
 
   try {
     const items: BreadcrumbItem[] = [
-      { label: 'Documentation', to: '/documentation', icon: null }
+      { label: t('docs-breadcrumb-root'), to: '/documentation', icon: null }
     ]
 
     // Find a collection this page belongs to
@@ -59,7 +63,7 @@ const buildBreadcrumbs = async () => {
 
     breadcrumbs.value = items
   } catch {
-    breadcrumbs.value = [{ label: 'Documentation', to: '/documentation', icon: null }]
+    breadcrumbs.value = [{ label: t('docs-breadcrumb-root'), to: '/documentation', icon: null }]
   } finally {
     loading.value = false
   }
@@ -80,7 +84,7 @@ watch(
     <div class="h-3 w-32 rounded bg-surface-hover animate-pulse"></div>
   </div>
 
-  <nav v-else-if="breadcrumbs.length > 0" aria-label="Breadcrumb">
+  <nav v-else-if="breadcrumbs.length > 0" :aria-label="$t('docs-breadcrumb-aria')">
     <ol class="flex items-center flex-wrap gap-1.5 sm:gap-2 text-xs text-tertiary min-w-0">
       <li v-for="(item, index) in breadcrumbs" :key="index" class="flex items-center gap-1.5 sm:gap-2 min-w-0">
         <span v-if="index > 0" class="text-tertiary select-none">/</span>

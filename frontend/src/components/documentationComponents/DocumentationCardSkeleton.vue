@@ -5,7 +5,7 @@ breakpoints MUST match `DocumentationCardGrid` so the skeleton doesn't
 reflow at a different breakpoint than the real cards.
 -->
 <template>
-  <Skeleton label="Loading pages" class="skeleton-grid">
+  <Skeleton :label="$t('docs-card-skeleton-label')" class="skeleton-grid">
     <div
       v-for="i in count"
       :key="i"
@@ -33,8 +33,11 @@ reflow at a different breakpoint than the real cards.
 </template>
 
 <script setup lang="ts">
+import { useFluent } from 'fluent-vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
+
+useFluent();
 
 withDefaults(defineProps<{ count?: number }>(), { count: 6 });
 </script>

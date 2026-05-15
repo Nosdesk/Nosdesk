@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { getCollections, setPageCollections } from '@/services/collectionService'
 import type { CollectionWithDetails } from '@/services/collectionService'
 import Icon from '@/components/common/Icon.vue'
+
+useFluent()
 
 const props = defineProps<{
   pageId: number
@@ -57,7 +60,7 @@ onMounted(async () => {
     <div class="bg-surface border border-default rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
       <!-- Header -->
       <div class="flex items-center justify-between p-4 border-b border-default">
-        <h3 class="text-sm font-semibold text-primary">Manage Collections</h3>
+        <h3 class="text-sm font-semibold text-primary">{{ $t('docs-collection-manager-title') }}</h3>
         <button
           @click="emit('close')"
           class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
@@ -73,7 +76,7 @@ onMounted(async () => {
         </div>
 
         <div v-else-if="allCollections.length === 0" class="p-4 text-center text-tertiary text-sm">
-          No collections available.
+          {{ $t('docs-collection-manager-empty') }}
         </div>
 
         <div v-else class="flex flex-col gap-1">
@@ -102,12 +105,12 @@ onMounted(async () => {
             <span class="text-lg flex-shrink-0">{{ collection.icon || '📁' }}</span>
             <div class="flex-1 min-w-0">
               <span class="text-sm text-primary truncate block">{{ collection.name }}</span>
-              <span class="text-xs text-tertiary">{{ collection.page_count }} pages</span>
+              <span class="text-xs text-tertiary">{{ $t('docs-collection-manager-pages', { count: collection.page_count }) }}</span>
             </div>
 
             <!-- System/Restricted badge -->
             <span v-if="collection.is_system" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover text-tertiary flex-shrink-0">
-              System
+              {{ $t('docs-collection-manager-system-badge') }}
             </span>
           </button>
         </div>
@@ -119,14 +122,14 @@ onMounted(async () => {
           @click="emit('close')"
           class="px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
         >
-          Cancel
+          {{ $t('docs-collection-manager-cancel') }}
         </button>
         <button
           @click="save"
           :disabled="!hasChanges || saving"
           class="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         >
-          {{ saving ? 'Saving...' : 'Save' }}
+          {{ saving ? $t('docs-collection-manager-saving') : $t('docs-collection-manager-save') }}
         </button>
       </div>
     </div>

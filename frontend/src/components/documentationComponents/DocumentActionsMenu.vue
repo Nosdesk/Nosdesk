@@ -14,10 +14,14 @@
  * via per-action emits.
  */
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
 import { ICON_REGISTRY } from '@/components/common/icons'
+
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
 
 const props = defineProps<{
   pageId: number | string
@@ -84,34 +88,34 @@ const menuItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [
     {
       id: 'subscription',
-      label: props.isSubscribed ? 'Unsubscribe' : 'Subscribe',
+      label: props.isSubscribed ? t('docs-actions-menu-unsubscribe') : t('docs-actions-menu-subscribe'),
       icon: ICON_REGISTRY.bell.d,
       active: props.isSubscribed,
     },
-    { id: 'insights', label: 'Insights', icon: ICON_REGISTRY.insights.d, divider: true },
-    { id: 'history', label: 'Revision history', icon: ICON_REGISTRY.history.d },
-    { id: 'print', label: 'Print', icon: ICON_REGISTRY.print.d, divider: true },
-    { id: 'duplicate', label: 'Duplicate' },
-    { id: 'export', label: 'Download Markdown', icon: ICON_REGISTRY.download.d },
-    { id: 'move', label: 'Move to...', icon: ICON_REGISTRY.move.d },
-    { id: 'collections', label: 'Collections', divider: true },
+    { id: 'insights', label: t('docs-actions-menu-insights'), icon: ICON_REGISTRY.insights.d, divider: true },
+    { id: 'history', label: t('docs-actions-menu-history'), icon: ICON_REGISTRY.history.d },
+    { id: 'print', label: t('docs-actions-menu-print'), icon: ICON_REGISTRY.print.d, divider: true },
+    { id: 'duplicate', label: t('docs-actions-menu-duplicate') },
+    { id: 'export', label: t('docs-actions-menu-export'), icon: ICON_REGISTRY.download.d },
+    { id: 'move', label: t('docs-actions-menu-move'), icon: ICON_REGISTRY.move.d },
+    { id: 'collections', label: t('docs-actions-menu-collections'), divider: true },
     {
       id: 'archive',
-      label: isArchived.value ? 'Unarchive' : 'Archive',
+      label: isArchived.value ? t('docs-actions-menu-unarchive') : t('docs-actions-menu-archive'),
       icon: ICON_REGISTRY.archive.d,
     },
   ]
   if (props.showPermissions) {
     items.push({
       id: 'permissions',
-      label: 'Permissions',
+      label: t('docs-actions-menu-permissions'),
       icon: ICON_REGISTRY.lock.d,
     })
   }
-  items.push({ id: 'publish', label: isPublished.value ? 'Unpublish' : 'Publish' })
+  items.push({ id: 'publish', label: isPublished.value ? t('docs-actions-menu-unpublish') : t('docs-actions-menu-publish') })
   items.push({
     id: 'delete',
-    label: confirmingDelete.value ? 'Confirm trash?' : 'Move to Trash',
+    label: confirmingDelete.value ? t('docs-actions-menu-trash-confirm') : t('docs-actions-menu-trash'),
     icon: ICON_REGISTRY.trash.d,
     danger: true,
     divider: true,
@@ -187,8 +191,8 @@ function handleSelect(id: string) {
       @click="toggle"
       class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
       :class="{ 'bg-surface-hover text-primary': isOpen }"
-      title="Page actions"
-      aria-label="Page actions"
+      :title="$t('docs-actions-menu-trigger')"
+      :aria-label="$t('docs-actions-menu-trigger')"
     >
       <Icon name="more" size="md" />
     </button>
@@ -196,7 +200,7 @@ function handleSelect(id: string) {
     <ResponsiveMenu
       :open="isOpen"
       :anchor="anchor"
-      title="Page actions"
+      :title="$t('docs-actions-menu-trigger')"
       placement="bottom-end"
       react-to-scroll="reposition"
       role="menu"

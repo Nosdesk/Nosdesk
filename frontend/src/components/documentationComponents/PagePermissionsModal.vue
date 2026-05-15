@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { getPageVisibility, setPageVisibility } from '@/services/documentationService'
 import { getCollectionsForPage } from '@/services/collectionService'
 import type { Collection } from '@/services/collectionService'
 import AssignmentPicker from '@/components/common/AssignmentPicker.vue'
 import type { SelectedPrincipal } from '@/components/common/AssignmentPicker.vue'
 import Icon from '@/components/common/Icon.vue'
+
+useFluent()
 
 const props = defineProps<{
   pageId: number
@@ -111,7 +114,7 @@ onMounted(async () => {
     <div class="bg-surface border border-default rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
       <!-- Header -->
       <div class="flex items-center justify-between p-4 border-b border-default">
-        <h3 class="text-sm font-semibold text-primary">Page Permissions</h3>
+        <h3 class="text-sm font-semibold text-primary">{{ $t('docs-page-permissions-title') }}</h3>
         <button
           @click="emit('close')"
           class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
@@ -136,7 +139,7 @@ onMounted(async () => {
                 ? 'bg-surface text-primary shadow-sm'
                 : 'text-tertiary hover:text-secondary'"
             >
-              Inherit from collections
+              {{ $t('docs-page-permissions-mode-inherit') }}
             </button>
             <button
               @click="mode = 'custom'"
@@ -145,17 +148,17 @@ onMounted(async () => {
                 ? 'bg-surface text-primary shadow-sm'
                 : 'text-tertiary hover:text-secondary'"
             >
-              Custom access
+              {{ $t('docs-page-permissions-mode-custom') }}
             </button>
           </div>
 
           <!-- Inherit Mode -->
           <div v-if="mode === 'inherit'" class="flex flex-col gap-3">
             <p class="text-xs text-tertiary">
-              This page inherits visibility from its collections. Users who can access any of the page's collections can see this page.
+              {{ $t('docs-page-permissions-inherit-description') }}
             </p>
             <div v-if="pageCollections.length === 0" class="p-3 rounded-lg bg-surface-alt text-xs text-tertiary text-center">
-              Not in any collection -- visible to everyone.
+              {{ $t('docs-page-permissions-no-collections') }}
             </div>
             <div v-else class="flex flex-col gap-1.5">
               <div
@@ -172,17 +175,17 @@ onMounted(async () => {
           <!-- Custom Mode -->
           <div v-if="mode === 'custom'" class="flex flex-col gap-3">
             <p class="text-xs text-tertiary">
-              Select which groups and users can access this page. This overrides collection-level permissions.
+              {{ $t('docs-page-permissions-custom-description') }}
             </p>
 
             <AssignmentPicker
               :selectedItems="selectedItems"
               @update:selectedItems="selectedItems = $event"
-              placeholder="Search users and groups..."
+              :placeholder="$t('docs-page-permissions-picker-placeholder')"
             />
 
             <p v-if="mode === 'custom' && selectedItems.length === 0" class="text-xs text-status-warning">
-              No groups or users selected -- no one except admins will be able to see this page.
+              {{ $t('docs-page-permissions-no-selection-warning') }}
             </p>
           </div>
         </template>
@@ -194,14 +197,14 @@ onMounted(async () => {
           @click="emit('close')"
           class="px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
         >
-          Cancel
+          {{ $t('docs-page-permissions-cancel') }}
         </button>
         <button
           @click="save"
           :disabled="!hasChanges || saving"
           class="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         >
-          {{ saving ? 'Saving...' : 'Save' }}
+          {{ saving ? $t('docs-page-permissions-saving') : $t('docs-page-permissions-save') }}
         </button>
       </div>
     </div>

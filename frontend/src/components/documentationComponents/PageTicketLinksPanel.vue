@@ -15,8 +15,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import LinkedTicketModal from '@/components/ticketComponents/LinkedTicketModal.vue'
+
+useFluent()
 import {
   usePageTickets,
   useLinkTicketMutation,
@@ -85,7 +88,7 @@ function statusClass(status: string | null | undefined): string {
       <div class="flex items-center gap-2">
         <Icon name="ticket" class="text-tertiary" />
         <h3 class="text-xs font-semibold uppercase tracking-wide text-tertiary">
-          Linked tickets
+          {{ $t('docs-page-tickets-heading') }}
         </h3>
         <span v-if="hasAny" class="text-[11px] text-tertiary">
           {{ links.length }}
@@ -98,22 +101,22 @@ function statusClass(status: string | null | undefined): string {
         @click="showPicker = true"
       >
         <Icon name="add" />
-        Link ticket
+        {{ $t('docs-page-tickets-add') }}
       </button>
     </header>
 
     <!-- Loading: simple text since the section is small. -->
-    <p v-if="isLoading" class="text-xs text-tertiary py-1">Loading&hellip;</p>
+    <p v-if="isLoading" class="text-xs text-tertiary py-1">{{ $t('docs-page-tickets-loading') }}</p>
 
     <p v-else-if="!hasAny" class="text-xs text-tertiary py-1">
-      No tickets linked to this page yet.
+      {{ $t('docs-page-tickets-empty') }}
     </p>
 
     <template v-else>
       <!-- Resolved group: tickets this doc answered. -->
       <div v-if="grouped.resolves.length > 0" class="flex flex-col gap-1">
         <p class="text-[10px] uppercase tracking-wide text-tertiary mt-1">
-          Resolved
+          {{ $t('docs-page-tickets-resolved-heading') }}
         </p>
         <ul class="flex flex-col gap-0.5">
           <li v-for="link in grouped.resolves" :key="link.ticket_id" class="group flex items-center gap-2">
@@ -122,7 +125,7 @@ function statusClass(status: string | null | undefined): string {
               class="flex-1 min-w-0 flex items-center gap-2 py-1 px-2 -mx-2 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
             >
               <span class="text-tertiary flex-shrink-0">#{{ link.ticket_id }}</span>
-              <span class="flex-1 truncate">{{ link.ticket_title || `Ticket #${link.ticket_id}` }}</span>
+              <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: link.ticket_id }) }}</span>
               <span
                 v-if="link.ticket_status"
                 class="text-[10px] px-1.5 py-0.5 rounded-full"
@@ -135,7 +138,7 @@ function statusClass(status: string | null | undefined): string {
               v-if="canEdit"
               type="button"
               class="opacity-0 group-hover:opacity-100 p-1 rounded text-tertiary hover:text-status-error hover:bg-surface-hover transition-all"
-              :title="`Unlink ticket #${link.ticket_id}`"
+              :title="$t('docs-page-tickets-unlink', { id: link.ticket_id })"
               @click="onRemove(link.ticket_id)"
             >
               <Icon name="close" size="xs" />
@@ -147,7 +150,7 @@ function statusClass(status: string | null | undefined): string {
       <!-- References group: tickets that just point at this doc. -->
       <div v-if="grouped.references.length > 0" class="flex flex-col gap-1">
         <p class="text-[10px] uppercase tracking-wide text-tertiary mt-1">
-          Referenced
+          {{ $t('docs-page-tickets-referenced-heading') }}
         </p>
         <ul class="flex flex-col gap-0.5">
           <li v-for="link in grouped.references" :key="link.ticket_id" class="group flex items-center gap-2">
@@ -156,7 +159,7 @@ function statusClass(status: string | null | undefined): string {
               class="flex-1 min-w-0 flex items-center gap-2 py-1 px-2 -mx-2 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
             >
               <span class="text-tertiary flex-shrink-0">#{{ link.ticket_id }}</span>
-              <span class="flex-1 truncate">{{ link.ticket_title || `Ticket #${link.ticket_id}` }}</span>
+              <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: link.ticket_id }) }}</span>
               <span
                 v-if="link.ticket_status"
                 class="text-[10px] px-1.5 py-0.5 rounded-full"
@@ -169,7 +172,7 @@ function statusClass(status: string | null | undefined): string {
               v-if="canEdit"
               type="button"
               class="opacity-0 group-hover:opacity-100 p-1 rounded text-tertiary hover:text-status-error hover:bg-surface-hover transition-all"
-              :title="`Unlink ticket #${link.ticket_id}`"
+              :title="$t('docs-page-tickets-unlink', { id: link.ticket_id })"
               @click="onRemove(link.ticket_id)"
             >
               <Icon name="close" size="xs" />

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { getCollections, createCollection, reorderCollections } from '@/services/collectionService'
 import type { CollectionWithDetails } from '@/services/collectionService'
 import { useAuthStore } from '@/stores/auth'
@@ -9,6 +10,7 @@ import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
 import Icon from '@/components/common/Icon.vue'
 
+useFluent()
 const authStore = useAuthStore()
 const collections = ref<CollectionWithDetails[]>([])
 const loading = ref(true)
@@ -117,14 +119,14 @@ onMounted(loadCollections)
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
           <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
         </svg>
-        <h3 class="text-lg font-semibold text-primary">Collections</h3>
+        <h3 class="text-lg font-semibold text-primary">{{ $t('docs-collection-browser-heading') }}</h3>
       </div>
       <button
         @click="showCreateForm = !showCreateForm"
         class="flex items-center gap-1 text-xs px-3 py-1.5 rounded-md bg-surface-alt hover:bg-surface-hover text-secondary hover:text-primary transition-colors flex-shrink-0"
       >
         <Icon name="add" />
-        New
+        {{ $t('docs-collection-browser-new') }}
       </button>
     </div>
 
@@ -142,7 +144,7 @@ onMounted(loadCollections)
         />
         <input
           v-model="newCollectionName"
-          placeholder="Collection name..."
+          :placeholder="$t('docs-collection-browser-name-placeholder')"
           class="flex-1 min-w-0 h-10 bg-transparent text-sm text-primary placeholder:text-tertiary border border-subtle rounded-md px-3 focus:border-accent focus:outline-none"
           autofocus
         />
@@ -153,14 +155,14 @@ onMounted(loadCollections)
           @click="showCreateForm = false"
           class="px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
         >
-          Cancel
+          {{ $t('docs-collection-browser-cancel') }}
         </button>
         <button
           type="submit"
           :disabled="!newCollectionName.trim()"
           class="px-4 py-1.5 text-xs rounded-md bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         >
-          Create
+          {{ $t('docs-collection-browser-create') }}
         </button>
       </div>
     </form>
@@ -172,7 +174,7 @@ onMounted(loadCollections)
     -->
     <Skeleton
       v-if="showSkeleton"
-      label="Loading collections"
+      :label="$t('docs-collection-browser-loading-label')"
       class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
     >
       <div
@@ -226,11 +228,11 @@ onMounted(loadCollections)
         </div>
         <div class="flex items-center justify-between pt-3 border-t border-subtle">
           <span class="text-xs text-tertiary">
-            {{ collection.page_count }} page{{ collection.page_count !== 1 ? 's' : '' }}
+            {{ $t('docs-collection-browser-pages', { count: collection.page_count }) }}
           </span>
           <div class="flex items-center gap-1.5">
-            <span v-if="collection.is_system" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover text-tertiary">System</span>
-            <span v-if="!collection.is_public" class="text-[10px] px-1.5 py-0.5 rounded bg-status-warning/10 text-status-warning">Restricted</span>
+            <span v-if="collection.is_system" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover text-tertiary">{{ $t('docs-collection-browser-system-badge') }}</span>
+            <span v-if="!collection.is_public" class="text-[10px] px-1.5 py-0.5 rounded bg-status-warning/10 text-status-warning">{{ $t('docs-collection-browser-restricted-badge') }}</span>
           </div>
         </div>
       </RouterLink>
@@ -238,7 +240,7 @@ onMounted(loadCollections)
 
     <!-- Empty State -->
     <div v-else class="text-center py-8 text-tertiary text-sm">
-      <p>No collections yet.</p>
+      <p>{{ $t('docs-collection-browser-empty') }}</p>
     </div>
 
   </div>

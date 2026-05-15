@@ -3,9 +3,12 @@ import { RouterLink } from 'vue-router'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@/services/documentationService'
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { formatDate } from '@/utils/dateUtils'
 import { docUrl } from '@/utils/docUrl'
 import Icon from '@/components/common/Icon.vue'
+
+useFluent()
 
 const props = defineProps<{
   page: Page
@@ -60,7 +63,7 @@ const authorName = computed(() => {
         v-if="hasChildren"
         @click="toggleExpand"
         class="expand-btn"
-        :aria-label="isExpanded ? 'Collapse' : 'Expand'"
+        :aria-label="isExpanded ? $t('docs-tree-item-collapse') : $t('docs-tree-item-expand')"
       >
         <span
           class="transition-transform duration-200 inline-flex"

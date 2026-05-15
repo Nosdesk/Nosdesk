@@ -20,6 +20,7 @@
 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import Popover from '@/components/common/Popover.vue'
 import { formatDate, formatRelativeTime } from '@/utils/dateUtils'
@@ -28,6 +29,9 @@ import {
   useUnverifyPageMutation,
 } from '@/composables/usePageVerification'
 import type { Page, Article } from '@/services/documentationService'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
   page: Page | Article
@@ -53,22 +57,23 @@ const isOpen = defineModel<boolean>('open', { default: false })
 /** Compact labels keep the cadence row to a single line in a
  *  w-72 popover. Short forms (30d / 1y / Never) read clearly in
  *  context: the row is preceded by "Re-verify every:" so the unit
- *  is unambiguous. */
-const INTERVAL_OPTIONS: { label: string; value: number | null }[] = [
-  { label: '30d', value: 30 },
-  { label: '90d', value: 90 },
-  { label: '180d', value: 180 },
-  { label: '1y', value: 365 },
-  { label: 'Never', value: null },
-]
+ *  is unambiguous. Labels resolve through the FTL catalogue so
+ *  locale-specific spacing ("30 j" / "30 d") flows through. */
+const INTERVAL_OPTIONS = computed<{ label: string; value: number | null }[]>(() => [
+  { label: t('docs-author-badge-interval-30d'), value: 30 },
+  { label: t('docs-author-badge-interval-90d'), value: 90 },
+  { label: t('docs-author-badge-interval-180d'), value: 180 },
+  { label: t('docs-author-badge-interval-1y'), value: 365 },
+  { label: t('docs-author-badge-interval-never'), value: null },
+])
 
 const state = computed<'never' | 'fresh' | 'stale'>(() => {
   if (!props.page.verified_at) return 'never'
   return props.page.is_stale ? 'stale' : 'fresh'
 })
 
-const authorName = computed(() => props.page.created_by?.name ?? 'Unknown')
-const verifierName = computed(() => props.page.verified_by?.name ?? 'Someone')
+const authorName = computed(() => props.page.created_by?.name ?? t('docs-author-badge-fallback-name'))
+const verifierName = computed(() => props.page.verified_by?.name ?? t('docs-author-badge-verifier-fallback'))
 
 const isWorking = computed(
   () =>
@@ -93,7 +98,9 @@ async function unverify() {
     type="button"
     class="inline-flex items-center gap-1 rounded px-1 -mx-1 hover:bg-surface-hover transition-colors text-secondary"
     :class="{ 'text-emerald-700 dark:text-emerald-400': state === 'fresh' }"
-    :title="`Authored by ${authorName}${state === 'fresh' ? ` · verified ${formatRelativeTime(page.verified_at!)}` : ''}`"
+    :title="state === 'fresh'
+      ? $t('docs-author-badge-title-verified', { author: authorName, relative: formatRelativeTime(page.verified_at!) })
+      : $t('docs-author-badge-title-basic', { author: authorName })"
     @click="isOpen = !isOpen"
   >
     <span>{{ authorName }}</span>
@@ -117,20 +124,20 @@ async function unverify() {
     placement="bottom-start"
     :offset="6"
     role="dialog"
-    aria-label="Document author and verification"
+    :aria-label="$t('docs-author-badge-popover-aria')"
     popover-class="w-72 rounded-lg border border-default bg-surface shadow-lg p-3 text-xs"
     @close="isOpen = false"
   >
     <!-- Authoring -->
     <section class="flex flex-col gap-1.5">
       <div class="flex items-baseline justify-between gap-2">
-        <span class="text-tertiary">Created</span>
+        <span class="text-tertiary">{{ $t('docs-author-badge-created') }}</span>
         <span class="text-secondary text-right">
           {{ page.created_at ? formatDate(page.created_at) : '—' }}
         </span>
       </div>
       <div class="flex items-baseline justify-between gap-2">
-        <span class="text-tertiary">Author</span>
+        <span class="text-tertiary">{{ $t('docs-author-badge-author') }}</span>
         <span class="text-primary font-medium text-right truncate">
           {{ authorName }}
         </span>
@@ -139,7 +146,7 @@ async function unverify() {
         v-if="page.last_edited_by && page.last_edited_by.uuid !== page.created_by?.uuid"
         class="flex items-baseline justify-between gap-2"
       >
-        <span class="text-tertiary">Last edited by</span>
+        <span class="text-tertiary">{{ $t('docs-author-badge-last-edited-by') }}</span>
         <span class="text-secondary text-right truncate">
           {{ page.last_edited_by.name }}
         </span>
@@ -149,28 +156,28 @@ async function unverify() {
     <!-- Verification -->
     <section class="mt-3 pt-3 border-t border-subtle flex flex-col gap-1.5">
       <div class="flex items-center justify-between gap-2">
-        <span class="text-tertiary">Verification</span>
+        <span class="text-tertiary">{{ $t('docs-author-badge-verification') }}</span>
         <span
           v-if="state === 'fresh'"
           class="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400"
         >
           <Icon name="check" size="xs" />
-          Verified
+          {{ $t('docs-author-badge-state-verified') }}
         </span>
         <span
           v-else-if="state === 'stale'"
           class="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400"
         >
           <Icon name="warning" size="xs" />
-          Stale
+          {{ $t('docs-author-badge-state-stale') }}
         </span>
         <span v-else class="text-[10px] uppercase tracking-wide text-tertiary">
-          Not verified
+          {{ $t('docs-author-badge-state-never') }}
         </span>
       </div>
 
       <div v-if="page.verified_at" class="flex items-baseline justify-between gap-2">
-        <span class="text-tertiary">Last verified</span>
+        <span class="text-tertiary">{{ $t('docs-author-badge-last-verified') }}</span>
         <span class="text-secondary text-right truncate">
           {{ verifierName }} &middot; {{ formatRelativeTime(page.verified_at) }}
         </span>
@@ -184,7 +191,7 @@ async function unverify() {
            saying the same thing twice. -->
       <div v-if="canVerify" class="mt-2 flex flex-col gap-1.5">
         <p class="text-tertiary">
-          {{ state === 'never' ? 'Mark as verified, re-verify every:' : 'Re-verify, every:' }}
+          {{ state === 'never' ? $t('docs-author-badge-verify-prompt-never') : $t('docs-author-badge-verify-prompt-again') }}
         </p>
         <div class="flex flex-wrap gap-1">
           <button
@@ -208,7 +215,7 @@ async function unverify() {
           class="self-start mt-1 text-tertiary hover:text-status-error transition-colors"
           @click="unverify"
         >
-          Clear verification
+          {{ $t('docs-author-badge-clear') }}
         </button>
       </div>
     </section>

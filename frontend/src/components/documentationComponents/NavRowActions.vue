@@ -11,7 +11,10 @@
  * pending-create state. Keeps it reusable for any future row
  * type.
  */
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
+
+useFluent()
 
 interface Props {
   /** Used in aria-label / title for both buttons. */
@@ -45,8 +48,8 @@ const onAdd = (event: MouseEvent) => {
     <button
       type="button"
       @click="onMore"
-      :aria-label="`More actions for ${label}`"
-      :title="`More actions for ${label}`"
+      :aria-label="$t('docs-nav-row-more', { label })"
+      :title="$t('docs-nav-row-more', { label })"
       class="rounded p-0.5 text-tertiary hover:bg-surface-hover hover:text-primary"
     >
       <Icon name="more" size="xs" />
@@ -55,8 +58,8 @@ const onAdd = (event: MouseEvent) => {
       type="button"
       @click="onAdd"
       :disabled="creating"
-      :aria-label="`Add a new page to ${label}`"
-      :title="`Add a new page to ${label}`"
+      :aria-label="$t('docs-nav-row-add', { label })"
+      :title="$t('docs-nav-row-add', { label })"
       class="rounded p-0.5 text-tertiary hover:bg-surface-hover hover:text-primary disabled:opacity-50"
     >
       <Icon name="add" size="xs" :class="{ 'animate-spin': creating }" />

@@ -10,10 +10,14 @@
  * elsewhere — this modal is for the collection's metadata only.
  */
 import { ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import type { CollectionWithDetails } from '@/services/collectionService'
 import { updateCollection } from '@/services/collectionService'
 import Modal from '@/components/Modal.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
+
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
 
 interface Props {
   collection: CollectionWithDetails | null
@@ -67,7 +71,7 @@ async function handleSave() {
   if (!props.collection) return
   const trimmedName = name.value.trim()
   if (!trimmedName) {
-    saveError.value = 'Name is required.'
+    saveError.value = t('docs-edit-collection-name-required')
     return
   }
   saving.value = true
@@ -82,13 +86,13 @@ async function handleSave() {
       hide_titles_from_non_members: hideTitles.value,
     })
     if (!updated) {
-      saveError.value = 'Failed to save. Try again.'
+      saveError.value = t('docs-edit-collection-save-error')
       return
     }
     emit('saved', { ...props.collection, ...updated } as CollectionWithDetails)
     emit('close')
   } catch {
-    saveError.value = 'Failed to save. Try again.'
+    saveError.value = t('docs-edit-collection-save-error')
   } finally {
     saving.value = false
   }
@@ -100,10 +104,10 @@ function handleCancel() {
 </script>
 
 <template>
-  <Modal :show="isOpen" title="Edit collection" size="md" @close="handleCancel">
+  <Modal :show="isOpen" :title="$t('docs-edit-collection-title')" size="md" @close="handleCancel">
     <form class="flex flex-col gap-4" @submit.prevent="handleSave">
       <div class="flex flex-col gap-1.5">
-        <label for="ec-name" class="text-sm font-medium text-primary">Name</label>
+        <label for="ec-name" class="text-sm font-medium text-primary">{{ $t('docs-edit-collection-name') }}</label>
         <input
           id="ec-name"
           v-model="name"
@@ -115,7 +119,7 @@ function handleCancel() {
       </div>
 
       <div class="flex flex-col gap-1.5">
-        <label for="ec-slug" class="text-sm font-medium text-primary">Slug</label>
+        <label for="ec-slug" class="text-sm font-medium text-primary">{{ $t('docs-edit-collection-slug') }}</label>
         <input
           id="ec-slug"
           v-model="slug"
@@ -123,13 +127,13 @@ function handleCancel() {
           class="w-full rounded-lg border border-default bg-surface-alt px-3 py-2 font-mono text-sm text-primary placeholder:text-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none"
         />
         <p class="text-xs text-tertiary">
-          URL fragment for this collection. Lowercase letters, numbers, and dashes only.
+          {{ $t('docs-edit-collection-slug-help') }}
         </p>
       </div>
 
       <div class="grid grid-cols-2 gap-3">
         <div class="flex flex-col gap-1.5">
-          <label for="ec-icon" class="text-sm font-medium text-primary">Icon</label>
+          <label for="ec-icon" class="text-sm font-medium text-primary">{{ $t('docs-edit-collection-icon') }}</label>
           <input
             id="ec-icon"
             v-model="icon"
@@ -140,7 +144,7 @@ function handleCancel() {
           />
         </div>
         <div class="flex flex-col gap-1.5">
-          <label for="ec-color" class="text-sm font-medium text-primary">Color</label>
+          <label for="ec-color" class="text-sm font-medium text-primary">{{ $t('docs-edit-collection-color') }}</label>
           <input
             id="ec-color"
             v-model="color"
@@ -152,17 +156,17 @@ function handleCancel() {
 
       <div class="flex flex-col gap-1.5">
         <label for="ec-description" class="text-sm font-medium text-primary">
-          Short description
+          {{ $t('docs-edit-collection-description') }}
         </label>
         <input
           id="ec-description"
           v-model="description"
           type="text"
-          placeholder="Optional tagline shown above the collection's overview"
+          :placeholder="$t('docs-edit-collection-description-placeholder')"
           class="w-full rounded-lg border border-default bg-surface-alt px-3 py-2 text-sm text-primary placeholder:text-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none"
         />
         <p class="text-xs text-tertiary">
-          The full overview is edited in-place on the collection landing page.
+          {{ $t('docs-edit-collection-description-help') }}
         </p>
       </div>
 
@@ -170,15 +174,14 @@ function handleCancel() {
         <Checkbox
           v-model="hideTitles"
           size="sm"
-          aria-label="Hide page titles from non-members"
+          :aria-label="$t('docs-edit-collection-hide-titles-aria')"
         />
         <div class="flex flex-col gap-0.5">
           <span class="text-sm font-medium text-primary">
-            Hide page titles from non-members
+            {{ $t('docs-edit-collection-hide-titles-label') }}
           </span>
           <span class="text-xs text-tertiary">
-            Cross-collection wikilinks render as "Restricted page" for viewers without
-            access, instead of leaking the title. Recommended for sensitive collections.
+            {{ $t('docs-edit-collection-hide-titles-help') }}
           </span>
         </div>
       </div>
@@ -195,7 +198,7 @@ function handleCancel() {
         :disabled="saving"
         class="px-4 py-2 text-sm text-secondary transition-colors hover:text-primary disabled:opacity-50"
       >
-        Cancel
+        {{ $t('docs-edit-collection-cancel') }}
       </button>
       <button
         type="button"
@@ -203,7 +206,7 @@ function handleCancel() {
         :disabled="saving"
         class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {{ saving ? 'Saving...' : 'Save changes' }}
+        {{ saving ? $t('docs-edit-collection-saving') : $t('docs-edit-collection-save') }}
       </button>
     </template>
   </Modal>

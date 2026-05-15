@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import type { CollectionPageTreeNode } from '@/services/collectionService'
 import { docUrl } from '@/utils/docUrl'
+
+useFluent()
 
 const props = defineProps<{
   node: CollectionPageTreeNode
@@ -46,7 +49,7 @@ const hasOverride = computed(() => props.overridePageIds?.has(props.node.id) ?? 
         class="flex-1 min-w-0 truncate ml-1.5"
         :class="isActive ? 'text-accent font-semibold' : 'hover:text-accent'"
       >
-        {{ node.title || 'Untitled' }}
+        {{ node.title || $t('docs-collection-tree-item-untitled') }}
       </RouterLink>
 
       <!-- Child count badge (on hover) -->
@@ -62,7 +65,7 @@ const hasOverride = computed(() => props.overridePageIds?.has(props.node.id) ?? 
         v-if="node.status === 'draft'"
         class="flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium ml-1.5"
       >
-        Draft
+        {{ $t('docs-collection-tree-item-draft') }}
       </span>
 
       <!-- Override lock icon -->
@@ -72,7 +75,7 @@ const hasOverride = computed(() => props.overridePageIds?.has(props.node.id) ?? 
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
-        title="Custom permissions"
+        :title="$t('docs-collection-tree-item-override-title')"
       >
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
       </svg>

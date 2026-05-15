@@ -17,11 +17,15 @@
  * dataStore.
  */
 import { computed, ref, onMounted, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
 import * as syncPool from '@/sync/pool'
 import type { User } from '@/types/user'
 import apiClient from '@/services/apiConfig'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 interface ContributorInfo {
   uuid: string
@@ -77,20 +81,20 @@ const readingTimeMinutes = computed(() => {
 })
 
 function relative(iso: string | null): string {
-  if (!iso) return 'unknown'
+  if (!iso) return t('docs-insights-relative-unknown')
   const diff = Date.now() - new Date(iso).getTime()
   const seconds = Math.round(diff / 1000)
-  if (seconds < 60) return 'just now'
+  if (seconds < 60) return t('docs-insights-relative-just-now')
   const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes} min ago`
+  if (minutes < 60) return t('docs-insights-relative-minutes', { count: minutes })
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours} hr ago`
+  if (hours < 24) return t('docs-insights-relative-hours', { count: hours })
   const days = Math.round(hours / 24)
-  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`
+  if (days < 30) return t('docs-insights-relative-days', { count: days })
   const months = Math.round(days / 30)
-  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`
+  if (months < 12) return t('docs-insights-relative-months', { count: months })
   const years = Math.round(months / 12)
-  return `${years} year${years === 1 ? '' : 's'} ago`
+  return t('docs-insights-relative-years', { count: years })
 }
 
 interface RevisionResponse {
@@ -118,7 +122,7 @@ async function loadContributors() {
       const u = users[i]
       return {
         uuid,
-        name: u?.name ?? 'Unknown user',
+        name: u?.name ?? t('docs-insights-unknown-user'),
         avatar: u?.avatar_thumb ?? u?.avatar_url ?? null,
       }
     })
@@ -136,44 +140,44 @@ watch(() => props.pageId, loadContributors)
 <template>
   <ResponsivePanel
     :open="open"
-    title="Insights"
+    :title="$t('docs-insights-title')"
     side-panel-class="w-80"
     @close="emit('close')"
   >
     <div class="flex flex-1 flex-col gap-6 px-4 py-4 text-sm">
       <section>
-        <h3 class="mb-2 text-xs font-semibold tracking-wide text-tertiary uppercase">Source</h3>
+        <h3 class="mb-2 text-xs font-semibold tracking-wide text-tertiary uppercase">{{ $t('docs-insights-source-heading') }}</h3>
         <ul class="flex flex-col gap-1 text-secondary" role="list">
-          <li>Created {{ relative(createdAt) }}</li>
-          <li>Last updated {{ relative(updatedAt) }}</li>
+          <li>{{ $t('docs-insights-created', { relative: relative(createdAt) }) }}</li>
+          <li>{{ $t('docs-insights-updated', { relative: relative(updatedAt) }) }}</li>
         </ul>
       </section>
 
       <section>
-        <h3 class="mb-2 text-xs font-semibold tracking-wide text-tertiary uppercase">Stats</h3>
+        <h3 class="mb-2 text-xs font-semibold tracking-wide text-tertiary uppercase">{{ $t('docs-insights-stats-heading') }}</h3>
         <ul class="flex flex-col gap-1 text-secondary" role="list">
-          <li>{{ readingTimeMinutes }} minute read</li>
-          <li>{{ wordCount.toLocaleString() }} words</li>
-          <li>{{ charCount.toLocaleString() }} characters</li>
-          <li>{{ emojiCount }} emoji</li>
+          <li>{{ $t('docs-insights-reading-time', { minutes: readingTimeMinutes }) }}</li>
+          <li>{{ $t('docs-insights-word-count', { count: wordCount.toLocaleString() }) }}</li>
+          <li>{{ $t('docs-insights-char-count', { count: charCount.toLocaleString() }) }}</li>
+          <li>{{ $t('docs-insights-emoji-count', { count: emojiCount }) }}</li>
         </ul>
       </section>
 
       <section>
         <h3 class="mb-2 text-xs font-semibold tracking-wide text-tertiary uppercase">
-          Contributors
+          {{ $t('docs-insights-contributors-heading') }}
         </h3>
         <p
           v-if="loadingContributors && contributors.length === 0"
           class="text-xs text-tertiary"
         >
-          Loading contributors...
+          {{ $t('docs-insights-contributors-loading') }}
         </p>
         <p
           v-else-if="contributors.length === 0"
           class="text-xs text-tertiary"
         >
-          No contributors yet.
+          {{ $t('docs-insights-contributors-empty') }}
         </p>
         <ul v-else class="flex flex-col gap-2" role="list">
           <li
@@ -191,7 +195,7 @@ watch(() => props.pageId, loadContributors)
             />
             <div class="min-w-0 flex-1">
               <div class="truncate text-primary">{{ c.name }}</div>
-              <div class="truncate text-xs text-tertiary">Contributor</div>
+              <div class="truncate text-xs text-tertiary">{{ $t('docs-insights-contributor-role') }}</div>
             </div>
           </li>
         </ul>

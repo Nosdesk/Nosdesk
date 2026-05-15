@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import type { CollectionPage } from '@/services/collectionService'
 import { buildCollectionTree } from '@/utils/treeUtils'
 import CollectionTreeItem from './CollectionTreeItem.vue'
 import { useStaggeredList } from '@/composables/useStaggeredList'
+
+useFluent()
 
 const props = defineProps<{
   pages: CollectionPage[]
@@ -23,7 +26,7 @@ const { getStyle } = useStaggeredList({
   <div class="collection-tree">
     <!-- Empty state -->
     <div v-if="tree.length === 0" class="text-center py-8 text-tertiary text-sm">
-      No pages in this collection yet.
+      {{ $t('docs-collection-tree-list-empty') }}
     </div>
 
     <div v-else>

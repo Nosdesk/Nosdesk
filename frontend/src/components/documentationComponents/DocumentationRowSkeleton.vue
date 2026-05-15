@@ -4,7 +4,7 @@ Mirrors the real row layout: icon + title/date stack + action buttons,
 same height so resolving the fetch doesn't shift the layout down.
 -->
 <template>
-  <Skeleton :label="label" class="flex flex-col gap-2">
+  <Skeleton :label="resolvedLabel" class="flex flex-col gap-2">
     <div
       v-for="i in count"
       :key="i"
@@ -23,10 +23,14 @@ same height so resolving the fetch doesn't shift the layout down.
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 
-withDefaults(
+const fluent = useFluent();
+
+const props = withDefaults(
   defineProps<{
     count?: number;
     actionsPerRow?: number;
@@ -35,7 +39,11 @@ withDefaults(
   {
     count: 3,
     actionsPerRow: 1,
-    label: 'Loading pages',
+    label: undefined,
   },
 );
+
+// Default label is localised; an explicit prop wins so callers
+// can override with feature-specific copy.
+const resolvedLabel = computed(() => props.label ?? fluent.$t('docs-row-skeleton-label'));
 </script>

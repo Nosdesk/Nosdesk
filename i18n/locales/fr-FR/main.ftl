@@ -2644,3 +2644,251 @@ settings-emails-set-primary-success = { $email } définie comme e-mail principal
 settings-emails-set-primary-error = Échec de la définition de l'e-mail principal
 settings-emails-delete-success = Adresse e-mail supprimée avec succès
 settings-emails-delete-error = Échec de la suppression de l'adresse e-mail
+# Docs : carte d'article (ArticleCard)
+docs-article-card-updated = Mis à jour le { $date }
+docs-article-card-edit = Modifier l'article
+
+# Docs : gestion des collections (CollectionManager)
+docs-collection-manager-title = Gérer les collections
+docs-collection-manager-empty = Aucune collection disponible.
+docs-collection-manager-pages = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+}
+docs-collection-manager-system-badge = Système
+docs-collection-manager-cancel = Annuler
+docs-collection-manager-save = Enregistrer
+docs-collection-manager-saving = Enregistrement...
+
+# Docs : navigateur de collections (CollectionBrowser)
+docs-collection-browser-heading = Collections
+docs-collection-browser-new = Nouveau
+docs-collection-browser-name-placeholder = Nom de la collection...
+docs-collection-browser-cancel = Annuler
+docs-collection-browser-create = Créer
+docs-collection-browser-loading-label = Chargement des collections
+docs-collection-browser-pages = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+}
+docs-collection-browser-system-badge = Système
+docs-collection-browser-restricted-badge = Restreinte
+docs-collection-browser-empty = Aucune collection pour le moment.
+
+# Docs : élément d'arborescence (CollectionTreeItem)
+docs-collection-tree-item-untitled = Sans titre
+docs-collection-tree-item-draft = Brouillon
+docs-collection-tree-item-override-title = Permissions personnalisées
+
+# Docs : arborescence (CollectionTreeList)
+docs-collection-tree-list-empty = Aucune page dans cette collection pour le moment.
+
+# Docs : visibilité de la collection (CollectionVisibilityModal)
+docs-collection-visibility-title = Accès à la collection
+docs-collection-visibility-description = Sélectionnez les groupes et utilisateurs autorisés à accéder à cette collection. Sans sélection, la collection est publique (visible par tous).
+docs-collection-visibility-public = Publique, visible par tous les utilisateurs
+docs-collection-visibility-picker-placeholder = Rechercher des utilisateurs et groupes...
+docs-collection-visibility-cancel = Annuler
+docs-collection-visibility-save = Enregistrer
+docs-collection-visibility-saving = Enregistrement...
+
+# Docs : menu d'actions (DocumentActionsMenu)
+docs-actions-menu-subscribe = S'abonner
+docs-actions-menu-unsubscribe = Se désabonner
+docs-actions-menu-insights = Statistiques
+docs-actions-menu-history = Historique des révisions
+docs-actions-menu-print = Imprimer
+docs-actions-menu-duplicate = Dupliquer
+docs-actions-menu-export = Télécharger en Markdown
+docs-actions-menu-move = Déplacer vers...
+docs-actions-menu-collections = Collections
+docs-actions-menu-archive = Archiver
+docs-actions-menu-unarchive = Désarchiver
+docs-actions-menu-permissions = Permissions
+docs-actions-menu-publish = Publier
+docs-actions-menu-unpublish = Dépublier
+docs-actions-menu-trash = Mettre à la corbeille
+docs-actions-menu-trash-confirm = Confirmer la mise à la corbeille ?
+docs-actions-menu-trigger = Actions de la page
+
+# Docs : fil d'Ariane (DocumentationBreadcrumb)
+docs-breadcrumb-root = Documentation
+docs-breadcrumb-aria = Fil d'Ariane
+
+# Docs : carte (DocumentationCard)
+docs-card-empty-content = Aucun contenu pour le moment
+docs-card-children-more = +{ $count } de plus
+docs-card-relative-unknown = Inconnu
+docs-card-relative-today = Aujourd'hui
+docs-card-relative-yesterday = Hier
+docs-card-relative-days = il y a { $count }j
+docs-card-relative-weeks = il y a { $count }sem.
+docs-card-freshness-fresh = Mise à jour récente
+docs-card-freshness-recent = Mise à jour cette semaine
+docs-card-freshness-stale = Pas de mise à jour récente
+
+# Docs : squelette de carte (DocumentationCardSkeleton)
+docs-card-skeleton-label = Chargement des pages
+
+# Docs : squelette de ligne (DocumentationRowSkeleton)
+docs-row-skeleton-label = Chargement des pages
+
+# Docs : navigation (DocumentationNav)
+docs-nav-starred = Favoris
+docs-nav-empty = Aucun document pour le moment
+docs-nav-sort-manual = Manuel
+docs-nav-sort-alpha = Alphabétique
+docs-nav-sort-recent = Récemment mis à jour
+docs-nav-untitled = Sans titre
+docs-nav-duplicate-suffix = { $title } (copie)
+docs-nav-confirm-delete-collection-title = Supprimer { $name } ?
+docs-nav-confirm-delete-collection-fallback = Supprimer la collection ?
+docs-nav-confirm-delete-collection-message = Les pages de cette collection seront déplacées vers la corbeille. Vous pouvez les restaurer depuis là.
+docs-nav-confirm-delete = Supprimer
+docs-nav-menu-open-new-tab = Ouvrir dans un nouvel onglet
+docs-nav-menu-copy-link = Copier le lien
+docs-nav-menu-copy-md = Copier en Markdown
+docs-nav-menu-copy-text = Copier en texte brut
+docs-nav-menu-add-child = Ajouter une page enfant
+docs-nav-menu-star = Mettre en favori
+docs-nav-menu-unstar = Retirer des favoris
+docs-nav-menu-subscribe = S'abonner
+docs-nav-menu-duplicate = Dupliquer
+docs-nav-menu-move = Déplacer vers...
+docs-nav-menu-history = Historique des révisions
+docs-nav-menu-insights = Statistiques
+docs-nav-menu-export-md = Télécharger en Markdown
+docs-nav-menu-print = Imprimer
+docs-nav-menu-permissions = Permissions
+docs-nav-menu-archive = Archiver
+docs-nav-menu-restore = Restaurer
+docs-nav-menu-trash = Mettre à la corbeille
+docs-nav-col-edit = Modifier la collection
+docs-nav-col-sort-heading = Trier par
+docs-nav-col-permissions = Permissions
+docs-nav-col-delete = Supprimer
+
+# Docs : actions de ligne (NavRowActions)
+docs-nav-row-more = Plus d'actions pour { $label }
+docs-nav-row-add = Ajouter une nouvelle page à { $label }
+
+# Docs : élément de navigation (DocumentationNavItem)
+docs-nav-item-draft = Brouillon
+
+# Docs : élément d'arborescence (DocumentationTreeItem)
+docs-tree-item-expand = Développer
+docs-tree-item-collapse = Réduire
+
+# Docs : élément de sommaire (DocumentationTocItem)
+docs-toc-item-untitled = Page sans titre
+
+# Docs : panneau d'aperçu (DocumentInsightsPanel)
+docs-insights-title = Aperçu
+docs-insights-source-heading = Source
+docs-insights-stats-heading = Statistiques
+docs-insights-contributors-heading = Contributeurs
+docs-insights-created = Créée { $relative }
+docs-insights-updated = Mise à jour { $relative }
+docs-insights-reading-time = { $minutes ->
+    [one] { $minutes } minute de lecture
+   *[other] { $minutes } minutes de lecture
+}
+docs-insights-word-count = { $count } mots
+docs-insights-char-count = { $count } caractères
+docs-insights-emoji-count = { $count } emoji
+docs-insights-contributors-loading = Chargement des contributeurs...
+docs-insights-contributors-empty = Aucun contributeur pour le moment.
+docs-insights-contributor-role = Contributeur
+docs-insights-unknown-user = Utilisateur inconnu
+docs-insights-relative-unknown = inconnu
+docs-insights-relative-just-now = à l'instant
+docs-insights-relative-minutes = il y a { $count } min
+docs-insights-relative-hours = il y a { $count } h
+docs-insights-relative-days = { $count ->
+    [one] il y a { $count } jour
+   *[other] il y a { $count } jours
+}
+docs-insights-relative-months = { $count ->
+    [one] il y a { $count } mois
+   *[other] il y a { $count } mois
+}
+docs-insights-relative-years = { $count ->
+    [one] il y a { $count } an
+   *[other] il y a { $count } ans
+}
+
+# Docs : édition de collection (EditCollectionModal)
+docs-edit-collection-title = Modifier la collection
+docs-edit-collection-name = Nom
+docs-edit-collection-slug = Identifiant URL
+docs-edit-collection-slug-help = Fragment d'URL pour cette collection. Minuscules, chiffres et tirets uniquement.
+docs-edit-collection-icon = Icône
+docs-edit-collection-color = Couleur
+docs-edit-collection-description = Description courte
+docs-edit-collection-description-placeholder = Slogan facultatif affiché au-dessus de l'aperçu de la collection
+docs-edit-collection-description-help = L'aperçu complet se modifie directement sur la page d'accueil de la collection.
+docs-edit-collection-hide-titles-aria = Masquer les titres de page aux non-membres
+docs-edit-collection-hide-titles-label = Masquer les titres de page aux non-membres
+docs-edit-collection-hide-titles-help = Les wikilinks inter-collections affichent « Page restreinte » pour les lecteurs sans accès, au lieu de divulguer le titre. Recommandé pour les collections sensibles.
+docs-edit-collection-name-required = Le nom est requis.
+docs-edit-collection-save-error = Échec de l'enregistrement. Réessayez.
+docs-edit-collection-cancel = Annuler
+docs-edit-collection-save = Enregistrer les modifications
+docs-edit-collection-saving = Enregistrement...
+
+# Docs : déplacement de document (MoveDocumentModal)
+docs-move-title = Déplacer le document
+docs-move-search-placeholder = Rechercher des pages...
+docs-move-root-label = Niveau racine (sans parent)
+docs-move-current-badge = Actuel
+docs-move-empty-search = Aucune page correspondante.
+docs-move-empty = Aucune page disponible.
+docs-move-cancel = Annuler
+docs-move-action = Déplacer
+docs-move-moving = Déplacement...
+
+# Docs : permissions de page (PagePermissionsModal)
+docs-page-permissions-title = Permissions de la page
+docs-page-permissions-mode-inherit = Hériter des collections
+docs-page-permissions-mode-custom = Accès personnalisé
+docs-page-permissions-inherit-description = Cette page hérite de la visibilité de ses collections. Les utilisateurs ayant accès à l'une des collections de la page peuvent voir cette page.
+docs-page-permissions-no-collections = Dans aucune collection, visible par tous.
+docs-page-permissions-custom-description = Sélectionnez les groupes et utilisateurs autorisés à accéder à cette page. Cela remplace les permissions au niveau collection.
+docs-page-permissions-picker-placeholder = Rechercher des utilisateurs et groupes...
+docs-page-permissions-no-selection-warning = Aucun groupe ni utilisateur sélectionné, seuls les administrateurs pourront voir cette page.
+docs-page-permissions-cancel = Annuler
+docs-page-permissions-save = Enregistrer
+docs-page-permissions-saving = Enregistrement...
+
+# Docs : tickets liés (PageTicketLinksPanel)
+docs-page-tickets-heading = Tickets liés
+docs-page-tickets-add = Lier un ticket
+docs-page-tickets-loading = Chargement...
+docs-page-tickets-empty = Aucun ticket lié à cette page pour le moment.
+docs-page-tickets-resolved-heading = Résolus
+docs-page-tickets-referenced-heading = Référencés
+docs-page-tickets-fallback-title = Ticket nº{ $id }
+docs-page-tickets-unlink = Délier le ticket nº{ $id }
+
+# Docs : badge d'auteur (DocumentAuthorBadge)
+docs-author-badge-fallback-name = Inconnu
+docs-author-badge-verifier-fallback = Quelqu'un
+docs-author-badge-title-verified = Rédigé par { $author } · vérifié { $relative }
+docs-author-badge-title-basic = Rédigé par { $author }
+docs-author-badge-popover-aria = Auteur et vérification du document
+docs-author-badge-created = Créé
+docs-author-badge-author = Auteur
+docs-author-badge-last-edited-by = Dernière modification par
+docs-author-badge-verification = Vérification
+docs-author-badge-state-verified = Vérifié
+docs-author-badge-state-stale = Obsolète
+docs-author-badge-state-never = Non vérifié
+docs-author-badge-last-verified = Dernière vérification
+docs-author-badge-verify-prompt-never = Marquer comme vérifié, revérifier tous les :
+docs-author-badge-verify-prompt-again = Revérifier tous les :
+docs-author-badge-interval-30d = 30 j
+docs-author-badge-interval-90d = 90 j
+docs-author-badge-interval-180d = 180 j
+docs-author-badge-interval-1y = 1 an
+docs-author-badge-interval-never = Jamais
+docs-author-badge-clear = Effacer la vérification

@@ -2635,3 +2635,251 @@ settings-emails-set-primary-success = { $email } ingesteld als primair e-mailadr
 settings-emails-set-primary-error = Kan e-mailadres niet instellen als primair
 settings-emails-delete-success = E-mailadres verwijderd
 settings-emails-delete-error = Kan e-mailadres niet verwijderen
+# Docs: artikelkaart (ArticleCard)
+docs-article-card-updated = Bijgewerkt op { $date }
+docs-article-card-edit = Artikel bewerken
+
+# Docs: collectiebeheer (CollectionManager)
+docs-collection-manager-title = Collecties beheren
+docs-collection-manager-empty = Geen collecties beschikbaar.
+docs-collection-manager-pages = { $count ->
+    [one] { $count } pagina
+   *[other] { $count } pagina's
+}
+docs-collection-manager-system-badge = Systeem
+docs-collection-manager-cancel = Annuleren
+docs-collection-manager-save = Opslaan
+docs-collection-manager-saving = Opslaan...
+
+# Docs: collectie-overzicht (CollectionBrowser)
+docs-collection-browser-heading = Collecties
+docs-collection-browser-new = Nieuw
+docs-collection-browser-name-placeholder = Naam van de collectie...
+docs-collection-browser-cancel = Annuleren
+docs-collection-browser-create = Aanmaken
+docs-collection-browser-loading-label = Collecties laden
+docs-collection-browser-pages = { $count ->
+    [one] { $count } pagina
+   *[other] { $count } pagina's
+}
+docs-collection-browser-system-badge = Systeem
+docs-collection-browser-restricted-badge = Beperkt
+docs-collection-browser-empty = Nog geen collecties.
+
+# Docs: boomelement (CollectionTreeItem)
+docs-collection-tree-item-untitled = Naamloos
+docs-collection-tree-item-draft = Concept
+docs-collection-tree-item-override-title = Aangepaste rechten
+
+# Docs: boomstructuur (CollectionTreeList)
+docs-collection-tree-list-empty = Nog geen pagina's in deze collectie.
+
+# Docs: zichtbaarheid collectie (CollectionVisibilityModal)
+docs-collection-visibility-title = Toegang tot collectie
+docs-collection-visibility-description = Selecteer welke groepen en gebruikers toegang hebben tot deze collectie. Een lege selectie maakt de collectie openbaar (zichtbaar voor iedereen).
+docs-collection-visibility-public = Openbaar, zichtbaar voor alle gebruikers
+docs-collection-visibility-picker-placeholder = Zoek gebruikers en groepen...
+docs-collection-visibility-cancel = Annuleren
+docs-collection-visibility-save = Opslaan
+docs-collection-visibility-saving = Opslaan...
+
+# Docs: actiemenu document (DocumentActionsMenu)
+docs-actions-menu-subscribe = Abonneren
+docs-actions-menu-unsubscribe = Afmelden
+docs-actions-menu-insights = Inzichten
+docs-actions-menu-history = Revisiegeschiedenis
+docs-actions-menu-print = Afdrukken
+docs-actions-menu-duplicate = Dupliceren
+docs-actions-menu-export = Markdown downloaden
+docs-actions-menu-move = Verplaatsen naar...
+docs-actions-menu-collections = Collecties
+docs-actions-menu-archive = Archiveren
+docs-actions-menu-unarchive = Uit archief halen
+docs-actions-menu-permissions = Rechten
+docs-actions-menu-publish = Publiceren
+docs-actions-menu-unpublish = Publicatie intrekken
+docs-actions-menu-trash = Verplaatsen naar prullenbak
+docs-actions-menu-trash-confirm = Prullenbak bevestigen?
+docs-actions-menu-trigger = Pagina-acties
+
+# Docs: kruimelpad (DocumentationBreadcrumb)
+docs-breadcrumb-root = Documentatie
+docs-breadcrumb-aria = Kruimelpad
+
+# Docs: kaart (DocumentationCard)
+docs-card-empty-content = Nog geen inhoud
+docs-card-children-more = +{ $count } meer
+docs-card-relative-unknown = Onbekend
+docs-card-relative-today = Vandaag
+docs-card-relative-yesterday = Gisteren
+docs-card-relative-days = { $count }d geleden
+docs-card-relative-weeks = { $count }w geleden
+docs-card-freshness-fresh = Recent bijgewerkt
+docs-card-freshness-recent = Deze week bijgewerkt
+docs-card-freshness-stale = Niet recent bijgewerkt
+
+# Docs: kaartskelet (DocumentationCardSkeleton)
+docs-card-skeleton-label = Pagina's laden
+
+# Docs: rijskelet (DocumentationRowSkeleton)
+docs-row-skeleton-label = Pagina's laden
+
+# Docs: navigatie (DocumentationNav)
+docs-nav-starred = Met ster
+docs-nav-empty = Nog geen documenten
+docs-nav-sort-manual = Handmatig
+docs-nav-sort-alpha = Alfabetisch
+docs-nav-sort-recent = Recent bijgewerkt
+docs-nav-untitled = Naamloos
+docs-nav-duplicate-suffix = { $title } (kopie)
+docs-nav-confirm-delete-collection-title = { $name } verwijderen?
+docs-nav-confirm-delete-collection-fallback = Collectie verwijderen?
+docs-nav-confirm-delete-collection-message = Pagina's in deze collectie worden naar de prullenbak verplaatst. Je kunt ze daar herstellen.
+docs-nav-confirm-delete = Verwijderen
+docs-nav-menu-open-new-tab = Openen in nieuw tabblad
+docs-nav-menu-copy-link = Link kopiëren
+docs-nav-menu-copy-md = Kopiëren als Markdown
+docs-nav-menu-copy-text = Kopiëren als platte tekst
+docs-nav-menu-add-child = Onderliggende pagina toevoegen
+docs-nav-menu-star = Ster geven
+docs-nav-menu-unstar = Ster verwijderen
+docs-nav-menu-subscribe = Abonneren
+docs-nav-menu-duplicate = Dupliceren
+docs-nav-menu-move = Verplaatsen naar...
+docs-nav-menu-history = Revisiegeschiedenis
+docs-nav-menu-insights = Inzichten
+docs-nav-menu-export-md = Markdown downloaden
+docs-nav-menu-print = Afdrukken
+docs-nav-menu-permissions = Rechten
+docs-nav-menu-archive = Archiveren
+docs-nav-menu-restore = Herstellen
+docs-nav-menu-trash = Verplaatsen naar prullenbak
+docs-nav-col-edit = Collectie bewerken
+docs-nav-col-sort-heading = Sorteren op
+docs-nav-col-permissions = Rechten
+docs-nav-col-delete = Verwijderen
+
+# Docs: rij-acties (NavRowActions)
+docs-nav-row-more = Meer acties voor { $label }
+docs-nav-row-add = Nieuwe pagina toevoegen aan { $label }
+
+# Docs: navigatie-item (DocumentationNavItem)
+docs-nav-item-draft = Concept
+
+# Docs: boomelement (DocumentationTreeItem)
+docs-tree-item-expand = Uitvouwen
+docs-tree-item-collapse = Invouwen
+
+# Docs: inhoudsopgave-item (DocumentationTocItem)
+docs-toc-item-untitled = Naamloze pagina
+
+# Docs: inzichtenpaneel (DocumentInsightsPanel)
+docs-insights-title = Inzichten
+docs-insights-source-heading = Bron
+docs-insights-stats-heading = Statistieken
+docs-insights-contributors-heading = Bijdragers
+docs-insights-created = Aangemaakt { $relative }
+docs-insights-updated = Laatst bijgewerkt { $relative }
+docs-insights-reading-time = { $minutes ->
+    [one] { $minutes } minuut leestijd
+   *[other] { $minutes } minuten leestijd
+}
+docs-insights-word-count = { $count } woorden
+docs-insights-char-count = { $count } tekens
+docs-insights-emoji-count = { $count } emoji
+docs-insights-contributors-loading = Bijdragers laden...
+docs-insights-contributors-empty = Nog geen bijdragers.
+docs-insights-contributor-role = Bijdrager
+docs-insights-unknown-user = Onbekende gebruiker
+docs-insights-relative-unknown = onbekend
+docs-insights-relative-just-now = zojuist
+docs-insights-relative-minutes = { $count } min geleden
+docs-insights-relative-hours = { $count } u geleden
+docs-insights-relative-days = { $count ->
+    [one] { $count } dag geleden
+   *[other] { $count } dagen geleden
+}
+docs-insights-relative-months = { $count ->
+    [one] { $count } maand geleden
+   *[other] { $count } maanden geleden
+}
+docs-insights-relative-years = { $count ->
+    [one] { $count } jaar geleden
+   *[other] { $count } jaar geleden
+}
+
+# Docs: collectie bewerken (EditCollectionModal)
+docs-edit-collection-title = Collectie bewerken
+docs-edit-collection-name = Naam
+docs-edit-collection-slug = Slug
+docs-edit-collection-slug-help = URL-fragment voor deze collectie. Alleen kleine letters, cijfers en streepjes.
+docs-edit-collection-icon = Pictogram
+docs-edit-collection-color = Kleur
+docs-edit-collection-description = Korte omschrijving
+docs-edit-collection-description-placeholder = Optionele tagline boven het overzicht van de collectie
+docs-edit-collection-description-help = Het volledige overzicht bewerk je rechtstreeks op de landingspagina van de collectie.
+docs-edit-collection-hide-titles-aria = Paginatitels verbergen voor niet-leden
+docs-edit-collection-hide-titles-label = Paginatitels verbergen voor niet-leden
+docs-edit-collection-hide-titles-help = Wikilinks tussen collecties tonen "Beperkte pagina" voor lezers zonder toegang, in plaats van de titel te lekken. Aanbevolen voor gevoelige collecties.
+docs-edit-collection-name-required = Naam is verplicht.
+docs-edit-collection-save-error = Opslaan mislukt. Probeer het opnieuw.
+docs-edit-collection-cancel = Annuleren
+docs-edit-collection-save = Wijzigingen opslaan
+docs-edit-collection-saving = Opslaan...
+
+# Docs: document verplaatsen (MoveDocumentModal)
+docs-move-title = Document verplaatsen
+docs-move-search-placeholder = Pagina's zoeken...
+docs-move-root-label = Hoofdniveau (geen bovenliggende)
+docs-move-current-badge = Huidig
+docs-move-empty-search = Geen overeenkomende pagina's gevonden.
+docs-move-empty = Geen pagina's beschikbaar.
+docs-move-cancel = Annuleren
+docs-move-action = Verplaatsen
+docs-move-moving = Verplaatsen...
+
+# Docs: paginarechten (PagePermissionsModal)
+docs-page-permissions-title = Paginarechten
+docs-page-permissions-mode-inherit = Overnemen van collecties
+docs-page-permissions-mode-custom = Aangepaste toegang
+docs-page-permissions-inherit-description = Deze pagina erft zichtbaarheid van zijn collecties. Gebruikers met toegang tot een van de collecties zien deze pagina.
+docs-page-permissions-no-collections = In geen enkele collectie, zichtbaar voor iedereen.
+docs-page-permissions-custom-description = Selecteer welke groepen en gebruikers toegang hebben tot deze pagina. Dit overschrijft de rechten op collectieniveau.
+docs-page-permissions-picker-placeholder = Zoek gebruikers en groepen...
+docs-page-permissions-no-selection-warning = Geen groepen of gebruikers geselecteerd, niemand behalve beheerders kan deze pagina zien.
+docs-page-permissions-cancel = Annuleren
+docs-page-permissions-save = Opslaan
+docs-page-permissions-saving = Opslaan...
+
+# Docs: gekoppelde tickets (PageTicketLinksPanel)
+docs-page-tickets-heading = Gekoppelde tickets
+docs-page-tickets-add = Ticket koppelen
+docs-page-tickets-loading = Laden...
+docs-page-tickets-empty = Nog geen tickets gekoppeld aan deze pagina.
+docs-page-tickets-resolved-heading = Opgelost
+docs-page-tickets-referenced-heading = Verwezen
+docs-page-tickets-fallback-title = Ticket #{ $id }
+docs-page-tickets-unlink = Ticket #{ $id } ontkoppelen
+
+# Docs: auteursbadge (DocumentAuthorBadge)
+docs-author-badge-fallback-name = Onbekend
+docs-author-badge-verifier-fallback = Iemand
+docs-author-badge-title-verified = Geschreven door { $author } · geverifieerd { $relative }
+docs-author-badge-title-basic = Geschreven door { $author }
+docs-author-badge-popover-aria = Auteur en verificatie van het document
+docs-author-badge-created = Aangemaakt
+docs-author-badge-author = Auteur
+docs-author-badge-last-edited-by = Laatst bewerkt door
+docs-author-badge-verification = Verificatie
+docs-author-badge-state-verified = Geverifieerd
+docs-author-badge-state-stale = Verouderd
+docs-author-badge-state-never = Niet geverifieerd
+docs-author-badge-last-verified = Laatst geverifieerd
+docs-author-badge-verify-prompt-never = Markeren als geverifieerd, opnieuw verifiëren elke:
+docs-author-badge-verify-prompt-again = Opnieuw verifiëren, elke:
+docs-author-badge-interval-30d = 30 d
+docs-author-badge-interval-90d = 90 d
+docs-author-badge-interval-180d = 180 d
+docs-author-badge-interval-1y = 1 j
+docs-author-badge-interval-never = Nooit
+docs-author-badge-clear = Verificatie wissen

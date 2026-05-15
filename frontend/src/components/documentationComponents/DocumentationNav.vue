@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, reactive, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import documentationService, { getStarredPages, createArticle } from '@/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { useAuthStore } from '@/stores/auth'
@@ -38,6 +39,8 @@ const route = useRoute()
 const router = useRouter()
 const docNavStore = useDocumentationNavStore()
 const docPanel = useDocumentPanelState()
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 // SSE for real-time updates
 const { addEventListener, removeEventListener } = useSSE()
@@ -176,32 +179,32 @@ const pageContextMenuItems = computed((): MenuItem[] => {
   // Other items are label-only by intent: a row of identical
   // generic icons would have nothing to scan against.
   const items: MenuItem[] = [
-    { id: 'open-new-tab', label: 'Open in new tab' },
-    { id: 'copy-link', label: 'Copy link', icon: icons.link },
-    { id: 'copy-md', label: 'Copy as Markdown', icon: icons.copyMd },
-    { id: 'copy-text', label: 'Copy as plain text', divider: true },
-    { id: 'add-child', label: 'Add child page', icon: icons.add },
-    { id: isStarred ? 'unstar' : 'star', label: isStarred ? 'Remove star' : 'Star', icon: icons.star },
-    { id: 'subscribe', label: 'Subscribe', icon: icons.bell },
-    { id: 'duplicate', label: 'Duplicate' },
-    { id: 'move', label: 'Move to...', divider: true },
-    { id: 'history', label: 'Revision history', icon: icons.history },
-    { id: 'insights', label: 'Insights', icon: icons.insights },
-    { id: 'export-md', label: 'Download Markdown', icon: icons.download },
-    { id: 'print', label: 'Print' },
+    { id: 'open-new-tab', label: t('docs-nav-menu-open-new-tab') },
+    { id: 'copy-link', label: t('docs-nav-menu-copy-link'), icon: icons.link },
+    { id: 'copy-md', label: t('docs-nav-menu-copy-md'), icon: icons.copyMd },
+    { id: 'copy-text', label: t('docs-nav-menu-copy-text'), divider: true },
+    { id: 'add-child', label: t('docs-nav-menu-add-child'), icon: icons.add },
+    { id: isStarred ? 'unstar' : 'star', label: isStarred ? t('docs-nav-menu-unstar') : t('docs-nav-menu-star'), icon: icons.star },
+    { id: 'subscribe', label: t('docs-nav-menu-subscribe'), icon: icons.bell },
+    { id: 'duplicate', label: t('docs-nav-menu-duplicate') },
+    { id: 'move', label: t('docs-nav-menu-move'), divider: true },
+    { id: 'history', label: t('docs-nav-menu-history'), icon: icons.history },
+    { id: 'insights', label: t('docs-nav-menu-insights'), icon: icons.insights },
+    { id: 'export-md', label: t('docs-nav-menu-export-md'), icon: icons.download },
+    { id: 'print', label: t('docs-nav-menu-print') },
   ]
 
   if (authStore.isAdmin) {
-    items.push({ id: 'permissions', label: 'Permissions', icon: icons.permissions, divider: true })
+    items.push({ id: 'permissions', label: t('docs-nav-menu-permissions'), icon: icons.permissions, divider: true })
   }
 
   items.push({
     id: isArchived ? 'restore' : 'archive',
-    label: isArchived ? 'Restore' : 'Archive',
+    label: isArchived ? t('docs-nav-menu-restore') : t('docs-nav-menu-archive'),
     icon: icons.archive,
     divider: !authStore.isAdmin,
   })
-  items.push({ id: 'delete', label: 'Move to Trash', icon: icons.trash, danger: true })
+  items.push({ id: 'delete', label: t('docs-nav-menu-trash'), icon: icons.trash, danger: true })
 
   return items
 })
@@ -216,17 +219,17 @@ const collectionContextMenuItems = computed((): MenuItem[] => {
   const collection = contextMenuCollection.value
   const active = currentSortMode(collection?.id)
   const items: MenuItem[] = [
-    { id: 'col-edit', label: 'Edit collection', icon: icons.rename },
-    { id: 'col-sort-heading', label: 'Sort by', heading: true, divider: true },
-    { id: 'col-sort-manual', label: SORT_LABELS.manual, checked: active === 'manual' },
-    { id: 'col-sort-alpha', label: SORT_LABELS.alpha, checked: active === 'alpha' },
-    { id: 'col-sort-recent', label: SORT_LABELS.recent, checked: active === 'recent' },
+    { id: 'col-edit', label: t('docs-nav-col-edit'), icon: icons.rename },
+    { id: 'col-sort-heading', label: t('docs-nav-col-sort-heading'), heading: true, divider: true },
+    { id: 'col-sort-manual', label: SORT_LABELS.value.manual, checked: active === 'manual' },
+    { id: 'col-sort-alpha', label: SORT_LABELS.value.alpha, checked: active === 'alpha' },
+    { id: 'col-sort-recent', label: SORT_LABELS.value.recent, checked: active === 'recent' },
   ]
   if (authStore.isAdmin) {
-    items.push({ id: 'col-permissions', label: 'Permissions', icon: icons.permissions, divider: true })
+    items.push({ id: 'col-permissions', label: t('docs-nav-col-permissions'), icon: icons.permissions, divider: true })
   }
   if (authStore.isAdmin && collection && !collection.is_system) {
-    items.push({ id: 'col-delete', label: 'Delete', icon: icons.trash, danger: true, divider: true })
+    items.push({ id: 'col-delete', label: t('docs-nav-col-delete'), icon: icons.trash, danger: true, divider: true })
   }
   return items
 })
@@ -437,7 +440,7 @@ const handleContextMenuSelect = async (actionId: string) => {
     case 'duplicate':
       try {
         const newPage = await documentationService.createArticle({
-          title: `${page.title} (copy)`,
+          title: t('docs-nav-duplicate-suffix', { title: page.title }),
           content: '',
           description: '',
           status: 'draft',
@@ -602,11 +605,13 @@ function stripMarkdown(md: string): string {
 // drag-set display_order; alpha = title ascending; recent =
 // updated_at descending.
 type SortMode = 'manual' | 'alpha' | 'recent'
-const SORT_LABELS: Record<SortMode, string> = {
-  manual: 'Manual',
-  alpha: 'Alphabetical',
-  recent: 'Recently updated',
-}
+// Localised sort labels. Reactive so a locale switch refreshes
+// the menu without remount.
+const SORT_LABELS = computed<Record<SortMode, string>>(() => ({
+  manual: t('docs-nav-sort-manual'),
+  alpha: t('docs-nav-sort-alpha'),
+  recent: t('docs-nav-sort-recent'),
+}))
 const SORT_ORDER: SortMode[] = ['manual', 'alpha', 'recent']
 const SORT_STORAGE_KEY = 'docs.collectionSort.v1'
 
@@ -668,7 +673,7 @@ async function createInCollection(collectionId: number) {
   creatingInCollection.value = collectionId
   try {
     const created = await createArticle({
-      title: 'Untitled',
+      title: t('docs-nav-untitled'),
       icon: '📄',
       status: 'draft',
       parent_id: null,
@@ -690,7 +695,7 @@ async function createChildOfPage(parentPage: NavPage) {
   creatingUnderPage.value = parentPage.id
   try {
     const created = await createArticle({
-      title: 'Untitled',
+      title: t('docs-nav-untitled'),
       icon: '📄',
       status: 'draft',
       parent_id: parentId,
@@ -1246,7 +1251,7 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
         <span class="flex-shrink-0 ml-0.5 text-amber-500 inline-flex">
           <Icon name="star" />
         </span>
-        <span class="flex-1 truncate min-w-0 ml-1 font-medium">Starred</span>
+        <span class="flex-1 truncate min-w-0 ml-1 font-medium">{{ $t('docs-nav-starred') }}</span>
         <span class="flex-shrink-0 text-[10px] text-tertiary ml-1">{{ starredPages.length }}</span>
       </div>
 
@@ -1392,7 +1397,7 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
 
       <!-- Empty State -->
       <div v-if="collections.length === 0" class="px-4 py-8 text-center">
-        <div class="text-tertiary text-sm">No documents yet</div>
+        <div class="text-tertiary text-sm">{{ $t('docs-nav-empty') }}</div>
       </div>
     </div>
 
@@ -1434,9 +1439,9 @@ watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
   <ConfirmModal
     :show="pendingDeleteCollection !== null"
     variant="danger"
-    :title="pendingDeleteCollection ? `Delete ${pendingDeleteCollection.name}?` : 'Delete collection?'"
-    message="Pages in this collection will be moved to the trash. You can restore them from there."
-    confirm-label="Delete"
+    :title="pendingDeleteCollection ? $t('docs-nav-confirm-delete-collection-title', { name: pendingDeleteCollection.name }) : $t('docs-nav-confirm-delete-collection-fallback')"
+    :message="$t('docs-nav-confirm-delete-collection-message')"
+    :confirm-label="$t('docs-nav-confirm-delete')"
     @confirm="doDeleteCollection"
     @close="pendingDeleteCollection = null"
   />

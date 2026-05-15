@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import type { Page } from '@/services/documentationService'
 import { formatDate } from '@/utils/dateUtils'
 import { docUrl } from '@/utils/docUrl'
 import UserAvatar from '@/components/UserAvatar.vue'
 import DocumentationChildCard from './DocumentationChildCard.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
   page: Page
@@ -50,23 +54,23 @@ const freshnessClass = computed(() => {
 })
 
 const freshnessTitle = computed(() => {
-  if (freshnessClass.value === 'fresh') return 'Updated recently'
-  if (freshnessClass.value === 'recent') return 'Updated this week'
-  return 'Not updated recently'
+  if (freshnessClass.value === 'fresh') return t('docs-card-freshness-fresh')
+  if (freshnessClass.value === 'recent') return t('docs-card-freshness-recent')
+  return t('docs-card-freshness-stale')
 })
 
 // Format relative date
 const formatRelativeDate = (dateStr: string | undefined) => {
-  if (!dateStr) return 'Unknown'
+  if (!dateStr) return t('docs-card-relative-unknown')
   const date = new Date(dateStr)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return `${diffDays}d ago`
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
+  if (diffDays === 0) return t('docs-card-relative-today')
+  if (diffDays === 1) return t('docs-card-relative-yesterday')
+  if (diffDays < 7) return t('docs-card-relative-days', { count: diffDays })
+  if (diffDays < 30) return t('docs-card-relative-weeks', { count: Math.floor(diffDays / 7) })
   return formatDate(dateStr, 'MMM d')
 }
 </script>
@@ -92,7 +96,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
         {{ contentPreview }}
       </p>
       <p v-else class="doc-card-description doc-card-description--empty">
-        No content yet
+        {{ $t('docs-card-empty-content') }}
       </p>
 
       <!-- Metadata Row -->
@@ -143,7 +147,7 @@ const formatRelativeDate = (dateStr: string | undefined) => {
         :page="child"
       />
       <span v-if="page.children!.length > 3" class="children-more">
-        +{{ page.children!.length - 3 }} more
+        {{ $t('docs-card-children-more', { count: page.children!.length - 3 }) }}
       </span>
     </div>
   </article>

@@ -3,9 +3,12 @@ import { useRoute } from 'vue-router'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import type { Page } from '@/services/documentationService'
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import NavRowActions from './NavRowActions.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useLongPress } from '@/composables/useLongPress'
+
+useFluent()
 
 const props = defineProps<{
   page: Page;
@@ -203,7 +206,7 @@ const handleDrop = (event: DragEvent) => {
 
       <!-- Page Title -->
       <span class="flex-1 truncate min-w-0 ml-1">{{ page.title }}</span>
-      <span v-if="page.status === 'draft'" class="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 flex-shrink-0 ml-1">Draft</span>
+      <span v-if="page.status === 'draft'" class="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 flex-shrink-0 ml-1">{{ $t('docs-nav-item-draft') }}</span>
 
       <!-- Hover affordances: same primitive collections use, so
            the row vocabulary stays consistent. The decorative

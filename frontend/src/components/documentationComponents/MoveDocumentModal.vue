@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useFluent } from 'fluent-vue'
 import documentationService from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
 import Icon from '@/components/common/Icon.vue'
+
+useFluent()
 
 const props = defineProps<{
   pageId: string | number
@@ -120,7 +123,7 @@ onMounted(async () => {
     <div class="bg-surface border border-default rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
       <!-- Header -->
       <div class="flex items-center justify-between p-4 border-b border-default">
-        <h3 class="text-sm font-semibold text-primary">Move Document</h3>
+        <h3 class="text-sm font-semibold text-primary">{{ $t('docs-move-title') }}</h3>
         <button
           @click="emit('close')"
           class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
@@ -137,7 +140,7 @@ onMounted(async () => {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search pages..."
+          :placeholder="$t('docs-move-search-placeholder')"
           class="w-full px-3 py-2 text-sm bg-surface-alt border border-default rounded-md text-primary placeholder-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
         />
       </div>
@@ -163,8 +166,8 @@ onMounted(async () => {
             <svg class="w-4 h-4 flex-shrink-0 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
             </svg>
-            <span class="flex-1">Root level (no parent)</span>
-            <span v-if="isCurrentLocation(null)" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary">Current</span>
+            <span class="flex-1">{{ $t('docs-move-root-label') }}</span>
+            <span v-if="isCurrentLocation(null)" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary">{{ $t('docs-move-current-badge') }}</span>
           </button>
 
           <!-- Pages -->
@@ -186,12 +189,12 @@ onMounted(async () => {
           >
             <span class="text-sm flex-shrink-0">{{ fp.icon || '📄' }}</span>
             <span class="flex-1 truncate">{{ fp.title }}</span>
-            <span v-if="isCurrentLocation(fp.id)" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary flex-shrink-0">Current</span>
+            <span v-if="isCurrentLocation(fp.id)" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary flex-shrink-0">{{ $t('docs-move-current-badge') }}</span>
           </button>
 
           <!-- Empty state -->
           <div v-if="flatPages.length === 0 && !loading" class="p-4 text-center text-tertiary text-sm">
-            {{ searchQuery ? 'No matching pages found.' : 'No pages available.' }}
+            {{ searchQuery ? $t('docs-move-empty-search') : $t('docs-move-empty') }}
           </div>
         </div>
       </div>
@@ -202,14 +205,14 @@ onMounted(async () => {
           @click="emit('close')"
           class="px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
         >
-          Cancel
+          {{ $t('docs-move-cancel') }}
         </button>
         <button
           @click="handleMove"
           :disabled="!hasChanged || moving"
           class="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         >
-          {{ moving ? 'Moving...' : 'Move' }}
+          {{ moving ? $t('docs-move-moving') : $t('docs-move-action') }}
         </button>
       </div>
     </div>
