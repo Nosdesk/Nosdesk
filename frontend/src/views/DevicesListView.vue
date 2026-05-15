@@ -323,9 +323,9 @@ async function confirmDelete() {
 
   <BulkConfirmDialog
     :show="showDeleteConfirm"
-    :count="selection.selectedCount.value"
-    :item-label="$t('devices-list-item-label')"
-    action-verb="delete"
+    :title="$t('devices-list-bulk-delete-title', { count: selection.selectedCount.value })"
+    :message="$t('devices-list-bulk-delete-message', { count: selection.selectedCount.value })"
+    :confirm-label="$t('devices-list-bulk-delete-count', { count: selection.selectedCount.value })"
     @confirm="confirmDelete"
     @close="showDeleteConfirm = false"
   />

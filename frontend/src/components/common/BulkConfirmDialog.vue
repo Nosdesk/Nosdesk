@@ -1,15 +1,19 @@
 <!--
-Count-aware confirm dialog for destructive bulk actions.
+Confirm dialog for destructive bulk actions.
 
-Wraps the generic `ConfirmModal` with three things specific to
-bulk operations:
- - Count + plural item label baked into the title and message.
- - "Type the action verb" affordance for high-blast-radius
-   operations (Stripe / GitHub repo-deletion pattern); enabled by
-   passing `requireConfirmText`. The Confirm button stays disabled
-   until the typed text matches.
- - Defaults to the `danger` variant since that's what most bulk
-   confirms are.
+Wraps the generic `ConfirmModal` with one bulk-specific affordance:
+
+  "Type the action verb" gate for high-blast-radius operations
+  (Stripe / GitHub repo-deletion pattern). The Confirm button stays
+  disabled until the typed text matches `requireConfirmText`.
+
+Title, message, and confirm label are required props rather than
+derived from `count`/`itemLabel`/`actionVerb` defaults. Building
+prose from string concatenation forced English plurals
+(`${count} ${itemLabel}s`) on every consumer; pushing the
+sentences up to the caller lets each one resolve through Fluent
+with proper selectors. Defaults to the `danger` variant since
+that's what most bulk confirms are.
 
 Used by views that want a modal for irreversible bulk actions; for
 reversible ones (Linear / Asana / Gmail style), prefer
@@ -22,30 +26,25 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue'
 const props = withDefaults(
   defineProps<{
     show: boolean
-    /** Number of selected items the action will apply to. Used in
-     *  the title and message ("Delete 14 tickets?"). */
-    count: number
-    /** Singular item label, e.g. `"ticket"`. Pluralised for counts. */
-    itemLabel?: string
-    /** The verb of the action, used in the title and the typed
-     *  confirmation. Defaults to "delete". */
-    actionVerb?: string
-    /** Override the auto-generated message. */
-    message?: string
-    /** Override the title. */
-    title?: string
-    /** Confirm button label. */
-    confirmLabel?: string
+    /** Localized title, e.g. `$t('user-mgmt-bulk-delete-title', { count })`. */
+    title: string
+    /** Localized message body. */
+    message: string
+    /** Localized confirm-button label. */
+    confirmLabel: string
     /** Variant for the confirm button. Defaults to `danger`. */
     variant?: 'danger' | 'warning' | 'info'
     /** When set, requires the user to type this text before the
      *  Confirm button enables. The Stripe / GitHub destructive
      *  pattern, reserved for irreversible operations. */
     requireConfirmText?: string
+    /** Localized prompt for the typed-confirmation input. Required
+     *  when `requireConfirmText` is set. The bound input expects
+     *  the word the user must type to land inside this string in
+     *  the locale's natural sentence order. */
+    typeToConfirmLabel?: string
   }>(),
   {
-    itemLabel: 'item',
-    actionVerb: 'delete',
     variant: 'danger',
   },
 )
@@ -54,25 +53,6 @@ const emit = defineEmits<{
   confirm: []
   close: []
 }>()
-
-const pluralLabel = computed(() =>
-  props.count === 1 ? props.itemLabel : `${props.itemLabel}s`,
-)
-
-const computedTitle = computed(() =>
-  props.title ??
-  `${capitalise(props.actionVerb)} ${props.count} ${pluralLabel.value}?`,
-)
-
-const computedMessage = computed(() =>
-  props.message ??
-  `This will ${props.actionVerb} ${props.count} ${pluralLabel.value}. This action cannot be undone.`,
-)
-
-const computedConfirmLabel = computed(() =>
-  props.confirmLabel ??
-  `${capitalise(props.actionVerb)} ${props.count} ${pluralLabel.value}`,
-)
 
 // Typed-confirmation state. Reset every time the dialog re-opens so
 // stale input from a previous open doesn't leak.
@@ -89,10 +69,6 @@ const typedConfirmMatches = computed(() =>
   typedConfirm.value.trim() === props.requireConfirmText.trim(),
 )
 
-function capitalise(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1)
-}
-
 function handleConfirm() {
   if (!typedConfirmMatches.value) return
   emit('confirm')
@@ -102,9 +78,9 @@ function handleConfirm() {
 <template>
   <ConfirmModal
     :show="show"
-    :title="computedTitle"
-    :message="computedMessage"
-    :confirm-label="computedConfirmLabel"
+    :title="title"
+    :message="message"
+    :confirm-label="confirmLabel"
     :variant="variant"
     :confirm-disabled="!typedConfirmMatches"
     @confirm="handleConfirm"
@@ -116,9 +92,7 @@ function handleConfirm() {
          button stays bound to its enable state. -->
     <template v-if="requireConfirmText" #body>
       <label class="flex flex-col gap-1.5 text-xs">
-        <span class="text-tertiary">
-          Type <code class="px-1 py-0.5 rounded bg-surface-alt text-primary font-mono">{{ requireConfirmText }}</code> to confirm.
-        </span>
+        <span class="text-tertiary">{{ typeToConfirmLabel }}</span>
         <input
           v-model="typedConfirm"
           type="text"

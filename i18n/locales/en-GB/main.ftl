@@ -804,8 +804,7 @@ admin-api-tokens-bearer-hint-prefix = Use this token with the
 admin-api-tokens-bearer-hint-suffix = header
 admin-api-tokens-done = Done
 admin-api-tokens-revoke-modal-title = Revoke Token
-admin-api-tokens-revoke-confirm-prefix = Are you sure you want to revoke the token
-admin-api-tokens-revoke-confirm-suffix = ?
+admin-api-tokens-revoke-confirm-message = Are you sure you want to revoke the token "{ $name }"?
 admin-api-tokens-revoke-warning = This action cannot be undone. Any systems using this token will lose access.
 admin-api-tokens-revoking = Revoking...
 
@@ -1441,6 +1440,14 @@ user-mgmt-mobile-devices = { $count ->
 user-mgmt-bulk-role = Role
 user-mgmt-bulk-delete = Delete
 user-mgmt-bulk-delete-count = Delete { $count }
+user-mgmt-bulk-delete-title = { $count ->
+    [one] Delete user?
+   *[other] Delete { $count } users?
+}
+user-mgmt-bulk-delete-message = { $count ->
+    [one] This will permanently delete one user. This action cannot be undone.
+   *[other] This will permanently delete { $count } users. This action cannot be undone.
+}
 user-mgmt-bulk-action-error = Failed to perform bulk action. Please try again.
 user-mgmt-role-modal-title = Set role
 user-mgmt-role-modal-body = { $count ->
@@ -1604,6 +1611,14 @@ devices-list-unassigned = Unassigned
 devices-list-warranty-unknown = Unknown
 devices-list-bulk-delete = Delete
 devices-list-bulk-delete-count = Delete { $count }
+devices-list-bulk-delete-title = { $count ->
+    [one] Delete device?
+   *[other] Delete { $count } devices?
+}
+devices-list-bulk-delete-message = { $count ->
+    [one] This will permanently delete one device. This action cannot be undone.
+   *[other] This will permanently delete { $count } devices. This action cannot be undone.
+}
 devices-list-bulk-action-error = Failed to delete devices. Please try again.
 
 # Device detail (DeviceView): per-device page covering name, hostname,
@@ -2176,3 +2191,8 @@ settings-auth-methods-sessions-revoke-error = Failed to revoke session
 settings-auth-methods-sessions-revoke-all-success = All other sessions revoked successfully
 settings-auth-methods-sessions-revoke-all-error = Failed to revoke sessions
 settings-auth-methods-sessions-load-error = Failed to load active sessions
+
+# Shared common chrome — keys used by primitive components like
+# Modal.vue. Kept under the "common-*" namespace so primitives
+# don't depend on feature-specific FTL slices.
+common-modal-close = Close modal

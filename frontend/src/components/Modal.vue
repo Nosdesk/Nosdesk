@@ -1,6 +1,7 @@
 <!-- Modal.vue -->
 <script setup lang="ts">
 import { computed, toRef, onMounted, onUnmounted } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useScrollLock } from '@/composables/useScrollLock'
 
 const props = defineProps<{
@@ -10,7 +11,14 @@ const props = defineProps<{
   headerClass?: string
   removePadding?: boolean
   size?: 'sm' | 'md' | 'lg' | 'xl'
+  // Optional override for the close-button screen-reader label.
+  // Defaults to the shared `common-modal-close` key so every modal
+  // narrates the same close affordance in the active locale.
+  closeAriaLabel?: string
 }>()
+
+const fluent = useFluent()
+const closeLabel = computed(() => props.closeAriaLabel ?? fluent.$t('common-modal-close'))
 
 // Generate unique ID for aria-labelledby
 const titleId = computed(() => `modal-title-${Math.random().toString(36).slice(2, 9)}`)
@@ -74,7 +82,7 @@ onUnmounted(() => document.removeEventListener('keydown', onEscape))
               type="button"
               @click="emit('close')"
               class="p-1 -mr-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors flex-shrink-0 touch-target inline-flex items-center justify-center"
-              aria-label="Close modal"
+              :aria-label="closeLabel"
             >
               <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />

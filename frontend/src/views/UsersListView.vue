@@ -310,9 +310,9 @@ async function applyRoleChange(role: string) {
 
     <BulkConfirmDialog
       :show="showDeleteConfirm"
-      :count="selection.selectedCount.value"
-      :item-label="$t('user-mgmt-item-label')"
-      action-verb="delete"
+      :title="$t('user-mgmt-bulk-delete-title', { count: selection.selectedCount.value })"
+      :message="$t('user-mgmt-bulk-delete-message', { count: selection.selectedCount.value })"
+      :confirm-label="$t('user-mgmt-bulk-delete-count', { count: selection.selectedCount.value })"
       @confirm="confirmDelete"
       @close="showDeleteConfirm = false"
     />

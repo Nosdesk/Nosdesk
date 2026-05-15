@@ -820,8 +820,7 @@ admin-api-tokens-bearer-hint-prefix = Gebruik dit token met de
 admin-api-tokens-bearer-hint-suffix = header
 admin-api-tokens-done = Klaar
 admin-api-tokens-revoke-modal-title = Token intrekken
-admin-api-tokens-revoke-confirm-prefix = Weet u zeker dat u het token wilt intrekken
-admin-api-tokens-revoke-confirm-suffix = ?
+admin-api-tokens-revoke-confirm-message = Weet u zeker dat u het token "{ $name }" wilt intrekken?
 admin-api-tokens-revoke-warning = Deze actie kan niet ongedaan worden gemaakt. Systemen die dit token gebruiken verliezen toegang.
 admin-api-tokens-revoking = Intrekken...
 
@@ -1457,6 +1456,14 @@ user-mgmt-mobile-devices = { $count ->
 user-mgmt-bulk-role = Rol
 user-mgmt-bulk-delete = Verwijderen
 user-mgmt-bulk-delete-count = { $count } verwijderen
+user-mgmt-bulk-delete-title = { $count ->
+    [one] Gebruiker verwijderen?
+   *[other] { $count } gebruikers verwijderen?
+}
+user-mgmt-bulk-delete-message = { $count ->
+    [one] Hiermee wordt één gebruiker permanent verwijderd. Deze actie kan niet ongedaan worden gemaakt.
+   *[other] Hiermee worden { $count } gebruikers permanent verwijderd. Deze actie kan niet ongedaan worden gemaakt.
+}
 user-mgmt-bulk-action-error = Bulkactie mislukt. Probeer het opnieuw.
 user-mgmt-role-modal-title = Rol instellen
 user-mgmt-role-modal-body = { $count ->
@@ -1620,6 +1627,14 @@ devices-list-unassigned = Niet toegewezen
 devices-list-warranty-unknown = Onbekend
 devices-list-bulk-delete = Verwijderen
 devices-list-bulk-delete-count = { $count } verwijderen
+devices-list-bulk-delete-title = { $count ->
+    [one] Apparaat verwijderen?
+   *[other] { $count } apparaten verwijderen?
+}
+devices-list-bulk-delete-message = { $count ->
+    [one] Hiermee wordt één apparaat permanent verwijderd. Deze actie kan niet ongedaan worden gemaakt.
+   *[other] Hiermee worden { $count } apparaten permanent verwijderd. Deze actie kan niet ongedaan worden gemaakt.
+}
 devices-list-bulk-action-error = Apparaten verwijderen mislukt. Probeer het opnieuw.
 
 # Device detail (DeviceView): per-device page covering name, hostname,
@@ -2192,3 +2207,6 @@ settings-auth-methods-sessions-revoke-error = Kan sessie niet intrekken
 settings-auth-methods-sessions-revoke-all-success = Alle andere sessies zijn ingetrokken
 settings-auth-methods-sessions-revoke-all-error = Kan sessies niet intrekken
 settings-auth-methods-sessions-load-error = Kan actieve sessies niet laden
+
+# Gemeenschappelijke onderdelen.
+common-modal-close = Venster sluiten

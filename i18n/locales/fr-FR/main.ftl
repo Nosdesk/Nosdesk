@@ -823,8 +823,7 @@ admin-api-tokens-bearer-hint-prefix = Utilisez ce jeton avec l'en-tête
 admin-api-tokens-bearer-hint-suffix = .
 admin-api-tokens-done = Terminé
 admin-api-tokens-revoke-modal-title = Révoquer le jeton
-admin-api-tokens-revoke-confirm-prefix = Confirmez-vous la révocation du jeton
-admin-api-tokens-revoke-confirm-suffix = ?
+admin-api-tokens-revoke-confirm-message = Confirmez-vous la révocation du jeton « { $name } » ?
 admin-api-tokens-revoke-warning = Cette action est irréversible. Les systèmes utilisant ce jeton perdront l'accès.
 admin-api-tokens-revoking = Révocation...
 
@@ -1460,6 +1459,14 @@ user-mgmt-mobile-devices = { $count ->
 user-mgmt-bulk-role = Rôle
 user-mgmt-bulk-delete = Supprimer
 user-mgmt-bulk-delete-count = Supprimer { $count }
+user-mgmt-bulk-delete-title = { $count ->
+    [one] Supprimer l'utilisateur ?
+   *[other] Supprimer { $count } utilisateurs ?
+}
+user-mgmt-bulk-delete-message = { $count ->
+    [one] Cela supprimera définitivement un utilisateur. Cette action est irréversible.
+   *[other] Cela supprimera définitivement { $count } utilisateurs. Cette action est irréversible.
+}
 user-mgmt-bulk-action-error = Échec de l'action groupée. Veuillez réessayer.
 user-mgmt-role-modal-title = Définir le rôle
 user-mgmt-role-modal-body = { $count ->
@@ -1623,6 +1630,14 @@ devices-list-unassigned = Non attribué
 devices-list-warranty-unknown = Inconnue
 devices-list-bulk-delete = Supprimer
 devices-list-bulk-delete-count = Supprimer { $count }
+devices-list-bulk-delete-title = { $count ->
+    [one] Supprimer l'appareil ?
+   *[other] Supprimer { $count } appareils ?
+}
+devices-list-bulk-delete-message = { $count ->
+    [one] Cela supprimera définitivement un appareil. Cette action est irréversible.
+   *[other] Cela supprimera définitivement { $count } appareils. Cette action est irréversible.
+}
 devices-list-bulk-action-error = Échec de la suppression des appareils. Veuillez réessayer.
 
 # Device detail (DeviceView): per-device page covering name, hostname,
@@ -2201,3 +2216,6 @@ settings-auth-methods-sessions-revoke-error = Échec de la révocation de la ses
 settings-auth-methods-sessions-revoke-all-success = Toutes les autres sessions ont été révoquées
 settings-auth-methods-sessions-revoke-all-error = Échec de la révocation des sessions
 settings-auth-methods-sessions-load-error = Échec du chargement des sessions actives
+
+# Habillage commun.
+common-modal-close = Fermer la fenêtre

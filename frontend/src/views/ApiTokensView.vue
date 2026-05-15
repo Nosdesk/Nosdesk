@@ -436,8 +436,11 @@ onMounted(() => {
       @close="showRevokeConfirm = false"
     >
       <div class="flex flex-col gap-4">
+        <!-- One-string confirm prompt with { $name } interpolation.
+             The previous prefix/suffix split was English-only — French
+             and Dutch put the name at a different sentence position. -->
         <p class="text-secondary">
-          {{ $t('admin-api-tokens-revoke-confirm-prefix') }} <strong class="text-primary">{{ tokenToRevoke?.name }}</strong>{{ $t('admin-api-tokens-revoke-confirm-suffix') }}
+          {{ t('admin-api-tokens-revoke-confirm-message', { name: tokenToRevoke?.name ?? '' }) }}
         </p>
         <p class="text-sm text-status-error">
           {{ $t('admin-api-tokens-revoke-warning') }}
