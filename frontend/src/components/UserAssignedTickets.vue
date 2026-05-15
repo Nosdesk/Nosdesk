@@ -18,6 +18,9 @@ const props = withDefaults(defineProps<{
     userUuid?: string;
     ticketType?: 'assigned' | 'requested';
     title?: string;
+    /** FTL key used in place of `title` so callers passing a registry
+     *  entry can stay locale-aware. Wins over `title` when both set. */
+    titleKey?: string;
     showFilters?: boolean;
 }>(), {
     limit: 5,
@@ -26,6 +29,7 @@ const props = withDefaults(defineProps<{
     userUuid: "",
     ticketType: 'assigned',
     title: "",
+    titleKey: "",
     showFilters: true,
 });
 
@@ -56,6 +60,7 @@ const isCurrentUser = computed(() => !props.userUuid || props.userUuid === auth.
 const emptyDescription = computed(() => (isCurrentUser.value ? fluent.$t('user-assigned-tickets-empty-current') : ''));
 
 const displayTitle = computed(() => {
+    if (props.titleKey) return fluent.$t(props.titleKey);
     if (props.title) return props.title;
     return props.ticketType === 'requested'
         ? fluent.$t('user-assigned-tickets-title-requested')

@@ -13,12 +13,16 @@ interface Props {
     ticketStatus?: "open" | "in-progress" | "closed";
     userUuid?: string;
     title?: string;
+    /** FTL key used in place of `title` so callers passing a registry
+     *  entry can stay locale-aware. Wins over `title` when both set. */
+    titleKey?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
     ticketStatus: "closed",
     userUuid: "",
     title: "",
+    titleKey: "",
 });
 
 interface DayData {
@@ -250,7 +254,7 @@ onActivated(() => {
       it.
     -->
     <DashboardWidgetShell
-        :title="props.title || (props.ticketStatus === 'closed' ? $t('ticket-heatmap-title-closed') : $t('ticket-heatmap-title-activity'))"
+        :title="props.titleKey ? $t(props.titleKey) : (props.title || (props.ticketStatus === 'closed' ? $t('ticket-heatmap-title-closed') : $t('ticket-heatmap-title-activity')))"
         :error="error"
         :flush-body="false"
     >

@@ -32,10 +32,10 @@ export type WidgetSpan = 1 | 2 | 3
 export interface WidgetDef {
   /** Stable identifier persisted in user layouts. */
   id: string
-  /** Human-readable title shown in the "add widget" picker. */
-  title: string
-  /** One-line description shown next to the title in the picker. */
-  description: string
+  /** FTL key for the human-readable title shown in the "add widget" picker. */
+  titleKey: string
+  /** FTL key for the one-line description shown next to the title in the picker. */
+  descriptionKey: string
   /** The Vue component rendered for this widget. */
   component: Component
   /** Static props passed to the component when rendered. */
@@ -80,8 +80,8 @@ export type DashboardStatsGroup = 'queue' | 'yours' | 'summary' | 'knowledge_gap
 export const WIDGET_REGISTRY: WidgetDef[] = [
   {
     id: 'assigned-tickets',
-    title: 'Assigned Tickets',
-    description: 'Your current work queue with status and priority.',
+    titleKey: 'dashboard-widget-assigned-tickets-title',
+    descriptionKey: 'dashboard-widget-assigned-tickets-description',
     component: UserAssignedTickets,
     props: { limit: 10 },
     span: 2,
@@ -89,8 +89,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     id: 'stats-yours',
-    title: 'Your Counts',
-    description: 'Quick counts of tickets assigned to you by status.',
+    titleKey: 'dashboard-widget-stats-yours-title',
+    descriptionKey: 'dashboard-widget-stats-yours-description',
     component: StaffYoursStats,
     span: 1,
     roles: ['technician', 'admin'],
@@ -99,8 +99,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     id: 'stats-queue',
-    title: 'Queue Counts',
-    description: 'Unassigned and total ticket counts across the queue.',
+    titleKey: 'dashboard-widget-stats-queue-title',
+    descriptionKey: 'dashboard-widget-stats-queue-description',
     component: StaffQueueStats,
     span: 1,
     roles: ['technician', 'admin'],
@@ -109,8 +109,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     id: 'unassigned-queue',
-    title: 'Unassigned Queue',
-    description: 'Oldest open tickets with no assignee — grab the next one.',
+    titleKey: 'dashboard-widget-unassigned-queue-title',
+    descriptionKey: 'dashboard-widget-unassigned-queue-description',
     component: UnassignedQueueWidget,
     span: 2,
     roles: ['technician', 'admin'],
@@ -118,8 +118,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     id: 'recently-viewed',
-    title: 'Recently Viewed',
-    description: 'Tickets you looked at most recently.',
+    titleKey: 'dashboard-widget-recently-viewed-title',
+    descriptionKey: 'dashboard-widget-recently-viewed-description',
     component: RecentlyViewedWidget,
     span: 1,
     roles: ['technician', 'admin', 'user'],
@@ -127,8 +127,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     id: 'starred-docs',
-    title: 'Starred Docs',
-    description: 'Documentation pages you have starred for quick access.',
+    titleKey: 'dashboard-widget-starred-docs-title',
+    descriptionKey: 'dashboard-widget-starred-docs-description',
     component: StarredDocsWidget,
     span: 1,
     roles: ['technician', 'admin', 'user'],
@@ -136,8 +136,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     id: 'my-devices',
-    title: 'My Devices',
-    description: 'Devices assigned to you as their primary user.',
+    titleKey: 'dashboard-widget-my-devices-title',
+    descriptionKey: 'dashboard-widget-my-devices-description',
     component: MyDevicesWidget,
     span: 1,
     roles: ['technician', 'admin', 'user'],
@@ -145,8 +145,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     id: 'channel-health',
-    title: 'Channel Health',
-    description: 'Status of inbound email channels — last poll, enabled state, errors.',
+    titleKey: 'dashboard-widget-channel-health-title',
+    descriptionKey: 'dashboard-widget-channel-health-description',
     component: ChannelHealthWidget,
     span: 1,
     roles: ['admin'],
@@ -154,26 +154,26 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     id: 'activity-heatmap',
-    title: 'Activity Heatmap',
-    description: '365-day heatmap of tickets you closed.',
+    titleKey: 'dashboard-widget-activity-heatmap-title',
+    descriptionKey: 'dashboard-widget-activity-heatmap-description',
     component: TicketHeatmap,
-    props: { ticketStatus: 'closed', title: 'Your Activity' },
+    props: { ticketStatus: 'closed', titleKey: 'dashboard-widget-activity-heatmap-prop-title' },
     span: 3,
     roles: ['technician', 'admin'],
   },
   {
     id: 'requested-tickets',
-    title: 'Your Requests',
-    description: 'Tickets you have opened with current status.',
+    titleKey: 'dashboard-widget-requested-tickets-title',
+    descriptionKey: 'dashboard-widget-requested-tickets-description',
     component: UserAssignedTickets,
-    props: { ticketType: 'requested', limit: 10, title: 'Your Requests' },
+    props: { ticketType: 'requested', limit: 10, titleKey: 'dashboard-widget-requested-tickets-prop-title' },
     span: 2,
     roles: ['user'],
   },
   {
     id: 'stats-summary',
-    title: 'Request Summary',
-    description: 'Count of your requests by status.',
+    titleKey: 'dashboard-widget-stats-summary-title',
+    descriptionKey: 'dashboard-widget-stats-summary-description',
     component: UserSummaryStats,
     span: 1,
     roles: ['user'],
@@ -182,8 +182,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   {
     id: 'knowledge-gaps',
-    title: 'Knowledge Gaps',
-    description: 'Top docs to write, ranked by ticket evidence.',
+    titleKey: 'dashboard-widget-knowledge-gaps-title',
+    descriptionKey: 'dashboard-widget-knowledge-gaps-description',
     component: KnowledgeGapsWidget,
     span: 1,
     roles: ['technician', 'admin'],

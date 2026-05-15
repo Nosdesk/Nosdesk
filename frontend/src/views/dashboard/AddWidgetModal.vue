@@ -35,8 +35,8 @@ function choose(id: string) {
           class="w-full text-left flex flex-col gap-0.5 p-3 rounded-lg border border-default hover:border-accent hover:bg-surface-hover transition-colors"
           @click="choose(w.id)"
         >
-          <span class="text-sm font-medium text-primary">{{ w.title }}</span>
-          <span class="text-xs text-tertiary">{{ w.description }}</span>
+          <span class="text-sm font-medium text-primary">{{ t(w.titleKey) }}</span>
+          <span class="text-xs text-tertiary">{{ t(w.descriptionKey) }}</span>
         </button>
       </li>
     </ul>

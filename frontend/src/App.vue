@@ -125,7 +125,7 @@ const titleIcon = computed(() => route.meta.titleIcon as string | undefined);
 // which writes to `pageActions.createAction`. This replaces the
 // old `defineExpose({ handleCreate }) + currentViewComponent.value
 // ?.[methodName]?.()` indirection.
-const showCreateButton = computed(() => !!route.meta.createButtonText);
+const showCreateButton = computed(() => !!(route.meta.createButtonTextKey || route.meta.createButtonText));
 
 const pageActions = usePageActionsStore();
 const handleCreateClick = () => {
