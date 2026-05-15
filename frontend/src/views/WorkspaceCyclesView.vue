@@ -13,11 +13,15 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { cyclesService, type Cycle } from '@/services/cyclesService'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { subscribe } from '@/sync/lifecycle'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const router = useRouter()
 const projectsStore = useSyncProjectsStore()
@@ -36,7 +40,7 @@ async function load(): Promise<void> {
       includeCompleted.value ? ['planned', 'active', 'completed'] : undefined,
     )
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load cycles'
+    error.value = e instanceof Error ? e.message : t('workspace-cycles-error-fallback')
   } finally {
     isLoading.value = false
   }
@@ -72,7 +76,7 @@ const grouped = computed<ProjectGroup[]>(() => {
     if (!group) {
       group = {
         project_id: c.project_id,
-        project_name: projectNameById.value.get(c.project_id) ?? `Project #${c.project_id}`,
+        project_name: projectNameById.value.get(c.project_id) ?? t('workspace-cycles-project-fallback', { id: c.project_id }),
         cycles: [],
       }
       map.set(c.project_id, group)
@@ -83,8 +87,16 @@ const grouped = computed<ProjectGroup[]>(() => {
 })
 
 function fmt(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return t('workspace-cycles-date-missing')
   return new Date(iso).toLocaleDateString()
+}
+
+function stateLabel(state: string): string {
+  switch (state) {
+    case 'planned': return t('workspace-cycles-state-planned')
+    case 'completed': return t('workspace-cycles-state-completed')
+    default: return state
+  }
 }
 
 function openProject(projectId: number): void {
@@ -100,18 +112,18 @@ function openCycle(uuid: string): void {
   <div class="flex flex-col h-full">
     <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
       <div>
-        <h1 class="text-xl font-semibold text-primary">Cycles</h1>
-        <p class="text-xs text-tertiary mt-0.5">In-flight iterations across every project</p>
+        <h1 class="text-xl font-semibold text-primary">{{ $t('workspace-cycles-heading') }}</h1>
+        <p class="text-xs text-tertiary mt-0.5">{{ $t('workspace-cycles-subheading') }}</p>
       </div>
       <Checkbox
         v-model="includeCompleted"
         size="sm"
-        label="Show completed"
+        :label="$t('workspace-cycles-show-completed')"
       />
     </header>
 
     <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
-      Loading cycles…
+      {{ $t('workspace-cycles-loading') }}
     </div>
     <div v-else-if="error" class="flex-1 flex items-center justify-center text-status-error text-sm">
       {{ error }}
@@ -120,8 +132,8 @@ function openCycle(uuid: string): void {
       v-else-if="grouped.length === 0"
       class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm gap-1"
     >
-      <p class="font-medium">No cycles yet.</p>
-      <p class="text-xs">Open a project and start one from the Cycles drawer.</p>
+      <p class="font-medium">{{ $t('workspace-cycles-empty-title') }}</p>
+      <p class="text-xs">{{ $t('workspace-cycles-empty-hint') }}</p>
     </div>
 
     <div v-else class="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col gap-6">
@@ -136,7 +148,7 @@ function openCycle(uuid: string): void {
             class="text-sm font-semibold text-primary hover:text-accent"
             @click="openProject(group.project_id)"
           >{{ group.project_name }}</button>
-          <span class="text-xs text-tertiary">{{ group.cycles.length }} cycle{{ group.cycles.length === 1 ? '' : 's' }}</span>
+          <span class="text-xs text-tertiary">{{ $t('workspace-cycles-group-count', { count: group.cycles.length }) }}</span>
         </header>
 
         <div class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr))">
@@ -162,7 +174,7 @@ function openCycle(uuid: string): void {
                     'bg-surface-hover text-tertiary': cycle.state === 'planned',
                     'bg-surface text-tertiary opacity-70': cycle.state === 'completed',
                   }"
-                >{{ cycle.state }}</span>
+                >{{ stateLabel(cycle.state) }}</span>
               </header>
               <p class="text-[11px] text-tertiary tabular-nums">
                 {{ fmt(cycle.start_at) }} → {{ fmt(cycle.end_at) }}

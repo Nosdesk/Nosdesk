@@ -13,6 +13,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useCyclesStore } from '@/stores/cycles'
@@ -21,6 +22,9 @@ import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 
 const props = defineProps<{ id: string }>()
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const router = useRouter()
 const projectId = computed(() => Number(props.id))
@@ -60,18 +64,27 @@ async function promoteToActive(uuid: string): Promise<void> {
 }
 
 async function completeCycle(uuid: string): Promise<void> {
-  if (!window.confirm('Complete this cycle? The snapshot freezes once you do.')) return
+  if (!window.confirm(t('project-cycles-confirm-complete'))) return
   await cyclesStore.complete(uuid)
 }
 
 async function archiveCycle(uuid: string): Promise<void> {
-  if (!window.confirm('Archive this cycle?')) return
+  if (!window.confirm(t('project-cycles-confirm-archive'))) return
   await cyclesStore.archive(uuid)
 }
 
 function formatCycleDate(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return t('project-cycles-date-missing')
   return new Date(iso).toLocaleDateString()
+}
+
+function stateLabel(state: string): string {
+  switch (state) {
+    case 'active': return t('project-cycles-state-active')
+    case 'planned': return t('project-cycles-state-planned')
+    case 'completed': return t('project-cycles-state-completed')
+    default: return state
+  }
 }
 </script>
 
@@ -79,9 +92,9 @@ function formatCycleDate(iso: string | null): string {
   <div class="flex flex-col h-full">
     <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
       <div>
-        <h1 class="text-xl font-semibold text-primary">{{ project?.name ?? 'Project' }}</h1>
+        <h1 class="text-xl font-semibold text-primary">{{ project?.name ?? $t('project-cycles-fallback-name') }}</h1>
         <p class="text-xs text-tertiary mt-0.5">
-          {{ cycles.length }} cycle{{ cycles.length === 1 ? '' : 's' }}
+          {{ $t('project-cycles-count', { count: cycles.length }) }}
         </p>
       </div>
       <button
@@ -89,7 +102,7 @@ function formatCycleDate(iso: string | null): string {
         class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90"
         @click="showCreate = !showCreate"
       >
-        {{ showCreate ? 'Cancel' : 'New cycle' }}
+        {{ showCreate ? $t('project-cycles-cancel-button') : $t('project-cycles-new-button') }}
       </button>
     </header>
 
@@ -99,19 +112,19 @@ function formatCycleDate(iso: string | null): string {
       <CycleBurndown v-if="activeCycle" :cycle="activeCycle" />
 
       <SectionCard v-if="showCreate" content-padding="p-4">
-        <template #title>New cycle</template>
+        <template #title>{{ $t('project-cycles-create-title') }}</template>
         <form class="flex items-end gap-3" @submit.prevent="createCycle">
           <label class="flex flex-col gap-1 text-[11px] text-tertiary flex-1">
-            <span>Name</span>
+            <span>{{ $t('project-cycles-field-name') }}</span>
             <input
               v-model="newCycleName"
               type="text"
-              placeholder="e.g. Sprint 14"
+              :placeholder="$t('project-cycles-name-placeholder')"
               class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
             />
           </label>
           <label class="flex flex-col gap-1 text-[11px] text-tertiary">
-            <span>Start</span>
+            <span>{{ $t('project-cycles-field-start') }}</span>
             <input
               v-model="newCycleStart"
               type="date"
@@ -119,7 +132,7 @@ function formatCycleDate(iso: string | null): string {
             />
           </label>
           <label class="flex flex-col gap-1 text-[11px] text-tertiary">
-            <span>End</span>
+            <span>{{ $t('project-cycles-field-end') }}</span>
             <input
               v-model="newCycleEnd"
               type="date"
@@ -130,12 +143,12 @@ function formatCycleDate(iso: string | null): string {
             type="submit"
             class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 disabled:opacity-50"
             :disabled="!newCycleName.trim()"
-          >Create</button>
+          >{{ $t('project-cycles-create-submit') }}</button>
         </form>
       </SectionCard>
 
       <SectionCard content-padding="">
-        <template #title>All cycles</template>
+        <template #title>{{ $t('project-cycles-all-title') }}</template>
         <template #headerActions>
           <span class="text-[11px] text-tertiary tabular-nums">{{ cycles.length }}</span>
         </template>
@@ -144,7 +157,7 @@ function formatCycleDate(iso: string | null): string {
           v-if="cycles.length === 0"
           class="text-tertiary text-xs italic text-center py-8 px-4"
         >
-          No cycles yet. Click <strong class="text-secondary">New cycle</strong> to start an iteration.
+          {{ $t('project-cycles-empty-prefix') }} <strong class="text-secondary">{{ $t('project-cycles-empty-cta') }}</strong> {{ $t('project-cycles-empty-suffix') }}
         </div>
 
         <ul v-else class="divide-y divide-subtle">
@@ -160,7 +173,7 @@ function formatCycleDate(iso: string | null): string {
                 'bg-surface-hover text-tertiary': cycle.state === 'planned',
                 'bg-surface text-tertiary opacity-70': cycle.state === 'completed',
               }"
-            >{{ cycle.state }}</span>
+            >{{ stateLabel(cycle.state) }}</span>
             <button
               type="button"
               class="text-sm text-primary flex-1 truncate text-left hover:text-accent"
@@ -175,19 +188,19 @@ function formatCycleDate(iso: string | null): string {
                 type="button"
                 class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover"
                 @click="promoteToActive(cycle.uuid)"
-              >Promote</button>
+              >{{ $t('project-cycles-action-promote') }}</button>
               <button
                 v-if="cycle.state === 'active'"
                 type="button"
                 class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover"
                 @click="completeCycle(cycle.uuid)"
-              >Complete</button>
+              >{{ $t('project-cycles-action-complete') }}</button>
               <button
                 v-if="cycle.state !== 'completed'"
                 type="button"
                 class="text-[11px] text-tertiary hover:text-status-error px-2 py-1 rounded hover:bg-surface-hover"
                 @click="archiveCycle(cycle.uuid)"
-              >Archive</button>
+              >{{ $t('project-cycles-action-archive') }}</button>
             </div>
           </li>
         </ul>

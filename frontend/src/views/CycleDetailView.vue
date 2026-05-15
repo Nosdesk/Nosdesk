@@ -16,6 +16,7 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { cyclesService, type Cycle } from '@/services/cyclesService'
@@ -25,6 +26,9 @@ import { toCardData } from '@/sync/views/cardData'
 import type { CardData } from '@/sync/views/types'
 
 const props = defineProps<{ uuid: string }>()
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const router = useRouter()
 const ticketsStore = useSyncTicketsStore()
@@ -45,7 +49,7 @@ async function load(): Promise<void> {
       await subscribe(`project:${cycle.value.project_id}`)
     }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load cycle'
+    error.value = e instanceof Error ? e.message : t('cycle-detail-error-fallback')
   } finally {
     isLoading.value = false
   }
@@ -84,12 +88,26 @@ function backToCycles(): void {
 
 const stateLabel = computed<string>(() => {
   if (!cycle.value) return ''
-  return cycle.value.state.charAt(0).toUpperCase() + cycle.value.state.slice(1)
+  switch (cycle.value.state) {
+    case 'planned': return t('cycle-detail-state-planned')
+    case 'active': return t('cycle-detail-state-active')
+    case 'completed': return t('cycle-detail-state-completed')
+    default: {
+      const s: string = cycle.value.state
+      return s.charAt(0).toUpperCase() + s.slice(1)
+    }
+  }
 })
+
+const groupByOptions = computed(() => [
+  { value: '', label: t('cycle-detail-group-by-status') },
+  { value: 'assignee_uuid', label: t('cycle-detail-group-by-assignee') },
+  { value: 'priority', label: t('cycle-detail-group-by-priority') },
+])
 
 // Suppress an "unused" warning while still letting Vue Router
 // type-check the prop. ticketIdSet is reserved for an upcoming
-// "drag from outside cycle" affordance — keeping it here flags
+// "drag from outside cycle" affordance, keeping it here flags
 // that intent rather than reintroducing it later.
 void ticketIdSet
 </script>
@@ -102,32 +120,34 @@ void ticketIdSet
           type="button"
           class="text-xs text-tertiary hover:text-primary"
           @click="backToCycles"
-        >‹ Cycles</button>
+        >{{ $t('cycle-detail-back') }}</button>
         <div class="min-w-0">
           <h1 class="text-xl font-semibold text-primary truncate">
-            {{ cycle?.name ?? 'Loading…' }}
+            {{ cycle?.name ?? $t('cycle-detail-loading-name') }}
           </h1>
           <p v-if="cycle" class="text-xs text-tertiary mt-0.5">
-            {{ stateLabel }} · {{ ticketIds.length }} ticket{{ ticketIds.length === 1 ? '' : 's' }}
+            {{ $t('cycle-detail-summary', { state: stateLabel, count: ticketIds.length }) }}
           </p>
         </div>
       </div>
       <label class="flex items-center gap-2 text-xs text-secondary">
-        <span>Group by</span>
+        <span>{{ $t('cycle-detail-group-by-label') }}</span>
         <select
           class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary"
           :value="secondaryAxis ?? ''"
           @change="setSecondaryAxis(($event.target as HTMLSelectElement).value as 'assignee_uuid' | 'priority' | '' || null)"
         >
-          <option value="">Status only</option>
-          <option value="assignee_uuid">Status × Assignee</option>
-          <option value="priority">Status × Priority</option>
+          <option
+            v-for="opt in groupByOptions"
+            :key="opt.value"
+            :value="opt.value"
+          >{{ opt.label }}</option>
         </select>
       </label>
     </header>
 
     <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
-      Loading cycle…
+      {{ $t('cycle-detail-loading') }}
     </div>
     <div v-else-if="error" class="flex-1 flex items-center justify-center text-status-error text-sm">
       {{ error }}

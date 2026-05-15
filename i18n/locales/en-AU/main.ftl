@@ -1690,3 +1690,103 @@ device-detail-unmanage-heading = Unmanage from Microsoft
 device-detail-unmanage-confirm-body = Sure you want to unmanage <strong class="text-primary">{ $name }</strong> from Microsoft Intune/Entra?
 device-detail-unmanage-confirm-note = This will convert the device to manual management. You'll be able to edit all fields, but the device will no longer sync with Microsoft.
 device-detail-unmanage-action-confirm = Unmanage
+
+# Projects list (ProjectsView): workspace-wide grid of projects
+# rendered from the sync engine pool, with status pills and a
+# short description per card.
+projects-list-heading = Projects
+projects-list-subheading = Sync-engine preview (projects_v2 flag).
+projects-list-no-description = No description
+
+# Project detail (ProjectDetailView): per-project kanban board
+# with a header, status pill, ticket count, and a Group-by
+# control on the kanban toolbar.
+project-detail-loading-name = Loading…
+project-detail-ticket-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+project-detail-group-by-label = Group by
+project-detail-group-by-status = Status only
+project-detail-group-by-assignee = Status x Assignee
+project-detail-group-by-priority = Status x Priority
+project-detail-loading = Loading project…
+
+# Project Gantt (ProjectGanttView): per-project Gantt timeline
+# with a header summary of ticket and dependency-link counts.
+project-gantt-fallback-name = Project
+project-gantt-summary = { $tickets ->
+    [one] { $tickets } ticket
+   *[other] { $tickets } tickets
+   } · { $links ->
+    [one] { $links } link
+   *[other] { $links } links
+   }
+
+# Project cycles (ProjectCyclesView): full-page cycles surface
+# with active-cycle burndown, create form, and a list of every
+# cycle for the project (planned / active / completed).
+project-cycles-fallback-name = Project
+project-cycles-count = { $count ->
+    [one] { $count } cycle
+   *[other] { $count } cycles
+   }
+project-cycles-new-button = New cycle
+project-cycles-cancel-button = Cancel
+project-cycles-date-missing = —
+project-cycles-confirm-complete = Wrap up this cycle? The snapshot locks in once you do.
+project-cycles-confirm-archive = Archive this cycle?
+project-cycles-create-title = New cycle
+project-cycles-field-name = Name
+project-cycles-field-start = Start
+project-cycles-field-end = End
+project-cycles-name-placeholder = e.g. Sprint 14
+project-cycles-create-submit = Create
+project-cycles-all-title = All cycles
+project-cycles-empty-prefix = No cycles yet. Hit
+project-cycles-empty-cta = New cycle
+project-cycles-empty-suffix = to kick one off.
+project-cycles-state-planned = planned
+project-cycles-state-active = active
+project-cycles-state-completed = completed
+project-cycles-action-promote = Promote
+project-cycles-action-complete = Complete
+project-cycles-action-archive = Archive
+
+# Workspace cycles (WorkspaceCyclesView): cross-project overview
+# of in-flight iterations, grouped by project, with a toggle to
+# pull completed cycles back into view.
+workspace-cycles-heading = Cycles
+workspace-cycles-subheading = In-flight iterations across every project
+workspace-cycles-show-completed = Show completed
+workspace-cycles-loading = Loading cycles…
+workspace-cycles-error-fallback = Couldn't load cycles
+workspace-cycles-empty-title = No cycles yet.
+workspace-cycles-empty-hint = Pop into a project and kick one off from the Cycles drawer.
+workspace-cycles-group-count = { $count ->
+    [one] { $count } cycle
+   *[other] { $count } cycles
+   }
+workspace-cycles-project-fallback = Project #{ $id }
+workspace-cycles-date-missing = —
+workspace-cycles-state-planned = planned
+workspace-cycles-state-completed = completed
+
+# Cycle detail (CycleDetailView): Scrum board scoped to one
+# cycle, with a burndown pinned above the kanban toolbar.
+cycle-detail-back = ‹ Cycles
+cycle-detail-loading-name = Loading…
+cycle-detail-loading = Loading cycle…
+cycle-detail-error-fallback = Couldn't load cycle
+cycle-detail-summary = { $state } · { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+cycle-detail-group-by-label = Group by
+cycle-detail-group-by-status = Status only
+cycle-detail-group-by-assignee = Status x Assignee
+cycle-detail-group-by-priority = Status x Priority
+cycle-detail-state-planned = Planned
+cycle-detail-state-active = Active
+cycle-detail-state-completed = Completed
+

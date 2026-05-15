@@ -1696,3 +1696,103 @@ device-detail-unmanage-heading = Désinscrire de Microsoft
 device-detail-unmanage-confirm-body = Confirmez-vous la désinscription de <strong class="text-primary">{ $name }</strong> de Microsoft Intune/Entra ?
 device-detail-unmanage-confirm-note = L'appareil passera en gestion manuelle. Vous pourrez modifier tous les champs, mais il ne sera plus synchronisé avec Microsoft.
 device-detail-unmanage-action-confirm = Désinscrire
+
+# Projects list (ProjectsView): workspace-wide grid of projects
+# rendered from the sync engine pool, with status pills and a
+# short description per card.
+projects-list-heading = Projets
+projects-list-subheading = Aperçu du moteur de synchronisation (option projects_v2).
+projects-list-no-description = Aucune description
+
+# Project detail (ProjectDetailView): per-project kanban board
+# with a header, status pill, ticket count, and a Group-by
+# control on the kanban toolbar.
+project-detail-loading-name = Chargement…
+project-detail-ticket-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+project-detail-group-by-label = Grouper par
+project-detail-group-by-status = Statut uniquement
+project-detail-group-by-assignee = Statut x Assigné
+project-detail-group-by-priority = Statut x Priorité
+project-detail-loading = Chargement du projet…
+
+# Project Gantt (ProjectGanttView): per-project Gantt timeline
+# with a header summary of ticket and dependency-link counts.
+project-gantt-fallback-name = Projet
+project-gantt-summary = { $tickets ->
+    [one] { $tickets } ticket
+   *[other] { $tickets } tickets
+   } · { $links ->
+    [one] { $links } lien
+   *[other] { $links } liens
+   }
+
+# Project cycles (ProjectCyclesView): full-page cycles surface
+# with active-cycle burndown, create form, and a list of every
+# cycle for the project (planned / active / completed).
+project-cycles-fallback-name = Projet
+project-cycles-count = { $count ->
+    [one] { $count } cycle
+   *[other] { $count } cycles
+   }
+project-cycles-new-button = Nouveau cycle
+project-cycles-cancel-button = Annuler
+project-cycles-date-missing = —
+project-cycles-confirm-complete = Terminer ce cycle ? L'instantané sera figé.
+project-cycles-confirm-archive = Archiver ce cycle ?
+project-cycles-create-title = Nouveau cycle
+project-cycles-field-name = Nom
+project-cycles-field-start = Début
+project-cycles-field-end = Fin
+project-cycles-name-placeholder = par ex. Sprint 14
+project-cycles-create-submit = Créer
+project-cycles-all-title = Tous les cycles
+project-cycles-empty-prefix = Aucun cycle pour l'instant. Cliquez sur
+project-cycles-empty-cta = Nouveau cycle
+project-cycles-empty-suffix = pour démarrer une itération.
+project-cycles-state-planned = planifié
+project-cycles-state-active = actif
+project-cycles-state-completed = terminé
+project-cycles-action-promote = Activer
+project-cycles-action-complete = Terminer
+project-cycles-action-archive = Archiver
+
+# Workspace cycles (WorkspaceCyclesView): cross-project overview
+# of in-flight iterations, grouped by project, with a toggle to
+# pull completed cycles back into view.
+workspace-cycles-heading = Cycles
+workspace-cycles-subheading = Itérations en cours dans tous les projets
+workspace-cycles-show-completed = Afficher les terminés
+workspace-cycles-loading = Chargement des cycles…
+workspace-cycles-error-fallback = Impossible de charger les cycles
+workspace-cycles-empty-title = Aucun cycle pour l'instant.
+workspace-cycles-empty-hint = Ouvrez un projet et lancez-en un depuis le panneau Cycles.
+workspace-cycles-group-count = { $count ->
+    [one] { $count } cycle
+   *[other] { $count } cycles
+   }
+workspace-cycles-project-fallback = Projet n° { $id }
+workspace-cycles-date-missing = —
+workspace-cycles-state-planned = planifié
+workspace-cycles-state-completed = terminé
+
+# Cycle detail (CycleDetailView): Scrum board scoped to one
+# cycle, with a burndown pinned above the kanban toolbar.
+cycle-detail-back = ‹ Cycles
+cycle-detail-loading-name = Chargement…
+cycle-detail-loading = Chargement du cycle…
+cycle-detail-error-fallback = Impossible de charger le cycle
+cycle-detail-summary = { $state } · { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+cycle-detail-group-by-label = Grouper par
+cycle-detail-group-by-status = Statut uniquement
+cycle-detail-group-by-assignee = Statut x Assigné
+cycle-detail-group-by-priority = Statut x Priorité
+cycle-detail-state-planned = Planifié
+cycle-detail-state-active = Actif
+cycle-detail-state-completed = Terminé
+

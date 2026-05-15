@@ -1693,3 +1693,103 @@ device-detail-unmanage-heading = Beheer via Microsoft opheffen
 device-detail-unmanage-confirm-body = Weet je zeker dat je het beheer van <strong class="text-primary">{ $name }</strong> via Microsoft Intune/Entra wilt opheffen?
 device-detail-unmanage-confirm-note = Het apparaat wordt omgezet naar handmatig beheer. Je kunt alle velden bewerken, maar het apparaat synchroniseert niet meer met Microsoft.
 device-detail-unmanage-action-confirm = Beheer opheffen
+
+# Projects list (ProjectsView): workspace-wide grid of projects
+# rendered from the sync engine pool, with status pills and a
+# short description per card.
+projects-list-heading = Projecten
+projects-list-subheading = Voorvertoning sync-engine (projects_v2-vlag).
+projects-list-no-description = Geen beschrijving
+
+# Project detail (ProjectDetailView): per-project kanban board
+# with a header, status pill, ticket count, and a Group-by
+# control on the kanban toolbar.
+project-detail-loading-name = Laden…
+project-detail-ticket-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+project-detail-group-by-label = Groeperen op
+project-detail-group-by-status = Alleen status
+project-detail-group-by-assignee = Status x Toegewezene
+project-detail-group-by-priority = Status x Prioriteit
+project-detail-loading = Project laden…
+
+# Project Gantt (ProjectGanttView): per-project Gantt timeline
+# with a header summary of ticket and dependency-link counts.
+project-gantt-fallback-name = Project
+project-gantt-summary = { $tickets ->
+    [one] { $tickets } ticket
+   *[other] { $tickets } tickets
+   } · { $links ->
+    [one] { $links } koppeling
+   *[other] { $links } koppelingen
+   }
+
+# Project cycles (ProjectCyclesView): full-page cycles surface
+# with active-cycle burndown, create form, and a list of every
+# cycle for the project (planned / active / completed).
+project-cycles-fallback-name = Project
+project-cycles-count = { $count ->
+    [one] { $count } cyclus
+   *[other] { $count } cycli
+   }
+project-cycles-new-button = Nieuwe cyclus
+project-cycles-cancel-button = Annuleren
+project-cycles-date-missing = —
+project-cycles-confirm-complete = Deze cyclus afronden? De momentopname wordt dan bevroren.
+project-cycles-confirm-archive = Deze cyclus archiveren?
+project-cycles-create-title = Nieuwe cyclus
+project-cycles-field-name = Naam
+project-cycles-field-start = Start
+project-cycles-field-end = Einde
+project-cycles-name-placeholder = bijv. Sprint 14
+project-cycles-create-submit = Aanmaken
+project-cycles-all-title = Alle cycli
+project-cycles-empty-prefix = Nog geen cycli. Klik op
+project-cycles-empty-cta = Nieuwe cyclus
+project-cycles-empty-suffix = om een iteratie te starten.
+project-cycles-state-planned = gepland
+project-cycles-state-active = actief
+project-cycles-state-completed = afgerond
+project-cycles-action-promote = Activeren
+project-cycles-action-complete = Afronden
+project-cycles-action-archive = Archiveren
+
+# Workspace cycles (WorkspaceCyclesView): cross-project overview
+# of in-flight iterations, grouped by project, with a toggle to
+# pull completed cycles back into view.
+workspace-cycles-heading = Cycli
+workspace-cycles-subheading = Lopende iteraties over alle projecten
+workspace-cycles-show-completed = Afgeronde tonen
+workspace-cycles-loading = Cycli laden…
+workspace-cycles-error-fallback = Cycli konden niet worden geladen
+workspace-cycles-empty-title = Nog geen cycli.
+workspace-cycles-empty-hint = Open een project en start er een vanuit het Cycli-paneel.
+workspace-cycles-group-count = { $count ->
+    [one] { $count } cyclus
+   *[other] { $count } cycli
+   }
+workspace-cycles-project-fallback = Project #{ $id }
+workspace-cycles-date-missing = —
+workspace-cycles-state-planned = gepland
+workspace-cycles-state-completed = afgerond
+
+# Cycle detail (CycleDetailView): Scrum board scoped to one
+# cycle, with a burndown pinned above the kanban toolbar.
+cycle-detail-back = ‹ Cycli
+cycle-detail-loading-name = Laden…
+cycle-detail-loading = Cyclus laden…
+cycle-detail-error-fallback = Cyclus kon niet worden geladen
+cycle-detail-summary = { $state } · { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+cycle-detail-group-by-label = Groeperen op
+cycle-detail-group-by-status = Alleen status
+cycle-detail-group-by-assignee = Status x Toegewezene
+cycle-detail-group-by-priority = Status x Prioriteit
+cycle-detail-state-planned = Gepland
+cycle-detail-state-active = Actief
+cycle-detail-state-completed = Afgerond
+

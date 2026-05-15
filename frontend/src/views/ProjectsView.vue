@@ -50,8 +50,8 @@ function statusClass(status: string) {
   <div class="px-4 sm:px-6 py-6 max-w-6xl mx-auto w-full">
     <header class="mb-6 flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-semibold text-primary">Projects</h1>
-        <p class="text-xs text-tertiary mt-1">Sync-engine preview (projects_v2 flag).</p>
+        <h1 class="text-2xl font-semibold text-primary">{{ $t('projects-list-heading') }}</h1>
+        <p class="text-xs text-tertiary mt-1">{{ $t('projects-list-subheading') }}</p>
       </div>
     </header>
 
@@ -97,7 +97,7 @@ function statusClass(status: string) {
         >
           {{ project.description }}
         </p>
-        <p v-else class="text-sm text-tertiary italic">No description</p>
+        <p v-else class="text-sm text-tertiary italic">{{ $t('projects-list-no-description') }}</p>
       </button>
     </div>
   </div>

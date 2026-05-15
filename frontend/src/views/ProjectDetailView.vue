@@ -12,6 +12,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
@@ -23,6 +24,9 @@ import { toCardData } from '@/sync/views/cardData'
 import type { CardData } from '@/sync/views/types'
 
 const props = defineProps<{ id: string }>()
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const router = useRouter()
 const projectId = computed(() => Number(props.id))
@@ -68,11 +72,11 @@ function openCard(cardId: number): void {
 type SecondaryAxis = 'assignee_uuid' | 'priority'
 const secondaryAxis = ref<SecondaryAxis | null>(null)
 
-const groupByOptions = [
-  { value: '', label: 'Status only' },
-  { value: 'assignee_uuid', label: 'Status × Assignee' },
-  { value: 'priority', label: 'Status × Priority' },
-]
+const groupByOptions = computed(() => [
+  { value: '', label: t('project-detail-group-by-status') },
+  { value: 'assignee_uuid', label: t('project-detail-group-by-assignee') },
+  { value: 'priority', label: t('project-detail-group-by-priority') },
+])
 
 const groupByValue = computed<string>(() => secondaryAxis.value ?? '')
 
@@ -87,10 +91,10 @@ function onGroupByChange(value: string | string[]): void {
     <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
       <div class="min-w-0">
         <h1 class="text-xl font-semibold text-primary truncate">
-          {{ project?.name ?? 'Loading…' }}
+          {{ project?.name ?? $t('project-detail-loading-name') }}
         </h1>
         <p v-if="project" class="text-xs text-tertiary mt-0.5">
-          {{ cards.length }} ticket{{ cards.length === 1 ? '' : 's' }}
+          {{ $t('project-detail-ticket-count', { count: cards.length }) }}
         </p>
       </div>
       <span
@@ -107,7 +111,7 @@ function onGroupByChange(value: string | string[]): void {
          control reads as a peer of every other dropdown. -->
     <div class="flex items-center justify-end gap-2 px-6 py-2 border-b border-subtle bg-surface">
       <label class="flex items-center gap-2 text-xs text-secondary">
-        <span>Group by</span>
+        <span>{{ $t('project-detail-group-by-label') }}</span>
         <div class="w-44">
           <BaseDropdown
             :model-value="groupByValue"
@@ -120,7 +124,7 @@ function onGroupByChange(value: string | string[]): void {
     </div>
 
     <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary">
-      Loading project…
+      {{ $t('project-detail-loading') }}
     </div>
 
     <KanbanBoard

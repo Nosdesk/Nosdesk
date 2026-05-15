@@ -80,10 +80,10 @@ function openCard(cardId: number): void {
     <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
       <div class="min-w-0">
         <h1 class="text-xl font-semibold text-primary truncate">
-          {{ project?.name ?? 'Project' }}
+          {{ project?.name ?? $t('project-gantt-fallback-name') }}
         </h1>
         <p class="text-xs text-tertiary mt-0.5">
-          {{ cards.length }} ticket{{ cards.length === 1 ? '' : 's' }} · {{ edges.length }} link{{ edges.length === 1 ? '' : 's' }}
+          {{ $t('project-gantt-summary', { tickets: cards.length, links: edges.length }) }}
         </p>
       </div>
     </header>
