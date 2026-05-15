@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import Icon from '@/components/common/Icon.vue';
@@ -12,6 +13,72 @@ import {
   type NotificationPreference,
 } from '@/services/notificationService';
 import { requestNotificationPermission } from '@/composables/useNotificationSSE';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+
+// Map backend codes to localization key suffixes
+const TYPE_KEY_SUFFIX: Record<string, string> = {
+  ticket_assigned: 'ticket-assigned',
+  ticket_status_changed: 'ticket-status-changed',
+  comment_added: 'comment-added',
+  mentioned: 'mentioned',
+  ticket_created_requester: 'ticket-created-requester',
+  doc_page_updated: 'doc-page-updated',
+};
+
+const CHANNEL_KEY_SUFFIX: Record<string, string> = {
+  in_app: 'in-app',
+  email: 'email',
+};
+
+// Localized notification types
+const localizedTypes = computed(() =>
+  NOTIFICATION_TYPES.map((type) => {
+    const suffix = TYPE_KEY_SUFFIX[type.code] ?? type.code;
+    return {
+      ...type,
+      name: t(`settings-notifications-type-${suffix}-name`),
+      description: t(`settings-notifications-type-${suffix}-description`),
+    };
+  })
+);
+
+// Localized notification channels
+const localizedChannels = computed(() =>
+  NOTIFICATION_CHANNELS.map((channel) => {
+    const suffix = CHANNEL_KEY_SUFFIX[channel.code] ?? channel.code;
+    return {
+      ...channel,
+      name: t(`settings-notifications-channel-${suffix}-name`),
+      description: t(`settings-notifications-channel-${suffix}-description`),
+    };
+  })
+);
+
+// Localized category metadata (icons stay as raw SVG path strings).
+const categoryMeta = computed<Record<string, { label: string; description: string; icon: string }>>(() => ({
+  ticket: {
+    label: t('settings-notifications-category-ticket-label'),
+    description: t('settings-notifications-category-ticket-description'),
+    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />',
+  },
+  comment: {
+    label: t('settings-notifications-category-comment-label'),
+    description: t('settings-notifications-category-comment-description'),
+    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />',
+  },
+  mention: {
+    label: t('settings-notifications-category-mention-label'),
+    description: t('settings-notifications-category-mention-description'),
+    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9" />',
+  },
+  documentation: {
+    label: t('settings-notifications-category-documentation-label'),
+    description: t('settings-notifications-category-documentation-description'),
+    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />',
+  },
+}));
 
 const props = defineProps<{
   targetUserUuid?: string;
@@ -39,10 +106,10 @@ const emit = defineEmits<{
   (e: 'error', message: string): void;
 }>();
 
-// Group notification types by category
+// Group localized notification types by category so labels react to locale changes.
 const groupedNotificationTypes = computed(() => {
-  const groups: Record<string, typeof NOTIFICATION_TYPES[number][]> = {};
-  for (const type of NOTIFICATION_TYPES) {
+  const groups: Record<string, typeof localizedTypes.value[number][]> = {};
+  for (const type of localizedTypes.value) {
     if (!groups[type.category]) {
       groups[type.category] = [];
     }
@@ -50,30 +117,6 @@ const groupedNotificationTypes = computed(() => {
   }
   return groups;
 });
-
-// Category metadata
-const categoryMeta: Record<string, { label: string; description: string; icon: string }> = {
-  ticket: {
-    label: 'Tickets',
-    description: 'Notifications about ticket assignments and status changes',
-    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />',
-  },
-  comment: {
-    label: 'Comments',
-    description: 'Notifications when someone comments on your tickets',
-    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />',
-  },
-  mention: {
-    label: 'Mentions',
-    description: 'Notifications when someone mentions you',
-    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9" />',
-  },
-  documentation: {
-    label: 'Documentation',
-    description: 'Notifications about documentation page updates',
-    icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />',
-  },
-};
 
 // Get preference value for a specific type/channel combination
 const getPreference = (typeCode: string, channelCode: string): boolean => {
@@ -115,9 +158,9 @@ const togglePreference = async (typeCode: string, channelCode: string) => {
       });
     }
 
-    emit('success', `Preference updated`);
+    emit('success', t('settings-notifications-preference-update-success'));
   } catch {
-    emit('error', 'Failed to update preference');
+    emit('error', t('settings-notifications-preference-update-error'));
   } finally {
     isSaving.value = null;
   }
@@ -155,7 +198,15 @@ const toggleAllForChannel = async (channelCode: string) => {
   }
 
   isSaving.value = null;
-  emit('success', `All ${channelCode === 'in_app' ? 'in-app' : channelCode} notifications ${newValue ? 'enabled' : 'disabled'}`);
+  const channelLabel =
+    localizedChannels.value.find((c) => c.code === channelCode)?.name ?? channelCode;
+  emit(
+    'success',
+    t('settings-notifications-channel-bulk-success', {
+      channel: channelLabel,
+      state: newValue ? 'enabled' : 'disabled',
+    }),
+  );
 };
 
 // Request browser notification permission
@@ -164,9 +215,9 @@ const requestBrowserPermission = async () => {
   browserPermission.value = Notification.permission;
 
   if (granted) {
-    emit('success', 'Browser notifications enabled');
+    emit('success', t('settings-notifications-browser-enabled-success'));
   } else {
-    emit('error', 'Browser notification permission denied');
+    emit('error', t('settings-notifications-browser-denied-error'));
   }
 };
 
@@ -180,7 +231,7 @@ onMounted(async () => {
       browserPermission.value = Notification.permission;
     }
   } catch {
-    emit('error', 'Failed to load notification preferences');
+    emit('error', t('settings-notifications-load-error'));
   } finally {
     isLoading.value = false;
   }
@@ -215,9 +266,9 @@ onMounted(async () => {
             </div>
             <div class="flex-1 min-w-0 flex flex-col gap-2">
               <div class="flex flex-col gap-1">
-                <h3 class="text-sm font-medium text-primary">Enable Browser Notifications</h3>
+                <h3 class="text-sm font-medium text-primary">{{ $t('settings-notifications-browser-banner-title') }}</h3>
                 <p class="text-xs text-secondary">
-                  Allow browser notifications to receive alerts even when the app isn't in focus.
+                  {{ $t('settings-notifications-browser-banner-description') }}
                 </p>
               </div>
               <div>
@@ -225,7 +276,7 @@ onMounted(async () => {
                   @click="requestBrowserPermission"
                   class="px-3 py-1.5 text-sm font-medium text-white bg-accent hover:opacity-90 rounded-lg transition-colors"
                 >
-                  Enable Notifications
+                  {{ $t('settings-notifications-browser-banner-enable') }}
                 </button>
               </div>
             </div>
@@ -240,17 +291,17 @@ onMounted(async () => {
             <Icon name="settings" />
           </span>
         </template>
-        <template #title>Quick Settings</template>
+        <template #title>{{ $t('settings-notifications-quick-settings-title') }}</template>
 
         <div class="flex flex-col gap-2">
           <div
-            v-for="channel in NOTIFICATION_CHANNELS"
+            v-for="channel in localizedChannels"
             :key="channel.code"
             class="bg-surface-alt rounded-lg border border-subtle px-3 py-2"
           >
             <ToggleSwitch
               :model-value="isChannelFullyEnabled(channel.code)"
-              :label="`All ${channel.name} Notifications`"
+              :label="$t('settings-notifications-channel-toggle-all-label', { channel: channel.name })"
               :description="channel.description"
               @update:model-value="toggleAllForChannel(channel.code)"
             />
@@ -273,10 +324,10 @@ onMounted(async () => {
           <!-- Desktop: table-like grid layout -->
           <div class="hidden sm:flex sm:flex-col sm:gap-3">
             <!-- Column headers -->
-            <div class="grid items-center gap-4 px-3" :style="{ gridTemplateColumns: `1fr repeat(${NOTIFICATION_CHANNELS.length}, 5rem)` }">
-              <div class="text-xs font-medium text-tertiary uppercase tracking-wide">Notification</div>
+            <div class="grid items-center gap-4 px-3" :style="{ gridTemplateColumns: `1fr repeat(${localizedChannels.length}, 5rem)` }">
+              <div class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('settings-notifications-column-header') }}</div>
               <div
-                v-for="channel in NOTIFICATION_CHANNELS"
+                v-for="channel in localizedChannels"
                 :key="`header-${channel.code}`"
                 class="text-xs font-medium text-tertiary uppercase tracking-wide text-center"
               >
@@ -290,14 +341,14 @@ onMounted(async () => {
                 v-for="type in types"
                 :key="type.code"
                 class="grid items-center gap-4 bg-surface-alt rounded-lg border border-subtle px-3 py-2.5"
-                :style="{ gridTemplateColumns: `1fr repeat(${NOTIFICATION_CHANNELS.length}, 5rem)` }"
+                :style="{ gridTemplateColumns: `1fr repeat(${localizedChannels.length}, 5rem)` }"
               >
                 <div class="flex flex-col gap-0.5 min-w-0">
                   <p class="text-sm font-medium text-primary">{{ type.name }}</p>
                   <p class="text-xs text-tertiary truncate">{{ type.description }}</p>
                 </div>
                 <div
-                  v-for="channel in NOTIFICATION_CHANNELS"
+                  v-for="channel in localizedChannels"
                   :key="`${type.code}-${channel.code}`"
                   class="flex justify-center"
                 >
@@ -325,7 +376,7 @@ onMounted(async () => {
               </div>
               <div class="flex flex-col gap-1.5 pl-1">
                 <div
-                  v-for="channel in NOTIFICATION_CHANNELS"
+                  v-for="channel in localizedChannels"
                   :key="`${type.code}-${channel.code}-mobile`"
                 >
                   <ToggleSwitch
@@ -350,8 +401,7 @@ onMounted(async () => {
               <Icon name="info" />
             </span>
             <p class="text-xs text-secondary">
-              Email notifications are rate limited to prevent inbox flooding. You'll receive at most
-              one email per ticket every 5 minutes.
+              {{ $t('settings-notifications-info-footer') }}
             </p>
           </div>
         </div>

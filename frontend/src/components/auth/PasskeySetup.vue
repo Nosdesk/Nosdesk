@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { usePasskeys } from '@/composables/usePasskeys';
 import { useClipboard } from '@/composables/useClipboard';
 import { useAuthStore } from '@/stores/auth';
@@ -8,6 +9,9 @@ import { passkeySetupService } from '@/services/passkeyService';
 import { logger } from '@/utils/logger';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Props
 const props = defineProps<{
@@ -47,13 +51,13 @@ const isRegistering = computed(() => props.isLoginSetup ? localRegistering.value
 
 const deviceName = computed(() => {
   const ua = navigator.userAgent;
-  if (ua.includes('iPhone')) return 'iPhone';
-  if (ua.includes('iPad')) return 'iPad';
-  if (ua.includes('Mac')) return 'Mac';
-  if (ua.includes('Windows')) return 'Windows PC';
-  if (ua.includes('Android')) return 'Android Device';
-  if (ua.includes('Linux')) return 'Linux PC';
-  return 'This Device';
+  if (ua.includes('iPhone')) return t('auth-passkey-setup-device-iphone');
+  if (ua.includes('iPad')) return t('auth-passkey-setup-device-ipad');
+  if (ua.includes('Mac')) return t('auth-passkey-setup-device-mac');
+  if (ua.includes('Windows')) return t('auth-passkey-setup-device-windows');
+  if (ua.includes('Android')) return t('auth-passkey-setup-device-android');
+  if (ua.includes('Linux')) return t('auth-passkey-setup-device-linux');
+  return t('auth-passkey-setup-device-generic');
 });
 
 // Start passkey registration
@@ -68,7 +72,7 @@ const handleRegisterPasskey = async () => {
     // MFA setup flow - use credential-based endpoints
     const credentials = mfaSetupStore.getCredentials;
     if (!credentials) {
-      localError.value = 'Session expired. Please log in again.';
+      localError.value = t('auth-passkey-setup-error-session-expired');
       emit('error', localError.value);
       return;
     }
@@ -100,25 +104,25 @@ const handleRegisterPasskey = async () => {
           setupStep.value = 'success';
         }
         setupComplete.value = true;
-        emit('success', 'Passkey created successfully');
+        emit('success', t('auth-passkey-setup-success-message'));
       }
     } catch (err: unknown) {
       logger.error('Passkey setup registration failed', { error: err });
 
       if (err instanceof Error) {
         if (err.name === 'NotAllowedError') {
-          localError.value = 'Registration was cancelled or not allowed';
+          localError.value = t('auth-passkey-setup-error-cancelled');
         } else if (err.name === 'InvalidStateError') {
-          localError.value = 'This passkey is already registered';
+          localError.value = t('auth-passkey-setup-error-already-registered');
         } else if (err.message.includes('cancelled')) {
-          localError.value = 'Registration was cancelled';
+          localError.value = t('auth-passkey-setup-error-cancelled-generic');
         } else {
           // Try to extract error message from API response
           const axiosErr = err as { response?: { data?: { error?: string } } };
-          localError.value = axiosErr.response?.data?.error || err.message || 'Failed to register passkey';
+          localError.value = axiosErr.response?.data?.error || err.message || t('auth-passkey-setup-error-generic');
         }
       } else {
-        localError.value = 'Failed to register passkey';
+        localError.value = t('auth-passkey-setup-error-generic');
       }
 
       emit('error', localError.value);
@@ -132,7 +136,7 @@ const handleRegisterPasskey = async () => {
     if (success) {
       setupStep.value = 'success';
       setupComplete.value = true;
-      emit('success', 'Passkey created successfully');
+      emit('success', t('auth-passkey-setup-success-message'));
     } else if (error.value) {
       emit('error', error.value);
     }
@@ -145,7 +149,9 @@ const copyBackupCodes = () => clipboardCopy(backupCodes.value.join('\n'));
 
 // Download backup codes as text file
 const downloadBackupCodes = () => {
-  const text = `Nosdesk Recovery Codes\n${'='.repeat(30)}\n\nSave these codes in a safe place. Each code can only be used once.\n\n${backupCodes.value.join('\n')}\n`;
+  const title = t('auth-passkey-setup-backup-file-title');
+  const intro = t('auth-passkey-setup-backup-file-intro');
+  const text = `${title}\n${'='.repeat(30)}\n\n${intro}\n\n${backupCodes.value.join('\n')}\n`;
   const blob = new Blob([text], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -183,13 +189,13 @@ onMounted(() => {
             <Icon name="warning" size="md" />
           </span>
           <div>
-            <p class="text-status-warning font-medium">Passkeys Not Available</p>
+            <p class="text-status-warning font-medium">{{ $t('auth-passkey-setup-unsupported-title') }}</p>
             <p class="text-sm text-tertiary mt-1">
               <template v-if="!isSecureContext">
-                Passkeys require a secure connection (HTTPS). You're currently on an insecure connection.
+                {{ $t('auth-passkey-setup-unsupported-insecure') }}
               </template>
               <template v-else>
-                Your browser does not support passkeys. Please use a modern browser like Chrome, Safari, Firefox, or Edge, or choose the authenticator app option instead.
+                {{ $t('auth-passkey-setup-unsupported-browser') }}
               </template>
             </p>
           </div>
@@ -205,23 +211,23 @@ onMounted(() => {
             </svg>
           </div>
           <div>
-            <h3 class="text-base font-semibold text-primary mb-1">Set Up Passkey</h3>
+            <h3 class="text-base font-semibold text-primary mb-1">{{ $t('auth-passkey-setup-heading') }}</h3>
             <p class="text-secondary text-sm">
-              Sign in securely using Face ID, Touch ID, Windows Hello, or a security key.
+              {{ $t('auth-passkey-setup-description') }}
             </p>
           </div>
         </div>
 
         <div>
-          <label class="text-sm font-medium text-secondary block mb-1.5">Passkey Name</label>
+          <label class="text-sm font-medium text-secondary block mb-1.5">{{ $t('auth-passkey-setup-name-label') }}</label>
           <input
             v-model="passkeyName"
             type="text"
             class="w-full px-3 py-2 bg-surface text-primary rounded-lg border border-default focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none transition-colors"
-            placeholder="e.g., MacBook Pro, iPhone"
+            :placeholder="$t('auth-passkey-setup-name-placeholder')"
             maxlength="100"
           />
-          <p class="text-xs text-tertiary mt-1.5">A name to identify this passkey later</p>
+          <p class="text-xs text-tertiary mt-1.5">{{ $t('auth-passkey-setup-name-hint') }}</p>
         </div>
 
         <button
@@ -230,7 +236,7 @@ onMounted(() => {
           class="w-full py-3 px-4 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           <Spinner v-if="isRegistering" />
-          {{ isRegistering ? 'Creating Passkey...' : 'Create Passkey' }}
+          {{ isRegistering ? $t('auth-passkey-setup-creating-button') : $t('auth-passkey-setup-create-button') }}
         </button>
       </div>
 
@@ -243,9 +249,9 @@ onMounted(() => {
             </svg>
           </div>
           <div>
-            <h3 class="text-base font-semibold text-primary mb-1">Save Your Recovery Codes</h3>
+            <h3 class="text-base font-semibold text-primary mb-1">{{ $t('auth-passkey-setup-backup-codes-title') }}</h3>
             <p class="text-secondary text-sm">
-              If you lose access to your passkey, you can use one of these codes to sign in. Each code can only be used once.
+              {{ $t('auth-passkey-setup-backup-codes-description') }}
             </p>
           </div>
         </div>
@@ -269,14 +275,14 @@ onMounted(() => {
               <Icon name="check" />
             </span>
             <Icon v-else name="copy" />
-            {{ backupCodesCopied ? 'Copied!' : 'Copy' }}
+            {{ backupCodesCopied ? $t('auth-passkey-setup-backup-codes-copied') : $t('auth-passkey-setup-backup-codes-copy') }}
           </button>
           <button
             @click="downloadBackupCodes"
             class="flex-1 py-2 px-3 border border-default rounded-lg text-sm font-medium text-secondary bg-surface hover:bg-surface-hover transition-colors flex items-center justify-center gap-1.5"
           >
             <Icon name="download" />
-            Download
+            {{ $t('auth-passkey-setup-backup-codes-download') }}
           </button>
         </div>
 
@@ -284,7 +290,7 @@ onMounted(() => {
           @click="acknowledgeBackupCodes"
           class="w-full py-3 px-4 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
         >
-          I've saved my recovery codes
+          {{ $t('auth-passkey-setup-backup-codes-acknowledge') }}
         </button>
       </div>
 
@@ -297,9 +303,9 @@ onMounted(() => {
             </svg>
           </div>
           <div>
-            <h3 class="text-base font-semibold text-primary mb-1">Passkey Created!</h3>
+            <h3 class="text-base font-semibold text-primary mb-1">{{ $t('auth-passkey-setup-success-heading') }}</h3>
             <p class="text-secondary text-sm">
-              Your passkey "{{ passkeyName }}" is ready to use.
+              {{ $t('auth-passkey-setup-success-description', { name: passkeyName }) }}
             </p>
           </div>
         </div>
@@ -310,9 +316,9 @@ onMounted(() => {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
             <div class="flex-1 min-w-0">
-              <h4 class="font-medium text-primary mb-1 text-sm">Your account is protected</h4>
+              <h4 class="font-medium text-primary mb-1 text-sm">{{ $t('auth-passkey-setup-success-protected-title') }}</h4>
               <p class="text-xs text-tertiary">
-                Next time you sign in, just use your fingerprint, face, or security key instead of a password.
+                {{ $t('auth-passkey-setup-success-protected-description') }}
               </p>
             </div>
           </div>
@@ -322,7 +328,7 @@ onMounted(() => {
           @click="completeSetup"
           class="w-full py-3 px-4 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
         >
-          Start Using Nosdesk!
+          {{ $t('auth-passkey-setup-success-cta') }}
         </button>
       </div>
     </div>

@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
+import { useFluent } from 'fluent-vue';
 import userService from '@/services/userService';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Icon from '@/components/common/Icon.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Spinner from '@/components/common/Spinner.vue';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Props
 const props = withDefaults(defineProps<{
@@ -46,13 +50,13 @@ const fetchUserEmails = async () => {
 // Add new email
 const addEmail = async () => {
   if (!newEmailAddress.value.trim()) {
-    emit('error', 'Email address is required');
+    emit('error', t('settings-emails-error-required'));
     return;
   }
 
   // Basic email validation
   if (!newEmailAddress.value.includes('@') || !newEmailAddress.value.includes('.')) {
-    emit('error', 'Invalid email format');
+    emit('error', t('settings-emails-error-invalid-format'));
     return;
   }
 
@@ -60,14 +64,14 @@ const addEmail = async () => {
   try {
     const addedEmail = await userService.addUserEmail(props.userUuid, newEmailAddress.value.trim());
     if (addedEmail) {
-      emit('success', 'Email address added successfully');
+      emit('success', t('settings-emails-add-success'));
       newEmailAddress.value = '';
       showAddForm.value = false;
       await fetchUserEmails(); // Refresh list
     }
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    const message = axiosError.response?.data?.message || 'Failed to add email address';
+    const message = axiosError.response?.data?.message || t('settings-emails-add-error');
     emit('error', message);
   } finally {
     addingEmail.value = false;
@@ -78,11 +82,11 @@ const addEmail = async () => {
 const setAsPrimary = async (emailId: number, emailAddress: string) => {
   try {
     await userService.updateUserEmail(props.userUuid, emailId, { is_primary: true });
-    emit('success', `Set ${emailAddress} as primary email`);
+    emit('success', t('settings-emails-set-primary-success', { email: emailAddress }));
     await fetchUserEmails(); // Refresh list
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    const message = axiosError.response?.data?.message || 'Failed to set email as primary';
+    const message = axiosError.response?.data?.message || t('settings-emails-set-primary-error');
     emit('error', message);
   }
 };
@@ -100,11 +104,11 @@ const doDeleteEmail = async () => {
   if (!target) return;
   try {
     await userService.deleteUserEmail(props.userUuid, target.id);
-    emit('success', 'Email address removed successfully');
+    emit('success', t('settings-emails-delete-success'));
     await fetchUserEmails(); // Refresh list
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    const message = axiosError.response?.data?.message || 'Failed to delete email address';
+    const message = axiosError.response?.data?.message || t('settings-emails-delete-error');
     emit('error', message);
   }
 };
@@ -115,6 +119,13 @@ const cancelAdd = () => {
   newEmailAddress.value = '';
 };
 
+// Localized confirm-modal message for pending deletion
+const confirmDeleteMessage = computed(() =>
+  pendingDeleteEmail.value
+    ? t('settings-emails-confirm-message', { email: pendingDeleteEmail.value.address })
+    : '',
+);
+
 // Watch for userUuid changes
 watch(() => props.userUuid, () => {
   fetchUserEmails();
@@ -123,7 +134,7 @@ watch(() => props.userUuid, () => {
 
 <template>
   <SectionCard content-padding="p-4">
-    <template #title>Email Addresses</template>
+    <template #title>{{ $t('settings-emails-section-title') }}</template>
     <template #headerActions>
       <button
         v-if="canEdit && !showAddForm"
@@ -131,18 +142,18 @@ watch(() => props.userUuid, () => {
         class="px-2 py-1 bg-accent text-white rounded-md hover:opacity-90 transition-colors text-xs flex items-center gap-1"
       >
         <Icon name="add" />
-        Add Email
+        {{ $t('settings-emails-add-button') }}
       </button>
     </template>
 
     <!-- Add Email Form -->
     <div v-if="showAddForm && canEdit" class="mb-4 p-4 bg-surface-alt rounded-lg border border-subtle">
-        <h3 class="text-sm font-medium text-primary mb-3">Add New Email Address</h3>
+        <h3 class="text-sm font-medium text-primary mb-3">{{ $t('settings-emails-add-form-title') }}</h3>
         <div class="flex flex-col sm:flex-row gap-3">
           <input
             v-model="newEmailAddress"
             type="email"
-            placeholder="email@example.com"
+            :placeholder="$t('settings-emails-add-placeholder')"
             class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-accent focus:outline-none"
             @keyup.enter="addEmail"
           />
@@ -152,13 +163,13 @@ watch(() => props.userUuid, () => {
               :disabled="addingEmail"
               class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {{ addingEmail ? 'Adding...' : 'Add' }}
+              {{ addingEmail ? $t('settings-emails-add-submitting') : $t('settings-emails-add-submit') }}
             </button>
             <button
               @click="cancelAdd"
               class="px-4 py-2.5 bg-surface-hover text-primary rounded-lg hover:bg-surface transition-colors"
             >
-              Cancel
+              {{ $t('settings-emails-add-cancel') }}
             </button>
           </div>
         </div>
@@ -171,7 +182,7 @@ watch(() => props.userUuid, () => {
 
       <!-- Empty state -->
       <div v-else-if="userEmails.length === 0" class="text-tertiary text-sm py-4">
-        No email addresses found
+        {{ $t('settings-emails-empty') }}
       </div>
 
       <!-- Email list -->
@@ -193,14 +204,14 @@ watch(() => props.userUuid, () => {
                   v-if="email.is_primary"
                   class="text-xs px-2 py-0.5 rounded-full bg-accent/20 text-accent flex-shrink-0"
                 >
-                  Primary
+                  {{ $t('settings-emails-primary-badge') }}
                 </span>
               </div>
 
               <!-- Metadata -->
               <div class="flex items-center gap-2 text-sm">
                 <span class="text-tertiary capitalize">
-                  {{ email.email_type || 'personal' }}
+                  {{ email.email_type || $t('settings-emails-type-personal') }}
                 </span>
                 <span v-if="email.source" class="text-border-default">•</span>
                 <span v-if="email.source" class="text-xs text-tertiary capitalize">
@@ -218,7 +229,7 @@ watch(() => props.userUuid, () => {
                   'text-status-warning bg-status-warning/20': !email.is_verified
                 }"
               >
-                {{ email.is_verified ? 'Verified' : 'Unverified' }}
+                {{ email.is_verified ? $t('settings-emails-verified-badge') : $t('settings-emails-unverified-badge') }}
               </span>
             </div>
           </div>
@@ -229,13 +240,13 @@ watch(() => props.userUuid, () => {
               @click="setAsPrimary(email.id, email.email)"
               class="text-xs px-3 py-1.5 bg-accent/20 text-accent rounded-lg hover:bg-accent/30 transition-colors"
             >
-              Set as Primary
+              {{ $t('settings-emails-set-primary') }}
             </button>
             <button
               @click="deleteEmail(email.id, email.email)"
               class="text-xs px-3 py-1.5 bg-status-error/20 text-status-error rounded-lg hover:bg-status-error/30 transition-colors"
             >
-              Remove
+              {{ $t('settings-emails-remove') }}
             </button>
           </div>
         </div>
@@ -244,9 +255,9 @@ watch(() => props.userUuid, () => {
     <ConfirmModal
       :show="pendingDeleteEmail !== null"
       variant="danger"
-      title="Remove email address?"
-      :message="pendingDeleteEmail ? `${pendingDeleteEmail.address} will no longer be associated with this account.` : ''"
-      confirm-label="Remove"
+      :title="$t('settings-emails-confirm-title')"
+      :message="confirmDeleteMessage"
+      :confirm-label="$t('settings-emails-confirm-label')"
       @confirm="doDeleteEmail"
       @close="pendingDeleteEmail = null"
     />

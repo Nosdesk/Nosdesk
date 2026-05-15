@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { RouterLink } from "vue-router";
+import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "@/components/UserAvatar.vue";
 import InlineEdit from "@/components/common/InlineEdit.vue";
@@ -8,6 +9,9 @@ import LoadingSpinner from "@/components/common/LoadingSpinner.vue";
 import userService from "@/services/userService";
 import uploadService from "@/services/uploadService";
 import type { User } from "@/types/user";
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 interface UserAvatarComponentType {
     refreshUser: (uuid?: string) => Promise<void>;
@@ -148,7 +152,7 @@ const handleFileChange = async (event: Event) => {
         allowedTypes: ["image/*"],
     });
     if (!validation.valid) {
-        emit("error", validation.error || "Invalid file");
+        emit("error", validation.error || t("settings-profile-error-invalid-file"));
         return;
     }
 
@@ -159,7 +163,7 @@ const handleFileChange = async (event: Event) => {
         await uploadImage(file, "avatar");
     } catch (error) {
         const err = error as Error;
-        emit("error", err.message || "Failed to process image");
+        emit("error", err.message || t("settings-profile-error-process-image"));
     }
 };
 
@@ -173,7 +177,7 @@ const handleBannerChange = async (event: Event) => {
         allowedTypes: ["image/*"],
     });
     if (!validation.valid) {
-        emit("error", validation.error || "Invalid file");
+        emit("error", validation.error || t("settings-profile-error-invalid-file"));
         return;
     }
 
@@ -184,7 +188,7 @@ const handleBannerChange = async (event: Event) => {
         await uploadImage(file, "banner");
     } catch (error) {
         const err = error as Error;
-        emit("error", err.message || "Failed to process image");
+        emit("error", err.message || t("settings-profile-error-process-image"));
     }
 };
 
@@ -212,7 +216,7 @@ const uploadImage = async (file: File, type: "avatar" | "banner") => {
     try {
         const targetUserUuid = displayUser.value?.uuid;
         if (!targetUserUuid) {
-            emit("error", "User UUID not found");
+            emit("error", t("settings-profile-error-user-uuid-missing"));
             return;
         }
 
@@ -224,14 +228,19 @@ const uploadImage = async (file: File, type: "avatar" | "banner") => {
         );
 
         if (!uploadedUrl) {
-            emit("error", `Failed to upload ${type}`);
+            emit(
+                "error",
+                type === "avatar"
+                    ? t("settings-profile-avatar-upload-error")
+                    : t("settings-profile-banner-upload-error"),
+            );
             return;
         }
 
         const successMessage =
             type === "avatar"
-                ? "Profile picture updated successfully"
-                : "Cover image updated successfully";
+                ? t("settings-profile-avatar-upload-success")
+                : t("settings-profile-banner-upload-success");
         emit("success", successMessage);
 
         // Add cache-busting parameter to force browser to reload the image
@@ -260,7 +269,12 @@ const uploadImage = async (file: File, type: "avatar" | "banner") => {
             }
         }
     } catch (err) {
-        emit("error", `Failed to update ${type}`);
+        emit(
+            "error",
+            type === "avatar"
+                ? t("settings-profile-avatar-update-error")
+                : t("settings-profile-banner-update-error"),
+        );
         console.error(`Error updating ${type}:`, err);
     } finally {
         loading.value = false;
@@ -281,7 +295,7 @@ const updateName = async () => {
     try {
         const userUuid = displayUser.value?.uuid;
         if (!userUuid) {
-            emit("error", "User not authenticated");
+            emit("error", t("settings-profile-error-not-authenticated"));
             return;
         }
 
@@ -290,7 +304,7 @@ const updateName = async () => {
         });
 
         if (updatedUser) {
-            emit("success", "Name updated successfully");
+            emit("success", t("settings-profile-name-update-success"));
             originalData.value.name = formData.value.name;
 
             // Update auth store if this is the current user
@@ -298,10 +312,10 @@ const updateName = async () => {
                 authStore.user = { ...authStore.user, name: updatedUser.name };
             }
         } else {
-            emit("error", "Failed to update name");
+            emit("error", t("settings-profile-name-update-error"));
         }
     } catch (err) {
-        emit("error", "Failed to update name");
+        emit("error", t("settings-profile-name-update-error"));
         console.error("Error updating name:", err);
     } finally {
         loading.value = false;
@@ -316,7 +330,7 @@ const updatePronouns = async () => {
     try {
         const userUuid = displayUser.value?.uuid;
         if (!userUuid) {
-            emit("error", "User not authenticated");
+            emit("error", t("settings-profile-error-not-authenticated"));
             return;
         }
 
@@ -325,7 +339,7 @@ const updatePronouns = async () => {
         });
 
         if (updatedUser) {
-            emit("success", "Pronouns updated successfully");
+            emit("success", t("settings-profile-pronouns-update-success"));
             editingPronouns.value = false;
 
             // Update auth store if this is the current user
@@ -336,10 +350,10 @@ const updatePronouns = async () => {
                 };
             }
         } else {
-            emit("error", "Failed to update pronouns");
+            emit("error", t("settings-profile-pronouns-update-error"));
         }
     } catch (err) {
-        emit("error", "Failed to update pronouns");
+        emit("error", t("settings-profile-pronouns-update-error"));
         console.error("Error updating pronouns:", err);
     } finally {
         loading.value = false;
@@ -351,7 +365,7 @@ const updateSignature = async () => {
     try {
         const userUuid = displayUser.value?.uuid;
         if (!userUuid) {
-            emit("error", "User not authenticated");
+            emit("error", t("settings-profile-error-not-authenticated"));
             return;
         }
         // Empty string clears the signature; backend treats it as
@@ -360,7 +374,7 @@ const updateSignature = async () => {
             signature: formData.value.signature,
         });
         if (updatedUser) {
-            emit("success", "Signature updated");
+            emit("success", t("settings-profile-signature-update-success"));
             if (authStore.user?.uuid === userUuid && authStore.user) {
                 authStore.user = {
                     ...authStore.user,
@@ -368,10 +382,10 @@ const updateSignature = async () => {
                 };
             }
         } else {
-            emit("error", "Failed to update signature");
+            emit("error", t("settings-profile-signature-update-error"));
         }
     } catch (err) {
-        emit("error", "Failed to update signature");
+        emit("error", t("settings-profile-signature-update-error"));
         console.error("Error updating signature:", err);
     } finally {
         loading.value = false;
@@ -414,17 +428,17 @@ const getRoleDisplayName = (role: string) => {
         displayUser.value?.name === "Kyle Phillips" &&
         displayUser.value?.email?.endsWith("@kyle.au")
     ) {
-        return "Developer";
+        return t("settings-profile-role-developer");
     }
 
     switch (role) {
         case "admin":
-            return "Administrator";
+            return t("settings-profile-role-admin");
         case "technician":
-            return "Technician";
+            return t("settings-profile-role-technician");
         case "user":
         default:
-            return "User";
+            return t("settings-profile-role-user");
     }
 };
 </script>
@@ -465,7 +479,7 @@ const getRoleDisplayName = (role: string) => {
                 v-else-if="formData.banner_url"
                 :key="formData.banner_url"
                 :src="formData.banner_url"
-                alt="Profile banner"
+                :alt="$t('settings-profile-banner-alt')"
                 class="absolute inset-0 w-full h-full object-cover"
             />
             <!-- Default accent background when no banner -->
@@ -586,7 +600,7 @@ const getRoleDisplayName = (role: string) => {
                                 d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
                             />
                         </svg>
-                        <span class="text-xs">Change Photo</span>
+                        <span class="text-xs">{{ $t('settings-profile-change-photo') }}</span>
                     </div>
                 </div>
                 <input
@@ -611,7 +625,7 @@ const getRoleDisplayName = (role: string) => {
                         <InlineEdit
                             v-model="formData.name"
                             :placeholder="
-                                displayUser?.name || 'Enter name...'
+                                displayUser?.name || $t('settings-profile-name-placeholder')
                             "
                             text-size="2xl"
                             :can-edit="true"
@@ -634,21 +648,21 @@ const getRoleDisplayName = (role: string) => {
                         <h3
                             class="text-xs font-medium text-tertiary uppercase tracking-wide"
                         >
-                            Pronouns
+                            {{ $t('settings-profile-pronouns-label') }}
                         </h3>
                         <div class="flex flex-wrap gap-3">
                             <input
                                 v-model="formData.pronouns"
                                 type="text"
                                 class="flex-1 min-w-48 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-accent focus:outline-none"
-                                placeholder="Add pronouns (e.g., he/him, she/her, they/them)"
+                                :placeholder="$t('settings-profile-pronouns-placeholder')"
                             />
                             <button
                                 @click="updatePronouns"
                                 :disabled="!pronounsModified || loading"
                                 class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                             >
-                                Save
+                                {{ $t('settings-profile-save') }}
                             </button>
                         </div>
                     </div>
@@ -661,10 +675,10 @@ const getRoleDisplayName = (role: string) => {
                             for="user-email-signature"
                             class="text-xs font-medium text-tertiary uppercase tracking-wide"
                         >
-                            Email signature
+                            {{ $t('settings-profile-signature-label') }}
                         </label>
                         <p id="user-email-signature-hint" class="text-xs text-tertiary">
-                            Appended to your outbound replies on channel-originated tickets (email). Separator is standard <code class="text-[10px] bg-surface-alt px-1 rounded">-- </code>.
+                            {{ $t('settings-profile-signature-hint-prefix') }} <code class="text-[10px] bg-surface-alt px-1 rounded">-- </code>{{ $t('settings-profile-signature-hint-suffix') }}
                         </p>
                         <div class="flex flex-col gap-3">
                             <textarea
@@ -673,7 +687,7 @@ const getRoleDisplayName = (role: string) => {
                                 rows="4"
                                 aria-describedby="user-email-signature-hint"
                                 class="w-full px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary placeholder-tertiary focus:ring-2 focus:ring-accent focus:outline-none resize-y font-mono text-sm"
-                                placeholder="Tech Name&#10;IT Support"
+                                :placeholder="$t('settings-profile-signature-placeholder')"
                             ></textarea>
                             <div class="flex justify-end">
                                 <button
@@ -681,7 +695,7 @@ const getRoleDisplayName = (role: string) => {
                                     :disabled="!signatureModified || loading"
                                     class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    Save
+                                    {{ $t('settings-profile-save') }}
                                 </button>
                             </div>
                         </div>
@@ -701,7 +715,7 @@ const getRoleDisplayName = (role: string) => {
                         <!-- Name with pronouns inline -->
                         <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                             <h2 class="text-2xl font-semibold text-primary">
-                                {{ displayUser?.name || "Unknown User" }}
+                                {{ displayUser?.name || $t('settings-profile-unknown-user') }}
                             </h2>
                             <span
                                 v-if="showPronouns && displayUser?.pronouns"
