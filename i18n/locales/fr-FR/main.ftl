@@ -3516,3 +3516,128 @@ plugin-sideload-installing = Installation...
 plugin-sideload-error-not-zip = Veuillez sélectionner un fichier .zip
 plugin-sideload-error-too-large = Le fichier doit faire moins de 2 Mo
 plugin-sideload-error-install-failed = Échec de l'installation du plugin
+# Vues invités et publiques (GuestTicketSubmitView, GuestTicketStatusView,
+# PublicDocsView, PublicDocView, HelpView, PublicLayout,
+# FeatureDisabledNotice). Textes affichés aux visiteurs non authentifiés.
+
+# Partagé : notice de fonctionnalité désactivée et mise en page publique
+feature-disabled-sign-in = Se connecter
+public-layout-home-aria = Accueil de { $appName }
+public-layout-logo-aria = Logo { $appName }
+public-layout-nav-aria = Navigation publique
+public-layout-docs-link = Documentation
+public-layout-help-link = Aide
+
+# Envoi de ticket invité
+guest-submit-disabled-title = L'envoi de tickets n'est pas disponible
+guest-submit-disabled-message = L'envoi de tickets par les invités est actuellement désactivé. Connectez-vous si vous avez un compte.
+guest-submit-verify-title = Vérifiez votre boîte de réception
+guest-submit-verify-message-prefix = Cliquez sur le lien de confirmation que nous avons envoyé à
+guest-submit-verify-message-suffix = pour valider votre ticket et configurer votre portail.
+guest-submit-verify-spam-hint = Rien reçu ? Vérifiez vos spams, puis réessayez dans quelques minutes.
+guest-submit-another = Envoyer un autre ticket
+guest-submit-success-title = Ticket bien reçu
+guest-submit-success-email-prefix = Nous avons envoyé une confirmation à
+guest-submit-success-email-suffix = avec un lien pour vous connecter et suivre l'avancement.
+guest-submit-success-no-email = Votre ticket a bien été enregistré. Notre équipe vous recontactera par e-mail.
+guest-submit-success-reference-prefix = Numéro de référence
+guest-submit-track-heading = Suivre sans se connecter
+guest-submit-copied = Copié
+guest-submit-copy = Copier
+guest-submit-track-hint = Conservez ce lien, c'est le seul moyen de consulter le ticket sans se connecter.
+guest-submit-view-status = Voir l'état du ticket
+guest-submit-another-short = Envoyer un autre
+guest-submit-heading = Envoyer un ticket
+guest-submit-tagline = Nous vous répondrons par e-mail.
+guest-submit-honeypot-label = Site web
+guest-submit-field-name = Votre nom
+guest-submit-field-name-placeholder = Jeanne Dupont
+guest-submit-field-email = Adresse e-mail
+guest-submit-field-email-placeholder = vous@exemple.fr
+guest-submit-field-title = Sujet
+guest-submit-field-title-placeholder = Un bref résumé de votre demande
+guest-submit-field-description = Description
+guest-submit-field-description-placeholder = Expliquez-nous ce qui se passe et comment nous pouvons vous aider.
+guest-submit-description-counter = { $count } / 10000
+guest-submit-attachments-label = Pièces jointes
+guest-submit-attachments-optional = (facultatif)
+guest-submit-attachments-counter = { $count } / { $max }
+guest-submit-attachments-uploading = Envoi en cours...
+guest-submit-attachments-pick = Cliquez pour joindre un fichier
+guest-submit-attachments-hint = Images, PDF ou texte. Jusqu'à { $size } Mo chacun.
+guest-submit-attachments-remove-aria = Retirer { $name }
+guest-submit-submitting = Envoi...
+guest-submit-submit = Envoyer le ticket
+guest-submit-have-account = Vous avez déjà un compte ?
+guest-submit-sign-in = Se connecter
+guest-submit-error-name = Veuillez saisir votre nom.
+guest-submit-error-email = Veuillez saisir une adresse e-mail valide.
+guest-submit-error-title = Veuillez saisir un sujet.
+guest-submit-error-description = Veuillez décrire le problème.
+guest-submit-error-uploads-pending = Veuillez attendre la fin des envois de fichiers.
+guest-submit-error-rate-limited = Trop d'envois depuis votre réseau. Veuillez réessayer plus tard.
+guest-submit-error-disabled = L'envoi de tickets a été désactivé.
+guest-submit-error-account-exists = Un compte existe déjà pour cette adresse. Veuillez vous connecter pour envoyer un ticket.
+guest-submit-error-generic = Échec de l'envoi du ticket. Veuillez réessayer.
+guest-submit-error-network = Erreur réseau. Veuillez réessayer.
+guest-submit-attach-error-max = { $max } pièces jointes au maximum.
+guest-submit-attach-error-too-large = { $name } dépasse { $size } Mo.
+guest-submit-attach-error-rate-limited = Trop d'envois depuis votre réseau. Réessayez plus tard.
+guest-submit-attach-error-too-large-server = { $name } est trop volumineux.
+guest-submit-attach-error-disabled = Les pièces jointes ne sont pas acceptées pour le moment.
+guest-submit-attach-error-generic = Échec de l'envoi. Réessayez.
+guest-submit-attach-error-network = Erreur réseau lors de l'envoi du fichier.
+guest-submit-size-bytes = { $bytes } o
+guest-submit-size-kb = { $value } Ko
+guest-submit-size-mb = { $value } Mo
+
+# État du ticket invité
+guest-status-loading-aria = Chargement du ticket
+guest-status-disabled-title = La consultation d'état n'est pas disponible
+guest-status-disabled-message = La consultation de l'état des tickets invités est actuellement désactivée.
+guest-status-ticket-number = Ticket n°{ $id }
+guest-status-priority = Priorité
+guest-status-opened = Ouvert le
+guest-status-last-updated = Dernière mise à jour
+guest-status-closed = Clôturé le
+guest-status-reply-prefix = Vous souhaitez répondre ?
+guest-status-reply-suffix = pour ajouter un commentaire.
+guest-status-not-found-title = Ticket introuvable
+guest-status-not-found-message = Le lien a peut-être expiré ou été mal saisi.
+
+# Liste de documentation publique
+public-docs-loading-aria = Chargement de la documentation
+public-docs-disabled-title = La documentation n'est pas disponible
+public-docs-disabled-message = La documentation publique est actuellement désactivée.
+public-docs-heading = Documentation
+public-docs-tagline = Parcourez les articles d'aide et tutoriels.
+public-docs-search-placeholder = Rechercher dans la documentation...
+public-docs-search-aria = Rechercher dans la documentation
+public-docs-no-results = Aucun article ne correspond à votre recherche.
+public-docs-empty = Aucune documentation disponible pour l'instant.
+public-docs-updated = Mis à jour le { $date }
+
+# Détail d'un article public
+public-doc-loading-aria = Chargement de l'article
+public-doc-back = Tous les documents
+public-doc-last-updated = Dernière mise à jour le { $date }
+public-doc-rich-text-prefix = Cet article utilise l'édition collaborative en texte riche. Une vue simplifiée est affichée ici, pour l'expérience complète avec commentaires et pièces jointes veuillez
+public-doc-rich-text-link = vous connecter
+public-doc-rich-text-suffix = .
+public-doc-not-found-title = Document introuvable
+public-doc-not-found-message = Il a peut-être été déplacé ou rendu privé.
+public-doc-back-to-docs = Retour à la documentation
+
+# Page d'aide
+help-disabled-title = La page d'aide n'est pas disponible
+help-disabled-message = La page d'aide en libre-service est actuellement désactivée.
+help-heading = Comment pouvons-nous vous aider ?
+help-tagline = Voici quelques actions possibles sans compte.
+help-card-submit-title = Envoyer un ticket
+help-card-submit-desc = Signalez un problème, nous vous répondrons par e-mail.
+help-card-docs-title = Parcourir la documentation
+help-card-docs-desc = Articles publics, guides et tutoriels.
+help-card-reset-title = Réinitialiser votre mot de passe
+help-card-reset-desc = Vous n'arrivez plus à accéder à votre compte ? C'est par ici.
+help-card-signin-title = Se connecter
+help-card-signin-desc = Vous avez déjà un compte ?

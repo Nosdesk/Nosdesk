@@ -4,7 +4,7 @@
       v-if="loading"
       class="bg-surface border border-default rounded-xl shadow-sm overflow-hidden flex flex-col"
       aria-busy="true"
-      aria-label="Loading article"
+      :aria-label="t('public-doc-loading-aria')"
     >
       <header class="p-5 sm:p-6 border-b border-default flex flex-col gap-2">
         <SkeletonBlock width="70%" height="1.5rem" />
@@ -19,8 +19,8 @@
 
     <FeatureDisabledNotice
       v-else-if="!enabled"
-      title="Documentation is not available"
-      message="Public documentation is currently disabled."
+      :title="t('public-docs-disabled-title')"
+      :message="t('public-docs-disabled-message')"
     />
 
     <template v-else-if="doc">
@@ -31,7 +31,7 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
-        All docs
+        {{ t('public-doc-back') }}
       </RouterLink>
 
       <article class="bg-surface border border-default rounded-xl shadow-sm overflow-hidden flex flex-col">
@@ -41,15 +41,14 @@
           </div>
           <div class="flex-1 min-w-0 flex flex-col gap-1">
             <h1 class="text-xl sm:text-2xl font-bold text-primary break-words">{{ doc.title }}</h1>
-            <p class="text-xs text-tertiary">Last updated {{ formatDate(doc.updated_at) }}</p>
+            <p class="text-xs text-tertiary">{{ t('public-doc-last-updated', { date: formatDate(doc.updated_at) }) }}</p>
           </div>
         </header>
 
         <div class="p-5 sm:p-6">
           <div class="bg-status-info-muted border border-status-info/30 rounded-lg p-4 text-sm text-secondary">
-            This article uses collaborative rich-text editing. A simplified view is shown here — for the full
-            experience with comments and attachments please
-            <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">sign in</RouterLink>.
+            {{ t('public-doc-rich-text-prefix') }}
+            <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('public-doc-rich-text-link') }}</RouterLink>{{ t('public-doc-rich-text-suffix') }}
           </div>
         </div>
       </article>
@@ -66,14 +65,14 @@
         </svg>
       </div>
       <div class="flex flex-col gap-1">
-        <h2 class="text-lg font-semibold text-primary">Document not found</h2>
-        <p class="text-sm text-secondary">It may have been moved or set to private.</p>
+        <h2 class="text-lg font-semibold text-primary">{{ t('public-doc-not-found-title') }}</h2>
+        <p class="text-sm text-secondary">{{ t('public-doc-not-found-message') }}</p>
       </div>
       <RouterLink
         to="/docs"
         class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-secondary bg-surface border border-default hover:bg-surface-hover hover:text-primary transition-colors"
       >
-        Back to docs
+        {{ t('public-doc-back-to-docs') }}
       </RouterLink>
     </div>
   </PublicLayout>
@@ -82,11 +81,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import { usePublicSettingsStore } from '@/stores/publicSettings';
 import { publicService, type PublicDoc } from '@/services/publicService';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const props = defineProps<{ slug: string }>();
 

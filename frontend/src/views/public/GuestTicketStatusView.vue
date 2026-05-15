@@ -1,12 +1,12 @@
 <template>
   <PublicLayout content-class="max-w-md mx-auto w-full">
-    <!-- Skeleton of the status card — same dimensions as the real content
+    <!-- Skeleton of the status card, same dimensions as the real content
          so nothing shifts when data arrives. -->
     <div
       v-if="loading"
       class="bg-surface border border-default rounded-xl shadow-sm overflow-hidden flex flex-col"
       aria-busy="true"
-      aria-label="Loading ticket"
+      :aria-label="t('guest-status-loading-aria')"
     >
       <div class="p-5 sm:p-6 border-b border-default flex items-start justify-between gap-3">
         <div class="min-w-0 flex flex-col gap-2 flex-1">
@@ -25,8 +25,8 @@
 
     <FeatureDisabledNotice
       v-else-if="!enabled"
-      title="Status lookup is not available"
-      message="Guest ticket status lookup is currently disabled."
+      :title="t('guest-status-disabled-title')"
+      :message="t('guest-status-disabled-message')"
     />
 
     <template v-else-if="ticket">
@@ -34,7 +34,7 @@
         <div class="p-5 sm:p-6 border-b border-default flex items-start justify-between gap-3 flex-wrap">
           <div class="min-w-0 flex flex-col gap-1">
             <div class="text-xs font-medium text-tertiary uppercase tracking-wide">
-              Ticket #{{ ticket.ticket_id }}
+              {{ t('guest-status-ticket-number', { id: ticket.ticket_id }) }}
             </div>
             <h1 class="text-xl font-semibold text-primary break-words">{{ ticket.title }}</h1>
           </div>
@@ -48,28 +48,28 @@
 
         <dl class="p-5 sm:p-6 grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
           <div class="flex flex-col gap-0.5">
-            <dt class="text-tertiary">Priority</dt>
+            <dt class="text-tertiary">{{ t('guest-status-priority') }}</dt>
             <dd class="text-primary capitalize">{{ ticket.priority }}</dd>
           </div>
           <div class="flex flex-col gap-0.5">
-            <dt class="text-tertiary">Opened</dt>
+            <dt class="text-tertiary">{{ t('guest-status-opened') }}</dt>
             <dd class="text-primary">{{ formatDate(ticket.created_at) }}</dd>
           </div>
           <div class="flex flex-col gap-0.5">
-            <dt class="text-tertiary">Last updated</dt>
+            <dt class="text-tertiary">{{ t('guest-status-last-updated') }}</dt>
             <dd class="text-primary">{{ formatDate(ticket.updated_at) }}</dd>
           </div>
           <div v-if="ticket.closed_at" class="flex flex-col gap-0.5">
-            <dt class="text-tertiary">Closed</dt>
+            <dt class="text-tertiary">{{ t('guest-status-closed') }}</dt>
             <dd class="text-primary">{{ formatDate(ticket.closed_at) }}</dd>
           </div>
         </dl>
       </div>
 
       <p class="text-sm text-tertiary text-center">
-        Need to reply?
-        <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">Sign in</RouterLink>
-        to add a comment.
+        {{ t('guest-status-reply-prefix') }}
+        <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('guest-submit-sign-in') }}</RouterLink>
+        {{ t('guest-status-reply-suffix') }}
       </p>
     </template>
 
@@ -84,8 +84,8 @@
         </svg>
       </div>
       <div class="flex flex-col gap-1">
-        <h2 class="text-lg font-semibold text-primary">Ticket not found</h2>
-        <p class="text-sm text-secondary">The link may have expired or been mistyped.</p>
+        <h2 class="text-lg font-semibold text-primary">{{ t('guest-status-not-found-title') }}</h2>
+        <p class="text-sm text-secondary">{{ t('guest-status-not-found-message') }}</p>
       </div>
     </div>
   </PublicLayout>
@@ -94,11 +94,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import { usePublicSettingsStore } from '@/stores/publicSettings';
 import { publicService, type GuestTicketStatus } from '@/services/publicService';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const props = defineProps<{ token: string }>();
 

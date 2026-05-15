@@ -5,14 +5,14 @@
          resolves and is confirmed off. -->
     <FeatureDisabledNotice
       v-if="!loading && !enabled"
-      title="Help page is not available"
-      message="The self-service help page is currently disabled."
+      :title="t('help-disabled-title')"
+      :message="t('help-disabled-message')"
     />
 
     <template v-else>
       <div class="flex flex-col gap-1 text-center">
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">How can we help?</h1>
-        <p class="text-sm text-secondary">Here are a few things you can do without an account.</p>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ t('help-heading') }}</h1>
+        <p class="text-sm text-secondary">{{ t('help-tagline') }}</p>
       </div>
 
       <div class="grid gap-3 sm:grid-cols-2">
@@ -43,9 +43,13 @@
 <script setup lang="ts">
 import { h, ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import { usePublicSettingsStore } from '@/stores/publicSettings';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const store = usePublicSettingsStore();
 const loading = ref(true);
@@ -104,8 +108,8 @@ const cards = computed(() => {
   if (store.settings?.guest_tickets_enabled) {
     list.push({
       to: '/submit-ticket',
-      title: 'Submit a ticket',
-      description: "Report an issue and we'll get back to you by email.",
+      title: t('help-card-submit-title'),
+      description: t('help-card-submit-desc'),
       icon: TicketIcon(),
       iconBg: 'bg-accent-muted',
       iconColor: 'text-accent'
@@ -114,8 +118,8 @@ const cards = computed(() => {
   if (store.settings?.guest_public_docs_enabled) {
     list.push({
       to: '/docs',
-      title: 'Browse documentation',
-      description: 'Public articles, guides, and how-tos.',
+      title: t('help-card-docs-title'),
+      description: t('help-card-docs-desc'),
       icon: DocIcon(),
       iconBg: 'bg-status-info-muted',
       iconColor: 'text-status-info'
@@ -123,16 +127,16 @@ const cards = computed(() => {
   }
   list.push({
     to: '/reset-password',
-    title: 'Reset your password',
-    description: 'Lost access to your account? Start here.',
+    title: t('help-card-reset-title'),
+    description: t('help-card-reset-desc'),
     icon: KeyIcon(),
     iconBg: 'bg-status-warning-muted',
     iconColor: 'text-status-warning'
   });
   list.push({
     to: '/login',
-    title: 'Sign in',
-    description: 'Already have an account?',
+    title: t('help-card-signin-title'),
+    description: t('help-card-signin-desc'),
     icon: SignInIcon(),
     iconBg: 'bg-surface-alt',
     iconColor: 'text-secondary'

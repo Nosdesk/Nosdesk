@@ -5,8 +5,8 @@
          settings resolve and the flag is confirmed off. -->
     <FeatureDisabledNotice
       v-if="!loading && !enabled"
-      title="Ticket submission is not available"
-      message="Guest ticket submission is currently disabled. Please sign in if you have an account."
+      :title="t('guest-submit-disabled-title')"
+      :message="t('guest-submit-disabled-message')"
     />
 
     <!-- Success state: awaiting email verification -->
@@ -18,22 +18,22 @@
         <Icon name="email" size="lg" class="text-accent" />
       </div>
       <div class="flex flex-col gap-2">
-        <h1 class="text-xl font-semibold text-primary">Check your inbox</h1>
+        <h1 class="text-xl font-semibold text-primary">{{ t('guest-submit-verify-title') }}</h1>
         <p class="text-sm text-secondary">
-          Click the confirmation link we sent to
+          {{ t('guest-submit-verify-message-prefix') }}
           <span class="text-primary font-medium">{{ submittedEmail }}</span>
-          to release your ticket and set up your portal.
+          {{ t('guest-submit-verify-message-suffix') }}
         </p>
       </div>
       <p class="text-xs text-tertiary">
-        Didn't get it? Check spam, then try again in a few minutes.
+        {{ t('guest-submit-verify-spam-hint') }}
       </p>
       <button
         type="button"
         @click="submitAnother"
         class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-secondary bg-surface border border-default hover:bg-surface-hover hover:text-primary transition-colors"
       >
-        Submit another ticket
+        {{ t('guest-submit-another') }}
       </button>
     </div>
 
@@ -47,17 +47,17 @@
           <Icon name="check" size="md" class="text-status-success" />
         </div>
         <div class="flex-1 min-w-0 flex flex-col gap-1">
-          <h1 class="text-xl font-semibold text-primary">Ticket received</h1>
+          <h1 class="text-xl font-semibold text-primary">{{ t('guest-submit-success-title') }}</h1>
           <p class="text-sm text-secondary">
             <template v-if="success.email_sent">
-              We've sent a confirmation to
+              {{ t('guest-submit-success-email-prefix') }}
               <span class="text-primary font-medium">{{ submittedEmail }}</span>
-              with a link to sign in and track progress.
+              {{ t('guest-submit-success-email-suffix') }}
             </template>
             <template v-else>
-              Your ticket has been logged. Our team will follow up by email.
+              {{ t('guest-submit-success-no-email') }}
             </template>
-            Reference number
+            {{ t('guest-submit-success-reference-prefix') }}
             <span class="text-primary font-mono font-medium">#{{ success.ticket_id }}</span>.
           </p>
         </div>
@@ -68,7 +68,7 @@
         class="rounded-lg border border-default bg-surface-alt p-4 flex flex-col gap-2"
       >
         <div class="text-xs font-medium text-tertiary uppercase tracking-wide">
-          Track without signing in
+          {{ t('guest-submit-track-heading') }}
         </div>
         <div class="flex flex-col sm:flex-row sm:items-center gap-2">
           <code class="flex-1 min-w-0 text-xs text-primary font-mono break-all">{{ statusAbsolute }}</code>
@@ -78,11 +78,11 @@
             class="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-secondary bg-surface border border-default hover:bg-surface-hover hover:text-primary transition-colors"
           >
             <Icon name="copy" />
-            {{ copied ? 'Copied' : 'Copy' }}
+            {{ copied ? t('guest-submit-copied') : t('guest-submit-copy') }}
           </button>
         </div>
         <p class="text-xs text-tertiary">
-          Save this link — it's the only way to check the ticket without signing in.
+          {{ t('guest-submit-track-hint') }}
         </p>
       </div>
 
@@ -92,14 +92,14 @@
           :to="success.status_url"
           class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent hover:opacity-90 transition-colors"
         >
-          View ticket status
+          {{ t('guest-submit-view-status') }}
         </RouterLink>
         <button
           type="button"
           @click="submitAnother"
           class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-secondary bg-surface border border-default hover:bg-surface-hover hover:text-primary transition-colors"
         >
-          Submit another
+          {{ t('guest-submit-another-short') }}
         </button>
       </div>
     </div>
@@ -107,8 +107,8 @@
     <!-- Form state (also rendered optimistically while settings are loading) -->
     <template v-else>
       <div class="flex flex-col gap-1 text-center">
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Submit a ticket</h1>
-        <p class="text-sm text-secondary">We'll follow up by email.</p>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ t('guest-submit-heading') }}</h1>
+        <p class="text-sm text-secondary">{{ t('guest-submit-tagline') }}</p>
       </div>
 
       <!-- Admin-configured intro message. Plain text only; `whitespace-pre-line`
@@ -133,7 +133,7 @@
              placeholder that would hint at its purpose. -->
         <div aria-hidden="true" class="sr-only" style="position: absolute; left: -9999px;">
           <label>
-            Website
+            {{ t('guest-submit-honeypot-label') }}
             <input
               type="text"
               name="website"
@@ -154,7 +154,7 @@
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label for="guest-name" class="text-sm font-medium text-secondary">Your name</label>
+          <label for="guest-name" class="text-sm font-medium text-secondary">{{ t('guest-submit-field-name') }}</label>
           <input
             id="guest-name"
             v-model.trim="form.name"
@@ -162,7 +162,7 @@
             required
             maxlength="120"
             autocomplete="name"
-            placeholder="Jane Doe"
+            :placeholder="t('guest-submit-field-name-placeholder')"
             :aria-invalid="fieldErrors.name ? 'true' : 'false'"
             class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
           />
@@ -170,14 +170,14 @@
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label for="guest-email" class="text-sm font-medium text-secondary">Email address</label>
+          <label for="guest-email" class="text-sm font-medium text-secondary">{{ t('guest-submit-field-email') }}</label>
           <input
             id="guest-email"
             v-model.trim="form.email"
             type="email"
             required
             autocomplete="email"
-            placeholder="you@example.com"
+            :placeholder="t('guest-submit-field-email-placeholder')"
             :aria-invalid="fieldErrors.email ? 'true' : 'false'"
             class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
           />
@@ -185,14 +185,14 @@
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label for="guest-title" class="text-sm font-medium text-secondary">Subject</label>
+          <label for="guest-title" class="text-sm font-medium text-secondary">{{ t('guest-submit-field-title') }}</label>
           <input
             id="guest-title"
             v-model.trim="form.title"
             type="text"
             required
             maxlength="255"
-            placeholder="A short summary of what you need"
+            :placeholder="t('guest-submit-field-title-placeholder')"
             :aria-invalid="fieldErrors.title ? 'true' : 'false'"
             class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
           />
@@ -200,20 +200,20 @@
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label for="guest-description" class="text-sm font-medium text-secondary">Description</label>
+          <label for="guest-description" class="text-sm font-medium text-secondary">{{ t('guest-submit-field-description') }}</label>
           <textarea
             id="guest-description"
             v-model.trim="form.description"
             required
             rows="5"
             maxlength="10000"
-            placeholder="Tell us what's going on and how we can help."
+            :placeholder="t('guest-submit-field-description-placeholder')"
             :aria-invalid="fieldErrors.description ? 'true' : 'false'"
             class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-y transition-colors"
           ></textarea>
           <div class="flex items-center justify-between gap-2">
             <p v-if="fieldErrors.description" class="text-xs text-status-error">{{ fieldErrors.description }}</p>
-            <p class="text-xs text-tertiary ml-auto">{{ form.description.length }} / 10000</p>
+            <p class="text-xs text-tertiary ml-auto">{{ t('guest-submit-description-counter', { count: form.description.length }) }}</p>
           </div>
         </div>
 
@@ -221,10 +221,10 @@
         <div v-if="attachmentsEnabled" class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-2">
             <label class="text-sm font-medium text-secondary">
-              Attachments <span class="text-tertiary font-normal">(optional)</span>
+              {{ t('guest-submit-attachments-label') }} <span class="text-tertiary font-normal">{{ t('guest-submit-attachments-optional') }}</span>
             </label>
             <span class="text-xs text-tertiary">
-              {{ attachments.length }} / {{ MAX_FILES }}
+              {{ t('guest-submit-attachments-counter', { count: attachments.length, max: MAX_FILES }) }}
             </span>
           </div>
 
@@ -245,10 +245,10 @@
                 d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
             <span class="text-xs text-secondary">
-              {{ uploading ? 'Uploading…' : 'Click to attach a file' }}
+              {{ uploading ? t('guest-submit-attachments-uploading') : t('guest-submit-attachments-pick') }}
             </span>
             <span class="text-[11px] text-tertiary">
-              Images, PDF, or text. Up to {{ MAX_SIZE_MB }}MB each.
+              {{ t('guest-submit-attachments-hint', { size: MAX_SIZE_MB }) }}
             </span>
           </label>
 
@@ -273,7 +273,7 @@
                 type="button"
                 @click="removeAttachment(att.id)"
                 class="shrink-0 p-1 rounded text-tertiary hover:text-status-error hover:bg-status-error-muted transition-colors"
-                :aria-label="`Remove ${att.name}`"
+                :aria-label="t('guest-submit-attachments-remove-aria', { name: att.name })"
               >
                 <Icon name="close" />
               </button>
@@ -290,14 +290,14 @@
             class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Spinner v-if="submitting" />
-            {{ submitting ? 'Submitting…' : 'Submit ticket' }}
+            {{ submitting ? t('guest-submit-submitting') : t('guest-submit-submit') }}
           </button>
         </div>
       </form>
 
       <p class="text-center text-sm text-tertiary">
-        Already have an account?
-        <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">Sign in</RouterLink>
+        {{ t('guest-submit-have-account') }}
+        <RouterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('guest-submit-sign-in') }}</RouterLink>
       </p>
     </template>
   </PublicLayout>
@@ -306,6 +306,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import Icon from '@/components/common/Icon.vue';
@@ -317,6 +318,9 @@ import {
   type SubmitGuestTicketResponse
 } from '@/services/publicService';
 import axios from 'axios';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Keep in sync with backend validation (utils/file_validation.rs).
 const MAX_FILES = 5;
@@ -342,7 +346,7 @@ const attachments = ref<GuestAttachmentUpload[]>([]);
 const uploading = ref(false);
 const attachmentError = ref('');
 
-// Priority is deliberately NOT surfaced to the submitter — every helpdesk
+// Priority is deliberately NOT surfaced to the submitter, every helpdesk
 // that has tried it discovers everyone marks "high," which renders the
 // field useless for triage. Priority is an admin-configured default
 // (site_settings.guest_ticket_default_priority) and techs re-triage after
@@ -352,7 +356,7 @@ const form = reactive({
   email: '',
   title: '',
   description: '',
-  // Honeypot — always empty when a human submits. See the hidden input in
+  // Honeypot, always empty when a human submits. See the hidden input in
   // the template for the details on why we pose this as "website".
   website: ''
 });
@@ -385,13 +389,13 @@ onMounted(async () => {
 });
 
 function validate(): boolean {
-  fieldErrors.name = form.name.length < 1 ? 'Please enter your name.' : null;
+  fieldErrors.name = form.name.length < 1 ? t('guest-submit-error-name') : null;
   fieldErrors.email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)
     ? null
-    : 'Please enter a valid email address.';
-  fieldErrors.title = form.title.length < 1 ? 'Please enter a subject.' : null;
+    : t('guest-submit-error-email');
+  fieldErrors.title = form.title.length < 1 ? t('guest-submit-error-title') : null;
   fieldErrors.description = form.description.length < 1
-    ? 'Please describe the issue.'
+    ? t('guest-submit-error-description')
     : null;
   return !Object.values(fieldErrors).some(Boolean);
 }
@@ -400,7 +404,7 @@ async function submit() {
   error.value = null;
   if (!validate()) return;
   if (uploading.value) {
-    error.value = 'Please wait for file uploads to finish.';
+    error.value = t('guest-submit-error-uploads-pending');
     return;
   }
   submitting.value = true;
@@ -414,18 +418,18 @@ async function submit() {
   } catch (e: unknown) {
     if (axios.isAxiosError(e)) {
       if (e.response?.status === 429) {
-        error.value = 'Too many submissions from your network. Please try again later.';
+        error.value = t('guest-submit-error-rate-limited');
       } else if (e.response?.status === 403) {
-        error.value = 'Ticket submission has been disabled.';
+        error.value = t('guest-submit-error-disabled');
         await store.load(true);
       } else if (e.response?.status === 409) {
-        error.value = 'An account exists for this email. Please sign in to submit a ticket.';
+        error.value = t('guest-submit-error-account-exists');
       } else {
         const data = e.response?.data as { error?: string } | undefined;
-        error.value = data?.error ?? 'Failed to submit ticket. Please try again.';
+        error.value = data?.error ?? t('guest-submit-error-generic');
       }
     } else {
-      error.value = 'Network error. Please try again.';
+      error.value = t('guest-submit-error-network');
     }
   } finally {
     submitting.value = false;
@@ -452,9 +456,9 @@ function submitAnother() {
 }
 
 function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024) return t('guest-submit-size-bytes', { bytes });
+  if (bytes < 1024 * 1024) return t('guest-submit-size-kb', { value: (bytes / 1024).toFixed(1) });
+  return t('guest-submit-size-mb', { value: (bytes / (1024 * 1024)).toFixed(1) });
 }
 
 async function onFilePick(event: Event) {
@@ -466,11 +470,11 @@ async function onFilePick(event: Event) {
   attachmentError.value = '';
 
   if (attachments.value.length >= MAX_FILES) {
-    attachmentError.value = `Up to ${MAX_FILES} attachments.`;
+    attachmentError.value = t('guest-submit-attach-error-max', { max: MAX_FILES });
     return;
   }
   if (file.size > MAX_SIZE_BYTES) {
-    attachmentError.value = `${file.name} is over ${MAX_SIZE_MB}MB.`;
+    attachmentError.value = t('guest-submit-attach-error-too-large', { name: file.name, size: MAX_SIZE_MB });
     return;
   }
 
@@ -482,16 +486,16 @@ async function onFilePick(event: Event) {
     if (axios.isAxiosError(e)) {
       const data = e.response?.data as { error?: string } | undefined;
       if (e.response?.status === 429) {
-        attachmentError.value = 'Too many uploads from your network. Try again later.';
+        attachmentError.value = t('guest-submit-attach-error-rate-limited');
       } else if (e.response?.status === 413) {
-        attachmentError.value = `${file.name} is too large.`;
+        attachmentError.value = t('guest-submit-attach-error-too-large-server', { name: file.name });
       } else if (e.response?.status === 403) {
-        attachmentError.value = 'Attachments are not accepted right now.';
+        attachmentError.value = t('guest-submit-attach-error-disabled');
       } else {
-        attachmentError.value = data?.error ?? 'Upload failed. Try again.';
+        attachmentError.value = data?.error ?? t('guest-submit-attach-error-generic');
       }
     } else {
-      attachmentError.value = 'Network error uploading file.';
+      attachmentError.value = t('guest-submit-attach-error-network');
     }
   } finally {
     uploading.value = false;

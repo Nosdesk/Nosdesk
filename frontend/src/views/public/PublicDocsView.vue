@@ -9,7 +9,7 @@
       <ul
         class="bg-surface border border-default rounded-xl shadow-sm divide-y divide-default overflow-hidden"
         aria-busy="true"
-        aria-label="Loading documentation"
+        :aria-label="t('public-docs-loading-aria')"
       >
         <li v-for="n in 4" :key="n" class="flex items-center gap-3 p-4">
           <SkeletonBlock width="2.25rem" height="2.25rem" rounded="rounded-lg" />
@@ -23,14 +23,14 @@
 
     <FeatureDisabledNotice
       v-else-if="!enabled"
-      title="Documentation is not available"
-      message="Public documentation is currently disabled."
+      :title="t('public-docs-disabled-title')"
+      :message="t('public-docs-disabled-message')"
     />
 
     <template v-else>
       <div class="flex flex-col gap-1 text-center">
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Documentation</h1>
-        <p class="text-sm text-secondary">Browse help articles and how-tos.</p>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ t('public-docs-heading') }}</h1>
+        <p class="text-sm text-secondary">{{ t('public-docs-tagline') }}</p>
       </div>
 
       <div v-if="searchEnabled" class="relative">
@@ -44,8 +44,8 @@
         <input
           v-model.trim="query"
           @input="runSearch"
-          placeholder="Search documentation…"
-          aria-label="Search documentation"
+          :placeholder="t('public-docs-search-placeholder')"
+          :aria-label="t('public-docs-search-aria')"
           class="w-full pl-10 pr-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
         />
       </div>
@@ -61,7 +61,7 @@
           </svg>
         </div>
         <p class="text-secondary text-sm">
-          {{ query ? 'No articles matched your search.' : 'No documentation available yet.' }}
+          {{ query ? t('public-docs-no-results') : t('public-docs-empty') }}
         </p>
       </div>
 
@@ -80,7 +80,7 @@
             </div>
             <div class="flex-1 min-w-0 flex flex-col gap-0.5">
               <div class="text-primary font-medium truncate">{{ doc.title }}</div>
-              <div class="text-tertiary text-xs">Updated {{ formatDate(doc.updated_at) }}</div>
+              <div class="text-tertiary text-xs">{{ t('public-docs-updated', { date: formatDate(doc.updated_at) }) }}</div>
             </div>
             <svg class="shrink-0 w-4 h-4 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
@@ -95,11 +95,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import { usePublicSettingsStore } from '@/stores/publicSettings';
 import { publicService, type PublicDocSummary } from '@/services/publicService';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const store = usePublicSettingsStore();
 const loading = ref(true);

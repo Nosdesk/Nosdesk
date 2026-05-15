@@ -3493,3 +3493,128 @@ plugin-sideload-installing = Installing...
 plugin-sideload-error-not-zip = Please select a .zip file
 plugin-sideload-error-too-large = File must be less than 2 MB
 plugin-sideload-error-install-failed = Failed to install plugin
+# Guest + Public views (GuestTicketSubmitView, GuestTicketStatusView,
+# PublicDocsView, PublicDocView, HelpView, PublicLayout,
+# FeatureDisabledNotice). User-facing copy for unauthenticated visitors.
+
+# Shared: feature-disabled notice + public layout
+feature-disabled-sign-in = Sign in
+public-layout-home-aria = { $appName } home
+public-layout-logo-aria = { $appName } Logo
+public-layout-nav-aria = Public navigation
+public-layout-docs-link = Documentation
+public-layout-help-link = Help
+
+# Guest ticket submit
+guest-submit-disabled-title = Ticket submission is not available
+guest-submit-disabled-message = Guest ticket submission is currently disabled. Please sign in if you have an account.
+guest-submit-verify-title = Check your inbox
+guest-submit-verify-message-prefix = Click the confirmation link we sent to
+guest-submit-verify-message-suffix = to release your ticket and set up your portal.
+guest-submit-verify-spam-hint = Didn't get it? Check spam, then try again in a few minutes.
+guest-submit-another = Submit another ticket
+guest-submit-success-title = Ticket received
+guest-submit-success-email-prefix = We've sent a confirmation to
+guest-submit-success-email-suffix = with a link to sign in and track progress.
+guest-submit-success-no-email = Your ticket has been logged. Our team will follow up by email.
+guest-submit-success-reference-prefix = Reference number
+guest-submit-track-heading = Track without signing in
+guest-submit-copied = Copied
+guest-submit-copy = Copy
+guest-submit-track-hint = Save this link, it's the only way to check the ticket without signing in.
+guest-submit-view-status = View ticket status
+guest-submit-another-short = Submit another
+guest-submit-heading = Submit a ticket
+guest-submit-tagline = We'll follow up by email.
+guest-submit-honeypot-label = Website
+guest-submit-field-name = Your name
+guest-submit-field-name-placeholder = Jane Doe
+guest-submit-field-email = Email address
+guest-submit-field-email-placeholder = you@example.com
+guest-submit-field-title = Subject
+guest-submit-field-title-placeholder = A short summary of what you need
+guest-submit-field-description = Description
+guest-submit-field-description-placeholder = Tell us what's going on and how we can help.
+guest-submit-description-counter = { $count } / 10000
+guest-submit-attachments-label = Attachments
+guest-submit-attachments-optional = (optional)
+guest-submit-attachments-counter = { $count } / { $max }
+guest-submit-attachments-uploading = Uploading...
+guest-submit-attachments-pick = Click to attach a file
+guest-submit-attachments-hint = Images, PDF, or text. Up to { $size }MB each.
+guest-submit-attachments-remove-aria = Remove { $name }
+guest-submit-submitting = Submitting...
+guest-submit-submit = Submit ticket
+guest-submit-have-account = Already have an account?
+guest-submit-sign-in = Sign in
+guest-submit-error-name = Please enter your name.
+guest-submit-error-email = Please enter a valid email address.
+guest-submit-error-title = Please enter a subject.
+guest-submit-error-description = Please describe the issue.
+guest-submit-error-uploads-pending = Please wait for file uploads to finish.
+guest-submit-error-rate-limited = Too many submissions from your network. Please try again later.
+guest-submit-error-disabled = Ticket submission has been disabled.
+guest-submit-error-account-exists = An account exists for this email. Please sign in to submit a ticket.
+guest-submit-error-generic = Failed to submit ticket. Please try again.
+guest-submit-error-network = Network error. Please try again.
+guest-submit-attach-error-max = Up to { $max } attachments.
+guest-submit-attach-error-too-large = { $name } is over { $size }MB.
+guest-submit-attach-error-rate-limited = Too many uploads from your network. Try again later.
+guest-submit-attach-error-too-large-server = { $name } is too large.
+guest-submit-attach-error-disabled = Attachments are not accepted right now.
+guest-submit-attach-error-generic = Upload failed. Try again.
+guest-submit-attach-error-network = Network error uploading file.
+guest-submit-size-bytes = { $bytes } B
+guest-submit-size-kb = { $value } KB
+guest-submit-size-mb = { $value } MB
+
+# Guest ticket status
+guest-status-loading-aria = Loading ticket
+guest-status-disabled-title = Status lookup is not available
+guest-status-disabled-message = Guest ticket status lookup is currently disabled.
+guest-status-ticket-number = Ticket #{ $id }
+guest-status-priority = Priority
+guest-status-opened = Opened
+guest-status-last-updated = Last updated
+guest-status-closed = Closed
+guest-status-reply-prefix = Need to reply?
+guest-status-reply-suffix = to add a comment.
+guest-status-not-found-title = Ticket not found
+guest-status-not-found-message = The link may have expired or been mistyped.
+
+# Public docs list
+public-docs-loading-aria = Loading documentation
+public-docs-disabled-title = Documentation is not available
+public-docs-disabled-message = Public documentation is currently disabled.
+public-docs-heading = Documentation
+public-docs-tagline = Browse help articles and how-tos.
+public-docs-search-placeholder = Search documentation...
+public-docs-search-aria = Search documentation
+public-docs-no-results = No articles matched your search.
+public-docs-empty = No documentation available yet.
+public-docs-updated = Updated { $date }
+
+# Public doc detail
+public-doc-loading-aria = Loading article
+public-doc-back = All docs
+public-doc-last-updated = Last updated { $date }
+public-doc-rich-text-prefix = This article uses collaborative rich-text editing. A simplified view is shown here, for the full experience with comments and attachments please
+public-doc-rich-text-link = sign in
+public-doc-rich-text-suffix = .
+public-doc-not-found-title = Document not found
+public-doc-not-found-message = It may have been moved or set to private.
+public-doc-back-to-docs = Back to docs
+
+# Help page
+help-disabled-title = Help page is not available
+help-disabled-message = The self-service help page is currently disabled.
+help-heading = How can we help?
+help-tagline = Here are a few things you can do without an account.
+help-card-submit-title = Submit a ticket
+help-card-submit-desc = Report an issue and we'll get back to you by email.
+help-card-docs-title = Browse documentation
+help-card-docs-desc = Public articles, guides, and how-tos.
+help-card-reset-title = Reset your password
+help-card-reset-desc = Lost access to your account? Start here.
+help-card-signin-title = Sign in
+help-card-signin-desc = Already have an account?

@@ -3507,3 +3507,128 @@ plugin-sideload-installing = Installeren...
 plugin-sideload-error-not-zip = Selecteer een .zip-bestand
 plugin-sideload-error-too-large = Bestand moet kleiner zijn dan 2 MB
 plugin-sideload-error-install-failed = Plugin installeren mislukt
+# Gast- en publieke weergaven (GuestTicketSubmitView, GuestTicketStatusView,
+# PublicDocsView, PublicDocView, HelpView, PublicLayout,
+# FeatureDisabledNotice). Tekst voor niet-aangemelde bezoekers.
+
+# Gedeeld: melding uitgeschakelde functie en publieke layout
+feature-disabled-sign-in = Inloggen
+public-layout-home-aria = { $appName } home
+public-layout-logo-aria = { $appName }-logo
+public-layout-nav-aria = Publieke navigatie
+public-layout-docs-link = Documentatie
+public-layout-help-link = Hulp
+
+# Ticket indienen als gast
+guest-submit-disabled-title = Ticket indienen is niet beschikbaar
+guest-submit-disabled-message = Tickets indienen als gast is momenteel uitgeschakeld. Log in als je een account hebt.
+guest-submit-verify-title = Controleer je inbox
+guest-submit-verify-message-prefix = Klik op de bevestigingslink die we hebben gestuurd naar
+guest-submit-verify-message-suffix = om je ticket vrij te geven en je portaal in te stellen.
+guest-submit-verify-spam-hint = Niet ontvangen? Controleer je spam en probeer het over een paar minuten opnieuw.
+guest-submit-another = Nog een ticket indienen
+guest-submit-success-title = Ticket ontvangen
+guest-submit-success-email-prefix = We hebben een bevestiging gestuurd naar
+guest-submit-success-email-suffix = met een link om in te loggen en de voortgang te volgen.
+guest-submit-success-no-email = Je ticket is geregistreerd. Ons team neemt per e-mail contact op.
+guest-submit-success-reference-prefix = Referentienummer
+guest-submit-track-heading = Volgen zonder in te loggen
+guest-submit-copied = Gekopieerd
+guest-submit-copy = Kopiëren
+guest-submit-track-hint = Bewaar deze link, het is de enige manier om het ticket te bekijken zonder in te loggen.
+guest-submit-view-status = Ticketstatus bekijken
+guest-submit-another-short = Nog een indienen
+guest-submit-heading = Ticket indienen
+guest-submit-tagline = We nemen per e-mail contact op.
+guest-submit-honeypot-label = Website
+guest-submit-field-name = Je naam
+guest-submit-field-name-placeholder = Jan Jansen
+guest-submit-field-email = E-mailadres
+guest-submit-field-email-placeholder = jij@voorbeeld.nl
+guest-submit-field-title = Onderwerp
+guest-submit-field-title-placeholder = Een korte samenvatting van wat je nodig hebt
+guest-submit-field-description = Omschrijving
+guest-submit-field-description-placeholder = Vertel ons wat er aan de hand is en hoe we kunnen helpen.
+guest-submit-description-counter = { $count } / 10000
+guest-submit-attachments-label = Bijlagen
+guest-submit-attachments-optional = (optioneel)
+guest-submit-attachments-counter = { $count } / { $max }
+guest-submit-attachments-uploading = Uploaden...
+guest-submit-attachments-pick = Klik om een bestand toe te voegen
+guest-submit-attachments-hint = Afbeeldingen, PDF of tekst. Maximaal { $size } MB per stuk.
+guest-submit-attachments-remove-aria = { $name } verwijderen
+guest-submit-submitting = Versturen...
+guest-submit-submit = Ticket indienen
+guest-submit-have-account = Heb je al een account?
+guest-submit-sign-in = Inloggen
+guest-submit-error-name = Vul je naam in.
+guest-submit-error-email = Vul een geldig e-mailadres in.
+guest-submit-error-title = Vul een onderwerp in.
+guest-submit-error-description = Beschrijf het probleem.
+guest-submit-error-uploads-pending = Wacht tot het uploaden van bestanden klaar is.
+guest-submit-error-rate-limited = Te veel inzendingen vanuit je netwerk. Probeer het later opnieuw.
+guest-submit-error-disabled = Tickets indienen is uitgeschakeld.
+guest-submit-error-account-exists = Er bestaat al een account voor dit e-mailadres. Log in om een ticket in te dienen.
+guest-submit-error-generic = Indienen van het ticket is mislukt. Probeer het opnieuw.
+guest-submit-error-network = Netwerkfout. Probeer het opnieuw.
+guest-submit-attach-error-max = Maximaal { $max } bijlagen.
+guest-submit-attach-error-too-large = { $name } is groter dan { $size } MB.
+guest-submit-attach-error-rate-limited = Te veel uploads vanuit je netwerk. Probeer het later opnieuw.
+guest-submit-attach-error-too-large-server = { $name } is te groot.
+guest-submit-attach-error-disabled = Bijlagen worden op dit moment niet geaccepteerd.
+guest-submit-attach-error-generic = Upload mislukt. Probeer het opnieuw.
+guest-submit-attach-error-network = Netwerkfout bij het uploaden van het bestand.
+guest-submit-size-bytes = { $bytes } B
+guest-submit-size-kb = { $value } kB
+guest-submit-size-mb = { $value } MB
+
+# Gast ticketstatus
+guest-status-loading-aria = Ticket laden
+guest-status-disabled-title = Status opzoeken is niet beschikbaar
+guest-status-disabled-message = Het opzoeken van de ticketstatus voor gasten is momenteel uitgeschakeld.
+guest-status-ticket-number = Ticket #{ $id }
+guest-status-priority = Prioriteit
+guest-status-opened = Geopend
+guest-status-last-updated = Laatst bijgewerkt
+guest-status-closed = Gesloten
+guest-status-reply-prefix = Wil je reageren?
+guest-status-reply-suffix = om een reactie toe te voegen.
+guest-status-not-found-title = Ticket niet gevonden
+guest-status-not-found-message = De link kan verlopen zijn of verkeerd zijn overgetypt.
+
+# Lijst met publieke documentatie
+public-docs-loading-aria = Documentatie laden
+public-docs-disabled-title = Documentatie is niet beschikbaar
+public-docs-disabled-message = Publieke documentatie is momenteel uitgeschakeld.
+public-docs-heading = Documentatie
+public-docs-tagline = Bekijk hulpartikelen en handleidingen.
+public-docs-search-placeholder = Documentatie doorzoeken...
+public-docs-search-aria = Documentatie doorzoeken
+public-docs-no-results = Geen artikelen gevonden voor je zoekopdracht.
+public-docs-empty = Er is nog geen documentatie beschikbaar.
+public-docs-updated = Bijgewerkt { $date }
+
+# Detail van publiek artikel
+public-doc-loading-aria = Artikel laden
+public-doc-back = Alle documenten
+public-doc-last-updated = Laatst bijgewerkt op { $date }
+public-doc-rich-text-prefix = Dit artikel maakt gebruik van collaboratieve rijke tekstbewerking. Hier zie je een vereenvoudigde weergave, voor de volledige ervaring met reacties en bijlagen moet je
+public-doc-rich-text-link = inloggen
+public-doc-rich-text-suffix = .
+public-doc-not-found-title = Document niet gevonden
+public-doc-not-found-message = Het is mogelijk verplaatst of privé gemaakt.
+public-doc-back-to-docs = Terug naar documenten
+
+# Hulppagina
+help-disabled-title = Hulppagina is niet beschikbaar
+help-disabled-message = De zelfbediening-hulppagina is momenteel uitgeschakeld.
+help-heading = Waarmee kunnen we helpen?
+help-tagline = Hier zijn een paar dingen die je zonder account kunt doen.
+help-card-submit-title = Ticket indienen
+help-card-submit-desc = Meld een probleem en we nemen per e-mail contact op.
+help-card-docs-title = Documentatie bekijken
+help-card-docs-desc = Publieke artikelen, handleidingen en how-tos.
+help-card-reset-title = Wachtwoord opnieuw instellen
+help-card-reset-desc = Geen toegang meer tot je account? Begin hier.
+help-card-signin-title = Inloggen
+help-card-signin-desc = Heb je al een account?

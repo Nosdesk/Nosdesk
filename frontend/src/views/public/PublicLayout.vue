@@ -1,10 +1,10 @@
 <template>
   <div class="min-h-screen w-full flex flex-col items-center bg-app py-8 px-4 sm:px-6 gap-6">
-    <!-- Brand (logo only — LogoIcon already contains the wordmark) -->
+    <!-- Brand (logo only, LogoIcon already contains the wordmark) -->
     <RouterLink
       to="/"
       class="flex items-center justify-center"
-      :aria-label="`${appName} home`"
+      :aria-label="t('public-layout-home-aria', { appName })"
     >
       <img
         v-if="customLogoUrl"
@@ -15,7 +15,7 @@
       <LogoIcon
         v-else
         class="h-10 text-accent"
-        :aria-label="`${appName} Logo`"
+        :aria-label="t('public-layout-logo-aria', { appName })"
       />
     </RouterLink>
 
@@ -28,7 +28,7 @@
     <nav
       v-if="footerLinks.length"
       class="flex items-center justify-center flex-wrap gap-x-6 gap-y-2 text-xs text-tertiary"
-      aria-label="Public navigation"
+      :aria-label="t('public-layout-nav-aria')"
     >
       <RouterLink
         v-for="link in footerLinks"
@@ -43,10 +43,14 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import { useBrandingStore } from '@/stores/branding';
 import { useThemeStore } from '@/stores/theme';
 import { usePublicSettingsStore } from '@/stores/publicSettings';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 withDefaults(
   defineProps<{
@@ -76,10 +80,10 @@ const footerLinks = computed(() => {
   // cross-page navigation lives here.
   const links: Array<{ to: string; label: string }> = [];
   if (publicSettings.settings?.guest_public_docs_enabled) {
-    links.push({ to: '/docs', label: 'Documentation' });
+    links.push({ to: '/docs', label: t('public-layout-docs-link') });
   }
   if (publicSettings.settings?.guest_help_page_enabled) {
-    links.push({ to: '/help', label: 'Help' });
+    links.push({ to: '/help', label: t('public-layout-help-link') });
   }
   return links;
 });
