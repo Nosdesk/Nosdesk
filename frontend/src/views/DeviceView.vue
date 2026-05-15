@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import { formatDateTime } from '@/utils/dateUtils';
 import BackButton from '@/components/common/BackButton.vue';
 import DeleteButton from '@/components/common/DeleteButton.vue';
@@ -23,6 +24,8 @@ import type { Device, DeviceFormData } from '@/types/device';
 
 const route = useRoute();
 const router = useRouter();
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const emit = defineEmits(['update:device']);
 
 // State
@@ -59,12 +62,22 @@ const fromTicket = computed(() =>
 
 const isSynced = computed(() => device.value != null && !device.value.is_editable);
 
-const warrantyOptions = [
-  { value: 'Active', label: 'Active' },
-  { value: 'Warning', label: 'Warning' },
-  { value: 'Expired', label: 'Expired' },
-  { value: 'Unknown', label: 'Unknown' }
-];
+const warrantyOptions = computed(() => [
+  { value: 'Active', label: t('device-detail-warranty-active') },
+  { value: 'Warning', label: t('device-detail-warranty-warning') },
+  { value: 'Expired', label: t('device-detail-warranty-expired') },
+  { value: 'Unknown', label: t('device-detail-warranty-unknown') }
+]);
+
+const warrantyStatusLabel = (status: string | undefined) => {
+  switch (status) {
+    case 'Active': return t('device-detail-warranty-active');
+    case 'Warning': return t('device-detail-warranty-warning');
+    case 'Expired': return t('device-detail-warranty-expired');
+    case 'Unknown': return t('device-detail-warranty-unknown');
+    default: return status ?? '';
+  }
+};
 
 // Data fetching
 const fetchDeviceData = async () => {
@@ -88,7 +101,7 @@ const fetchDeviceData = async () => {
 
     const deviceId = Number(route.params.id);
     if (isNaN(deviceId)) {
-      error.value = 'Invalid device ID';
+      error.value = t('device-detail-error-invalid-id');
       loading.value = false;
       return;
     }
@@ -107,7 +120,7 @@ const fetchDeviceData = async () => {
       asset_tag: device.value.asset_tag || '',
     };
   } catch (e) {
-    error.value = 'Failed to load device details';
+    error.value = t('device-detail-error-load');
     console.error('Error loading device:', e);
   } finally {
     loading.value = false;
@@ -156,7 +169,7 @@ const saveDevice = async () => {
     router.replace(`/devices/${newDevice.id}`);
   } catch (err) {
     console.error('Error creating device:', err);
-    error.value = 'Failed to create device. Please try again.';
+    error.value = t('device-detail-error-create');
   } finally {
     isSaving.value = false;
   }
@@ -194,7 +207,7 @@ const handleDeleteDevice = async () => {
     router.push('/devices');
   } catch (err) {
     console.error('Error deleting device:', err);
-    error.value = 'Failed to delete device. Please try again.';
+    error.value = t('device-detail-error-delete');
   }
 };
 
@@ -216,7 +229,7 @@ const confirmUnmanageDevice = async () => {
     showUnmanageModal.value = false;
   } catch (err) {
     console.error('Error unmanaging device:', err);
-    unmanageError.value = 'Failed to unmanage device. Please try again.';
+    unmanageError.value = t('device-detail-error-unmanage');
   } finally {
     isSaving.value = false;
   }
@@ -295,20 +308,20 @@ onMounted(fetchDeviceData);
           <BackButton
             v-if="fromTicket"
             :fallbackRoute="`/tickets/${fromTicket}`"
-            :label="`Back to Ticket #${fromTicket}`"
+            :label="$t('device-detail-back-to-ticket', { id: fromTicket })"
           />
-          <BackButton v-else fallbackRoute="/devices" label="Go back" />
+          <BackButton v-else fallbackRoute="/devices" :label="$t('device-detail-back-to-devices')" />
 
           <div v-if="isSynced" class="flex items-center gap-2 text-sm">
             <div class="w-2 h-2 rounded-full bg-accent"></div>
-            <span class="text-secondary">Read-only</span>
+            <span class="text-secondary">{{ $t('device-detail-readonly') }}</span>
           </div>
         </div>
 
         <DeleteButton
           v-if="!isCreationMode && device?.is_editable"
           fallbackRoute="/devices"
-          itemName="Device"
+          :itemName="$t('device-detail-delete-item-name')"
           @delete="handleDeleteDevice"
         />
       </div>
@@ -320,23 +333,23 @@ onMounted(fetchDeviceData);
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
           <!-- Left column: Device Details -->
           <SectionCard content-padding="p-4">
-            <template #title>Device Details</template>
+            <template #title>{{ $t('device-detail-section-details') }}</template>
 
             <div class="flex flex-col gap-4">
               <!-- Name -->
               <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Name</h3>
+                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-name') }}</h3>
                 <input
                   v-if="isCreationMode"
                   v-model="editValues.name"
                   type="text"
-                  placeholder="Enter device name"
+                  :placeholder="$t('device-detail-field-name-placeholder-create')"
                   class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                 />
                 <InlineEdit
                   v-else
                   v-model="editValues.name"
-                  placeholder="Enter name..."
+                  :placeholder="$t('device-detail-field-name-placeholder-edit')"
                   text-size="sm"
                   :can-edit="device?.is_editable ?? false"
                   @update:modelValue="() => saveField('name')"
@@ -345,19 +358,19 @@ onMounted(fetchDeviceData);
 
               <!-- Hostname -->
               <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Hostname</h3>
+                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-hostname') }}</h3>
                 <input
                   v-if="isCreationMode"
                   ref="hostnameRef"
                   v-model="editValues.hostname"
                   type="text"
-                  placeholder="Enter hostname"
+                  :placeholder="$t('device-detail-field-hostname-placeholder-create')"
                   class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                 />
                 <InlineEdit
                   v-else
                   v-model="editValues.hostname"
-                  :placeholder="device?.hostname || 'Enter hostname...'"
+                  :placeholder="device?.hostname || $t('device-detail-field-hostname-placeholder-edit')"
                   text-size="sm"
                   :can-edit="device?.is_editable ?? false"
                   @update:modelValue="() => saveField('hostname')"
@@ -366,18 +379,18 @@ onMounted(fetchDeviceData);
 
               <!-- Serial Number -->
               <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Serial Number</h3>
+                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-serial') }}</h3>
                 <input
                   v-if="isCreationMode"
                   v-model="editValues.serial_number"
                   type="text"
-                  placeholder="Enter serial number"
+                  :placeholder="$t('device-detail-field-serial-placeholder-create')"
                   class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                 />
                 <InlineEdit
                   v-else
                   v-model="editValues.serial_number"
-                  :placeholder="device?.serial_number || 'Enter serial number...'"
+                  :placeholder="device?.serial_number || $t('device-detail-field-serial-placeholder-edit')"
                   text-size="sm"
                   :can-edit="device?.is_editable ?? false"
                   @update:modelValue="() => saveField('serial_number')"
@@ -387,18 +400,18 @@ onMounted(fetchDeviceData);
               <!-- Manufacturer + Model side-by-side -->
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-default">
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Manufacturer</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-manufacturer') }}</h3>
                   <input
                     v-if="isCreationMode"
                     v-model="editValues.manufacturer"
                     type="text"
-                    placeholder="e.g., Dell, HP, Apple"
+                    :placeholder="$t('device-detail-field-manufacturer-placeholder-create')"
                     class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                   />
                   <InlineEdit
                     v-else
                     v-model="editValues.manufacturer"
-                    :placeholder="device?.manufacturer || 'Enter manufacturer...'"
+                    :placeholder="device?.manufacturer || $t('device-detail-field-manufacturer-placeholder-edit')"
                     text-size="sm"
                     :can-edit="device?.is_editable ?? false"
                     @update:modelValue="() => saveField('manufacturer')"
@@ -406,18 +419,18 @@ onMounted(fetchDeviceData);
                 </div>
 
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Model</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-model') }}</h3>
                   <input
                     v-if="isCreationMode"
                     v-model="editValues.model"
                     type="text"
-                    placeholder="Enter device model"
+                    :placeholder="$t('device-detail-field-model-placeholder-create')"
                     class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                   />
                   <InlineEdit
                     v-else
                     v-model="editValues.model"
-                    :placeholder="device?.model || 'Enter model...'"
+                    :placeholder="device?.model || $t('device-detail-field-model-placeholder-edit')"
                     text-size="sm"
                     :can-edit="device?.is_editable ?? false"
                     @update:modelValue="() => saveField('model')"
@@ -427,7 +440,7 @@ onMounted(fetchDeviceData);
 
               <!-- Warranty Status -->
               <div class="flex flex-col gap-1.5 pt-2 border-t border-default">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Warranty Status</h3>
+                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-warranty-status') }}</h3>
                 <BaseDropdown
                   v-if="isCreationMode || device?.is_editable"
                   v-model="editValues.warranty_status"
@@ -445,14 +458,14 @@ onMounted(fetchDeviceData);
                     'bg-surface-alt text-secondary border border-default': device?.warranty_status === 'Unknown'
                   }"
                 >
-                  {{ device?.warranty_status }}
+                  {{ warrantyStatusLabel(device?.warranty_status) }}
                 </div>
               </div>
 
               <!-- Warranty Dates -->
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Warranty Start</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-warranty-start') }}</h3>
                   <input
                     v-if="isCreationMode || device?.is_editable"
                     v-model="editValues.warranty_start_date"
@@ -463,7 +476,7 @@ onMounted(fetchDeviceData);
                   <p v-else class="text-primary text-sm">{{ device?.warranty_start_date || '-' }}</p>
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Warranty End</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-warranty-end') }}</h3>
                   <input
                     v-if="isCreationMode || device?.is_editable"
                     v-model="editValues.warranty_end_date"
@@ -478,7 +491,7 @@ onMounted(fetchDeviceData);
               <!-- Purchase Date + Asset Tag -->
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Purchase Date</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-purchase-date') }}</h3>
                   <input
                     v-if="isCreationMode || device?.is_editable"
                     v-model="editValues.purchase_date"
@@ -489,18 +502,18 @@ onMounted(fetchDeviceData);
                   <p v-else class="text-primary text-sm">{{ device?.purchase_date || '-' }}</p>
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Asset Tag</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-asset-tag') }}</h3>
                   <input
                     v-if="isCreationMode"
                     v-model="editValues.asset_tag"
                     type="text"
-                    placeholder="Enter asset tag"
+                    :placeholder="$t('device-detail-field-asset-tag-placeholder-create')"
                     class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
                   />
                   <InlineEdit
                     v-else
                     v-model="editValues.asset_tag"
-                    placeholder="Enter asset tag..."
+                    :placeholder="$t('device-detail-field-asset-tag-placeholder-edit')"
                     text-size="sm"
                     :can-edit="device?.is_editable ?? false"
                     @update:modelValue="() => saveField('asset_tag')"
@@ -514,7 +527,7 @@ onMounted(fetchDeviceData);
           <div v-if="isCreationMode || device" class="flex flex-col gap-6">
             <!-- Primary User (create mode) -->
             <SectionCard v-if="isCreationMode" content-padding="p-4">
-              <template #title>Primary User</template>
+              <template #title>{{ $t('device-detail-section-primary-user') }}</template>
 
               <div v-if="selectedUser" class="flex flex-col gap-4">
                 <UserCard :user="selectedUser" avatar-size="lg" />
@@ -526,7 +539,7 @@ onMounted(fetchDeviceData);
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                   </svg>
-                  Change User
+                  {{ $t('device-detail-action-change-user') }}
                 </button>
               </div>
 
@@ -534,21 +547,21 @@ onMounted(fetchDeviceData);
                 <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
                   <Icon name="user" size="md" class="text-secondary" />
                 </div>
-                <p class="text-secondary text-sm">No user assigned to this device</p>
+                <p class="text-secondary text-sm">{{ $t('device-detail-no-user-assigned') }}</p>
 
                 <button
                   @click="showUserSelectionModal = true"
                   class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
                   <Icon name="add" />
-                  Assign User
+                  {{ $t('device-detail-action-assign-user') }}
                 </button>
               </div>
             </SectionCard>
 
             <!-- Primary User (edit mode) -->
             <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
-              <template #title>Primary User</template>
+              <template #title>{{ $t('device-detail-section-primary-user') }}</template>
 
               <div v-if="device.primary_user" class="flex flex-col gap-4">
                 <UserCard :user="device.primary_user" avatar-size="lg" />
@@ -561,7 +574,7 @@ onMounted(fetchDeviceData);
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                   </svg>
-                  Change User
+                  {{ $t('device-detail-action-change-user') }}
                 </button>
               </div>
 
@@ -569,7 +582,7 @@ onMounted(fetchDeviceData);
                 <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
                   <Icon name="user" size="md" class="text-secondary" />
                 </div>
-                <p class="text-secondary text-sm">No user assigned to this device</p>
+                <p class="text-secondary text-sm">{{ $t('device-detail-no-user-assigned') }}</p>
 
                 <button
                   v-if="device.is_editable"
@@ -577,7 +590,7 @@ onMounted(fetchDeviceData);
                   class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
                   <Icon name="add" />
-                  Assign User
+                  {{ $t('device-detail-action-assign-user') }}
                 </button>
               </div>
             </SectionCard>
@@ -590,11 +603,11 @@ onMounted(fetchDeviceData);
 
             <!-- Device Information (manual devices, edit mode only) -->
             <SectionCard v-if="!isCreationMode && device?.is_editable" content-padding="p-4">
-              <template #title>Device Information</template>
+              <template #title>{{ $t('device-detail-section-device-information') }}</template>
 
               <div class="flex flex-col gap-4">
                 <div class="flex flex-col gap-2">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Device ID</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-device-id') }}</h3>
                   <div class="bg-surface-alt rounded-lg p-3 border border-default">
                     <span class="text-primary font-mono text-sm">{{ device.id }}</span>
                   </div>
@@ -602,11 +615,11 @@ onMounted(fetchDeviceData);
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Created</h4>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-created') }}</h4>
                     <p class="text-primary text-sm">{{ formatDateTime(device.created_at) }}</p>
                   </div>
                   <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Updated</h4>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-last-updated') }}</h4>
                     <p class="text-primary text-sm">{{ formatDateTime(device.updated_at) }}</p>
                   </div>
                 </div>
@@ -615,8 +628,8 @@ onMounted(fetchDeviceData);
                   <div class="flex items-center gap-2 text-sm">
                     <Icon name="copyMd" size="md" class="text-secondary flex-shrink-0" />
                     <div>
-                      <p class="font-medium text-primary">Manually Managed</p>
-                      <p class="text-xs text-tertiary mt-0.5">This device was created and is managed manually in Nosdesk</p>
+                      <p class="font-medium text-primary">{{ $t('device-detail-manually-managed') }}</p>
+                      <p class="text-xs text-tertiary mt-0.5">{{ $t('device-detail-manually-managed-description') }}</p>
                     </div>
                   </div>
                 </div>
@@ -625,24 +638,24 @@ onMounted(fetchDeviceData);
 
             <!-- Microsoft Integration (synced devices) -->
             <SectionCard v-else-if="!isCreationMode && device" content-padding="p-4">
-              <template #title>Microsoft Integration</template>
+              <template #title>{{ $t('device-detail-section-microsoft-integration') }}</template>
 
               <div class="flex flex-col gap-6">
                 <!-- Timestamps -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Created</h4>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-created') }}</h4>
                     <p class="text-primary text-sm">{{ formatDateTime(device.created_at) }}</p>
                   </div>
                   <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Updated</h4>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-last-updated') }}</h4>
                     <p class="text-primary text-sm">{{ formatDateTime(device.updated_at) }}</p>
                   </div>
                 </div>
 
                 <!-- Last Sync Time -->
                 <div v-if="device.last_sync_time" class="flex flex-col gap-2 pt-4 border-t border-default">
-                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Intune Check-in</h4>
+                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-last-intune-check-in') }}</h4>
                   <div class="flex items-center gap-2">
                     <Icon name="refresh" class="text-accent flex-shrink-0" />
                     <p class="text-primary text-sm">{{ formatDateTime(device.last_sync_time) }}</p>
@@ -658,7 +671,7 @@ onMounted(fetchDeviceData);
                       class="flex-1 min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium"
                     >
                       <IntuneIcon size="16" class="text-white flex-shrink-0" />
-                      <span>View in Intune</span>
+                      <span>{{ $t('device-detail-action-view-in-intune') }}</span>
                       <Icon name="openExternal" class="flex-shrink-0 opacity-70" />
                     </button>
 
@@ -668,7 +681,7 @@ onMounted(fetchDeviceData);
                       class="flex-1 min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors text-sm font-medium border border-default"
                     >
                       <EntraIcon size="16" class="flex-shrink-0" />
-                      <span>View in Entra</span>
+                      <span>{{ $t('device-detail-action-view-in-entra') }}</span>
                       <Icon name="openExternal" class="flex-shrink-0 opacity-70" />
                     </button>
                   </div>
@@ -679,16 +692,16 @@ onMounted(fetchDeviceData);
                       @click="handleUnmanageDevice"
                       :disabled="isSaving"
                       class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-status-warning/20 text-status-warning rounded-lg hover:bg-status-warning/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-                      title="Remove from Microsoft Intune/Entra management"
+                      :title="$t('device-detail-action-unmanage-title')"
                     >
                       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M18.84 12.25l1.72-1.71h-.02a5.004 5.004 0 00-.12-7.07 5.006 5.006 0 00-6.95 0l-1.72 1.71" />
                         <path d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 00.12 7.07 5.006 5.006 0 006.95 0l1.71-1.71" />
                         <path d="M8 2v3" /><path d="M2 8h3" /><path d="M16 22v-3" /><path d="M22 16h-3" />
                       </svg>
-                      {{ isSaving ? 'Processing...' : 'Unmanage from Intune/Entra' }}
+                      {{ isSaving ? $t('device-detail-action-unmanage-processing') : $t('device-detail-action-unmanage') }}
                     </button>
-                    <p class="text-xs text-tertiary text-center">This will convert the device to manual management</p>
+                    <p class="text-xs text-tertiary text-center">{{ $t('device-detail-unmanage-conversion-note') }}</p>
                   </div>
 
                   <!-- Technical Details Dropdown -->
@@ -697,7 +710,7 @@ onMounted(fetchDeviceData);
                       @click="showAdditionalDetails = !showAdditionalDetails"
                       class="w-full flex items-center justify-between text-secondary hover:text-primary transition-colors text-sm"
                     >
-                      <span class="font-medium">{{ showAdditionalDetails ? 'Hide' : 'Show' }} Technical Details</span>
+                      <span class="font-medium">{{ showAdditionalDetails ? $t('device-detail-tech-details-hide') : $t('device-detail-tech-details-show') }}</span>
                       <Icon
                         name="chevronDown"
                         class="transition-transform duration-200"
@@ -707,15 +720,15 @@ onMounted(fetchDeviceData);
 
                     <div v-show="showAdditionalDetails" class="mt-4 divide-y divide-default">
                       <div class="flex items-center justify-between py-2.5">
-                        <span class="text-sm text-secondary">Device ID</span>
+                        <span class="text-sm text-secondary">{{ $t('device-detail-field-device-id') }}</span>
                         <span class="text-sm text-primary font-mono">{{ device.id }}</span>
                       </div>
                       <div v-if="device.intune_device_id" class="flex items-start justify-between gap-4 py-2.5">
-                        <span class="text-sm text-secondary flex-shrink-0">Intune ID</span>
+                        <span class="text-sm text-secondary flex-shrink-0">{{ $t('device-detail-field-intune-id') }}</span>
                         <span class="text-sm text-primary font-mono text-right break-all">{{ device.intune_device_id }}</span>
                       </div>
                       <div v-if="device.entra_device_id" class="flex items-start justify-between gap-4 py-2.5">
-                        <span class="text-sm text-secondary flex-shrink-0">Entra ID</span>
+                        <span class="text-sm text-secondary flex-shrink-0">{{ $t('device-detail-field-entra-id') }}</span>
                         <span class="text-sm text-primary font-mono text-right break-all">{{ device.entra_device_id }}</span>
                       </div>
                     </div>
@@ -727,7 +740,7 @@ onMounted(fetchDeviceData);
                   <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full mb-4">
                     <Icon name="checkCircle" size="md" class="text-secondary" />
                   </div>
-                  <p class="text-secondary text-sm">This device is not managed by Microsoft Intune</p>
+                  <p class="text-secondary text-sm">{{ $t('device-detail-not-managed-by-intune') }}</p>
                 </div>
               </div>
             </SectionCard>
@@ -742,7 +755,7 @@ onMounted(fetchDeviceData);
               :disabled="isSaving"
               class="px-6 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 transition-colors text-sm font-medium"
             >
-              Cancel
+              {{ $t('device-detail-action-cancel') }}
             </button>
             <button
               @click="saveDevice"
@@ -750,7 +763,7 @@ onMounted(fetchDeviceData);
               class="px-6 py-2.5 bg-status-success text-white rounded-lg hover:bg-status-success/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
             >
               <Spinner v-if="isSaving" />
-              {{ isSaving ? 'Creating...' : 'Create Device' }}
+              {{ isSaving ? $t('device-detail-action-create-processing') : $t('device-detail-action-create') }}
             </button>
           </div>
         </div>
@@ -759,7 +772,7 @@ onMounted(fetchDeviceData);
 
     <!-- Not found -->
     <div v-else class="p-6 text-center text-secondary">
-      Device not found
+      {{ $t('device-detail-not-found') }}
     </div>
 
     <!-- User Selection Modal -->
@@ -773,7 +786,7 @@ onMounted(fetchDeviceData);
     <!-- Unmanage Device Confirmation Modal -->
     <Modal
       :show="showUnmanageModal"
-      title="Unmanage Device"
+      :title="$t('device-detail-unmanage-modal-title')"
       @close="showUnmanageModal = false"
     >
       <div class="flex flex-col items-center gap-4">
@@ -785,12 +798,13 @@ onMounted(fetchDeviceData);
           </svg>
         </div>
 
-        <h3 class="text-xl font-medium text-primary">Unmanage from Microsoft</h3>
-        <p class="text-sm text-secondary text-center max-w-sm">
-          Are you sure you want to unmanage <strong class="text-primary">{{ device?.hostname || device?.name }}</strong> from Microsoft Intune/Entra?
-        </p>
+        <h3 class="text-xl font-medium text-primary">{{ $t('device-detail-unmanage-heading') }}</h3>
+        <p
+          class="text-sm text-secondary text-center max-w-sm"
+          v-html="$t('device-detail-unmanage-confirm-body', { name: device?.hostname || device?.name || '' })"
+        ></p>
         <p class="text-xs text-tertiary text-center max-w-sm">
-          This will convert the device to manual management. You'll be able to edit all fields, but the device will no longer sync with Microsoft.
+          {{ $t('device-detail-unmanage-confirm-note') }}
         </p>
 
         <p v-if="unmanageError" class="text-sm text-status-error text-center">
@@ -802,14 +816,14 @@ onMounted(fetchDeviceData);
             @click="showUnmanageModal = false"
             class="flex-1 px-4 py-2.5 bg-surface text-primary rounded-lg hover:bg-surface-hover transition-colors border border-default"
           >
-            Cancel
+            {{ $t('device-detail-action-cancel') }}
           </button>
           <button
             @click="confirmUnmanageDevice"
             :disabled="isSaving"
             class="flex-1 px-4 py-2.5 bg-status-warning text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
           >
-            {{ isSaving ? 'Processing...' : 'Unmanage' }}
+            {{ isSaving ? $t('device-detail-action-unmanage-processing') : $t('device-detail-unmanage-action-confirm') }}
           </button>
         </div>
       </div>

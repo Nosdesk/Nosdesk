@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, useTemplateRef } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { useMutation, useQueryCache } from '@pinia/colada'
 import { extractErrorMessage } from '@/utils/errors'
 
@@ -27,6 +28,8 @@ defineOptions({ name: 'DevicesListView' })
 const router = useRouter()
 const queryCache = useQueryCache()
 const { isMobile } = useMobileDetection()
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 // `useTemplateRef` (Vue 3.5+) typed against the layout's exported
 // expose interface. TypeScript can't `InstanceType<>` a generic
@@ -58,7 +61,7 @@ const page = useListPage({
   scrollContainerRef,
   sseEvents: ['device-updated', 'device-created', 'device-deleted'],
   mobileSearch: {
-    placeholder: 'Search devices...',
+    placeholder: t('devices-list-search-placeholder'),
     createIcon: 'device',
     onCreate: navigateToCreateDevice,
   },
@@ -81,13 +84,13 @@ const filterOptions = computed(() =>
   controls.buildFilterOptions({
     warranty: {
       options: [
-        { value: 'active', label: 'Active' },
-        { value: 'warning', label: 'Warning' },
-        { value: 'expired', label: 'Expired' },
-        { value: 'unknown', label: 'Unknown' },
+        { value: 'active', label: t('devices-list-filter-warranty-active') },
+        { value: 'warning', label: t('devices-list-filter-warranty-warning') },
+        { value: 'expired', label: t('devices-list-filter-warranty-expired') },
+        { value: 'unknown', label: t('devices-list-filter-warranty-unknown') },
       ],
       width: 'w-[140px]',
-      allLabel: 'All Warranties',
+      allLabel: t('devices-list-filter-warranty-all'),
     },
   }),
 )
@@ -95,14 +98,14 @@ const filterOptions = computed(() =>
 // Available sortable fields: id, name, hostname, serial_number,
 // model, warranty_status, manufacturer, created_at, updated_at,
 // last_sync_time.
-const columns = [
-  { field: 'name', label: 'Device', width: '1fr', sortable: true, responsive: 'always' as const },
-  { field: 'serial_number', label: 'Serial', width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'hostname', label: 'Hostname', width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
-  { field: 'model', label: 'Model', width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
-  { field: 'primary_user', label: 'User', width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'warranty_status', label: 'Warranty', width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
-]
+const columns = computed(() => [
+  { field: 'name', label: t('devices-list-column-device'), width: '1fr', sortable: true, responsive: 'always' as const },
+  { field: 'serial_number', label: t('devices-list-column-serial'), width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
+  { field: 'hostname', label: t('devices-list-column-hostname'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
+  { field: 'model', label: t('devices-list-column-model'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
+  { field: 'primary_user', label: t('devices-list-column-user'), width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
+  { field: 'warranty_status', label: t('devices-list-column-warranty'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
+])
 
 const gridClass =
   'grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(120px,auto)_minmax(120px,auto)_minmax(140px,auto)_minmax(100px,auto)]'
@@ -115,7 +118,7 @@ const bulkDelete = useMutation({
   onSettled: () => queryCache.invalidateQueries({ key: devicesKeys.root }),
   onError: (err) => {
     console.error('Bulk delete failed:', err)
-    alert(extractErrorMessage(err, 'Failed to delete devices. Please try again.'))
+    alert(extractErrorMessage(err, t('devices-list-bulk-action-error')))
   },
 })
 
@@ -148,8 +151,8 @@ async function confirmDelete() {
     :is-loading-more="page.isLoadingMore.value"
     :error="page.errorMessage.value"
     :search-query="controls.searchQuery.value"
-    search-placeholder="Search devices..."
-    item-label="device"
+    :search-placeholder="$t('devices-list-search-placeholder')"
+    :item-label="$t('devices-list-item-label')"
     :bulk-selection="selection"
     @update:search-query="controls.handleSearchUpdate"
     @retry="page.handleRetry"
@@ -167,7 +170,7 @@ async function confirmDelete() {
         icon="device"
         :title="controls.searchQuery.value ? $t('empty-devices-search-title') : $t('empty-devices-default-title')"
         :description="controls.searchQuery.value ? $t('empty-devices-search-description') : $t('empty-devices-default-description')"
-        :action-label="!controls.searchQuery.value ? 'Add Device' : undefined"
+        :action-label="!controls.searchQuery.value ? $t('devices-list-add-action') : undefined"
         @action="navigateToCreateDevice"
       />
     </template>
@@ -225,7 +228,7 @@ async function confirmDelete() {
             :avatar="item.primary_user.avatar_thumb || item.primary_user.avatar_url"
             :show-name="true"
           />
-          <span v-else class="text-xs text-tertiary">Unassigned</span>
+          <span v-else class="text-xs text-tertiary">{{ $t('devices-list-unassigned') }}</span>
         </template>
 
         <template #cell-warranty_status="{ item }">
@@ -276,7 +279,7 @@ async function confirmDelete() {
                 'bg-surface-alt text-secondary border-default': !item.warranty_status || item.warranty_status === 'Unknown'
               }"
             >
-              {{ item.warranty_status || 'Unknown' }}
+              {{ item.warranty_status || $t('devices-list-warranty-unknown') }}
             </span>
           </div>
         </div>
@@ -297,7 +300,7 @@ async function confirmDelete() {
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
         </svg>
-        Delete{{ selectedCount > 0 ? ` ${selectedCount}` : '' }}
+        {{ selectedCount > 0 ? $t('devices-list-bulk-delete-count', { count: selectedCount }) : $t('devices-list-bulk-delete') }}
       </button>
     </template>
 
@@ -321,7 +324,7 @@ async function confirmDelete() {
   <BulkConfirmDialog
     :show="showDeleteConfirm"
     :count="selection.selectedCount.value"
-    item-label="device"
+    :item-label="$t('devices-list-item-label')"
     action-verb="delete"
     @confirm="confirmDelete"
     @close="showDeleteConfirm = false"
