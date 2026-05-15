@@ -9,11 +9,15 @@
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { RouterLink } from 'vue-router'
 import { useInjectedDashboardStats } from '@/composables/useDashboardStats'
 import { formatRelativeTime } from '@/utils/dateUtils'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import Icon from '@/components/common/Icon.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const stats = useInjectedDashboardStats()
 
@@ -21,25 +25,44 @@ const knowledgeGaps = computed(() => stats.bundle.value?.knowledgeGaps)
 const items = computed(() => knowledgeGaps.value?.top ?? [])
 const total = computed(() => knowledgeGaps.value?.total ?? 0)
 
-/** Pick the unit for the impact badge. Failed-search gaps use a
- *  distinct title prefix so we can tell signal-type from the
- *  summary row alone. */
-function impactLabel(gapTitle: string): string {
-  return gapTitle.startsWith('Customers searched:') ? 'searches' : 'tickets'
+const titleText = computed(() =>
+  total.value > 0
+    ? t('dashboard-knowledge-gaps-title-with-count', { count: total.value })
+    : t('dashboard-knowledge-gaps-title'),
+)
+const errorText = computed(() => (stats.isError.value ? t('dashboard-knowledge-gaps-error') : null))
+
+/** Failed-search gaps use a distinct title prefix so we can tell
+ *  signal-type from the summary row alone. */
+function isSearchGap(gapTitle: string): boolean {
+  return gapTitle.startsWith('Customers searched:')
+}
+function impactBadge(gap: { title: string; impactScore: number }): string {
+  return isSearchGap(gap.title)
+    ? t('dashboard-knowledge-gaps-impact-searches', { count: gap.impactScore })
+    : t('dashboard-knowledge-gaps-impact-tickets', { count: gap.impactScore })
+}
+function impactTooltip(gap: { title: string; impactScore: number }): string {
+  return isSearchGap(gap.title)
+    ? t('dashboard-knowledge-gaps-impact-tooltip-searches', { count: gap.impactScore })
+    : t('dashboard-knowledge-gaps-impact-tooltip-tickets', { count: gap.impactScore })
+}
+function signalCount(count: number): string {
+  return t('dashboard-knowledge-gaps-signal-count', { count })
 }
 </script>
 
 <template>
   <DashboardWidgetShell
-    :title="total > 0 ? `Knowledge gaps (${total})` : 'Knowledge gaps'"
+    :title="titleText"
     action-to="/documentation/gaps"
-    action-label="View queue"
+    :action-label="t('dashboard-knowledge-gaps-action')"
     :loading="stats.isLoading.value"
     :refreshing="stats.isRefreshing.value"
-    :error="stats.isError.value ? 'Failed to load gaps' : null"
+    :error="errorText"
     :empty="!stats.isError.value && items.length === 0"
-    empty-title="No open gaps"
-    empty-description="Tickets flagged for documentation will appear here."
+    :empty-title="t('dashboard-knowledge-gaps-empty-title')"
+    :empty-description="t('dashboard-knowledge-gaps-empty-description')"
     min-body-height="200px"
   >
     <ul class="divide-y divide-default">
@@ -52,7 +75,7 @@ function impactLabel(gapTitle: string): string {
           <div class="flex-1 min-w-0">
             <p class="text-sm text-primary truncate">{{ item.title }}</p>
             <div class="text-[11px] text-tertiary mt-0.5 flex items-center gap-2">
-              <span>{{ item.evidenceCount }} signal{{ item.evidenceCount === 1 ? '' : 's' }}</span>
+              <span>{{ signalCount(item.evidenceCount) }}</span>
               <span v-if="item.lastEvidenceAt" class="text-subtle">&middot;</span>
               <span v-if="item.lastEvidenceAt">
                 {{ formatRelativeTime(item.lastEvidenceAt) }}
@@ -61,9 +84,9 @@ function impactLabel(gapTitle: string): string {
           </div>
           <span
             class="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary"
-            :title="`${item.impactScore} ${impactLabel(item.title)} representing demand for this doc`"
+            :title="impactTooltip(item)"
           >
-            {{ item.impactScore }}&nbsp;{{ impactLabel(item.title) }}
+            {{ impactBadge(item) }}
           </span>
         </RouterLink>
       </li>

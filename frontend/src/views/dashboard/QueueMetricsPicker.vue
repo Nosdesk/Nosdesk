@@ -7,8 +7,12 @@ widgets without touching the dashboard store.
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Modal from '@/components/Modal.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 interface CatalogItem {
   id: string
@@ -66,14 +70,14 @@ function save() {
 <template>
   <Modal
     :show="show"
-    title="Configure queue metrics"
+    :title="t('dashboard-queue-metrics-picker-title')"
     size="sm"
     @close="emit('close')"
   >
     <div class="flex flex-col gap-3">
       <p class="text-xs text-secondary">
-        Pick up to {{ max }} metrics to show on the Queue card.
-        <span class="text-tertiary">({{ draft.size }} / {{ max }} selected)</span>
+        {{ t('dashboard-queue-metrics-picker-hint', { max }) }}
+        <span class="text-tertiary">{{ t('dashboard-queue-metrics-picker-count', { count: draft.size, max }) }}</span>
       </p>
 
       <ul class="flex flex-col gap-1 -mx-1">
@@ -91,7 +95,7 @@ function save() {
               :model-value="draft.has(item.id)"
               :disabled="atCap && !draft.has(item.id)"
               size="sm"
-              :aria-label="`Toggle ${item.label}`"
+              :aria-label="t('dashboard-queue-metrics-picker-toggle-aria', { label: item.label })"
               class="mt-0.5"
               @change="toggle(item.id)"
             />
@@ -109,7 +113,7 @@ function save() {
           class="px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
           @click="emit('close')"
         >
-          Cancel
+          {{ t('dashboard-queue-metrics-picker-cancel') }}
         </button>
         <button
           type="button"
@@ -120,7 +124,7 @@ function save() {
           ]"
           @click="save"
         >
-          Save
+          {{ t('dashboard-queue-metrics-picker-save') }}
         </button>
       </div>
     </div>

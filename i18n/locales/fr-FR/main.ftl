@@ -3641,3 +3641,104 @@ help-card-reset-title = Réinitialiser votre mot de passe
 help-card-reset-desc = Vous n'arrivez plus à accéder à votre compte ? C'est par ici.
 help-card-signin-title = Se connecter
 help-card-signin-desc = Vous avez déjà un compte ?
+# Widgets du tableau de bord
+dashboard-widget-shell-action-view-all = Tout voir
+dashboard-widget-shell-empty-title-default = Rien à afficher pour le moment.
+dashboard-widget-shell-drag-label = Déplacer { $title }
+dashboard-widget-shell-size-group-label = Taille de { $title }
+dashboard-widget-shell-size-option-title = Taille { $size } sur 3
+dashboard-widget-shell-hide-label = Masquer { $title }
+dashboard-widget-shell-loading-label = Chargement de { $title }
+
+dashboard-edit-bar-editing = Modification du tableau de bord
+dashboard-edit-bar-add-widget = Ajouter un widget
+dashboard-edit-bar-reset = Réinitialiser
+dashboard-edit-bar-done = Terminé
+dashboard-edit-bar-reset-confirm-title = Réinitialiser la disposition du tableau de bord ?
+dashboard-edit-bar-reset-confirm-message = Votre disposition personnalisée sera remplacée par celle par défaut associée à votre rôle.
+dashboard-edit-bar-reset-confirm-label = Réinitialiser
+
+dashboard-add-widget-title = Ajouter un widget
+dashboard-add-widget-all-added = Tous les widgets disponibles figurent déjà sur votre tableau de bord.
+
+dashboard-staff-queue-title = File d'attente
+dashboard-staff-queue-configure-aria = Configurer les indicateurs de la file
+dashboard-staff-queue-configure-title = Configurer les indicateurs
+dashboard-staff-queue-error = Impossible de charger les indicateurs de la file
+dashboard-staff-queue-metric-unassigned-label = Non attribués
+dashboard-staff-queue-metric-unassigned-desc = Ouverts, sans assigné
+dashboard-staff-queue-metric-all-label = Tous les tickets
+dashboard-staff-queue-metric-all-desc = Tous statuts confondus
+dashboard-staff-queue-metric-open-label = Ouverts
+dashboard-staff-queue-metric-open-desc = Statut : ouvert
+dashboard-staff-queue-metric-in-progress-label = En cours
+dashboard-staff-queue-metric-in-progress-desc = Actuellement traités
+dashboard-staff-queue-metric-high-priority-label = Priorité haute
+dashboard-staff-queue-metric-high-priority-desc = Priorité haute, encore ouverts
+dashboard-staff-queue-metric-closed-today-label = Clôturés aujourd'hui
+dashboard-staff-queue-metric-closed-today-desc = Clôturés dans les dernières 24 h
+
+dashboard-staff-yours-title = Vos tickets
+dashboard-staff-yours-error = Impossible de charger les compteurs
+dashboard-staff-yours-assigned = Attribués
+dashboard-staff-yours-open = Ouverts
+dashboard-staff-yours-in-progress = En cours
+dashboard-staff-yours-closed = Clôturés
+
+dashboard-user-summary-title = Résumé
+dashboard-user-summary-error = Impossible de charger le résumé
+dashboard-user-summary-requests = Demandes
+dashboard-user-summary-open = Ouvertes
+dashboard-user-summary-in-progress = En cours
+dashboard-user-summary-resolved = Résolues
+
+dashboard-queue-metrics-picker-title = Configurer les indicateurs de la file
+dashboard-queue-metrics-picker-hint = Choisissez jusqu'à { $max } indicateurs à afficher sur la carte File d'attente.
+dashboard-queue-metrics-picker-count = ({ $count } / { $max } sélectionnés)
+dashboard-queue-metrics-picker-toggle-aria = Activer { $label }
+dashboard-queue-metrics-picker-cancel = Annuler
+dashboard-queue-metrics-picker-save = Enregistrer
+
+dashboard-knowledge-gaps-title = Lacunes de connaissances
+dashboard-knowledge-gaps-title-with-count = Lacunes de connaissances ({ $count })
+dashboard-knowledge-gaps-action = Voir la file
+dashboard-knowledge-gaps-error = Impossible de charger les lacunes
+dashboard-knowledge-gaps-empty-title = Aucune lacune ouverte
+dashboard-knowledge-gaps-empty-description = Les tickets signalés pour la documentation apparaîtront ici.
+dashboard-knowledge-gaps-signal-count = { $count -> [one] 1 signal *[other] { $count } signaux }
+dashboard-knowledge-gaps-impact-tickets = { $count } tickets
+dashboard-knowledge-gaps-impact-searches = { $count } recherches
+dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets révélant un besoin pour ce document
+dashboard-knowledge-gaps-impact-tooltip-searches = { $count } recherches révélant un besoin pour ce document
+
+dashboard-channel-health-title = État des canaux
+dashboard-channel-health-action = Gérer
+dashboard-channel-health-error = Impossible de charger les canaux
+dashboard-channel-health-empty-title = Aucun canal configuré
+dashboard-channel-health-empty-description = Ajoutez un canal e-mail pour collecter des tickets.
+dashboard-channel-health-status-disabled = Désactivé
+dashboard-channel-health-status-error = Erreur
+dashboard-channel-health-status-healthy = Opérationnel
+dashboard-channel-health-polled = interrogé { $time }
+dashboard-channel-health-never-polled = jamais interrogé
+
+dashboard-my-devices-title = Mes appareils
+dashboard-my-devices-error = Impossible de charger les appareils
+dashboard-my-devices-empty-title = Aucun appareil attribué
+dashboard-my-devices-empty-description = Les appareils liés à votre compte apparaîtront ici.
+dashboard-my-devices-unknown-model = Modèle inconnu
+
+dashboard-recently-viewed-title = Récemment consultés
+dashboard-recently-viewed-error = Impossible de charger les éléments récents
+dashboard-recently-viewed-empty-title = Rien pour l'instant
+dashboard-recently-viewed-empty-description = Les tickets que vous ouvrirez apparaîtront ici.
+
+dashboard-starred-docs-title = Documents favoris
+dashboard-starred-docs-error = Impossible de charger les favoris
+dashboard-starred-docs-empty-title = Aucune page favorite
+dashboard-starred-docs-empty-description = Marquez un document d'une étoile pour le retrouver vite.
+
+dashboard-unassigned-queue-title = File non attribuée
+dashboard-unassigned-queue-error = Impossible de charger la file
+dashboard-unassigned-queue-empty-title = Boîte vide
+dashboard-unassigned-queue-empty-description = Rien n'attend dans la file.

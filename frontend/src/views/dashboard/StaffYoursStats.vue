@@ -6,10 +6,14 @@ all stat widgets, not three independent fetches).
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useInjectedDashboardStats } from '@/composables/useDashboardStats'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import KpiRail, { type Kpi } from './KpiRail.vue'
 import KpiRailSkeleton from './KpiRailSkeleton.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const stats = useInjectedDashboardStats()
 
@@ -24,18 +28,18 @@ const counts = computed(() => stats.bundle.value?.yours ?? {
 const assigned = computed(() => counts.value.open + counts.value.inProgress + counts.value.closed)
 
 const kpis = computed<Kpi[]>(() => [
-  { label: 'Assigned', value: assigned.value, to: '/tickets?assignee=current', tone: 'text-primary' },
-  { label: 'Open', value: counts.value.open, to: '/tickets?assignee=current&status=open', tone: 'text-status-open' },
-  { label: 'In Progress', value: counts.value.inProgress, to: '/tickets?assignee=current&status=in-progress', tone: 'text-status-in-progress' },
-  { label: 'Closed', value: counts.value.closed, to: '/tickets?assignee=current&status=closed', tone: 'text-tertiary' },
+  { label: t('dashboard-staff-yours-assigned'), value: assigned.value, to: '/tickets?assignee=current', tone: 'text-primary' },
+  { label: t('dashboard-staff-yours-open'), value: counts.value.open, to: '/tickets?assignee=current&status=open', tone: 'text-status-open' },
+  { label: t('dashboard-staff-yours-in-progress'), value: counts.value.inProgress, to: '/tickets?assignee=current&status=in-progress', tone: 'text-status-in-progress' },
+  { label: t('dashboard-staff-yours-closed'), value: counts.value.closed, to: '/tickets?assignee=current&status=closed', tone: 'text-tertiary' },
 ])
 
-const errorMessage = computed(() => (stats.isError.value ? 'Failed to load counts' : null))
+const errorMessage = computed(() => (stats.isError.value ? t('dashboard-staff-yours-error') : null))
 </script>
 
 <template>
   <DashboardWidgetShell
-    title="Yours"
+    :title="t('dashboard-staff-yours-title')"
     :loading="stats.isLoading.value"
     :refreshing="stats.isRefreshing.value"
     :error="errorMessage"

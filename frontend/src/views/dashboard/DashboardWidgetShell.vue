@@ -25,6 +25,7 @@ on via `provide()`.
 -->
 <script setup lang="ts">
 import { computed, inject } from 'vue'
+import { useFluent } from 'fluent-vue'
 import {
   DASHBOARD_WIDGET_CONTEXT,
   type DashboardWidgetContext,
@@ -32,7 +33,10 @@ import {
 import type { WidgetSpan } from './widgets'
 import Icon from '@/components/common/Icon.vue'
 
-withDefaults(
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
+
+const props = withDefaults(
   defineProps<{
     /** Header title, always shown. */
     title: string
@@ -83,12 +87,15 @@ withDefaults(
     minBodyHeight?: string
   }>(),
   {
-    actionLabel: 'View all',
-    emptyTitle: 'Nothing here yet.',
+    actionLabel: '',
+    emptyTitle: '',
     emptyDescription: '',
     flushBody: true,
   },
 )
+
+const actionLabelText = computed(() => props.actionLabel || t('dashboard-widget-shell-action-view-all'))
+const emptyTitleText = computed(() => props.emptyTitle || t('dashboard-widget-shell-empty-title-default'))
 
 // Edit-mode context is optional — when a widget is rendered outside
 // the dashboard (e.g. a ticket list on a profile page), the context
@@ -156,7 +163,7 @@ function onHandlePointerDown(e: PointerEvent) {
         v-if="editMode"
         type="button"
         class="flex items-center justify-center w-5 h-5 rounded text-tertiary hover:text-primary cursor-grab active:cursor-grabbing touch-none"
-        :aria-label="`Drag ${title}`"
+        :aria-label="t('dashboard-widget-shell-drag-label', { title })"
         @pointerdown="onHandlePointerDown"
       >
         <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
@@ -181,14 +188,14 @@ function onHandlePointerDown(e: PointerEvent) {
         :to="actionTo"
         class="text-[11px] font-medium text-accent hover:underline whitespace-nowrap"
       >
-        {{ actionLabel }} →
+        {{ actionLabelText }} →
       </router-link>
 
       <!-- Edit-mode: size selector + hide. Replace the view-all link. -->
       <template v-if="editMode">
         <div
           role="radiogroup"
-          :aria-label="`${title} size`"
+          :aria-label="t('dashboard-widget-shell-size-group-label', { title })"
           class="inline-flex items-center gap-0.5 p-0.5 rounded-full bg-surface border border-default"
         >
           <button
@@ -203,7 +210,7 @@ function onHandlePointerDown(e: PointerEvent) {
                 ? 'bg-accent text-white'
                 : 'text-tertiary hover:text-primary',
             ]"
-            :title="`Size ${size} of 3`"
+            :title="t('dashboard-widget-shell-size-option-title', { size })"
             @click="onResize(size)"
           >
             {{ size }}
@@ -212,8 +219,8 @@ function onHandlePointerDown(e: PointerEvent) {
         <button
           type="button"
           class="flex items-center justify-center w-5 h-5 rounded text-tertiary hover:text-status-error transition-colors"
-          :aria-label="`Hide ${title}`"
-          :title="`Hide ${title}`"
+          :aria-label="t('dashboard-widget-shell-hide-label', { title })"
+          :title="t('dashboard-widget-shell-hide-label', { title })"
           @click="onHide"
         >
           <Icon name="close" />
@@ -259,7 +266,7 @@ function onHandlePointerDown(e: PointerEvent) {
           key="skeleton"
           class="flex-1 flex flex-col"
           aria-busy="true"
-          :aria-label="`Loading ${title}`"
+          :aria-label="t('dashboard-widget-shell-loading-label', { title })"
         >
           <slot name="skeleton">
             <ul class="divide-y divide-default">
@@ -291,7 +298,7 @@ function onHandlePointerDown(e: PointerEvent) {
           class="flex-1 flex flex-col items-center justify-center py-6 text-center px-4"
         >
           <slot name="empty">
-            <p class="text-sm text-secondary">{{ emptyTitle }}</p>
+            <p class="text-sm text-secondary">{{ emptyTitleText }}</p>
             <p v-if="emptyDescription" class="text-xs text-tertiary mt-1">{{ emptyDescription }}</p>
           </slot>
         </div>

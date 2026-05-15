@@ -15,6 +15,7 @@ injected via `useInjectedDashboardStats()`.
 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useInjectedDashboardStats } from '@/composables/useDashboardStats'
 import type { QueueStats } from '@/services/dashboardService'
 import { useWidgetConfigState } from '@/composables/useWidgetConfigState'
@@ -23,6 +24,9 @@ import KpiRail, { type Kpi } from './KpiRail.vue'
 import KpiRailSkeleton from './KpiRailSkeleton.vue'
 import QueueMetricsPicker from './QueueMetricsPicker.vue'
 import Icon from '@/components/common/Icon.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const WIDGET_ID = 'stats-queue'
 const MAX_METRICS = 4
@@ -40,56 +44,56 @@ interface QueueMetric {
 // when rendering options. A user's selection is stored as an array of
 // ids and always rendered in catalog order (see `kpis` below), so
 // adding a new metric is a backward-compatible append.
-const CATALOG: QueueMetric[] = [
+const CATALOG = computed<QueueMetric[]>(() => [
   {
     id: 'unassigned',
-    label: 'Unassigned',
-    description: 'Open, no assignee',
+    label: t('dashboard-staff-queue-metric-unassigned-label'),
+    description: t('dashboard-staff-queue-metric-unassigned-desc'),
     tone: 'text-status-error',
     to: '/tickets?assignee=unassigned&status=open',
     pick: (q) => q.unassigned,
   },
   {
     id: 'all',
-    label: 'All Tickets',
-    description: 'Every status',
+    label: t('dashboard-staff-queue-metric-all-label'),
+    description: t('dashboard-staff-queue-metric-all-desc'),
     tone: 'text-primary',
     to: '/tickets',
     pick: (q) => q.total,
   },
   {
     id: 'open',
-    label: 'Open',
-    description: 'Status: open',
+    label: t('dashboard-staff-queue-metric-open-label'),
+    description: t('dashboard-staff-queue-metric-open-desc'),
     tone: 'text-status-open',
     to: '/tickets?status=open',
     pick: (q) => q.open,
   },
   {
     id: 'in-progress',
-    label: 'In Progress',
-    description: 'Currently being worked',
+    label: t('dashboard-staff-queue-metric-in-progress-label'),
+    description: t('dashboard-staff-queue-metric-in-progress-desc'),
     tone: 'text-status-in-progress',
     to: '/tickets?status=in-progress',
     pick: (q) => q.inProgress,
   },
   {
     id: 'high-priority',
-    label: 'High Priority',
-    description: 'High priority, still open',
+    label: t('dashboard-staff-queue-metric-high-priority-label'),
+    description: t('dashboard-staff-queue-metric-high-priority-desc'),
     tone: 'text-priority-high',
     to: '/tickets?priority=high&status=open',
     pick: (q) => q.highPriority,
   },
   {
     id: 'closed-today',
-    label: 'Closed Today',
-    description: 'Closed in the last 24h',
+    label: t('dashboard-staff-queue-metric-closed-today-label'),
+    description: t('dashboard-staff-queue-metric-closed-today-desc'),
     tone: 'text-status-closed',
     to: '/tickets?status=closed',
     pick: (q) => q.closedToday,
   },
-]
+])
 
 const DEFAULT_METRIC_IDS: string[] = ['unassigned', 'all']
 
@@ -104,7 +108,7 @@ const EMPTY_QUEUE: QueueStats = {
 
 const stats = useInjectedDashboardStats()
 const queue = computed<QueueStats>(() => stats.bundle.value?.queue ?? EMPTY_QUEUE)
-const errorMessage = computed(() => (stats.isError.value ? 'Failed to load queue metrics' : null))
+const errorMessage = computed(() => (stats.isError.value ? t('dashboard-staff-queue-error') : null))
 
 const config = useWidgetConfigState(WIDGET_ID, {
   metrics: DEFAULT_METRIC_IDS,
@@ -120,7 +124,7 @@ const selectedMetricIds = computed<string[]>(() => {
 
 const kpis = computed<Kpi[]>(() =>
   selectedMetricIds.value
-    .map((id) => CATALOG.find((m) => m.id === id))
+    .map((id) => CATALOG.value.find((m) => m.id === id))
     .filter((m): m is QueueMetric => !!m)
     .map((m) => ({
       id: m.id,
@@ -142,7 +146,7 @@ function savePicker(newIds: string[]) {
 
 <template>
   <DashboardWidgetShell
-    title="Queue"
+    :title="t('dashboard-staff-queue-title')"
     :loading="stats.isLoading.value"
     :refreshing="stats.isRefreshing.value"
     :error="errorMessage"
@@ -154,8 +158,8 @@ function savePicker(newIds: string[]) {
       <button
         type="button"
         class="flex items-center justify-center w-5 h-5 rounded text-tertiary hover:text-primary hover:bg-surface transition-colors"
-        aria-label="Configure queue metrics"
-        title="Configure metrics"
+        :aria-label="t('dashboard-staff-queue-configure-aria')"
+        :title="t('dashboard-staff-queue-configure-title')"
         @click="pickerOpen = true"
       >
         <Icon name="settings" />

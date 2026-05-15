@@ -3632,3 +3632,104 @@ help-card-reset-title = Wachtwoord opnieuw instellen
 help-card-reset-desc = Geen toegang meer tot je account? Begin hier.
 help-card-signin-title = Inloggen
 help-card-signin-desc = Heb je al een account?
+# Dashboard-widgets
+dashboard-widget-shell-action-view-all = Alles tonen
+dashboard-widget-shell-empty-title-default = Nog niets om te tonen.
+dashboard-widget-shell-drag-label = { $title } verslepen
+dashboard-widget-shell-size-group-label = Grootte van { $title }
+dashboard-widget-shell-size-option-title = Grootte { $size } van 3
+dashboard-widget-shell-hide-label = { $title } verbergen
+dashboard-widget-shell-loading-label = { $title } wordt geladen
+
+dashboard-edit-bar-editing = Dashboard bewerken
+dashboard-edit-bar-add-widget = Widget toevoegen
+dashboard-edit-bar-reset = Herstellen
+dashboard-edit-bar-done = Klaar
+dashboard-edit-bar-reset-confirm-title = Dashboardindeling herstellen?
+dashboard-edit-bar-reset-confirm-message = Je aangepaste indeling wordt vervangen door de standaardindeling voor jouw rol.
+dashboard-edit-bar-reset-confirm-label = Herstellen
+
+dashboard-add-widget-title = Widget toevoegen
+dashboard-add-widget-all-added = Alle beschikbare widgets staan al op je dashboard.
+
+dashboard-staff-queue-title = Wachtrij
+dashboard-staff-queue-configure-aria = Wachtrijstatistieken configureren
+dashboard-staff-queue-configure-title = Statistieken configureren
+dashboard-staff-queue-error = Kan wachtrijstatistieken niet laden
+dashboard-staff-queue-metric-unassigned-label = Niet toegewezen
+dashboard-staff-queue-metric-unassigned-desc = Open, zonder behandelaar
+dashboard-staff-queue-metric-all-label = Alle tickets
+dashboard-staff-queue-metric-all-desc = Alle statussen
+dashboard-staff-queue-metric-open-label = Open
+dashboard-staff-queue-metric-open-desc = Status: open
+dashboard-staff-queue-metric-in-progress-label = In behandeling
+dashboard-staff-queue-metric-in-progress-desc = Wordt nu opgepakt
+dashboard-staff-queue-metric-high-priority-label = Hoge prioriteit
+dashboard-staff-queue-metric-high-priority-desc = Hoge prioriteit, nog open
+dashboard-staff-queue-metric-closed-today-label = Vandaag gesloten
+dashboard-staff-queue-metric-closed-today-desc = Gesloten in de laatste 24 uur
+
+dashboard-staff-yours-title = Van jou
+dashboard-staff-yours-error = Kan tellingen niet laden
+dashboard-staff-yours-assigned = Toegewezen
+dashboard-staff-yours-open = Open
+dashboard-staff-yours-in-progress = In behandeling
+dashboard-staff-yours-closed = Gesloten
+
+dashboard-user-summary-title = Overzicht
+dashboard-user-summary-error = Kan overzicht niet laden
+dashboard-user-summary-requests = Aanvragen
+dashboard-user-summary-open = Open
+dashboard-user-summary-in-progress = In behandeling
+dashboard-user-summary-resolved = Opgelost
+
+dashboard-queue-metrics-picker-title = Wachtrijstatistieken configureren
+dashboard-queue-metrics-picker-hint = Kies maximaal { $max } statistieken voor de wachtrijkaart.
+dashboard-queue-metrics-picker-count = ({ $count } / { $max } gekozen)
+dashboard-queue-metrics-picker-toggle-aria = { $label } omschakelen
+dashboard-queue-metrics-picker-cancel = Annuleren
+dashboard-queue-metrics-picker-save = Opslaan
+
+dashboard-knowledge-gaps-title = Kennislacunes
+dashboard-knowledge-gaps-title-with-count = Kennislacunes ({ $count })
+dashboard-knowledge-gaps-action = Wachtrij bekijken
+dashboard-knowledge-gaps-error = Kan lacunes niet laden
+dashboard-knowledge-gaps-empty-title = Geen openstaande lacunes
+dashboard-knowledge-gaps-empty-description = Tickets die zijn gemarkeerd voor documentatie verschijnen hier.
+dashboard-knowledge-gaps-signal-count = { $count -> [one] 1 signaal *[other] { $count } signalen }
+dashboard-knowledge-gaps-impact-tickets = { $count } tickets
+dashboard-knowledge-gaps-impact-searches = { $count } zoekopdrachten
+dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets die vraag naar dit document tonen
+dashboard-knowledge-gaps-impact-tooltip-searches = { $count } zoekopdrachten die vraag naar dit document tonen
+
+dashboard-channel-health-title = Kanaalstatus
+dashboard-channel-health-action = Beheren
+dashboard-channel-health-error = Kan kanalen niet laden
+dashboard-channel-health-empty-title = Geen kanalen geconfigureerd
+dashboard-channel-health-empty-description = Voeg een e-mailkanaal toe om tickets binnen te halen.
+dashboard-channel-health-status-disabled = Uitgeschakeld
+dashboard-channel-health-status-error = Fout
+dashboard-channel-health-status-healthy = In orde
+dashboard-channel-health-polled = opgehaald { $time }
+dashboard-channel-health-never-polled = nog niet opgehaald
+
+dashboard-my-devices-title = Mijn apparaten
+dashboard-my-devices-error = Kan apparaten niet laden
+dashboard-my-devices-empty-title = Geen apparaten toegewezen
+dashboard-my-devices-empty-description = Apparaten die aan je account zijn gekoppeld, verschijnen hier.
+dashboard-my-devices-unknown-model = Onbekend model
+
+dashboard-recently-viewed-title = Recent bekeken
+dashboard-recently-viewed-error = Kan recent bekeken niet laden
+dashboard-recently-viewed-empty-title = Nog niets om te tonen
+dashboard-recently-viewed-empty-description = Tickets die je opent, verschijnen hier.
+
+dashboard-starred-docs-title = Favoriete documenten
+dashboard-starred-docs-error = Kan favoriete documenten niet laden
+dashboard-starred-docs-empty-title = Geen favoriete pagina's
+dashboard-starred-docs-empty-description = Markeer een document met een ster om het bij de hand te houden.
+
+dashboard-unassigned-queue-title = Niet-toegewezen wachtrij
+dashboard-unassigned-queue-error = Kan wachtrij niet laden
+dashboard-unassigned-queue-empty-title = Lege inbox
+dashboard-unassigned-queue-empty-description = Niets staat in de wachtrij.

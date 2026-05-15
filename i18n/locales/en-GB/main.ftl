@@ -3618,3 +3618,104 @@ help-card-reset-title = Reset your password
 help-card-reset-desc = Lost access to your account? Start here.
 help-card-signin-title = Sign in
 help-card-signin-desc = Already have an account?
+# Dashboard widgets
+dashboard-widget-shell-action-view-all = View all
+dashboard-widget-shell-empty-title-default = Nothing here yet.
+dashboard-widget-shell-drag-label = Drag { $title }
+dashboard-widget-shell-size-group-label = { $title } size
+dashboard-widget-shell-size-option-title = Size { $size } of 3
+dashboard-widget-shell-hide-label = Hide { $title }
+dashboard-widget-shell-loading-label = Loading { $title }
+
+dashboard-edit-bar-editing = Editing dashboard
+dashboard-edit-bar-add-widget = Add widget
+dashboard-edit-bar-reset = Reset
+dashboard-edit-bar-done = Done
+dashboard-edit-bar-reset-confirm-title = Reset dashboard layout?
+dashboard-edit-bar-reset-confirm-message = Your customised layout will be replaced with the default for your role.
+dashboard-edit-bar-reset-confirm-label = Reset
+
+dashboard-add-widget-title = Add widget
+dashboard-add-widget-all-added = All available widgets are already on your dashboard.
+
+dashboard-staff-queue-title = Queue
+dashboard-staff-queue-configure-aria = Configure queue metrics
+dashboard-staff-queue-configure-title = Configure metrics
+dashboard-staff-queue-error = Failed to load queue metrics
+dashboard-staff-queue-metric-unassigned-label = Unassigned
+dashboard-staff-queue-metric-unassigned-desc = Open, no assignee
+dashboard-staff-queue-metric-all-label = All Tickets
+dashboard-staff-queue-metric-all-desc = Every status
+dashboard-staff-queue-metric-open-label = Open
+dashboard-staff-queue-metric-open-desc = Status: open
+dashboard-staff-queue-metric-in-progress-label = In Progress
+dashboard-staff-queue-metric-in-progress-desc = Currently being worked
+dashboard-staff-queue-metric-high-priority-label = High Priority
+dashboard-staff-queue-metric-high-priority-desc = High priority, still open
+dashboard-staff-queue-metric-closed-today-label = Closed Today
+dashboard-staff-queue-metric-closed-today-desc = Closed in the last 24h
+
+dashboard-staff-yours-title = Yours
+dashboard-staff-yours-error = Failed to load counts
+dashboard-staff-yours-assigned = Assigned
+dashboard-staff-yours-open = Open
+dashboard-staff-yours-in-progress = In Progress
+dashboard-staff-yours-closed = Closed
+
+dashboard-user-summary-title = Summary
+dashboard-user-summary-error = Failed to load summary
+dashboard-user-summary-requests = Requests
+dashboard-user-summary-open = Open
+dashboard-user-summary-in-progress = In Progress
+dashboard-user-summary-resolved = Resolved
+
+dashboard-queue-metrics-picker-title = Configure queue metrics
+dashboard-queue-metrics-picker-hint = Pick up to { $max } metrics to show on the Queue card.
+dashboard-queue-metrics-picker-count = ({ $count } / { $max } selected)
+dashboard-queue-metrics-picker-toggle-aria = Toggle { $label }
+dashboard-queue-metrics-picker-cancel = Cancel
+dashboard-queue-metrics-picker-save = Save
+
+dashboard-knowledge-gaps-title = Knowledge gaps
+dashboard-knowledge-gaps-title-with-count = Knowledge gaps ({ $count })
+dashboard-knowledge-gaps-action = View queue
+dashboard-knowledge-gaps-error = Failed to load gaps
+dashboard-knowledge-gaps-empty-title = No open gaps
+dashboard-knowledge-gaps-empty-description = Tickets flagged for documentation will appear here.
+dashboard-knowledge-gaps-signal-count = { $count -> [one] 1 signal *[other] { $count } signals }
+dashboard-knowledge-gaps-impact-tickets = { $count } tickets
+dashboard-knowledge-gaps-impact-searches = { $count } searches
+dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets representing demand for this doc
+dashboard-knowledge-gaps-impact-tooltip-searches = { $count } searches representing demand for this doc
+
+dashboard-channel-health-title = Channel health
+dashboard-channel-health-action = Manage
+dashboard-channel-health-error = Failed to load channels
+dashboard-channel-health-empty-title = No channels configured
+dashboard-channel-health-empty-description = Add an email channel to ingest tickets.
+dashboard-channel-health-status-disabled = Disabled
+dashboard-channel-health-status-error = Error
+dashboard-channel-health-status-healthy = Healthy
+dashboard-channel-health-polled = polled { $time }
+dashboard-channel-health-never-polled = never polled
+
+dashboard-my-devices-title = My devices
+dashboard-my-devices-error = Failed to load devices
+dashboard-my-devices-empty-title = No devices assigned
+dashboard-my-devices-empty-description = Devices linked to your account will show here.
+dashboard-my-devices-unknown-model = Unknown model
+
+dashboard-recently-viewed-title = Recently viewed
+dashboard-recently-viewed-error = Failed to load recently viewed
+dashboard-recently-viewed-empty-title = Nothing here yet
+dashboard-recently-viewed-empty-description = Tickets you open will show up here.
+
+dashboard-starred-docs-title = Starred docs
+dashboard-starred-docs-error = Failed to load starred docs
+dashboard-starred-docs-empty-title = No starred pages
+dashboard-starred-docs-empty-description = Star a doc to keep it handy.
+
+dashboard-unassigned-queue-title = Unassigned queue
+dashboard-unassigned-queue-error = Failed to load queue
+dashboard-unassigned-queue-empty-title = Inbox zero
+dashboard-unassigned-queue-empty-description = Nothing waiting in the queue.

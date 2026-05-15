@@ -4,10 +4,14 @@ last polled, any provider-reported error.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import { channelsService, type Channel, type ImapRuntimeState } from '@/services/channelsService'
 import { formatRelativeTime } from '@/utils/dateUtils'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 // `isPending` is the first-fetch signal; `isLoading` flips on every
 // in-flight request including background refetches. The shell wants
@@ -21,26 +25,38 @@ const { data, isPending, isLoading, error } = useQuery({
 const channels = computed<Channel[]>(() => data.value ?? [])
 const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
-  error.value ? 'Failed to load channels' : null,
+  error.value ? t('dashboard-channel-health-error') : null,
 )
 
 function lastError(c: Channel): string | null {
   const s = c.runtime_state as ImapRuntimeState | undefined
   return s?.last_error ?? null
 }
+
+function statusTitle(c: Channel): string {
+  if (!c.enabled) return t('dashboard-channel-health-status-disabled')
+  if (lastError(c)) return t('dashboard-channel-health-status-error')
+  return t('dashboard-channel-health-status-healthy')
+}
+
+function polledLabel(at: string | null | undefined): string {
+  return at
+    ? t('dashboard-channel-health-polled', { time: formatRelativeTime(at) })
+    : t('dashboard-channel-health-never-polled')
+}
 </script>
 
 <template>
   <DashboardWidgetShell
-    title="Channel Health"
-    action-label="Manage"
+    :title="t('dashboard-channel-health-title')"
+    :action-label="t('dashboard-channel-health-action')"
     action-to="/admin/channels/email"
     :loading="isPending"
     :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="channels.length === 0"
-    empty-title="No channels configured"
-    empty-description="Add an email channel to ingest tickets."
+    :empty-title="t('dashboard-channel-health-empty-title')"
+    :empty-description="t('dashboard-channel-health-empty-description')"
     min-body-height="200px"
   >
     <ul class="divide-y divide-default">
@@ -56,13 +72,13 @@ function lastError(c: Channel): string | null {
               : lastError(c) ? 'bg-status-error animate-pulse'
               : 'bg-status-success',
           ]"
-          :title="!c.enabled ? 'Disabled' : lastError(c) ? 'Error' : 'Healthy'"
+          :title="statusTitle(c)"
           aria-hidden="true"
         />
         <div class="flex-1 min-w-0">
           <p class="text-sm text-primary truncate">{{ c.name }}</p>
           <p class="mt-0.5 text-[11px] text-tertiary truncate">
-            {{ c.provider }} · {{ c.last_polled_at ? `polled ${formatRelativeTime(c.last_polled_at)}` : 'never polled' }}
+            {{ c.provider }} · {{ polledLabel(c.last_polled_at) }}
           </p>
           <p v-if="lastError(c)" class="mt-0.5 text-[11px] text-status-error truncate">
             {{ lastError(c) }}
