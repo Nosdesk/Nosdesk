@@ -1,5 +1,6 @@
 import { ref, computed, watch, type ComputedRef } from 'vue';
 import { useRoute } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
 import { useBrandingStore } from '@/stores/branding';
 
@@ -64,6 +65,8 @@ let pageTitle: ComputedRef<string> | null = null;
 export function useTitleManager() {
   const route = useRoute();
   const brandingStore = useBrandingStore();
+  const fluent = useFluent();
+  const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
   const getAppName = () => brandingStore.appName;
 
   // Create route-dependent computed + watchers only on first call
@@ -80,6 +83,16 @@ export function useTitleManager() {
       }
       if (isDeviceView.value && currentDevice.value) {
         return `#${currentDevice.value.id} ${currentDevice.value.hostname}`;
+      }
+      // Prefer `titleKey` (translatable). Routes that set a literal
+      // `title` (e.g. a document title containing user content) still
+      // fall through. Final fallback is the app name.
+      const titleKey = route.meta?.titleKey as string | undefined;
+      const titleKeyArgs = route.meta?.titleKeyArgs as
+        | Record<string, string | number>
+        | undefined;
+      if (titleKey) {
+        return t(titleKey, titleKeyArgs);
       }
       return (route.meta?.title as string) || getAppName();
     });

@@ -99,7 +99,35 @@ export function createI18n(pinia: Pinia): FluentVue {
     },
   )
 
+  // Stash the instance so non-component callers (the router, Pinia
+  // stores, standalone utilities) can translate without going through
+  // useFluent(), which requires an active Vue inject context.
+  activeFluent = fluent
   return fluent
+}
+
+// Module-level handle to the active fluent-vue instance. Set by
+// createI18n during bootstrap; null until then. Callers go through
+// the `translate` helper below rather than touching this directly.
+let activeFluent: FluentVue | null = null
+
+/**
+ * Translate a Fluent key from non-component code (the router,
+ * services). Falls back to the supplied `fallback` string (or the
+ * key itself) if i18n hasn't been initialised yet, which keeps unit
+ * tests and pre-bootstrap call sites from crashing. Args use
+ * `FluentVariable`-compatible primitives.
+ *
+ * Prefer `useFluent().$t` inside components; this is the escape
+ * hatch for code paths that run outside a Vue setup context.
+ */
+export function translate(
+  key: string,
+  args?: Record<string, string | number>,
+  fallback?: string,
+): string {
+  if (!activeFluent) return fallback ?? key
+  return activeFluent.format(key, args)
 }
 
 /** Locales we ship catalogues for. Exposed so the settings UI

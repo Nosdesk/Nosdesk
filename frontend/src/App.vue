@@ -41,7 +41,13 @@ const isBlankLayout = computed(() => route.meta.layout === 'blank')
 const routeAnnouncement = ref('')
 router.afterEach((to) => {
   nextTick(() => {
-    const title = (to.meta?.title as string) || document.title.replace(/\s*\|.*$/, '')
+    // Prefer `titleKey` (translatable); fall back to legacy `title`,
+    // then to whatever the title manager wrote into document.title.
+    const titleKey = to.meta?.titleKey as string | undefined
+    const titleKeyArgs = to.meta?.titleKeyArgs as Record<string, string | number> | undefined
+    const title = titleKey
+      ? t(titleKey, titleKeyArgs)
+      : (to.meta?.title as string) || document.title.replace(/\s*\|.*$/, '')
     routeAnnouncement.value = ''
     // Reset then set to trigger aria-live announcement
     requestAnimationFrame(() => {

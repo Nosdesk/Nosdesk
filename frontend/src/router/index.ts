@@ -25,6 +25,7 @@ import authService from '@/services/authService'
 import { useInboxLoader } from '@/loaders/inboxLoader'
 import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
 import { useTicketDetailLoader } from '@/loaders/ticketDetailLoader'
+import { translate } from '@/i18n'
 import type { Page, Article } from '@/services/documentationService'
 
 declare module 'vue-router' {
@@ -35,6 +36,8 @@ declare module 'vue-router' {
     /// protected layout).
     requiresAuth?: boolean;
     title?: string;
+    titleKey?: string;
+    titleKeyArgs?: Record<string, string | number>;
     layout?: string;
     adminRequired?: boolean;
     createButtonText?: string;
@@ -54,7 +57,7 @@ const router = createRouter({
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'Sign In'
+        titleKey: 'route-title-login'
       }
     },
     {
@@ -64,7 +67,7 @@ const router = createRouter({
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'Reset Password'
+        titleKey: 'route-title-reset-password'
       }
     },
     {
@@ -74,7 +77,7 @@ const router = createRouter({
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'MFA Setup Required'
+        titleKey: 'route-title-mfa-setup'
       }
     },
     {
@@ -84,7 +87,7 @@ const router = createRouter({
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'Accept Invitation'
+        titleKey: 'route-title-accept-invitation'
       }
     },
     {
@@ -94,40 +97,40 @@ const router = createRouter({
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'Setup - Nosdesk'
+        titleKey: 'route-title-onboarding'
       }
     },
     {
       path: '/submit-ticket',
       name: 'guest-submit-ticket',
       component: () => import('@/views/public/GuestTicketSubmitView.vue'),
-      meta: { layout: 'blank', requiresAuth: false, title: 'Submit a Ticket' }
+      meta: { layout: 'blank', requiresAuth: false, titleKey: 'route-title-guest-submit-ticket' }
     },
     {
       path: '/ticket-status/:token',
       name: 'guest-ticket-status',
       component: () => import('@/views/public/GuestTicketStatusView.vue'),
       props: true,
-      meta: { layout: 'blank', requiresAuth: false, title: 'Ticket Status' }
+      meta: { layout: 'blank', requiresAuth: false, titleKey: 'route-title-guest-ticket-status' }
     },
     {
       path: '/docs',
       name: 'public-docs-list',
       component: () => import('@/views/public/PublicDocsView.vue'),
-      meta: { layout: 'blank', requiresAuth: false, title: 'Documentation' }
+      meta: { layout: 'blank', requiresAuth: false, titleKey: 'route-title-documentation' }
     },
     {
       path: '/docs/:slug',
       name: 'public-doc',
       component: () => import('@/views/public/PublicDocView.vue'),
       props: true,
-      meta: { layout: 'blank', requiresAuth: false, title: 'Documentation' }
+      meta: { layout: 'blank', requiresAuth: false, titleKey: 'route-title-documentation' }
     },
     {
       path: '/help',
       name: 'public-help',
       component: () => import('@/views/public/HelpView.vue'),
-      meta: { layout: 'blank', requiresAuth: false, title: 'Help' }
+      meta: { layout: 'blank', requiresAuth: false, titleKey: 'route-title-help' }
     },
     {
       path: '/',
@@ -135,7 +138,7 @@ const router = createRouter({
       component: DashboardView,
       meta: {
         requiresAuth: true,
-        title: 'Dashboard',
+        titleKey: 'route-title-dashboard',
         createButtonTextKey: 'header-create-ticket',
         createButtonIcon: 'ticket',
       }
@@ -146,7 +149,7 @@ const router = createRouter({
       component: () => import('@/views/NotificationInboxView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Inbox',
+        titleKey: 'route-title-inbox',
         // Data Loader. Runs DURING navigation, before the
         // component code is evaluated. Primes Pinia Colada's
         // notification list + unread count caches so the view
@@ -163,7 +166,7 @@ const router = createRouter({
       component: TicketsListView,
       meta: {
         requiresAuth: true,
-        title: 'Tickets',
+        titleKey: 'route-title-tickets',
         createButtonTextKey: 'header-create-ticket',
         createButtonIcon: 'ticket',
         // Data Loader: pre-fetches the first page during
@@ -178,7 +181,7 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'View Ticket',
+        titleKey: 'route-title-ticket-view',
         createButtonTextKey: 'header-create-ticket',
         createButtonIcon: 'ticket',
         // Pre-fetches the ticket payload during navigation so the
@@ -197,11 +200,11 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'User Profile'
+        titleKey: 'route-title-user-profile'
       },
       beforeEnter: (to) => {
         // Set a generic title initially, the component will update it after fetching the user
-        to.meta.title = 'User Profile'
+        to.meta.titleKey = 'route-title-user-profile'
       }
     },
     {
@@ -211,24 +214,24 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'User Settings',
+        titleKey: 'route-title-user-settings',
         adminRequired: true
       },
       beforeEnter: (to) => {
         // Update title based on section
         const section = to.params.section as string;
-        const sectionTitles: Record<string, string> = {
-          profile: 'User Profile Settings',
-          appearance: 'User Appearance Settings',
-          notifications: 'User Notification Settings',
-          security: 'User Security Settings'
+        const sectionTitleKeys: Record<string, string> = {
+          profile: 'route-title-user-settings-profile',
+          appearance: 'route-title-user-settings-appearance',
+          notifications: 'route-title-user-settings-notifications',
+          security: 'route-title-user-settings-security'
         };
-        
-        if (section && sectionTitles[section]) {
-          to.meta.title = sectionTitles[section];
+
+        if (section && sectionTitleKeys[section]) {
+          to.meta.titleKey = sectionTitleKeys[section];
         } else {
           // No section param means base settings URL = profile section
-          to.meta.title = 'User Profile Settings';
+          to.meta.titleKey = 'route-title-user-settings-profile';
         }
       }
     },
@@ -238,7 +241,7 @@ const router = createRouter({
       component: ProjectsView,
       meta: {
         requiresAuth: true,
-        title: 'Projects',
+        titleKey: 'route-title-projects',
         createButtonTextKey: 'header-create-project',
         createButtonIcon: 'project',
       }
@@ -249,7 +252,7 @@ const router = createRouter({
       component: WorkspaceCyclesView,
       meta: {
         requiresAuth: true,
-        title: 'Cycles',
+        titleKey: 'route-title-cycles',
       }
     },
     {
@@ -259,7 +262,7 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'Cycle',
+        titleKey: 'route-title-cycle-detail',
       }
     },
     {
@@ -269,7 +272,7 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'Gantt',
+        titleKey: 'route-title-project-gantt',
       }
     },
     {
@@ -279,7 +282,7 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'Cycles',
+        titleKey: 'route-title-cycles',
       }
     },
     {
@@ -288,7 +291,7 @@ const router = createRouter({
       component: AssetPlannerView,
       meta: {
         requiresAuth: true,
-        title: 'Assets',
+        titleKey: 'route-title-assets',
       }
     },
     {
@@ -298,7 +301,7 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'Project Details',
+        titleKey: 'route-title-project-detail',
         createButtonTextKey: 'header-add-ticket',
         createButtonIcon: 'ticket',
       },
@@ -314,7 +317,7 @@ const router = createRouter({
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'Error'
+        titleKey: 'route-title-error'
       }
     },
     {
@@ -323,7 +326,7 @@ const router = createRouter({
       component: () => import('../views/UsersListView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Users',
+        titleKey: 'route-title-users',
         createButtonTextKey: 'header-create-user',
         createButtonIcon: 'user',
       }
@@ -334,7 +337,7 @@ const router = createRouter({
       component: () => import('../views/DevicesListView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Devices',
+        titleKey: 'route-title-devices',
         createButtonTextKey: 'header-create-device',
         createButtonIcon: 'device',
       }
@@ -345,7 +348,7 @@ const router = createRouter({
       component: () => import('../views/DeviceView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Create Device'
+        titleKey: 'route-title-device-create'
       }
     },
     {
@@ -355,7 +358,7 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'Device Details'
+        titleKey: 'route-title-device-view'
       }
     },
     {
@@ -364,7 +367,7 @@ const router = createRouter({
       component: DocumentationIndexView,
       meta: {
         requiresAuth: true,
-        title: 'Documentation',
+        titleKey: 'route-title-documentation',
         createButtonTextKey: 'header-create-document',
         createButtonIcon: 'document',
       }
@@ -375,7 +378,7 @@ const router = createRouter({
       component: () => import('../views/DocumentationDraftsView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Drafts'
+        titleKey: 'route-title-documentation-drafts'
       }
     },
     {
@@ -385,7 +388,7 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'Collection'
+        titleKey: 'route-title-collection'
       }
     },
     {
@@ -394,7 +397,7 @@ const router = createRouter({
       component: () => import('../views/DocumentationArchivedView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Archived'
+        titleKey: 'route-title-documentation-archived'
       }
     },
     {
@@ -403,7 +406,7 @@ const router = createRouter({
       component: () => import('../views/DocumentationTrashView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Trash'
+        titleKey: 'route-title-documentation-trash'
       }
     },
     {
@@ -412,7 +415,7 @@ const router = createRouter({
       component: () => import('../views/DocumentationGapsView.vue'),
       meta: {
         requiresAuth: true,
-        title: 'Knowledge Gaps'
+        titleKey: 'route-title-knowledge-gaps'
       }
     },
     {
@@ -422,7 +425,7 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'Knowledge Gaps'
+        titleKey: 'route-title-knowledge-gaps'
       }
     },
     {
@@ -431,17 +434,20 @@ const router = createRouter({
       component: DocumentView,
       meta: {
         requiresAuth: true,
-        title: 'Documentation'
+        titleKey: 'route-title-documentation'
       },
       props: true,
       beforeEnter: async (to) => {
         // Set a generic title initially
-        to.meta.title = 'Documentation';
+        to.meta.titleKey = 'route-title-documentation';
+        to.meta.title = undefined;
+        to.meta.titleKeyArgs = undefined;
         to.meta.preloadedDocument = undefined;
 
-        // Handle ticket notes — preloaded inside component (needs different data shape)
+        // Handle ticket notes, preloaded inside component (needs different data shape)
         if (to.query.ticketId) {
-          to.meta.title = `Ticket #${to.query.ticketId} Notes`;
+          to.meta.titleKey = 'route-title-ticket-notes';
+          to.meta.titleKeyArgs = { id: String(to.query.ticketId) };
           return;
         }
 
@@ -458,12 +464,17 @@ const router = createRouter({
               if (!('children' in result && Array.isArray(result.children)) && 'id' in result) {
                 const articleData = await getArticleById(String(result.id));
                 if (articleData) doc = articleData;
-                else return '/documentation'; // not found — redirect
+                else return '/documentation'; // not found, redirect
               }
               to.meta.preloadedDocument = doc;
-              to.meta.title = doc.title || 'Documentation';
+              // Document title is user content, not translatable. Set as
+              // literal `title`; consumers prefer titleKey, so clear it.
+              if (doc.title) {
+                to.meta.title = doc.title;
+                to.meta.titleKey = undefined;
+              }
             } else {
-              return '/documentation'; // not found — redirect
+              return '/documentation'; // not found, redirect
             }
           } catch {
             return '/documentation';
@@ -477,7 +488,7 @@ const router = createRouter({
       component: () => null, // Empty component since this route redirects
       meta: {
         requiresAuth: true,
-        title: 'Profile'
+        titleKey: 'route-title-profile'
       },
       beforeEnter: async (to, from, next) => {
         // Import auth store to get current user
@@ -499,23 +510,23 @@ const router = createRouter({
       component: ProfileSettingsView,
       meta: {
         requiresAuth: true,
-        title: 'Settings'
+        titleKey: 'route-title-profile-settings'
       },
       beforeEnter: (to) => {
         // Update title based on section
         const section = to.params.section as string;
-        const sectionTitles: Record<string, string> = {
-          profile: 'Profile Settings',
-          appearance: 'Appearance Settings',
-          notifications: 'Notification Settings',
-          security: 'Security Settings'
+        const sectionTitleKeys: Record<string, string> = {
+          profile: 'route-title-profile-settings-profile',
+          appearance: 'route-title-profile-settings-appearance',
+          notifications: 'route-title-profile-settings-notifications',
+          security: 'route-title-profile-settings-security'
         };
-        
-        if (section && sectionTitles[section]) {
-          to.meta.title = sectionTitles[section];
+
+        if (section && sectionTitleKeys[section]) {
+          to.meta.titleKey = sectionTitleKeys[section];
         } else {
           // No section param means base /profile/settings URL = profile section
-          to.meta.title = 'Profile Settings';
+          to.meta.titleKey = 'route-title-profile-settings-profile';
         }
       }
     },
@@ -531,51 +542,51 @@ const router = createRouter({
           path: '',
           name: 'admin-index',
           component: () => import('../views/AdminIndexView.vue'),
-          meta: { title: 'Administration' }
+          meta: { titleKey: 'route-title-administration' }
         },
         { path: 'settings', redirect: '/admin' },
         {
           path: 'groups',
           name: 'admin-groups',
           component: () => import('../views/GroupsManagementView.vue'),
-          meta: { title: 'Groups' }
+          meta: { titleKey: 'route-title-admin-groups' }
         },
         {
           path: 'groups/:uuid/configure',
           name: 'group-configuration',
           component: () => import('../views/GroupConfigurationView.vue'),
           props: true,
-          meta: { title: 'Group Configuration' }
+          meta: { titleKey: 'route-title-group-configuration' }
         },
         {
           path: 'categories',
           name: 'admin-categories',
           component: () => import('../views/CategoriesManagementView.vue'),
-          meta: { title: 'Categories' }
+          meta: { titleKey: 'route-title-admin-categories' }
         },
         {
           path: 'assignment-rules',
           name: 'admin-assignment-rules',
           component: () => import('../views/AssignmentRulesView.vue'),
-          meta: { title: 'Assignment Rules' }
+          meta: { titleKey: 'route-title-admin-assignment-rules' }
         },
         {
           path: 'workflow',
           name: 'admin-workflow',
           component: () => import('../views/admin/WorkflowStatesView.vue'),
-          meta: { title: 'Workflow' }
+          meta: { titleKey: 'route-title-admin-workflow' }
         },
         {
           path: 'api-tokens',
           name: 'admin-api-tokens',
           component: () => import('../views/ApiTokensView.vue'),
-          meta: { title: 'API Tokens' }
+          meta: { titleKey: 'route-title-admin-api-tokens' }
         },
         {
           path: 'webhooks',
           name: 'admin-webhooks',
           component: () => import('../views/WebhooksView.vue'),
-          meta: { title: 'Webhooks' }
+          meta: { titleKey: 'route-title-admin-webhooks' }
         },
         {
           // Was previously a top-level `/admin/sla` route, which
@@ -588,115 +599,115 @@ const router = createRouter({
           path: 'sla',
           name: 'admin-sla',
           component: () => import('../views/SlaAdminView.vue'),
-          meta: { title: 'SLA' }
+          meta: { titleKey: 'route-title-admin-sla' }
         },
         {
           path: 'plugins',
           name: 'admin-plugins',
           component: () => import('../views/admin/plugins/PluginListView.vue'),
-          meta: { title: 'Plugins' }
+          meta: { titleKey: 'route-title-admin-plugins' }
         },
         {
           path: 'plugins/registry',
           name: 'admin-plugin-registry',
           component: () => import('../views/PluginRegistryView.vue'),
-          meta: { title: 'Plugin Registry' }
+          meta: { titleKey: 'route-title-admin-plugin-registry' }
         },
         {
           path: 'plugins/install',
           name: 'admin-plugin-sideload',
           component: () => import('../views/admin/plugins/PluginSideloadView.vue'),
-          meta: { title: 'Sideload Plugin' }
+          meta: { titleKey: 'route-title-admin-plugin-sideload' }
         },
         {
           path: 'plugins/:uuid',
           name: 'admin-plugin-detail',
           component: () => import('../views/admin/plugins/PluginDetailView.vue'),
-          meta: { title: 'Plugin Detail' }
+          meta: { titleKey: 'route-title-admin-plugin-detail' }
         },
         {
           path: 'auth-providers',
           name: 'admin-auth-providers',
           component: () => import('../views/AuthProvidersView.vue'),
-          meta: { title: 'Authentication Providers' }
+          meta: { titleKey: 'route-title-admin-auth-providers' }
         },
         {
           path: 'search',
           name: 'admin-search',
           component: () => import('../views/SearchManagementView.vue'),
-          meta: { title: 'Search Index Management' }
+          meta: { titleKey: 'route-title-admin-search' }
         },
         {
           path: 'system-settings',
           name: 'admin-system-settings',
           component: () => import('../views/SystemSettingsView.vue'),
-          meta: { title: 'System Settings' }
+          meta: { titleKey: 'route-title-admin-system-settings' }
         },
         {
           path: 'settings/branding',
           name: 'admin-branding',
           component: () => import('../views/BrandingSettingsView.vue'),
-          meta: { title: 'Branding' }
+          meta: { titleKey: 'route-title-admin-branding' }
         },
         {
           path: 'audit-log',
           name: 'admin-audit-log',
           component: () => import('../views/admin/AuditLogView.vue'),
-          meta: { title: 'Audit Log' }
+          meta: { titleKey: 'route-title-admin-audit-log' }
         },
         {
           path: 'email-queue',
           name: 'admin-email-queue',
           component: () => import('../views/admin/EmailQueueView.vue'),
-          meta: { title: 'Email Queue' }
+          meta: { titleKey: 'route-title-admin-email-queue' }
         },
         {
           path: 'email-suppressions',
           name: 'admin-email-suppressions',
           component: () => import('../views/admin/EmailSuppressionsView.vue'),
-          meta: { title: 'Email Suppressions' }
+          meta: { titleKey: 'route-title-admin-email-suppressions' }
         },
         {
           path: 'guest-access',
           name: 'admin-guest-access',
           component: () => import('../views/GuestAccessSettingsView.vue'),
-          meta: { title: 'Guest Access', requiresAuth: true, adminRequired: true }
+          meta: { titleKey: 'route-title-admin-guest-access', requiresAuth: true, adminRequired: true }
         },
         {
           path: 'email-settings',
           name: 'admin-email-settings',
           component: () => import('../views/EmailSettingsView.vue'),
-          meta: { title: 'Email Configuration' }
+          meta: { titleKey: 'route-title-admin-email-settings' }
         },
         {
           path: 'channels/email',
           name: 'admin-channels-email',
           component: () => import('../views/ChannelsEmailSettingsView.vue'),
-          meta: { title: 'Email Ingestion', requiresAuth: true, adminRequired: true }
+          meta: { titleKey: 'route-title-admin-channels-email', requiresAuth: true, adminRequired: true }
         },
         {
           path: 'data-import',
           name: 'admin-data-import',
           component: () => import('../views/DataImportView.vue'),
-          meta: { title: 'Data Import' }
+          meta: { titleKey: 'route-title-admin-data-import' }
         },
         {
           path: 'data-import/microsoft-graph',
           name: 'admin-microsoft-graph',
           component: () => import('../views/MicrosoftGraphView.vue'),
-          meta: { title: 'Microsoft Graph Connection' }
+          meta: { titleKey: 'route-title-admin-microsoft-graph' }
         },
         {
           path: 'data-import/csv',
           name: 'admin-csv-import',
           component: () => import('../views/CsvImportView.vue'),
-          meta: { title: 'CSV Import' }
+          meta: { titleKey: 'route-title-admin-csv-import' }
         },
         {
           path: 'backup-restore',
           name: 'admin-backup-restore',
           component: () => import('../views/BackupRestoreView.vue'),
-          meta: { title: 'Backup & Restore' }
+          meta: { titleKey: 'route-title-admin-backup-restore' }
         }
       ]
     },
@@ -707,7 +718,7 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        title: 'Group Details'
+        titleKey: 'route-title-group-detail'
       }
     },
     {
@@ -717,7 +728,7 @@ const router = createRouter({
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'Authenticating...',
+        titleKey: 'route-title-authenticating',
         oauthProvider: 'microsoft'
       }
     },
@@ -728,7 +739,7 @@ const router = createRouter({
       meta: {
         layout: 'blank',
         requiresAuth: false,
-        title: 'Authenticating...',
+        titleKey: 'route-title-authenticating',
         oauthProvider: 'oidc'
       }
     },
@@ -738,7 +749,7 @@ const router = createRouter({
       component: PDFViewerView,
       meta: {
         requiresAuth: true,
-        title: 'PDF Viewer',
+        titleKey: 'route-title-pdf-viewer',
         titleIcon: 'pdf'
       }
     },
@@ -762,7 +773,15 @@ router.beforeResolve((to) => {
 
   let title: string;
 
-  if (to.meta?.title) {
+  // Prefer `titleKey` so locale-aware tab titles update on navigation;
+  // fall back to `title` for any route that hasn't been migrated. The
+  // useTitleManager composable runs alongside this and may override
+  // with view-specific titles (e.g. "#123 Fix the bug").
+  const titleKey = to.meta?.titleKey as string | undefined;
+  const titleKeyArgs = to.meta?.titleKeyArgs as Record<string, string | number> | undefined;
+  if (titleKey) {
+    title = translate(titleKey, titleKeyArgs);
+  } else if (to.meta?.title) {
     title = to.meta.title as string;
   } else if (to.name) {
     title = to.name.toString()
