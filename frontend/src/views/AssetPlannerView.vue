@@ -18,6 +18,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import {
   assetsService,
   type AssetPlannerRow,
@@ -26,6 +27,9 @@ import {
 } from '@/services/assetsService'
 
 const router = useRouter()
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+
 const rows = ref<AssetPlannerRow[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -36,7 +40,7 @@ async function load(): Promise<void> {
   try {
     rows.value = await assetsService.planner()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to load assets'
+    error.value = e instanceof Error ? e.message : t('asset-planner-load-error')
   } finally {
     loading.value = false
   }
@@ -51,6 +55,12 @@ onMounted(load)
 // ---------------------------------------------------------------
 type GroupAxis = 'os_family' | 'warranty_bucket' | 'compliance_state'
 const axis = ref<GroupAxis>('os_family')
+
+const axisOptions = computed(() => [
+  { value: 'os_family' as GroupAxis, label: t('asset-planner-axis-os') },
+  { value: 'warranty_bucket' as GroupAxis, label: t('asset-planner-axis-warranty') },
+  { value: 'compliance_state' as GroupAxis, label: t('asset-planner-axis-compliance') },
+])
 
 // ---------------------------------------------------------------
 // Sidebar filters. Each axis exposes its known buckets; clicking
@@ -92,21 +102,9 @@ interface Bucket {
   rows: AssetPlannerRow[]
 }
 
-const OS_LABELS: Record<OsFamily, string> = {
-  windows: 'Windows',
-  macos: 'macOS',
-  linux: 'Linux',
-  ios: 'iOS',
-  android: 'Android',
-  other: 'Other',
-}
-const WARRANTY_LABELS: Record<WarrantyBucket, string> = {
-  expired: 'Expired',
-  expiring_30d: 'Expiring in 30 days',
-  expiring_90d: 'Expiring in 90 days',
-  active: 'Active',
-  unknown: 'Unknown',
-}
+// Stable enum-style key lists; labels are resolved through Fluent
+// at render time so they follow the active locale.
+const OS_KEYS: OsFamily[] = ['windows', 'macos', 'linux', 'ios', 'android', 'other']
 const WARRANTY_ORDER: WarrantyBucket[] = [
   'expired',
   'expiring_30d',
@@ -115,6 +113,23 @@ const WARRANTY_ORDER: WarrantyBucket[] = [
   'unknown',
 ]
 
+const osLabels = computed<Record<OsFamily, string>>(() => ({
+  windows: t('asset-planner-os-windows'),
+  macos: t('asset-planner-os-macos'),
+  linux: t('asset-planner-os-linux'),
+  ios: t('asset-planner-os-ios'),
+  android: t('asset-planner-os-android'),
+  other: t('asset-planner-os-other'),
+}))
+
+const warrantyLabels = computed<Record<WarrantyBucket, string>>(() => ({
+  expired: t('asset-planner-warranty-expired'),
+  expiring_30d: t('asset-planner-warranty-expiring-30d'),
+  expiring_90d: t('asset-planner-warranty-expiring-90d'),
+  active: t('asset-planner-warranty-active'),
+  unknown: t('asset-planner-warranty-unknown'),
+}))
+
 const buckets = computed<Bucket[]>(() => {
   const out = new Map<string, Bucket>()
   for (const r of filteredRows.value) {
@@ -122,19 +137,19 @@ const buckets = computed<Bucket[]>(() => {
     let label: string
     if (axis.value === 'os_family') {
       key = r.os_family
-      label = OS_LABELS[r.os_family]
+      label = osLabels.value[r.os_family]
     } else if (axis.value === 'warranty_bucket') {
       key = r.warranty_bucket
-      label = WARRANTY_LABELS[r.warranty_bucket]
+      label = warrantyLabels.value[r.warranty_bucket]
     } else {
       key = r.compliance_state ?? '__unknown__'
-      label = r.compliance_state ?? 'Unknown'
+      label = r.compliance_state ?? t('asset-planner-compliance-unknown')
     }
     if (!out.has(key)) out.set(key, { key, label, rows: [] })
     out.get(key)!.rows.push(r)
   }
   // Stable ordering per axis: warranty has a natural severity
-  // order, OS uses the labels map order, compliance is alphabetic.
+  // order, OS uses the OS_KEYS order, compliance is alphabetic.
   if (axis.value === 'warranty_bucket') {
     return WARRANTY_ORDER.flatMap((k) => {
       const b = out.get(k)
@@ -142,7 +157,7 @@ const buckets = computed<Bucket[]>(() => {
     })
   }
   if (axis.value === 'os_family') {
-    return Object.keys(OS_LABELS).flatMap((k) => {
+    return OS_KEYS.flatMap((k) => {
       const b = out.get(k)
       return b ? [b] : []
     })
@@ -150,12 +165,12 @@ const buckets = computed<Bucket[]>(() => {
   return Array.from(out.values()).sort((a, b) => a.label.localeCompare(b.label))
 })
 
-// All known facets for the sidebar — derived from the data so the
+// All known facets for the sidebar, derived from the data so the
 // list stays accurate as devices are added / removed.
 const knownOsFamilies = computed<OsFamily[]>(() => {
   const set = new Set<OsFamily>()
   for (const r of rows.value) set.add(r.os_family)
-  return (Object.keys(OS_LABELS) as OsFamily[]).filter((k) => set.has(k))
+  return OS_KEYS.filter((k) => set.has(k))
 })
 
 const knownWarrantyBuckets = computed<WarrantyBucket[]>(() => {
@@ -178,6 +193,12 @@ function warrantyClass(b: WarrantyBucket): string {
   if (b === 'expiring_90d') return 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
   if (b === 'active') return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
   return 'bg-surface-hover text-tertiary'
+}
+
+function warrantyTooltip(date: string | null | undefined): string {
+  return date
+    ? t('asset-planner-warranty-ends', { date })
+    : t('asset-planner-no-warranty-data')
 }
 
 function openDevice(id: number): void {
@@ -205,34 +226,34 @@ const activeFilterCount = computed<number>(() =>
       class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-4 md:px-6 py-3 md:py-4 border-b border-subtle bg-app"
     >
       <div>
-        <h1 class="text-xl font-semibold text-primary">Assets</h1>
+        <h1 class="text-xl font-semibold text-primary">{{ $t('asset-planner-title') }}</h1>
         <p class="text-xs text-tertiary mt-0.5">
-          Plan rollouts by OS, warranty, or compliance state.
+          {{ $t('asset-planner-subtitle') }}
         </p>
       </div>
       <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
         <input
           v-model="search"
           type="text"
-          placeholder="Search by name, hostname, model…"
+          :placeholder="$t('asset-planner-search-placeholder')"
           class="bg-surface border border-subtle rounded-md text-sm px-3 py-1.5 text-primary w-full sm:w-64"
         />
         <label class="flex items-center gap-2 text-xs text-secondary">
-          <span class="shrink-0">Group by</span>
+          <span class="shrink-0">{{ $t('asset-planner-group-by') }}</span>
           <select
             v-model="axis"
             class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary flex-1 sm:flex-initial"
           >
-            <option value="os_family">OS family</option>
-            <option value="warranty_bucket">Warranty</option>
-            <option value="compliance_state">Compliance</option>
+            <option v-for="opt in axisOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </label>
       </div>
     </header>
 
     <div v-if="loading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
-      Loading assets…
+      {{ $t('asset-planner-loading') }}
     </div>
     <div v-else-if="error" class="flex-1 flex items-center justify-center text-status-error text-sm">
       {{ error }}
@@ -241,7 +262,7 @@ const activeFilterCount = computed<number>(() =>
          planner). Below md the sidebar stacks above the planner
          with a capped height so it doesn't dominate the viewport.
          The planner itself horizontally-scrolls within whatever
-         column space is left, which is what we want — kanban
+         column space is left, which is what we want: kanban
          columns stay readable rather than crushing. -->
     <div
       v-else
@@ -253,17 +274,17 @@ const activeFilterCount = computed<number>(() =>
         class="border-b md:border-b-0 md:border-r border-subtle bg-surface overflow-y-auto p-4 flex flex-col gap-5 md:flex-col max-h-48 md:max-h-none"
       >
         <div class="flex items-center justify-between">
-          <h2 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">Filters</h2>
+          <h2 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">{{ $t('asset-planner-filters-heading') }}</h2>
           <button
             v-if="activeFilterCount > 0"
             type="button"
             class="text-[11px] text-tertiary hover:text-primary"
             @click="clearAllFilters"
-          >Clear ({{ activeFilterCount }})</button>
+          >{{ $t('asset-planner-filters-clear', { count: activeFilterCount }) }}</button>
         </div>
 
         <section v-if="knownOsFamilies.length > 0" class="flex flex-col gap-1">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">OS</h3>
+          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">{{ $t('asset-planner-section-os') }}</h3>
           <button
             v-for="os in knownOsFamilies"
             :key="os"
@@ -272,12 +293,12 @@ const activeFilterCount = computed<number>(() =>
             :class="osFilter.has(os) ? 'bg-accent/10 text-accent font-medium' : 'text-secondary'"
             @click="toggleSetMember(osFilter, os)"
           >
-            {{ OS_LABELS[os] }}
+            {{ osLabels[os] }}
           </button>
         </section>
 
         <section v-if="knownWarrantyBuckets.length > 0" class="flex flex-col gap-1">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">Warranty</h3>
+          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">{{ $t('asset-planner-section-warranty') }}</h3>
           <button
             v-for="b in knownWarrantyBuckets"
             :key="b"
@@ -286,12 +307,12 @@ const activeFilterCount = computed<number>(() =>
             :class="warrantyFilter.has(b) ? 'bg-accent/10 text-accent font-medium' : 'text-secondary'"
             @click="toggleSetMember(warrantyFilter, b)"
           >
-            {{ WARRANTY_LABELS[b] }}
+            {{ warrantyLabels[b] }}
           </button>
         </section>
 
         <section v-if="knownComplianceStates.length > 0" class="flex flex-col gap-1">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">Compliance</h3>
+          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">{{ $t('asset-planner-section-compliance') }}</h3>
           <button
             v-for="c in knownComplianceStates"
             :key="c"
@@ -305,7 +326,7 @@ const activeFilterCount = computed<number>(() =>
         </section>
 
         <p class="text-[11px] text-tertiary mt-2">
-          {{ filteredRows.length }} of {{ rows.length }} device{{ rows.length === 1 ? '' : 's' }}
+          {{ $t('asset-planner-count', { visible: filteredRows.length, total: rows.length }) }}
         </p>
       </aside>
 
@@ -314,7 +335,7 @@ const activeFilterCount = computed<number>(() =>
         <div
           v-if="buckets.length === 0"
           class="text-tertiary text-sm italic p-8 text-center"
-        >No devices match the current filters.</div>
+        >{{ $t('asset-planner-empty') }}</div>
 
         <div v-else class="flex gap-4 min-h-full">
           <section
@@ -341,34 +362,34 @@ const activeFilterCount = computed<number>(() =>
                   <span
                     class="text-[10px] font-medium rounded px-1.5 py-0.5 shrink-0"
                     :class="warrantyClass(d.warranty_bucket)"
-                    :title="d.warranty_end_date ? `Warranty ends ${d.warranty_end_date}` : 'No warranty data'"
+                    :title="warrantyTooltip(d.warranty_end_date)"
                   >
-                    {{ d.warranty_bucket === 'unknown' ? '—' : WARRANTY_LABELS[d.warranty_bucket] }}
+                    {{ d.warranty_bucket === 'unknown' ? $t('asset-planner-warranty-unknown-short') : warrantyLabels[d.warranty_bucket] }}
                   </span>
                 </header>
                 <dl class="text-[11px] text-tertiary flex flex-col gap-0.5">
                   <div v-if="d.hostname" class="flex justify-between">
-                    <dt>Host</dt>
+                    <dt>{{ $t('asset-planner-card-host') }}</dt>
                     <dd class="font-mono text-secondary truncate ml-2">{{ d.hostname }}</dd>
                   </div>
                   <div v-if="d.operating_system" class="flex justify-between">
-                    <dt>OS</dt>
+                    <dt>{{ $t('asset-planner-card-os') }}</dt>
                     <dd class="text-secondary truncate ml-2">
                       {{ d.operating_system }}{{ d.os_version ? ` ${d.os_version}` : '' }}
                     </dd>
                   </div>
                   <div v-if="d.model || d.manufacturer" class="flex justify-between">
-                    <dt>Model</dt>
+                    <dt>{{ $t('asset-planner-card-model') }}</dt>
                     <dd class="text-secondary truncate ml-2">
                       {{ [d.manufacturer, d.model].filter(Boolean).join(' ') }}
                     </dd>
                   </div>
                   <div v-if="d.asset_tag" class="flex justify-between">
-                    <dt>Tag</dt>
+                    <dt>{{ $t('asset-planner-card-tag') }}</dt>
                     <dd class="font-mono text-secondary ml-2">{{ d.asset_tag }}</dd>
                   </div>
                   <div v-if="d.compliance_state" class="flex justify-between">
-                    <dt>Compliance</dt>
+                    <dt>{{ $t('asset-planner-card-compliance') }}</dt>
                     <dd class="text-secondary ml-2">{{ d.compliance_state }}</dd>
                   </div>
                 </dl>

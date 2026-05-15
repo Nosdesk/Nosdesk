@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getCollectionBySlug, addPageToCollection, updateCollection, deleteCollection, getPageOverridesInCollection } from '@/services/collectionService'
 import type { CollectionWithPages, CollectionPage, PageOverrideInfo } from '@/services/collectionService'
@@ -18,6 +19,9 @@ import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
 import CollectionVisibilityModal from '@/components/documentationComponents/CollectionVisibilityModal.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const route = useRoute()
 const router = useRouter()
@@ -61,7 +65,7 @@ const loadCollection = async () => {
       pageOverrides.value = await getPageOverridesInCollection(collection.value.id)
     }
   } else {
-    titleManager.setCustomTitle('Collection Not Found')
+    titleManager.setCustomTitle(t('collection-not-found-title'))
   }
 
   loading.value = false
@@ -93,7 +97,7 @@ const createPageInCollection = async () => {
   creating.value = true
   try {
     const newPage = await documentationService.createArticle({
-      title: 'New Page',
+      title: t('collection-new-page-default-title'),
       content: '',
       description: '',
       status: 'draft',
@@ -201,6 +205,12 @@ on('documentation-updated', (data) => {
     }
   }
 })
+
+const deleteModalTitle = computed(() =>
+  collection.value
+    ? t('collection-delete-title', { name: collection.value.name })
+    : t('collection-delete-title-fallback'),
+)
 </script>
 
 <template>
@@ -208,7 +218,7 @@ on('documentation-updated', (data) => {
     <!-- Header -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2">
-        <BackButton fallbackRoute="/documentation" label="Back to Documentation" />
+        <BackButton fallbackRoute="/documentation" :label="$t('collection-back-to-documentation')" />
         <div class="flex-1"></div>
 
         <!-- Delete collection button (admin only, non-system) -->
@@ -218,7 +228,7 @@ on('documentation-updated', (data) => {
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-default text-status-danger hover:bg-status-danger/10 transition-colors"
         >
           <Icon name="trash" />
-          <span class="hidden sm:inline">Delete</span>
+          <span class="hidden sm:inline">{{ $t('collection-action-delete') }}</span>
         </button>
 
         <!-- Manage Access button (admin only) -->
@@ -228,7 +238,7 @@ on('documentation-updated', (data) => {
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
         >
           <Icon name="lock" />
-          <span class="hidden sm:inline">Manage Access</span>
+          <span class="hidden sm:inline">{{ $t('collection-action-manage-access') }}</span>
         </button>
 
         <!-- Create page button -->
@@ -240,7 +250,7 @@ on('documentation-updated', (data) => {
         >
           <Icon v-if="!creating" name="add" />
           <Spinner v-else />
-          <span class="hidden sm:inline">New Page</span>
+          <span class="hidden sm:inline">{{ $t('collection-action-new-page') }}</span>
         </button>
       </div>
     </div>
@@ -280,10 +290,10 @@ on('documentation-updated', (data) => {
         <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-tertiary mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
         </svg>
-        <p class="text-primary font-medium mb-1">Collection not found</p>
-        <p class="text-tertiary text-sm mb-4">This collection may have been moved or deleted.</p>
+        <p class="text-primary font-medium mb-1">{{ $t('collection-not-found-heading') }}</p>
+        <p class="text-tertiary text-sm mb-4">{{ $t('collection-not-found-description') }}</p>
         <RouterLink to="/documentation" class="text-accent text-sm hover:underline">
-          Back to Documentation
+          {{ $t('collection-back-to-documentation') }}
         </RouterLink>
       </div>
 
@@ -305,9 +315,9 @@ on('documentation-updated', (data) => {
             >{{ collection.name }}</h1>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
-            <span v-if="collection.is_system" class="text-xs px-2 py-0.5 rounded-full bg-surface-alt text-tertiary">System</span>
-            <span v-if="!collection.is_public" class="text-xs px-2 py-0.5 rounded-full bg-status-warning/10 text-status-warning">Restricted</span>
-            <span v-else class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">Public</span>
+            <span v-if="collection.is_system" class="text-xs px-2 py-0.5 rounded-full bg-surface-alt text-tertiary">{{ $t('collection-badge-system') }}</span>
+            <span v-if="!collection.is_public" class="text-xs px-2 py-0.5 rounded-full bg-status-warning/10 text-status-warning">{{ $t('collection-badge-restricted') }}</span>
+            <span v-else class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">{{ $t('collection-badge-public') }}</span>
             <span
               v-for="group in collection.visible_to_groups"
               :key="'g-' + group.id"
@@ -329,14 +339,14 @@ on('documentation-updated', (data) => {
         <section v-if="docId">
           <div class="flex items-center gap-2 mb-3 pb-2 border-b border-default">
             <Icon name="copyMd" class="text-tertiary" />
-            <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">Overview</h2>
+            <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">{{ $t('collection-overview-heading') }}</h2>
           </div>
           <div class="collection-editor-wrapper">
             <CollaborativeEditor
               v-model="editContent"
               :doc-id="docId"
               :hide-revision-history="true"
-              placeholder="Write an overview for this collection..."
+              :placeholder="$t('collection-overview-placeholder')"
               class="w-full"
             />
           </div>
@@ -357,7 +367,7 @@ on('documentation-updated', (data) => {
               :class="overridesExpanded ? 'rotate-90' : ''"
             />
             <Icon name="lock" />
-            <span>{{ pageOverrides.length }} page{{ pageOverrides.length !== 1 ? 's' : '' }} with custom permissions</span>
+            <span>{{ $t('collection-overrides-summary', { count: pageOverrides.length }) }}</span>
           </button>
 
           <div v-if="overridesExpanded" class="flex flex-col gap-1.5 border-t border-status-warning/20 px-3 py-2">
@@ -392,10 +402,10 @@ on('documentation-updated', (data) => {
           <div class="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-default">
             <div class="flex items-center gap-2">
               <Icon name="archive" class="text-tertiary" />
-              <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">Pages</h2>
+              <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">{{ $t('collection-pages-heading') }}</h2>
             </div>
             <span class="text-xs text-tertiary tabular-nums">
-              {{ collection.page_count }} page{{ collection.page_count !== 1 ? 's' : '' }}
+              {{ $t('collection-page-count', { count: collection.page_count }) }}
             </span>
           </div>
           <CollectionTreeList :pages="collection.pages" :overridePageIds="overridePageIds" />
@@ -416,9 +426,9 @@ on('documentation-updated', (data) => {
     <ConfirmModal
       :show="showDeleteConfirm"
       variant="danger"
-      :title="collection ? `Delete ${collection.name}?` : 'Delete collection?'"
-      message="Pages in this collection will not be deleted."
-      confirm-label="Delete"
+      :title="deleteModalTitle"
+      :message="$t('collection-delete-message')"
+      :confirm-label="$t('collection-delete-confirm')"
       @confirm="doDelete"
       @close="showDeleteConfirm = false"
     />

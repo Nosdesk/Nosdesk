@@ -1947,3 +1947,141 @@ doc-detail-ticket-note-title = Notities voor ticket #{ $id }
 doc-detail-ticket-note-description = Documentatie voor ticket { $title }
 doc-detail-ticket-note-author-system = Systeem
 
+# Asset planner (AssetPlannerView): kanban voor het plannen van
+# apparaat-uitrol, gegroepeerd op OS-familie, garantieperiode of
+# nalevingsstatus. Bevat de header, zijbalkfilters, groepkolommen
+# en chips op de apparaatkaarten.
+asset-planner-title = Apparatuur
+asset-planner-subtitle = Plan uitrol op OS, garantie of naleving.
+asset-planner-search-placeholder = Zoek op naam, hostnaam, model…
+asset-planner-group-by = Groeperen op
+asset-planner-axis-os = OS-familie
+asset-planner-axis-warranty = Garantie
+asset-planner-axis-compliance = Naleving
+asset-planner-loading = Apparatuur laden…
+asset-planner-load-error = Apparatuur laden mislukt
+asset-planner-filters-heading = Filters
+asset-planner-filters-clear = Wissen ({ $count })
+asset-planner-section-os = OS
+asset-planner-section-warranty = Garantie
+asset-planner-section-compliance = Naleving
+asset-planner-count = { $visible } van { $total ->
+    [one] { $total } apparaat
+   *[other] { $total } apparaten
+   }
+asset-planner-empty = Geen apparaten voldoen aan de huidige filters.
+asset-planner-warranty-ends = Garantie loopt af op { $date }
+asset-planner-no-warranty-data = Geen garantiegegevens
+asset-planner-warranty-unknown-short = n.v.t.
+asset-planner-card-host = Host
+asset-planner-card-os = OS
+asset-planner-card-model = Model
+asset-planner-card-tag = Label
+asset-planner-card-compliance = Naleving
+asset-planner-os-windows = Windows
+asset-planner-os-macos = macOS
+asset-planner-os-linux = Linux
+asset-planner-os-ios = iOS
+asset-planner-os-android = Android
+asset-planner-os-other = Overig
+asset-planner-warranty-expired = Verlopen
+asset-planner-warranty-expiring-30d = Verloopt binnen 30 dagen
+asset-planner-warranty-expiring-90d = Verloopt binnen 90 dagen
+asset-planner-warranty-active = Actief
+asset-planner-warranty-unknown = Onbekend
+asset-planner-compliance-unknown = Onbekend
+
+# Collection view (CollectionView): documentation collection
+# detail page with editable name/icon, an overview editor,
+# visibility chips, an expandable list of pages with custom
+# permissions, and the collection's page tree.
+collection-back-to-documentation = Terug naar documentatie
+collection-not-found-title = Collectie niet gevonden
+collection-action-delete = Verwijderen
+collection-action-manage-access = Toegang beheren
+collection-action-new-page = Nieuwe pagina
+collection-new-page-default-title = Nieuwe pagina
+collection-not-found-heading = Collectie niet gevonden
+collection-not-found-description = Deze collectie is mogelijk verplaatst of verwijderd.
+collection-badge-system = Systeem
+collection-badge-restricted = Beperkt
+collection-badge-public = Openbaar
+collection-overview-heading = Overzicht
+collection-overview-placeholder = Schrijf een overzicht voor deze collectie...
+collection-overrides-summary = { $count ->
+    [one] { $count } pagina met aangepaste rechten
+   *[other] { $count } pagina's met aangepaste rechten
+   }
+collection-pages-heading = Pagina's
+collection-page-count = { $count ->
+    [one] { $count } pagina
+   *[other] { $count } pagina's
+   }
+collection-delete-title = { $name } verwijderen?
+collection-delete-title-fallback = Collectie verwijderen?
+collection-delete-message = De pagina's in deze collectie worden niet verwijderd.
+collection-delete-confirm = Verwijderen
+
+# CSV import (CsvImportView): admin page for importing users,
+# devices, or tickets from CSV. Covers the page header, status
+# messages, action buttons, the import status card, guideline
+# panels, the template list, and both modals (file upload and
+# template download).
+csv-import-back = Terug naar Gegevensimport
+csv-import-title = CSV-import
+csv-import-subtitle = Importeer gegevens uit CSV-bestanden in je systeem
+csv-import-action-import = Gegevens importeren
+csv-import-action-templates = Sjablonen downloaden
+csv-import-status-heading = Importstatus
+csv-import-status-success = Import voltooid
+csv-import-status-in-progress = Import bezig
+csv-import-status-error = Import mislukt
+csv-import-last-import = Laatste import: { $date }
+csv-import-results-total = Totaal aantal records
+csv-import-results-successful = Geslaagd
+csv-import-results-failed = Mislukt
+csv-import-guidelines-heading = Richtlijnen voor CSV-import
+csv-import-requirements-heading = Vereisten CSV-bestand
+csv-import-requirements-utf8 = Bestanden moeten in CSV-formaat met UTF-8-codering zijn
+csv-import-requirements-headers = De eerste rij moet kolomkoppen bevatten die overeenkomen met de verwachte velden
+csv-import-requirements-required = Verplichte velden mogen niet leeg zijn
+csv-import-requirements-date-format = Datumvelden moeten het formaat JJJJ-MM-DD gebruiken
+csv-import-requirements-max-size = Maximale bestandsgrootte: 10 MB
+csv-import-notes-heading = Belangrijke opmerkingen
+csv-import-notes-updates = Bestaande records worden bijgewerkt als ze een unieke identifier delen (zoals e-mail of ID)
+csv-import-notes-validation = Gegevensvalidatie wordt vóór de import uitgevoerd, records met ongeldige gegevens worden overgeslagen
+csv-import-notes-duration = Grote imports kunnen enkele minuten duren
+csv-import-notes-templates = Download en gebruik onze sjablonen voor de juiste opmaak
+csv-import-templates-heading = Beschikbare sjablonen
+csv-import-templates-intro = Gebruik deze sjablonen als startpunt voor je CSV-imports
+csv-import-template-users-name = Sjabloon Gebruikers
+csv-import-template-users-description = Importeer gebruikersaccounts met rollen en contactgegevens
+csv-import-template-devices-name = Sjabloon Apparaten
+csv-import-template-devices-description = Importeer apparaten met hardwaregegevens en eigenaarsinformatie
+csv-import-template-tickets-name = Sjabloon Tickets
+csv-import-template-tickets-description = Importeer supporttickets met details en toegewezen personen
+csv-import-template-download = Downloaden
+csv-import-modal-import-title = Gegevens uit CSV importeren
+csv-import-modal-data-type = Type gegevens
+csv-import-modal-type-users = Gebruikers
+csv-import-modal-type-devices = Apparaten
+csv-import-modal-type-tickets = Tickets
+csv-import-modal-file-label = CSV-bestand
+csv-import-modal-upload-link = Een bestand uploaden
+csv-import-modal-drag-drop = of versleep het hierheen
+csv-import-modal-size-hint = CSV-bestanden tot 10 MB
+csv-import-modal-cancel = Annuleren
+csv-import-modal-start = Import starten
+csv-import-modal-starting = Bezig met importeren...
+csv-import-modal-templates-title = CSV-sjablonen
+csv-import-modal-templates-intro = Download onze CSV-sjablonen zodat je gegevens correct worden opgemaakt voor de import.
+csv-import-modal-fields-count = { $count ->
+    [one] { $count } veld
+   *[other] { $count } velden
+   }
+csv-import-modal-close = Sluiten
+csv-import-error-no-file = Selecteer een bestand om te importeren
+csv-import-error-failed = Import mislukt
+csv-import-error-generic = Kon gegevens niet importeren
+csv-import-success-completed = Import succesvol voltooid
+csv-import-toast-template-downloaded = Sjabloon { $type } gedownload

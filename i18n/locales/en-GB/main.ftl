@@ -1931,3 +1931,141 @@ doc-detail-ticket-note-title = Notes for Ticket #{ $id }
 doc-detail-ticket-note-description = Documentation for ticket { $title }
 doc-detail-ticket-note-author-system = System
 
+# Asset planner (AssetPlannerView): rollout-planning kanban for
+# devices, grouped by OS family, warranty bucket, or compliance
+# state. Covers the header, sidebar filters, group columns, and
+# device card chips.
+asset-planner-title = Assets
+asset-planner-subtitle = Plan rollouts by OS, warranty, or compliance state.
+asset-planner-search-placeholder = Search by name, hostname, model…
+asset-planner-group-by = Group by
+asset-planner-axis-os = OS family
+asset-planner-axis-warranty = Warranty
+asset-planner-axis-compliance = Compliance
+asset-planner-loading = Loading assets…
+asset-planner-load-error = Couldn't load assets
+asset-planner-filters-heading = Filters
+asset-planner-filters-clear = Clear ({ $count })
+asset-planner-section-os = OS
+asset-planner-section-warranty = Warranty
+asset-planner-section-compliance = Compliance
+asset-planner-count = { $visible } of { $total ->
+    [one] { $total } device
+   *[other] { $total } devices
+   }
+asset-planner-empty = No devices match the current filters.
+asset-planner-warranty-ends = Warranty ends { $date }
+asset-planner-no-warranty-data = No warranty data
+asset-planner-warranty-unknown-short = n/a
+asset-planner-card-host = Host
+asset-planner-card-os = OS
+asset-planner-card-model = Model
+asset-planner-card-tag = Tag
+asset-planner-card-compliance = Compliance
+asset-planner-os-windows = Windows
+asset-planner-os-macos = macOS
+asset-planner-os-linux = Linux
+asset-planner-os-ios = iOS
+asset-planner-os-android = Android
+asset-planner-os-other = Other
+asset-planner-warranty-expired = Expired
+asset-planner-warranty-expiring-30d = Expiring in 30 days
+asset-planner-warranty-expiring-90d = Expiring in 90 days
+asset-planner-warranty-active = Active
+asset-planner-warranty-unknown = Unknown
+asset-planner-compliance-unknown = Unknown
+
+# Collection view (CollectionView): documentation collection
+# detail page with editable name/icon, an overview editor,
+# visibility chips, an expandable list of pages with custom
+# permissions, and the collection's page tree.
+collection-back-to-documentation = Back to Documentation
+collection-not-found-title = Collection Not Found
+collection-action-delete = Delete
+collection-action-manage-access = Manage Access
+collection-action-new-page = New Page
+collection-new-page-default-title = New Page
+collection-not-found-heading = Collection not found
+collection-not-found-description = This collection may have been moved or deleted.
+collection-badge-system = System
+collection-badge-restricted = Restricted
+collection-badge-public = Public
+collection-overview-heading = Overview
+collection-overview-placeholder = Write an overview for this collection...
+collection-overrides-summary = { $count ->
+    [one] { $count } page with customised permissions
+   *[other] { $count } pages with customised permissions
+   }
+collection-pages-heading = Pages
+collection-page-count = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+   }
+collection-delete-title = Delete { $name }?
+collection-delete-title-fallback = Delete collection?
+collection-delete-message = Pages in this collection will not be deleted.
+collection-delete-confirm = Delete
+
+# CSV import (CsvImportView): admin page for importing users,
+# devices, or tickets from CSV. Covers the page header, status
+# messages, action buttons, the import status card, guideline
+# panels, the template list, and both modals (file upload and
+# template download).
+csv-import-back = Back to Data Import
+csv-import-title = CSV Import
+csv-import-subtitle = Import data from CSV files into your system
+csv-import-action-import = Import Data
+csv-import-action-templates = Download Templates
+csv-import-status-heading = Import Status
+csv-import-status-success = Import Completed
+csv-import-status-in-progress = Import in Progress
+csv-import-status-error = Import Failed
+csv-import-last-import = Last import: { $date }
+csv-import-results-total = Total Records
+csv-import-results-successful = Successful
+csv-import-results-failed = Failed
+csv-import-guidelines-heading = CSV Import Guidelines
+csv-import-requirements-heading = CSV File Requirements
+csv-import-requirements-utf8 = Files must be in CSV format with UTF-8 encoding
+csv-import-requirements-headers = The first row must contain column headers matching the expected fields
+csv-import-requirements-required = Required fields must not be empty
+csv-import-requirements-date-format = Date fields should use the format YYYY-MM-DD
+csv-import-requirements-max-size = Maximum file size: 10MB
+csv-import-notes-heading = Important Notes
+csv-import-notes-updates = Existing records will be updated if they share a unique identifier (such as email or ID)
+csv-import-notes-validation = Data validation is performed before import, records with invalid data will be skipped
+csv-import-notes-duration = For large imports, the process may take several minutes to complete
+csv-import-notes-templates = Download and use our template files to ensure proper formatting
+csv-import-templates-heading = Available Templates
+csv-import-templates-intro = Use these templates as a starting point for your CSV imports
+csv-import-template-users-name = Users Template
+csv-import-template-users-description = Import user accounts with roles and contact information
+csv-import-template-devices-name = Devices Template
+csv-import-template-devices-description = Import devices with hardware details and ownership information
+csv-import-template-tickets-name = Tickets Template
+csv-import-template-tickets-description = Import support tickets with details and assignees
+csv-import-template-download = Download
+csv-import-modal-import-title = Import Data from CSV
+csv-import-modal-data-type = Data Type
+csv-import-modal-type-users = Users
+csv-import-modal-type-devices = Devices
+csv-import-modal-type-tickets = Tickets
+csv-import-modal-file-label = CSV File
+csv-import-modal-upload-link = Upload a file
+csv-import-modal-drag-drop = or drag and drop
+csv-import-modal-size-hint = CSV files up to 10MB
+csv-import-modal-cancel = Cancel
+csv-import-modal-start = Start Import
+csv-import-modal-starting = Importing...
+csv-import-modal-templates-title = CSV Templates
+csv-import-modal-templates-intro = Download our CSV templates to ensure your data is formatted correctly for import.
+csv-import-modal-fields-count = { $count ->
+    [one] { $count } field
+   *[other] { $count } fields
+   }
+csv-import-modal-close = Close
+csv-import-error-no-file = Please select a file to import
+csv-import-error-failed = Import failed
+csv-import-error-generic = Failed to import data
+csv-import-success-completed = Import completed successfully
+csv-import-toast-template-downloaded = { $type } template downloaded

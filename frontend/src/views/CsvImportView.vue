@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { formatDateTime } from '@/utils/dateUtils';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useFluent } from 'fluent-vue';
 import axios from 'axios';
 import BackButton from '@/components/common/BackButton.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import Modal from '@/components/Modal.vue';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // State variables
 const isLoading = ref(false);
@@ -23,26 +27,26 @@ const importResults = ref({
 });
 
 // Sample templates
-const sampleTemplates = [
+const sampleTemplates = computed(() => [
   {
     type: 'users',
-    name: 'Users Template',
-    description: 'Import user accounts with roles and contact information',
+    name: t('csv-import-template-users-name'),
+    description: t('csv-import-template-users-description'),
     fields: ['username', 'email', 'first_name', 'last_name', 'role', 'department', 'phone']
   },
   {
     type: 'devices',
-    name: 'Devices Template',
-    description: 'Import devices with hardware details and ownership information',
+    name: t('csv-import-template-devices-name'),
+    description: t('csv-import-template-devices-description'),
     fields: ['name', 'type', 'serial_number', 'manufacturer', 'model', 'owner_email', 'status']
   },
   {
     type: 'tickets',
-    name: 'Tickets Template',
-    description: 'Import support tickets with details and assignees',
+    name: t('csv-import-template-tickets-name'),
+    description: t('csv-import-template-tickets-description'),
     fields: ['title', 'description', 'status', 'priority', 'category', 'assignee_email', 'reporter_email']
   }
-];
+]);
 
 // Modals
 const showImportModal = ref(false);
@@ -54,7 +58,7 @@ const handleFileSelect = (event: Event) => {
   if (input.files && input.files.length > 0) {
     uploadedFile.value = input.files[0];
     fileUploaded.value = true;
-    
+
     // Reset error messages when a new file is selected
     errorMessage.value = null;
   }
@@ -63,27 +67,27 @@ const handleFileSelect = (event: Event) => {
 // Start import process
 const startImport = async () => {
   if (!uploadedFile.value) {
-    errorMessage.value = 'Please select a file to import';
+    errorMessage.value = t('csv-import-error-no-file');
     return;
   }
-  
+
   isLoading.value = true;
   importStatus.value = 'in-progress';
   errorMessage.value = null;
-  
+
   try {
     // Create form data for file upload
     const formData = new FormData();
     formData.append('file', uploadedFile.value);
     formData.append('type', selectedFileType.value);
-    
+
     // This is a placeholder - replace with actual API endpoint
     const response = await axios.post('/api/import/csv', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }
     });
-    
+
     if (response.data.success) {
       importStatus.value = 'success';
       importResults.value = {
@@ -92,19 +96,19 @@ const startImport = async () => {
         errors: response.data.error_count || 0
       };
       lastImport.value = formatDateTime(new Date());
-      successMessage.value = 'Import completed successfully';
-      
+      successMessage.value = t('csv-import-success-completed');
+
       // Close the modal
       showImportModal.value = false;
     } else {
       importStatus.value = 'error';
-      errorMessage.value = response.data.message || 'Import failed';
+      errorMessage.value = response.data.message || t('csv-import-error-failed');
     }
   } catch (error) {
     console.error('Import error:', error);
     importStatus.value = 'error';
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to import data';
+    errorMessage.value = axiosError.response?.data?.message || t('csv-import-error-generic');
   } finally {
     isLoading.value = false;
   }
@@ -114,7 +118,7 @@ const startImport = async () => {
 const downloadTemplate = (type: string) => {
   // This would normally generate and download a CSV file
   // Show success message for now
-  successMessage.value = `${type} template downloaded`;
+  successMessage.value = t('csv-import-toast-template-downloaded', { type });
   setTimeout(() => {
     successMessage.value = null;
   }, 3000);
@@ -126,7 +130,7 @@ const showImportDialog = () => {
   fileUploaded.value = false;
   uploadedFile.value = null;
   errorMessage.value = null;
-  
+
   // Show modal
   showImportModal.value = true;
 };
@@ -141,17 +145,17 @@ const showTemplateDialog = () => {
   <div class="flex-1">
     <!-- Navigation and actions bar -->
     <div class="pt-4 px-6 flex justify-between items-center">
-      <BackButton fallbackRoute="/admin/data-import" label="Back to Data Import" />
+      <BackButton fallbackRoute="/admin/data-import" :label="$t('csv-import-back')" />
     </div>
-    
+
     <div class="flex flex-col gap-4 px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-primary">CSV Import</h1>
+        <h1 class="text-2xl font-bold text-primary">{{ $t('csv-import-title') }}</h1>
         <p class="text-secondary mt-2">
-          Import data from CSV files into your system
+          {{ $t('csv-import-subtitle') }}
         </p>
       </div>
-      
+
       <!-- Status Messages -->
       <div
         v-if="successMessage"
@@ -166,33 +170,33 @@ const showTemplateDialog = () => {
       >
         {{ errorMessage }}
       </div>
-      
+
       <!-- Action buttons -->
       <div class="flex flex-wrap gap-3 mb-4">
-        <button 
+        <button
           @click="showImportDialog"
           class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors flex items-center gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
           </svg>
-          Import Data
+          {{ $t('csv-import-action-import') }}
         </button>
-        
+
         <button
           @click="showTemplateDialog"
           class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors border border-subtle flex items-center gap-2"
         >
           <Icon name="download" />
-          Download Templates
+          {{ $t('csv-import-action-templates') }}
         </button>
       </div>
-      
+
       <!-- Import status card (shows after an import) -->
       <div v-if="importStatus !== 'none'" class="bg-surface border border-default rounded-lg p-6 mb-4">
         <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
           <div>
-            <h2 class="text-xl font-medium text-primary mb-2">Import Status</h2>
+            <h2 class="text-xl font-medium text-primary mb-2">{{ $t('csv-import-status-heading') }}</h2>
             <div class="flex items-center">
               <span
                 :class="[
@@ -208,77 +212,77 @@ const showTemplateDialog = () => {
                         'bg-accent': importStatus === 'in-progress',
                         'bg-status-error': importStatus === 'error'
                       }"></span>
-                {{ 
-                  importStatus === 'success' ? 'Import Completed' : 
-                  importStatus === 'in-progress' ? 'Import in Progress' : 
-                  'Import Failed' 
+                {{
+                  importStatus === 'success' ? $t('csv-import-status-success') :
+                  importStatus === 'in-progress' ? $t('csv-import-status-in-progress') :
+                  $t('csv-import-status-error')
                 }}
               </span>
             </div>
             <p v-if="lastImport" class="text-sm text-secondary mt-2">
-              Last import: {{ lastImport }}
+              {{ $t('csv-import-last-import', { date: lastImport }) }}
             </p>
           </div>
 
           <div v-if="importStatus === 'success'" class="bg-surface-alt p-4 rounded-lg">
             <div class="text-center">
               <div class="text-lg text-primary">{{ importResults.total }}</div>
-              <div class="text-xs text-secondary">Total Records</div>
+              <div class="text-xs text-secondary">{{ $t('csv-import-results-total') }}</div>
             </div>
             <div class="flex justify-between mt-3">
               <div class="text-center px-3">
                 <div class="text-status-success">{{ importResults.success }}</div>
-                <div class="text-xs text-secondary">Successful</div>
+                <div class="text-xs text-secondary">{{ $t('csv-import-results-successful') }}</div>
               </div>
               <div class="text-center px-3">
                 <div class="text-status-error">{{ importResults.errors }}</div>
-                <div class="text-xs text-secondary">Failed</div>
+                <div class="text-xs text-secondary">{{ $t('csv-import-results-failed') }}</div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      
+
       <!-- Import Guidelines -->
       <div class="bg-surface border border-default rounded-lg p-6 mb-4">
-        <h2 class="text-xl font-medium text-primary mb-4">CSV Import Guidelines</h2>
+        <h2 class="text-xl font-medium text-primary mb-4">{{ $t('csv-import-guidelines-heading') }}</h2>
         <div class="flex flex-col gap-4 text-sm text-secondary">
           <div class="bg-accent/10 border border-accent/30 rounded-md p-4">
             <h3 class="font-medium text-accent mb-2 flex items-center">
               <Icon name="info" size="md" class="mr-2" />
-              CSV File Requirements
+              {{ $t('csv-import-requirements-heading') }}
             </h3>
             <ul class="list-disc list-inside flex flex-col gap-1 ml-2">
-              <li>Files must be in CSV format with UTF-8 encoding</li>
-              <li>The first row must contain column headers matching the expected fields</li>
-              <li>Required fields must not be empty</li>
-              <li>Date fields should use the format YYYY-MM-DD</li>
-              <li>Maximum file size: 10MB</li>
+              <li>{{ $t('csv-import-requirements-utf8') }}</li>
+              <li>{{ $t('csv-import-requirements-headers') }}</li>
+              <li>{{ $t('csv-import-requirements-required') }}</li>
+              <li>{{ $t('csv-import-requirements-date-format') }}</li>
+              <li>{{ $t('csv-import-requirements-max-size') }}</li>
             </ul>
           </div>
-          
+
           <div class="bg-status-warning/20 border border-status-warning/50 rounded-md p-4">
             <h3 class="font-medium text-status-warning mb-2 flex items-center">
               <Icon name="warning" size="md" class="mr-2" />
-              Important Notes
+              {{ $t('csv-import-notes-heading') }}
             </h3>
             <ul class="list-disc list-inside flex flex-col gap-1 ml-2">
-              <li>Existing records will be updated if they share a unique identifier (like email or ID)</li>
-              <li>Data validation is performed before import - records with invalid data will be skipped</li>
-              <li>For large imports, the process may take several minutes to complete</li>
-              <li>Download and use our template files to ensure proper formatting</li>
+              <li>{{ $t('csv-import-notes-updates') }}</li>
+              <li>{{ $t('csv-import-notes-validation') }}</li>
+              <li>{{ $t('csv-import-notes-duration') }}</li>
+              <li>{{ $t('csv-import-notes-templates') }}</li>
             </ul>
           </div>
         </div>
       </div>
-      
+
       <!-- Available templates -->
       <div class="bg-surface border border-default rounded-lg p-6">
-        <h2 class="text-xl font-medium text-primary mb-4">Available Templates</h2>
+        <h2 class="text-xl font-medium text-primary mb-4">{{ $t('csv-import-templates-heading') }}</h2>
         <p class="text-secondary mb-4">
-          Use these templates as a starting point for your CSV imports
+          {{ $t('csv-import-templates-intro') }}
         </p>
-        
+
         <div class="flex flex-col gap-4">
           <div v-for="template in sampleTemplates" :key="template.type"
                class="p-4 bg-surface-alt rounded-lg border border-subtle">
@@ -294,12 +298,12 @@ const showTemplateDialog = () => {
                 </div>
               </div>
               <div>
-                <button 
+                <button
                   @click="downloadTemplate(template.type)"
                   class="px-3 py-2 text-sm bg-accent text-white rounded-md hover:opacity-90 transition-colors flex items-center gap-2"
                 >
                   <Icon name="download" />
-                  Download
+                  {{ $t('csv-import-template-download') }}
                 </button>
               </div>
             </div>
@@ -307,32 +311,32 @@ const showTemplateDialog = () => {
         </div>
       </div>
     </div>
-    
+
     <!-- Import Modal -->
     <Modal
       :show="showImportModal"
-      title="Import Data from CSV"
+      :title="$t('csv-import-modal-import-title')"
       contentClass="max-w-lg"
       @close="showImportModal = false"
     >
       <div class="flex flex-col gap-4">
         <div>
           <label class="block text-sm font-medium text-secondary mb-1">
-            Data Type
+            {{ $t('csv-import-modal-data-type') }}
           </label>
           <select
             v-model="selectedFileType"
             class="w-full rounded-md bg-surface-alt border-subtle text-primary py-2 px-3 focus:border-accent focus:ring focus:ring-accent focus:ring-opacity-50"
           >
-            <option value="users">Users</option>
-            <option value="devices">Devices</option>
-            <option value="tickets">Tickets</option>
+            <option value="users">{{ $t('csv-import-modal-type-users') }}</option>
+            <option value="devices">{{ $t('csv-import-modal-type-devices') }}</option>
+            <option value="tickets">{{ $t('csv-import-modal-type-tickets') }}</option>
           </select>
         </div>
-        
+
         <div>
           <label class="block text-sm font-medium text-secondary mb-1">
-            CSV File
+            {{ $t('csv-import-modal-file-label') }}
           </label>
           <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed border-subtle rounded-md">
             <div class="flex flex-col gap-1 text-center">
@@ -362,7 +366,7 @@ const showTemplateDialog = () => {
                   for="file-upload"
                   class="relative cursor-pointer bg-surface-alt rounded-md font-medium text-accent hover:text-accent focus-within:outline-none"
                 >
-                  <span class="px-3 py-2 inline-block">Upload a file</span>
+                  <span class="px-3 py-2 inline-block">{{ $t('csv-import-modal-upload-link') }}</span>
                   <input
                     id="file-upload"
                     name="file-upload"
@@ -372,21 +376,21 @@ const showTemplateDialog = () => {
                     @change="handleFileSelect"
                   />
                 </label>
-                <p class="pl-1 pt-2">or drag and drop</p>
+                <p class="pl-1 pt-2">{{ $t('csv-import-modal-drag-drop') }}</p>
               </div>
               <p v-if="!fileUploaded" class="text-xs text-tertiary">
-                CSV files up to 10MB
+                {{ $t('csv-import-modal-size-hint') }}
               </p>
             </div>
           </div>
         </div>
-        
+
         <div class="pt-4 flex justify-end gap-3">
           <button
             @click="showImportModal = false"
             class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors"
           >
-            Cancel
+            {{ $t('csv-import-modal-cancel') }}
           </button>
           <button
             @click="startImport"
@@ -397,22 +401,22 @@ const showTemplateDialog = () => {
             ]"
           >
             <Spinner v-if="isLoading" class="text-white" />
-            {{ isLoading ? 'Importing...' : 'Start Import' }}
+            {{ isLoading ? $t('csv-import-modal-starting') : $t('csv-import-modal-start') }}
           </button>
         </div>
       </div>
     </Modal>
-    
+
     <!-- Templates Modal -->
     <Modal
       :show="showTemplateModal"
-      title="CSV Templates"
+      :title="$t('csv-import-modal-templates-title')"
       contentClass="max-w-lg"
       @close="showTemplateModal = false"
     >
       <div class="flex flex-col gap-4">
         <p class="text-secondary mb-4">
-          Download our CSV templates to ensure your data is formatted correctly for import.
+          {{ $t('csv-import-modal-templates-intro') }}
         </p>
 
         <div class="flex flex-col gap-3">
@@ -420,29 +424,29 @@ const showTemplateDialog = () => {
                class="p-3 bg-surface-alt rounded-lg flex justify-between items-center">
             <div>
               <h4 class="text-primary font-medium">{{ template.name }}</h4>
-              <p class="text-xs text-secondary">{{ template.fields.length }} fields</p>
+              <p class="text-xs text-secondary">{{ $t('csv-import-modal-fields-count', { count: template.fields.length }) }}</p>
             </div>
-            <button 
+            <button
               @click="downloadTemplate(template.type)"
               class="px-3 py-1 text-sm bg-accent text-white rounded-md hover:opacity-90 transition-colors flex items-center gap-1"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              Download
+              {{ $t('csv-import-template-download') }}
             </button>
           </div>
         </div>
-        
+
         <div class="pt-4 flex justify-end">
           <button
             @click="showTemplateModal = false"
             class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors"
           >
-            Close
+            {{ $t('csv-import-modal-close') }}
           </button>
         </div>
       </div>
     </Modal>
   </div>
-</template> 
+</template>
