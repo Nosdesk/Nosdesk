@@ -17,6 +17,7 @@
  */
 import { formatDate, parseDate } from '@/utils/dateUtils';
 import { ref, onMounted, watch, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useVersionHistory } from '@/composables/useVersionHistory'
 import type { ArticleRevision } from '@/services/versionHistoryService'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -47,6 +48,9 @@ const emit = defineEmits<{
   (e: 'selectRevision', revisionNumber: number | null): void
   (e: 'restored', revisionNumber: number): void
 }>()
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const { getUserHandle } = useUsersDirectory()
 
@@ -105,7 +109,7 @@ async function loadDocumentationRevisions() {
     }))
   } catch (err) {
     const error = err as Error;
-    docError.value = error.message || 'Failed to load revisions'
+    docError.value = error.message || t('editor-revisions-load-error')
     console.error('Failed to load documentation revisions:', err)
   } finally {
     docLoading.value = false
@@ -123,7 +127,7 @@ async function restoreDocumentationRevision(revisionNumber: number): Promise<boo
     return true
   } catch (err) {
     const error = err as Error;
-    docError.value = error.message || 'Failed to restore revision'
+    docError.value = error.message || t('editor-revisions-restore-error')
     console.error('Failed to restore documentation revision:', err)
     return false
   } finally {
@@ -205,10 +209,10 @@ function formatRelativeDate(dateString: string): string {
   const diffHours = Math.floor(diffMs / 3600000)
   const diffDays = Math.floor(diffMs / 86400000)
 
-  if (diffMins < 1) return 'Just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
+  if (diffMins < 1) return t('editor-revisions-just-now')
+  if (diffMins < 60) return t('editor-revisions-minutes-ago', { minutes: diffMins })
+  if (diffHours < 24) return t('editor-revisions-hours-ago', { hours: diffHours })
+  if (diffDays < 7) return t('editor-revisions-days-ago', { days: diffDays })
 
   return formatDate(dateString, "MMM d, yyyy")
 }
@@ -238,15 +242,15 @@ onMounted(() => {
 
     <div v-else-if="revisions.length === 0" class="flex flex-col items-center px-4 py-8 text-secondary">
       <Icon name="clock" size="lg" class="mb-3 text-tertiary" />
-      <p class="text-sm text-center">No revisions yet</p>
-      <p class="text-xs text-tertiary text-center mt-1">Revisions are created when you make changes</p>
+      <p class="text-sm text-center">{{ t('editor-revisions-empty-title') }}</p>
+      <p class="text-xs text-tertiary text-center mt-1">{{ t('editor-revisions-empty-hint') }}</p>
     </div>
 
     <div v-else class="flex-1 overflow-y-auto">
       <div class="px-4 py-3 bg-surface-alt border-b border-default">
         <div class="flex items-center gap-2 text-sm">
           <div class="current-version-indicator"></div>
-          <span class="font-medium text-primary">Current Version</span>
+          <span class="font-medium text-primary">{{ t('editor-revisions-current-version') }}</span>
         </div>
       </div>
 
@@ -275,37 +279,37 @@ onMounted(() => {
 
         <div v-if="revision.contributed_by && revision.contributed_by.length > 0" class="flex items-center gap-1 mb-1">
           <div v-if="revision.contributed_by.length === 1" class="flex items-center gap-1">
-            <span class="text-xs text-tertiary">By:</span>
+            <span class="text-xs text-tertiary">{{ t('editor-revisions-by') }}</span>
             <UserAvatar
-              :name="revision.contributed_by[0] || 'Unknown'"
+              :name="revision.contributed_by[0] || t('editor-revisions-unknown-user')"
               :user-name="getUserName(revision.contributed_by[0] || '')"
               :show-name="false"
               size="xs"
               :clickable="true"
             />
-            <span class="text-xs text-secondary">{{ getUserName(revision.contributed_by[0] || '') || 'Unknown' }}</span>
+            <span class="text-xs text-secondary">{{ getUserName(revision.contributed_by[0] || '') || t('editor-revisions-unknown-user') }}</span>
           </div>
           <div v-else class="flex items-center gap-1">
-            <span class="text-xs text-tertiary">By:</span>
+            <span class="text-xs text-tertiary">{{ t('editor-revisions-by') }}</span>
             <div class="flex items-center gap-1">
               <UserAvatar
                 v-for="(userId, index) in revision.contributed_by.slice(0, 3)"
                 :key="userId || index"
-                :name="userId || 'Unknown'"
+                :name="userId || t('editor-revisions-unknown-user')"
                 :user-name="getUserName(userId || '')"
                 :show-name="false"
                 size="xs"
                 :clickable="true"
               />
               <span v-if="revision.contributed_by.length > 3" class="text-xs text-tertiary">
-                +{{ revision.contributed_by.length - 3 }}
+                {{ t('editor-revisions-more-contributors', { count: revision.contributed_by.length - 3 }) }}
               </span>
             </div>
           </div>
         </div>
 
         <div v-if="revision.word_count" class="text-xs text-tertiary">
-          {{ revision.word_count }} words
+          {{ t('editor-revisions-word-count', { count: revision.word_count }) }}
         </div>
 
         <button
@@ -314,7 +318,7 @@ onMounted(() => {
           :disabled="isRestoring"
           class="mt-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
         >
-          {{ isRestoring ? 'Restoring...' : 'Restore This Version' }}
+          {{ isRestoring ? t('editor-revisions-restoring') : t('editor-revisions-restore-button') }}
         </button>
       </div>
     </div>
@@ -326,12 +330,12 @@ onMounted(() => {
         @click.self="cancelRestore"
       >
         <div class="bg-surface rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-          <h3 class="text-lg font-semibold text-primary mb-2">Restore Revision?</h3>
+          <h3 class="text-lg font-semibold text-primary mb-2">{{ t('editor-revisions-confirm-title') }}</h3>
           <p class="text-sm text-secondary mb-4">
-            This will restore the ticket to revision {{ revisionToRestore }}. This action will replace the current content with the selected revision.
+            {{ t('editor-revisions-confirm-body', { revision: revisionToRestore ?? '' }) }}
           </p>
           <p class="text-xs text-tertiary mb-6">
-            Note: A new revision will be created so you can always undo this change.
+            {{ t('editor-revisions-confirm-note') }}
           </p>
           <div class="flex gap-3">
             <button
@@ -339,14 +343,14 @@ onMounted(() => {
               :disabled="isRestoring"
               class="flex-1 px-4 py-2 text-sm font-medium text-primary bg-surface-alt hover:bg-surface-hover border border-default rounded-lg transition-colors disabled:opacity-50"
             >
-              Cancel
+              {{ t('editor-revisions-confirm-cancel') }}
             </button>
             <button
               @click="executeRestore"
               :disabled="isRestoring"
               class="flex-1 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50"
             >
-              {{ isRestoring ? 'Restoring...' : 'Restore' }}
+              {{ isRestoring ? t('editor-revisions-restoring') : t('editor-revisions-confirm-restore') }}
             </button>
           </div>
         </div>

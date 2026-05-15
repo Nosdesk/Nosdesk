@@ -2196,3 +2196,86 @@ settings-auth-methods-sessions-load-error = Failed to load active sessions
 # Modal.vue. Kept under the "common-*" namespace so primitives
 # don't depend on feature-specific FTL slices.
 common-modal-close = Close modal
+
+# Editor: toolbar (CollaborativeEditor)
+editor-toolbar-text-style = Text Style
+editor-toolbar-bold = Bold
+editor-toolbar-italic = Italic
+editor-toolbar-bullet-list = Bulleted List
+editor-toolbar-numbered-list = Numbered List
+editor-toolbar-insert = Insert
+editor-toolbar-undo = Undo
+editor-toolbar-redo = Redo
+editor-toolbar-revision-history = Revision History
+editor-toolbar-editing-with = Editing with:
+editor-toolbar-connection-connecting = Connecting...
+editor-toolbar-connection-disconnected = Disconnected
+editor-toolbar-user-title = { $name }
+editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })
+
+# Editor: text style menu (CollaborativeEditor)
+editor-type-menu-plain = Plain
+editor-type-menu-heading-1 = Heading 1
+editor-type-menu-heading-2 = Heading 2
+editor-type-menu-heading-3 = Heading 3
+editor-type-menu-blockquote = Blockquote
+editor-type-menu-code-block = Code Block
+
+# Editor: insert menu (CollaborativeEditor)
+editor-insert-menu-bullet-list = Bulleted List
+editor-insert-menu-numbered-list = Numbered List
+editor-insert-menu-blockquote = Blockquote
+editor-insert-menu-code-block = Code Block
+editor-insert-menu-link = Link
+editor-insert-menu-embed-document = Embed Document
+
+# Editor: code block language prompt (CollaborativeEditor)
+editor-code-block-language-prompt = Enter a language for syntax highlighting (optional):
+
+# Editor: mention dropdown (CollaborativeEditor)
+editor-mention-searching = Searching for "{ $query }"
+editor-mention-no-results = No users found
+editor-mention-hint-navigate = Navigate
+editor-mention-hint-select = Select
+editor-mention-hint-close = Close
+
+# Editor: link tooltip (LinkTooltip)
+editor-link-tooltip-placeholder = Enter URL...
+editor-link-tooltip-apply = Apply
+editor-link-tooltip-cancel = Cancel
+editor-link-tooltip-edit = Edit link
+editor-link-tooltip-remove = Remove link
+
+# Editor: document picker (DocumentPicker)
+editor-doc-picker-title = Embed Document
+editor-doc-picker-close = Close
+editor-doc-picker-search-placeholder = Search documents...
+editor-doc-picker-empty = No documents found.
+
+# Editor: revision history panel (RevisionHistory)
+editor-revision-history-title = Revision History
+
+# Editor: revision list (RevisionList)
+editor-revisions-empty-title = No revisions yet
+editor-revisions-empty-hint = Revisions are created when you make changes
+editor-revisions-current-version = Current Version
+editor-revisions-by = By:
+editor-revisions-more-contributors = +{ $count }
+editor-revisions-word-count = { $count } { $count ->
+    [one] word
+   *[other] words
+  }
+editor-revisions-restore-button = Restore This Version
+editor-revisions-restoring = Restoring...
+editor-revisions-unknown-user = Unknown
+editor-revisions-load-error = Failed to load revisions
+editor-revisions-restore-error = Failed to restore revision
+editor-revisions-just-now = Just now
+editor-revisions-minutes-ago = { $minutes }m ago
+editor-revisions-hours-ago = { $hours }h ago
+editor-revisions-days-ago = { $days }d ago
+editor-revisions-confirm-title = Restore Revision?
+editor-revisions-confirm-body = This will restore the ticket to revision { $revision }. This action will replace the current content with the selected revision.
+editor-revisions-confirm-note = Note: a new revision will be created so you can always undo this change.
+editor-revisions-confirm-cancel = Cancel
+editor-revisions-confirm-restore = Restore

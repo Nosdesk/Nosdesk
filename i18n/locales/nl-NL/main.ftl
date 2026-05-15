@@ -2210,3 +2210,86 @@ settings-auth-methods-sessions-load-error = Kan actieve sessies niet laden
 
 # Gemeenschappelijke onderdelen.
 common-modal-close = Venster sluiten
+
+# Editor: werkbalk (CollaborativeEditor)
+editor-toolbar-text-style = Tekststijl
+editor-toolbar-bold = Vet
+editor-toolbar-italic = Cursief
+editor-toolbar-bullet-list = Opsomming
+editor-toolbar-numbered-list = Genummerde lijst
+editor-toolbar-insert = Invoegen
+editor-toolbar-undo = Ongedaan maken
+editor-toolbar-redo = Opnieuw uitvoeren
+editor-toolbar-revision-history = Revisiegeschiedenis
+editor-toolbar-editing-with = Bewerken met:
+editor-toolbar-connection-connecting = Verbinden...
+editor-toolbar-connection-disconnected = Verbinding verbroken
+editor-toolbar-user-title = { $name }
+editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })
+
+# Editor: menu voor tekststijl (CollaborativeEditor)
+editor-type-menu-plain = Standaard
+editor-type-menu-heading-1 = Kop 1
+editor-type-menu-heading-2 = Kop 2
+editor-type-menu-heading-3 = Kop 3
+editor-type-menu-blockquote = Citaat
+editor-type-menu-code-block = Codeblok
+
+# Editor: invoegmenu (CollaborativeEditor)
+editor-insert-menu-bullet-list = Opsomming
+editor-insert-menu-numbered-list = Genummerde lijst
+editor-insert-menu-blockquote = Citaat
+editor-insert-menu-code-block = Codeblok
+editor-insert-menu-link = Link
+editor-insert-menu-embed-document = Document insluiten
+
+# Editor: prompt voor codeblok-taal (CollaborativeEditor)
+editor-code-block-language-prompt = Taal voor syntaxisaccentuering (optioneel):
+
+# Editor: vermeldingenmenu (CollaborativeEditor)
+editor-mention-searching = Zoeken naar "{ $query }"
+editor-mention-no-results = Geen gebruikers gevonden
+editor-mention-hint-navigate = Navigeren
+editor-mention-hint-select = Selecteren
+editor-mention-hint-close = Sluiten
+
+# Editor: link-tooltip (LinkTooltip)
+editor-link-tooltip-placeholder = URL invoeren...
+editor-link-tooltip-apply = Toepassen
+editor-link-tooltip-cancel = Annuleren
+editor-link-tooltip-edit = Link bewerken
+editor-link-tooltip-remove = Link verwijderen
+
+# Editor: documentkiezer (DocumentPicker)
+editor-doc-picker-title = Document insluiten
+editor-doc-picker-close = Sluiten
+editor-doc-picker-search-placeholder = Documenten zoeken...
+editor-doc-picker-empty = Geen documenten gevonden.
+
+# Editor: revisiegeschiedenis-paneel (RevisionHistory)
+editor-revision-history-title = Revisiegeschiedenis
+
+# Editor: revisielijst (RevisionList)
+editor-revisions-empty-title = Nog geen revisies
+editor-revisions-empty-hint = Revisies worden aangemaakt wanneer je wijzigingen aanbrengt
+editor-revisions-current-version = Huidige versie
+editor-revisions-by = Door:
+editor-revisions-more-contributors = +{ $count }
+editor-revisions-word-count = { $count } { $count ->
+    [one] woord
+   *[other] woorden
+  }
+editor-revisions-restore-button = Deze versie herstellen
+editor-revisions-restoring = Herstellen...
+editor-revisions-unknown-user = Onbekend
+editor-revisions-load-error = Kan revisies niet laden
+editor-revisions-restore-error = Kan revisie niet herstellen
+editor-revisions-just-now = Zojuist
+editor-revisions-minutes-ago = { $minutes } min geleden
+editor-revisions-hours-ago = { $hours } u geleden
+editor-revisions-days-ago = { $days } d geleden
+editor-revisions-confirm-title = Revisie herstellen?
+editor-revisions-confirm-body = Hiermee wordt het ticket teruggezet naar revisie { $revision }. De huidige inhoud wordt vervangen door de geselecteerde revisie.
+editor-revisions-confirm-note = Let op: er wordt een nieuwe revisie aangemaakt, zodat je deze wijziging altijd ongedaan kunt maken.
+editor-revisions-confirm-cancel = Annuleren
+editor-revisions-confirm-restore = Herstellen

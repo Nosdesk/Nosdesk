@@ -2207,3 +2207,87 @@ settings-auth-methods-sessions-load-error = Couldn't load active sessions
 
 # Shared common chrome.
 common-modal-close = Close modal
+
+# Editor: toolbar (CollaborativeEditor)
+editor-toolbar-text-style = Text style
+editor-toolbar-bold = Bold
+editor-toolbar-italic = Italic
+editor-toolbar-bullet-list = Bullet list
+editor-toolbar-numbered-list = Numbered list
+editor-toolbar-insert = Insert
+editor-toolbar-undo = Undo
+editor-toolbar-redo = Redo
+editor-toolbar-revision-history = Revision history
+editor-toolbar-editing-with = Editing with:
+editor-toolbar-connection-connecting = Connecting...
+editor-toolbar-connection-disconnected = Disconnected
+editor-toolbar-user-title = { $name }
+editor-toolbar-user-title-uuid = { $name } (UUID: { $uuid })
+
+# Editor: text style menu (CollaborativeEditor)
+editor-type-menu-plain = Plain
+editor-type-menu-heading-1 = Heading 1
+editor-type-menu-heading-2 = Heading 2
+editor-type-menu-heading-3 = Heading 3
+editor-type-menu-blockquote = Blockquote
+editor-type-menu-code-block = Code block
+
+# Editor: insert menu (CollaborativeEditor)
+editor-insert-menu-bullet-list = Bullet list
+editor-insert-menu-numbered-list = Numbered list
+editor-insert-menu-blockquote = Blockquote
+editor-insert-menu-code-block = Code block
+editor-insert-menu-link = Link
+editor-insert-menu-embed-document = Embed document
+
+# Editor: code block language prompt (CollaborativeEditor)
+editor-code-block-language-prompt = Language for syntax highlighting (optional):
+
+# Editor: mention dropdown (CollaborativeEditor)
+editor-mention-searching = Searching for "{ $query }"
+editor-mention-no-results = No users found
+editor-mention-hint-navigate = Navigate
+editor-mention-hint-select = Select
+editor-mention-hint-close = Close
+
+# Editor: link tooltip (LinkTooltip)
+editor-link-tooltip-placeholder = Enter URL...
+editor-link-tooltip-apply = Apply
+editor-link-tooltip-cancel = Cancel
+editor-link-tooltip-edit = Edit link
+editor-link-tooltip-remove = Remove link
+
+# Editor: document picker (DocumentPicker)
+editor-doc-picker-title = Embed document
+editor-doc-picker-close = Close
+editor-doc-picker-search-placeholder = Search docs...
+editor-doc-picker-empty = No docs found.
+
+# Editor: revision history panel (RevisionHistory)
+editor-revision-history-title = Revision history
+
+# Editor: revision list (RevisionList)
+editor-revisions-empty-title = No revisions yet
+editor-revisions-empty-hint = Revisions get created when you make changes
+editor-revisions-current-version = Current version
+editor-revisions-by = By:
+editor-revisions-more-contributors = +{ $count }
+editor-revisions-word-count = { $count } { $count ->
+    [one] word
+   *[other] words
+  }
+editor-revisions-restore-button = Restore this version
+editor-revisions-restoring = Restoring...
+editor-revisions-unknown-user = Unknown
+editor-revisions-load-error = Couldn't load revisions
+editor-revisions-restore-error = Couldn't restore revision
+editor-revisions-just-now = Just now
+editor-revisions-minutes-ago = { $minutes }m ago
+editor-revisions-hours-ago = { $hours }h ago
+editor-revisions-days-ago = { $days }d ago
+editor-revisions-confirm-title = Restore revision?
+editor-revisions-confirm-body = This rolls the ticket back to revision { $revision } and replaces the current content with the selected one.
+editor-revisions-confirm-note = Heads up: a new revision gets created so you can always undo this.
+editor-revisions-confirm-cancel = Cancel
+editor-revisions-confirm-restore = Restore
+

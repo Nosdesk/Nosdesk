@@ -2219,3 +2219,86 @@ settings-auth-methods-sessions-load-error = Échec du chargement des sessions ac
 
 # Habillage commun.
 common-modal-close = Fermer la fenêtre
+
+# Éditeur : barre d'outils (CollaborativeEditor)
+editor-toolbar-text-style = Style de texte
+editor-toolbar-bold = Gras
+editor-toolbar-italic = Italique
+editor-toolbar-bullet-list = Liste à puces
+editor-toolbar-numbered-list = Liste numérotée
+editor-toolbar-insert = Insérer
+editor-toolbar-undo = Annuler
+editor-toolbar-redo = Rétablir
+editor-toolbar-revision-history = Historique des révisions
+editor-toolbar-editing-with = Modification avec :
+editor-toolbar-connection-connecting = Connexion...
+editor-toolbar-connection-disconnected = Déconnecté
+editor-toolbar-user-title = { $name }
+editor-toolbar-user-title-uuid = { $name } (UUID : { $uuid })
+
+# Éditeur : menu de style de texte (CollaborativeEditor)
+editor-type-menu-plain = Texte simple
+editor-type-menu-heading-1 = Titre 1
+editor-type-menu-heading-2 = Titre 2
+editor-type-menu-heading-3 = Titre 3
+editor-type-menu-blockquote = Citation
+editor-type-menu-code-block = Bloc de code
+
+# Éditeur : menu d'insertion (CollaborativeEditor)
+editor-insert-menu-bullet-list = Liste à puces
+editor-insert-menu-numbered-list = Liste numérotée
+editor-insert-menu-blockquote = Citation
+editor-insert-menu-code-block = Bloc de code
+editor-insert-menu-link = Lien
+editor-insert-menu-embed-document = Intégrer un document
+
+# Éditeur : invite de langage du bloc de code (CollaborativeEditor)
+editor-code-block-language-prompt = Langage pour la coloration syntaxique (facultatif) :
+
+# Éditeur : menu de mentions (CollaborativeEditor)
+editor-mention-searching = Recherche de « { $query } »
+editor-mention-no-results = Aucun utilisateur trouvé
+editor-mention-hint-navigate = Naviguer
+editor-mention-hint-select = Sélectionner
+editor-mention-hint-close = Fermer
+
+# Éditeur : info-bulle de lien (LinkTooltip)
+editor-link-tooltip-placeholder = Saisir une URL...
+editor-link-tooltip-apply = Appliquer
+editor-link-tooltip-cancel = Annuler
+editor-link-tooltip-edit = Modifier le lien
+editor-link-tooltip-remove = Supprimer le lien
+
+# Éditeur : sélecteur de document (DocumentPicker)
+editor-doc-picker-title = Intégrer un document
+editor-doc-picker-close = Fermer
+editor-doc-picker-search-placeholder = Rechercher des documents...
+editor-doc-picker-empty = Aucun document trouvé.
+
+# Éditeur : panneau d'historique (RevisionHistory)
+editor-revision-history-title = Historique des révisions
+
+# Éditeur : liste des révisions (RevisionList)
+editor-revisions-empty-title = Aucune révision pour l'instant
+editor-revisions-empty-hint = Les révisions sont créées lorsque vous apportez des modifications
+editor-revisions-current-version = Version actuelle
+editor-revisions-by = Par :
+editor-revisions-more-contributors = +{ $count }
+editor-revisions-word-count = { $count } { $count ->
+    [one] mot
+   *[other] mots
+  }
+editor-revisions-restore-button = Restaurer cette version
+editor-revisions-restoring = Restauration...
+editor-revisions-unknown-user = Inconnu
+editor-revisions-load-error = Échec du chargement des révisions
+editor-revisions-restore-error = Échec de la restauration de la révision
+editor-revisions-just-now = À l'instant
+editor-revisions-minutes-ago = il y a { $minutes } min
+editor-revisions-hours-ago = il y a { $hours } h
+editor-revisions-days-ago = il y a { $days } j
+editor-revisions-confirm-title = Restaurer la révision ?
+editor-revisions-confirm-body = Le ticket sera restauré à la révision { $revision }. Cette action remplacera le contenu actuel par celui de la révision sélectionnée.
+editor-revisions-confirm-note = Remarque : une nouvelle révision sera créée afin que vous puissiez toujours annuler cette opération.
+editor-revisions-confirm-cancel = Annuler
+editor-revisions-confirm-restore = Restaurer

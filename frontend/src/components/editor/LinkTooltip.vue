@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { useFluent } from 'fluent-vue';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Props
 interface Props {
@@ -219,21 +223,21 @@ onBeforeUnmount(() => {
         ref="inputRef"
         v-model="linkUrl"
         type="text"
-        placeholder="Enter URL..."
+        :placeholder="t('editor-link-tooltip-placeholder')"
         class="flex-1 px-3 py-1.5 bg-surface border border-default rounded-lg text-sm text-primary focus:ring-2 focus:ring-accent focus:border-accent focus:outline-none"
         @keydown="handleKeydown"
       />
       <button
         @click="handleApply"
         class="px-3 py-1.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium"
-        title="Apply link"
+        :title="t('editor-link-tooltip-apply')"
       >
-        Apply
+        {{ t('editor-link-tooltip-apply') }}
       </button>
       <button
         @click="handleClose"
         class="px-2 py-1.5 bg-surface-hover text-secondary rounded-lg hover:bg-surface-alt transition-colors text-sm"
-        title="Cancel"
+        :title="t('editor-link-tooltip-cancel')"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -256,7 +260,7 @@ onBeforeUnmount(() => {
       <button
         @click="handleEdit"
         class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-        title="Edit link"
+        :title="t('editor-link-tooltip-edit')"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
           <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -265,7 +269,7 @@ onBeforeUnmount(() => {
       <button
         @click="handleRemove"
         class="p-1.5 text-secondary hover:text-status-error hover:bg-surface-hover rounded transition-colors"
-        title="Remove link"
+        :title="t('editor-link-tooltip-remove')"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />

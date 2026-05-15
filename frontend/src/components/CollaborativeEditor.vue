@@ -9,6 +9,7 @@
 
 import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
 import { useRouter } from "vue-router";
+import { useFluent } from "fluent-vue";
 import Spinner from "@/components/common/Spinner.vue";
 import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
@@ -105,6 +106,9 @@ const props = withDefaults(defineProps<Props>(), {
 
 // Get auth store for user info
 const authStore = useAuthStore();
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Set up Vue Router navigation for ticket link cards
 const router = useRouter();
@@ -1379,7 +1383,7 @@ const toggleCodeBlock = () => {
     } else {
         // Ask for language
         const language = prompt(
-            "Enter language for syntax highlighting (optional):",
+            t('editor-code-block-language-prompt'),
             "",
         );
         const attrs = language ? { language } : {};
@@ -1985,7 +1989,8 @@ defineExpose({
                     class="toolbar-button"
                     aria-haspopup="true"
                     :aria-expanded="showTypeMenu"
-                    title="Text Style"
+                    :title="$t('editor-toolbar-text-style')"
+                    :aria-label="$t('editor-toolbar-text-style')"
                 >
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -2028,7 +2033,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Plain
+                            {{ $t('editor-type-menu-plain') }}
                         </button>
                         <button
                             @click="
@@ -2038,7 +2043,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Heading 1
+                            {{ $t('editor-type-menu-heading-1') }}
                         </button>
                         <button
                             @click="
@@ -2048,7 +2053,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Heading 2
+                            {{ $t('editor-type-menu-heading-2') }}
                         </button>
                         <button
                             @click="
@@ -2058,7 +2063,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Heading 3
+                            {{ $t('editor-type-menu-heading-3') }}
                         </button>
                         <button
                             @click="
@@ -2068,7 +2073,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Blockquote
+                            {{ $t('editor-type-menu-blockquote') }}
                         </button>
                         <button
                             @click="
@@ -2078,7 +2083,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Code Block
+                            {{ $t('editor-type-menu-code-block') }}
                         </button>
                     </div>
                 </Teleport>
@@ -2087,7 +2092,7 @@ defineExpose({
             <div class="toolbar-divider"></div>
 
             <!-- Formatting Buttons -->
-            <button @click="toggleBold" class="toolbar-button" title="Bold">
+            <button @click="toggleBold" class="toolbar-button" :title="$t('editor-toolbar-bold')" :aria-label="$t('editor-toolbar-bold')">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -2103,7 +2108,7 @@ defineExpose({
                     <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
                 </svg>
             </button>
-            <button @click="toggleItalic" class="toolbar-button" title="Italic">
+            <button @click="toggleItalic" class="toolbar-button" :title="$t('editor-toolbar-italic')" :aria-label="$t('editor-toolbar-italic')">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -2127,7 +2132,8 @@ defineExpose({
             <button
                 @click="toggleBulletList"
                 class="toolbar-button"
-                title="Bullet List"
+                :title="$t('editor-toolbar-bullet-list')"
+                :aria-label="$t('editor-toolbar-bullet-list')"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -2151,7 +2157,8 @@ defineExpose({
             <button
                 @click="toggleOrderedList"
                 class="toolbar-button"
-                title="Numbered List"
+                :title="$t('editor-toolbar-numbered-list')"
+                :aria-label="$t('editor-toolbar-numbered-list')"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -2183,7 +2190,8 @@ defineExpose({
                     class="toolbar-button"
                     aria-haspopup="true"
                     :aria-expanded="showInsertMenu"
-                    title="Insert"
+                    :title="$t('editor-toolbar-insert')"
+                    :aria-label="$t('editor-toolbar-insert')"
                 >
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -2225,7 +2233,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Bullet List
+                            {{ $t('editor-insert-menu-bullet-list') }}
                         </button>
                         <button
                             @click="
@@ -2235,7 +2243,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Numbered List
+                            {{ $t('editor-insert-menu-numbered-list') }}
                         </button>
                         <button
                             @click="
@@ -2245,7 +2253,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Blockquote
+                            {{ $t('editor-insert-menu-blockquote') }}
                         </button>
                         <button
                             @click="
@@ -2255,7 +2263,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Code Block
+                            {{ $t('editor-insert-menu-code-block') }}
                         </button>
                         <button
                             @click="
@@ -2265,7 +2273,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Link
+                            {{ $t('editor-insert-menu-link') }}
                         </button>
                         <button
                             @click="
@@ -2275,7 +2283,7 @@ defineExpose({
                             class="dropdown-item"
                             role="menuitem"
                         >
-                            Embed Document
+                            {{ $t('editor-insert-menu-embed-document') }}
                         </button>
                     </div>
                 </Teleport>
@@ -2284,7 +2292,7 @@ defineExpose({
             <div class="toolbar-divider"></div>
 
             <!-- Undo/Redo Buttons -->
-            <button @click="undoEdit" class="toolbar-button" title="Undo">
+            <button @click="undoEdit" class="toolbar-button" :title="$t('editor-toolbar-undo')" :aria-label="$t('editor-toolbar-undo')">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -2300,7 +2308,7 @@ defineExpose({
                     <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
                 </svg>
             </button>
-            <button @click="redoEdit" class="toolbar-button" title="Redo">
+            <button @click="redoEdit" class="toolbar-button" :title="$t('editor-toolbar-redo')" :aria-label="$t('editor-toolbar-redo')">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -2323,7 +2331,8 @@ defineExpose({
                 @click="toggleRevisionHistory"
                 class="toolbar-button"
                 :class="{ 'toolbar-button-active': showRevisionHistory }"
-                title="Revision History"
+                :title="$t('editor-toolbar-revision-history')"
+                :aria-label="$t('editor-toolbar-revision-history')"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -2349,7 +2358,7 @@ defineExpose({
                 v-if="connectedUsers.length > 0"
                 class="flex items-center gap-1 mr-2"
             >
-                <div class="text-xs text-tertiary mr-1">Editing with:</div>
+                <div class="text-xs text-tertiary mr-1">{{ $t('editor-toolbar-editing-with') }}</div>
                 <div class="flex">
                     <div
                         v-for="(connectedUser, index) in connectedUsers"
@@ -2357,10 +2366,9 @@ defineExpose({
                         class="flex items-center"
                         :style="{ marginLeft: index > 0 ? '-8px' : '0' }"
                         :title="
-                            connectedUser.user.name +
-                            (connectedUser.user.uuid
-                                ? ' (UUID: ' + connectedUser.user.uuid + ')'
-                                : '')
+                            connectedUser.user.uuid
+                                ? $t('editor-toolbar-user-title-uuid', { name: connectedUser.user.name, uuid: connectedUser.user.uuid })
+                                : $t('editor-toolbar-user-title', { name: connectedUser.user.name })
                         "
                         @click="
                             () => {
@@ -2385,10 +2393,10 @@ defineExpose({
 
             <!-- Connection status indicator - v-show prevents layout shift on initial load -->
             <div v-show="connectionStatus === 'connecting'" class="connection-status-connecting">
-                Connecting...
+                {{ $t('editor-toolbar-connection-connecting') }}
             </div>
             <div v-show="connectionStatus === 'disconnected'" class="connection-status-disconnected">
-                Disconnected
+                {{ $t('editor-toolbar-connection-disconnected') }}
             </div>
         </div>
 
@@ -2421,7 +2429,7 @@ defineExpose({
                 >
                     <!-- Search indicator -->
                     <div v-if="mentionState.query" class="px-3 py-2 text-xs text-tertiary border-b border-default bg-surface-alt">
-                        Searching for "<span class="text-primary font-medium">{{ mentionState.query }}</span>"
+                        {{ $t('editor-mention-searching', { query: mentionState.query }) }}
                     </div>
 
                     <!-- Loading -->
@@ -2455,14 +2463,14 @@ defineExpose({
 
                     <!-- No results -->
                     <div v-else class="px-3 py-4 text-center text-sm text-tertiary">
-                        No users found
+                        {{ $t('editor-mention-no-results') }}
                     </div>
 
                     <!-- Hint -->
                     <div class="px-3 py-2 text-xs text-tertiary border-t border-default bg-surface-alt flex items-center gap-4">
-                        <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">↑↓</kbd> Navigate</span>
-                        <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Enter</kbd> Select</span>
-                        <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Esc</kbd> Close</span>
+                        <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">↑↓</kbd> {{ $t('editor-mention-hint-navigate') }}</span>
+                        <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Enter</kbd> {{ $t('editor-mention-hint-select') }}</span>
+                        <span><kbd class="px-1 py-0.5 bg-surface rounded text-xs">Esc</kbd> {{ $t('editor-mention-hint-close') }}</span>
                     </div>
                 </div>
             </Transition>

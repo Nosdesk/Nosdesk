@@ -11,8 +11,12 @@
  * list shares the parent's frame instead of stacking a second
  * panel on top.
  */
+import { useFluent } from 'fluent-vue'
 import RevisionList from './RevisionList.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 interface Props {
   open?: boolean
@@ -36,7 +40,7 @@ const emit = defineEmits<{
 <template>
   <ResponsivePanel
     :open="open"
-    title="Revision History"
+    :title="t('editor-revision-history-title')"
     side-panel-class="w-80"
     @close="emit('close')"
   >

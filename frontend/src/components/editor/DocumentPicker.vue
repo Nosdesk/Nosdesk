@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { getPages } from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
 import Icon from '@/components/common/Icon.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const props = defineProps<{
   excludeUuid?: string
@@ -62,10 +66,12 @@ onMounted(async () => {
     <div class="bg-surface border border-default rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[70vh] flex flex-col">
       <!-- Header -->
       <div class="flex items-center justify-between p-4 border-b border-default">
-        <h3 class="text-sm font-semibold text-primary">Embed Document</h3>
+        <h3 class="text-sm font-semibold text-primary">{{ t('editor-doc-picker-title') }}</h3>
         <button
           @click="emit('close')"
           class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
+          :aria-label="t('editor-doc-picker-close')"
+          :title="t('editor-doc-picker-close')"
         >
           <Icon name="close" />
         </button>
@@ -75,7 +81,7 @@ onMounted(async () => {
       <div class="p-3 border-b border-default">
         <input
           v-model="searchQuery"
-          placeholder="Search documents..."
+          :placeholder="t('editor-doc-picker-search-placeholder')"
           class="w-full bg-surface-alt text-sm text-primary placeholder:text-tertiary border border-subtle rounded-lg px-3 py-2 focus:border-accent focus:outline-none"
           autofocus
         />
@@ -88,7 +94,7 @@ onMounted(async () => {
         </div>
 
         <div v-else-if="filteredPages.length === 0" class="p-4 text-center text-tertiary text-sm">
-          No documents found.
+          {{ t('editor-doc-picker-empty') }}
         </div>
 
         <div v-else class="flex flex-col gap-0.5">
