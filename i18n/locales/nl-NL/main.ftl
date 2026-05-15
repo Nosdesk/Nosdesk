@@ -739,3 +739,39 @@ admin-guest-saving = Opslaan...
 admin-guest-error-load = Kon gastinstellingen niet laden
 admin-guest-error-save = Kon gastinstellingen niet opslaan
 admin-guest-saved = Gasttoegangsinstellingen opgeslagen
+
+# Beheer: Gegevensimport.
+admin-data-import-title = Gegevensimport
+admin-data-import-description = Importeer en synchroniseer gegevens uit externe bronnen
+admin-data-import-notice = Imports kunnen meldingen naar betrokken gebruikers triggeren. Bestaande records worden bijgewerkt op basis van overeenkomende ID's.
+admin-data-import-status-available = Beschikbaar
+admin-data-import-status-coming-soon = Binnenkort beschikbaar
+admin-data-import-status-beta = Bèta
+admin-data-import-microsoft-title = Microsoft Graph
+admin-data-import-microsoft-description = Importeer gegevens uit Microsoft 365, waaronder Azure AD, Intune en andere Microsoft-services
+admin-data-import-csv-title = CSV-import
+admin-data-import-csv-description = Importeer gegevens uit CSV-bestanden (apparaten, gebruikers en andere bronnen)
+admin-data-import-api-title = API-integraties
+admin-data-import-api-description = Maak verbinding met API's van derden om gegevens te importeren en synchroniseren
+admin-data-import-ad-title = Active Directory
+admin-data-import-ad-description = Importeer gegevens uit lokale Active Directory-servers
+
+# Beheer: Authenticatieproviders.
+admin-auth-providers-title = Authenticatieproviders
+admin-auth-providers-env-notice-prefix = Authenticatieproviders worden geconfigureerd via omgevingsvariabelen in uw
+admin-auth-providers-env-notice-suffix = bestand. Gebruik de knop "Configuratie valideren" om te controleren of elke provider correct is geconfigureerd.
+admin-auth-providers-loading = Providers laden...
+admin-auth-providers-default-badge = Standaard
+admin-auth-providers-configured = Geconfigureerd
+admin-auth-providers-not-configured = Niet geconfigureerd
+admin-auth-providers-enabled = Ingeschakeld
+admin-auth-providers-client-id = Client-ID
+admin-auth-providers-tenant-id = Tenant-ID
+admin-auth-providers-redirect-uri = Redirect-URI
+admin-auth-providers-secret = Secret
+admin-auth-providers-secret-not-set = Niet ingesteld
+admin-auth-providers-env-label = Env:
+admin-auth-providers-empty-title = Geen authenticatieproviders gevonden
+admin-auth-providers-empty-description = Configureer authenticatieproviders in uw omgevingsvariabelen
+admin-auth-providers-error-load = Kon authenticatieproviders niet laden
+admin-auth-providers-error-validate = Configuratievalidatie mislukt

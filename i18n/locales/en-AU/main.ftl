@@ -736,3 +736,39 @@ admin-guest-saving = Saving...
 admin-guest-error-load = Couldn't load guest settings
 admin-guest-error-save = Couldn't save guest settings
 admin-guest-saved = Guest access settings saved
+
+# Admin: Data Import hub.
+admin-data-import-title = Data Import
+admin-data-import-description = Import and synchronise data from external sources
+admin-data-import-notice = Data imports may trigger notifications to affected users. Existing records are updated based on matching IDs.
+admin-data-import-status-available = Available
+admin-data-import-status-coming-soon = Coming Soon
+admin-data-import-status-beta = Beta
+admin-data-import-microsoft-title = Microsoft Graph
+admin-data-import-microsoft-description = Import data from Microsoft 365, including Azure AD, Intune, and other Microsoft services
+admin-data-import-csv-title = CSV Import
+admin-data-import-csv-description = Import data from CSV files, including devices, users, and other resources
+admin-data-import-api-title = API Integrations
+admin-data-import-api-description = Connect to third-party APIs to import and synchronise data
+admin-data-import-ad-title = Active Directory
+admin-data-import-ad-description = Import data from on-prem Active Directory servers
+
+# Admin: Authentication Providers.
+admin-auth-providers-title = Authentication Providers
+admin-auth-providers-env-notice-prefix = Authentication providers are configured through environment variables in your
+admin-auth-providers-env-notice-suffix = file. Use the "Validate Config" button to check if each provider is properly configured.
+admin-auth-providers-loading = Loading providers...
+admin-auth-providers-default-badge = Default
+admin-auth-providers-configured = Configured
+admin-auth-providers-not-configured = Not configured
+admin-auth-providers-enabled = Enabled
+admin-auth-providers-client-id = Client ID
+admin-auth-providers-tenant-id = Tenant ID
+admin-auth-providers-redirect-uri = Redirect URI
+admin-auth-providers-secret = Secret
+admin-auth-providers-secret-not-set = Not set
+admin-auth-providers-env-label = Env:
+admin-auth-providers-empty-title = No authentication providers found
+admin-auth-providers-empty-description = Configure authentication providers in your environment variables
+admin-auth-providers-error-load = Couldn't load authentication providers
+admin-auth-providers-error-validate = Configuration validation failed

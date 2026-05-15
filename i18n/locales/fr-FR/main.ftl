@@ -742,3 +742,39 @@ admin-guest-saving = Enregistrement...
 admin-guest-error-load = Échec du chargement des paramètres invité
 admin-guest-error-save = Échec de l'enregistrement des paramètres invité
 admin-guest-saved = Paramètres d'accès invité enregistrés
+
+# Admin : Import de données.
+admin-data-import-title = Import de données
+admin-data-import-description = Importez et synchronisez des données depuis des sources externes
+admin-data-import-notice = Les imports peuvent déclencher des notifications aux utilisateurs concernés. Les enregistrements existants sont mis à jour selon les ID correspondants.
+admin-data-import-status-available = Disponible
+admin-data-import-status-coming-soon = Bientôt disponible
+admin-data-import-status-beta = Bêta
+admin-data-import-microsoft-title = Microsoft Graph
+admin-data-import-microsoft-description = Importez des données depuis Microsoft 365, y compris Azure AD, Intune et d'autres services Microsoft
+admin-data-import-csv-title = Import CSV
+admin-data-import-csv-description = Importez des données depuis des fichiers CSV (appareils, utilisateurs et autres ressources)
+admin-data-import-api-title = Intégrations API
+admin-data-import-api-description = Connectez-vous à des API tierces pour importer et synchroniser des données
+admin-data-import-ad-title = Active Directory
+admin-data-import-ad-description = Importez des données depuis des serveurs Active Directory locaux
+
+# Admin : Fournisseurs d'authentification.
+admin-auth-providers-title = Fournisseurs d'authentification
+admin-auth-providers-env-notice-prefix = Les fournisseurs d'authentification se configurent via des variables d'environnement dans votre fichier
+admin-auth-providers-env-notice-suffix = . Utilisez le bouton « Valider la config » pour vérifier la configuration de chaque fournisseur.
+admin-auth-providers-loading = Chargement des fournisseurs...
+admin-auth-providers-default-badge = Défaut
+admin-auth-providers-configured = Configuré
+admin-auth-providers-not-configured = Non configuré
+admin-auth-providers-enabled = Activé
+admin-auth-providers-client-id = ID client
+admin-auth-providers-tenant-id = ID locataire
+admin-auth-providers-redirect-uri = URI de redirection
+admin-auth-providers-secret = Secret
+admin-auth-providers-secret-not-set = Non défini
+admin-auth-providers-env-label = Env :
+admin-auth-providers-empty-title = Aucun fournisseur d'authentification trouvé
+admin-auth-providers-empty-description = Configurez les fournisseurs d'authentification dans vos variables d'environnement
+admin-auth-providers-error-load = Échec du chargement des fournisseurs d'authentification
+admin-auth-providers-error-validate = Échec de la validation de la configuration

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
+import { useFluent } from 'fluent-vue';
 
 import EnvConfigNotice from '@/components/admin/EnvConfigNotice.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
@@ -8,6 +9,9 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import BrandIcon from '@/components/common/BrandIcon.vue';
 import type { IconName } from '@/components/common/icons';
+
+const fluent = useFluent();
+const t = (key: string) => fluent.$t(key);
 
 // Define types for our data structures
 interface Provider {
@@ -45,7 +49,7 @@ const loadProviders = async () => {
   } catch (error) {
     console.error('Failed to load auth providers:', error);
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to load authentication providers';
+    errorMessage.value = axiosError.response?.data?.message || t('admin-auth-providers-error-load');
   } finally {
     isLoading.value = false;
   }
@@ -69,7 +73,7 @@ const validateProviderConfig = async (provider: Provider) => {
     const axiosError = error as { response?: { data?: { message?: string } } };
     configValidations.value[provider.id] = {
       valid: false,
-      error: axiosError.response?.data?.message || `Configuration validation failed`
+      error: axiosError.response?.data?.message || t('admin-auth-providers-error-validate')
     };
   }
 };
@@ -144,14 +148,14 @@ onMounted(async () => {
   <div class="flex-1">
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-6">
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Authentication Providers</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-auth-providers-title') }}</h1>
       </div>
 
       <!-- Configuration Notice -->
       <EnvConfigNotice>
-        Authentication providers are configured through environment variables in your
-        <code class="bg-surface px-1 rounded text-primary">.env</code> file.
-        Use the "Validate Config" button to check if each provider is properly configured.
+        {{ $t('admin-auth-providers-env-notice-prefix') }}
+        <code class="bg-surface px-1 rounded text-primary">.env</code>
+        {{ $t('admin-auth-providers-env-notice-suffix') }}
       </EnvConfigNotice>
 
       <!-- Success message -->
@@ -161,7 +165,7 @@ onMounted(async () => {
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
       
       <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" text="Loading providers..." />
+      <LoadingSpinner v-if="isLoading" :text="$t('admin-auth-providers-loading')" />
 
       <!-- Provider list -->
       <div v-else class="flex flex-col gap-4">
@@ -186,19 +190,19 @@ onMounted(async () => {
                 <span class="font-medium text-primary">{{ provider.name }}</span>
                 <span v-if="provider.is_default"
                       class="px-1.5 py-0.5 text-xs bg-accent/20 text-accent rounded-full border border-accent/50">
-                  Default
+                  {{ $t('admin-auth-providers-default-badge') }}
                 </span>
                 <span
                   class="px-1.5 py-0.5 text-xs rounded-full border"
                   :class="provider.enabled ? 'bg-status-success/20 text-status-success border-status-success/50' : 'bg-surface-alt text-tertiary border-default'"
                 >
-                  {{ provider.enabled ? 'Configured' : 'Not Configured' }}
+                  {{ provider.enabled ? $t('admin-auth-providers-configured') : $t('admin-auth-providers-not-configured') }}
                 </span>
                 <span
                   v-if="provider.enabled"
                   class="px-1.5 py-0.5 text-xs rounded-full border bg-accent/20 text-accent border-accent/50"
                 >
-                  Enabled
+                  {{ $t('admin-auth-providers-enabled') }}
                 </span>
               </div>
             </div>
@@ -208,23 +212,23 @@ onMounted(async () => {
               <!-- Left: Client ID and Tenant ID (full values) -->
               <div class="flex-1 flex flex-col gap-2">
                 <div v-if="configValidations[provider.id].client_id" class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Client ID</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-auth-providers-client-id') }}</span>
                   <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidations[provider.id].client_id }}</span>
                 </div>
                 <div v-if="configValidations[provider.id].tenant_id" class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Tenant ID</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-auth-providers-tenant-id') }}</span>
                   <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidations[provider.id].tenant_id }}</span>
                 </div>
                 <div v-if="configValidations[provider.id].redirect_uri" class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Redirect URI</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-auth-providers-redirect-uri') }}</span>
                   <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ configValidations[provider.id].redirect_uri }}</span>
                 </div>
               </div>
               <!-- Right: Secret status -->
               <div v-if="configValidations[provider.id].client_secret_configured !== undefined" class="flex flex-row md:flex-col gap-4 md:gap-2 md:w-28 md:flex-shrink-0">
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Secret</span>
-                  <span :class="configValidations[provider.id].client_secret_configured ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ configValidations[provider.id].client_secret_configured ? 'Configured' : 'Not Set' }}</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-auth-providers-secret') }}</span>
+                  <span :class="configValidations[provider.id].client_secret_configured ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ configValidations[provider.id].client_secret_configured ? $t('admin-auth-providers-configured') : $t('admin-auth-providers-secret-not-set') }}</span>
                 </div>
               </div>
             </div>
@@ -239,7 +243,7 @@ onMounted(async () => {
 
             <!-- Required environment variables -->
             <div v-if="getConfigRequirements(provider).length > 0" class="flex items-center gap-2 text-xs">
-              <span class="text-tertiary">Env:</span>
+              <span class="text-tertiary">{{ $t('admin-auth-providers-env-label') }}</span>
               <div class="flex flex-wrap gap-1">
                 <code
                   v-for="envVar in getConfigRequirements(provider)"
@@ -259,8 +263,8 @@ onMounted(async () => {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
           </div>
-          <p class="text-lg font-medium">No authentication providers found</p>
-          <p class="mt-2 text-tertiary">Configure authentication providers in your environment variables</p>
+          <p class="text-lg font-medium">{{ $t('admin-auth-providers-empty-title') }}</p>
+          <p class="mt-2 text-tertiary">{{ $t('admin-auth-providers-empty-description') }}</p>
         </div>
       </div>
     </div>
