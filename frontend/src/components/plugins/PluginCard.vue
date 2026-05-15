@@ -14,7 +14,8 @@
  *     <template #footer> ...mobile actions row... </template>
  *   </PluginCard>
  */
-import type { DeepReadonly } from 'vue';
+import { computed, type DeepReadonly } from 'vue';
+import { useFluent } from 'fluent-vue';
 import type { Plugin } from '@/types/plugin';
 import PluginIcon from './PluginIcon.vue';
 import PluginStateBadge from './PluginStateBadge.vue';
@@ -34,13 +35,26 @@ interface Props {
 
 const { plugin, showStateAlways = false } = defineProps<Props>();
 
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
+  return new Date(iso).toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   });
 }
+
+const installedLabel = computed(() =>
+  t('plugin-card-installed-on', { date: formatDate(plugin.installed_at) }),
+);
+const permissionCountLabel = computed(() =>
+  t('plugin-card-permissions', { count: plugin.manifest.permissions.length }),
+);
+const srPluginName = computed(() => t('plugin-card-sr-plugin-name'));
+const srInstalled = computed(() => t('plugin-card-sr-installed'));
+const srPermissionCount = computed(() => t('plugin-card-sr-permission-count'));
 </script>
 
 <template>
@@ -67,17 +81,17 @@ function formatDate(iso: string): string {
           </p>
 
           <dl class="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-tertiary">
-            <dt class="sr-only">Plugin name</dt>
+            <dt class="sr-only">{{ srPluginName }}</dt>
             <dd>
               <code class="rounded bg-surface-alt px-1.5 py-0.5 font-mono">{{ plugin.name }}</code>
             </dd>
             <span aria-hidden="true" class="text-border">·</span>
-            <dt class="sr-only">Installed</dt>
-            <dd>Installed {{ formatDate(plugin.installed_at) }}</dd>
+            <dt class="sr-only">{{ srInstalled }}</dt>
+            <dd>{{ installedLabel }}</dd>
             <template v-if="plugin.manifest.permissions.length">
               <span aria-hidden="true" class="text-border">·</span>
-              <dt class="sr-only">Permission count</dt>
-              <dd>{{ plugin.manifest.permissions.length }} permissions</dd>
+              <dt class="sr-only">{{ srPermissionCount }}</dt>
+              <dd>{{ permissionCountLabel }}</dd>
             </template>
           </dl>
         </div>

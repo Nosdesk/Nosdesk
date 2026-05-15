@@ -16,6 +16,7 @@
  */
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -30,6 +31,9 @@ import type { Plugin, PluginSetting } from '@/types/plugin';
 
 const route = useRoute();
 const router = useRouter();
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const plugin = ref<Plugin | null>(null);
 const loading = ref(true);
@@ -58,7 +62,7 @@ async function load() {
     plugin.value = await pluginService.getPlugin(uuid.value);
     await loadSettings();
   } catch (e) {
-    errorMessage.value = 'Failed to load plugin';
+    errorMessage.value = t('plugin-detail-error-load');
     logger.error('Failed to load plugin', { error: e });
   } finally {
     loading.value = false;
@@ -141,7 +145,7 @@ const missingRequired = computed<string[]>(() => {
   for (const def of plugin.value.manifest.settings) {
     if (!def.required) continue;
     // Secrets are required to be *configured*, not necessarily
-    // edited right now — a previously-set secret stays valid.
+    // edited right now; a previously-set secret stays valid.
     if (def.type === 'secret') {
       if (!isSecretConfigured(def.key) && !editingSecrets.value.has(def.key)) {
         missing.push(def.key);
@@ -189,9 +193,9 @@ async function saveSettings() {
     }
     settingValues.value = fresh;
     originalValues.value = { ...fresh };
-    announce(`${keys.length === 1 ? 'Setting' : 'Settings'} saved`);
+    announce(t('plugin-detail-toast-saved', { count: keys.length }));
   } catch (e) {
-    saveError.value = 'Failed to save settings. Try again.';
+    saveError.value = t('plugin-detail-error-save');
     logger.error('Failed to save settings', { error: e, keys });
   } finally {
     saveInFlight.value = false;
@@ -211,9 +215,13 @@ async function toggle() {
   try {
     plugin.value = await pluginService.updatePlugin(plugin.value.uuid, { enabled: enable });
     if (plugin.value.state !== 'installed') unloadPlugin(plugin.value.uuid);
-    announce(`Plugin ${plugin.value.state === 'installed' ? 'enabled' : 'disabled'}`);
+    announce(
+      plugin.value.state === 'installed'
+        ? t('plugin-detail-toast-enabled')
+        : t('plugin-detail-toast-disabled'),
+    );
   } catch (e) {
-    errorMessage.value = 'Failed to toggle plugin';
+    errorMessage.value = t('plugin-detail-error-toggle');
     logger.error('Failed to toggle', { error: e });
   }
 }
@@ -228,10 +236,22 @@ async function executeUninstall() {
     showUninstallConfirm.value = false;
     router.replace('/admin/plugins');
   } catch (e) {
-    errorMessage.value = 'Failed to uninstall plugin';
+    errorMessage.value = t('plugin-detail-error-uninstall');
     logger.error('Failed to uninstall', { error: e });
   }
 }
+
+const toggleLabel = computed(() => {
+  if (!plugin.value) return '';
+  return plugin.value.state === 'installed'
+    ? t('plugin-detail-action-disable')
+    : t('plugin-detail-action-enable');
+});
+
+const requiredAriaLabel = computed(() => t('plugin-detail-required-aria'));
+const saveButtonLabel = computed(() =>
+  saveInFlight.value ? t('plugin-detail-action-saving') : t('plugin-detail-action-save'),
+);
 </script>
 
 <template>
@@ -251,13 +271,13 @@ async function executeUninstall() {
       >
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
       </svg>
-      Back to plugins
+      {{ t('plugin-detail-back') }}
     </RouterLink>
 
     <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
     <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-    <LoadingSpinner v-if="loading" text="Loading plugin..." />
+    <LoadingSpinner v-if="loading" :text="t('plugin-detail-loading')" />
 
     <template v-else-if="plugin">
       <!-- Header card -->
@@ -284,7 +304,7 @@ async function executeUninstall() {
         aria-labelledby="lifecycle-heading"
         class="rounded-xl border border-default bg-surface p-5"
       >
-        <h2 id="lifecycle-heading" class="mb-3 font-semibold text-primary">Lifecycle</h2>
+        <h2 id="lifecycle-heading" class="mb-3 font-semibold text-primary">{{ t('plugin-detail-lifecycle-heading') }}</h2>
         <div class="flex flex-wrap gap-2">
           <button
             v-if="plugin.state === 'installed' || plugin.state === 'disabled'"
@@ -292,14 +312,14 @@ async function executeUninstall() {
             @click="toggle"
             class="rounded-lg border border-default bg-surface-alt px-3 py-1.5 text-sm text-primary transition-colors hover:bg-surface-hover focus:ring-2 focus:ring-accent/30 focus:outline-none"
           >
-            {{ plugin.state === 'installed' ? 'Disable' : 'Enable' }}
+            {{ toggleLabel }}
           </button>
           <button
             type="button"
             @click="showUninstallConfirm = true"
             class="rounded-lg border border-status-error/30 bg-status-error/10 px-3 py-1.5 text-sm text-status-error transition-colors hover:bg-status-error/20 focus:ring-2 focus:ring-status-error/30 focus:outline-none"
           >
-            Uninstall
+            {{ t('plugin-detail-action-uninstall') }}
           </button>
         </div>
       </section>
@@ -310,9 +330,9 @@ async function executeUninstall() {
         aria-labelledby="settings-heading"
         class="rounded-xl border border-default bg-surface p-5"
       >
-        <h2 id="settings-heading" class="mb-4 font-semibold text-primary">Settings</h2>
+        <h2 id="settings-heading" class="mb-4 font-semibold text-primary">{{ t('plugin-detail-settings-heading') }}</h2>
 
-        <LoadingSpinner v-if="settingsLoading" text="Loading settings..." />
+        <LoadingSpinner v-if="settingsLoading" :text="t('plugin-detail-loading-settings')" />
 
         <form
           v-else
@@ -327,7 +347,7 @@ async function executeUninstall() {
             <div>
               <label :for="`setting-${def.key}`" class="block text-sm font-medium text-primary">
                 {{ def.label }}
-                <span v-if="def.required" class="text-status-error" aria-label="required">*</span>
+                <span v-if="def.required" class="text-status-error" :aria-label="requiredAriaLabel">*</span>
               </label>
               <p v-if="def.description" class="mt-1 text-xs text-tertiary">
                 {{ def.description }}
@@ -364,14 +384,14 @@ async function executeUninstall() {
                       d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
                     />
                   </svg>
-                  <span class="text-sm text-secondary">Configured</span>
+                  <span class="text-sm text-secondary">{{ t('plugin-detail-secret-configured') }}</span>
                 </div>
                 <button
                   type="button"
                   @click="editSecret(def.key)"
                   class="rounded-lg px-3 py-2 text-sm text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
                 >
-                  Update
+                  {{ t('plugin-detail-secret-update') }}
                 </button>
               </div>
               <div v-else class="flex items-center gap-2">
@@ -381,7 +401,7 @@ async function executeUninstall() {
                   type="password"
                   autocomplete="off"
                   spellcheck="false"
-                  :placeholder="editingSecrets.has(def.key) ? 'Enter new value' : 'Enter value'"
+                  :placeholder="editingSecrets.has(def.key) ? t('plugin-detail-secret-placeholder-new') : t('plugin-detail-secret-placeholder')"
                   class="flex-1 rounded-lg border border-default bg-surface-alt px-3 py-2 text-primary placeholder-tertiary focus:border-transparent focus:ring-2 focus:ring-accent focus:outline-none"
                 />
                 <button
@@ -390,7 +410,7 @@ async function executeUninstall() {
                   @click="cancelEditSecret(def.key)"
                   class="rounded-lg px-3 py-2 text-sm text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
                 >
-                  Cancel
+                  {{ t('plugin-detail-secret-cancel') }}
                 </button>
               </div>
             </div>
@@ -408,7 +428,7 @@ async function executeUninstall() {
               :model-value="!!settingValues[def.key]"
               :id="`setting-${def.key}`"
               size="sm"
-              label="Enabled"
+              :label="t('plugin-detail-boolean-enabled')"
               @update:model-value="(v: boolean) => (settingValues[def.key] = v)"
             />
 
@@ -433,14 +453,12 @@ async function executeUninstall() {
           >
             <p class="text-xs text-tertiary" aria-live="polite">
               <template v-if="missingRequired.length > 0">
-                {{ missingRequired.length }} required
-                {{ missingRequired.length === 1 ? 'field' : 'fields' }} missing
+                {{ t('plugin-detail-status-missing-required', { count: missingRequired.length }) }}
               </template>
               <template v-else-if="isDirty">
-                {{ dirtyKeys.length }} unsaved
-                {{ dirtyKeys.length === 1 ? 'change' : 'changes' }}
+                {{ t('plugin-detail-status-unsaved', { count: dirtyKeys.length }) }}
               </template>
-              <template v-else>All changes saved</template>
+              <template v-else>{{ t('plugin-detail-status-all-saved') }}</template>
             </p>
             <div class="flex items-center gap-2">
               <button
@@ -450,14 +468,14 @@ async function executeUninstall() {
                 :disabled="saveInFlight"
                 class="px-3 py-1.5 text-sm text-secondary transition-colors hover:text-primary disabled:opacity-50"
               >
-                Discard
+                {{ t('plugin-detail-action-discard') }}
               </button>
               <button
                 type="submit"
                 :disabled="!canSave"
                 class="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {{ saveInFlight ? 'Saving...' : 'Save changes' }}
+                {{ saveButtonLabel }}
               </button>
             </div>
           </footer>
@@ -469,18 +487,18 @@ async function executeUninstall() {
         aria-labelledby="metadata-heading"
         class="rounded-xl border border-default bg-surface p-5"
       >
-        <h2 id="metadata-heading" class="mb-3 font-semibold text-primary">Metadata</h2>
+        <h2 id="metadata-heading" class="mb-3 font-semibold text-primary">{{ t('plugin-detail-metadata-heading') }}</h2>
         <dl class="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
           <div>
-            <dt class="text-xs tracking-wide text-tertiary uppercase">Source</dt>
+            <dt class="text-xs tracking-wide text-tertiary uppercase">{{ t('plugin-detail-metadata-source') }}</dt>
             <dd class="mt-1 text-secondary">{{ plugin.source }}</dd>
           </div>
           <div>
-            <dt class="text-xs tracking-wide text-tertiary uppercase">Permissions</dt>
-            <dd class="mt-1 text-secondary">{{ plugin.manifest.permissions.length }} declared</dd>
+            <dt class="text-xs tracking-wide text-tertiary uppercase">{{ t('plugin-detail-metadata-permissions') }}</dt>
+            <dd class="mt-1 text-secondary">{{ t('plugin-detail-metadata-permissions-count', { count: plugin.manifest.permissions.length }) }}</dd>
           </div>
           <div v-if="plugin.manifest.repository" class="sm:col-span-2">
-            <dt class="text-xs tracking-wide text-tertiary uppercase">Repository</dt>
+            <dt class="text-xs tracking-wide text-tertiary uppercase">{{ t('plugin-detail-metadata-repository') }}</dt>
             <dd class="mt-1">
               <a
                 :href="plugin.manifest.repository"
@@ -507,12 +525,13 @@ async function executeUninstall() {
         @click.self="showUninstallConfirm = false"
       >
         <div class="w-full max-w-md rounded-xl border border-default bg-surface p-5">
-          <h2 id="uninstall-title" class="font-semibold text-primary">Uninstall plugin</h2>
+          <h2 id="uninstall-title" class="font-semibold text-primary">{{ t('plugin-detail-uninstall-title') }}</h2>
           <p class="mt-3 text-sm text-secondary">
-            Uninstall <strong class="text-primary">{{ plugin.display_name }}</strong
-            >? The plugin's
+            {{ t('plugin-detail-uninstall-prompt-prefix') }}
+            <strong class="text-primary">{{ plugin.display_name }}</strong
+            >{{ t('plugin-detail-uninstall-prompt-mid') }}
             <code class="rounded bg-surface-alt px-1 text-xs">on_uninstall</code>
-            policy decides whether its data is preserved or removed.
+            {{ t('plugin-detail-uninstall-prompt-suffix') }}
           </p>
           <div class="mt-5 flex justify-end gap-2">
             <button
@@ -520,14 +539,14 @@ async function executeUninstall() {
               @click="showUninstallConfirm = false"
               class="px-4 py-2 text-sm text-secondary transition-colors hover:text-primary"
             >
-              Cancel
+              {{ t('plugin-detail-uninstall-cancel') }}
             </button>
             <button
               type="button"
               @click="executeUninstall"
               class="rounded-lg bg-status-error px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-status-error/90"
             >
-              Uninstall
+              {{ t('plugin-detail-uninstall-confirm') }}
             </button>
           </div>
         </div>

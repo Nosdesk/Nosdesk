@@ -10,8 +10,9 @@
  * The registry browse view is the recommended path; we link to
  * it prominently so admins don't sideload by default.
  */
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import pluginService from '@/services/pluginService';
@@ -20,6 +21,9 @@ import { logger } from '@/utils/logger';
 import { formatFileSize } from '@/utils/formatFileSize';
 
 const router = useRouter();
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const file = ref<File | null>(null);
 const dragOver = ref(false);
@@ -64,11 +68,11 @@ function handleFileSelect(e: Event) {
 function validateAndSet(f: File) {
   errorMessage.value = '';
   if (!f.name.endsWith('.zip')) {
-    errorMessage.value = 'Please select a .zip file';
+    errorMessage.value = t('plugin-sideload-error-not-zip');
     return;
   }
   if (f.size > 2 * 1024 * 1024) {
-    errorMessage.value = 'File must be less than 2 MB';
+    errorMessage.value = t('plugin-sideload-error-too-large');
     return;
   }
   file.value = f;
@@ -84,12 +88,17 @@ async function executeInstall() {
     router.replace(`/admin/plugins/${installed.uuid}`);
   } catch (e: unknown) {
     const eo = e as { response?: { data?: { error?: string } } };
-    errorMessage.value = eo.response?.data?.error ?? 'Failed to install plugin';
+    errorMessage.value = eo.response?.data?.error ?? t('plugin-sideload-error-install-failed');
     logger.error('Sideload failed', { error: e });
   } finally {
     installing.value = false;
   }
 }
+
+const chooseFileAria = computed(() => t('plugin-sideload-dropzone-aria'));
+const installButtonLabel = computed(() =>
+  installing.value ? t('plugin-sideload-installing') : t('plugin-sideload-install'),
+);
 </script>
 
 <template>
@@ -109,19 +118,17 @@ async function executeInstall() {
       >
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
       </svg>
-      Back to plugins
+      {{ t('plugin-sideload-back') }}
     </RouterLink>
 
     <header>
-      <h1 class="text-xl font-bold text-primary sm:text-2xl">Sideload signed zip</h1>
+      <h1 class="text-xl font-bold text-primary sm:text-2xl">{{ t('plugin-sideload-title') }}</h1>
       <p class="mt-1 text-sm text-secondary">
-        For plugins that aren't in the registry yet. The bundle must be signed by a registered
-        publisher or this instance's local signing key; unsigned uploads are refused. Looking for
-        an official plugin? Browse the
+        {{ t('plugin-sideload-intro-prefix') }}
         <RouterLink to="/admin/plugins/registry" class="text-accent hover:underline">
-          registry
+          {{ t('plugin-sideload-intro-link') }}
         </RouterLink>
-        first.
+        {{ t('plugin-sideload-intro-suffix') }}
       </p>
     </header>
 
@@ -131,7 +138,7 @@ async function executeInstall() {
     <div
       role="button"
       tabindex="0"
-      aria-label="Choose plugin zip file"
+      :aria-label="chooseFileAria"
       :aria-busy="installing"
       class="rounded-xl border-2 border-dashed p-8 text-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       :class="
@@ -171,7 +178,7 @@ async function executeInstall() {
           @click.stop="file = null"
           class="text-xs text-tertiary underline hover:text-secondary"
         >
-          Choose a different file
+          {{ t('plugin-sideload-choose-different') }}
         </button>
       </div>
       <div v-else class="flex flex-col items-center gap-2">
@@ -183,8 +190,8 @@ async function executeInstall() {
             d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
           />
         </svg>
-        <p class="font-medium text-secondary">Drop your plugin zip here</p>
-        <p class="text-xs text-tertiary">or click to browse</p>
+        <p class="font-medium text-secondary">{{ t('plugin-sideload-drop-here') }}</p>
+        <p class="text-xs text-tertiary">{{ t('plugin-sideload-or-browse') }}</p>
       </div>
     </div>
 
@@ -208,15 +215,13 @@ async function executeInstall() {
         />
       </svg>
       <div class="flex flex-col gap-1">
-        <p class="font-medium">Only sideload plugins from sources you trust.</p>
+        <p class="font-medium">{{ t('plugin-sideload-warning-title') }}</p>
         <p class="text-status-warning/90">
-          A signature confirms the bundle hasn't been tampered with after signing, but it doesn't
-          vouch for the publisher's intent. An installed plugin runs in the admin UI with access
-          to your session. Prefer the
+          {{ t('plugin-sideload-warning-prefix') }}
           <RouterLink to="/admin/plugins/registry" class="underline hover:no-underline">
-            registry
+            {{ t('plugin-sideload-warning-link') }}
           </RouterLink>
-          for vetted publishers, and review the source of anything you sideload.
+          {{ t('plugin-sideload-warning-suffix') }}
         </p>
       </div>
     </aside>
@@ -226,7 +231,7 @@ async function executeInstall() {
         to="/admin/plugins"
         class="px-4 py-2 text-sm text-secondary transition-colors hover:text-primary"
       >
-        Cancel
+        {{ t('plugin-sideload-cancel') }}
       </RouterLink>
       <button
         type="button"
@@ -248,7 +253,7 @@ async function executeInstall() {
             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
           />
         </svg>
-        {{ installing ? 'Installing...' : 'Install plugin' }}
+        {{ installButtonLabel }}
       </button>
     </div>
   </div>

@@ -3411,3 +3411,99 @@ recent-tickets-empty = Geen recente tickets
 recent-tickets-context-open-new-tab = Openen in nieuw tabblad
 recent-tickets-context-copy-link = Link kopiëren
 recent-tickets-context-remove = Verwijderen uit recent
+
+# Plugin admin: lifecycle state pills (PluginStateBadge)
+plugin-state-active = Actief
+plugin-state-disabled = Uitgeschakeld
+plugin-state-quarantined = In quarantaine
+plugin-state-uninstalled = Verwijderd
+
+# Plugin admin: trust tier pills (PluginTrustBadge)
+plugin-trust-official = Officieel
+plugin-trust-verified = Geverifieerd
+plugin-trust-community = Community
+plugin-trust-local = Lokaal
+
+# Plugin admin: row card (PluginCard)
+plugin-card-installed-on = Geïnstalleerd { $date }
+plugin-card-permissions = { $count ->
+    [one] { $count } machtiging
+   *[other] { $count } machtigingen
+  }
+plugin-card-sr-plugin-name = Pluginnaam
+plugin-card-sr-installed = Geïnstalleerd
+plugin-card-sr-permission-count = Aantal machtigingen
+
+# Plugin admin: detail view (PluginDetailView)
+plugin-detail-back = Terug naar plugins
+plugin-detail-loading = Plugin laden...
+plugin-detail-loading-settings = Instellingen laden...
+plugin-detail-lifecycle-heading = Levenscyclus
+plugin-detail-settings-heading = Instellingen
+plugin-detail-metadata-heading = Metadata
+plugin-detail-metadata-source = Bron
+plugin-detail-metadata-permissions = Machtigingen
+plugin-detail-metadata-permissions-count = { $count ->
+    [one] { $count } gedeclareerd
+   *[other] { $count } gedeclareerd
+  }
+plugin-detail-metadata-repository = Repository
+plugin-detail-required-aria = verplicht
+plugin-detail-secret-configured = Geconfigureerd
+plugin-detail-secret-update = Bijwerken
+plugin-detail-secret-cancel = Annuleren
+plugin-detail-secret-placeholder = Waarde invoeren
+plugin-detail-secret-placeholder-new = Nieuwe waarde invoeren
+plugin-detail-boolean-enabled = Ingeschakeld
+plugin-detail-action-enable = Inschakelen
+plugin-detail-action-disable = Uitschakelen
+plugin-detail-action-uninstall = Verwijderen
+plugin-detail-action-discard = Verwerpen
+plugin-detail-action-save = Wijzigingen opslaan
+plugin-detail-action-saving = Opslaan...
+plugin-detail-status-missing-required = { $count ->
+    [one] { $count } verplicht veld ontbreekt
+   *[other] { $count } verplichte velden ontbreken
+  }
+plugin-detail-status-unsaved = { $count ->
+    [one] { $count } niet-opgeslagen wijziging
+   *[other] { $count } niet-opgeslagen wijzigingen
+  }
+plugin-detail-status-all-saved = Alle wijzigingen opgeslagen
+plugin-detail-toast-saved = { $count ->
+    [one] Instelling opgeslagen
+   *[other] Instellingen opgeslagen
+  }
+plugin-detail-toast-enabled = Plugin ingeschakeld
+plugin-detail-toast-disabled = Plugin uitgeschakeld
+plugin-detail-error-load = Plugin laden mislukt
+plugin-detail-error-save = Instellingen opslaan mislukt. Probeer het opnieuw.
+plugin-detail-error-toggle = Plugin schakelen mislukt
+plugin-detail-error-uninstall = Plugin verwijderen mislukt
+plugin-detail-uninstall-title = Plugin verwijderen
+plugin-detail-uninstall-prompt-prefix = Verwijderen
+plugin-detail-uninstall-prompt-mid = ? Het
+plugin-detail-uninstall-prompt-suffix = -beleid van de plugin bepaalt of de gegevens behouden of verwijderd worden.
+plugin-detail-uninstall-cancel = Annuleren
+plugin-detail-uninstall-confirm = Verwijderen
+
+# Plugin admin: sideload view (PluginSideloadView)
+plugin-sideload-back = Terug naar plugins
+plugin-sideload-title = Ondertekende zip handmatig laden
+plugin-sideload-intro-prefix = Voor plugins die nog niet in het register staan. Het bundel moet ondertekend zijn door een geregistreerde uitgever of door de lokale ondertekensleutel van deze instantie; niet-ondertekende uploads worden geweigerd. Op zoek naar een officiële plugin? Bekijk eerst het
+plugin-sideload-intro-link = register
+plugin-sideload-intro-suffix = .
+plugin-sideload-dropzone-aria = Kies pluginzipbestand
+plugin-sideload-choose-different = Kies een ander bestand
+plugin-sideload-drop-here = Sleep hier je pluginzip
+plugin-sideload-or-browse = of klik om te bladeren
+plugin-sideload-warning-title = Laad alleen plugins van bronnen die je vertrouwt.
+plugin-sideload-warning-prefix = Een handtekening bevestigt dat het bundel na ondertekening niet is gewijzigd, maar staat niet in voor de bedoelingen van de uitgever. Een geïnstalleerde plugin draait in de beheerinterface met toegang tot je sessie. Geef de voorkeur aan het
+plugin-sideload-warning-link = register
+plugin-sideload-warning-suffix = voor gecontroleerde uitgevers, en controleer de broncode van alles wat je handmatig laadt.
+plugin-sideload-cancel = Annuleren
+plugin-sideload-install = Plugin installeren
+plugin-sideload-installing = Installeren...
+plugin-sideload-error-not-zip = Selecteer een .zip-bestand
+plugin-sideload-error-too-large = Bestand moet kleiner zijn dan 2 MB
+plugin-sideload-error-install-failed = Plugin installeren mislukt

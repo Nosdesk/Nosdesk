@@ -3397,3 +3397,99 @@ recent-tickets-empty = No recent tickets
 recent-tickets-context-open-new-tab = Open in new tab
 recent-tickets-context-copy-link = Copy link
 recent-tickets-context-remove = Remove from recent
+
+# Plugin admin: lifecycle state pills (PluginStateBadge)
+plugin-state-active = Active
+plugin-state-disabled = Disabled
+plugin-state-quarantined = Quarantined
+plugin-state-uninstalled = Uninstalled
+
+# Plugin admin: trust tier pills (PluginTrustBadge)
+plugin-trust-official = Official
+plugin-trust-verified = Verified
+plugin-trust-community = Community
+plugin-trust-local = Local
+
+# Plugin admin: row card (PluginCard)
+plugin-card-installed-on = Installed { $date }
+plugin-card-permissions = { $count ->
+    [one] { $count } permission
+   *[other] { $count } permissions
+  }
+plugin-card-sr-plugin-name = Plugin name
+plugin-card-sr-installed = Installed
+plugin-card-sr-permission-count = Permission count
+
+# Plugin admin: detail view (PluginDetailView)
+plugin-detail-back = Back to plugins
+plugin-detail-loading = Loading plugin...
+plugin-detail-loading-settings = Loading settings...
+plugin-detail-lifecycle-heading = Lifecycle
+plugin-detail-settings-heading = Settings
+plugin-detail-metadata-heading = Metadata
+plugin-detail-metadata-source = Source
+plugin-detail-metadata-permissions = Permissions
+plugin-detail-metadata-permissions-count = { $count ->
+    [one] { $count } declared
+   *[other] { $count } declared
+  }
+plugin-detail-metadata-repository = Repository
+plugin-detail-required-aria = required
+plugin-detail-secret-configured = Configured
+plugin-detail-secret-update = Update
+plugin-detail-secret-cancel = Cancel
+plugin-detail-secret-placeholder = Enter value
+plugin-detail-secret-placeholder-new = Enter new value
+plugin-detail-boolean-enabled = Enabled
+plugin-detail-action-enable = Enable
+plugin-detail-action-disable = Disable
+plugin-detail-action-uninstall = Uninstall
+plugin-detail-action-discard = Discard
+plugin-detail-action-save = Save changes
+plugin-detail-action-saving = Saving...
+plugin-detail-status-missing-required = { $count ->
+    [one] { $count } required field missing
+   *[other] { $count } required fields missing
+  }
+plugin-detail-status-unsaved = { $count ->
+    [one] { $count } unsaved change
+   *[other] { $count } unsaved changes
+  }
+plugin-detail-status-all-saved = All changes saved
+plugin-detail-toast-saved = { $count ->
+    [one] Setting saved
+   *[other] Settings saved
+  }
+plugin-detail-toast-enabled = Plugin enabled
+plugin-detail-toast-disabled = Plugin disabled
+plugin-detail-error-load = Failed to load plugin
+plugin-detail-error-save = Failed to save settings. Try again.
+plugin-detail-error-toggle = Failed to toggle plugin
+plugin-detail-error-uninstall = Failed to uninstall plugin
+plugin-detail-uninstall-title = Uninstall plugin
+plugin-detail-uninstall-prompt-prefix = Uninstall
+plugin-detail-uninstall-prompt-mid = ? The plugin's
+plugin-detail-uninstall-prompt-suffix = policy decides whether its data is preserved or removed.
+plugin-detail-uninstall-cancel = Cancel
+plugin-detail-uninstall-confirm = Uninstall
+
+# Plugin admin: sideload view (PluginSideloadView)
+plugin-sideload-back = Back to plugins
+plugin-sideload-title = Sideload signed zip
+plugin-sideload-intro-prefix = For plugins that aren't in the registry yet. The bundle must be signed by a recognised publisher or this instance's local signing key; unsigned uploads are refused. Looking for an official plugin? Browse the
+plugin-sideload-intro-link = registry
+plugin-sideload-intro-suffix = first.
+plugin-sideload-dropzone-aria = Choose plugin zip file
+plugin-sideload-choose-different = Choose a different file
+plugin-sideload-drop-here = Drop your plugin zip here
+plugin-sideload-or-browse = or click to browse
+plugin-sideload-warning-title = Only sideload plugins from sources you trust.
+plugin-sideload-warning-prefix = A signature confirms the bundle hasn't been tampered with after signing, but it doesn't vouch for the publisher's intent. An installed plugin runs in the admin UI with access to your session. Prefer the
+plugin-sideload-warning-link = registry
+plugin-sideload-warning-suffix = for vetted publishers, and review the source of anything you sideload.
+plugin-sideload-cancel = Cancel
+plugin-sideload-install = Install plugin
+plugin-sideload-installing = Installing...
+plugin-sideload-error-not-zip = Please select a .zip file
+plugin-sideload-error-too-large = File must be less than 2 MB
+plugin-sideload-error-install-failed = Failed to install plugin

@@ -3420,3 +3420,99 @@ recent-tickets-empty = Aucun ticket récent
 recent-tickets-context-open-new-tab = Ouvrir dans un nouvel onglet
 recent-tickets-context-copy-link = Copier le lien
 recent-tickets-context-remove = Retirer des récents
+
+# Plugin admin: lifecycle state pills (PluginStateBadge)
+plugin-state-active = Actif
+plugin-state-disabled = Désactivé
+plugin-state-quarantined = En quarantaine
+plugin-state-uninstalled = Désinstallé
+
+# Plugin admin: trust tier pills (PluginTrustBadge)
+plugin-trust-official = Officiel
+plugin-trust-verified = Vérifié
+plugin-trust-community = Communauté
+plugin-trust-local = Local
+
+# Plugin admin: row card (PluginCard)
+plugin-card-installed-on = Installé le { $date }
+plugin-card-permissions = { $count ->
+    [one] { $count } permission
+   *[other] { $count } permissions
+  }
+plugin-card-sr-plugin-name = Nom du plugin
+plugin-card-sr-installed = Installé
+plugin-card-sr-permission-count = Nombre de permissions
+
+# Plugin admin: detail view (PluginDetailView)
+plugin-detail-back = Retour aux plugins
+plugin-detail-loading = Chargement du plugin...
+plugin-detail-loading-settings = Chargement des paramètres...
+plugin-detail-lifecycle-heading = Cycle de vie
+plugin-detail-settings-heading = Paramètres
+plugin-detail-metadata-heading = Métadonnées
+plugin-detail-metadata-source = Source
+plugin-detail-metadata-permissions = Permissions
+plugin-detail-metadata-permissions-count = { $count ->
+    [one] { $count } déclarée
+   *[other] { $count } déclarées
+  }
+plugin-detail-metadata-repository = Dépôt
+plugin-detail-required-aria = requis
+plugin-detail-secret-configured = Configuré
+plugin-detail-secret-update = Modifier
+plugin-detail-secret-cancel = Annuler
+plugin-detail-secret-placeholder = Saisir une valeur
+plugin-detail-secret-placeholder-new = Saisir une nouvelle valeur
+plugin-detail-boolean-enabled = Activé
+plugin-detail-action-enable = Activer
+plugin-detail-action-disable = Désactiver
+plugin-detail-action-uninstall = Désinstaller
+plugin-detail-action-discard = Annuler
+plugin-detail-action-save = Enregistrer
+plugin-detail-action-saving = Enregistrement...
+plugin-detail-status-missing-required = { $count ->
+    [one] { $count } champ requis manquant
+   *[other] { $count } champs requis manquants
+  }
+plugin-detail-status-unsaved = { $count ->
+    [one] { $count } modification non enregistrée
+   *[other] { $count } modifications non enregistrées
+  }
+plugin-detail-status-all-saved = Toutes les modifications sont enregistrées
+plugin-detail-toast-saved = { $count ->
+    [one] Paramètre enregistré
+   *[other] Paramètres enregistrés
+  }
+plugin-detail-toast-enabled = Plugin activé
+plugin-detail-toast-disabled = Plugin désactivé
+plugin-detail-error-load = Échec du chargement du plugin
+plugin-detail-error-save = Échec de l'enregistrement des paramètres. Réessayez.
+plugin-detail-error-toggle = Échec du basculement du plugin
+plugin-detail-error-uninstall = Échec de la désinstallation du plugin
+plugin-detail-uninstall-title = Désinstaller le plugin
+plugin-detail-uninstall-prompt-prefix = Désinstaller
+plugin-detail-uninstall-prompt-mid = ? La politique
+plugin-detail-uninstall-prompt-suffix = du plugin détermine si ses données sont conservées ou supprimées.
+plugin-detail-uninstall-cancel = Annuler
+plugin-detail-uninstall-confirm = Désinstaller
+
+# Plugin admin: sideload view (PluginSideloadView)
+plugin-sideload-back = Retour aux plugins
+plugin-sideload-title = Charger une archive signée
+plugin-sideload-intro-prefix = Pour les plugins qui ne sont pas encore dans le catalogue. L'archive doit être signée par un éditeur enregistré ou par la clé de signature locale de cette instance ; les envois non signés sont refusés. Vous cherchez un plugin officiel ? Parcourez d'abord le
+plugin-sideload-intro-link = catalogue
+plugin-sideload-intro-suffix = .
+plugin-sideload-dropzone-aria = Choisir le fichier zip du plugin
+plugin-sideload-choose-different = Choisir un autre fichier
+plugin-sideload-drop-here = Déposez ici l'archive zip du plugin
+plugin-sideload-or-browse = ou cliquez pour parcourir
+plugin-sideload-warning-title = Ne chargez que des plugins provenant de sources de confiance.
+plugin-sideload-warning-prefix = Une signature confirme que l'archive n'a pas été modifiée après signature, mais elle ne garantit pas les intentions de l'éditeur. Un plugin installé s'exécute dans l'interface d'administration avec accès à votre session. Préférez le
+plugin-sideload-warning-link = catalogue
+plugin-sideload-warning-suffix = pour les éditeurs vérifiés, et examinez la source de tout ce que vous chargez manuellement.
+plugin-sideload-cancel = Annuler
+plugin-sideload-install = Installer le plugin
+plugin-sideload-installing = Installation...
+plugin-sideload-error-not-zip = Veuillez sélectionner un fichier .zip
+plugin-sideload-error-too-large = Le fichier doit faire moins de 2 Mo
+plugin-sideload-error-install-failed = Échec de l'installation du plugin
