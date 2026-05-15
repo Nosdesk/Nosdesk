@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import PDFViewer from '@/components/ticketComponents/PDFViewer.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
@@ -9,10 +10,12 @@ import { useTitleManager } from '@/composables/useTitleManager';
 const route = useRoute();
 const router = useRouter();
 const titleManager = useTitleManager();
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // State
 const pdfSrc = ref<string>('');
-const filename = ref<string>('Document');
+const filename = ref<string>(t('pdf-viewer-default-filename'));
 const startPage = ref<number>(1);
 const isLoading = ref<boolean>(true);
 const errorMessage = ref<string | null>(null);
@@ -26,7 +29,7 @@ onMounted(() => {
     if (route.query.src) {
       pdfSrc.value = decodeURIComponent(route.query.src as string);
     } else {
-      throw new Error('No PDF source provided');
+      throw new Error(t('pdf-viewer-error-no-source'));
     }
 
     // Get filename
@@ -45,7 +48,7 @@ onMounted(() => {
     isLoading.value = false;
   } catch (error) {
     console.error('Error loading PDF:', error);
-    errorMessage.value = error instanceof Error ? error.message : 'Failed to load PDF';
+    errorMessage.value = error instanceof Error ? error.message : t('pdf-viewer-error-failed');
     isLoading.value = false;
   }
 });
@@ -57,7 +60,7 @@ const handlePdfReady = () => {
 const handlePdfError = (error: unknown) => {
   console.error('PDF loading error:', error);
   const err = error as { message?: string };
-  errorMessage.value = 'Failed to load PDF: ' + (err?.message || 'Unknown error');
+  errorMessage.value = t('pdf-viewer-error-failed-with-reason', { reason: err?.message || t('pdf-viewer-error-unknown') });
 };
 
 // Handle back navigation
@@ -97,19 +100,19 @@ watch(filename, (newFilename) => {
           class="flex items-center gap-2 px-3 py-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
         >
           <Icon name="chevronLeft" size="md" />
-          <span class="text-sm font-medium">Back</span>
+          <span class="text-sm font-medium">{{ $t('pdf-viewer-back') }}</span>
         </button>
 
         <!-- Share button -->
         <button
           @click="shareDocument"
           class="flex items-center gap-2 px-3 py-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-          title="Copy link to clipboard"
+          :title="$t('pdf-viewer-share-tooltip')"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
           </svg>
-          <span class="text-sm font-medium hidden sm:inline">Share</span>
+          <span class="text-sm font-medium hidden sm:inline">{{ $t('pdf-viewer-share') }}</span>
         </button>
       </div>
     </div>
@@ -120,7 +123,7 @@ watch(filename, (newFilename) => {
       <div v-if="isLoading" class="h-full flex items-center justify-center">
         <div class="flex flex-col items-center gap-3">
           <Spinner size="lg" class="text-accent" />
-          <span class="text-secondary">Loading PDF document...</span>
+          <span class="text-secondary">{{ $t('pdf-viewer-loading') }}</span>
         </div>
       </div>
 
@@ -130,13 +133,13 @@ watch(filename, (newFilename) => {
           <div class="flex items-start gap-4">
             <Icon name="warning" size="lg" class="text-status-error flex-shrink-0" />
             <div>
-              <h3 class="text-lg font-semibold text-status-error mb-2">Error Loading PDF</h3>
+              <h3 class="text-lg font-semibold text-status-error mb-2">{{ $t('pdf-viewer-error-title') }}</h3>
               <p>{{ errorMessage }}</p>
               <button
                 @click="goBack"
                 class="mt-4 bg-status-error/70 hover:bg-status-error/60 text-white px-4 py-2 rounded transition-colors"
               >
-                Go Back
+                {{ $t('pdf-viewer-error-go-back') }}
               </button>
             </div>
           </div>

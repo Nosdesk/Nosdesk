@@ -2,8 +2,12 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
 import { onMounted, onUnmounted, ref, reactive, watchEffect, watch, computed, nextTick } from "vue";
+import { useFluent } from "fluent-vue";
 import { useThemeStore } from "@/stores/theme";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Type definition for the direction of a glitch spike.
 // 'vertical' = vertical glitch, 'horizontal' = horizontal glitch, null = no glitch
@@ -40,8 +44,8 @@ const seedCounter = ref(0); // Used to animate the 'seed' for feTurbulence, maki
 const svgWidth = ref('60rem'); // Default SVG width
 const svgHeight = ref('24rem'); // Default SVG height
 const fontSize = ref('14rem'); // Default font size
-const errorCode = ref('404'); // Default error code
-const errorMessage = ref('Page not found'); // Default error message
+const errorCode = ref(t('error-page-default-code')); // Default error code
+const errorMessage = ref(t('error-page-default-message')); // Default error message
 
 // Raw mouse coordinates (relative to the viewport, not SVG).
 const rawMouseX = ref(0);
@@ -724,8 +728,8 @@ onMounted(() => {
   isMouseOverSvg.value = false; // Start with mouse not over SVG
 
   // Get the error code and message from route params
-  errorCode.value = route.params.code?.toString() || '404';
-  errorMessage.value = route.params.message?.toString() || 'Page not found';
+  errorCode.value = route.params.code?.toString() || t('error-page-default-code');
+  errorMessage.value = route.params.message?.toString() || t('error-page-default-message');
 
   // Adjust SVG size based on viewport and text length
   adjustSvgSize();
@@ -1150,7 +1154,7 @@ const debugMeta = computed(() => ({
         </div>
 
         <p class="mt-2 text-tertiary">
-          The page you're looking for doesn't exist or you may not have access to it.
+          {{ $t('error-page-description') }}
         </p>
 
         <div class="mt-8 flex gap-4 justify-center">
@@ -1158,13 +1162,13 @@ const debugMeta = computed(() => ({
             @click="goBack"
             class="px-4 py-2 text-sm font-medium text-secondary hover:text-primary transition-colors"
           >
-            &larr; Go back
+            &larr; {{ $t('error-page-go-back') }}
           </button>
           <button
             @click="goHome"
             class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:opacity-90 transition-colors"
           >
-            Go to Dashboard
+            {{ $t('error-page-go-home') }}
           </button>
         </div>
       </div>
@@ -1172,13 +1176,13 @@ const debugMeta = computed(() => ({
   </div>
   <!-- Debug Panel -->
   <div v-if="showDebug" class="fixed top-4 right-4 bg-surface/90 text-sm text-secondary p-4 rounded-lg max-h-[90vh] overflow-auto flex flex-col gap-3 z-overlay shadow-lg">
-    <h3 class="font-semibold mb-2">Debug Controls (press 'd' to toggle)</h3>
-    
+    <h3 class="font-semibold mb-2">{{ $t('error-page-debug-title') }}</h3>
+
     <!-- Master Toggle -->
     <div class="mb-4 border-b border-default pb-2">
       <ToggleSwitch
         v-model="debugControls.masterEffectEnabled"
-        label="Master Effects Toggle"
+        :label="$t('error-page-debug-master-toggle')"
         size="sm"
       />
     </div>
@@ -1188,7 +1192,7 @@ const debugMeta = computed(() => ({
       <!-- Global Intensity -->
       <div class="flex flex-col gap-1">
         <label class="flex justify-between items-center gap-2">
-          <span class="font-semibold">Global Intensity</span>
+          <span class="font-semibold">{{ $t('error-page-debug-global-intensity') }}</span>
           <span class="tabular-nums w-12 text-right">{{ debugControls.globalEffectIntensity.toFixed(2) }}</span>
         </label>
         <input
@@ -1204,7 +1208,7 @@ const debugMeta = computed(() => ({
       <!-- Channel Separation -->
       <div class="flex flex-col gap-1">
         <label class="flex justify-between items-center gap-2">
-          <span>Channel Separation</span>
+          <span>{{ $t('error-page-debug-channel-separation') }}</span>
           <span class="tabular-nums w-12 text-right">{{ debugControls.channelSeparation.toFixed(2) }}</span>
         </label>
         <input
@@ -1220,7 +1224,7 @@ const debugMeta = computed(() => ({
       <!-- Distortion Scale -->
       <div class="flex flex-col gap-1">
         <label class="flex justify-between items-center gap-2">
-          <span>Distortion Scale</span>
+          <span>{{ $t('error-page-debug-distortion-scale') }}</span>
           <span class="tabular-nums w-12 text-right">{{ debugControls.distortionScale.toFixed(2) }}</span>
         </label>
         <input
@@ -1236,7 +1240,7 @@ const debugMeta = computed(() => ({
       <!-- Glitch Frequency -->
       <div class="flex flex-col gap-1">
         <label class="flex justify-between items-center gap-2">
-          <span>Glitch Frequency</span>
+          <span>{{ $t('error-page-debug-glitch-frequency') }}</span>
           <span class="tabular-nums w-12 text-right">{{ debugControls.glitchFrequency.toFixed(2) }}</span>
         </label>
         <input
@@ -1252,7 +1256,7 @@ const debugMeta = computed(() => ({
       <!-- Glitch Intensity -->
       <div class="flex flex-col gap-1">
         <label class="flex justify-between items-center gap-2">
-          <span>Glitch Intensity</span>
+          <span>{{ $t('error-page-debug-glitch-intensity') }}</span>
           <span class="tabular-nums w-12 text-right">{{ debugControls.glitchIntensity.toFixed(2) }}</span>
         </label>
         <input
@@ -1268,7 +1272,7 @@ const debugMeta = computed(() => ({
       <!-- Cursor Influence -->
       <div class="flex flex-col gap-1">
         <label class="flex justify-between items-center gap-2">
-          <span>Cursor Influence</span>
+          <span>{{ $t('error-page-debug-cursor-influence') }}</span>
           <span class="tabular-nums w-12 text-right">{{ debugControls.cursorInfluence.toFixed(2) }}</span>
         </label>
         <input

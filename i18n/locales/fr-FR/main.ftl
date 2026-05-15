@@ -2094,3 +2094,31 @@ csv-import-error-failed = Échec de l'import
 csv-import-error-generic = Impossible d'importer les données
 csv-import-success-completed = Import terminé avec succès
 csv-import-toast-template-downloaded = Modèle { $type } téléchargé
+
+# Error page (ErrorView)
+error-page-default-code = 404
+error-page-default-message = Page introuvable
+error-page-description = La page que vous cherchez n'existe pas ou vous n'y avez peut-être pas accès.
+error-page-go-back = Retour
+error-page-go-home = Aller au tableau de bord
+error-page-debug-title = Contrôles de débogage (appuyez sur « d » pour basculer)
+error-page-debug-master-toggle = Activation générale des effets
+error-page-debug-global-intensity = Intensité globale
+error-page-debug-channel-separation = Séparation des canaux
+error-page-debug-distortion-scale = Échelle de distorsion
+error-page-debug-glitch-frequency = Fréquence des glitchs
+error-page-debug-glitch-intensity = Intensité des glitchs
+error-page-debug-cursor-influence = Influence du curseur
+
+# PDF viewer (PDFViewerView)
+pdf-viewer-default-filename = Document
+pdf-viewer-back = Retour
+pdf-viewer-share = Partager
+pdf-viewer-share-tooltip = Copier le lien dans le presse-papiers
+pdf-viewer-loading = Chargement du document PDF...
+pdf-viewer-error-title = Échec du chargement du PDF
+pdf-viewer-error-go-back = Retour
+pdf-viewer-error-no-source = Aucune source PDF fournie
+pdf-viewer-error-failed = Échec du chargement du PDF
+pdf-viewer-error-failed-with-reason = Échec du chargement du PDF : { $reason }
+pdf-viewer-error-unknown = Erreur inconnue

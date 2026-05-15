@@ -2082,3 +2082,31 @@ csv-import-error-failed = Import failed
 csv-import-error-generic = Couldn't import data
 csv-import-success-completed = Import completed successfully
 csv-import-toast-template-downloaded = { $type } template downloaded
+
+# Error page (ErrorView)
+error-page-default-code = 404
+error-page-default-message = Page not found
+error-page-description = The page you're after doesn't exist, or you may not have access to it.
+error-page-go-back = Go back
+error-page-go-home = Go to Dashboard
+error-page-debug-title = Debug Controls (press 'd' to toggle)
+error-page-debug-master-toggle = Master Effects Toggle
+error-page-debug-global-intensity = Global Intensity
+error-page-debug-channel-separation = Channel Separation
+error-page-debug-distortion-scale = Distortion Scale
+error-page-debug-glitch-frequency = Glitch Frequency
+error-page-debug-glitch-intensity = Glitch Intensity
+error-page-debug-cursor-influence = Cursor Influence
+
+# PDF viewer (PDFViewerView)
+pdf-viewer-default-filename = Document
+pdf-viewer-back = Back
+pdf-viewer-share = Share
+pdf-viewer-share-tooltip = Copy link to clipboard
+pdf-viewer-loading = Loading PDF document...
+pdf-viewer-error-title = Couldn't load PDF
+pdf-viewer-error-go-back = Go back
+pdf-viewer-error-no-source = No PDF source provided
+pdf-viewer-error-failed = Couldn't load PDF
+pdf-viewer-error-failed-with-reason = Couldn't load PDF: { $reason }
+pdf-viewer-error-unknown = Unknown error

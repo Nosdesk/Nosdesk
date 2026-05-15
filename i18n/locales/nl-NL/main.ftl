@@ -2085,3 +2085,31 @@ csv-import-error-failed = Import mislukt
 csv-import-error-generic = Kon gegevens niet importeren
 csv-import-success-completed = Import succesvol voltooid
 csv-import-toast-template-downloaded = Sjabloon { $type } gedownload
+
+# Error page (ErrorView)
+error-page-default-code = 404
+error-page-default-message = Pagina niet gevonden
+error-page-description = De pagina die je zoekt bestaat niet, of je hebt er mogelijk geen toegang toe.
+error-page-go-back = Terug
+error-page-go-home = Naar dashboard
+error-page-debug-title = Debug-instellingen (druk op 'd' om te wisselen)
+error-page-debug-master-toggle = Hoofdschakelaar effecten
+error-page-debug-global-intensity = Algemene intensiteit
+error-page-debug-channel-separation = Kanaalscheiding
+error-page-debug-distortion-scale = Vervormingsschaal
+error-page-debug-glitch-frequency = Glitch-frequentie
+error-page-debug-glitch-intensity = Glitch-intensiteit
+error-page-debug-cursor-influence = Cursorinvloed
+
+# PDF viewer (PDFViewerView)
+pdf-viewer-default-filename = Document
+pdf-viewer-back = Terug
+pdf-viewer-share = Delen
+pdf-viewer-share-tooltip = Link naar klembord kopiëren
+pdf-viewer-loading = PDF-document laden...
+pdf-viewer-error-title = Kan PDF niet laden
+pdf-viewer-error-go-back = Terug
+pdf-viewer-error-no-source = Geen PDF-bron opgegeven
+pdf-viewer-error-failed = Kan PDF niet laden
+pdf-viewer-error-failed-with-reason = Kan PDF niet laden: { $reason }
+pdf-viewer-error-unknown = Onbekende fout
