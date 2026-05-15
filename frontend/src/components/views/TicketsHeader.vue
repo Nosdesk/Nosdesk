@@ -356,7 +356,7 @@ defineExpose({ openAddFilter })
       <div
         class="hidden md:inline-flex items-center rounded-md border border-subtle overflow-hidden h-7"
         role="group"
-        aria-label="Row density"
+        :aria-label="$t('ticket-list-row-density-aria')"
       >
         <button
           v-for="opt in densityOptions"
@@ -441,7 +441,7 @@ defineExpose({ openAddFilter })
       <button
         type="button"
         class="text-[11px] text-tertiary hover:text-primary px-2 h-6 rounded-md hover:bg-surface-hover transition-colors"
-        title="Save current state as a private view"
+        :title="$t('ticket-list-save-view-title')"
         @click="emit('save-as-view')"
       >
         Save as view

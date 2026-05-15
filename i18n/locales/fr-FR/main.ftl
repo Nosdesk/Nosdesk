@@ -208,6 +208,51 @@ user-menu-administration = Administration
 user-menu-sign-out = Se déconnecter
 user-menu-guest-name = Invité
 
+# Tickets — états vides + barre d'actions groupées.
+ticket-list-empty-no-assigned-message = Aucun ticket ne vous est assigné.
+ticket-list-empty-showing-all-active = Affichage de tous les tickets actifs à la place.
+ticket-list-empty-no-match-title = Aucun ticket ne correspond.
+ticket-list-empty-no-match-description = Retirez des filtres pour en voir plus.
+ticket-list-empty-triage-clear-title = Triage terminé.
+ticket-list-empty-triage-clear-description = Les nouveaux tickets à catégoriser apparaîtront ici.
+ticket-list-empty-all-caught-up-title = Tout est à jour.
+ticket-list-empty-all-caught-up-description = Aucun ticket ouvert ne vous est assigné.
+ticket-list-empty-no-active-title = Aucun ticket actif.
+ticket-list-empty-no-active-description = Tous les tickets sont résolus ou annulés.
+ticket-list-empty-no-in-view-title = Aucun ticket dans cette vue.
+ticket-list-empty-no-in-view-description = Ajustez le filtre ou choisissez une autre vue.
+ticket-list-bulk-actions-aria = Actions groupées
+ticket-list-bulk-status = Statut
+ticket-list-bulk-priority = Priorité
+ticket-list-bulk-assign = Assigner
+ticket-list-bulk-clear-title = Effacer la sélection (Échap)
+ticket-list-bulk-clear = Effacer
+ticket-list-row-density-aria = Densité des lignes
+ticket-list-save-view-title = Enregistrer l'état actuel comme vue privée
+ticket-list-recurring-title = Ticket récurrent
+ticket-list-sla-breached-title = SLA dépassée
+
+# Détail du ticket.
+ticket-detail-reconnecting-title = Reconnexion aux mises à jour en direct
+ticket-detail-connecting = Connexion...
+ticket-detail-more-actions = Plus d'actions
+ticket-detail-section-details = Détails du ticket
+ticket-detail-section-notes = Notes du ticket
+ticket-detail-section-comments = Commentaires et pièces jointes
+ticket-detail-prop-title = Titre
+ticket-detail-prop-requester = Demandeur
+ticket-detail-prop-assignee = Assigné à
+ticket-detail-prop-status = Statut
+ticket-detail-prop-priority = Priorité
+ticket-detail-prop-category = Catégorie
+ticket-detail-prop-created = Créé
+ticket-detail-prop-last-modified = Dernière modification
+ticket-detail-delete-title = Supprimer le ticket
+ticket-detail-delete-confirm-heading = Supprimer ce ticket ?
+ticket-detail-delete-confirm-body = Cette action est irréversible. Le ticket et son historique seront supprimés.
+ticket-detail-delete-cancel = Annuler
+ticket-detail-delete-confirm = Supprimer
+
 # Settings.
 settings-localization-title = Langue et fuseau horaire
 settings-localization-help = Détermine la langue des messages et l'affichage des dates. La valeur par défaut du site s'applique si rien n'est sélectionné.

@@ -500,10 +500,10 @@ useCreateTicketAction();
                             <div
                                 v-if="!isConnected"
                                 class="flex items-center gap-2"
-                                title="Reconnecting to live updates"
+                                :title="$t('ticket-detail-reconnecting-title')"
                             >
                                 <div class="w-2 h-2 rounded-full bg-status-warning animate-pulse"></div>
-                                <span class="text-secondary">Connecting...</span>
+                                <span class="text-secondary">{{ $t('ticket-detail-connecting') }}</span>
                             </div>
                             <PresenceStack :viewers="otherViewers" />
                         </div>
@@ -519,8 +519,8 @@ useCreateTicketAction();
                     class="inline-flex items-center justify-center w-8 h-8 rounded-md text-tertiary hover:text-primary hover:bg-surface-hover transition-colors cursor-pointer"
                     :aria-expanded="overflowMenuOpen"
                     aria-haspopup="menu"
-                    title="More actions"
-                    aria-label="More actions"
+                    :title="$t('ticket-detail-more-actions')"
+                    :aria-label="$t('ticket-detail-more-actions')"
                     @click="overflowMenuOpen = !overflowMenuOpen"
                 >
                     <Icon name="more" class="w-5 h-5" />
@@ -550,12 +550,12 @@ useCreateTicketAction();
 
                         <!-- Skeleton: Details -->
                         <SectionCard v-if="!ticket" content-padding="p-3">
-                            <template #title>Ticket Details</template>
+                            <template #title>{{ $t('ticket-detail-section-details') }}</template>
                             <!-- Content (matches TicketDetails inner layout) -->
                             <div class="flex flex-col gap-3">
                                 <!-- Title -->
                                 <div class="flex flex-col gap-1.5">
-                                    <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Title</h3>
+                                    <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('ticket-detail-prop-title') }}</h3>
                                     <div class="bg-surface-alt rounded-lg border border-subtle min-h-[1.75rem] px-2 py-1">
                                         <div class="h-4 w-3/4 bg-surface-hover rounded animate-pulse"></div>
                                     </div>
@@ -563,14 +563,14 @@ useCreateTicketAction();
                                 <!-- Requester / Assignee -->
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div class="flex flex-col gap-1.5">
-                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Requester</h3>
+                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('ticket-detail-prop-requester') }}</h3>
                                         <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-2.5 sm:px-3">
                                             <div class="w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-surface-hover animate-pulse shrink-0"></div>
                                             <div class="h-4 w-20 bg-surface-hover rounded animate-pulse ml-2"></div>
                                         </div>
                                     </div>
                                     <div class="flex flex-col gap-1.5">
-                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Assignee</h3>
+                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('ticket-detail-prop-assignee') }}</h3>
                                         <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-2.5 sm:px-3">
                                             <div class="w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-surface-hover animate-pulse shrink-0"></div>
                                             <div class="h-4 w-20 bg-surface-hover rounded animate-pulse ml-2"></div>
@@ -580,13 +580,13 @@ useCreateTicketAction();
                                 <!-- Status / Priority -->
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div class="flex flex-col gap-1.5">
-                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Status</h3>
+                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('ticket-detail-prop-status') }}</h3>
                                         <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-3">
                                             <div class="h-4 w-16 bg-surface-hover rounded animate-pulse"></div>
                                         </div>
                                     </div>
                                     <div class="flex flex-col gap-1.5">
-                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Priority</h3>
+                                        <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('ticket-detail-prop-priority') }}</h3>
                                         <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-3">
                                             <div class="h-4 w-16 bg-surface-hover rounded animate-pulse"></div>
                                         </div>
@@ -594,7 +594,7 @@ useCreateTicketAction();
                                 </div>
                                 <!-- Category -->
                                 <div class="flex flex-col gap-1.5">
-                                    <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">Category</h3>
+                                    <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('ticket-detail-prop-category') }}</h3>
                                     <div class="bg-surface-alt rounded-lg border border-subtle min-h-[44px] sm:min-h-[40px] flex items-center px-3">
                                         <div class="h-4 w-24 bg-surface-hover rounded animate-pulse"></div>
                                     </div>
@@ -603,11 +603,11 @@ useCreateTicketAction();
                                 <div class="pt-2 border-t border-default">
                                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <div class="flex flex-col gap-1">
-                                            <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Created</span>
+                                            <span class="text-xs text-tertiary uppercase tracking-wide font-medium">{{ $t('ticket-detail-prop-created') }}</span>
                                             <div class="h-5 w-28 bg-surface-hover rounded animate-pulse"></div>
                                         </div>
                                         <div class="flex flex-col gap-1">
-                                            <span class="text-xs text-tertiary uppercase tracking-wide font-medium">Last Modified</span>
+                                            <span class="text-xs text-tertiary uppercase tracking-wide font-medium">{{ $t('ticket-detail-prop-last-modified') }}</span>
                                             <div class="h-5 w-28 bg-surface-hover rounded animate-pulse"></div>
                                         </div>
                                     </div>
@@ -693,7 +693,7 @@ useCreateTicketAction();
                         <!-- Skeleton: Article (matches CollaborativeTicketArticle) -->
                         <div v-if="!ticket" class="ticket-article rounded-xl print:hidden">
                             <SectionCard content-padding="p-4">
-                                <template #title>Ticket Notes</template>
+                                <template #title>{{ $t('ticket-detail-section-notes') }}</template>
                                 <template #headerActions>
                                     <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
                                     <div class="w-5 h-5 rounded bg-surface-hover animate-pulse"></div>
@@ -729,7 +729,7 @@ useCreateTicketAction();
                         <!-- Skeleton: Comments (matches CommentsAndAttachments / SectionCard) -->
                         <div v-if="!ticket" class="ticket-comments rounded-xl print:hidden">
                             <SectionCard content-padding="p-3">
-                                <template #title>Comments and Attachments</template>
+                                <template #title>{{ $t('ticket-detail-section-comments') }}</template>
                                 <!-- Content -->
                                 <div class="flex flex-col gap-3">
                                     <!-- Comment input (matches SimpleEditor min-height: 60px) -->
@@ -822,7 +822,7 @@ useCreateTicketAction();
                  action behind an explicit confirm gesture. -->
             <Modal
                 :show="showDeleteConfirm"
-                title="Delete ticket"
+                :title="$t('ticket-detail-delete-title')"
                 @close="showDeleteConfirm = false"
             >
                 <div class="flex flex-col items-center gap-4">
@@ -843,9 +843,9 @@ useCreateTicketAction();
                             />
                         </svg>
                     </div>
-                    <h3 class="text-2xl font-medium text-primary mb-2">Delete this ticket?</h3>
+                    <h3 class="text-2xl font-medium text-primary mb-2">{{ $t('ticket-detail-delete-confirm-heading') }}</h3>
                     <p class="text-base text-secondary mb-6">
-                        This action cannot be undone. The ticket and its history will be removed.
+                        {{ $t('ticket-detail-delete-confirm-body') }}
                     </p>
                     <div class="flex justify-center gap-4">
                         <button
@@ -853,14 +853,14 @@ useCreateTicketAction();
                             class="px-4 py-2 bg-surface text-primary rounded-lg hover:bg-surface-hover transition-colors"
                             @click="showDeleteConfirm = false"
                         >
-                            Cancel
+                            {{ $t('ticket-detail-delete-cancel') }}
                         </button>
                         <button
                             type="button"
                             class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors"
                             @click="confirmDeleteTicket"
                         >
-                            Delete
+                            {{ $t('ticket-detail-delete-confirm') }}
                         </button>
                     </div>
                 </div>

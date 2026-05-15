@@ -231,6 +231,51 @@ user-menu-administration = Administration
 user-menu-sign-out = Sign out
 user-menu-guest-name = Guest
 
+# en-AU keeps the same wording as en-GB for tickets — the
+# empty-state copy is already terse and reads fine in AU register.
+ticket-list-empty-no-assigned-message = No tickets assigned to you.
+ticket-list-empty-showing-all-active = Showing all active tickets instead.
+ticket-list-empty-no-match-title = No tickets match.
+ticket-list-empty-no-match-description = Remove some filters to see more.
+ticket-list-empty-triage-clear-title = Triage is clear.
+ticket-list-empty-triage-clear-description = New tickets awaiting categorisation will appear here.
+ticket-list-empty-all-caught-up-title = All sorted.
+ticket-list-empty-all-caught-up-description = You have no open tickets assigned to you.
+ticket-list-empty-no-active-title = No active tickets.
+ticket-list-empty-no-active-description = Every ticket has been resolved or cancelled.
+ticket-list-empty-no-in-view-title = No tickets in this view.
+ticket-list-empty-no-in-view-description = Adjust the view filter or pick a different view.
+ticket-list-bulk-actions-aria = Bulk actions
+ticket-list-bulk-status = Status
+ticket-list-bulk-priority = Priority
+ticket-list-bulk-assign = Assign
+ticket-list-bulk-clear-title = Clear selection (Esc)
+ticket-list-bulk-clear = Clear
+ticket-list-row-density-aria = Row density
+ticket-list-save-view-title = Save current state as a private view
+ticket-list-recurring-title = Recurring ticket
+ticket-list-sla-breached-title = SLA breached
+
+ticket-detail-reconnecting-title = Reconnecting to live updates
+ticket-detail-connecting = Connecting...
+ticket-detail-more-actions = More actions
+ticket-detail-section-details = Ticket Details
+ticket-detail-section-notes = Ticket Notes
+ticket-detail-section-comments = Comments and Attachments
+ticket-detail-prop-title = Title
+ticket-detail-prop-requester = Requester
+ticket-detail-prop-assignee = Assignee
+ticket-detail-prop-status = Status
+ticket-detail-prop-priority = Priority
+ticket-detail-prop-category = Category
+ticket-detail-prop-created = Created
+ticket-detail-prop-last-modified = Last Modified
+ticket-detail-delete-title = Delete ticket
+ticket-detail-delete-confirm-heading = Delete this ticket?
+ticket-detail-delete-confirm-body = This can't be undone. The ticket and its history will be removed.
+ticket-detail-delete-cancel = Cancel
+ticket-detail-delete-confirm = Delete
+
 # en-AU diverges from en-US on a couple of words ("Timezone" stays
 # the same; the help copy nudges to AU phrasing). The Save button
 # label is slightly different to make the locale flip visibly

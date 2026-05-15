@@ -149,7 +149,7 @@ function onAssignSelect(user: { uuid: string }): void {
       v-if="selectedCount > 0"
       class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface border border-default shadow-xl"
       role="region"
-      aria-label="Bulk actions"
+      :aria-label="$t('ticket-list-bulk-actions-aria')"
     >
       <!-- Selection count: also acts as the "you're in bulk
            mode" anchor copy. Linear style: count + small
@@ -170,7 +170,7 @@ function onAssignSelect(user: { uuid: string }): void {
         @click="statusOpen = !statusOpen"
       >
         <Icon name="circleDot" class="w-3.5 h-3.5" />
-        <span>Status</span>
+        <span>{{ $t('ticket-list-bulk-status') }}</span>
         <Icon name="chevronDown" class="w-3 h-3 text-tertiary" />
       </button>
       <Popover
@@ -218,7 +218,7 @@ function onAssignSelect(user: { uuid: string }): void {
         @click="priorityOpen = !priorityOpen"
       >
         <Icon name="info" class="w-3.5 h-3.5" />
-        <span>Priority</span>
+        <span>{{ $t('ticket-list-bulk-priority') }}</span>
         <Icon name="chevronDown" class="w-3 h-3 text-tertiary" />
       </button>
       <Popover
@@ -256,7 +256,7 @@ function onAssignSelect(user: { uuid: string }): void {
         @click="showAssignModal = true"
       >
         <Icon name="user" class="w-3.5 h-3.5" />
-        <span>Assign</span>
+        <span>{{ $t('ticket-list-bulk-assign') }}</span>
       </button>
 
       <span class="h-4 w-px bg-default mx-1" aria-hidden="true" />
@@ -264,11 +264,11 @@ function onAssignSelect(user: { uuid: string }): void {
       <button
         type="button"
         class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-tertiary hover:text-primary hover:bg-surface-hover transition-colors"
-        title="Clear selection (Esc)"
+        :title="$t('ticket-list-bulk-clear-title')"
         @click="emit('clear')"
       >
         <Icon name="close" class="w-3.5 h-3.5" />
-        <span>Clear</span>
+        <span>{{ $t('ticket-list-bulk-clear') }}</span>
       </button>
     </div>
   </Transition>

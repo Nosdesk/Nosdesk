@@ -205,6 +205,51 @@ user-menu-administration = Beheer
 user-menu-sign-out = Afmelden
 user-menu-guest-name = Gast
 
+# Tickets — lege staten + bulkactiebalk.
+ticket-list-empty-no-assigned-message = Geen tickets aan u toegewezen.
+ticket-list-empty-showing-all-active = Alle actieve tickets worden weergegeven.
+ticket-list-empty-no-match-title = Geen tickets gevonden.
+ticket-list-empty-no-match-description = Verwijder filters om meer te zien.
+ticket-list-empty-triage-clear-title = Triage afgerond.
+ticket-list-empty-triage-clear-description = Nieuwe tickets die nog ingedeeld moeten worden, verschijnen hier.
+ticket-list-empty-all-caught-up-title = Alles bijgewerkt.
+ticket-list-empty-all-caught-up-description = Geen open tickets aan u toegewezen.
+ticket-list-empty-no-active-title = Geen actieve tickets.
+ticket-list-empty-no-active-description = Elk ticket is opgelost of geannuleerd.
+ticket-list-empty-no-in-view-title = Geen tickets in deze weergave.
+ticket-list-empty-no-in-view-description = Pas het filter aan of kies een andere weergave.
+ticket-list-bulk-actions-aria = Bulkacties
+ticket-list-bulk-status = Status
+ticket-list-bulk-priority = Prioriteit
+ticket-list-bulk-assign = Toewijzen
+ticket-list-bulk-clear-title = Selectie wissen (Esc)
+ticket-list-bulk-clear = Wissen
+ticket-list-row-density-aria = Rijdichtheid
+ticket-list-save-view-title = Huidige status opslaan als privéweergave
+ticket-list-recurring-title = Terugkerend ticket
+ticket-list-sla-breached-title = SLA overschreden
+
+# Ticketdetails.
+ticket-detail-reconnecting-title = Opnieuw verbinden met live updates
+ticket-detail-connecting = Verbinden...
+ticket-detail-more-actions = Meer acties
+ticket-detail-section-details = Ticketdetails
+ticket-detail-section-notes = Ticketnotities
+ticket-detail-section-comments = Reacties en bijlagen
+ticket-detail-prop-title = Titel
+ticket-detail-prop-requester = Aanvrager
+ticket-detail-prop-assignee = Toegewezen aan
+ticket-detail-prop-status = Status
+ticket-detail-prop-priority = Prioriteit
+ticket-detail-prop-category = Categorie
+ticket-detail-prop-created = Aangemaakt
+ticket-detail-prop-last-modified = Laatst gewijzigd
+ticket-detail-delete-title = Ticket verwijderen
+ticket-detail-delete-confirm-heading = Dit ticket verwijderen?
+ticket-detail-delete-confirm-body = Dit kan niet ongedaan worden gemaakt. Het ticket en de geschiedenis worden verwijderd.
+ticket-detail-delete-cancel = Annuleren
+ticket-detail-delete-confirm = Verwijderen
+
 # Settings.
 settings-localization-title = Taal en tijdzone
 settings-localization-help = Bepaalt de taal van berichten en hoe datums worden weergegeven. De siteinstelling wordt gebruikt als u niets selecteert.

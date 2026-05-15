@@ -635,8 +635,8 @@ function startPaneResize(event: PointerEvent): void {
       v-if="fallThroughActive"
       class="px-4 py-2 text-xs text-secondary bg-surface-alt border-b border-default flex items-center gap-2"
     >
-      <span class="font-medium text-primary">No tickets assigned to you.</span>
-      <span>Showing all active tickets instead.</span>
+      <span class="font-medium text-primary">{{ $t('ticket-list-empty-no-assigned-message') }}</span>
+      <span>{{ $t('ticket-list-empty-showing-all-active') }}</span>
     </div>
 
     <div
@@ -667,24 +667,24 @@ function startPaneResize(event: PointerEvent): void {
       class="flex-1 flex flex-col items-center justify-center text-tertiary text-sm gap-1"
     >
       <template v-if="filters.activeFacets.value.length > 0">
-        <p class="font-medium text-primary">No tickets match.</p>
-        <p class="text-xs">Remove some filters to see more.</p>
+        <p class="font-medium text-primary">{{ $t('ticket-list-empty-no-match-title') }}</p>
+        <p class="text-xs">{{ $t('ticket-list-empty-no-match-description') }}</p>
       </template>
       <template v-else-if="activeView.id === 'triage'">
-        <p class="font-medium text-primary">Triage is clear.</p>
-        <p class="text-xs">New tickets awaiting categorisation will appear here.</p>
+        <p class="font-medium text-primary">{{ $t('ticket-list-empty-triage-clear-title') }}</p>
+        <p class="text-xs">{{ $t('ticket-list-empty-triage-clear-description') }}</p>
       </template>
       <template v-else-if="activeView.id === MY_OPEN_VIEW.id">
-        <p class="font-medium text-primary">All caught up.</p>
-        <p class="text-xs">You have no open tickets assigned to you.</p>
+        <p class="font-medium text-primary">{{ $t('ticket-list-empty-all-caught-up-title') }}</p>
+        <p class="text-xs">{{ $t('ticket-list-empty-all-caught-up-description') }}</p>
       </template>
       <template v-else-if="activeView.id === ALL_ACTIVE_VIEW.id">
-        <p class="font-medium text-primary">No active tickets.</p>
-        <p class="text-xs">Every ticket has been resolved or cancelled.</p>
+        <p class="font-medium text-primary">{{ $t('ticket-list-empty-no-active-title') }}</p>
+        <p class="text-xs">{{ $t('ticket-list-empty-no-active-description') }}</p>
       </template>
       <template v-else>
-        <p class="font-medium text-primary">No tickets in this view.</p>
-        <p class="text-xs">Adjust the view filter or pick a different view.</p>
+        <p class="font-medium text-primary">{{ $t('ticket-list-empty-no-in-view-title') }}</p>
+        <p class="text-xs">{{ $t('ticket-list-empty-no-in-view-description') }}</p>
       </template>
     </div>
 

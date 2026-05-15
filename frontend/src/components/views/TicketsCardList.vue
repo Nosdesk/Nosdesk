@@ -93,7 +93,7 @@ function onRowClick(id: number): void {
             <span
               v-if="card.recurrence_rule"
               class="text-tertiary text-xs leading-none shrink-0"
-              title="Recurring ticket"
+              :title="$t('ticket-list-recurring-title')"
             >↻</span>
             <span
               class="truncate font-medium text-sm text-primary"
@@ -102,7 +102,7 @@ function onRowClick(id: number): void {
             <span
               v-if="card.sla?.breached"
               class="ml-auto text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
-              title="SLA breached"
+              :title="$t('ticket-list-sla-breached-title')"
             >SLA</span>
           </div>
 
