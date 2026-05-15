@@ -2,8 +2,8 @@
   <div class="flex-1">
     <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div>
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Search Index Management</h1>
-        <p class="text-secondary mt-1">Manage the full-text search index for tickets, documentation, devices, and users.</p>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-search-mgmt-title') }}</h1>
+        <p class="text-secondary mt-1">{{ $t('admin-search-mgmt-description') }}</p>
       </div>
 
       <!-- Index Statistics -->
@@ -15,7 +15,7 @@
               <Icon name="insights" size="md" />
             </div>
             <div class="flex-1">
-              <span class="font-medium text-primary">Index Statistics</span>
+              <span class="font-medium text-primary">{{ $t('admin-search-mgmt-stats-title') }}</span>
             </div>
             <button
               @click="fetchStats"
@@ -24,7 +24,7 @@
             >
               <Spinner v-if="isLoadingStats" />
               <Icon v-else name="refresh" />
-              Refresh
+              {{ $t('admin-search-mgmt-refresh') }}
             </button>
           </div>
 
@@ -32,28 +32,28 @@
           <div v-if="stats" class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
             <div class="bg-surface-alt rounded-lg p-3">
               <div class="text-2xl font-bold text-primary">{{ stats.total_documents.toLocaleString() }}</div>
-              <div class="text-xs text-secondary">Total Documents</div>
+              <div class="text-xs text-secondary">{{ $t('admin-search-mgmt-total-documents') }}</div>
             </div>
             <div class="bg-surface-alt rounded-lg p-3">
               <div class="text-2xl font-bold text-primary">{{ formatBytes(stats.index_size_bytes) }}</div>
-              <div class="text-xs text-secondary">Index Size</div>
+              <div class="text-xs text-secondary">{{ $t('admin-search-mgmt-index-size') }}</div>
             </div>
             <div class="bg-surface-alt rounded-lg p-3">
               <div class="flex items-center gap-2">
                 <div v-if="stats.is_rebuilding" class="flex items-center gap-1.5 text-status-warning">
                   <Spinner size="md" />
-                  <span class="text-lg font-bold">Rebuilding</span>
+                  <span class="text-lg font-bold">{{ $t('admin-search-mgmt-status-rebuilding') }}</span>
                 </div>
                 <div v-else class="flex items-center gap-1.5 text-status-success">
                   <Icon name="checkCircle" size="md" />
-                  <span class="text-lg font-bold">Ready</span>
+                  <span class="text-lg font-bold">{{ $t('admin-search-mgmt-status-ready') }}</span>
                 </div>
               </div>
-              <div class="text-xs text-secondary">Status</div>
+              <div class="text-xs text-secondary">{{ $t('admin-search-mgmt-status') }}</div>
             </div>
             <div class="bg-surface-alt rounded-lg p-3">
               <div class="text-2xl font-bold text-primary">{{ Object.keys(stats.by_type).length || 6 }}</div>
-              <div class="text-xs text-secondary">Entity Types</div>
+              <div class="text-xs text-secondary">{{ $t('admin-search-mgmt-entity-types') }}</div>
             </div>
           </div>
 
@@ -78,7 +78,7 @@
               <Icon name="refresh" size="md" />
             </div>
             <div class="flex-1">
-              <span class="font-medium text-primary">Rebuild Search Index</span>
+              <span class="font-medium text-primary">{{ $t('admin-search-mgmt-rebuild-title') }}</span>
             </div>
             <button
               @click="rebuildIndex"
@@ -87,13 +87,13 @@
             >
               <Spinner v-if="isRebuilding" />
               <Icon v-else name="refresh" />
-              {{ isRebuilding ? 'Rebuilding...' : 'Rebuild Index' }}
+              {{ isRebuilding ? $t('admin-search-mgmt-rebuilding') : $t('admin-search-mgmt-rebuild') }}
             </button>
           </div>
 
           <!-- Description -->
           <p class="text-secondary text-sm">
-            Rebuilds the entire search index from the database. This will re-index all tickets, comments, documentation pages, attachments, devices, and users. Use this if search results are missing or outdated.
+            {{ $t('admin-search-mgmt-rebuild-description') }}
           </p>
         </div>
 
@@ -103,18 +103,18 @@
             <Icon v-if="rebuildResults.success" name="checkCircle" class="text-status-success" />
             <Icon v-else name="warning" class="text-status-error" />
             <span class="text-sm font-medium" :class="rebuildResults.success ? 'text-status-success' : 'text-status-error'">
-              {{ rebuildResults.success ? 'Index Rebuilt Successfully' : 'Rebuild Failed' }}
+              {{ rebuildResults.success ? $t('admin-search-mgmt-rebuild-success') : $t('admin-search-mgmt-rebuild-failed') }}
             </span>
           </div>
 
           <div v-if="rebuildResults.success && rebuildResults.stats" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-sm">
-            <div><span class="text-tertiary">Tickets:</span> <span class="text-primary font-medium">{{ rebuildResults.stats.tickets.toLocaleString() }}</span></div>
-            <div><span class="text-tertiary">Comments:</span> <span class="text-primary font-medium">{{ rebuildResults.stats.comments.toLocaleString() }}</span></div>
-            <div><span class="text-tertiary">Docs:</span> <span class="text-primary font-medium">{{ rebuildResults.stats.documentation.toLocaleString() }}</span></div>
-            <div><span class="text-tertiary">Attachments:</span> <span class="text-primary font-medium">{{ rebuildResults.stats.attachments.toLocaleString() }}</span></div>
-            <div><span class="text-tertiary">Devices:</span> <span class="text-primary font-medium">{{ rebuildResults.stats.devices.toLocaleString() }}</span></div>
-            <div><span class="text-tertiary">Users:</span> <span class="text-primary font-medium">{{ rebuildResults.stats.users.toLocaleString() }}</span></div>
-            <div><span class="text-tertiary">Total:</span> <span class="text-accent font-bold">{{ rebuildResults.stats.total.toLocaleString() }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-tickets') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.tickets.toLocaleString() }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-comments') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.comments.toLocaleString() }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-docs') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.documentation.toLocaleString() }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-attachments') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.attachments.toLocaleString() }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-devices') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.devices.toLocaleString() }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-users') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.users.toLocaleString() }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-total') }}</span> <span class="text-accent font-bold">{{ rebuildResults.stats.total.toLocaleString() }}</span></div>
           </div>
 
           <div v-if="!rebuildResults.success" class="text-sm text-status-error">
@@ -128,9 +128,9 @@
     <ConfirmModal
       :show="showRebuildConfirm"
       variant="info"
-      title="Rebuild the search index?"
-      message="This may take a few moments depending on the amount of data."
-      confirm-label="Rebuild"
+      :title="$t('admin-search-mgmt-rebuild-confirm-title')"
+      :message="$t('admin-search-mgmt-rebuild-confirm-message')"
+      :confirm-label="$t('admin-search-mgmt-rebuild-confirm-label')"
       @confirm="doRebuildIndex"
       @close="showRebuildConfirm = false"
     />
@@ -141,6 +141,7 @@
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 
 import { searchService } from '@/services/searchService'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -150,6 +151,8 @@ import type { IndexStats, RebuildResponse } from '@/types/search'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
 
 
 // Stats state
@@ -179,7 +182,7 @@ const fetchStats = async () => {
     stats.value = await searchService.getStats()
   } catch (error) {
     console.error('Error fetching search stats:', error)
-    statsError.value = 'Failed to fetch search index statistics'
+    statsError.value = t('admin-search-mgmt-stats-error')
   } finally {
     isLoadingStats.value = false
   }
@@ -206,7 +209,7 @@ const doRebuildIndex = async () => {
     console.error('Error rebuilding search index:', error)
     rebuildResults.value = {
       success: false,
-      message: 'An unexpected error occurred while rebuilding the index',
+      message: t('admin-search-mgmt-rebuild-error-unexpected'),
       stats: { tickets: 0, comments: 0, documentation: 0, attachments: 0, devices: 0, users: 0, total: 0 }
     }
   } finally {

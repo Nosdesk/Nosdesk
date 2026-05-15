@@ -2,7 +2,7 @@
   <div class="flex-1">
     <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div>
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">System Settings</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-system-title') }}</h1>
       </div>
 
       <!-- System Information Section -->
@@ -20,7 +20,7 @@
 
             <!-- Title -->
             <div class="flex-1">
-              <span class="font-medium text-primary">Storage Management</span>
+              <span class="font-medium text-primary">{{ $t('admin-system-storage-title') }}</span>
             </div>
 
             <!-- Action button -->
@@ -31,13 +31,13 @@
             >
               <Spinner v-if="isCleaningUp" />
               <Icon v-else name="trash" />
-              {{ isCleaningUp ? 'Cleaning...' : 'Clean Up' }}
+              {{ isCleaningUp ? $t('admin-system-storage-cleaning') : $t('admin-system-storage-clean') }}
             </button>
           </div>
 
           <!-- Description -->
           <p class="text-secondary text-sm">
-            Remove old user profile images and avatars that are no longer needed to free up disk space.
+            {{ $t('admin-system-storage-description') }}
           </p>
         </div>
 
@@ -47,23 +47,23 @@
             <Icon v-if="cleanupResults.success" name="checkCircle" class="text-status-success" />
             <Icon v-else name="warning" class="text-status-error" />
             <span class="text-sm font-medium" :class="cleanupResults.success ? 'text-status-success' : 'text-status-error'">
-              {{ cleanupResults.success ? 'Cleanup Completed' : 'Cleanup Failed' }}
+              {{ cleanupResults.success ? $t('admin-system-cleanup-success') : $t('admin-system-cleanup-failed') }}
             </span>
           </div>
 
           <div v-if="cleanupResults.success && cleanupResults.stats" class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-sm">
-            <div><span class="text-tertiary">Avatars:</span> <span class="text-primary">{{ cleanupResults.stats.avatars_removed }}</span></div>
-            <div><span class="text-tertiary">Banners:</span> <span class="text-primary">{{ cleanupResults.stats.banners_removed }}</span></div>
-            <div><span class="text-tertiary">Thumbnails:</span> <span class="text-primary">{{ cleanupResults.stats.thumbnails_removed || 0 }}</span></div>
-            <div><span class="text-tertiary">Checked:</span> <span class="text-primary">{{ cleanupResults.stats.total_files_checked }}</span></div>
-            <div><span class="text-tertiary">Errors:</span> <span :class="(cleanupResults.stats?.errors?.length ?? 0) > 0 ? 'text-status-warning' : 'text-primary'">{{ cleanupResults.stats?.errors?.length ?? 0 }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-system-cleanup-stat-avatars') }}</span> <span class="text-primary">{{ cleanupResults.stats.avatars_removed }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-system-cleanup-stat-banners') }}</span> <span class="text-primary">{{ cleanupResults.stats.banners_removed }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-system-cleanup-stat-thumbnails') }}</span> <span class="text-primary">{{ cleanupResults.stats.thumbnails_removed || 0 }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-system-cleanup-stat-checked') }}</span> <span class="text-primary">{{ cleanupResults.stats.total_files_checked }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-system-cleanup-stat-errors') }}</span> <span :class="(cleanupResults.stats?.errors?.length ?? 0) > 0 ? 'text-status-warning' : 'text-primary'">{{ cleanupResults.stats?.errors?.length ?? 0 }}</span></div>
           </div>
 
           <!-- Show errors if any -->
           <div v-if="cleanupResults.success && (cleanupResults.stats?.errors?.length ?? 0) > 0" class="mt-3">
             <details class="text-sm">
               <summary class="cursor-pointer text-status-warning hover:text-status-warning/80">
-                View Errors ({{ cleanupResults.stats?.errors?.length ?? 0 }})
+                {{ $t('admin-system-cleanup-view-errors', { count: cleanupResults.stats?.errors?.length ?? 0 }) }}
               </summary>
               <div class="mt-2 pl-4 border-l-2 border-status-warning/50 text-secondary">
                 <div v-for="(error, index) in cleanupResults.stats?.errors ?? []" :key="index" class="mb-1">
@@ -83,9 +83,9 @@
     <ConfirmModal
       :show="showCleanupConfirm"
       variant="danger"
-      title="Clean up stale images?"
-      message="This action cannot be undone."
-      confirm-label="Clean up"
+      :title="$t('admin-system-storage-confirm-title')"
+      :message="$t('admin-system-storage-confirm-message')"
+      :confirm-label="$t('admin-system-storage-confirm-label')"
       @confirm="doCleanupStaleImages"
       @close="showCleanupConfirm = false"
     />
@@ -96,6 +96,7 @@
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 
 import SystemInfoCard from '@/components/admin/SystemInfoCard.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -105,6 +106,8 @@ import userService from '@/services/userService'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
 
 // Define types for cleanup results
 interface CleanupStats {
@@ -152,7 +155,7 @@ const doCleanupStaleImages = async () => {
     console.error('Error cleaning up stale images:', error)
     cleanupResults.value = {
       success: false,
-      message: 'An unexpected error occurred while cleaning up images'
+      message: t('admin-system-cleanup-error-unexpected')
     }
   } finally {
     isCleaningUp.value = false
