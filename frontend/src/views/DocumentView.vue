@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { formatDate } from '@/utils/dateUtils'
 import { docUrl, slugify } from '@/utils/docUrl'
 import { useTitleManager } from '@/composables/useTitleManager'
@@ -30,6 +31,8 @@ import { useDocumentationNavStore } from '@/stores/documentationNav'
 
 const route = useRoute()
 const router = useRouter()
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const titleManager = useTitleManager()
 const authStore = useAuthStore()
 const docNavStore = useDocumentationNavStore()
@@ -152,9 +155,9 @@ const fallbackRoute = computed(() => {
 
 const backButtonLabel = computed(() => {
   if (isTicketNote.value) {
-    return 'Back to Ticket'
+    return t('doc-detail-back-to-ticket')
   }
-  return 'Back to Documentation'
+  return t('doc-detail-back-to-documentation')
 })
 
 // Content update handler
@@ -254,25 +257,25 @@ const handleDeletePage = async () => {
 
   try {
     isSaving.value = true
-    saveMessage.value = 'Deleting document...'
+    saveMessage.value = t('doc-detail-toast-deleting')
     showSuccessMessage.value = true
 
     const success = await deletePage(document.value.id)
 
     if (success) {
-      saveMessage.value = 'Document deleted successfully'
+      saveMessage.value = t('doc-detail-toast-deleted')
       setTimeout(() => {
         router.push('/documentation')
       }, 1000)
     } else {
-      saveMessage.value = 'Error deleting document'
+      saveMessage.value = t('doc-detail-toast-delete-error')
       setTimeout(() => {
         showSuccessMessage.value = false
       }, 3000)
     }
   } catch (error) {
     console.error('Error deleting page:', error)
-    saveMessage.value = 'Error deleting document'
+    saveMessage.value = t('doc-detail-toast-delete-error')
     setTimeout(() => {
       showSuccessMessage.value = false
     }, 3000)
@@ -347,7 +350,7 @@ const handleDuplicatePage = async () => {
 
   try {
     const newPage = await documentationService.createArticle({
-      title: `${document.value.title} (copy)`,
+      title: t('doc-detail-duplicate-suffix', { title: document.value.title }),
       content: document.value.content || '',
       description: document.value.description || '',
       status: 'draft',
@@ -383,10 +386,10 @@ const fetchContent = async () => {
       if (ticket) {
         document.value = {
           id: `ticket-note-${ticketIdParam}`,
-          title: `Notes for Ticket #${ticket.id}`,
-          description: `Documentation for ticket ${ticket.title}`,
+          title: t('doc-detail-ticket-note-title', { id: ticket.id }),
+          description: t('doc-detail-ticket-note-description', { title: ticket.title }),
           content: ticket.article_content || '',
-          author: ticket.assignee || 'System',
+          author: ticket.assignee || t('doc-detail-ticket-note-author-system'),
           lastUpdated: ticket.modified,
           status: 'published',
           slug: '',
@@ -611,7 +614,7 @@ watch(documentObj, (newDocument) => {
         <!-- Saving indicator -->
         <span v-if="isSaving" class="text-accent flex items-center gap-1 text-xs">
           <Spinner size="xs" />
-          Saving...
+          {{ $t('doc-detail-saving') }}
         </span>
 
         <!-- Publish button for unpublished pages -->
@@ -621,7 +624,7 @@ watch(documentObj, (newDocument) => {
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
         >
           <Icon name="check" />
-          <span class="hidden sm:inline">Publish</span>
+          <span class="hidden sm:inline">{{ $t('doc-detail-publish') }}</span>
         </button>
 
         <!-- Star button -->
@@ -630,7 +633,7 @@ watch(documentObj, (newDocument) => {
           @click="isStarred ? handleUnstar() : handleStar()"
           class="p-1.5 rounded-md hover:bg-surface-hover transition-colors"
           :class="isStarred ? 'text-amber-500' : 'text-secondary hover:text-primary'"
-          :title="isStarred ? 'Unstar page' : 'Star page'"
+          :title="isStarred ? $t('doc-detail-unstar') : $t('doc-detail-star')"
         >
           <svg class="w-5 h-5" :fill="isStarred ? 'currentColor' : 'none'" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
@@ -642,7 +645,7 @@ watch(documentObj, (newDocument) => {
           v-if="isDocumentPage"
           @click="handleCopyLink"
           class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
-          :title="copiedLink ? 'Copied!' : 'Copy link'"
+          :title="copiedLink ? $t('doc-detail-copied') : $t('doc-detail-copy-link')"
         >
           <Icon v-if="!copiedLink" name="link" size="md" />
           <Icon v-else name="check" size="md" class="text-emerald-500" />
@@ -710,7 +713,7 @@ watch(documentObj, (newDocument) => {
                   @keydown.enter.prevent="($event.target as HTMLElement).blur()"
                   class="text-2xl sm:text-3xl font-bold text-primary break-words leading-tight tracking-tight outline-none focus:ring-1 focus:ring-accent/30 rounded px-1 -mx-1"
                 >
-                  {{ editTitle || document.title || 'Untitled' }}
+                  {{ editTitle || document.title || $t('doc-detail-untitled') }}
                 </h1>
               </div>
 
@@ -719,8 +722,8 @@ watch(documentObj, (newDocument) => {
                 <!-- Metadata -->
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-tertiary">
                   <!-- Status Badge -->
-                  <span v-if="document.status === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">Draft</span>
-                  <span v-else-if="document.status === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 font-medium">Archived</span>
+                  <span v-if="document.status === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">{{ $t('doc-detail-status-draft') }}</span>
+                  <span v-else-if="document.status === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 font-medium">{{ $t('doc-detail-status-archived') }}</span>
 
                   <!--
                     Verification status chip — sits next to the
@@ -735,21 +738,21 @@ watch(documentObj, (newDocument) => {
                     v-if="!isTicketNote && document.created_by && !document.verified_at"
                     type="button"
                     class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1"
-                    title="Verify this page"
+                    :title="$t('doc-detail-needs-verification-title')"
                     @click="verificationOpen = true"
                   >
                     <span class="w-1.5 h-1.5 rounded-full bg-accent" aria-hidden="true" />
-                    Needs verification
+                    {{ $t('doc-detail-needs-verification') }}
                   </button>
                   <button
                     v-else-if="!isTicketNote && document.is_stale"
                     type="button"
                     class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 transition-colors flex items-center gap-1 animate-pulse"
-                    title="Re-verify this page"
+                    :title="$t('doc-detail-verification-stale-title')"
                     @click="verificationOpen = true"
                   >
                     <Icon name="warning" size="xs" />
-                    Verification stale
+                    {{ $t('doc-detail-verification-stale') }}
                   </button>
 
                   <!-- Author + verification (consolidated). Inline
@@ -773,7 +776,7 @@ watch(documentObj, (newDocument) => {
                       'bg-status-warning animate-pulse': isConnecting && !isConnected,
                       'bg-status-error': !isConnected && !isConnecting,
                     }"
-                    :title="isConnected ? 'Live updates active' : isConnecting ? 'Connecting...' : 'Disconnected'"
+                    :title="isConnected ? $t('doc-detail-sse-live') : isConnecting ? $t('doc-detail-sse-connecting') : $t('doc-detail-sse-disconnected')"
                   ></div>
 
                   <!-- Last updated -->
@@ -790,10 +793,10 @@ watch(documentObj, (newDocument) => {
                     @click="toggleRevisionHistory"
                     class="px-3 py-1.5 text-xs rounded-md hover:bg-surface-hover transition-colors flex items-center gap-1.5 text-secondary hover:text-primary"
                     :class="{ 'bg-surface-alt text-primary': showRevisionHistory }"
-                    title="Revision history"
+                    :title="$t('doc-detail-history-title')"
                   >
                     <Icon name="clock" />
-                    <span>History</span>
+                    <span>{{ $t('doc-detail-history') }}</span>
                   </button>
                 </div>
               </div>
@@ -805,7 +808,7 @@ watch(documentObj, (newDocument) => {
               v-model="editContent"
               :doc-id="docId"
               :hide-revision-history="true"
-              placeholder="Enter documentation content here..."
+              :placeholder="$t('doc-detail-editor-placeholder')"
               @update:modelValue="updateContent"
               class="w-full flex-1 flex flex-col"
             />
@@ -858,10 +861,10 @@ watch(documentObj, (newDocument) => {
         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-tertiary mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <h2 class="text-xl font-semibold text-primary">Document not found</h2>
-        <p class="text-secondary max-w-md">The document you're looking for doesn't exist or has been moved.</p>
+        <h2 class="text-xl font-semibold text-primary">{{ $t('doc-detail-not-found-title') }}</h2>
+        <p class="text-secondary max-w-md">{{ $t('doc-detail-not-found-body') }}</p>
         <RouterLink to="/documentation" class="mt-4 text-accent hover:text-accent/80">
-          Go to Documentation Home
+          {{ $t('doc-detail-not-found-link') }}
         </RouterLink>
       </div>
     </div>

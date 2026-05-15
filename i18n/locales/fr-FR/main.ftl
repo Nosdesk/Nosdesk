@@ -1796,3 +1796,163 @@ cycle-detail-state-planned = Planifié
 cycle-detail-state-active = Actif
 cycle-detail-state-completed = Terminé
 
+# Documentation index (DocumentationIndexView): hub page listing
+# recently updated, starred, collections, and status chips.
+docs-index-title = Documentation
+docs-index-new-page = Nouvelle page
+docs-index-recently-updated = Récemment mises à jour
+docs-index-recently-updated-count = Dernières { $count }
+docs-index-no-recent-activity = Aucune activité récente.
+docs-index-starred = Favoris
+docs-index-starred-hint = Marquez une page comme favori depuis son menu pour y accéder rapidement.
+docs-index-browse-all = Parcourir toutes les pages
+docs-index-chip-drafts = { $count ->
+    [one] { $count } brouillon
+   *[other] { $count } brouillons
+   }
+docs-index-chip-archived = { $count ->
+    [one] { $count } archivée
+   *[other] { $count } archivées
+   }
+docs-index-chip-trash = { $count ->
+    [one] { $count } dans la corbeille
+   *[other] { $count } dans la corbeille
+   }
+
+# Documentation drafts (DocumentationDraftsView): pages not yet
+# assigned to a collection.
+docs-drafts-title = Brouillons
+docs-drafts-heading = Brouillons
+docs-drafts-description = Pages non encore assignées à une collection
+docs-drafts-back = Retour à la documentation
+docs-drafts-count = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+   }
+
+# Documentation archived (DocumentationArchivedView): list of
+# pages that have been archived, with a restore action.
+docs-archived-title = Archivées
+docs-archived-heading = Archivées
+docs-archived-description = Pages qui ont été archivées
+docs-archived-back = Retour à la documentation
+docs-archived-count = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+   }
+docs-archived-loading = Chargement des pages archivées
+docs-archived-archived-at = Archivée le { $date }
+docs-archived-restore = Restaurer
+
+# Documentation trash (DocumentationTrashView): deleted pages,
+# with restore and permanent-delete actions.
+docs-trash-title = Corbeille
+docs-trash-heading = Corbeille
+docs-trash-description = Les pages supprimées peuvent être restaurées ou supprimées définitivement
+docs-trash-back = Retour à la documentation
+docs-trash-count = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+   }
+docs-trash-loading = Chargement des pages supprimées
+docs-trash-deleted-at = Supprimée le { $date }
+docs-trash-restore = Restaurer
+docs-trash-delete-forever = Supprimer définitivement
+docs-trash-confirm-delete = Confirmer la suppression ?
+
+# Documentation gaps (DocumentationGapsView): queue of open
+# knowledge gaps with a list pane and detail pane.
+docs-gaps-title = Lacunes de connaissances
+docs-gaps-heading = Lacunes de connaissances
+docs-gaps-back-docs = Docs
+docs-gaps-back-list = Lacunes de connaissances
+docs-gaps-refresh = Actualiser les signaux
+docs-gaps-refreshing = Actualisation
+docs-gaps-detect-no-results = Aucun nouveau groupe trouvé
+docs-gaps-detect-created = { $count } nouveau(x)
+docs-gaps-detect-updated = { $count } mis à jour
+docs-gaps-loading = Chargement
+docs-gaps-empty = Aucune lacune de connaissances ouverte. Signalez un ticket depuis sa barre latérale pour en ajouter une.
+docs-gaps-impact-searches = recherches
+docs-gaps-impact-recent-tickets = tickets récents
+docs-gaps-impact-tickets = tickets
+docs-gaps-impact-tooltip = { $count } { $label } indiquant la demande pour ce document
+docs-gaps-signal-count = { $count ->
+    [one] { $count } signal
+   *[other] { $count } signaux
+   }
+docs-gaps-select-prompt = Sélectionnez une lacune dans la liste pour voir ses preuves.
+docs-gaps-status-label = Statut :
+docs-gaps-last-evidence = Dernière preuve : { $time }
+docs-gaps-dismiss = Ignorer
+docs-gaps-evidence-heading = Preuves
+docs-gaps-evidence-empty = Aucune preuve.
+docs-gaps-signal-manual-flag = Signalement manuel
+docs-gaps-signal-ticket-cluster = Groupe de tickets
+docs-gaps-signal-failed-search = Recherche infructueuse
+docs-gaps-signal-stale-doc = Document obsolète
+docs-gaps-signal-ai-suggested = Suggestion IA
+docs-gaps-cluster-fallback = Groupe
+docs-gaps-cluster-via = via { $channel }
+docs-gaps-cluster-more = { $count ->
+    [one] et { $count } de plus
+   *[other] et { $count } de plus
+   }
+docs-gaps-stale-untitled = Document sans titre
+docs-gaps-stale-verified = Vérifié { $time }
+docs-gaps-stale-verified-no-time = Vérifié
+docs-gaps-stale-days-past-due = { $count ->
+    [one] { $count } jour de retard
+   *[other] { $count } jours de retard
+   }
+docs-gaps-stale-recent-tickets = { $count ->
+    [one] ticket récemment clos cite encore ce document :
+   *[other] tickets récemment clos citent encore ce document :
+   }
+docs-gaps-stale-plus-more = + { $count } de plus
+docs-gaps-stale-auto-dismiss = Revérifier le document fermera automatiquement cette lacune.
+docs-gaps-failed-search-count = { $count ->
+    [one] { $count } recherche sans résultat
+   *[other] { $count } recherches sans résultat
+   }
+docs-gaps-failed-search-range = première { $first }, dernière { $last }
+docs-gaps-flagged-by = Signalé par { $name }
+docs-gaps-resolve-heading = Résoudre cette lacune
+docs-gaps-resolve-body = Ouvrez l'un des tickets ci-dessus et utilisez { $action } dans sa barre latérale. Le nouveau document sera automatiquement lié comme 'résout' à chaque ticket signalé.
+docs-gaps-resolve-action = Enregistrer comme document
+
+# Document view (DocumentView): full-page editor for a single doc
+# page (or a ticket note). Covers the header toolbar, metadata
+# strip, save indicators, verification chips, panels, and toasts.
+doc-detail-back-to-ticket = Retour au ticket
+doc-detail-back-to-documentation = Retour à la documentation
+doc-detail-saving = Enregistrement
+doc-detail-publish = Publier
+doc-detail-star = Mettre en favori
+doc-detail-unstar = Retirer des favoris
+doc-detail-copy-link = Copier le lien
+doc-detail-copied = Copié
+doc-detail-untitled = Sans titre
+doc-detail-status-draft = Brouillon
+doc-detail-status-archived = Archivé
+doc-detail-needs-verification = Vérification requise
+doc-detail-needs-verification-title = Vérifier cette page
+doc-detail-verification-stale = Vérification expirée
+doc-detail-verification-stale-title = Revérifier cette page
+doc-detail-sse-live = Mises à jour en direct actives
+doc-detail-sse-connecting = Connexion en cours
+doc-detail-sse-disconnected = Déconnecté
+doc-detail-history = Historique
+doc-detail-history-title = Historique des révisions
+doc-detail-editor-placeholder = Saisissez le contenu de la documentation ici
+doc-detail-not-found-title = Document introuvable
+doc-detail-not-found-body = Le document que vous recherchez n'existe pas ou a été déplacé.
+doc-detail-not-found-link = Accéder à l'accueil de la documentation
+doc-detail-toast-deleting = Suppression du document
+doc-detail-toast-deleted = Document supprimé avec succès
+doc-detail-toast-delete-error = Erreur lors de la suppression du document
+doc-detail-duplicate-suffix = { $title } (copie)
+doc-detail-ticket-note-title = Notes pour le ticket n°{ $id }
+doc-detail-ticket-note-description = Documentation pour le ticket { $title }
+doc-detail-ticket-note-author-system = Système
+

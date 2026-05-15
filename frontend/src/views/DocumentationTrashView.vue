@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getTrashedPages, restorePage, permanentlyDeletePage } from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
@@ -10,6 +11,9 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { formatDate } from '@/utils/dateUtils'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const titleManager = useTitleManager()
 const docNavStore = useDocumentationNavStore()
@@ -65,7 +69,7 @@ on('documentation-updated', (data) => {
 })
 
 onMounted(() => {
-  titleManager.setCustomTitle('Trash')
+  titleManager.setCustomTitle(t('docs-trash-title'))
   loadTrashedPages()
 })
 </script>
@@ -75,7 +79,7 @@ onMounted(() => {
     <!-- Header -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2">
-        <BackButton fallbackRoute="/documentation" label="Back to Documentation" />
+        <BackButton fallbackRoute="/documentation" :label="$t('docs-trash-back')" />
         <div class="flex-1"></div>
       </div>
     </div>
@@ -90,15 +94,15 @@ onMounted(() => {
               <Icon name="trash" size="lg" />
             </span>
             <div>
-              <h2 class="text-xl font-semibold text-primary">Trash</h2>
-              <p class="text-sm text-tertiary mt-0.5">Deleted pages can be restored or permanently removed</p>
+              <h2 class="text-xl font-semibold text-primary">{{ $t('docs-trash-heading') }}</h2>
+              <p class="text-sm text-tertiary mt-0.5">{{ $t('docs-trash-description') }}</p>
             </div>
           </div>
           <span
             v-if="!showSkeleton"
             class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary"
           >
-            {{ pages.length }} page{{ pages.length !== 1 ? 's' : '' }}
+            {{ $t('docs-trash-count', { count: pages.length }) }}
           </span>
         </div>
 
@@ -107,7 +111,7 @@ onMounted(() => {
           v-if="showSkeleton"
           :count="4"
           :actions-per-row="2"
-          label="Loading trashed pages"
+          :label="$t('docs-trash-loading')"
         />
 
         <!-- Empty state -->
@@ -130,7 +134,7 @@ onMounted(() => {
             <div class="flex-1 min-w-0">
               <span class="text-sm font-medium text-primary truncate block">{{ page.title }}</span>
               <span v-if="page.deleted_at" class="text-xs text-tertiary">
-                Deleted {{ formatDate(page.deleted_at) }}
+                {{ $t('docs-trash-deleted-at', { date: formatDate(page.deleted_at) }) }}
               </span>
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
@@ -141,7 +145,7 @@ onMounted(() => {
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                 </svg>
-                Restore
+                {{ $t('docs-trash-restore') }}
               </button>
               <button
                 @click="handlePermanentDelete(page.id)"
@@ -151,7 +155,7 @@ onMounted(() => {
                   : 'border border-default text-status-error hover:bg-status-error/10'"
               >
                 <Icon name="trash" />
-                {{ String(confirmingDeleteId) === String(page.id) ? 'Confirm delete?' : 'Delete forever' }}
+                {{ String(confirmingDeleteId) === String(page.id) ? $t('docs-trash-confirm-delete') : $t('docs-trash-delete-forever') }}
               </button>
             </div>
           </div>

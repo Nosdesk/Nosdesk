@@ -1790,3 +1790,157 @@ cycle-detail-state-planned = Planned
 cycle-detail-state-active = Active
 cycle-detail-state-completed = Completed
 
+# Documentation index (DocumentationIndexView): hub page listing
+# recently updated, starred, collections, and status chips.
+docs-index-title = Documentation
+docs-index-new-page = New page
+docs-index-recently-updated = Recently updated
+docs-index-recently-updated-count = Last { $count }
+docs-index-no-recent-activity = Nothing happening lately.
+docs-index-starred = Starred
+docs-index-starred-hint = Star a page from its row menu for quick access.
+docs-index-browse-all = Browse all pages
+docs-index-chip-drafts = { $count ->
+    [one] { $count } draft
+   *[other] { $count } drafts
+   }
+docs-index-chip-archived = { $count } archived
+docs-index-chip-trash = { $count } in trash
+
+# Documentation drafts (DocumentationDraftsView): pages not yet
+# assigned to a collection.
+docs-drafts-title = Drafts
+docs-drafts-heading = Drafts
+docs-drafts-description = Pages not yet sorted into a collection
+docs-drafts-back = Back to Documentation
+docs-drafts-count = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+   }
+
+# Documentation archived (DocumentationArchivedView): list of
+# pages that have been archived, with a restore action.
+docs-archived-title = Archived
+docs-archived-heading = Archived
+docs-archived-description = Pages that have been archived
+docs-archived-back = Back to Documentation
+docs-archived-count = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+   }
+docs-archived-loading = Loading archived pages
+docs-archived-archived-at = Archived { $date }
+docs-archived-restore = Restore
+
+# Documentation trash (DocumentationTrashView): deleted pages,
+# with restore and permanent-delete actions.
+docs-trash-title = Trash
+docs-trash-heading = Trash
+docs-trash-description = Deleted pages can be restored or permanently removed
+docs-trash-back = Back to Documentation
+docs-trash-count = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+   }
+docs-trash-loading = Loading trashed pages
+docs-trash-deleted-at = Deleted { $date }
+docs-trash-restore = Restore
+docs-trash-delete-forever = Delete forever
+docs-trash-confirm-delete = Confirm delete?
+
+# Documentation gaps (DocumentationGapsView): queue of open
+# knowledge gaps with a list pane and detail pane.
+docs-gaps-title = Knowledge Gaps
+docs-gaps-heading = Knowledge Gaps
+docs-gaps-back-docs = Docs
+docs-gaps-back-list = Knowledge Gaps
+docs-gaps-refresh = Refresh signals
+docs-gaps-refreshing = Refreshing
+docs-gaps-detect-no-results = No new clusters found
+docs-gaps-detect-created = { $count } new
+docs-gaps-detect-updated = { $count } updated
+docs-gaps-loading = Loading
+docs-gaps-empty = No open knowledge gaps. Flag a ticket from its sidebar to add one.
+docs-gaps-impact-searches = searches
+docs-gaps-impact-recent-tickets = recent tickets
+docs-gaps-impact-tickets = tickets
+docs-gaps-impact-tooltip = { $count } { $label } showing demand for this doc
+docs-gaps-signal-count = { $count ->
+    [one] { $count } signal
+   *[other] { $count } signals
+   }
+docs-gaps-select-prompt = Pick a gap from the list to see its evidence.
+docs-gaps-status-label = Status:
+docs-gaps-last-evidence = Last evidence: { $time }
+docs-gaps-dismiss = Dismiss
+docs-gaps-evidence-heading = Evidence
+docs-gaps-evidence-empty = No evidence rows.
+docs-gaps-signal-manual-flag = Manual flag
+docs-gaps-signal-ticket-cluster = Ticket cluster
+docs-gaps-signal-failed-search = Failed search
+docs-gaps-signal-stale-doc = Stale doc
+docs-gaps-signal-ai-suggested = AI suggestion
+docs-gaps-cluster-fallback = Cluster
+docs-gaps-cluster-via = via { $channel }
+docs-gaps-cluster-more = { $count ->
+    [one] and { $count } more
+   *[other] and { $count } more
+   }
+docs-gaps-stale-untitled = Untitled doc
+docs-gaps-stale-verified = Verified { $time }
+docs-gaps-stale-verified-no-time = Verified
+docs-gaps-stale-days-past-due = { $count ->
+    [one] { $count } day past due
+   *[other] { $count } days past due
+   }
+docs-gaps-stale-recent-tickets = { $count ->
+    [one] ticket closed recently still cites this doc:
+   *[other] tickets closed recently still cite this doc:
+   }
+docs-gaps-stale-plus-more = + { $count } more
+docs-gaps-stale-auto-dismiss = Re-verifying the doc will auto-dismiss this gap.
+docs-gaps-failed-search-count = { $count ->
+    [one] { $count } search with no results
+   *[other] { $count } searches with no results
+   }
+docs-gaps-failed-search-range = first { $first }, last { $last }
+docs-gaps-flagged-by = Flagged by { $name }
+docs-gaps-resolve-heading = Resolve this gap
+docs-gaps-resolve-body = Open one of the tickets above and use { $action } from its sidebar. The new doc will auto-link as 'resolves' on every flagged ticket.
+docs-gaps-resolve-action = Save as doc
+
+# Document view (DocumentView): full-page editor for a single doc
+# page (or a ticket note). Covers the header toolbar, metadata
+# strip, save indicators, verification chips, panels, and toasts.
+doc-detail-back-to-ticket = Back to Ticket
+doc-detail-back-to-documentation = Back to Documentation
+doc-detail-saving = Saving
+doc-detail-publish = Publish
+doc-detail-star = Star page
+doc-detail-unstar = Unstar page
+doc-detail-copy-link = Copy link
+doc-detail-copied = Copied
+doc-detail-untitled = Untitled
+doc-detail-status-draft = Draft
+doc-detail-status-archived = Archived
+doc-detail-needs-verification = Needs a check
+doc-detail-needs-verification-title = Verify this page
+doc-detail-verification-stale = Verification stale
+doc-detail-verification-stale-title = Re-verify this page
+doc-detail-sse-live = Live updates active
+doc-detail-sse-connecting = Connecting
+doc-detail-sse-disconnected = Disconnected
+doc-detail-history = History
+doc-detail-history-title = Revision history
+doc-detail-editor-placeholder = Enter documentation content here
+doc-detail-not-found-title = Document not found
+doc-detail-not-found-body = The document you're after doesn't exist or has been moved.
+doc-detail-not-found-link = Go to Documentation Home
+doc-detail-toast-deleting = Deleting document
+doc-detail-toast-deleted = Document deleted
+doc-detail-toast-delete-error = Couldn't delete document
+doc-detail-duplicate-suffix = { $title } (copy)
+doc-detail-ticket-note-title = Notes for Ticket #{ $id }
+doc-detail-ticket-note-description = Documentation for ticket { $title }
+doc-detail-ticket-note-author-system = System
+

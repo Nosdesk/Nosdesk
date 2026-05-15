@@ -1793,3 +1793,157 @@ cycle-detail-state-planned = Gepland
 cycle-detail-state-active = Actief
 cycle-detail-state-completed = Afgerond
 
+# Documentation index (DocumentationIndexView): hub page listing
+# recently updated, starred, collections, and status chips.
+docs-index-title = Documentatie
+docs-index-new-page = Nieuwe pagina
+docs-index-recently-updated = Recent bijgewerkt
+docs-index-recently-updated-count = Laatste { $count }
+docs-index-no-recent-activity = Geen recente activiteit.
+docs-index-starred = Favorieten
+docs-index-starred-hint = Markeer een pagina als favoriet via het rijmenu voor snelle toegang.
+docs-index-browse-all = Alle pagina's bekijken
+docs-index-chip-drafts = { $count ->
+    [one] { $count } concept
+   *[other] { $count } concepten
+   }
+docs-index-chip-archived = { $count } gearchiveerd
+docs-index-chip-trash = { $count } in prullenbak
+
+# Documentation drafts (DocumentationDraftsView): pages not yet
+# assigned to a collection.
+docs-drafts-title = Concepten
+docs-drafts-heading = Concepten
+docs-drafts-description = Pagina's die nog niet aan een collectie zijn toegewezen
+docs-drafts-back = Terug naar Documentatie
+docs-drafts-count = { $count ->
+    [one] { $count } pagina
+   *[other] { $count } pagina's
+   }
+
+# Documentation archived (DocumentationArchivedView): list of
+# pages that have been archived, with a restore action.
+docs-archived-title = Gearchiveerd
+docs-archived-heading = Gearchiveerd
+docs-archived-description = Pagina's die zijn gearchiveerd
+docs-archived-back = Terug naar Documentatie
+docs-archived-count = { $count ->
+    [one] { $count } pagina
+   *[other] { $count } pagina's
+   }
+docs-archived-loading = Gearchiveerde pagina's laden
+docs-archived-archived-at = Gearchiveerd op { $date }
+docs-archived-restore = Herstellen
+
+# Documentation trash (DocumentationTrashView): deleted pages,
+# with restore and permanent-delete actions.
+docs-trash-title = Prullenbak
+docs-trash-heading = Prullenbak
+docs-trash-description = Verwijderde pagina's kunnen worden hersteld of permanent worden verwijderd
+docs-trash-back = Terug naar Documentatie
+docs-trash-count = { $count ->
+    [one] { $count } pagina
+   *[other] { $count } pagina's
+   }
+docs-trash-loading = Verwijderde pagina's laden
+docs-trash-deleted-at = Verwijderd op { $date }
+docs-trash-restore = Herstellen
+docs-trash-delete-forever = Definitief verwijderen
+docs-trash-confirm-delete = Verwijderen bevestigen?
+
+# Documentation gaps (DocumentationGapsView): queue of open
+# knowledge gaps with a list pane and detail pane.
+docs-gaps-title = Kennislacunes
+docs-gaps-heading = Kennislacunes
+docs-gaps-back-docs = Documentatie
+docs-gaps-back-list = Kennislacunes
+docs-gaps-refresh = Signalen vernieuwen
+docs-gaps-refreshing = Vernieuwen
+docs-gaps-detect-no-results = Geen nieuwe clusters gevonden
+docs-gaps-detect-created = { $count } nieuw
+docs-gaps-detect-updated = { $count } bijgewerkt
+docs-gaps-loading = Laden
+docs-gaps-empty = Geen openstaande kennislacunes. Markeer een ticket vanuit de zijbalk om er een toe te voegen.
+docs-gaps-impact-searches = zoekopdrachten
+docs-gaps-impact-recent-tickets = recente tickets
+docs-gaps-impact-tickets = tickets
+docs-gaps-impact-tooltip = { $count } { $label } die vraag naar dit document aantonen
+docs-gaps-signal-count = { $count ->
+    [one] { $count } signaal
+   *[other] { $count } signalen
+   }
+docs-gaps-select-prompt = Selecteer een lacune uit de lijst om het bewijs te bekijken.
+docs-gaps-status-label = Status:
+docs-gaps-last-evidence = Laatste bewijs: { $time }
+docs-gaps-dismiss = Negeren
+docs-gaps-evidence-heading = Bewijs
+docs-gaps-evidence-empty = Geen bewijsregels.
+docs-gaps-signal-manual-flag = Handmatige melding
+docs-gaps-signal-ticket-cluster = Ticketcluster
+docs-gaps-signal-failed-search = Mislukte zoekopdracht
+docs-gaps-signal-stale-doc = Verouderd document
+docs-gaps-signal-ai-suggested = AI-suggestie
+docs-gaps-cluster-fallback = Cluster
+docs-gaps-cluster-via = via { $channel }
+docs-gaps-cluster-more = { $count ->
+    [one] en nog { $count } meer
+   *[other] en nog { $count } meer
+   }
+docs-gaps-stale-untitled = Naamloos document
+docs-gaps-stale-verified = Geverifieerd { $time }
+docs-gaps-stale-verified-no-time = Geverifieerd
+docs-gaps-stale-days-past-due = { $count ->
+    [one] { $count } dag over tijd
+   *[other] { $count } dagen over tijd
+   }
+docs-gaps-stale-recent-tickets = { $count ->
+    [one] recent gesloten ticket verwijst nog naar dit document:
+   *[other] recent gesloten tickets verwijzen nog naar dit document:
+   }
+docs-gaps-stale-plus-more = + { $count } meer
+docs-gaps-stale-auto-dismiss = Het document opnieuw verifiëren sluit deze lacune automatisch.
+docs-gaps-failed-search-count = { $count ->
+    [one] { $count } zoekopdracht zonder resultaten
+   *[other] { $count } zoekopdrachten zonder resultaten
+   }
+docs-gaps-failed-search-range = eerste { $first }, laatste { $last }
+docs-gaps-flagged-by = Gemarkeerd door { $name }
+docs-gaps-resolve-heading = Deze lacune oplossen
+docs-gaps-resolve-body = Open een van bovenstaande tickets en gebruik { $action } in de zijbalk. Het nieuwe document wordt automatisch gekoppeld als 'lost op' aan elk gemarkeerd ticket.
+docs-gaps-resolve-action = Opslaan als document
+
+# Document view (DocumentView): full-page editor for a single doc
+# page (or a ticket note). Covers the header toolbar, metadata
+# strip, save indicators, verification chips, panels, and toasts.
+doc-detail-back-to-ticket = Terug naar ticket
+doc-detail-back-to-documentation = Terug naar documentatie
+doc-detail-saving = Bezig met opslaan
+doc-detail-publish = Publiceren
+doc-detail-star = Pagina markeren
+doc-detail-unstar = Markering opheffen
+doc-detail-copy-link = Link kopiëren
+doc-detail-copied = Gekopieerd
+doc-detail-untitled = Naamloos
+doc-detail-status-draft = Concept
+doc-detail-status-archived = Gearchiveerd
+doc-detail-needs-verification = Verificatie nodig
+doc-detail-needs-verification-title = Deze pagina verifiëren
+doc-detail-verification-stale = Verificatie verouderd
+doc-detail-verification-stale-title = Deze pagina opnieuw verifiëren
+doc-detail-sse-live = Live updates actief
+doc-detail-sse-connecting = Verbinden
+doc-detail-sse-disconnected = Verbinding verbroken
+doc-detail-history = Geschiedenis
+doc-detail-history-title = Revisiegeschiedenis
+doc-detail-editor-placeholder = Voer hier de documentatie-inhoud in
+doc-detail-not-found-title = Document niet gevonden
+doc-detail-not-found-body = Het document dat u zoekt bestaat niet of is verplaatst.
+doc-detail-not-found-link = Ga naar documentatie-startpagina
+doc-detail-toast-deleting = Document verwijderen
+doc-detail-toast-deleted = Document succesvol verwijderd
+doc-detail-toast-delete-error = Fout bij verwijderen document
+doc-detail-duplicate-suffix = { $title } (kopie)
+doc-detail-ticket-note-title = Notities voor ticket #{ $id }
+doc-detail-ticket-note-description = Documentatie voor ticket { $title }
+doc-detail-ticket-note-author-system = Systeem
+

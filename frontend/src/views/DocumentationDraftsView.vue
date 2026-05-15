@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getUncollectedPages } from '@/services/collectionService'
 import type { CollectionPage } from '@/services/collectionService'
@@ -7,6 +8,9 @@ import { useSSEListeners } from '@/composables/useSSEListeners'
 import BackButton from '@/components/common/BackButton.vue'
 import DocumentationCardGrid from '@/components/documentationComponents/DocumentationCardGrid.vue'
 import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const titleManager = useTitleManager()
 
@@ -53,7 +57,7 @@ on('documentation-created', () => {
 })
 
 onMounted(() => {
-  titleManager.setCustomTitle('Drafts')
+  titleManager.setCustomTitle(t('docs-drafts-title'))
   loadDrafts()
 })
 </script>
@@ -63,7 +67,7 @@ onMounted(() => {
     <!-- Header -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2">
-        <BackButton fallbackRoute="/documentation" label="Back to Documentation" />
+        <BackButton fallbackRoute="/documentation" :label="$t('docs-drafts-back')" />
         <div class="flex-1"></div>
       </div>
     </div>
@@ -76,15 +80,15 @@ onMounted(() => {
           <div class="flex items-center gap-3">
             <span class="text-3xl">✏️</span>
             <div>
-              <h2 class="text-xl font-semibold text-primary">Drafts</h2>
-              <p class="text-sm text-tertiary mt-0.5">Pages not yet assigned to a collection</p>
+              <h2 class="text-xl font-semibold text-primary">{{ $t('docs-drafts-heading') }}</h2>
+              <p class="text-sm text-tertiary mt-0.5">{{ $t('docs-drafts-description') }}</p>
             </div>
           </div>
           <span
             v-if="!showSkeleton"
             class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary"
           >
-            {{ pagesForGrid.length }} page{{ pagesForGrid.length !== 1 ? 's' : '' }}
+            {{ $t('docs-drafts-count', { count: pagesForGrid.length }) }}
           </span>
         </div>
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getArchivedPages, restorePage } from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
@@ -11,6 +12,9 @@ import Icon from '@/components/common/Icon.vue'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { formatDate } from '@/utils/dateUtils'
 import { docUrl } from '@/utils/docUrl'
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const titleManager = useTitleManager()
 const docNavStore = useDocumentationNavStore()
@@ -54,7 +58,7 @@ on('documentation-updated', (data) => {
 })
 
 onMounted(() => {
-  titleManager.setCustomTitle('Archived')
+  titleManager.setCustomTitle(t('docs-archived-title'))
   loadArchivedPages()
 })
 </script>
@@ -64,7 +68,7 @@ onMounted(() => {
     <!-- Header -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2">
-        <BackButton fallbackRoute="/documentation" label="Back to Documentation" />
+        <BackButton fallbackRoute="/documentation" :label="$t('docs-archived-back')" />
         <div class="flex-1"></div>
       </div>
     </div>
@@ -79,20 +83,20 @@ onMounted(() => {
               <Icon name="archive" size="lg" />
             </span>
             <div>
-              <h2 class="text-xl font-semibold text-primary">Archived</h2>
-              <p class="text-sm text-tertiary mt-0.5">Pages that have been archived</p>
+              <h2 class="text-xl font-semibold text-primary">{{ $t('docs-archived-heading') }}</h2>
+              <p class="text-sm text-tertiary mt-0.5">{{ $t('docs-archived-description') }}</p>
             </div>
           </div>
           <span
             v-if="!showSkeleton"
             class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary"
           >
-            {{ pages.length }} page{{ pages.length !== 1 ? 's' : '' }}
+            {{ $t('docs-archived-count', { count: pages.length }) }}
           </span>
         </div>
 
         <!-- Loading -->
-        <DocumentationRowSkeleton v-if="showSkeleton" :count="4" label="Loading archived pages" />
+        <DocumentationRowSkeleton v-if="showSkeleton" :count="4" :label="$t('docs-archived-loading')" />
 
         <!-- Empty state -->
         <EmptyState
@@ -119,7 +123,7 @@ onMounted(() => {
                 {{ page.title }}
               </RouterLink>
               <span v-if="page.archived_at" class="text-xs text-tertiary">
-                Archived {{ formatDate(page.archived_at) }}
+                {{ $t('docs-archived-archived-at', { date: formatDate(page.archived_at) }) }}
               </span>
             </div>
             <button
@@ -129,7 +133,7 @@ onMounted(() => {
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
               </svg>
-              Restore
+              {{ $t('docs-archived-restore') }}
             </button>
           </div>
         </div>

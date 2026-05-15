@@ -13,6 +13,7 @@
 <script setup lang="ts">
 import { computed, watch, ref } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import Icon from '@/components/common/Icon.vue'
 import { formatRelativeTime } from '@/utils/dateUtils'
@@ -34,8 +35,10 @@ const props = defineProps<{
 const route = useRoute()
 const router = useRouter()
 const titleManager = useTitleManager()
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-titleManager.setCustomTitle('Knowledge Gaps')
+titleManager.setCustomTitle(t('docs-gaps-title'))
 
 // List
 const { gaps, isLoading: listLoading, refetch: refetchList } = useKnowledgeGaps()
@@ -74,11 +77,11 @@ async function runDetection() {
   const result = await detectMutation.mutateAsync(undefined)
   if (result) {
     if (result.gaps_created === 0 && result.gaps_updated === 0) {
-      detectMessage.value = 'No new clusters found'
+      detectMessage.value = t('docs-gaps-detect-no-results')
     } else {
       const parts: string[] = []
-      if (result.gaps_created > 0) parts.push(`${result.gaps_created} new`)
-      if (result.gaps_updated > 0) parts.push(`${result.gaps_updated} updated`)
+      if (result.gaps_created > 0) parts.push(t('docs-gaps-detect-created', { count: result.gaps_created }))
+      if (result.gaps_updated > 0) parts.push(t('docs-gaps-detect-updated', { count: result.gaps_updated }))
       detectMessage.value = parts.join(', ')
     }
     await refetchList()
@@ -128,9 +131,9 @@ function staleDocPayload(signal: KnowledgeGapSignal): StaleDocPayload {
  *  queue summary (only the count), so we infer from the gap
  *  title pattern. */
 function impactLabel(gapTitle: string): string {
-  if (gapTitle.startsWith('Customers searched:')) return 'searches'
-  if (gapTitle.startsWith('Doc may be stale:')) return 'recent tickets'
-  return 'tickets'
+  if (gapTitle.startsWith('Customers searched:')) return t('docs-gaps-impact-searches')
+  if (gapTitle.startsWith('Doc may be stale:')) return t('docs-gaps-impact-recent-tickets')
+  return t('docs-gaps-impact-tickets')
 }
 
 async function dismissCurrent() {
@@ -156,15 +159,15 @@ async function dismissCurrent() {
 function signalLabel(signal: KnowledgeGapSignal): string {
   switch (signal.signal_type) {
     case 'manual_flag':
-      return 'Manual flag'
+      return t('docs-gaps-signal-manual-flag')
     case 'ticket_cluster':
-      return 'Ticket cluster'
+      return t('docs-gaps-signal-ticket-cluster')
     case 'failed_search':
-      return 'Failed search'
+      return t('docs-gaps-signal-failed-search')
     case 'stale_doc':
-      return 'Stale doc'
+      return t('docs-gaps-signal-stale-doc')
     case 'ai_suggested':
-      return 'AI suggestion'
+      return t('docs-gaps-signal-ai-suggested')
     default:
       return signal.signal_type
   }
@@ -198,7 +201,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 min-w-0">
             <Icon name="warning" class="text-amber-500 flex-shrink-0" />
-            <h2 class="text-base font-semibold text-primary truncate">Knowledge Gaps</h2>
+            <h2 class="text-base font-semibold text-primary truncate">{{ $t('docs-gaps-heading') }}</h2>
             <span v-if="!listLoading" class="text-xs text-tertiary bg-surface-alt px-2 py-0.5 rounded-full flex-shrink-0">
               {{ gaps.length }}
             </span>
@@ -208,7 +211,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             class="text-xs text-secondary hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0"
           >
             <Icon name="chevronRight" size="xs" class="rotate-180" />
-            Docs
+            {{ $t('docs-gaps-back-docs') }}
           </RouterLink>
         </div>
         <div class="flex items-center justify-between gap-2">
@@ -219,8 +222,8 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             @click="runDetection"
           >
             <Icon name="search" size="xs" />
-            <span v-if="detectMutation.asyncStatus.value === 'loading'">Refreshing&hellip;</span>
-            <span v-else>Refresh signals</span>
+            <span v-if="detectMutation.asyncStatus.value === 'loading'">{{ $t('docs-gaps-refreshing') }}&hellip;</span>
+            <span v-else>{{ $t('docs-gaps-refresh') }}</span>
           </button>
           <span v-if="detectMessage" class="text-[11px] text-tertiary truncate">
             {{ detectMessage }}
@@ -230,9 +233,9 @@ function signalLabel(signal: KnowledgeGapSignal): string {
 
       <!-- Scrollable list -->
       <div class="flex-1 overflow-y-auto">
-        <div v-if="listLoading" class="p-4 text-sm text-tertiary">Loading&hellip;</div>
+        <div v-if="listLoading" class="p-4 text-sm text-tertiary">{{ $t('docs-gaps-loading') }}&hellip;</div>
         <div v-else-if="gaps.length === 0" class="p-6 text-center text-sm text-tertiary">
-          No open knowledge gaps. Flag a ticket from its sidebar to add one.
+          {{ $t('docs-gaps-empty') }}
         </div>
         <ul v-else class="divide-y divide-subtle">
           <li v-for="gap in gaps" :key="gap.id">
@@ -247,13 +250,13 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                 </p>
                 <span
                   class="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface text-tertiary"
-                  :title="`${gap.impact_score} ${impactLabel(gap.title)} representing demand for this doc`"
+                  :title="$t('docs-gaps-impact-tooltip', { count: gap.impact_score, label: impactLabel(gap.title) })"
                 >
                   {{ gap.impact_score }}&nbsp;{{ impactLabel(gap.title) }}
                 </span>
               </div>
               <div class="flex items-center justify-between gap-2 text-[11px] text-tertiary">
-                <span>{{ gap.evidence_count }} signal{{ gap.evidence_count === 1 ? '' : 's' }}</span>
+                <span>{{ $t('docs-gaps-signal-count', { count: gap.evidence_count }) }}</span>
                 <span v-if="gap.last_evidence_at">
                   {{ formatRelativeTime(gap.last_evidence_at) }}
                 </span>
@@ -282,14 +285,14 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             class="flex items-center gap-1.5 text-sm text-secondary hover:text-primary transition-colors"
           >
             <Icon name="chevronRight" size="xs" class="rotate-180" />
-            Knowledge Gaps
+            {{ $t('docs-gaps-back-list') }}
           </RouterLink>
         </div>
 
         <div v-if="!selectedId" class="p-8 text-center text-sm text-tertiary">
-          Select a gap from the list to see its evidence.
+          {{ $t('docs-gaps-select-prompt') }}
         </div>
-        <div v-else-if="detailLoading" class="p-8 text-sm text-tertiary">Loading&hellip;</div>
+        <div v-else-if="detailLoading" class="p-8 text-sm text-tertiary">{{ $t('docs-gaps-loading') }}&hellip;</div>
         <article v-else-if="selectedGap" class="max-w-3xl mx-auto p-4 sm:p-6 flex flex-col gap-6">
           <!-- Title + actions -->
           <header class="flex items-start justify-between gap-4 pb-4 border-b border-subtle">
@@ -299,13 +302,13 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                 {{ selectedGap.description }}
               </p>
               <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-tertiary">
-                <span>Status: <span class="text-secondary">{{ selectedGap.status }}</span></span>
+                <span>{{ $t('docs-gaps-status-label') }} <span class="text-secondary">{{ selectedGap.status }}</span></span>
                 <span>
                   <span class="text-secondary">{{ selectedGap.impact_score }}</span>
                   {{ impactLabel(selectedGap.title) }}
                 </span>
                 <span v-if="selectedGap.last_evidence_at">
-                  Last evidence: {{ formatRelativeTime(selectedGap.last_evidence_at) }}
+                  {{ $t('docs-gaps-last-evidence', { time: formatRelativeTime(selectedGap.last_evidence_at) }) }}
                 </span>
               </div>
             </div>
@@ -315,14 +318,14 @@ function signalLabel(signal: KnowledgeGapSignal): string {
               class="flex-shrink-0 text-xs px-3 py-1.5 rounded-md text-secondary hover:text-status-error hover:bg-status-error-muted transition-colors disabled:opacity-50"
               @click="dismissCurrent"
             >
-              Dismiss
+              {{ $t('docs-gaps-dismiss') }}
             </button>
           </header>
 
           <!-- Evidence -->
           <section class="flex flex-col gap-3">
             <h2 class="text-xs font-semibold uppercase tracking-wide text-tertiary">
-              Evidence
+              {{ $t('docs-gaps-evidence-heading') }}
             </h2>
             <ul v-if="selectedGap.signals && selectedGap.signals.length > 0" class="flex flex-col gap-2">
               <li
@@ -350,7 +353,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       <template v-if="clusterPayload(signal).category_name">
                         {{ clusterPayload(signal).category_name }}
                       </template>
-                      <template v-else>Cluster</template>
+                      <template v-else>{{ $t('docs-gaps-cluster-fallback') }}</template>
                       <span
                         v-if="clusterPayload(signal).device_model || clusterPayload(signal).channel_label"
                         class="text-secondary"
@@ -359,7 +362,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                           &middot; {{ clusterPayload(signal).device_model }}
                         </template>
                         <template v-if="clusterPayload(signal).channel_label">
-                          &middot; via {{ clusterPayload(signal).channel_label }}
+                          &middot; {{ $t('docs-gaps-cluster-via', { channel: clusterPayload(signal).channel_label ?? '' }) }}
                         </template>
                       </span>
                     </p>
@@ -383,9 +386,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       v-if="(clusterPayload(signal).member_count ?? 0) > (clusterPayload(signal).sample_titles?.length ?? 0)"
                       class="text-[11px] text-tertiary mt-1"
                     >
-                      &hellip; and
-                      {{ (clusterPayload(signal).member_count ?? 0) - (clusterPayload(signal).sample_titles?.length ?? 0) }}
-                      more
+                      &hellip; {{ $t('docs-gaps-cluster-more', { count: (clusterPayload(signal).member_count ?? 0) - (clusterPayload(signal).sample_titles?.length ?? 0) }) }}
                     </p>
                   </template>
 
@@ -399,17 +400,21 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       :to="`/documentation/${staleDocPayload(signal).page_slug}`"
                       class="text-sm text-primary hover:text-accent transition-colors"
                     >
-                      📄 {{ staleDocPayload(signal).page_title ?? 'Untitled doc' }}
+                      📄 {{ staleDocPayload(signal).page_title ?? $t('docs-gaps-stale-untitled') }}
                     </RouterLink>
                     <p class="text-[11px] text-tertiary mt-1">
-                      Verified
-                      <span v-if="staleDocPayload(signal).verified_at" class="text-secondary">
-                        {{ formatRelativeTime(staleDocPayload(signal).verified_at!) }}
-                      </span>
+                      <template v-if="staleDocPayload(signal).verified_at">
+                        <span class="text-secondary">
+                          {{ $t('docs-gaps-stale-verified', { time: formatRelativeTime(staleDocPayload(signal).verified_at!) }) }}
+                        </span>
+                      </template>
+                      <template v-else>
+                        {{ $t('docs-gaps-stale-verified-no-time') }}
+                      </template>
                       <template v-if="(staleDocPayload(signal).days_stale ?? 0) > 0">
                         &middot;
                         <span class="text-amber-700 dark:text-amber-300 font-medium">
-                          {{ staleDocPayload(signal).days_stale }} days past due
+                          {{ $t('docs-gaps-stale-days-past-due', { count: staleDocPayload(signal).days_stale ?? 0 }) }}
                         </span>
                       </template>
                     </p>
@@ -418,8 +423,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       class="text-[11px] text-tertiary mt-1"
                     >
                       <span class="text-secondary">{{ staleDocPayload(signal).recent_ticket_ids!.length }}</span>
-                      ticket{{ staleDocPayload(signal).recent_ticket_ids!.length === 1 ? '' : 's' }}
-                      closed recently still cite this doc:
+                      {{ $t('docs-gaps-stale-recent-tickets', { count: staleDocPayload(signal).recent_ticket_ids!.length }) }}
                       <span class="text-tertiary">
                         <template v-for="(tid, i) in staleDocPayload(signal).recent_ticket_ids!.slice(0, 5)" :key="tid">
                           <RouterLink
@@ -428,12 +432,12 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                           >#{{ tid }}</RouterLink><span v-if="i < Math.min(4, staleDocPayload(signal).recent_ticket_ids!.length - 1)">, </span>
                         </template>
                         <template v-if="(staleDocPayload(signal).recent_ticket_ids?.length ?? 0) > 5">
-                          + {{ staleDocPayload(signal).recent_ticket_ids!.length - 5 }} more
+                          {{ $t('docs-gaps-stale-plus-more', { count: staleDocPayload(signal).recent_ticket_ids!.length - 5 }) }}
                         </template>
                       </span>
                     </p>
                     <p class="text-[11px] text-tertiary mt-1 italic">
-                      Re-verifying the doc will auto-dismiss this gap.
+                      {{ $t('docs-gaps-stale-auto-dismiss') }}
                     </p>
                   </template>
 
@@ -445,12 +449,9 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                       "{{ failedSearchPayload(signal).query_sample ?? signal.source_ref }}"
                     </p>
                     <p class="text-[11px] text-tertiary mt-1">
-                      <span class="text-secondary">{{ failedSearchPayload(signal).count ?? 0 }}</span>
-                      search{{ (failedSearchPayload(signal).count ?? 0) === 1 ? '' : 'es' }}
-                      with no results
+                      {{ $t('docs-gaps-failed-search-count', { count: failedSearchPayload(signal).count ?? 0 }) }}
                       <template v-if="failedSearchPayload(signal).first_seen && failedSearchPayload(signal).last_seen">
-                        &middot; first {{ formatRelativeTime(failedSearchPayload(signal).first_seen!) }},
-                        last {{ formatRelativeTime(failedSearchPayload(signal).last_seen!) }}
+                        &middot; {{ $t('docs-gaps-failed-search-range', { first: formatRelativeTime(failedSearchPayload(signal).first_seen!), last: formatRelativeTime(failedSearchPayload(signal).last_seen!) }) }}
                       </template>
                     </p>
                   </template>
@@ -481,7 +482,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                     v-if="signal.detected_by_user"
                     class="text-[11px] text-tertiary mt-1"
                   >
-                    Flagged by <span class="text-secondary">{{ signal.detected_by_user.name }}</span>
+                    {{ $t('docs-gaps-flagged-by', { name: signal.detected_by_user.name }) }}
                   </p>
                   <p
                     v-if="signal.payload?.reason"
@@ -492,7 +493,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                 </div>
               </li>
             </ul>
-            <p v-else class="text-sm text-tertiary">No evidence rows.</p>
+            <p v-else class="text-sm text-tertiary">{{ $t('docs-gaps-evidence-empty') }}</p>
           </section>
 
           <!-- Resolve action: punts to "create a doc and link". The
@@ -504,12 +505,8 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             v-if="selectedGap.status === 'open' || selectedGap.status === 'drafting'"
             class="rounded-lg border border-dashed border-default p-4 text-sm text-secondary"
           >
-            <p class="font-medium text-primary mb-1">Resolve this gap</p>
-            <p>
-              Open one of the tickets above and use
-              <span class="font-medium text-primary">Save as doc</span> from its sidebar.
-              The new doc will auto-link as 'resolves' on every flagged ticket.
-            </p>
+            <p class="font-medium text-primary mb-1">{{ $t('docs-gaps-resolve-heading') }}</p>
+            <p v-html="$t('docs-gaps-resolve-body', { action: `<span class=&quot;font-medium text-primary&quot;>${$t('docs-gaps-resolve-action')}</span>` })"></p>
           </section>
         </article>
     </section>

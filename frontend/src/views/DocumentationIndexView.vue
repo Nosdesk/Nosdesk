@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
@@ -17,6 +18,9 @@ import { formatRelativeTime } from '@/utils/dateUtils'
 import type { Page } from '@/services/documentationService'
 
 defineOptions({ name: 'DocumentationIndexView' })
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const titleManager = useTitleManager()
 
@@ -81,7 +85,7 @@ const hasStatusChips = computed(
 )
 
 onMounted(async () => {
-  titleManager.setCustomTitle('Documentation')
+  titleManager.setCustomTitle(t('docs-index-title'))
   await Promise.all([loadAllPages(), loadDraftCount(), loadArchivedCount(), loadTrashCount()])
 })
 
@@ -113,7 +117,7 @@ usePageCreateAction(handleCreatePage)
           icon="document"
           :title="$t('empty-documentation-index-title')"
           :description="$t('empty-documentation-index-description')"
-          action-label="New page"
+          :action-label="$t('docs-index-new-page')"
           @action="handleCreatePage"
         />
 
@@ -124,10 +128,10 @@ usePageCreateAction(handleCreatePage)
             <header class="flex items-center justify-between gap-3 pb-2 border-b border-default">
               <div class="flex items-center gap-2">
                 <Icon name="history" class="text-accent" />
-                <h2 class="text-sm font-semibold text-primary">Recently updated</h2>
+                <h2 class="text-sm font-semibold text-primary">{{ $t('docs-index-recently-updated') }}</h2>
               </div>
               <span v-if="!showSkeleton && recentlyUpdated.length > 0" class="text-[11px] text-tertiary">
-                Last {{ recentlyUpdated.length }}
+                {{ $t('docs-index-recently-updated-count', { count: recentlyUpdated.length }) }}
               </span>
             </header>
 
@@ -160,7 +164,7 @@ usePageCreateAction(handleCreatePage)
               The page-level EmptyState above covers the truly-empty
               first-run case.
             -->
-            <p v-else class="text-sm text-tertiary py-4">No recent activity.</p>
+            <p v-else class="text-sm text-tertiary py-4">{{ $t('docs-index-no-recent-activity') }}</p>
           </section>
 
           <!-- Starred -->
@@ -168,7 +172,7 @@ usePageCreateAction(handleCreatePage)
             <header class="flex items-center justify-between gap-3 pb-2 border-b border-default">
               <div class="flex items-center gap-2">
                 <Icon name="star" class="text-amber-500" />
-                <h2 class="text-sm font-semibold text-primary">Starred</h2>
+                <h2 class="text-sm font-semibold text-primary">{{ $t('docs-index-starred') }}</h2>
               </div>
               <span v-if="visibleStarred.length > 0" class="text-[11px] text-tertiary">
                 {{ starredPages.length }}
@@ -188,7 +192,7 @@ usePageCreateAction(handleCreatePage)
             </ul>
 
             <p v-else class="text-sm text-tertiary py-4">
-              Star a page from its row menu for quick access.
+              {{ $t('docs-index-starred-hint') }}
             </p>
           </section>
         </div>
@@ -208,7 +212,7 @@ usePageCreateAction(handleCreatePage)
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-alt hover:bg-surface-hover border border-default text-xs text-secondary hover:text-primary transition-colors"
           >
             <span>✏️</span>
-            <span><span class="font-medium text-primary">{{ draftCount }}</span> draft{{ draftCount !== 1 ? 's' : '' }}</span>
+            <span class="font-medium text-primary">{{ $t('docs-index-chip-drafts', { count: draftCount }) }}</span>
           </RouterLink>
 
           <RouterLink
@@ -217,7 +221,7 @@ usePageCreateAction(handleCreatePage)
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-alt hover:bg-surface-hover border border-default text-xs text-secondary hover:text-primary transition-colors"
           >
             <Icon name="archive" class="text-tertiary" />
-            <span><span class="font-medium text-primary">{{ archivedCount }}</span> archived</span>
+            <span class="font-medium text-primary">{{ $t('docs-index-chip-archived', { count: archivedCount }) }}</span>
           </RouterLink>
 
           <RouterLink
@@ -226,7 +230,7 @@ usePageCreateAction(handleCreatePage)
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-alt hover:bg-surface-hover border border-default text-xs text-secondary hover:text-primary transition-colors"
           >
             <Icon name="trash" class="text-status-error/70" />
-            <span><span class="font-medium text-primary">{{ trashCount }}</span> in trash</span>
+            <span class="font-medium text-primary">{{ $t('docs-index-chip-trash', { count: trashCount }) }}</span>
           </RouterLink>
         </div>
 
@@ -238,7 +242,7 @@ usePageCreateAction(handleCreatePage)
         <details v-if="!showSkeleton && totalPages > 0" class="docs-browse-all group">
           <summary class="flex items-center gap-2 py-2 cursor-pointer text-sm text-secondary hover:text-primary select-none">
             <Icon name="chevronRight" size="xs" class="text-tertiary transition-transform duration-200 group-open:rotate-90" />
-            <span>Browse all pages</span>
+            <span>{{ $t('docs-index-browse-all') }}</span>
             <span class="text-tertiary">({{ totalPages }})</span>
           </summary>
           <div class="pt-4">
