@@ -7,7 +7,19 @@
  *
  * For editable profile settings, use UserProfileCard instead.
  */
+import { useFluent } from 'fluent-vue'
+import type { FluentVariable } from '@fluent/bundle'
 import UserAvatar from '@/components/UserAvatar.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args)
+
+const roleLabel = (role: string): string => {
+  if (role === 'admin') return t('ui-user-card-role-admin')
+  if (role === 'technician') return t('ui-user-card-role-technician')
+  if (role === 'user') return t('ui-user-card-role-user')
+  return role.charAt(0).toUpperCase() + role.slice(1)
+}
 
 interface UserData {
   uuid: string
@@ -83,7 +95,7 @@ const avatarSizeMap = {
             'bg-surface-alt text-secondary border border-default': user.role === 'user'
           }"
         >
-          {{ user.role.charAt(0).toUpperCase() + user.role.slice(1) }}
+          {{ roleLabel(user.role) }}
         </span>
       </div>
     </div>

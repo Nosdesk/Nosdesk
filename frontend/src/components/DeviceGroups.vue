@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useFluent } from 'fluent-vue'
+import type { FluentVariable } from '@fluent/bundle'
 import SectionCard from '@/components/common/SectionCard.vue'
 import { useColorFilter } from '@/composables/useColorFilter'
 import type { DeviceGroup } from '@/types/device'
@@ -8,11 +10,14 @@ defineProps<{
 }>()
 
 const { colorFilterStyle } = useColorFilter()
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args)
 </script>
 
 <template>
   <SectionCard v-if="groups && groups.length > 0" content-padding="p-4">
-    <template #title>Groups</template>
+    <template #title>{{ t('ui-device-groups-title') }}</template>
 
     <div class="flex flex-wrap gap-2">
       <router-link

@@ -1,8 +1,31 @@
 // components/StatusBadge.vue
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
+import type { FluentVariable } from '@fluent/bundle'
 import type { WorkflowState } from '@/types/workflow'
 import { paletteForColor } from '@/utils/workflowColors'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args)
+
+const statusLabels: Record<string, string> = {
+  open: 'ui-status-badge-status-open',
+  'in-progress': 'ui-status-badge-status-in-progress',
+  closed: 'ui-status-badge-status-closed',
+}
+
+const priorityShortLabels: Record<string, string> = {
+  low: 'ui-status-badge-priority-low',
+  medium: 'ui-status-badge-priority-medium',
+  high: 'ui-status-badge-priority-high',
+}
+
+const priorityFullLabels: Record<string, string> = {
+  low: 'ui-status-badge-priority-low-full',
+  medium: 'ui-status-badge-priority-medium-full',
+  high: 'ui-status-badge-priority-high-full',
+}
 
 const props = defineProps<{
   type: 'status' | 'priority'
@@ -46,15 +69,18 @@ const displayText = computed(() => {
 
   if (props.type === 'status') {
     if (props.workflowState) return props.workflowState.name
-    return props.value
+    const key = statusLabels[props.value]
+    return key ? t(key) : props.value
   }
 
   // For priority type: use short form if short prop is true
   if (props.short) {
-    return props.value
+    const key = priorityShortLabels[props.value]
+    return key ? t(key) : props.value
   }
 
-  return `${props.value} priority`
+  const key = priorityFullLabels[props.value]
+  return key ? t(key) : `${props.value} priority`
 })
 
 const colorClasses = computed(() => {

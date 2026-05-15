@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { RouterLink } from "vue-router";
+import { useFluent } from 'fluent-vue';
+import type { FluentVariable } from '@fluent/bundle';
 import UserAvatar from "./UserAvatar.vue";
 import UserDropdownMenu from "./UserDropdownMenu.vue";
 import HeaderTitle from "./HeaderTitle.vue";
@@ -11,6 +13,9 @@ import NotificationBell from "./NotificationBell.vue";
 import Icon from "./common/Icon.vue";
 import { useAuthStore } from '@/stores/auth';
 import { useMobileDetection } from '@/composables/useMobileDetection';
+
+const fluent = useFluent();
+const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args);
 
 // Detect mobile for responsive component sizing
 const { isMobile } = useMobileDetection('sm')
@@ -174,8 +179,8 @@ defineExpose({
             <ItemIdentifier :id="props.ticket.id" size="md" class="flex-shrink-0" />
             <!-- Editable ticket title in header - truncated to fit -->
             <HeaderTitle
-              :initialTitle="props.ticket.title || 'Untitled Ticket'"
-              :placeholder-text="'Enter ticket title...'"
+              :initialTitle="props.ticket.title || t('ui-site-header-untitled-ticket')"
+              :placeholder-text="t('ui-site-header-ticket-title-placeholder')"
               :truncate="true"
               @update-title="handleUpdateTicketTitle"
               class="min-w-0 flex-1"
@@ -187,7 +192,7 @@ defineExpose({
             <ItemIdentifier :id="props.device.id" size="md" class="flex-shrink-0" />
             <!-- Display device hostname as read-only in header -->
             <h1 class="text-xl font-semibold text-primary truncate flex-1 min-w-0">
-              {{ props.device.hostname || 'Unknown Device' }}
+              {{ props.device.hostname || t('ui-site-header-unknown-device') }}
             </h1>
           </div>
         </template>
@@ -200,7 +205,7 @@ defineExpose({
             />
             <HeaderTitle
               :initialTitle="props.document.title"
-              :placeholder-text="'Enter document title...'"
+              :placeholder-text="t('ui-site-header-document-title-placeholder')"
               :truncate="true"
               @update-title="handleUpdateDocumentTitle"
               @update-title-preview="handlePreviewDocumentTitle"
@@ -230,7 +235,7 @@ defineExpose({
           v-if="props.showCreateButton"
           @click="handleCreateClick"
           class="group flex create-button px-2.5 py-1.5 sm:px-3 text-sm font-medium text-secondary border border-default rounded-lg hover:text-primary hover:border-accent hover:bg-accent-muted transition-colors items-center gap-2"
-          :aria-label="`Create ${props.createButtonText}`"
+          :aria-label="t('ui-site-header-create-aria', { action: props.createButtonText })"
         >
           <CreateActionIcon :icon="props.createButtonIcon" />
           <span class="create-button-text">{{ props.createButtonText }}</span>
@@ -251,8 +256,8 @@ defineExpose({
                 to="/inbox"
                 class="relative inline-flex rounded-lg p-2 text-secondary transition-colors hover:bg-surface-hover hover:text-primary focus:outline-none focus:ring-2 focus:ring-accent items-center justify-center"
                 active-class="text-accent bg-accent/10"
-                aria-label="Open inbox"
-                title="Inbox"
+                :aria-label="t('ui-site-header-inbox-aria')"
+                :title="t('ui-site-header-inbox-tooltip')"
             >
                 <Icon name="inbox" size="md" />
             </RouterLink>

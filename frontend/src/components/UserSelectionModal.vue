@@ -1,11 +1,23 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { useFluent } from 'fluent-vue';
+import type { FluentVariable } from '@fluent/bundle';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import userService from '@/services/userService';
 import type { UserInfo } from '@/types/user';
+
+const fluent = useFluent();
+const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args);
+
+const roleLabel = (role: string): string => {
+  if (role === 'admin') return t('ui-user-selection-modal-role-admin');
+  if (role === 'technician') return t('ui-user-selection-modal-role-technician');
+  if (role === 'user') return t('ui-user-selection-modal-role-user');
+  return role.charAt(0).toUpperCase() + role.slice(1);
+};
 
 const props = defineProps<{
   show: boolean;
@@ -45,7 +57,7 @@ const loadUsers = async (query: string = '') => {
     users.value = response.data;
   } catch (err) {
     console.error('Error loading users:', err);
-    error.value = 'Failed to load users';
+    error.value = t('ui-user-selection-modal-error');
     users.value = [];
   } finally {
     loading.value = false;
@@ -90,7 +102,7 @@ const clearUser = () => {
 </script>
 
 <template>
-  <Modal :show="show" @close="$emit('close')" title="Assign User" size="md">
+  <Modal :show="show" @close="$emit('close')" :title="t('ui-user-selection-modal-title')" size="md">
     <div class="flex flex-col gap-4">
       <!-- Search Input -->
       <div class="relative">
@@ -98,7 +110,7 @@ const clearUser = () => {
           v-model="searchQuery"
           @input="handleSearchInput"
           type="text"
-          placeholder="Search users by name or email..."
+          :placeholder="t('ui-user-selection-modal-search-placeholder')"
           class="w-full px-4 py-2.5 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent transition-colors"
         />
         <svg
@@ -118,7 +130,7 @@ const clearUser = () => {
         class="w-full px-4 py-2.5 bg-surface-alt border border-default rounded-lg text-secondary hover:bg-surface-hover hover:border-strong transition-colors text-sm font-medium flex items-center justify-center gap-2"
       >
         <Icon name="close" />
-        Unassign User
+        {{ t('ui-user-selection-modal-unassign') }}
       </button>
 
       <!-- Loading State -->
@@ -165,7 +177,7 @@ const clearUser = () => {
               'bg-surface-alt text-secondary border border-default': user.role === 'user'
             }"
           >
-            {{ user.role.charAt(0).toUpperCase() + user.role.slice(1) }}
+            {{ roleLabel(user.role) }}
           </span>
 
           <!-- Selected Indicator -->
@@ -185,7 +197,7 @@ const clearUser = () => {
         <svg class="w-12 h-12 mx-auto mb-3 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
         </svg>
-        <p class="text-sm">{{ searchQuery ? 'No users found' : 'No users available' }}</p>
+        <p class="text-sm">{{ searchQuery ? t('ui-user-selection-modal-empty-no-match') : t('ui-user-selection-modal-empty-no-users') }}</p>
       </div>
     </div>
   </Modal>

@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useFluent } from 'fluent-vue';
+import type { FluentVariable } from '@fluent/bundle';
+
+const fluent = useFluent();
+const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args);
 
 interface Props {
   text: string;
@@ -102,7 +107,7 @@ onUnmounted(() => {
           v-if="details.totalTickets && details.totalTickets > 5"
           class="text-xs text-tertiary"
         >
-          ...and {{ details.totalTickets - 5 }} more
+          {{ t('ui-heatmap-tooltip-more', { count: details.totalTickets - 5 }) }}
         </div>
       </div>
     </div>

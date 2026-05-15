@@ -15,9 +15,14 @@
  * still resolves synchronously on render.
  */
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
+import type { FluentVariable } from '@fluent/bundle'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import type { ViewerInfo } from '@/types/sse'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args)
 
 interface Props {
   viewers: ViewerInfo[]
@@ -46,7 +51,7 @@ const { getUser } = useUsersDirectory()
 const viewerCards = computed(() =>
   props.viewers.slice(0, props.maxVisible).map((v) => ({
     uuid: v.user_uuid,
-    name: getUser(v.user_uuid).value?.name ?? 'Someone',
+    name: getUser(v.user_uuid).value?.name ?? t('ui-presence-stack-fallback-name'),
   }))
 )
 
@@ -57,8 +62,12 @@ const extraCount = computed(() =>
 const ariaLabel = computed(() => {
   const n = props.viewers.length
   if (n === 0) return ''
-  return `${n} ${n === 1 ? 'person' : 'people'} viewing`
+  return t('ui-presence-stack-aria', { count: n })
 })
+
+const overflowTitle = computed(() =>
+  t('ui-presence-stack-overflow-title', { count: extraCount.value })
+)
 </script>
 
 <template>
@@ -94,7 +103,7 @@ const ariaLabel = computed(() => {
       v-if="extraCount > 0"
       key="overflow"
       class="h-6 w-6 rounded-full bg-surface-alt ring-2 ring-surface flex items-center justify-center text-[0.625rem] font-medium text-secondary"
-      :title="`${extraCount} more viewing`"
+      :title="overflowTitle"
     >
       +{{ extraCount }}
     </div>

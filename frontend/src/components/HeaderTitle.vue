@@ -1,7 +1,12 @@
 <!-- HeaderTitle.vue -->
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { useFluent } from 'fluent-vue';
+import type { FluentVariable } from '@fluent/bundle';
 import InlineEdit from '@/components/common/InlineEdit.vue';
+
+const fluent = useFluent();
+const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args);
 
 interface Props {
   initialTitle: string;
@@ -35,7 +40,7 @@ const handleTitleUpdate = (newValue: string) => {
   <InlineEdit
     :modelValue="displayTitle"
     :prefix="prefix"
-    :placeholder="placeholderText || 'Enter title...'"
+    :placeholder="placeholderText || t('ui-header-title-placeholder')"
     text-size="xl"
     :truncate="truncate"
     @update:modelValue="handleTitleUpdate"

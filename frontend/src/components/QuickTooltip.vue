@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
+import type { FluentVariable } from '@fluent/bundle'
 import UserAvatar from './UserAvatar.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args)
 
 const props = defineProps<{
   text: string
@@ -34,7 +39,7 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const { getUserHandle } = useUsersDirectory()
 
 function resolveDisplayName(value: string | undefined): string {
-  if (!value) return 'Unassigned'
+  if (!value) return t('ui-quick-tooltip-unassigned')
   if (!uuidPattern.test(value)) return value
   return getUserHandle(value).user.value?.name || value
 }
@@ -137,21 +142,21 @@ watch(tooltipVisible, (newValue) => {
         <div class="font-medium">{{ text }}</div>
         <div v-if="details" class="text-secondary flex flex-col gap-2 mt-1">
           <div v-if="details.status" class="flex items-center gap-2">
-            <span class="text-tertiary">Status:</span>
+            <span class="text-tertiary">{{ t('ui-quick-tooltip-status-label') }}</span>
             <span>{{ details.status }}</span>
           </div>
           <div v-if="details.requester || details.assignee" class="flex flex-col gap-1.5">
             <div v-if="details.requester" class="flex items-center gap-2">
               <UserAvatar :name="details.requester" :avatar="details.requester_avatar" :showName="false" size="xs" />
               <span class="flex flex-row gap-1 truncate">
-                <span class="text-tertiary">Requester:</span>
+                <span class="text-tertiary">{{ t('ui-quick-tooltip-requester-label') }}</span>
                 <span>{{ requesterName }}</span>
               </span>
             </div>
             <div v-if="details.assignee" class="flex items-center gap-2">
               <UserAvatar :name="details.assignee" :avatar="details.assignee_avatar" :showName="false" size="xs" />
               <span class="flex flex-row gap-1 truncate">
-                <span class="text-tertiary">Assignee:</span>
+                <span class="text-tertiary">{{ t('ui-quick-tooltip-assignee-label') }}</span>
                 <span>{{ assigneeName }}</span>
               </span>
             </div>
