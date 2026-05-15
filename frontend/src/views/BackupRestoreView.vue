@@ -2,8 +2,8 @@
   <div class="flex-1">
     <div class="flex flex-col gap-4 sm:gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div>
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Backup & Restore</h1>
-        <p class="text-secondary text-sm sm:text-base mt-1">Export and restore system data and attachments</p>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-backup-title') }}</h1>
+        <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('admin-backup-description') }}</p>
       </div>
 
       <!-- Export Section -->
@@ -17,8 +17,8 @@
               </svg>
             </div>
             <div class="flex-1 min-w-0">
-              <span class="font-medium text-primary text-sm sm:text-base block">Create Backup</span>
-              <p class="text-xs sm:text-sm text-secondary mt-1">Export all system data and attachments to a ZIP archive</p>
+              <span class="font-medium text-primary text-sm sm:text-base block">{{ $t('admin-backup-create-heading') }}</span>
+              <p class="text-xs sm:text-sm text-secondary mt-1">{{ $t('admin-backup-create-description') }}</p>
             </div>
           </div>
 
@@ -26,37 +26,37 @@
           <div class="flex flex-col gap-3">
             <ToggleSwitch
               v-model="includeSensitive"
-              label="Include sensitive data"
-              description="Includes passwords, MFA secrets, and authentication tokens (encrypted with password)"
+              :label="$t('admin-backup-include-sensitive-label')"
+              :description="$t('admin-backup-include-sensitive-description')"
             />
 
             <!-- Password fields when sensitive data is included -->
             <div v-if="includeSensitive" class="flex flex-col gap-4">
               <div class="p-3 bg-status-warning/10 border border-status-warning/30 rounded-lg">
                 <p class="text-xs sm:text-sm text-status-warning">
-                  Sensitive data will be encrypted. If you lose the password, the data cannot be recovered.
+                  {{ $t('admin-backup-encryption-warning') }}
                 </p>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div class="flex flex-col gap-1.5">
-                  <label class="block text-xs sm:text-sm font-medium text-secondary">Encryption Password</label>
+                  <label class="block text-xs sm:text-sm font-medium text-secondary">{{ $t('admin-backup-encryption-password-label') }}</label>
                   <PasswordInput
                     v-model="exportPassword"
-                    placeholder="Enter encryption password"
+                    :placeholder="$t('admin-backup-encryption-password-placeholder')"
                     input-class="text-sm"
                   />
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <label class="block text-xs sm:text-sm font-medium text-secondary">Confirm Password</label>
+                  <label class="block text-xs sm:text-sm font-medium text-secondary">{{ $t('admin-backup-confirm-password-label') }}</label>
                   <PasswordInput
                     v-model="exportPasswordConfirm"
-                    placeholder="Confirm encryption password"
+                    :placeholder="$t('admin-backup-confirm-password-placeholder')"
                     input-class="text-sm"
                   />
                 </div>
               </div>
               <p v-if="includeSensitive && exportPassword && exportPassword !== exportPasswordConfirm" class="text-xs sm:text-sm text-status-error">
-                Passwords do not match
+                {{ $t('admin-backup-passwords-no-match') }}
               </p>
             </div>
           </div>
@@ -69,7 +69,7 @@
               class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <Spinner v-if="isExporting" />
-              {{ isExporting ? 'Creating Backup...' : 'Create Backup' }}
+              {{ isExporting ? $t('admin-backup-creating') : $t('admin-backup-create-button') }}
             </button>
           </div>
         </div>
@@ -84,10 +84,10 @@
               <div class="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
                 <Icon name="archive" size="md" />
               </div>
-              <span class="font-medium text-primary text-sm sm:text-base">Recent Backups</span>
+              <span class="font-medium text-primary text-sm sm:text-base">{{ $t('admin-backup-recent-heading') }}</span>
             </div>
             <button @click="loadJobs" class="flex-shrink-0 text-sm text-accent hover:text-accent-hover">
-              Refresh
+              {{ $t('admin-backup-refresh') }}
             </button>
           </div>
 
@@ -97,7 +97,7 @@
           </div>
 
           <div v-else-if="exportJobs.length === 0" class="text-center py-8 text-secondary text-sm">
-            No backups yet. Create your first backup above.
+            {{ $t('admin-backup-empty') }}
           </div>
 
           <div v-else class="flex flex-col gap-2">
@@ -125,13 +125,13 @@
 
                 <!-- Encrypted badge -->
                 <span v-if="job.include_sensitive" class="text-xs px-1.5 py-0.5 bg-status-warning/20 text-status-warning rounded font-medium">
-                  Encrypted
+                  {{ $t('admin-backup-encrypted-badge') }}
                 </span>
 
                 <!-- File size / status -->
                 <span class="text-xs text-secondary">
                   <span v-if="job.file_size">{{ formatFileSize(job.file_size) }}</span>
-                  <span v-else-if="job.status === 'processing'">Creating...</span>
+                  <span v-else-if="job.status === 'processing'">{{ $t('admin-backup-creating-status') }}</span>
                   <span v-else-if="job.error_message" class="text-status-error">{{ job.error_message }}</span>
                 </span>
 
@@ -144,14 +144,14 @@
                     v-if="job.status === 'completed'"
                     @click="downloadBackup(job.id)"
                     class="p-2 text-accent hover:bg-accent/10 rounded-lg transition-colors"
-                    title="Download"
+                    :title="$t('admin-backup-download-title')"
                   >
                     <Icon name="download" />
                   </button>
                   <button
                     @click="deleteJob(job.id)"
                     class="p-2 text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
-                    title="Delete"
+                    :title="$t('admin-backup-delete-title')"
                   >
                     <Icon name="trash" />
                   </button>
@@ -171,8 +171,8 @@
               <Icon name="copyMd" size="md" />
             </div>
             <div class="flex-1 min-w-0">
-              <span class="font-medium text-primary text-sm sm:text-base block">Export Documentation to Markdown</span>
-              <p class="text-xs sm:text-sm text-secondary mt-1">Export all documentation pages as markdown files in a ZIP archive</p>
+              <span class="font-medium text-primary text-sm sm:text-base block">{{ $t('admin-backup-docs-heading') }}</span>
+              <p class="text-xs sm:text-sm text-secondary mt-1">{{ $t('admin-backup-docs-description') }}</p>
             </div>
           </div>
 
@@ -185,7 +185,7 @@
             >
               <Spinner v-if="isExportingDocs" />
               <Icon v-else name="download" />
-              {{ isExportingDocs ? (docsExportProgress ? `Exporting ${docsExportProgress.current}/${docsExportProgress.total}...` : 'Preparing...') : 'Export as Markdown' }}
+              {{ isExportingDocs ? (docsExportProgress ? t('admin-backup-docs-exporting', { current: docsExportProgress.current, total: docsExportProgress.total }) : $t('admin-backup-docs-preparing')) : $t('admin-backup-docs-export') }}
             </button>
             <span v-if="docsExportProgress" class="text-xs sm:text-sm text-secondary">
               {{ docsExportProgress.currentPage }}
@@ -203,8 +203,8 @@
               <Icon name="refresh" size="md" />
             </div>
             <div class="flex-1 min-w-0">
-              <span class="font-medium text-primary text-sm sm:text-base block">Restore from Backup</span>
-              <p class="text-xs sm:text-sm text-secondary mt-1">Upload a backup file to restore system data and attachments</p>
+              <span class="font-medium text-primary text-sm sm:text-base block">{{ $t('admin-backup-restore-heading') }}</span>
+              <p class="text-xs sm:text-sm text-secondary mt-1">{{ $t('admin-backup-restore-description') }}</p>
             </div>
           </div>
 
@@ -230,10 +230,10 @@
               </svg>
               <div class="text-center">
                 <p class="text-xs sm:text-sm text-secondary">
-                  Drag and drop a backup file here, or
+                  {{ $t('admin-backup-restore-dnd') }}
                 </p>
                 <span class="text-xs sm:text-sm text-accent hover:text-accent-hover font-medium">
-                  browse to select a file
+                  {{ $t('admin-backup-restore-browse') }}
                 </span>
               </div>
             </div>
@@ -242,17 +242,17 @@
           <!-- Restore preview -->
           <div v-if="restorePreview" class="flex flex-col gap-3 sm:gap-4">
             <div class="p-3 bg-surface-alt rounded-lg">
-              <h4 class="text-xs sm:text-sm font-medium text-primary mb-2">Backup Details</h4>
+              <h4 class="text-xs sm:text-sm font-medium text-primary mb-2">{{ $t('admin-backup-details-heading') }}</h4>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-xs sm:text-sm">
-                <div><span class="text-secondary">Created:</span> <span class="text-primary ml-1">{{ formatDateTime(restorePreview.manifest.created_at) }}</span></div>
-                <div><span class="text-secondary">Version:</span> <span class="text-primary ml-1">{{ restorePreview.manifest.nosdesk_version }}</span></div>
-                <div><span class="text-secondary">Files:</span> <span class="text-primary ml-1">{{ restorePreview.manifest.files.total_count }}</span></div>
-                <div><span class="text-secondary">Size:</span> <span class="text-primary ml-1">{{ formatFileSize(restorePreview.manifest.files.total_size_bytes) }}</span></div>
+                <div><span class="text-secondary">{{ $t('admin-backup-detail-created') }}</span> <span class="text-primary ml-1">{{ formatDateTime(restorePreview.manifest.created_at) }}</span></div>
+                <div><span class="text-secondary">{{ $t('admin-backup-detail-version') }}</span> <span class="text-primary ml-1">{{ restorePreview.manifest.nosdesk_version }}</span></div>
+                <div><span class="text-secondary">{{ $t('admin-backup-detail-files') }}</span> <span class="text-primary ml-1">{{ restorePreview.manifest.files.total_count }}</span></div>
+                <div><span class="text-secondary">{{ $t('admin-backup-detail-size') }}</span> <span class="text-primary ml-1">{{ formatFileSize(restorePreview.manifest.files.total_size_bytes) }}</span></div>
               </div>
 
               <!-- Tables summary -->
               <div class="mt-3">
-                <span class="text-xs sm:text-sm text-secondary">Tables:</span>
+                <span class="text-xs sm:text-sm text-secondary">{{ $t('admin-backup-detail-tables') }}</span>
                 <div class="flex flex-wrap gap-1 mt-1">
                   <span
                     v-for="(info, table) in restorePreview.manifest.tables"
@@ -267,7 +267,7 @@
 
             <!-- Warnings -->
             <div v-if="restorePreview.warnings.length > 0" class="p-3 bg-status-warning/10 border border-status-warning/30 rounded-lg">
-              <h4 class="text-xs sm:text-sm font-medium text-status-warning mb-2">Warnings</h4>
+              <h4 class="text-xs sm:text-sm font-medium text-status-warning mb-2">{{ $t('admin-backup-warnings-heading') }}</h4>
               <ul class="text-xs sm:text-sm text-status-warning list-disc list-inside space-y-1">
                 <li v-for="(warning, idx) in restorePreview.warnings" :key="idx">{{ warning }}</li>
               </ul>
@@ -275,11 +275,11 @@
 
             <!-- Password for encrypted backup -->
             <div v-if="restorePreview.has_encrypted_sensitive" class="flex flex-col gap-1.5">
-              <label class="block text-xs sm:text-sm font-medium text-secondary">Decryption Password</label>
+              <label class="block text-xs sm:text-sm font-medium text-secondary">{{ $t('admin-backup-decryption-password-label') }}</label>
               <div class="max-w-full sm:max-w-md">
                 <PasswordInput
                   v-model="restorePassword"
-                  placeholder="Enter backup encryption password"
+                  :placeholder="$t('admin-backup-decryption-password-placeholder')"
                   input-class="text-sm"
                 />
               </div>
@@ -288,7 +288,7 @@
             <!-- Restore confirmation -->
             <div class="p-3 bg-status-error/10 border border-status-error/30 rounded-lg">
               <p class="text-xs sm:text-sm text-status-error">
-                Restoring will replace existing files. This action cannot be undone.
+                {{ $t('admin-backup-restore-warning') }}
               </p>
             </div>
 
@@ -300,13 +300,13 @@
                 class="px-4 py-2 bg-status-warning text-white rounded-lg text-sm font-medium hover:bg-status-warning/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <Spinner v-if="isRestoring" />
-                {{ isRestoring ? 'Restoring...' : 'Restore Files' }}
+                {{ isRestoring ? $t('admin-backup-restoring') : $t('admin-backup-restore-button') }}
               </button>
               <button
                 @click="cancelRestore"
                 class="px-4 py-2 border border-default rounded-lg text-sm text-secondary hover:bg-surface-alt transition-colors"
               >
-                Cancel
+                {{ $t('admin-backup-cancel') }}
               </button>
             </div>
           </div>
@@ -317,9 +317,9 @@
     <ConfirmModal
       :show="pendingDeleteJobId !== null"
       variant="danger"
-      title="Delete this backup?"
-      message="The backup file will be permanently removed."
-      confirm-label="Delete"
+      :title="$t('admin-backup-delete-confirm-title')"
+      :message="$t('admin-backup-delete-confirm-message')"
+      :confirm-label="$t('admin-backup-delete-confirm-label')"
       @confirm="doDeleteJob"
       @close="pendingDeleteJobId = null"
     />
@@ -328,6 +328,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import PasswordInput from '@/components/common/PasswordInput.vue';
@@ -339,6 +340,9 @@ import { formatDateTime } from '@/utils/dateUtils';
 import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
 import type { BackupJob, RestorePreview } from '@/types/backup';
 import { formatFileSize } from '@/utils/formatFileSize';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Export state
 const includeSensitive = ref(false);
@@ -440,7 +444,7 @@ const exportDocumentation = async () => {
     });
   } catch (error) {
     console.error('Failed to export documentation:', error);
-    alert('Failed to export documentation. Please check the console for details.');
+    alert(t('admin-backup-docs-error'));
   } finally {
     isExportingDocs.value = false;
     docsExportProgress.value = null;
@@ -463,7 +467,7 @@ const handleDrop = async (event: DragEvent) => {
 
 const uploadFile = async (file: File) => {
   if (!file.name.endsWith('.zip')) {
-    alert('Please select a .zip backup file');
+    alert(t('admin-backup-restore-not-zip'));
     return;
   }
 
@@ -473,7 +477,7 @@ const uploadFile = async (file: File) => {
     restorePreview.value = await backupService.getRestorePreview(job.id);
   } catch (error) {
     console.error('Failed to upload backup:', error);
-    alert('Failed to upload backup file');
+    alert(t('admin-backup-upload-error'));
   }
 };
 
@@ -486,12 +490,12 @@ const executeRestore = async () => {
       password: restorePreview.value?.has_encrypted_sensitive ? restorePassword.value : undefined,
     });
 
-    alert(`Restore completed: ${result.files_restored} files restored. ${result.message}`);
+    alert(t('admin-backup-restore-success', { files: result.files_restored, message: result.message }));
     cancelRestore();
     await loadJobs();
   } catch (error) {
     console.error('Failed to restore backup:', error);
-    alert('Restore failed. Please check the console for details.');
+    alert(t('admin-backup-restore-error'));
   } finally {
     isRestoring.value = false;
   }
