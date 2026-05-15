@@ -3,6 +3,7 @@ import { formatDate as formatDateUtil } from '@/utils/dateUtils';
 import type { UserRole } from '@/types/user';
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useFluent } from 'fluent-vue';
 import { useAuthStore } from "@/stores/auth";
 import BackButton from "@/components/common/BackButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
@@ -33,6 +34,8 @@ interface UserFormData {
 
 const route = useRoute();
 const router = useRouter();
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const authStore = useAuthStore();
 const { colorFilterStyle } = useColorFilter();
 const loading = ref(true);
@@ -65,11 +68,11 @@ const editValues = ref<UserFormData>({
 });
 
 // Role options
-const roleOptions = [
-    { value: "user", label: "User" },
-    { value: "technician", label: "Technician" },
-    { value: "admin", label: "Admin" },
-];
+const roleOptions = computed(() => [
+    { value: "user", label: t('user-profile-role-user') },
+    { value: "technician", label: t('user-profile-role-technician') },
+    { value: "admin", label: t('user-profile-role-admin') },
+]);
 
 // Check permissions
 const canEdit = ref(false);
@@ -85,7 +88,7 @@ const canHaveAssignedTickets = computed(() => {
 // Update document title when user profile changes
 watch(userProfile, (newProfile) => {
     if (newProfile) {
-        document.title = `${newProfile.name}'s Profile | Nosdesk`;
+        document.title = t('user-profile-document-title', { name: newProfile.name });
     }
 });
 
@@ -124,7 +127,7 @@ const fetchUserData = async () => {
                 authStore.isAdmin || authStore.user?.role === "admin";
 
             if (!canEdit.value) {
-                error.value = "You do not have permission to create users";
+                error.value = t('user-profile-error-no-create-permission');
                 return;
             }
 
@@ -160,7 +163,7 @@ const fetchUserData = async () => {
         const userUuid = route.params.uuid as string;
 
         if (!userUuid) {
-            error.value = "User ID is missing";
+            error.value = t('user-profile-error-missing-id');
             return;
         }
 
@@ -205,7 +208,7 @@ const fetchUserData = async () => {
         // User emails are loaded by the UserEmailsCard component, ticket
         // lists by UserAssignedTickets.
     } catch (e) {
-        error.value = "Failed to load user profile";
+        error.value = t('user-profile-error-load');
         console.error("Error loading user profile:", e);
     } finally {
         loading.value = false;
@@ -222,13 +225,13 @@ const formatDate = (dateString: string) => {
         const diffMinutes = Math.floor(diffTime / (1000 * 60));
 
         if (diffMinutes < 1) {
-            return "just now";
+            return t('user-profile-relative-just-now');
         } else if (diffMinutes < 60) {
-            return `${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago`;
+            return t('user-profile-relative-minutes-ago', { count: diffMinutes });
         } else if (diffHours < 24) {
-            return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+            return t('user-profile-relative-hours-ago', { count: diffHours });
         } else if (diffDays < 30) {
-            return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+            return t('user-profile-relative-days-ago', { count: diffDays });
         } else {
             return formatDateUtil(dateString, "MMM d, yyyy");
         }
@@ -246,11 +249,11 @@ const saveUser = async () => {
             // Validate password if not sending invitation
             if (!sendInvitation.value) {
                 if (!manualPassword.value || manualPassword.value.length < 8) {
-                    error.value = "Password must be at least 8 characters long";
+                    error.value = t('user-profile-error-password-too-short');
                     return;
                 }
                 if (manualPassword.value !== confirmPassword.value) {
-                    error.value = "Passwords do not match";
+                    error.value = t('user-profile-error-passwords-mismatch');
                     return;
                 }
             }
@@ -282,7 +285,7 @@ const saveUser = async () => {
 
             if (!newUser?.uuid) {
                 console.error('User created but no UUID returned:', newUser);
-                error.value = "User created but navigation failed. Please go to Users list.";
+                error.value = t('user-profile-error-created-no-uuid');
                 return;
             }
 
@@ -319,7 +322,7 @@ const saveUser = async () => {
         if (err instanceof Error) {
             error.value = err.message;
         } else {
-            error.value = "Failed to save user. Please try again.";
+            error.value = t('user-profile-error-save-generic');
         }
     } finally {
         isSaving.value = false;
@@ -354,7 +357,7 @@ watch(
         <div v-if="userProfile || isCreationMode" class="flex flex-col">
             <!-- Navigation and actions bar -->
             <div class="pt-4 px-6 flex justify-between items-center">
-                <BackButton fallbackRoute="/users" label="Back to Users" />
+                <BackButton fallbackRoute="/users" :label="$t('user-profile-back-to-users')" />
                 <div v-if="!isCreationMode" class="flex items-center gap-2">
                     <!-- Own Profile Settings Button -->
                     <RouterLink
@@ -363,7 +366,7 @@ watch(
                         class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-1"
                     >
                         <Icon name="settings" />
-                        Profile Settings
+                        {{ $t('user-profile-action-profile-settings') }}
                     </RouterLink>
 
                     <!-- Admin: Manage User Settings Button -->
@@ -373,7 +376,7 @@ watch(
                         class="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium flex items-center gap-2"
                     >
                         <Icon name="settings" />
-                        User Settings
+                        {{ $t('user-profile-action-user-settings') }}
                     </RouterLink>
                 </div>
             </div>
@@ -399,8 +402,8 @@ watch(
                                     <Icon name="userPlus" size="md" class="text-accent" />
                                 </div>
                                 <div>
-                                    <h1 class="text-lg font-semibold text-primary">Create New User</h1>
-                                    <p class="text-sm text-tertiary">Add a new user to your organization</p>
+                                    <h1 class="text-lg font-semibold text-primary">{{ $t('user-profile-create-title') }}</h1>
+                                    <p class="text-sm text-tertiary">{{ $t('user-profile-create-subtitle') }}</p>
                                 </div>
                             </div>
                         </div>
@@ -412,20 +415,20 @@ watch(
                                 <div class="flex flex-col gap-5">
                                     <h2 class="text-sm font-semibold text-primary flex items-center gap-2">
                                         <Icon name="user" class="text-tertiary" />
-                                        Basic Information
+                                        {{ $t('user-profile-section-basic-info') }}
                                     </h2>
 
                                     <!-- Name Field -->
                                     <div class="flex flex-col gap-2">
                                         <label class="text-xs font-medium text-tertiary uppercase tracking-wider">
-                                            Full Name <span class="text-status-error">*</span>
+                                            {{ $t('user-profile-field-name') }} <span class="text-status-error">*</span>
                                         </label>
                                         <div class="relative">
                                             <input
                                                 id="name-input"
                                                 v-model="editValues.name"
                                                 type="text"
-                                                placeholder="Enter full name"
+                                                :placeholder="$t('user-profile-field-name-placeholder')"
                                                 class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                                             />
                                         </div>
@@ -434,13 +437,13 @@ watch(
                                     <!-- Email Field -->
                                     <div class="flex flex-col gap-2">
                                         <label class="text-xs font-medium text-tertiary uppercase tracking-wider">
-                                            Email Address <span class="text-status-error">*</span>
+                                            {{ $t('user-profile-field-email') }} <span class="text-status-error">*</span>
                                         </label>
                                         <div class="relative">
                                             <input
                                                 v-model="editValues.email"
                                                 type="email"
-                                                placeholder="user@example.com"
+                                                :placeholder="$t('user-profile-field-email-placeholder')"
                                                 class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                                             />
                                         </div>
@@ -448,21 +451,21 @@ watch(
 
                                     <!-- Role Field -->
                                     <div class="flex flex-col gap-2">
-                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">Role</label>
+                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">{{ $t('user-profile-field-role') }}</label>
                                         <BaseDropdown
                                             v-model="editValues.role"
                                             :options="roleOptions"
-                                            placeholder="Select a role"
+                                            :placeholder="$t('user-profile-field-role-placeholder')"
                                         />
                                     </div>
 
                                     <!-- Pronouns Field -->
                                     <div class="flex flex-col gap-2">
-                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">Pronouns</label>
+                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">{{ $t('user-profile-field-pronouns') }}</label>
                                         <input
                                             v-model="editValues.pronouns"
                                             type="text"
-                                            placeholder="e.g., he/him, she/her, they/them"
+                                            :placeholder="$t('user-profile-field-pronouns-placeholder')"
                                             class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                                         />
                                     </div>
@@ -472,7 +475,7 @@ watch(
                                 <div class="flex flex-col gap-5">
                                     <h2 class="text-sm font-semibold text-primary flex items-center gap-2">
                                         <Icon name="key" class="text-tertiary" />
-                                        Account Setup
+                                        {{ $t('user-profile-section-account-setup') }}
                                     </h2>
 
                                     <!-- SMTP Warning Banner -->
@@ -482,14 +485,14 @@ watch(
                                     >
                                         <Icon name="warning" size="md" class="text-status-warning flex-shrink-0 mt-0.5" />
                                         <div class="flex flex-col gap-1">
-                                            <span class="text-sm font-medium text-status-warning">Email not configured</span>
-                                            <span class="text-xs text-status-warning/80">You must set a password manually since email invitations are unavailable.</span>
+                                            <span class="text-sm font-medium text-status-warning">{{ $t('user-profile-smtp-warning-title') }}</span>
+                                            <span class="text-xs text-status-warning/80">{{ $t('user-profile-smtp-warning-body') }}</span>
                                         </div>
                                     </div>
 
                                     <!-- Setup Method Selection -->
                                     <div class="flex flex-col gap-3">
-                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">Setup Method</label>
+                                        <label class="text-xs font-medium text-tertiary uppercase tracking-wider">{{ $t('user-profile-setup-method') }}</label>
 
                                         <!-- Send Invitation Option -->
                                         <button
@@ -508,8 +511,8 @@ watch(
                                                 <Icon name="email" size="md" :class="sendInvitation ? 'text-accent' : 'text-tertiary'" />
                                             </div>
                                             <div class="flex-1 min-w-0">
-                                                <span class="font-medium" :class="sendInvitation ? 'text-primary' : 'text-secondary'">Send invitation email</span>
-                                                <p class="text-xs text-tertiary mt-0.5">User will receive an email with a secure link to set their own password</p>
+                                                <span class="font-medium" :class="sendInvitation ? 'text-primary' : 'text-secondary'">{{ $t('user-profile-setup-invite-title') }}</span>
+                                                <p class="text-xs text-tertiary mt-0.5">{{ $t('user-profile-setup-invite-body') }}</p>
                                             </div>
                                         </button>
 
@@ -529,8 +532,8 @@ watch(
                                                 <Icon name="lock" size="md" :class="!sendInvitation ? 'text-accent' : 'text-tertiary'" />
                                             </div>
                                             <div class="flex-1 min-w-0">
-                                                <span class="font-medium" :class="!sendInvitation ? 'text-primary' : 'text-secondary'">Set password manually</span>
-                                                <p class="text-xs text-tertiary mt-0.5">Create a password for the user now and share it with them securely</p>
+                                                <span class="font-medium" :class="!sendInvitation ? 'text-primary' : 'text-secondary'">{{ $t('user-profile-setup-password-title') }}</span>
+                                                <p class="text-xs text-tertiary mt-0.5">{{ $t('user-profile-setup-password-body') }}</p>
                                             </div>
                                         </button>
                                     </div>
@@ -543,13 +546,13 @@ watch(
                                         <!-- Password Input -->
                                         <div class="flex flex-col gap-2">
                                             <label class="text-xs font-medium text-tertiary uppercase tracking-wider">
-                                                Password <span class="text-status-error">*</span>
+                                                {{ $t('user-profile-field-password') }} <span class="text-status-error">*</span>
                                             </label>
                                             <div class="relative">
                                                 <input
                                                     v-model="manualPassword"
                                                     :type="showPassword ? 'text' : 'password'"
-                                                    placeholder="Minimum 8 characters"
+                                                    :placeholder="$t('user-profile-field-password-placeholder')"
                                                     autocomplete="new-password"
                                                     class="w-full px-4 py-3 pr-12 bg-surface-alt border rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-1 transition-colors"
                                                     :class="manualPassword && manualPassword.length < 8
@@ -589,12 +592,12 @@ watch(
                                         <!-- Confirm Password Input -->
                                         <div class="flex flex-col gap-2">
                                             <label class="text-xs font-medium text-tertiary uppercase tracking-wider">
-                                                Confirm Password <span class="text-status-error">*</span>
+                                                {{ $t('user-profile-field-confirm-password') }} <span class="text-status-error">*</span>
                                             </label>
                                             <input
                                                 v-model="confirmPassword"
                                                 :type="showPassword ? 'text' : 'password'"
-                                                placeholder="Re-enter password"
+                                                :placeholder="$t('user-profile-field-confirm-password-placeholder')"
                                                 autocomplete="new-password"
                                                 class="w-full px-4 py-3 bg-surface-alt border rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-1 transition-colors"
                                                 :class="confirmPassword && manualPassword !== confirmPassword
@@ -614,7 +617,7 @@ watch(
                                                     name="check"
                                                 />
                                                 <Icon v-else name="close" />
-                                                {{ manualPassword === confirmPassword && manualPassword.length >= 8 ? 'Passwords match' : 'Passwords do not match' }}
+                                                {{ manualPassword === confirmPassword && manualPassword.length >= 8 ? $t('user-profile-passwords-match') : $t('user-profile-passwords-no-match') }}
                                             </p>
                                         </div>
                                     </div>
@@ -625,7 +628,7 @@ watch(
                         <!-- Card Footer with Actions -->
                         <div class="px-6 py-4 bg-surface-alt border-t border-default flex items-center justify-between">
                             <p class="text-xs text-tertiary">
-                                <span class="text-status-error">*</span> Required fields
+                                <span class="text-status-error">*</span> {{ $t('user-profile-required-note') }}
                             </p>
                             <div class="flex items-center gap-3">
                                 <button
@@ -633,7 +636,7 @@ watch(
                                     :disabled="isSaving"
                                     class="px-5 py-2.5 text-sm font-medium text-secondary hover:text-primary bg-transparent hover:bg-surface-hover rounded-lg transition-colors disabled:opacity-50"
                                 >
-                                    Cancel
+                                    {{ $t('user-profile-action-cancel') }}
                                 </button>
                                 <button
                                     @click="saveUser"
@@ -647,7 +650,7 @@ watch(
                                 >
                                     <Spinner v-if="isSaving" />
                                     <Icon v-else name="add" />
-                                    {{ isSaving ? "Creating..." : "Create User" }}
+                                    {{ isSaving ? $t('user-profile-action-creating') : $t('user-profile-action-create') }}
                                 </button>
                             </div>
                         </div>
@@ -677,13 +680,13 @@ watch(
 
                         <!-- Devices Section -->
                         <SectionCard content-padding="p-3">
-                            <template #title>Devices</template>
+                            <template #title>{{ $t('user-profile-devices-title') }}</template>
                             <div>
                                 <div
                                     v-if="devices.length === 0"
                                     class="text-secondary text-sm"
                                 >
-                                    No devices
+                                    {{ $t('user-profile-devices-empty') }}
                                 </div>
                                 <div v-else class="flex flex-col gap-3">
                                     <RouterLink
@@ -706,19 +709,14 @@ watch(
                                                 >
                                                     {{
                                                         device.manufacturer ||
-                                                        "Unknown"
+                                                        $t('user-profile-device-manufacturer-unknown')
                                                     }}
                                                     {{ device.model }}
                                                 </p>
                                                 <p
                                                     class="text-xs text-tertiary"
                                                 >
-                                                    Last updated
-                                                    {{
-                                                        formatDate(
-                                                            device.updated_at,
-                                                        )
-                                                    }}
+                                                    {{ $t('user-profile-device-last-updated', { when: formatDate(device.updated_at) }) }}
                                                 </p>
                                             </div>
                                             <div class="flex-shrink-0 ml-3">
@@ -753,7 +751,7 @@ watch(
                             v-if="groups.length > 0"
                             content-padding="p-3"
                         >
-                            <template #title>Groups</template>
+                            <template #title>{{ $t('user-profile-groups-title') }}</template>
                             <div class="flex flex-wrap gap-2">
                                 <button
                                     v-for="group in groups"
@@ -805,7 +803,7 @@ watch(
             ></div>
         </div>
 
-        <div v-else class="p-6 text-center text-secondary">User not found</div>
+        <div v-else class="p-6 text-center text-secondary">{{ $t('user-profile-not-found') }}</div>
     </div>
 </template>
 

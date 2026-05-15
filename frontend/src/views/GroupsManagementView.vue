@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -19,6 +20,8 @@ import type { GroupWithMemberCount, CreateGroupRequest } from '@/types/group';
 
 const router = useRouter();
 const { colorFilterStyle } = useColorFilter();
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // Selected group for split-panel
 const selectedGroupUuid = ref<string | null>(null);
@@ -49,12 +52,12 @@ const searchQuery = ref('');
 const sortField = ref('name');
 const sortAsc = ref(true);
 
-const sortFieldOptions = [
-  { value: 'name', label: 'Name' },
-  { value: 'members', label: 'Members' },
-  { value: 'devices', label: 'Devices' },
-  { value: 'created', label: 'Date Added' },
-];
+const sortFieldOptions = computed(() => [
+  { value: 'name', label: t('groups-mgmt-sort-name') },
+  { value: 'members', label: t('groups-mgmt-sort-members') },
+  { value: 'devices', label: t('groups-mgmt-sort-devices') },
+  { value: 'created', label: t('groups-mgmt-sort-created') },
+]);
 
 // Sensible default directions per field
 const fieldDefaultAsc: Record<string, boolean> = {
@@ -130,7 +133,7 @@ const loadGroups = async () => {
   } catch (error) {
     console.error('Failed to load groups:', error);
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to load groups';
+    errorMessage.value = axiosError.response?.data?.message || t('groups-mgmt-error-load');
     groups.value = [];
   } finally {
     isLoading.value = false;
@@ -150,7 +153,7 @@ const openCreateModal = () => {
 // Save group (create)
 const saveGroup = async () => {
   if (!groupForm.value.name.trim()) {
-    errorMessage.value = 'Group name is required';
+    errorMessage.value = t('groups-mgmt-error-name-required');
     return;
   }
 
@@ -159,7 +162,7 @@ const saveGroup = async () => {
 
   try {
     await groupService.createGroup(groupForm.value);
-    successMessage.value = 'Group created successfully';
+    successMessage.value = t('groups-mgmt-success-created');
 
     showGroupModal.value = false;
     await loadGroups();
@@ -167,7 +170,7 @@ const saveGroup = async () => {
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to create group';
+    errorMessage.value = axiosError.response?.data?.message || t('groups-mgmt-error-create');
   } finally {
     isSaving.value = false;
   }
@@ -188,7 +191,7 @@ const deleteGroup = async () => {
 
   try {
     await groupService.deleteGroup(groupToDelete.value.id);
-    successMessage.value = 'Group deleted successfully';
+    successMessage.value = t('groups-mgmt-success-deleted');
     showDeleteConfirm.value = false;
 
     // Clear panel if the deleted group was selected
@@ -202,7 +205,7 @@ const deleteGroup = async () => {
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to delete group';
+    errorMessage.value = axiosError.response?.data?.message || t('groups-mgmt-error-delete');
   } finally {
     isSaving.value = false;
   }
@@ -237,16 +240,16 @@ onMounted(() => {
       <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full" :class="selectedGroupUuid && !isMobile ? '' : 'max-w-8xl'">
         <div class="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 class="text-xl sm:text-2xl font-bold text-primary">Groups</h1>
-            <p class="text-secondary text-sm sm:text-base mt-1">Manage user groups and memberships</p>
+            <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('groups-mgmt-title') }}</h1>
+            <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('groups-mgmt-subtitle') }}</p>
           </div>
           <button
             @click="openCreateModal"
             class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
           >
             <Icon name="add" />
-            <span class="hidden xs:inline">New Group</span>
-            <span class="xs:hidden">New</span>
+            <span class="hidden xs:inline">{{ $t('groups-mgmt-action-new') }}</span>
+            <span class="xs:hidden">{{ $t('groups-mgmt-action-new-short') }}</span>
           </button>
         </div>
 
@@ -257,13 +260,13 @@ onMounted(() => {
         <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
         <!-- Loading state -->
-        <LoadingSpinner v-if="isLoading" text="Loading groups..." />
+        <LoadingSpinner v-if="isLoading" :text="$t('groups-mgmt-loading')" />
 
         <!-- Search & sort toolbar -->
         <div v-if="!isLoading && groups.length > 0" class="flex items-center gap-2">
           <DebouncedSearchInput
             v-model="searchQuery"
-            placeholder="Search groups..."
+            :placeholder="$t('groups-mgmt-search-placeholder')"
             :debounce-ms="0"
             class="max-w-xs"
           />
@@ -276,7 +279,7 @@ onMounted(() => {
           <button
             @click="toggleSortDirection"
             class="p-1.5 border border-default rounded-lg bg-surface-alt hover:border-strong hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
-            :title="sortAsc ? 'Ascending' : 'Descending'"
+            :title="sortAsc ? $t('groups-mgmt-sort-ascending') : $t('groups-mgmt-sort-descending')"
           >
             <Icon
               name="chevronUp"
@@ -316,13 +319,13 @@ onMounted(() => {
                   <h3 class="font-medium text-primary text-sm sm:text-base truncate">{{ group.name }}</h3>
                   <div class="flex items-center gap-1.5">
                     <span class="px-2 py-0.5 text-xs bg-surface-alt text-secondary rounded-full">
-                      {{ group.member_count }} member{{ group.member_count !== 1 ? 's' : '' }}
+                      {{ $t('groups-mgmt-chip-members', { count: group.member_count }) }}
                     </span>
                     <span v-if="group.device_count > 0" class="px-2 py-0.5 text-xs bg-surface-alt text-secondary rounded-full">
-                      {{ group.device_count }} device{{ group.device_count !== 1 ? 's' : '' }}
+                      {{ $t('groups-mgmt-chip-devices', { count: group.device_count }) }}
                     </span>
                     <span v-if="group.included_group_count > 0" class="px-2 py-0.5 text-xs bg-surface-alt text-secondary rounded-full">
-                      {{ group.included_group_count }} group{{ group.included_group_count !== 1 ? 's' : '' }}
+                      {{ $t('groups-mgmt-chip-groups', { count: group.included_group_count }) }}
                     </span>
                   </div>
                 </div>
@@ -336,14 +339,14 @@ onMounted(() => {
                 <button
                   @click.stop="navigateToConfiguration(group)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-md sm:rounded-lg transition-colors"
-                  title="Open full page"
+                  :title="$t('groups-mgmt-action-open-full-page')"
                 >
                   <Icon name="settings" />
                 </button>
                 <button
                   @click.stop="confirmDelete(group)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
-                  title="Delete group"
+                  :title="$t('groups-mgmt-action-delete')"
                 >
                   <Icon name="trash" />
                 </button>
@@ -353,7 +356,7 @@ onMounted(() => {
 
           <!-- No search results -->
           <div v-if="filteredGroups.length === 0 && groups.length > 0" class="text-center py-8 text-secondary text-sm">
-            No groups matching "{{ searchQuery }}"
+            {{ $t('groups-mgmt-no-results', { query: searchQuery }) }}
           </div>
 
           <!-- Empty state -->
@@ -362,7 +365,7 @@ onMounted(() => {
             icon="users"
             :title="$t('empty-groups-title')"
             :description="$t('empty-groups-description')"
-            action-label="Create Group"
+            :action-label="$t('groups-mgmt-empty-action')"
             variant="card"
             @action="openCreateModal"
           />
@@ -385,18 +388,18 @@ onMounted(() => {
   <!-- Create Group Modal -->
   <Modal
     :show="showGroupModal"
-    title="Create Group"
+    :title="$t('groups-mgmt-modal-create-title')"
     size="sm"
     @close="showGroupModal = false"
   >
     <form @submit.prevent="saveGroup" class="flex flex-col gap-4">
       <!-- Name -->
       <div>
-        <label class="block text-sm font-medium text-primary mb-1">Name</label>
+        <label class="block text-sm font-medium text-primary mb-1">{{ $t('groups-mgmt-field-name') }}</label>
         <input
           v-model="groupForm.name"
           type="text"
-          placeholder="Enter group name"
+          :placeholder="$t('groups-mgmt-field-name-placeholder')"
           class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
           required
         />
@@ -404,10 +407,10 @@ onMounted(() => {
 
       <!-- Description -->
       <div>
-        <label class="block text-sm font-medium text-primary mb-1">Description</label>
+        <label class="block text-sm font-medium text-primary mb-1">{{ $t('groups-mgmt-field-description') }}</label>
         <textarea
           v-model="groupForm.description"
-          placeholder="Optional description"
+          :placeholder="$t('groups-mgmt-field-description-placeholder')"
           rows="2"
           class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-none"
         />
@@ -418,7 +421,7 @@ onMounted(() => {
         <ColorHueSlider
           :model-value="groupForm.color ?? '#6366f1'"
           @update:model-value="groupForm.color = $event"
-          label="Color"
+          :label="$t('groups-mgmt-field-color')"
         />
       </div>
 
@@ -429,7 +432,7 @@ onMounted(() => {
           @click="showGroupModal = false"
           class="px-4 py-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
         >
-          Cancel
+          {{ $t('groups-mgmt-action-cancel') }}
         </button>
         <button
           type="submit"
@@ -437,7 +440,7 @@ onMounted(() => {
           class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
         >
           <Spinner v-if="isSaving" />
-          Create Group
+          {{ $t('groups-mgmt-action-create') }}
         </button>
       </div>
     </form>
@@ -446,15 +449,12 @@ onMounted(() => {
   <!-- Delete Confirmation Modal -->
   <Modal
     :show="showDeleteConfirm"
-    title="Delete Group"
+    :title="$t('groups-mgmt-modal-delete-title')"
     size="sm"
     @close="showDeleteConfirm = false"
   >
     <div class="flex flex-col gap-4">
-      <p class="text-secondary">
-        Are you sure you want to delete the group <strong class="text-primary">{{ groupToDelete?.name }}</strong>?
-        This will remove all member associations but will not delete the users.
-      </p>
+      <p class="text-secondary" v-html="$t('groups-mgmt-delete-confirm-body', { name: groupToDelete?.name ?? '' })"></p>
 
       <div class="flex justify-end gap-2 pt-2">
         <button
@@ -462,7 +462,7 @@ onMounted(() => {
           @click="showDeleteConfirm = false"
           class="px-4 py-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
         >
-          Cancel
+          {{ $t('groups-mgmt-action-cancel') }}
         </button>
         <button
           @click="deleteGroup"
@@ -470,7 +470,7 @@ onMounted(() => {
           class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
         >
           <Spinner v-if="isSaving" />
-          Delete Group
+          {{ $t('groups-mgmt-action-delete-confirm') }}
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import BackButton from '@/components/common/BackButton.vue';
 import Icon from '@/components/common/Icon.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
@@ -15,6 +16,8 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const { colorFilterStyle } = useColorFilter();
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const group = ref<GroupDetails | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
@@ -26,14 +29,14 @@ const fetchGroupData = async () => {
 
     const uuid = route.params.uuid as string;
     if (!uuid) {
-      error.value = 'Invalid group ID';
+      error.value = t('group-detail-error-invalid-id');
       loading.value = false;
       return;
     }
 
     group.value = await groupService.getGroupDetails(uuid);
   } catch (e) {
-    error.value = 'Failed to load group details';
+    error.value = t('group-detail-error-load');
     console.error('Error loading group:', e);
   } finally {
     loading.value = false;
@@ -61,7 +64,7 @@ const syncSourceDisplay = computed(() => {
   if (!group.value?.external_source) return null;
   switch (group.value.external_source) {
     case 'microsoft':
-      return 'Microsoft Entra ID';
+      return t('group-detail-sync-source-microsoft');
     default:
       return group.value.external_source;
   }
@@ -70,11 +73,11 @@ const syncSourceDisplay = computed(() => {
 // Get group type display
 const groupTypeDisplay = computed(() => {
   if (!group.value) return null;
-  const types = [];
-  if (group.value.security_enabled) types.push('Security');
-  if (group.value.mail_enabled) types.push('Mail-enabled');
+  const types: string[] = [];
+  if (group.value.security_enabled) types.push(t('group-detail-type-security'));
+  if (group.value.mail_enabled) types.push(t('group-detail-type-mail-enabled'));
   if (group.value.group_type) types.push(group.value.group_type);
-  return types.length > 0 ? types.join(', ') : 'Standard';
+  return types.length > 0 ? types.join(', ') : t('group-detail-type-standard');
 });
 
 onMounted(() => {
@@ -170,7 +173,7 @@ onMounted(() => {
           <!-- Sync indicator -->
           <div v-if="group.external_source" class="hidden sm:flex items-center gap-2 text-sm">
             <div class="w-2 h-2 rounded-full bg-accent animate-pulse"></div>
-            <span class="text-secondary">Synced from {{ syncSourceDisplay }}</span>
+            <span class="text-secondary">{{ $t('group-detail-synced-from', { source: syncSourceDisplay ?? '' }) }}</span>
           </div>
         </div>
 
@@ -181,7 +184,7 @@ onMounted(() => {
           class="px-3 py-1.5 bg-surface-alt hover:bg-surface-hover border border-default rounded-lg text-sm font-medium text-primary transition-colors flex items-center gap-1.5"
         >
           <Icon name="settings" />
-          Configure
+          {{ $t('group-detail-action-configure') }}
         </button>
       </div>
 
@@ -201,7 +204,7 @@ onMounted(() => {
             <!-- Mobile sync indicator -->
             <div v-if="group.external_source" class="sm:hidden flex items-center gap-2 text-xs mt-2">
               <div class="w-1.5 h-1.5 rounded-full bg-accent"></div>
-              <span class="text-secondary">Synced from {{ syncSourceDisplay }}</span>
+              <span class="text-secondary">{{ $t('group-detail-synced-from', { source: syncSourceDisplay ?? '' }) }}</span>
             </div>
           </div>
         </div>
@@ -210,35 +213,35 @@ onMounted(() => {
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           <!-- Group Information -->
           <SectionCard content-padding="p-3 sm:p-4">
-            <template #title>Group Information</template>
+            <template #title>{{ $t('group-detail-section-information') }}</template>
 
             <div class="flex flex-col gap-3 sm:gap-4">
               <!-- Type -->
               <div class="flex flex-col gap-1">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Type</h3>
+                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('group-detail-field-type') }}</h3>
                 <p class="text-primary text-sm">{{ groupTypeDisplay }}</p>
               </div>
 
               <!-- Sync Source -->
               <div v-if="syncSourceDisplay" class="flex flex-col gap-1">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Sync Source</h3>
+                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('group-detail-field-sync-source') }}</h3>
                 <p class="text-primary text-sm">{{ syncSourceDisplay }}</p>
               </div>
 
               <!-- Last Synced -->
               <div v-if="group.last_synced_at" class="flex flex-col gap-1">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Last Synced</h3>
+                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('group-detail-field-last-synced') }}</h3>
                 <p class="text-primary text-sm">{{ formatDate(group.last_synced_at, 'MMM d, yyyy h:mm a') }}</p>
               </div>
 
               <!-- Created/Updated -->
               <div class="grid grid-cols-2 gap-3 sm:gap-4 pt-2 sm:pt-3 border-t border-default">
                 <div class="flex flex-col gap-1">
-                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Created</h4>
+                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('group-detail-field-created') }}</h4>
                   <p class="text-primary text-sm">{{ formatDate(group.created_at, 'MMM d, yyyy') }}</p>
                 </div>
                 <div class="flex flex-col gap-1">
-                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">Updated</h4>
+                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('group-detail-field-updated') }}</h4>
                   <p class="text-primary text-sm">{{ formatDate(group.updated_at, 'MMM d, yyyy') }}</p>
                 </div>
               </div>
@@ -249,7 +252,7 @@ onMounted(() => {
           <SectionCard content-padding="p-0">
             <template #title>
               <div class="flex items-center justify-between">
-                <span>Members</span>
+                <span>{{ $t('group-detail-section-members') }}</span>
                 <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">
                   {{ group.members.length }}
                 </span>
@@ -282,7 +285,7 @@ onMounted(() => {
             </div>
 
             <div v-else class="p-4 text-center">
-              <p class="text-tertiary text-sm">No members</p>
+              <p class="text-tertiary text-sm">{{ $t('group-detail-no-members') }}</p>
             </div>
           </SectionCard>
 
@@ -290,7 +293,7 @@ onMounted(() => {
           <SectionCard content-padding="p-0">
             <template #title>
               <div class="flex items-center justify-between">
-                <span>Devices</span>
+                <span>{{ $t('group-detail-section-devices') }}</span>
                 <span class="px-2 py-0.5 text-xs bg-surface rounded-full text-secondary font-normal">
                   {{ group.devices.length }}
                 </span>
@@ -313,7 +316,7 @@ onMounted(() => {
                       {{ device.name || device.hostname }}
                     </p>
                     <p class="text-xs text-secondary truncate">
-                      {{ [device.manufacturer, device.model].filter(Boolean).join(' ') || 'Unknown device' }}
+                      {{ [device.manufacturer, device.model].filter(Boolean).join(' ') || $t('group-detail-unknown-device') }}
                     </p>
                   </div>
                   <Icon name="chevronRight" class="text-tertiary ml-auto opacity-0 group-hover/item:opacity-100 transition-opacity flex-shrink-0" />
@@ -322,7 +325,7 @@ onMounted(() => {
             </div>
 
             <div v-else class="p-4 text-center">
-              <p class="text-tertiary text-sm">No devices</p>
+              <p class="text-tertiary text-sm">{{ $t('group-detail-no-devices') }}</p>
             </div>
           </SectionCard>
         </div>
@@ -336,7 +339,7 @@ onMounted(() => {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       </div>
-      <p class="text-secondary">Group not found</p>
+      <p class="text-secondary">{{ $t('group-detail-not-found') }}</p>
     </div>
   </div>
 </template>

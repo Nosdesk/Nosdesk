@@ -1434,3 +1434,171 @@ admin-webhooks-event-documentation-updated = Documentation mise à jour
 admin-webhooks-event-user-created = Utilisateur créé
 admin-webhooks-event-user-updated = Utilisateur mis à jour
 admin-webhooks-event-user-deleted = Utilisateur supprimé
+
+# Users list (UsersListView): people directory with role filter,
+# bulk role change, and bulk delete.
+user-mgmt-search-placeholder = Rechercher des utilisateurs...
+user-mgmt-item-label = utilisateur
+user-mgmt-filter-all-roles = Tous les rôles
+user-mgmt-role-admin = Administrateur
+user-mgmt-role-technician = Technicien
+user-mgmt-role-user = Utilisateur
+user-mgmt-column-user = Utilisateur
+user-mgmt-column-role = Rôle
+user-mgmt-column-tickets = Tickets
+user-mgmt-column-devices = Appareils
+user-mgmt-column-joined = Inscrit le
+user-mgmt-invite-action = Inviter un utilisateur
+user-mgmt-mobile-tickets = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+user-mgmt-mobile-devices = { $count ->
+    [one] { $count } appareil
+   *[other] { $count } appareils
+   }
+user-mgmt-bulk-role = Rôle
+user-mgmt-bulk-delete = Supprimer
+user-mgmt-bulk-delete-count = Supprimer { $count }
+user-mgmt-bulk-action-error = Échec de l'action groupée. Veuillez réessayer.
+user-mgmt-role-modal-title = Définir le rôle
+user-mgmt-role-modal-body = { $count ->
+    [one] Modifier le rôle de { $count } utilisateur
+   *[other] Modifier le rôle de { $count } utilisateurs
+   }
+
+# Profil utilisateur (UserProfileView) : détail d'un utilisateur,
+# formulaire de création, panneaux appareils/groupes et tickets.
+user-profile-document-title = Profil de { $name } | Nosdesk
+user-profile-back-to-users = Retour aux utilisateurs
+user-profile-action-profile-settings = Paramètres du profil
+user-profile-action-user-settings = Paramètres utilisateur
+user-profile-create-title = Créer un nouvel utilisateur
+user-profile-create-subtitle = Ajoutez un nouvel utilisateur à votre organisation
+user-profile-section-basic-info = Informations de base
+user-profile-field-name = Nom complet
+user-profile-field-name-placeholder = Saisissez le nom complet
+user-profile-field-email = Adresse e-mail
+user-profile-field-email-placeholder = utilisateur@exemple.com
+user-profile-field-role = Rôle
+user-profile-field-role-placeholder = Sélectionnez un rôle
+user-profile-role-user = Utilisateur
+user-profile-role-technician = Technicien
+user-profile-role-admin = Administrateur
+user-profile-field-pronouns = Pronoms
+user-profile-field-pronouns-placeholder = ex. il/lui, elle/elle, iel
+user-profile-section-account-setup = Configuration du compte
+user-profile-smtp-warning-title = E-mail non configuré
+user-profile-smtp-warning-body = Vous devez définir un mot de passe manuellement, les invitations par e-mail étant indisponibles.
+user-profile-setup-method = Méthode de configuration
+user-profile-setup-invite-title = Envoyer une invitation par e-mail
+user-profile-setup-invite-body = L'utilisateur recevra un e-mail avec un lien sécurisé pour définir son mot de passe
+user-profile-setup-password-title = Définir un mot de passe manuellement
+user-profile-setup-password-body = Créez un mot de passe pour l'utilisateur maintenant et partagez-le en toute sécurité
+user-profile-field-password = Mot de passe
+user-profile-field-password-placeholder = 8 caractères minimum
+user-profile-field-confirm-password = Confirmer le mot de passe
+user-profile-field-confirm-password-placeholder = Saisissez à nouveau le mot de passe
+user-profile-passwords-match = Les mots de passe correspondent
+user-profile-passwords-no-match = Les mots de passe ne correspondent pas
+user-profile-required-note = Champs obligatoires
+user-profile-action-cancel = Annuler
+user-profile-action-create = Créer l'utilisateur
+user-profile-action-creating = Création...
+user-profile-devices-title = Appareils
+user-profile-devices-empty = Aucun appareil
+user-profile-device-manufacturer-unknown = Inconnu
+user-profile-device-last-updated = Dernière mise à jour { $when }
+user-profile-groups-title = Groupes
+user-profile-not-found = Utilisateur introuvable
+user-profile-error-no-create-permission = Vous n'avez pas l'autorisation de créer des utilisateurs
+user-profile-error-missing-id = L'identifiant de l'utilisateur est manquant
+user-profile-error-password-too-short = Le mot de passe doit comporter au moins 8 caractères
+user-profile-error-passwords-mismatch = Les mots de passe ne correspondent pas
+user-profile-error-created-no-uuid = Utilisateur créé mais la navigation a échoué. Rendez-vous sur la liste des utilisateurs.
+user-profile-error-save-generic = Échec de l'enregistrement de l'utilisateur. Veuillez réessayer.
+user-profile-error-load = Échec du chargement du profil utilisateur
+user-profile-relative-just-now = à l'instant
+user-profile-relative-minutes-ago = { $count ->
+    [one] il y a { $count } minute
+   *[other] il y a { $count } minutes
+   }
+user-profile-relative-hours-ago = { $count ->
+    [one] il y a { $count } heure
+   *[other] il y a { $count } heures
+   }
+user-profile-relative-days-ago = { $count ->
+    [one] il y a { $count } jour
+   *[other] il y a { $count } jours
+   }
+
+# Groups management (GroupsManagementView): list, search/sort,
+# create modal, delete confirm, and member/device/group count chips.
+groups-mgmt-title = Groupes
+groups-mgmt-subtitle = Gérer les groupes d'utilisateurs et leurs membres
+groups-mgmt-action-new = Nouveau groupe
+groups-mgmt-action-new-short = Nouveau
+groups-mgmt-loading = Chargement des groupes...
+groups-mgmt-search-placeholder = Rechercher des groupes...
+groups-mgmt-sort-name = Nom
+groups-mgmt-sort-members = Membres
+groups-mgmt-sort-devices = Appareils
+groups-mgmt-sort-created = Date d'ajout
+groups-mgmt-sort-ascending = Croissant
+groups-mgmt-sort-descending = Décroissant
+groups-mgmt-chip-members = { $count ->
+    [one] { $count } membre
+   *[other] { $count } membres
+   }
+groups-mgmt-chip-devices = { $count ->
+    [one] { $count } appareil
+   *[other] { $count } appareils
+   }
+groups-mgmt-chip-groups = { $count ->
+    [one] { $count } groupe
+   *[other] { $count } groupes
+   }
+groups-mgmt-action-open-full-page = Ouvrir la page complète
+groups-mgmt-action-delete = Supprimer le groupe
+groups-mgmt-no-results = Aucun groupe correspondant à « { $query } »
+groups-mgmt-empty-action = Créer un groupe
+groups-mgmt-modal-create-title = Créer un groupe
+groups-mgmt-field-name = Nom
+groups-mgmt-field-name-placeholder = Saisir le nom du groupe
+groups-mgmt-field-description = Description
+groups-mgmt-field-description-placeholder = Description facultative
+groups-mgmt-field-color = Couleur
+groups-mgmt-action-cancel = Annuler
+groups-mgmt-action-create = Créer le groupe
+groups-mgmt-modal-delete-title = Supprimer le groupe
+groups-mgmt-delete-confirm-body = Voulez-vous vraiment supprimer le groupe <strong class="text-primary">{ $name }</strong> ? Cette action supprimera toutes les associations de membres mais ne supprimera pas les utilisateurs.
+groups-mgmt-action-delete-confirm = Supprimer le groupe
+groups-mgmt-error-name-required = Le nom du groupe est obligatoire
+groups-mgmt-error-load = Échec du chargement des groupes
+groups-mgmt-error-create = Échec de la création du groupe
+groups-mgmt-error-delete = Échec de la suppression du groupe
+groups-mgmt-success-created = Groupe créé avec succès
+groups-mgmt-success-deleted = Groupe supprimé avec succès
+
+# Group detail (GroupDetailView): per-group page showing
+# sync status, members, devices, and creation metadata.
+group-detail-error-invalid-id = Identifiant de groupe invalide
+group-detail-error-load = Échec du chargement des détails du groupe
+group-detail-sync-source-microsoft = Microsoft Entra ID
+group-detail-type-security = Sécurité
+group-detail-type-mail-enabled = Messagerie activée
+group-detail-type-standard = Standard
+group-detail-synced-from = Synchronisé depuis { $source }
+group-detail-action-configure = Configurer
+group-detail-section-information = Informations sur le groupe
+group-detail-field-type = Type
+group-detail-field-sync-source = Source de synchronisation
+group-detail-field-last-synced = Dernière synchronisation
+group-detail-field-created = Créé
+group-detail-field-updated = Mis à jour
+group-detail-section-members = Membres
+group-detail-section-devices = Appareils
+group-detail-no-members = Aucun membre
+group-detail-no-devices = Aucun appareil
+group-detail-unknown-device = Appareil inconnu
+group-detail-not-found = Groupe introuvable

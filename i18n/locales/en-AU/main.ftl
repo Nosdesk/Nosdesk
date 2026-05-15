@@ -1428,3 +1428,171 @@ admin-webhooks-event-documentation-updated = Documentation updated
 admin-webhooks-event-user-created = User created
 admin-webhooks-event-user-updated = User updated
 admin-webhooks-event-user-deleted = User deleted
+
+# Users list (UsersListView): people directory with role filter,
+# bulk role change, and bulk delete.
+user-mgmt-search-placeholder = Search users...
+user-mgmt-item-label = user
+user-mgmt-filter-all-roles = All roles
+user-mgmt-role-admin = Admin
+user-mgmt-role-technician = Technician
+user-mgmt-role-user = User
+user-mgmt-column-user = User
+user-mgmt-column-role = Role
+user-mgmt-column-tickets = Tickets
+user-mgmt-column-devices = Devices
+user-mgmt-column-joined = Joined
+user-mgmt-invite-action = Invite user
+user-mgmt-mobile-tickets = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+user-mgmt-mobile-devices = { $count ->
+    [one] { $count } device
+   *[other] { $count } devices
+   }
+user-mgmt-bulk-role = Role
+user-mgmt-bulk-delete = Delete
+user-mgmt-bulk-delete-count = Delete { $count }
+user-mgmt-bulk-action-error = Couldn't do that bulk action. Give it another go.
+user-mgmt-role-modal-title = Set role
+user-mgmt-role-modal-body = { $count ->
+    [one] Update role for { $count } user
+   *[other] Update role for { $count } users
+   }
+
+# User profile (UserProfileView): single user detail + create-user
+# form, devices/groups panels, assigned & requested ticket panes.
+user-profile-document-title = { $name }'s profile | Nosdesk
+user-profile-back-to-users = Back to users
+user-profile-action-profile-settings = Profile settings
+user-profile-action-user-settings = User settings
+user-profile-create-title = Create new user
+user-profile-create-subtitle = Add a new user to your organisation
+user-profile-section-basic-info = Basic info
+user-profile-field-name = Full name
+user-profile-field-name-placeholder = Enter full name
+user-profile-field-email = Email address
+user-profile-field-email-placeholder = user@example.com
+user-profile-field-role = Role
+user-profile-field-role-placeholder = Pick a role
+user-profile-role-user = User
+user-profile-role-technician = Technician
+user-profile-role-admin = Admin
+user-profile-field-pronouns = Pronouns
+user-profile-field-pronouns-placeholder = e.g. he/him, she/her, they/them
+user-profile-section-account-setup = Account setup
+user-profile-smtp-warning-title = Email not configured
+user-profile-smtp-warning-body = You'll need to set a password manually since email invitations aren't available.
+user-profile-setup-method = Setup method
+user-profile-setup-invite-title = Send invitation email
+user-profile-setup-invite-body = User will get an email with a secure link to set their own password
+user-profile-setup-password-title = Set password manually
+user-profile-setup-password-body = Create a password for the user now and share it with them securely
+user-profile-field-password = Password
+user-profile-field-password-placeholder = Minimum 8 characters
+user-profile-field-confirm-password = Confirm password
+user-profile-field-confirm-password-placeholder = Re-enter password
+user-profile-passwords-match = Passwords match
+user-profile-passwords-no-match = Passwords don't match
+user-profile-required-note = Required fields
+user-profile-action-cancel = Cancel
+user-profile-action-create = Create user
+user-profile-action-creating = Creating...
+user-profile-devices-title = Devices
+user-profile-devices-empty = No devices
+user-profile-device-manufacturer-unknown = Unknown
+user-profile-device-last-updated = Last updated { $when }
+user-profile-groups-title = Groups
+user-profile-not-found = User not found
+user-profile-error-no-create-permission = You don't have permission to create users
+user-profile-error-missing-id = User ID is missing
+user-profile-error-password-too-short = Password needs to be at least 8 characters long
+user-profile-error-passwords-mismatch = Passwords don't match
+user-profile-error-created-no-uuid = User created but navigation failed. Head to the users list.
+user-profile-error-save-generic = Couldn't save user. Give it another go.
+user-profile-error-load = Couldn't load user profile
+user-profile-relative-just-now = just now
+user-profile-relative-minutes-ago = { $count ->
+    [one] { $count } minute ago
+   *[other] { $count } minutes ago
+   }
+user-profile-relative-hours-ago = { $count ->
+    [one] { $count } hour ago
+   *[other] { $count } hours ago
+   }
+user-profile-relative-days-ago = { $count ->
+    [one] { $count } day ago
+   *[other] { $count } days ago
+   }
+
+# Groups management (GroupsManagementView): list, search/sort,
+# create modal, delete confirm, and member/device/group count chips.
+groups-mgmt-title = Groups
+groups-mgmt-subtitle = Manage user groups and memberships
+groups-mgmt-action-new = New Group
+groups-mgmt-action-new-short = New
+groups-mgmt-loading = Loading groups...
+groups-mgmt-search-placeholder = Search groups...
+groups-mgmt-sort-name = Name
+groups-mgmt-sort-members = Members
+groups-mgmt-sort-devices = Devices
+groups-mgmt-sort-created = Date Added
+groups-mgmt-sort-ascending = Ascending
+groups-mgmt-sort-descending = Descending
+groups-mgmt-chip-members = { $count ->
+    [one] { $count } member
+   *[other] { $count } members
+   }
+groups-mgmt-chip-devices = { $count ->
+    [one] { $count } device
+   *[other] { $count } devices
+   }
+groups-mgmt-chip-groups = { $count ->
+    [one] { $count } group
+   *[other] { $count } groups
+   }
+groups-mgmt-action-open-full-page = Open full page
+groups-mgmt-action-delete = Delete group
+groups-mgmt-no-results = No groups matching "{ $query }"
+groups-mgmt-empty-action = Create Group
+groups-mgmt-modal-create-title = Create Group
+groups-mgmt-field-name = Name
+groups-mgmt-field-name-placeholder = Enter group name
+groups-mgmt-field-description = Description
+groups-mgmt-field-description-placeholder = Optional description
+groups-mgmt-field-color = Colour
+groups-mgmt-action-cancel = Cancel
+groups-mgmt-action-create = Create Group
+groups-mgmt-modal-delete-title = Delete Group
+groups-mgmt-delete-confirm-body = Sure you want to delete the group <strong class="text-primary">{ $name }</strong>? This removes all member associations but won't delete the users themselves.
+groups-mgmt-action-delete-confirm = Delete Group
+groups-mgmt-error-name-required = Group name is required
+groups-mgmt-error-load = Couldn't load groups
+groups-mgmt-error-create = Couldn't create group
+groups-mgmt-error-delete = Couldn't delete group
+groups-mgmt-success-created = Group created
+groups-mgmt-success-deleted = Group deleted
+
+# Group detail (GroupDetailView): per-group page showing
+# sync status, members, devices, and creation metadata.
+group-detail-error-invalid-id = Invalid group ID
+group-detail-error-load = Couldn't load group details
+group-detail-sync-source-microsoft = Microsoft Entra ID
+group-detail-type-security = Security
+group-detail-type-mail-enabled = Mail-enabled
+group-detail-type-standard = Standard
+group-detail-synced-from = Synced from { $source }
+group-detail-action-configure = Configure
+group-detail-section-information = Group info
+group-detail-field-type = Type
+group-detail-field-sync-source = Sync source
+group-detail-field-last-synced = Last synced
+group-detail-field-created = Created
+group-detail-field-updated = Updated
+group-detail-section-members = Members
+group-detail-section-devices = Devices
+group-detail-no-members = No members
+group-detail-no-devices = No devices
+group-detail-unknown-device = Unknown device
+group-detail-not-found = Group not found

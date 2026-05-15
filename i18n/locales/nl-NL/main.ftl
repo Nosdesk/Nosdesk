@@ -1431,3 +1431,171 @@ admin-webhooks-event-documentation-updated = Documentatie bijgewerkt
 admin-webhooks-event-user-created = Gebruiker aangemaakt
 admin-webhooks-event-user-updated = Gebruiker bijgewerkt
 admin-webhooks-event-user-deleted = Gebruiker verwijderd
+
+# Users list (UsersListView): people directory with role filter,
+# bulk role change, and bulk delete.
+user-mgmt-search-placeholder = Gebruikers zoeken...
+user-mgmt-item-label = gebruiker
+user-mgmt-filter-all-roles = Alle rollen
+user-mgmt-role-admin = Beheerder
+user-mgmt-role-technician = Technicus
+user-mgmt-role-user = Gebruiker
+user-mgmt-column-user = Gebruiker
+user-mgmt-column-role = Rol
+user-mgmt-column-tickets = Tickets
+user-mgmt-column-devices = Apparaten
+user-mgmt-column-joined = Lid sinds
+user-mgmt-invite-action = Gebruiker uitnodigen
+user-mgmt-mobile-tickets = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+   }
+user-mgmt-mobile-devices = { $count ->
+    [one] { $count } apparaat
+   *[other] { $count } apparaten
+   }
+user-mgmt-bulk-role = Rol
+user-mgmt-bulk-delete = Verwijderen
+user-mgmt-bulk-delete-count = { $count } verwijderen
+user-mgmt-bulk-action-error = Bulkactie mislukt. Probeer het opnieuw.
+user-mgmt-role-modal-title = Rol instellen
+user-mgmt-role-modal-body = { $count ->
+    [one] Rol bijwerken voor { $count } gebruiker
+   *[other] Rol bijwerken voor { $count } gebruikers
+   }
+
+# Gebruikersprofiel (UserProfileView): gebruikersdetail,
+# aanmaakformulier, apparaten- en groepenpanelen en tickets.
+user-profile-document-title = Profiel van { $name } | Nosdesk
+user-profile-back-to-users = Terug naar gebruikers
+user-profile-action-profile-settings = Profielinstellingen
+user-profile-action-user-settings = Gebruikersinstellingen
+user-profile-create-title = Nieuwe gebruiker aanmaken
+user-profile-create-subtitle = Voeg een nieuwe gebruiker toe aan je organisatie
+user-profile-section-basic-info = Basisgegevens
+user-profile-field-name = Volledige naam
+user-profile-field-name-placeholder = Voer volledige naam in
+user-profile-field-email = E-mailadres
+user-profile-field-email-placeholder = gebruiker@voorbeeld.nl
+user-profile-field-role = Rol
+user-profile-field-role-placeholder = Selecteer een rol
+user-profile-role-user = Gebruiker
+user-profile-role-technician = Technicus
+user-profile-role-admin = Beheerder
+user-profile-field-pronouns = Voornaamwoorden
+user-profile-field-pronouns-placeholder = bv. hij/hem, zij/haar, die/diens
+user-profile-section-account-setup = Accountinstelling
+user-profile-smtp-warning-title = E-mail niet geconfigureerd
+user-profile-smtp-warning-body = Je moet handmatig een wachtwoord instellen, want e-mailuitnodigingen zijn niet beschikbaar.
+user-profile-setup-method = Instelmethode
+user-profile-setup-invite-title = Uitnodigingsmail sturen
+user-profile-setup-invite-body = Gebruiker ontvangt een e-mail met een beveiligde link om zelf een wachtwoord in te stellen
+user-profile-setup-password-title = Wachtwoord handmatig instellen
+user-profile-setup-password-body = Maak nu een wachtwoord voor de gebruiker en deel het veilig met hen
+user-profile-field-password = Wachtwoord
+user-profile-field-password-placeholder = Minimaal 8 tekens
+user-profile-field-confirm-password = Bevestig wachtwoord
+user-profile-field-confirm-password-placeholder = Voer wachtwoord opnieuw in
+user-profile-passwords-match = Wachtwoorden komen overeen
+user-profile-passwords-no-match = Wachtwoorden komen niet overeen
+user-profile-required-note = Verplichte velden
+user-profile-action-cancel = Annuleren
+user-profile-action-create = Gebruiker aanmaken
+user-profile-action-creating = Aanmaken...
+user-profile-devices-title = Apparaten
+user-profile-devices-empty = Geen apparaten
+user-profile-device-manufacturer-unknown = Onbekend
+user-profile-device-last-updated = Laatst bijgewerkt { $when }
+user-profile-groups-title = Groepen
+user-profile-not-found = Gebruiker niet gevonden
+user-profile-error-no-create-permission = Je hebt geen toestemming om gebruikers aan te maken
+user-profile-error-missing-id = Gebruikers-ID ontbreekt
+user-profile-error-password-too-short = Wachtwoord moet minimaal 8 tekens lang zijn
+user-profile-error-passwords-mismatch = Wachtwoorden komen niet overeen
+user-profile-error-created-no-uuid = Gebruiker aangemaakt, maar navigatie mislukt. Ga naar de gebruikerslijst.
+user-profile-error-save-generic = Opslaan van gebruiker mislukt. Probeer het opnieuw.
+user-profile-error-load = Laden van gebruikersprofiel mislukt
+user-profile-relative-just-now = zojuist
+user-profile-relative-minutes-ago = { $count ->
+    [one] { $count } minuut geleden
+   *[other] { $count } minuten geleden
+   }
+user-profile-relative-hours-ago = { $count ->
+    [one] { $count } uur geleden
+   *[other] { $count } uur geleden
+   }
+user-profile-relative-days-ago = { $count ->
+    [one] { $count } dag geleden
+   *[other] { $count } dagen geleden
+   }
+
+# Groups management (GroupsManagementView): list, search/sort,
+# create modal, delete confirm, and member/device/group count chips.
+groups-mgmt-title = Groepen
+groups-mgmt-subtitle = Gebruikersgroepen en lidmaatschappen beheren
+groups-mgmt-action-new = Nieuwe groep
+groups-mgmt-action-new-short = Nieuw
+groups-mgmt-loading = Groepen laden...
+groups-mgmt-search-placeholder = Groepen zoeken...
+groups-mgmt-sort-name = Naam
+groups-mgmt-sort-members = Leden
+groups-mgmt-sort-devices = Apparaten
+groups-mgmt-sort-created = Toegevoegd op
+groups-mgmt-sort-ascending = Oplopend
+groups-mgmt-sort-descending = Aflopend
+groups-mgmt-chip-members = { $count ->
+    [one] { $count } lid
+   *[other] { $count } leden
+   }
+groups-mgmt-chip-devices = { $count ->
+    [one] { $count } apparaat
+   *[other] { $count } apparaten
+   }
+groups-mgmt-chip-groups = { $count ->
+    [one] { $count } groep
+   *[other] { $count } groepen
+   }
+groups-mgmt-action-open-full-page = Volledige pagina openen
+groups-mgmt-action-delete = Groep verwijderen
+groups-mgmt-no-results = Geen groepen gevonden voor "{ $query }"
+groups-mgmt-empty-action = Groep maken
+groups-mgmt-modal-create-title = Groep maken
+groups-mgmt-field-name = Naam
+groups-mgmt-field-name-placeholder = Voer een groepsnaam in
+groups-mgmt-field-description = Beschrijving
+groups-mgmt-field-description-placeholder = Optionele beschrijving
+groups-mgmt-field-color = Kleur
+groups-mgmt-action-cancel = Annuleren
+groups-mgmt-action-create = Groep maken
+groups-mgmt-modal-delete-title = Groep verwijderen
+groups-mgmt-delete-confirm-body = Weet je zeker dat je de groep <strong class="text-primary">{ $name }</strong> wilt verwijderen? Hiermee worden alle ledenkoppelingen verwijderd, maar de gebruikers zelf blijven bestaan.
+groups-mgmt-action-delete-confirm = Groep verwijderen
+groups-mgmt-error-name-required = Groepsnaam is verplicht
+groups-mgmt-error-load = Groepen laden mislukt
+groups-mgmt-error-create = Groep maken mislukt
+groups-mgmt-error-delete = Groep verwijderen mislukt
+groups-mgmt-success-created = Groep succesvol aangemaakt
+groups-mgmt-success-deleted = Groep succesvol verwijderd
+
+# Group detail (GroupDetailView): per-group page showing
+# sync status, members, devices, and creation metadata.
+group-detail-error-invalid-id = Ongeldig groeps-ID
+group-detail-error-load = Groepsgegevens laden mislukt
+group-detail-sync-source-microsoft = Microsoft Entra ID
+group-detail-type-security = Beveiliging
+group-detail-type-mail-enabled = E-mail ingeschakeld
+group-detail-type-standard = Standaard
+group-detail-synced-from = Gesynchroniseerd vanuit { $source }
+group-detail-action-configure = Configureren
+group-detail-section-information = Groepsinformatie
+group-detail-field-type = Type
+group-detail-field-sync-source = Synchronisatiebron
+group-detail-field-last-synced = Laatst gesynchroniseerd
+group-detail-field-created = Aangemaakt
+group-detail-field-updated = Bijgewerkt
+group-detail-section-members = Leden
+group-detail-section-devices = Apparaten
+group-detail-no-members = Geen leden
+group-detail-no-devices = Geen apparaten
+group-detail-unknown-device = Onbekend apparaat
+group-detail-not-found = Groep niet gevonden

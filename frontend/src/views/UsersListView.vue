@@ -2,6 +2,7 @@
 import { computed, ref, useTemplateRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMutation, useQueryCache } from '@pinia/colada'
+import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
 
 import DataTable from '@/components/common/DataTable.vue'
@@ -29,6 +30,8 @@ defineOptions({ name: 'UsersListView' })
 const router = useRouter()
 const queryCache = useQueryCache()
 const { isMobile } = useMobileDetection()
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const layoutRef = useTemplateRef<ListPageLayoutExpose>('layout')
 const scrollContainerRef = computed<HTMLElement | null>(
@@ -61,7 +64,7 @@ const page = useListPage({
   scrollContainerRef,
   sseEvents: ['user-updated', 'user-created', 'user-deleted'],
   mobileSearch: {
-    placeholder: 'Search users...',
+    placeholder: t('user-mgmt-search-placeholder'),
     createIcon: 'user',
     onCreate: navigateToCreateUser,
   },
@@ -82,23 +85,23 @@ const filterOptions = computed(() =>
   controls.buildFilterOptions({
     role: {
       options: [
-        { value: 'admin', label: 'Admin' },
-        { value: 'technician', label: 'Technician' },
-        { value: 'user', label: 'User' },
+        { value: 'admin', label: t('user-mgmt-role-admin') },
+        { value: 'technician', label: t('user-mgmt-role-technician') },
+        { value: 'user', label: t('user-mgmt-role-user') },
       ],
       width: 'w-[140px]',
-      allLabel: 'All Roles',
+      allLabel: t('user-mgmt-filter-all-roles'),
     },
   }),
 )
 
-const columns = [
-  { field: 'user', label: 'User', width: '1fr', sortable: true, sortKey: 'name', responsive: 'always' as const },
-  { field: 'role', label: 'Role', width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
-  { field: 'open_ticket_count', label: 'Tickets', width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'device_count', label: 'Devices', width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'created_at', label: 'Joined', width: 'minmax(140px,auto)', sortable: false, responsive: 'lg' as const },
-]
+const columns = computed(() => [
+  { field: 'user', label: t('user-mgmt-column-user'), width: '1fr', sortable: true, sortKey: 'name', responsive: 'always' as const },
+  { field: 'role', label: t('user-mgmt-column-role'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
+  { field: 'open_ticket_count', label: t('user-mgmt-column-tickets'), width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
+  { field: 'device_count', label: t('user-mgmt-column-devices'), width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
+  { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(140px,auto)', sortable: false, responsive: 'lg' as const },
+])
 
 const gridClass =
   'grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(80px,auto)_minmax(80px,auto)] lg:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(80px,auto)_minmax(80px,auto)_minmax(140px,auto)]'
@@ -109,11 +112,11 @@ const gridClass =
 const showDeleteConfirm = ref(false)
 const showRoleModal = ref(false)
 
-const ROLE_OPTIONS = [
-  { value: 'admin', label: 'Admin' },
-  { value: 'technician', label: 'Technician' },
-  { value: 'user', label: 'User' },
-]
+const ROLE_OPTIONS = computed(() => [
+  { value: 'admin', label: t('user-mgmt-role-admin') },
+  { value: 'technician', label: t('user-mgmt-role-technician') },
+  { value: 'user', label: t('user-mgmt-role-user') },
+])
 
 const bulkActionMutation = useMutation({
   mutation: (vars: { action: 'delete' | 'set-role'; ids: string[]; value?: string }) =>
@@ -121,7 +124,7 @@ const bulkActionMutation = useMutation({
   onSettled: () => queryCache.invalidateQueries({ key: usersKeys.root }),
   onError: (err) => {
     console.error('Bulk action failed:', err)
-    alert(extractErrorMessage(err, 'Failed to perform bulk action. Please try again.'))
+    alert(extractErrorMessage(err, t('user-mgmt-bulk-action-error')))
   },
 })
 
@@ -154,8 +157,8 @@ async function applyRoleChange(role: string) {
       :is-loading-more="page.isLoadingMore.value"
       :error="page.errorMessage.value"
       :search-query="controls.searchQuery.value"
-      search-placeholder="Search users..."
-      item-label="user"
+      :search-placeholder="$t('user-mgmt-search-placeholder')"
+      :item-label="$t('user-mgmt-item-label')"
       :bulk-selection="selection"
       @update:search-query="controls.handleSearchUpdate"
       @retry="page.handleRetry"
@@ -173,7 +176,7 @@ async function applyRoleChange(role: string) {
           icon="users"
           :title="controls.searchQuery.value ? $t('empty-users-search-title') : $t('empty-users-default-title')"
           :description="controls.searchQuery.value ? $t('empty-users-search-description') : $t('empty-users-default-description')"
-          :action-label="!controls.searchQuery.value ? 'Invite User' : undefined"
+          :action-label="!controls.searchQuery.value ? $t('user-mgmt-invite-action') : undefined"
           @action="navigateToCreateUser"
         />
       </template>
@@ -250,10 +253,10 @@ async function applyRoleChange(role: string) {
                 {{ item.role }}
               </span>
               <span v-if="item.open_ticket_count" class="text-secondary tabular-nums">
-                {{ item.open_ticket_count }} ticket{{ item.open_ticket_count !== 1 ? 's' : '' }}
+                {{ $t('user-mgmt-mobile-tickets', { count: item.open_ticket_count }) }}
               </span>
               <span v-if="item.device_count" class="text-secondary tabular-nums">
-                {{ item.device_count }} device{{ item.device_count !== 1 ? 's' : '' }}
+                {{ $t('user-mgmt-mobile-devices', { count: item.device_count }) }}
               </span>
             </div>
           </div>
@@ -273,7 +276,7 @@ async function applyRoleChange(role: string) {
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
           </svg>
-          Role
+          {{ $t('user-mgmt-bulk-role') }}
         </button>
         <button
           type="button"
@@ -284,7 +287,7 @@ async function applyRoleChange(role: string) {
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
-          Delete{{ selectedCount > 0 ? ` ${selectedCount}` : '' }}
+          {{ selectedCount > 0 ? $t('user-mgmt-bulk-delete-count', { count: selectedCount }) : $t('user-mgmt-bulk-delete') }}
         </button>
       </template>
 
@@ -308,7 +311,7 @@ async function applyRoleChange(role: string) {
     <BulkConfirmDialog
       :show="showDeleteConfirm"
       :count="selection.selectedCount.value"
-      item-label="user"
+      :item-label="$t('user-mgmt-item-label')"
       action-verb="delete"
       @confirm="confirmDelete"
       @close="showDeleteConfirm = false"
@@ -316,13 +319,13 @@ async function applyRoleChange(role: string) {
 
     <Modal
       :show="showRoleModal"
-      title="Set Role"
+      :title="$t('user-mgmt-role-modal-title')"
       size="sm"
       @close="showRoleModal = false"
     >
       <div class="flex flex-col gap-2 p-4">
         <p class="text-sm text-secondary mb-2">
-          Update role for {{ selection.selectedCount.value }} user{{ selection.selectedCount.value !== 1 ? 's' : '' }}
+          {{ $t('user-mgmt-role-modal-body', { count: selection.selectedCount.value }) }}
         </p>
         <button
           v-for="role in ROLE_OPTIONS"
