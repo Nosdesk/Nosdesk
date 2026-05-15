@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -14,6 +15,8 @@ import { extractErrorMessage } from '@/utils/errors'
 
 // Get the branding store to update it when settings change
 const brandingStore = useBrandingStore()
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 // State
 const isLoading = ref(false)
@@ -59,7 +62,7 @@ const loadBrandingConfig = async () => {
   } catch (error) {
     console.error('Failed to load branding configuration:', error)
     const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to load branding configuration'
+    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-load')
   } finally {
     isLoading.value = false
   }
@@ -77,7 +80,7 @@ const saveSettings = async () => {
       primary_color: primaryColor.value || null
     })
     brandingConfig.value = config
-    successMessage.value = 'Branding settings saved successfully'
+    successMessage.value = t('admin-branding-success-saved')
 
     // Update the branding store so changes reflect immediately across the app
     brandingStore.updateConfig(config)
@@ -88,7 +91,7 @@ const saveSettings = async () => {
   } catch (error) {
     console.error('Failed to save branding settings:', error)
     const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to save branding settings'
+    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-save')
   } finally {
     isSaving.value = false
   }
@@ -108,7 +111,7 @@ const handleLogoUpload = async (event: Event) => {
   })
 
   if (!validation.valid) {
-    errorMessage.value = validation.error || 'Invalid file'
+    errorMessage.value = validation.error || t('admin-branding-error-invalid-file')
     return
   }
 
@@ -118,7 +121,7 @@ const handleLogoUpload = async (event: Event) => {
   try {
     const result = await brandingService.uploadBrandingImage(file, 'logo')
     brandingConfig.value = result.settings
-    successMessage.value = 'Logo uploaded successfully'
+    successMessage.value = t('admin-branding-success-logo')
 
     // Update the branding store so the logo reflects immediately
     brandingStore.updateConfig(result.settings)
@@ -129,7 +132,7 @@ const handleLogoUpload = async (event: Event) => {
   } catch (error) {
     console.error('Failed to upload logo:', error)
     const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to upload logo'
+    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-upload-logo')
   } finally {
     uploadingLogo.value = false
     input.value = ''
@@ -149,7 +152,7 @@ const handleLogoLightUpload = async (event: Event) => {
   })
 
   if (!validation.valid) {
-    errorMessage.value = validation.error || 'Invalid file'
+    errorMessage.value = validation.error || t('admin-branding-error-invalid-file')
     return
   }
 
@@ -159,7 +162,7 @@ const handleLogoLightUpload = async (event: Event) => {
   try {
     const result = await brandingService.uploadBrandingImage(file, 'logo_light')
     brandingConfig.value = result.settings
-    successMessage.value = 'Light theme logo uploaded successfully'
+    successMessage.value = t('admin-branding-success-logo-light')
 
     // Update the branding store so the logo reflects immediately
     brandingStore.updateConfig(result.settings)
@@ -170,7 +173,7 @@ const handleLogoLightUpload = async (event: Event) => {
   } catch (error) {
     console.error('Failed to upload light theme logo:', error)
     const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to upload light theme logo'
+    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-upload-logo-light')
   } finally {
     uploadingLogoLight.value = false
     input.value = ''
@@ -190,7 +193,7 @@ const handleFaviconUpload = async (event: Event) => {
   })
 
   if (!validation.valid) {
-    errorMessage.value = validation.error || 'Invalid file'
+    errorMessage.value = validation.error || t('admin-branding-error-invalid-file')
     return
   }
 
@@ -200,7 +203,7 @@ const handleFaviconUpload = async (event: Event) => {
   try {
     const result = await brandingService.uploadBrandingImage(file, 'favicon')
     brandingConfig.value = result.settings
-    successMessage.value = 'Favicon uploaded successfully'
+    successMessage.value = t('admin-branding-success-favicon')
 
     // Update the branding store so the favicon reflects immediately
     brandingStore.updateConfig(result.settings)
@@ -211,7 +214,7 @@ const handleFaviconUpload = async (event: Event) => {
   } catch (error) {
     console.error('Failed to upload favicon:', error)
     const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to upload favicon'
+    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-upload-favicon')
   } finally {
     uploadingFavicon.value = false
     input.value = ''
@@ -226,11 +229,15 @@ type BrandingImageType = 'logo' | 'logo_light' | 'favicon'
 
 const pendingDelete = ref<BrandingImageType | null>(null)
 
-const pendingDeleteLabel = computed(() => {
-  if (!pendingDelete.value) return ''
-  if (pendingDelete.value === 'logo_light') return 'light theme logo'
-  return pendingDelete.value
-})
+const assetLabel = (type: BrandingImageType): string => {
+  if (type === 'logo_light') return t('admin-branding-asset-logo-light')
+  if (type === 'favicon') return t('admin-branding-asset-favicon')
+  return t('admin-branding-asset-logo')
+}
+
+const pendingDeleteLabel = computed(() =>
+  pendingDelete.value ? assetLabel(pendingDelete.value) : ''
+)
 
 function requestDeleteBrandingImage(type: BrandingImageType): void {
   pendingDelete.value = type
@@ -251,15 +258,14 @@ async function confirmDeleteBrandingImage(): Promise<void> {
     // Update the branding store so changes reflect immediately
     brandingStore.updateConfig(config)
 
-    const typeLabel = type === 'logo_light' ? 'Light theme logo' : type.charAt(0).toUpperCase() + type.slice(1)
-    successMessage.value = `${typeLabel} removed successfully`
+    successMessage.value = t('admin-branding-success-removed', { asset: assetLabel(type) })
 
     setTimeout(() => {
       successMessage.value = ''
     }, 3000)
   } catch (error) {
     console.error(`Failed to delete ${type}:`, error)
-    errorMessage.value = extractErrorMessage(error, `Failed to delete ${type}`)
+    errorMessage.value = extractErrorMessage(error, t('admin-branding-error-delete', { asset: assetLabel(type) }))
   }
 }
 
@@ -272,9 +278,9 @@ onMounted(() => {
   <div class="flex-1">
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-6xl">
       <div class="mb-6">
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Branding</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-branding-title') }}</h1>
         <p class="text-secondary mt-2">
-          Customize the appearance and branding of the application.
+          {{ $t('admin-branding-description') }}
         </p>
       </div>
 
@@ -285,32 +291,32 @@ onMounted(() => {
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
       <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" text="Loading branding configuration..." />
+      <LoadingSpinner v-if="isLoading" :text="$t('admin-branding-loading')" />
 
       <!-- Branding configuration -->
       <div v-else class="flex flex-col gap-6">
         <!-- App Name and Primary Color -->
         <div class="bg-surface border border-default rounded-xl p-6 hover:border-strong transition-colors">
-          <h2 class="text-lg font-semibold text-primary mb-4">General Settings</h2>
+          <h2 class="text-lg font-semibold text-primary mb-4">{{ $t('admin-branding-general-heading') }}</h2>
 
           <div class="flex flex-col gap-4">
             <!-- App Name -->
             <div class="flex flex-col gap-2">
-              <label for="appName" class="text-sm font-medium text-primary">Application Name</label>
+              <label for="appName" class="text-sm font-medium text-primary">{{ $t('admin-branding-app-name-label') }}</label>
               <input
                 id="appName"
                 v-model="appName"
                 type="text"
                 class="bg-surface-alt border border-default rounded-lg px-3 py-2 text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
-                placeholder="Nosdesk"
+                :placeholder="$t('admin-branding-app-name-placeholder')"
               />
-              <p class="text-xs text-tertiary">This name appears in the header and browser tab</p>
+              <p class="text-xs text-tertiary">{{ $t('admin-branding-app-name-hint') }}</p>
             </div>
 
             <!-- Primary Color -->
             <div class="flex flex-col gap-2">
-              <ColorHueSlider v-model="primaryColor" label="Primary Color" />
-              <p class="text-xs text-tertiary">Hex color code for accent elements (e.g., #2C80FF)</p>
+              <ColorHueSlider v-model="primaryColor" :label="$t('admin-branding-primary-color-label')" />
+              <p class="text-xs text-tertiary">{{ $t('admin-branding-primary-color-hint') }}</p>
             </div>
 
             <!-- Save Button -->
@@ -321,7 +327,7 @@ onMounted(() => {
                 class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
               >
                 <Spinner v-if="isSaving" />
-                {{ isSaving ? 'Saving...' : 'Save Settings' }}
+                {{ isSaving ? $t('admin-branding-saving') : $t('admin-branding-save') }}
               </button>
             </div>
           </div>
@@ -329,12 +335,12 @@ onMounted(() => {
 
         <!-- Logo Upload -->
         <div class="bg-surface border border-default rounded-xl p-6 hover:border-strong transition-colors">
-          <h2 class="text-lg font-semibold text-primary mb-4">Logo</h2>
+          <h2 class="text-lg font-semibold text-primary mb-4">{{ $t('admin-branding-logo-heading') }}</h2>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <!-- Dark Theme Logo -->
             <div class="flex flex-col gap-3">
-              <label class="text-sm font-medium text-primary">Dark Theme Logo</label>
+              <label class="text-sm font-medium text-primary">{{ $t('admin-branding-logo-dark-label') }}</label>
               <div class="flex items-center gap-4">
                 <div class="w-24 h-24 bg-surface-alt rounded-lg border border-default flex items-center justify-center overflow-hidden">
                   <img
@@ -360,23 +366,23 @@ onMounted(() => {
                     :disabled="uploadingLogo"
                     class="px-3 py-1.5 text-sm bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
                   >
-                    {{ uploadingLogo ? 'Uploading...' : 'Upload Logo' }}
+                    {{ uploadingLogo ? $t('admin-branding-logo-uploading') : $t('admin-branding-logo-upload') }}
                   </button>
                   <button
                     v-if="brandingConfig?.logo_url"
                     @click="requestDeleteBrandingImage('logo')"
                     class="px-3 py-1.5 text-sm text-status-error hover:bg-status-error-muted rounded-lg transition-colors"
                   >
-                    Remove
+                    {{ $t('admin-branding-logo-remove') }}
                   </button>
                 </div>
               </div>
-              <p class="text-xs text-tertiary">PNG, SVG, JPEG, or WebP. Max 2MB.</p>
+              <p class="text-xs text-tertiary">{{ $t('admin-branding-logo-formats') }}</p>
             </div>
 
             <!-- Light Theme Logo -->
             <div class="flex flex-col gap-3">
-              <label class="text-sm font-medium text-primary">Light Theme Logo (Optional)</label>
+              <label class="text-sm font-medium text-primary">{{ $t('admin-branding-logo-light-label') }}</label>
               <div class="flex items-center gap-4">
                 <div class="w-24 h-24 bg-white rounded-lg border border-default flex items-center justify-center overflow-hidden">
                   <img
@@ -408,25 +414,25 @@ onMounted(() => {
                     :disabled="uploadingLogoLight"
                     class="px-3 py-1.5 text-sm bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
                   >
-                    {{ uploadingLogoLight ? 'Uploading...' : 'Upload Logo' }}
+                    {{ uploadingLogoLight ? $t('admin-branding-logo-uploading') : $t('admin-branding-logo-upload') }}
                   </button>
                   <button
                     v-if="brandingConfig?.logo_light_url"
                     @click="requestDeleteBrandingImage('logo_light')"
                     class="px-3 py-1.5 text-sm text-status-error hover:bg-status-error-muted rounded-lg transition-colors"
                   >
-                    Remove
+                    {{ $t('admin-branding-logo-remove') }}
                   </button>
                 </div>
               </div>
-              <p class="text-xs text-tertiary">Used when light theme is active. Falls back to main logo.</p>
+              <p class="text-xs text-tertiary">{{ $t('admin-branding-logo-light-hint') }}</p>
             </div>
           </div>
         </div>
 
         <!-- Favicon Upload -->
         <div class="bg-surface border border-default rounded-xl p-6 hover:border-strong transition-colors">
-          <h2 class="text-lg font-semibold text-primary mb-4">Favicon</h2>
+          <h2 class="text-lg font-semibold text-primary mb-4">{{ $t('admin-branding-favicon-heading') }}</h2>
 
           <div class="flex flex-col gap-3">
             <div class="flex items-center gap-4">
@@ -454,24 +460,24 @@ onMounted(() => {
                   :disabled="uploadingFavicon"
                   class="px-3 py-1.5 text-sm bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
                 >
-                  {{ uploadingFavicon ? 'Uploading...' : 'Upload Favicon' }}
+                  {{ uploadingFavicon ? $t('admin-branding-favicon-uploading') : $t('admin-branding-favicon-upload') }}
                 </button>
                 <button
                   v-if="brandingConfig?.favicon_url"
                   @click="requestDeleteBrandingImage('favicon')"
                   class="px-3 py-1.5 text-sm text-status-error hover:bg-status-error-muted rounded-lg transition-colors"
                 >
-                  Remove
+                  {{ $t('admin-branding-logo-remove') }}
                 </button>
               </div>
             </div>
-            <p class="text-xs text-tertiary">ICO, PNG, or SVG. Recommended size: 32x32 or 64x64 pixels.</p>
+            <p class="text-xs text-tertiary">{{ $t('admin-branding-favicon-formats') }}</p>
           </div>
         </div>
 
         <!-- Preview Section -->
         <div class="bg-surface border border-default rounded-xl p-6">
-          <h2 class="text-lg font-semibold text-primary mb-4">Preview</h2>
+          <h2 class="text-lg font-semibold text-primary mb-4">{{ $t('admin-branding-preview-heading') }}</h2>
           <div class="flex items-center gap-4 p-4 bg-surface-alt rounded-lg border border-default">
             <!-- Favicon preview -->
             <div class="w-8 h-8 bg-surface rounded border border-default flex items-center justify-center">
@@ -506,7 +512,7 @@ onMounted(() => {
                 class="w-6 h-6 rounded-full border border-default"
                 :style="{ backgroundColor: primaryColor || '#2C80FF' }"
               ></div>
-              <span class="text-sm text-secondary">Primary Color</span>
+              <span class="text-sm text-secondary">{{ $t('admin-branding-primary-color-preview') }}</span>
             </div>
           </div>
         </div>
@@ -517,7 +523,7 @@ onMounted(() => {
           class="p-4 rounded-lg border flex items-center gap-3 bg-status-success-muted border-status-success/30"
         >
           <Icon name="checkCircle" size="md" class="text-status-success" />
-          <span class="text-status-success">Custom branding configured</span>
+          <span class="text-status-success">{{ $t('admin-branding-configured') }}</span>
         </div>
       </div>
     </div>
@@ -525,9 +531,9 @@ onMounted(() => {
     <ConfirmModal
       :show="pendingDelete !== null"
       variant="danger"
-      :title="`Remove ${pendingDeleteLabel}?`"
-      message="This removes the uploaded image. You can re-upload at any time, but the previous file is not recoverable."
-      confirm-label="Remove"
+      :title="t('admin-branding-confirm-title', { asset: pendingDeleteLabel })"
+      :message="$t('admin-branding-confirm-message')"
+      :confirm-label="$t('admin-branding-confirm-remove')"
       @confirm="confirmDeleteBrandingImage"
       @close="pendingDelete = null"
     />
