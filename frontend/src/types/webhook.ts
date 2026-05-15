@@ -55,29 +55,36 @@ export interface WebhookDelivery {
 
 export interface WebhookEvent {
   value: string;
-  label: string;
+  /** Fluent key for the event's human label. Consumers resolve
+   * this via `t()` or `translate()`. Categories are translated
+   * separately (see WebhooksView.vue). */
+  labelKey: string;
+  /** Fluent key for the category header label. */
+  categoryKey: string;
+  /** Category slug used for grouping events together in the
+   * WEBHOOK_EVENT_CATEGORIES map. Stable across locales. */
   category: string;
 }
 
 export const WEBHOOK_EVENTS: WebhookEvent[] = [
-  { value: 'ticket.created', label: 'Ticket Created', category: 'Tickets' },
-  { value: 'ticket.updated', label: 'Ticket Updated', category: 'Tickets' },
-  { value: 'ticket.deleted', label: 'Ticket Deleted', category: 'Tickets' },
-  { value: 'ticket.linked', label: 'Ticket Linked', category: 'Tickets' },
-  { value: 'ticket.unlinked', label: 'Ticket Unlinked', category: 'Tickets' },
-  { value: 'comment.added', label: 'Comment Added', category: 'Comments' },
-  { value: 'comment.deleted', label: 'Comment Deleted', category: 'Comments' },
-  { value: 'attachment.added', label: 'Attachment Added', category: 'Attachments' },
-  { value: 'attachment.deleted', label: 'Attachment Deleted', category: 'Attachments' },
-  { value: 'device.linked', label: 'Device Linked', category: 'Devices' },
-  { value: 'device.unlinked', label: 'Device Unlinked', category: 'Devices' },
-  { value: 'device.updated', label: 'Device Updated', category: 'Devices' },
-  { value: 'project.assigned', label: 'Project Assigned', category: 'Projects' },
-  { value: 'project.unassigned', label: 'Project Unassigned', category: 'Projects' },
-  { value: 'documentation.updated', label: 'Documentation Updated', category: 'Documentation' },
-  { value: 'user.created', label: 'User Created', category: 'Users' },
-  { value: 'user.updated', label: 'User Updated', category: 'Users' },
-  { value: 'user.deleted', label: 'User Deleted', category: 'Users' },
+  { value: 'ticket.created',        labelKey: 'admin-webhooks-event-ticket-created',        categoryKey: 'admin-webhooks-category-tickets',       category: 'Tickets' },
+  { value: 'ticket.updated',        labelKey: 'admin-webhooks-event-ticket-updated',        categoryKey: 'admin-webhooks-category-tickets',       category: 'Tickets' },
+  { value: 'ticket.deleted',        labelKey: 'admin-webhooks-event-ticket-deleted',        categoryKey: 'admin-webhooks-category-tickets',       category: 'Tickets' },
+  { value: 'ticket.linked',         labelKey: 'admin-webhooks-event-ticket-linked',         categoryKey: 'admin-webhooks-category-tickets',       category: 'Tickets' },
+  { value: 'ticket.unlinked',       labelKey: 'admin-webhooks-event-ticket-unlinked',       categoryKey: 'admin-webhooks-category-tickets',       category: 'Tickets' },
+  { value: 'comment.added',         labelKey: 'admin-webhooks-event-comment-added',         categoryKey: 'admin-webhooks-category-comments',      category: 'Comments' },
+  { value: 'comment.deleted',       labelKey: 'admin-webhooks-event-comment-deleted',       categoryKey: 'admin-webhooks-category-comments',      category: 'Comments' },
+  { value: 'attachment.added',      labelKey: 'admin-webhooks-event-attachment-added',      categoryKey: 'admin-webhooks-category-attachments',   category: 'Attachments' },
+  { value: 'attachment.deleted',    labelKey: 'admin-webhooks-event-attachment-deleted',    categoryKey: 'admin-webhooks-category-attachments',   category: 'Attachments' },
+  { value: 'device.linked',         labelKey: 'admin-webhooks-event-device-linked',         categoryKey: 'admin-webhooks-category-devices',       category: 'Devices' },
+  { value: 'device.unlinked',       labelKey: 'admin-webhooks-event-device-unlinked',       categoryKey: 'admin-webhooks-category-devices',       category: 'Devices' },
+  { value: 'device.updated',        labelKey: 'admin-webhooks-event-device-updated',        categoryKey: 'admin-webhooks-category-devices',       category: 'Devices' },
+  { value: 'project.assigned',      labelKey: 'admin-webhooks-event-project-assigned',      categoryKey: 'admin-webhooks-category-projects',      category: 'Projects' },
+  { value: 'project.unassigned',    labelKey: 'admin-webhooks-event-project-unassigned',    categoryKey: 'admin-webhooks-category-projects',      category: 'Projects' },
+  { value: 'documentation.updated', labelKey: 'admin-webhooks-event-documentation-updated', categoryKey: 'admin-webhooks-category-documentation', category: 'Documentation' },
+  { value: 'user.created',          labelKey: 'admin-webhooks-event-user-created',          categoryKey: 'admin-webhooks-category-users',         category: 'Users' },
+  { value: 'user.updated',          labelKey: 'admin-webhooks-event-user-updated',          categoryKey: 'admin-webhooks-category-users',         category: 'Users' },
+  { value: 'user.deleted',          labelKey: 'admin-webhooks-event-user-deleted',          categoryKey: 'admin-webhooks-category-users',         category: 'Users' },
 ];
 
 // Group events by category

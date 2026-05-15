@@ -1,5 +1,6 @@
 import { ref, computed, onMounted } from 'vue';
 import passkeyService, { type PasskeyInfo, type PasskeyLoginResult } from '@/services/passkeyService';
+import { translate } from '@/i18n';
 import { logger } from '@/utils/logger';
 
 /**
@@ -264,7 +265,7 @@ export function usePasskeys() {
    * Format date for display
    */
   function formatDate(dateString: string | null): string {
-    if (!dateString) return 'Never';
+    if (!dateString) return translate('passkey-last-used-never', undefined, 'Never');
     try {
       return new Date(dateString).toLocaleDateString(undefined, {
         year: 'numeric',

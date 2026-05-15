@@ -400,17 +400,21 @@ export type PluginPermission =
   | 'collection:write'
   | `network:${string}`;
 
-export const PLUGIN_PERMISSIONS: { value: PluginPermission; label: string; description: string }[] = [
-  { value: 'ticket:read',       label: 'Read Tickets',       description: 'Read ticket data' },
-  { value: 'ticket:write',      label: 'Write Tickets',      description: 'Create and update tickets' },
-  { value: 'ticket:comment',    label: 'Comment on Tickets', description: 'Add comments to tickets' },
-  { value: 'ticket:delete',     label: 'Delete Tickets',     description: 'Delete tickets' },
-  { value: 'device:read',       label: 'Read Devices',       description: 'Read device data' },
-  { value: 'device:write',      label: 'Write Devices',      description: 'Create and update devices' },
-  { value: 'user:read',         label: 'Read Users',         description: 'Read user profile data' },
-  { value: 'storage:plugin',    label: 'Plugin Storage',     description: 'Store plugin-scoped key-value data' },
-  { value: 'collection:read',   label: 'Read Collections',   description: 'Read typed collection rows' },
-  { value: 'collection:write',  label: 'Write Collections',  description: 'Create and update typed collection rows' },
+/** Permission metadata, keys resolved at render time via
+ * `translate()`. The install-confirmation UI is the intended
+ * consumer; until it lands, keep the table in step with the
+ * backend allowlist so we have ready strings when it ships. */
+export const PLUGIN_PERMISSIONS: { value: PluginPermission; labelKey: string; descriptionKey: string }[] = [
+  { value: 'ticket:read',       labelKey: 'plugin-permission-ticket-read-label',       descriptionKey: 'plugin-permission-ticket-read-description' },
+  { value: 'ticket:write',      labelKey: 'plugin-permission-ticket-write-label',      descriptionKey: 'plugin-permission-ticket-write-description' },
+  { value: 'ticket:comment',    labelKey: 'plugin-permission-ticket-comment-label',    descriptionKey: 'plugin-permission-ticket-comment-description' },
+  { value: 'ticket:delete',     labelKey: 'plugin-permission-ticket-delete-label',     descriptionKey: 'plugin-permission-ticket-delete-description' },
+  { value: 'device:read',       labelKey: 'plugin-permission-device-read-label',       descriptionKey: 'plugin-permission-device-read-description' },
+  { value: 'device:write',      labelKey: 'plugin-permission-device-write-label',      descriptionKey: 'plugin-permission-device-write-description' },
+  { value: 'user:read',         labelKey: 'plugin-permission-user-read-label',         descriptionKey: 'plugin-permission-user-read-description' },
+  { value: 'storage:plugin',    labelKey: 'plugin-permission-storage-plugin-label',    descriptionKey: 'plugin-permission-storage-plugin-description' },
+  { value: 'collection:read',   labelKey: 'plugin-permission-collection-read-label',   descriptionKey: 'plugin-permission-collection-read-description' },
+  { value: 'collection:write',  labelKey: 'plugin-permission-collection-write-label',  descriptionKey: 'plugin-permission-collection-write-description' },
 ];
 
 // =============================================================================

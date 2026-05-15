@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { useThemeStore } from '@/stores/theme';
 
 const props = defineProps<{
@@ -12,6 +13,8 @@ const emit = defineEmits<{
 }>();
 
 const themeStore = useThemeStore();
+const fluent = useFluent();
+const t = (key: string) => fluent.$t(key);
 
 // Theme-specific color constraints
 const themeId = computed(() => themeStore.effectiveTheme.meta.id);
@@ -30,15 +33,15 @@ const showColorName = computed(() =>
 
 // Get human-readable color name from hue
 function getColorName(h: number): string {
-  if (h < 15) return 'Red';
-  if (h < 45) return 'Orange';
-  if (h < 70) return 'Yellow';
-  if (h < 150) return 'Green';
-  if (h < 190) return 'Cyan';
-  if (h < 260) return 'Blue';
-  if (h < 290) return 'Purple';
-  if (h < 330) return 'Pink';
-  return 'Red';
+  if (h < 15) return t('color-red');
+  if (h < 45) return t('color-orange');
+  if (h < 70) return t('color-yellow');
+  if (h < 150) return t('color-green');
+  if (h < 190) return t('color-cyan');
+  if (h < 260) return t('color-blue');
+  if (h < 290) return t('color-purple');
+  if (h < 330) return t('color-pink');
+  return t('color-red');
 }
 
 const colorName = computed(() => getColorName(hue.value));

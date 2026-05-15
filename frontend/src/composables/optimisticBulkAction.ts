@@ -25,6 +25,7 @@
  *     undo: () => api.bulkUnarchive(ids),
  *   })
  */
+import { translate } from '@/i18n'
 import { useToastStore } from '@/stores/toast'
 
 export interface OptimisticBulkActionOptions {
@@ -60,13 +61,16 @@ export async function optimisticBulkAction(
   try {
     await options.do()
     toast.success(successTitle, undefined, {
-      label: 'Undo',
+      label: translate('bulk-action-undo', undefined, 'Undo'),
       handler: async () => {
         try {
           await options.undo()
-          toast.info('Undone')
+          toast.info(translate('bulk-action-undone', undefined, 'Undone'))
         } catch (err) {
-          toast.error('Undo failed', err instanceof Error ? err.message : undefined)
+          toast.error(
+            translate('bulk-action-undo-failed', undefined, 'Undo failed'),
+            err instanceof Error ? err.message : undefined,
+          )
         }
       },
     })

@@ -10,6 +10,7 @@
  *   - High: fully filled rounded square
  */
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useThemeStore } from '@/stores/theme'
 
 type TicketPriority = 'low' | 'medium' | 'high'
@@ -22,6 +23,8 @@ const props = withDefaults(defineProps<{
 })
 
 const themeStore = useThemeStore()
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
 
 // Generate unique ID for clip path to avoid conflicts with multiple instances
 const clipPathId = `halfFill-${Math.random().toString(36).substr(2, 9)}`
@@ -71,13 +74,13 @@ const colorClasses = computed(() => {
 const priorityLabel = computed(() => {
   switch (props.priority) {
     case 'low':
-      return 'Low Priority'
+      return t('priority-indicator-low-aria')
     case 'medium':
-      return 'Medium Priority'
+      return t('priority-indicator-medium-aria')
     case 'high':
-      return 'High Priority'
+      return t('priority-indicator-high-aria')
     default:
-      return 'Unknown Priority'
+      return t('priority-indicator-unknown-aria')
   }
 })
 </script>

@@ -12,6 +12,7 @@
  */
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
+import { translate } from '@/i18n'
 import type { CardData } from '@/sync/views/types'
 
 export type GroupBy = 'none' | 'status' | 'priority' | 'assignee' | 'sla' | 'cycle'
@@ -160,19 +161,19 @@ export function useTicketsGrouping(getViewId: () => string): UseTicketsGrouping 
   }
 
   function priorityLabel(p: CardData['priority']): string {
-    if (p === 'urgent') return 'Urgent'
-    if (p === 'high') return 'High'
-    if (p === 'medium') return 'Medium'
-    if (p === 'low') return 'Low'
-    return 'No priority'
+    if (p === 'urgent') return translate('priority-urgent', undefined, 'Urgent')
+    if (p === 'high') return translate('priority-high', undefined, 'High')
+    if (p === 'medium') return translate('priority-medium', undefined, 'Medium')
+    if (p === 'low') return translate('priority-low', undefined, 'Low')
+    return translate('priority-none', undefined, 'No priority')
   }
 
   function slaLabel(k: string): string {
-    if (k === 'breached') return 'Breached'
-    if (k === 'at-risk') return 'At risk'
-    if (k === 'on-track') return 'On track'
-    if (k === 'paused') return 'Paused'
-    return 'No SLA'
+    if (k === 'breached') return translate('sla-breached', undefined, 'Breached')
+    if (k === 'at-risk') return translate('sla-at-risk', undefined, 'At risk')
+    if (k === 'on-track') return translate('sla-on-track', undefined, 'On track')
+    if (k === 'paused') return translate('sla-paused', undefined, 'Paused')
+    return translate('sla-none', undefined, 'No SLA')
   }
 
   function bucketSortKey(by: GroupBy, key: string): number | string {

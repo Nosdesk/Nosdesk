@@ -5,6 +5,10 @@
  * Displayed when a plugin component fails to load.
  */
 import { computed } from 'vue';
+import { useFluent } from 'fluent-vue';
+
+const fluent = useFluent();
+const t = (key: string) => fluent.$t(key);
 
 const props = defineProps<{
   error?: Error;
@@ -12,30 +16,30 @@ const props = defineProps<{
 
 const errorMessage = computed(() => {
   if (!props.error) {
-    return 'Failed to load plugin';
+    return t('plugin-error-load-failed');
   }
 
   // Show user-friendly messages for common errors
   const message = props.error.message;
 
   if (message.includes('Community plugins cannot render')) {
-    return 'This plugin is pending review';
+    return t('plugin-error-pending-review');
   }
 
   if (message.includes('no uploaded bundle')) {
-    return 'Plugin component not installed';
+    return t('plugin-error-not-installed');
   }
 
   if (message.includes('Component not found')) {
-    return 'Component not found in plugin';
+    return t('plugin-error-component-not-found');
   }
 
   if (message.includes('timeout')) {
-    return 'Plugin took too long to load';
+    return t('plugin-error-timeout');
   }
 
   // Generic error for other cases
-  return 'Plugin failed to load';
+  return t('plugin-error-failed');
 });
 </script>
 

@@ -89,24 +89,28 @@ export interface GroupedSearchResults {
 }
 
 import type { IconName } from '@/components/common/icons';
+import { translate } from '@/i18n';
 
 /**
- * Entity type metadata — single source of truth for display properties.
- * The `key` maps to the GroupedSearchResults property name. The
- * `icon` is a registry name resolved via the shared `<Icon>`
- * component, never a raw path.
+ * Entity type metadata, single source of truth for display
+ * properties. The `key` maps to the GroupedSearchResults property
+ * name. The `icon` is a registry name resolved via the shared
+ * `<Icon>` component, never a raw path. `labelKey` is a Fluent
+ * key, resolved at render time via `translate()` (see
+ * `getEntityTypeLabel`).
  */
 export const ENTITY_TYPE_CONFIG: Record<SearchEntityType, {
   key: keyof GroupedSearchResults;
-  label: string;
+  labelKey: string;
+  labelFallback: string;
   icon: IconName;
 }> = {
-  ticket:        { key: 'tickets',       label: 'Tickets',        icon: 'ticket' },
-  comment:       { key: 'comments',      label: 'Comments',       icon: 'comment' },
-  documentation: { key: 'documentation', label: 'Documentation',  icon: 'document' },
-  attachment:    { key: 'attachments',   label: 'Attachments',    icon: 'paperclip' },
-  device:        { key: 'devices',       label: 'Devices',        icon: 'device' },
-  user:          { key: 'users',         label: 'Users',          icon: 'user' },
+  ticket:        { key: 'tickets',       labelKey: 'search-entity-type-tickets',       labelFallback: 'Tickets',       icon: 'ticket' },
+  comment:       { key: 'comments',      labelKey: 'search-entity-type-comments',      labelFallback: 'Comments',      icon: 'comment' },
+  documentation: { key: 'documentation', labelKey: 'search-entity-type-documentation', labelFallback: 'Documentation', icon: 'document' },
+  attachment:    { key: 'attachments',   labelKey: 'search-entity-type-attachments',   labelFallback: 'Attachments',   icon: 'paperclip' },
+  device:        { key: 'devices',       labelKey: 'search-entity-type-devices',       labelFallback: 'Devices',       icon: 'device' },
+  user:          { key: 'users',         labelKey: 'search-entity-type-users',         labelFallback: 'Users',         icon: 'user' },
 };
 
 /** Display order for search result groups */
@@ -138,5 +142,7 @@ export function groupResultsByType(results: SearchResult[]): GroupedSearchResult
 
 /** Get display label for an entity type */
 export function getEntityTypeLabel(type: SearchEntityType): string {
-  return ENTITY_TYPE_CONFIG[type]?.label ?? type;
+  const cfg = ENTITY_TYPE_CONFIG[type];
+  if (!cfg) return type;
+  return translate(cfg.labelKey, undefined, cfg.labelFallback);
 }

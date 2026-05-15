@@ -9,6 +9,7 @@
  * - Closed: filled solid circle
  */
 import { computed } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useThemeStore } from '@/stores/theme'
 
 type TicketStatus = 'open' | 'in-progress' | 'closed'
@@ -21,6 +22,8 @@ const props = withDefaults(defineProps<{
 })
 
 const themeStore = useThemeStore()
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
 
 // Size classes for the indicator - larger when in color blind mode for better visibility
 const sizeClasses = computed(() => {
@@ -68,13 +71,13 @@ const colorClasses = computed(() => {
 const statusLabel = computed(() => {
   switch (props.status) {
     case 'open':
-      return 'Open'
+      return t('status-open')
     case 'in-progress':
-      return 'In Progress'
+      return t('status-in-progress')
     case 'closed':
-      return 'Closed'
+      return t('status-closed')
     default:
-      return 'Unknown'
+      return t('status-unknown')
   }
 })
 </script>

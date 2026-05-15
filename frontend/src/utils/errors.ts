@@ -1,3 +1,4 @@
+import { translate } from '@/i18n'
 import { LogLevel } from './logger'
 
 export abstract class AppError extends Error {
@@ -48,7 +49,7 @@ export class ApiError extends AppError {
 
   getUserMessage(): string {
     if (this.statusCode === 404) {
-      return 'The requested resource was not found.'
+      return translate('error-resource-not-found', undefined, 'The requested resource was not found.')
     }
     if (this.statusCode >= 500) {
       return 'A server error occurred. Please try again later.'
@@ -70,7 +71,7 @@ export class NetworkError extends AppError {
   }
 
   getUserMessage(): string {
-    return 'Unable to connect to the server. Please check your internet connection.'
+    return translate('error-network', undefined, 'Unable to connect to the server. Please check your internet connection.')
   }
 
   getLogLevel(): LogLevel {
@@ -84,7 +85,7 @@ export class AuthenticationError extends AppError {
   }
 
   getUserMessage(): string {
-    return 'Your session has expired. Please log in again.'
+    return translate('error-session-expired', undefined, 'Your session has expired. Please log in again.')
   }
 
   getLogLevel(): LogLevel {
@@ -98,7 +99,7 @@ export class PermissionError extends AppError {
   }
 
   getUserMessage(): string {
-    return 'You do not have permission to perform this action.'
+    return translate('error-forbidden', undefined, 'You do not have permission to perform this action.')
   }
 
   getLogLevel(): LogLevel {

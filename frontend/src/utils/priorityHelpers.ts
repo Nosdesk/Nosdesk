@@ -7,6 +7,7 @@
  * consistent in every surface and a future palette change is one
  * file edit.
  */
+import { translate } from '@/i18n'
 import type { CardData, Priority } from '@/sync/views/types'
 
 /** PriorityIndicator only knows about three levels; collapse
@@ -18,11 +19,11 @@ export function priorityForBadge(p: Priority): 'low' | 'medium' | 'high' | null 
 }
 
 export function priorityLabel(p: Priority): string {
-  if (p === 'urgent') return 'Urgent'
-  if (p === 'high') return 'High'
-  if (p === 'medium') return 'Medium'
-  if (p === 'low') return 'Low'
-  return 'No priority'
+  if (p === 'urgent') return translate('priority-urgent', undefined, 'Urgent')
+  if (p === 'high') return translate('priority-high', undefined, 'High')
+  if (p === 'medium') return translate('priority-medium', undefined, 'Medium')
+  if (p === 'low') return translate('priority-low', undefined, 'Low')
+  return translate('priority-none', undefined, 'No priority')
 }
 
 /** Subtle inline tint used in the title cell to make urgent /
