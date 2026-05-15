@@ -25,8 +25,8 @@ import { useDeleteManyMutation, useNotificationsStore } from '@/stores/notificat
 import {
   applyNotificationFilter,
   iconForNotificationType,
-  NOTIFICATION_FILTER_TABS,
   useNotificationFeed,
+  useNotificationFilterTabs,
   type NotificationFilter,
 } from '@/composables/useNotificationFeed'
 import { formatInboxTime, parseDate } from '@/utils/dateUtils'
@@ -41,6 +41,8 @@ const router = useRouter()
 const store = useNotificationsStore()
 const fluent = useFluent()
 const tInbox = (key: string, args?: Record<string, string>) => fluent.$t(key, args)
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+const filterTabs = useNotificationFilterTabs()
 
 // Subscribe to the route Data Loader. The loader has already
 // run during navigation and primed the Pinia Colada caches
@@ -116,10 +118,10 @@ const groupedNotifications = computed<NotificationGroup[]>(() => {
     else earlier.push(n)
   }
   return [
-    { label: 'Today', items: today },
-    { label: 'Yesterday', items: yesterday },
-    { label: 'This week', items: week },
-    { label: 'Earlier', items: earlier },
+    { label: t('inbox-group-today'), items: today },
+    { label: t('inbox-group-yesterday'), items: yesterday },
+    { label: t('inbox-group-this-week'), items: week },
+    { label: t('inbox-group-earlier'), items: earlier },
   ].filter((g) => g.items.length > 0)
 })
 
@@ -143,11 +145,11 @@ const visibleHasUnread = computed(() =>
 const markAllLabel = computed(() => {
   switch (filter.value) {
     case 'mentions':
-      return 'Mark mentions as read'
+      return t('inbox-mark-mentions-read')
     case 'unread':
     case 'all':
     default:
-      return 'Mark all as read'
+      return t('inbox-mark-all-read')
   }
 })
 
@@ -159,22 +161,19 @@ const emptyContent = computed(() => {
   switch (filter.value) {
     case 'unread':
       return {
-        title: "You're all caught up",
-        subtitle:
-          'Nothing unread right now. New notifications will appear here as they arrive.',
+        title: t('inbox-empty-caught-up-title'),
+        subtitle: t('inbox-empty-caught-up-subtitle'),
       }
     case 'mentions':
       return {
-        title: 'No mentions yet',
-        subtitle:
-          "When someone @mentions you in a comment, you'll see it here.",
+        title: t('inbox-empty-mentions-title'),
+        subtitle: t('inbox-empty-mentions-subtitle'),
       }
     case 'all':
     default:
       return {
-        title: 'No notifications yet',
-        subtitle:
-          'Updates from tickets, comments, mentions, and docs you follow will land here.',
+        title: t('inbox-empty-default-title'),
+        subtitle: t('inbox-empty-default-subtitle'),
       }
   }
 })
@@ -367,7 +366,7 @@ onBeforeUnmount(() => {
           class="-mx-2 flex items-center gap-1 overflow-x-auto"
         >
           <button
-            v-for="tab in NOTIFICATION_FILTER_TABS"
+            v-for="tab in filterTabs"
             :key="tab.value"
             type="button"
             role="tab"
@@ -625,8 +624,8 @@ onBeforeUnmount(() => {
       class="flex items-center justify-center py-4 text-xs text-tertiary"
       aria-hidden="true"
     >
-      <span v-if="isLoadingMore">Loading more...</span>
-      <span v-else-if="!hasMore && items.length > 0">End of feed</span>
+      <span v-if="isLoadingMore">{{ t('inbox-footer-loading-more') }}</span>
+      <span v-else-if="!hasMore && items.length > 0">{{ t('inbox-footer-end-of-feed') }}</span>
     </div>
   </PageScroll>
 </template>

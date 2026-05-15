@@ -268,9 +268,23 @@ export const useDeleteManyMutation = defineListMutation<number[]>({
  * Vue to treat each set as a new mutation even when two
  * notifications share a title.
  */
+/** Screen-reader announcement payload. Stored as structured data
+ *  so the consumer (the bell component, which has Vue setup
+ *  context) can format the announcement via fluent-vue. The
+ *  store itself runs outside a setup scope and can't call
+ *  `useFluent`, so it just records the title + sequence here. */
+export interface NotificationAnnouncement {
+  /** Notification title if the SSE payload carried one;
+   *  `null` triggers the title-less variant in the catalogue. */
+  title: string | null
+  /** Monotonic counter, forces Vue to treat each set as a new
+   *  mutation even when two notifications share a title. */
+  seq: number
+}
+
 export const useNotificationsStore = defineStore('notifications', () => {
   const queryCache = useQueryCache()
-  const lastAnnouncement = ref('')
+  const lastAnnouncement = ref<NotificationAnnouncement | null>(null)
   let announcementSeq = 0
   let subscribed = false
 
@@ -295,9 +309,10 @@ export const useNotificationsStore = defineStore('notifications', () => {
       // Announce arrival to screen-reader users.
       announcementSeq++
       const title = data.notification?.title?.trim()
-      lastAnnouncement.value = title
-        ? `New notification: ${title} (${announcementSeq})`
-        : `New notification (${announcementSeq})`
+      lastAnnouncement.value = {
+        title: title ? title : null,
+        seq: announcementSeq,
+      }
     } catch (error) {
       console.error('Error handling notification SSE event:', error)
     }

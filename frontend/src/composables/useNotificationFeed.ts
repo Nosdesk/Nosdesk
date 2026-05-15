@@ -9,6 +9,7 @@
  * is what's collected here.
  */
 import { computed, type ComputedRef } from 'vue'
+import { useFluent } from 'fluent-vue'
 import {
   useDismissMutation,
   useMarkAllReadMutation,
@@ -23,14 +24,25 @@ import type { AsyncBoundaryOp } from '@/components/common/AsyncBoundary.vue'
 
 export type NotificationFilter = 'all' | 'unread' | 'mentions'
 
-export const NOTIFICATION_FILTER_TABS: ReadonlyArray<{
+export interface NotificationFilterTab {
   value: NotificationFilter
   label: string
-}> = [
-  { value: 'all', label: 'All' },
-  { value: 'unread', label: 'Unread' },
-  { value: 'mentions', label: 'Mentions' },
-]
+}
+
+/** Filter-tab descriptors with locale-aware labels. Exposed as a
+ *  composable (rather than a module-level const) so the labels
+ *  re-evaluate when the active locale changes. Must be called
+ *  from a Vue setup context. */
+export function useNotificationFilterTabs(): ComputedRef<
+  ReadonlyArray<NotificationFilterTab>
+> {
+  const fluent = useFluent()
+  return computed(() => [
+    { value: 'all', label: fluent.$t('notifications-filter-tabs-all') },
+    { value: 'unread', label: fluent.$t('notifications-filter-tabs-unread') },
+    { value: 'mentions', label: fluent.$t('notifications-filter-tabs-mentions') },
+  ])
+}
 
 const TYPE_ICON: Record<string, IconName> = {
   ticket_assigned: 'userPlus',

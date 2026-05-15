@@ -27,8 +27,8 @@ import { useNotificationsStore } from '@/stores/notifications'
 import {
   applyNotificationFilter,
   iconForNotificationType,
-  NOTIFICATION_FILTER_TABS,
   useNotificationFeed,
+  useNotificationFilterTabs,
   type NotificationFilter,
 } from '@/composables/useNotificationFeed'
 import { formatInboxTime, parseDate } from '@/utils/dateUtils'
@@ -47,6 +47,20 @@ const { lastAnnouncement } = storeToRefs(store)
 // connectors come from the active locale's FTL catalogue.
 const fluent = useFluent()
 const tInbox = (key: string, args?: Record<string, string>) => fluent.$t(key, args)
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+const filterTabs = useNotificationFilterTabs()
+
+// Format the structured announcement payload from the store with
+// the active locale. Empty string keeps the live region quiet
+// until the first arrival; titled vs. title-less variants pick
+// different catalogue keys so translators can word them naturally.
+const announcementText = computed(() => {
+  const a = lastAnnouncement.value
+  if (!a) return ''
+  return a.title
+    ? t('notifications-toast-new-with-title', { title: a.title, seq: a.seq })
+    : t('notifications-toast-new', { seq: a.seq })
+})
 
 // Shared notification wiring (queries, mutations, derived state,
 // presentation helpers). The bell and the inbox both consume
@@ -200,7 +214,7 @@ onMounted(() => {
       aria-atomic="true"
       class="sr-only"
     >
-      {{ lastAnnouncement }}
+      {{ announcementText }}
     </div>
 
     <button
@@ -232,14 +246,14 @@ onMounted(() => {
            don't have to scan to a footer link to reach the
            full-page surface. -->
       <header class="flex flex-shrink-0 items-center justify-between gap-2 border-b border-default px-4 py-3">
-        <h3 class="text-sm font-semibold text-primary">Notifications</h3>
+        <h3 class="text-sm font-semibold text-primary">{{ t('notifications-bell-header') }}</h3>
         <button
           type="button"
           v-prefetch="'/inbox'"
           @click="handleViewInbox"
           class="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
         >
-          Open inbox
+          {{ t('notifications-bell-open-inbox') }}
           <Icon name="openExternal" size="xs" />
         </button>
       </header>
@@ -250,7 +264,7 @@ onMounted(() => {
         class="flex flex-shrink-0 items-center gap-1 border-b border-default px-2"
       >
         <button
-          v-for="tab in NOTIFICATION_FILTER_TABS"
+          v-for="tab in filterTabs"
           :key="tab.value"
           type="button"
           role="tab"
@@ -407,7 +421,7 @@ onMounted(() => {
               :disabled="isLoadingMore"
               class="text-xs font-medium text-accent hover:text-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {{ isLoadingMore ? 'Loading...' : 'Load more' }}
+              {{ isLoadingMore ? t('notifications-bell-loading') : t('notifications-bell-load-more') }}
             </button>
           </div>
           </template>
@@ -424,7 +438,7 @@ onMounted(() => {
           @click="handleMarkAllReadScoped"
           class="text-xs font-medium text-accent hover:text-accent-hover"
         >
-          {{ filter === 'mentions' ? 'Mark mentions as read' : 'Mark all as read' }}
+          {{ filter === 'mentions' ? t('notifications-bell-mark-mentions-read') : t('notifications-bell-mark-all-read') }}
         </button>
         <span v-else />
         <router-link
@@ -432,7 +446,7 @@ onMounted(() => {
           @click="close"
           class="text-xs font-medium text-tertiary hover:text-primary"
         >
-          Settings
+          {{ t('notifications-bell-settings') }}
         </router-link>
       </footer>
     </ResponsiveMenu>
