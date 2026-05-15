@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 
 const props = defineProps<{
   placeholder?: string
   modelValue: string
 }>()
+
+const fluent = useFluent()
+const resolvedPlaceholder = computed(() => props.placeholder ?? fluent.$t('common-search-placeholder'))
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
@@ -26,7 +30,7 @@ watch(localSearchQuery, (newValue) => {
     <input
       v-model="localSearchQuery"
       type="text"
-      :placeholder="placeholder || 'Search...'"
+      :placeholder="resolvedPlaceholder"
       class="w-full md:w-64 bg-surface text-primary rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent"
     >
     <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">

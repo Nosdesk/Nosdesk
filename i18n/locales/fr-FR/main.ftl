@@ -3940,3 +3940,20 @@ tickets-email-html-iframe-title = Corps de l'e-mail
 tickets-email-html-show-less = Réduire
 tickets-email-html-show-full = Afficher l'e-mail complet
 tickets-email-html-scaled = Mis à l'échelle ({ $pct } %)
+
+# Header + nav polish
+nav-logo-alt = Logo Nosdesk
+nav-logo-alt-collapsed = Nosdesk
+nav-section-recent-tickets = Tickets récents
+nav-section-documentation = Documentation
+nav-more-heading = Plus de navigation
+common-search-placeholder = Rechercher...
+header-create-ticket = Créer un ticket
+header-create-project = Créer un projet
+header-add-ticket = Ajouter un ticket
+header-create-user = Créer un utilisateur
+header-create-device = Créer un appareil
+header-create-document = Créer un document
+nav-route-announcement = Vous êtes sur { $title }
+common-dropdown-select-placeholder = Sélectionner une option
+common-dropdown-empty-message = Aucun résultat

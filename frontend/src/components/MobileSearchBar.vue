@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import { useMobileSearch } from '@/composables/useMobileSearch'
 import Icon from '@/components/common/Icon.vue'
 
@@ -9,6 +10,9 @@ const {
   isActive,
   handleSearchUpdate
 } = useMobileSearch()
+
+const fluent = useFluent()
+const resolvedPlaceholder = computed(() => placeholder.value || fluent.$t('common-search-placeholder'))
 
 const localValue = ref(searchQuery.value)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -48,7 +52,7 @@ const handleInput = (event: Event) => {
           type="text"
           :value="localValue"
           @input="handleInput"
-          :placeholder="placeholder"
+          :placeholder="resolvedPlaceholder"
           class="block w-full pl-9 pr-3 py-2 text-sm bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:ring-2 focus:ring-accent focus:border-accent"
         />
       </div>

@@ -313,7 +313,7 @@ const isOverflowRouteActive = computed(() =>
                 <LogoIcon
                     v-else-if="!isCollapsed"
                     class="h-8 text-accent"
-                    aria-label="Nosdesk Logo"
+                    :aria-label="$t('nav-logo-alt')"
                 />
                 <!-- Favicon/icon when collapsed -->
                 <img
@@ -325,7 +325,7 @@ const isOverflowRouteActive = computed(() =>
                 <FaviconIcon
                     v-else
                     class="text-accent"
-                    aria-label="Nosdesk"
+                    :aria-label="$t('nav-logo-alt-collapsed')"
                 />
             </RouterLink>
 
@@ -338,11 +338,11 @@ const isOverflowRouteActive = computed(() =>
                         ? 'px-2 py-1.5 justify-center'
                         : 'px-2.5 py-1 gap-2 justify-between',
                 ]"
-                :title="isCollapsed ? 'Search' : ''"
+                :title="isCollapsed ? $t('nav-search') : ''"
             >
                 <div class="flex items-center gap-2">
                     <Icon name="search" />
-                    <span v-if="!isCollapsed" class="text-sm">Search</span>
+                    <span v-if="!isCollapsed" class="text-sm">{{ $t('nav-search') }}</span>
                 </div>
                 <kbd
                     v-if="!isCollapsed"
@@ -479,7 +479,7 @@ const isOverflowRouteActive = computed(() =>
                 <!-- Recent Tickets section with collapsible header -->
                 <CollapsibleSection
                     ref="ticketsSectionComponent"
-                    title="Recent Tickets"
+                    :title="$t('nav-section-recent-tickets')"
                     :is-collapsed="isTicketsCollapsed"
                     icon="clock"
                     class="tickets-section flex-shrink-0 transition-all duration-200"
@@ -507,7 +507,7 @@ const isOverflowRouteActive = computed(() =>
                 <!-- Documentation section with collapsible header -->
                 <CollapsibleSection
                     ref="docsSectionComponent"
-                    title="Documentation"
+                    :title="$t('nav-section-documentation')"
                     :is-collapsed="isDocsCollapsed"
                     icon="book"
                     class="docs-section flex-1 min-h-0 transition-all duration-200 -mt-px"
@@ -659,7 +659,7 @@ const isOverflowRouteActive = computed(() =>
         <div
             class="mobile-nav-sheet-panel bg-surface border-t border-default rounded-t-2xl shadow-xl"
         >
-            <h2 id="mobile-nav-more-heading" class="sr-only">More navigation</h2>
+            <h2 id="mobile-nav-more-heading" class="sr-only">{{ $t('nav-more-heading') }}</h2>
             <nav :aria-label="$t('nav-secondary')">
                 <ul class="grid grid-cols-2 gap-2 p-3">
                     <li v-for="link in overflowMobileLinks" :key="link.to">

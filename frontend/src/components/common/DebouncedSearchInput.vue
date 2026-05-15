@@ -9,13 +9,14 @@
       v-model="localValue"
       @input="handleInput"
       class="block w-full py-1.5 pl-8 pr-2 text-sm rounded-lg bg-surface-alt border border-default text-primary placeholder-tertiary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-      :placeholder="placeholder"
+      :placeholder="resolvedPlaceholder"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 
 interface Props {
@@ -29,9 +30,12 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  placeholder: 'Search...',
+  placeholder: undefined,
   debounceMs: 300
 })
+
+const fluent = useFluent()
+const resolvedPlaceholder = computed(() => props.placeholder ?? fluent.$t('common-search-placeholder'))
 
 const emit = defineEmits<Emits>()
 

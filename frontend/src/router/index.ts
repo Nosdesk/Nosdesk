@@ -38,6 +38,7 @@ declare module 'vue-router' {
     layout?: string;
     adminRequired?: boolean;
     createButtonText?: string;
+    createButtonTextKey?: string;
     createButtonIcon?: 'plus' | 'ticket' | 'user' | 'device' | 'project' | 'document';
     preloadedDocument?: unknown;
   }
@@ -135,7 +136,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Dashboard',
-        createButtonText: 'Create Ticket',
+        createButtonTextKey: 'header-create-ticket',
         createButtonIcon: 'ticket',
       }
     },
@@ -163,7 +164,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Tickets',
-        createButtonText: 'Create Ticket',
+        createButtonTextKey: 'header-create-ticket',
         createButtonIcon: 'ticket',
         // Data Loader: pre-fetches the first page during
         // navigation so the view mounts with data ready.
@@ -178,7 +179,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'View Ticket',
-        createButtonText: 'Create Ticket',
+        createButtonTextKey: 'header-create-ticket',
         createButtonIcon: 'ticket',
         // Pre-fetches the ticket payload during navigation so the
         // view mounts with data already in the Pinia Colada cache;
@@ -238,7 +239,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Projects',
-        createButtonText: 'Create Project',
+        createButtonTextKey: 'header-create-project',
         createButtonIcon: 'project',
       }
     },
@@ -298,7 +299,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Project Details',
-        createButtonText: 'Add Ticket',
+        createButtonTextKey: 'header-add-ticket',
         createButtonIcon: 'ticket',
       },
       beforeEnter: (to) => {
@@ -323,7 +324,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Users',
-        createButtonText: 'Create User',
+        createButtonTextKey: 'header-create-user',
         createButtonIcon: 'user',
       }
     },
@@ -334,7 +335,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Devices',
-        createButtonText: 'Create Device',
+        createButtonTextKey: 'header-create-device',
         createButtonIcon: 'device',
       }
     },
@@ -364,7 +365,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Documentation',
-        createButtonText: 'Create Document',
+        createButtonTextKey: 'header-create-document',
         createButtonIcon: 'document',
       }
     },

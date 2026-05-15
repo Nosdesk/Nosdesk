@@ -39,7 +39,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   useRouteTitle: false,
-  createButtonText: 'Create Ticket',
+  createButtonText: undefined,
   createButtonIcon: 'plus',
   ticket: null,
   document: null,
@@ -50,6 +50,8 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "updateTicketTitle", "create"]);
+
+const resolvedCreateButtonText = computed(() => props.createButtonText ?? t('header-create-ticket'));
 
 const isTicketView = computed(() => {
   return props.ticket !== null;
@@ -235,10 +237,10 @@ defineExpose({
           v-if="props.showCreateButton"
           @click="handleCreateClick"
           class="group flex create-button px-2.5 py-1.5 sm:px-3 text-sm font-medium text-secondary border border-default rounded-lg hover:text-primary hover:border-accent hover:bg-accent-muted transition-colors items-center gap-2"
-          :aria-label="t('ui-site-header-create-aria', { action: props.createButtonText })"
+          :aria-label="t('ui-site-header-create-aria', { action: resolvedCreateButtonText })"
         >
           <CreateActionIcon :icon="props.createButtonIcon" />
-          <span class="create-button-text">{{ props.createButtonText }}</span>
+          <span class="create-button-text">{{ resolvedCreateButtonText }}</span>
         </button>
 
         <!-- Messaging cluster: Inbox link + Bell. Hidden below `sm:`

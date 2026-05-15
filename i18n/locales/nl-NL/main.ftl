@@ -3931,3 +3931,20 @@ tickets-email-html-iframe-title = E-mailinhoud
 tickets-email-html-show-less = Minder weergeven
 tickets-email-html-show-full = Volledige e-mail weergeven
 tickets-email-html-scaled = Aangepast aan ({ $pct }%)
+
+# Header + nav polish
+nav-logo-alt = Nosdesk-logo
+nav-logo-alt-collapsed = Nosdesk
+nav-section-recent-tickets = Recente tickets
+nav-section-documentation = Documentatie
+nav-more-heading = Meer navigatie
+common-search-placeholder = Zoeken...
+header-create-ticket = Ticket aanmaken
+header-create-project = Project aanmaken
+header-add-ticket = Ticket toevoegen
+header-create-user = Gebruiker aanmaken
+header-create-device = Apparaat aanmaken
+header-create-document = Document aanmaken
+nav-route-announcement = Genavigeerd naar { $title }
+common-dropdown-select-placeholder = Selecteer een optie
+common-dropdown-empty-message = Geen overeenkomsten

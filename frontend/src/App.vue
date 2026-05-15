@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { computed, ref, onMounted, watch, nextTick } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
@@ -23,6 +24,9 @@ import { loadPlugins, initializeEventDispatcher } from '@/plugins'
 import { useAuthStore } from '@/stores/auth'
 import { usePageActionsStore } from '@/stores/pageActions'
 
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
+
 // Initialize branding store and load config
 const brandingStore = useBrandingStore()
 
@@ -41,7 +45,7 @@ router.afterEach((to) => {
     routeAnnouncement.value = ''
     // Reset then set to trigger aria-live announcement
     requestAnimationFrame(() => {
-      routeAnnouncement.value = `Navigated to ${title}`
+      routeAnnouncement.value = t('nav-route-announcement', { title })
     })
   })
 })
@@ -94,9 +98,14 @@ const currentPageUrl = computed(() => {
 // Security: Check if system requires initial setup on app initialization
 const initializationChecked = ref(false);
 
-// Computed properties for create button from route meta
+// Computed properties for create button from route meta.
+// Prefer `createButtonTextKey` (FTL key) so the label translates with
+// the user's locale; fall back to the legacy `createButtonText` string
+// for routes that haven't been migrated yet.
 const createButtonText = computed(() => {
-  return route.meta.createButtonText || 'Create Ticket';
+  const key = route.meta.createButtonTextKey as string | undefined;
+  if (key) return t(key);
+  return (route.meta.createButtonText as string | undefined) || t('header-create-ticket');
 });
 
 const createButtonIcon = computed(() => route.meta.createButtonIcon ?? 'plus');

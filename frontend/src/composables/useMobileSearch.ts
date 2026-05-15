@@ -6,7 +6,9 @@ export type CreateButtonIcon = CreateIconType
 
 // Global state for mobile search bar
 const searchQuery = ref('')
-const placeholder = ref('Search...')
+// Empty placeholder means "let the consumer fall back to a localized
+// default" — see MobileSearchBar's resolvedPlaceholder.
+const placeholder = ref('')
 const showCreateButton = ref(true)
 const createButtonLoading = ref(false)
 const createButtonIcon = ref<CreateButtonIcon>('plus')
@@ -34,7 +36,7 @@ export function useMobileSearch() {
     onCreate?: () => void
   }) => {
     searchQuery.value = options.searchQuery
-    placeholder.value = options.placeholder || 'Search...'
+    placeholder.value = options.placeholder ?? ''
     showCreateButton.value = options.showCreateButton ?? true
     createButtonIcon.value = options.createIcon || 'plus'
     onSearchUpdate = options.onSearchUpdate

@@ -28,6 +28,7 @@ Slot map:
 -->
 <script setup lang="ts" generic="T">
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 
 import PageScroll from '@/components/common/PageScroll.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -85,7 +86,7 @@ const props = withDefaults(
   {
     error: null,
     searchQuery: '',
-    searchPlaceholder: 'Search...',
+    searchPlaceholder: undefined,
     itemLabel: 'item',
     emptyIcon: 'inbox',
     emptyTitle: 'Nothing here yet',
@@ -113,6 +114,9 @@ defineSlots<{
   'bulk-actions'(props: { selectedCount: number; isAllMatching: boolean }): unknown
   footer(): unknown
 }>()
+
+const fluent = useFluent()
+const resolvedSearchPlaceholder = computed(() => props.searchPlaceholder ?? fluent.$t('common-search-placeholder'))
 
 const { isMobile } = useMobileDetection()
 const { getStyle } = useStaggeredList()
@@ -169,7 +173,7 @@ function onClearSelection() {
           <DebouncedSearchInput
             :model-value="searchQuery"
             @update:model-value="(value: string) => emit('update:search-query', value)"
-            :placeholder="searchPlaceholder"
+            :placeholder="resolvedSearchPlaceholder"
             class="hidden sm:block"
           />
 

@@ -19,6 +19,7 @@
  * selection wiring — rather than back into here.
  */
 import { computed, nextTick, ref, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
 import ResponsiveMenu from './ResponsiveMenu.vue'
 import Icon from './Icon.vue'
 import type { DropdownOption } from './BaseDropdown.vue'
@@ -36,9 +37,9 @@ const props = withDefaults(
     size?: 'xs' | 'sm' | 'md' | 'lg'
   }>(),
   {
-    placeholder: 'Select an option',
-    searchPlaceholder: 'Search...',
-    emptyMessage: 'No matches',
+    placeholder: undefined,
+    searchPlaceholder: undefined,
+    emptyMessage: undefined,
     disabled: false,
     size: 'md',
   },
@@ -47,6 +48,11 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
 }>()
+
+const fluent = useFluent()
+const resolvedPlaceholder = computed(() => props.placeholder ?? fluent.$t('common-dropdown-select-placeholder'))
+const resolvedSearchPlaceholder = computed(() => props.searchPlaceholder ?? fluent.$t('common-search-placeholder'))
+const resolvedEmptyMessage = computed(() => props.emptyMessage ?? fluent.$t('common-dropdown-empty-message'))
 
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
@@ -87,7 +93,7 @@ const selectedOption = computed(() =>
 )
 
 const displayText = computed(
-  () => selectedOption.value?.label || props.placeholder,
+  () => selectedOption.value?.label || resolvedPlaceholder.value,
 )
 
 const hasSelection = computed(() => !!selectedOption.value)
@@ -229,7 +235,7 @@ watch(highlightedIndex, async (index) => {
     <ResponsiveMenu
       :open="isOpen"
       :anchor="anchor"
-      :title="placeholder"
+      :title="resolvedPlaceholder"
       placement="bottom-start"
       react-to-scroll="reposition"
       match-anchor-width
@@ -254,7 +260,7 @@ watch(highlightedIndex, async (index) => {
             ref="searchInputRef"
             v-model="query"
             type="text"
-            :placeholder="searchPlaceholder"
+            :placeholder="resolvedSearchPlaceholder"
             class="w-full pl-7 pr-2 py-1.5 bg-surface-alt text-primary rounded border border-default focus:ring-1 focus:ring-accent focus:outline-none text-sm"
             @keydown="handleSearchKeydown"
           />
@@ -316,7 +322,7 @@ watch(highlightedIndex, async (index) => {
           v-if="filteredOptions.length === 0"
           class="px-4 py-6 text-center text-sm text-tertiary"
         >
-          {{ emptyMessage }}
+          {{ resolvedEmptyMessage }}
         </div>
       </div>
     </ResponsiveMenu>
