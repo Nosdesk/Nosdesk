@@ -12,7 +12,8 @@
  * Reads also serve as the audit trail: bounce_count and last_seen_at
  * show whether an address is chronically failing or one-off.
  */
-import { computed, onMounted, ref } from 'vue';
+import { onMounted, ref } from 'vue';
+import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
@@ -22,6 +23,9 @@ import {
   emailSuppressionsService,
   type EmailSuppression,
 } from '@/services/emailSuppressionsService';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const rows = ref<EmailSuppression[]>([]);
 const total = ref(0);
@@ -49,7 +53,7 @@ async function loadFirstPage() {
         nextCursor.value = page.next_cursor;
     } catch (err) {
         const e = err as { message?: string };
-        errorMessage.value = e.message || 'Failed to load suppressions';
+        errorMessage.value = e.message || t('admin-suppressions-error-load');
     } finally {
         isLoading.value = false;
     }
@@ -68,7 +72,7 @@ async function loadMore() {
         nextCursor.value = page.next_cursor;
     } catch (err) {
         const e = err as { message?: string };
-        errorMessage.value = e.message || 'Failed to load more';
+        errorMessage.value = e.message || t('admin-suppressions-error-load-more');
     } finally {
         isLoadingMore.value = false;
     }
@@ -86,7 +90,7 @@ async function handleAdd() {
         await loadFirstPage();
     } catch (err) {
         const e = err as { message?: string };
-        addError.value = e.message || 'Failed to add suppression';
+        addError.value = e.message || t('admin-suppressions-error-add');
     } finally {
         isAdding.value = false;
     }
@@ -107,7 +111,7 @@ async function confirmRemove() {
         await loadFirstPage();
     } catch (err) {
         const e = err as { message?: string };
-        errorMessage.value = e.message || 'Failed to remove';
+        errorMessage.value = e.message || t('admin-suppressions-error-remove');
     }
 }
 
@@ -120,6 +124,12 @@ function toneFor(reason: string): string {
     return reasonTone[reason] ?? 'bg-default text-secondary';
 }
 
+function reasonLabel(reason: string): string {
+    if (reason === 'hard_bounce') return t('admin-suppressions-reason-hard-bounce');
+    if (reason === 'manual') return t('admin-suppressions-reason-manual');
+    return reason.replace('_', ' ');
+}
+
 function formatDateTime(iso: string): string {
     return new Date(iso).toLocaleString();
 }
@@ -130,36 +140,33 @@ onMounted(loadFirstPage);
 <template>
     <div class="flex flex-col gap-6 p-6">
         <header class="flex flex-col gap-2">
-            <h1 class="text-2xl font-semibold">Email suppression list</h1>
+            <h1 class="text-2xl font-semibold">{{ $t('admin-suppressions-title') }}</h1>
             <p class="text-sm text-secondary">
-                Addresses that we won't attempt to deliver to. Hard bounces
-                (5xx SMTP / 5.x.x enhanced status) land here automatically;
-                add manually for compliance or complaint-driven blocks. Soft
-                bounces (4xx, transient) never auto-suppress.
+                {{ $t('admin-suppressions-description') }}
             </p>
         </header>
 
         <section class="rounded border border-default bg-surface p-3 inline-flex items-baseline gap-2 self-start">
             <span class="text-2xl font-semibold">{{ total }}</span>
             <span class="text-xs text-secondary uppercase tracking-wide">
-                {{ total === 1 ? 'suppression' : 'suppressions' }}
+                {{ total === 1 ? $t('admin-suppressions-count-singular') : $t('admin-suppressions-count-plural') }}
             </span>
         </section>
 
         <section class="flex flex-col gap-2 rounded border border-default bg-surface p-3">
-            <h2 class="text-sm font-semibold text-primary">Add a suppression</h2>
+            <h2 class="text-sm font-semibold text-primary">{{ $t('admin-suppressions-add-title') }}</h2>
             <form class="flex flex-col sm:flex-row gap-2" @submit.prevent="handleAdd">
                 <input
                     v-model="newEmail"
                     type="email"
-                    placeholder="user@example.com"
+                    :placeholder="$t('admin-suppressions-add-email-placeholder')"
                     required
                     class="h-9 px-2 rounded border border-default bg-input text-primary text-sm flex-1"
                 />
                 <input
                     v-model="newNote"
                     type="text"
-                    placeholder="Optional note (compliance request, etc.)"
+                    :placeholder="$t('admin-suppressions-add-note-placeholder')"
                     class="h-9 px-2 rounded border border-default bg-input text-primary text-sm flex-1"
                 />
                 <button
@@ -167,7 +174,7 @@ onMounted(loadFirstPage);
                     class="h-9 px-4 rounded bg-accent text-white text-sm font-medium disabled:opacity-50"
                     :disabled="isAdding || !newEmail.trim()"
                 >
-                    {{ isAdding ? 'Adding…' : 'Add' }}
+                    {{ isAdding ? $t('admin-suppressions-adding') : $t('admin-suppressions-add') }}
                 </button>
             </form>
             <p v-if="addError" class="text-xs text-status-error">{{ addError }}</p>
@@ -182,8 +189,8 @@ onMounted(loadFirstPage);
         <EmptyState
             v-else-if="rows.length === 0"
             icon="inbox"
-            title="No suppressions"
-            description="Hard-bounced recipients and manually-added addresses will appear here."
+            :title="$t('admin-suppressions-empty-title')"
+            :description="$t('admin-suppressions-empty-description')"
         />
 
         <ul v-else class="flex flex-col gap-1">
@@ -196,7 +203,7 @@ onMounted(loadFirstPage);
                     class="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded"
                     :class="toneFor(row.reason)"
                 >
-                    {{ row.reason.replace('_', ' ') }}
+                    {{ reasonLabel(row.reason) }}
                 </span>
                 <span class="text-sm font-mono text-primary flex-1 truncate" :title="row.email">
                     {{ row.email }}
@@ -204,7 +211,7 @@ onMounted(loadFirstPage);
                 <span
                     v-if="row.bounce_count > 1"
                     class="text-xs text-secondary whitespace-nowrap"
-                    :title="`Bounced ${row.bounce_count} times`"
+                    :title="t('admin-suppressions-bounce-count-title', { count: row.bounce_count })"
                 >
                     {{ row.bounce_count }}×
                 </span>
@@ -216,7 +223,7 @@ onMounted(loadFirstPage);
                     class="text-xs px-2 py-1 rounded border border-default hover:bg-hover"
                     @click="startRemove(row.email)"
                 >
-                    Remove
+                    {{ $t('admin-suppressions-remove') }}
                 </button>
             </li>
         </ul>
@@ -228,17 +235,17 @@ onMounted(loadFirstPage);
                 :disabled="isLoadingMore"
                 @click="loadMore"
             >
-                {{ isLoadingMore ? 'Loading…' : 'Load more' }}
+                {{ isLoadingMore ? $t('admin-suppressions-loading-more') : $t('admin-suppressions-load-more') }}
             </button>
         </div>
 
         <ConfirmModal
             :show="showRemoveConfirm"
             variant="danger"
-            title="Remove from suppression list?"
-            message="Future sends to this address will be attempted normally. If the original failure was a hard bounce, they'll likely fail and re-suppress."
-            confirm-label="Remove"
-            cancel-label="Keep suppressed"
+            :title="$t('admin-suppressions-confirm-title')"
+            :message="$t('admin-suppressions-confirm-message')"
+            :confirm-label="$t('admin-suppressions-remove')"
+            :cancel-label="$t('admin-suppressions-confirm-keep')"
             @confirm="confirmRemove"
             @close="showRemoveConfirm = false"
         />

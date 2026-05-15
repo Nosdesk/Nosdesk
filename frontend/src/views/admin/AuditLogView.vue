@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
@@ -11,6 +12,9 @@ import {
   type AuditLogQuery,
   type AuditLogRow,
 } from '@/services/auditLogService';
+
+const fluent = useFluent();
+const t = (key: string) => fluent.$t(key);
 
 // Tier-1 audited tables (matches the migration
 // 2026-05-11-210000_attach_audit_tier1). Hardcoded rather than
@@ -72,7 +76,7 @@ async function loadFirstPage() {
   } catch (err) {
     const e = err as { response?: { data?: { message?: string } }; message?: string };
     errorMessage.value =
-      e.response?.data?.message || e.message || 'Failed to load audit log';
+      e.response?.data?.message || e.message || t('admin-audit-error-load');
     rows.value = [];
     nextCursor.value = null;
   } finally {
@@ -90,7 +94,7 @@ async function loadMore() {
   } catch (err) {
     const e = err as { response?: { data?: { message?: string } }; message?: string };
     errorMessage.value =
-      e.response?.data?.message || e.message || 'Failed to load more audit log entries';
+      e.response?.data?.message || e.message || t('admin-audit-error-load-more');
   } finally {
     isLoadingMore.value = false;
   }
@@ -103,11 +107,11 @@ function toggleExpanded(id: number) {
 function opLabel(op: string): string {
   switch (op) {
     case 'I':
-      return 'Created';
+      return t('admin-audit-op-created');
     case 'U':
-      return 'Updated';
+      return t('admin-audit-op-updated');
     case 'D':
-      return 'Deleted';
+      return t('admin-audit-op-deleted');
     default:
       return op;
   }
@@ -127,7 +131,7 @@ function opTone(op: string): string {
 }
 
 function shortUuid(uuid: string | null): string {
-  if (!uuid) return 'system';
+  if (!uuid) return t('admin-audit-actor-system');
   return uuid.slice(0, 8);
 }
 
@@ -163,39 +167,38 @@ onMounted(loadFirstPage);
 <template>
   <div class="flex flex-col gap-6 p-6">
     <header class="flex flex-col gap-2">
-      <h1 class="text-2xl font-semibold">Audit log</h1>
+      <h1 class="text-2xl font-semibold">{{ $t('admin-audit-title') }}</h1>
       <p class="text-sm text-secondary">
-        Forensic record of who changed what across audited entities. Defaults to the last 7 days
-        and the most recent 50 entries; refine with the filters below.
+        {{ $t('admin-audit-description') }}
       </p>
     </header>
 
     <section class="flex flex-wrap gap-3 items-end">
       <label class="flex flex-col gap-1 text-xs text-secondary">
-        <span>Entity</span>
+        <span>{{ $t('admin-audit-filter-entity') }}</span>
         <select
           v-model="tableFilter"
           class="h-9 px-2 rounded border border-default bg-input text-primary text-sm"
         >
-          <option value="">Any</option>
-          <option v-for="t in AUDITED_TABLES" :key="t" :value="t">{{ t }}</option>
+          <option value="">{{ $t('admin-audit-filter-any') }}</option>
+          <option v-for="entity in AUDITED_TABLES" :key="entity" :value="entity">{{ entity }}</option>
         </select>
       </label>
       <label class="flex flex-col gap-1 text-xs text-secondary">
-        <span>Entity ID</span>
+        <span>{{ $t('admin-audit-filter-entity-id') }}</span>
         <input
           v-model="pkFilter"
           type="text"
-          placeholder="e.g. 42"
+          :placeholder="$t('admin-audit-filter-entity-id-placeholder')"
           class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-full sm:w-32"
         />
       </label>
       <label class="flex flex-col gap-1 text-xs text-secondary w-full sm:w-auto">
-        <span>Actor UUID</span>
+        <span>{{ $t('admin-audit-filter-actor') }}</span>
         <input
           v-model="actorFilter"
           type="text"
-          placeholder="e.g. 0192…"
+          :placeholder="$t('admin-audit-filter-actor-placeholder')"
           class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-full sm:w-72 font-mono"
         />
       </label>
@@ -205,7 +208,7 @@ onMounted(loadFirstPage);
         class="h-9 px-3 rounded border border-default text-sm hover:bg-hover"
         @click="(tableFilter = ''), (pkFilter = ''), (actorFilter = '')"
       >
-        Clear filters
+        {{ $t('admin-audit-clear-filters') }}
       </button>
     </section>
 
@@ -218,8 +221,8 @@ onMounted(loadFirstPage);
     <EmptyState
       v-else-if="rows.length === 0"
       icon="inbox"
-      title="No audit entries"
-      description="Either no audited entities have changed in the selected window, or the filters exclude every row."
+      :title="$t('admin-audit-empty-title')"
+      :description="$t('admin-audit-empty-description')"
     />
 
     <ul v-else class="flex flex-col gap-1">
@@ -243,9 +246,9 @@ onMounted(loadFirstPage);
             {{ row.table_name }}.{{ row.pk_text }}
           </span>
           <span class="text-sm text-secondary flex-1 truncate">
-            by <span class="font-mono">{{ shortUuid(row.actor_uuid) }}</span>
+            {{ $t('admin-audit-by') }} <span class="font-mono">{{ shortUuid(row.actor_uuid) }}</span>
             <template v-if="row.correlation_id">
-              · corr <span class="font-mono">{{ shortUuid(row.correlation_id) }}</span>
+              · {{ $t('admin-audit-corr') }} <span class="font-mono">{{ shortUuid(row.correlation_id) }}</span>
             </template>
           </span>
           <span class="text-xs text-secondary whitespace-nowrap">
@@ -261,9 +264,9 @@ onMounted(loadFirstPage);
           <table v-if="row.diff.length" class="w-full text-sm">
             <thead>
               <tr class="text-xs text-secondary">
-                <th class="text-left font-medium pb-1 pr-4">Field</th>
-                <th class="text-left font-medium pb-1 pr-4">Old</th>
-                <th class="text-left font-medium pb-1">New</th>
+                <th class="text-left font-medium pb-1 pr-4">{{ $t('admin-audit-diff-field') }}</th>
+                <th class="text-left font-medium pb-1 pr-4">{{ $t('admin-audit-diff-old') }}</th>
+                <th class="text-left font-medium pb-1">{{ $t('admin-audit-diff-new') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -278,7 +281,7 @@ onMounted(loadFirstPage);
               </tr>
             </tbody>
           </table>
-          <p v-else class="text-xs text-secondary">No field-level diff for this entry.</p>
+          <p v-else class="text-xs text-secondary">{{ $t('admin-audit-no-diff') }}</p>
         </div>
       </li>
     </ul>
@@ -290,7 +293,7 @@ onMounted(loadFirstPage);
         :disabled="isLoadingMore"
         @click="loadMore"
       >
-        {{ isLoadingMore ? 'Loading…' : 'Load more' }}
+        {{ isLoadingMore ? $t('admin-audit-loading-more') : $t('admin-audit-load-more') }}
       </button>
     </div>
   </div>
