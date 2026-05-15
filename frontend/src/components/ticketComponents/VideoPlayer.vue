@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import ProgressBar from '@/components/ticketComponents/ProgressBar.vue';
+
+const { $t } = useFluent();
 
 const props = defineProps<{
   src: string;
@@ -263,6 +266,8 @@ onUnmounted(() => {
             @click="togglePlay"
             class="text-primary hover:text-accent transition-colors"
             type="button"
+            :aria-label="isPlaying ? $t('ticket-media-video-pause') : $t('ticket-media-video-play')"
+            :title="isPlaying ? $t('ticket-media-video-pause') : $t('ticket-media-video-play')"
           >
             <svg v-if="!isPlaying" class="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
               <path d="M8 5v14l11-7z" />
@@ -278,6 +283,8 @@ onUnmounted(() => {
               @click="toggleMute"
               class="text-primary hover:text-accent transition-colors"
               type="button"
+              :aria-label="isMuted ? $t('ticket-media-video-unmute') : $t('ticket-media-video-mute')"
+              :title="isMuted ? $t('ticket-media-video-unmute') : $t('ticket-media-video-mute')"
             >
               <!-- Muted icon -->
               <svg v-if="volumeIcon === 'muted'" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
@@ -314,6 +321,8 @@ onUnmounted(() => {
           @click="toggleFullscreen"
           class="text-primary hover:text-accent transition-colors"
           type="button"
+          :aria-label="isFullscreen ? $t('ticket-media-video-fullscreen-exit') : $t('ticket-media-video-fullscreen-enter')"
+          :title="isFullscreen ? $t('ticket-media-video-fullscreen-exit') : $t('ticket-media-video-fullscreen-enter')"
         >
           <svg v-if="!isFullscreen" class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
             <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />

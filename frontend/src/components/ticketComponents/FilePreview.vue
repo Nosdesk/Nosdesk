@@ -1,8 +1,11 @@
 <!-- FilePreview.vue -->
 <script setup lang="ts">
 import { computed, ref, onMounted, nextTick } from 'vue';
+import { useFluent } from 'fluent-vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+
+const { $t } = useFluent();
 
 interface Props {
   src: string;
@@ -138,7 +141,7 @@ const generatePdfThumbnail = async (retryCount = 0) => {
 
   } catch (error) {
     console.error('Error generating PDF thumbnail:', error);
-    thumbnailError.value = 'Failed to generate thumbnail';
+    thumbnailError.value = $t('ticket-media-file-thumbnail-error');
   } finally {
     isLoadingThumbnail.value = false;
   }
@@ -162,7 +165,7 @@ const loadImagePreview = async () => {
     imagePreview.value = img;
   } catch (error) {
     console.error('Error loading image preview:', error);
-    thumbnailError.value = 'Failed to load image';
+    thumbnailError.value = $t('ticket-media-file-image-error');
   } finally {
     isLoadingImage.value = false;
   }
@@ -177,36 +180,36 @@ const openPreview = () => {
 
 // Add new function to extract display name from filename
 const getDisplayName = (filename: string): string => {
-  if (!filename) return 'File';
-  
+  if (!filename) return $t('ticket-media-file-fallback');
+
   // Check if the filename is a UUID pattern followed by an extension
   // Example: 550e8400-e29b-41d4-a716-446655440000.pdf
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i;
-  
+
   if (uuidPattern.test(filename)) {
     // If it's a UUID, return a friendly name based on the file type
     const ext = fileExtension.value;
-    
+
     switch (fileType.value) {
       case 'pdf':
-        return `PDF Document.${ext}`;
+        return $t('ticket-media-file-pdf', { ext });
       case 'word':
-        return `Word Document.${ext}`;
+        return $t('ticket-media-file-word', { ext });
       case 'excel':
-        return `Excel Spreadsheet.${ext}`;
+        return $t('ticket-media-file-excel', { ext });
       case 'powerpoint':
-        return `Presentation.${ext}`;
+        return $t('ticket-media-file-powerpoint', { ext });
       case 'image':
-        return `Image.${ext}`;
+        return $t('ticket-media-file-image', { ext });
       case 'archive':
-        return `Archive.${ext}`;
+        return $t('ticket-media-file-archive', { ext });
       case 'text':
-        return `Text Document.${ext}`;
+        return $t('ticket-media-file-text', { ext });
       default:
-        return `File.${ext}`;
+        return $t('ticket-media-file-generic', { ext });
     }
   }
-  
+
   // Otherwise, return the original filename
   return filename;
 };
@@ -240,7 +243,7 @@ onMounted(async () => {
         type="button"
         @click.stop="emit('delete')"
         class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-        title="Delete file"
+        :title="$t('ticket-media-file-delete')"
       >
         <Icon name="trash" />
       </button>
@@ -278,7 +281,7 @@ onMounted(async () => {
           v-if="isAnimatedImage"
           class="absolute top-3 left-3 bg-accent/80 px-2 py-1 rounded text-xs text-white font-medium animate-pulse z-20"
         >
-          ANIMATED
+          {{ $t('ticket-media-file-animated-badge') }}
         </div>
 
         <!-- File Icon for other types -->
@@ -306,7 +309,7 @@ onMounted(async () => {
           type="button"
           @click.stop="emit('delete')"
           class="absolute top-2 right-2 z-10 p-1.5 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors opacity-0 group-hover:opacity-100"
-          title="Delete file"
+          :title="$t('ticket-media-file-delete')"
         >
           <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
@@ -332,7 +335,7 @@ onMounted(async () => {
             :download="filename"
           >
             <Icon name="download" />
-            Download
+            {{ $t('ticket-media-file-download') }}
           </a>
         </div>
       </div>

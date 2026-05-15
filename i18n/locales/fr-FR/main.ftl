@@ -2302,3 +2302,166 @@ editor-revisions-confirm-body = Le ticket sera restauré à la révision { $revi
 editor-revisions-confirm-note = Remarque : une nouvelle révision sera créée afin que vous puissiez toujours annuler cette opération.
 editor-revisions-confirm-cancel = Annuler
 editor-revisions-confirm-restore = Restaurer
+# Ticket media: aperçu de pièce jointe (AttachmentPreview)
+ticket-media-attachment-voice-message = Message vocal
+ticket-media-attachment-file-fallback = Fichier
+ticket-media-attachment-pdf-document = Document PDF.{ $ext }
+ticket-media-attachment-video = Vidéo.{ $ext }
+ticket-media-attachment-audio = Audio.{ $ext }
+ticket-media-attachment-image = Image.{ $ext }
+ticket-media-attachment-file = Fichier.{ $ext }
+ticket-media-attachment-download = Télécharger la pièce jointe
+ticket-media-attachment-download-image = Télécharger l'image
+ticket-media-attachment-download-animated = Télécharger l'image animée
+ticket-media-attachment-download-pdf = Télécharger le PDF
+ticket-media-attachment-delete-audio = Supprimer l'audio
+ticket-media-attachment-delete-video = Supprimer la vidéo
+ticket-media-attachment-delete-image = Supprimer l'image
+ticket-media-attachment-delete-pdf = Supprimer le PDF
+ticket-media-attachment-delete-file = Supprimer le fichier
+ticket-media-attachment-format-unsupported = Ce format d'image n'est pas pris en charge par votre navigateur
+ticket-media-attachment-loading-pdf = Chargement du PDF
+ticket-media-attachment-animated-badge = ANIMÉ
+ticket-media-attachment-cancel = Annuler
+ticket-media-attachment-submit-video = Envoyer la vidéo
+ticket-media-attachment-preview-title-animated = Aperçu de l'image animée
+ticket-media-attachment-preview-title-image = Aperçu de l'image
+
+# Ticket media: lecteur audio (AudioPlayer)
+ticket-media-audio-play = Lecture
+ticket-media-audio-pause = Pause
+ticket-media-audio-loading = Chargement...
+ticket-media-audio-transcription = Transcription
+
+# Ticket media: dictaphone (VoiceRecorder)
+ticket-media-voice-recording = Enregistrement
+ticket-media-voice-cancel = Annuler
+ticket-media-voice-stop = Arrêter l'enregistrement
+ticket-media-voice-mic-error = Impossible d'accéder au microphone. Veuillez vérifier vos autorisations.
+
+# Ticket media: lecteur vidéo (VideoPlayer)
+ticket-media-video-play = Lecture
+ticket-media-video-pause = Pause
+ticket-media-video-mute = Muet
+ticket-media-video-unmute = Réactiver le son
+ticket-media-video-fullscreen-enter = Passer en plein écran
+ticket-media-video-fullscreen-exit = Quitter le plein écran
+
+# Ticket media: visionneuse PDF (PDFViewer)
+ticket-media-pdf-aria = Visionneuse PDF
+ticket-media-pdf-loading = Chargement du PDF...
+ticket-media-pdf-zoom-out = Zoom arrière
+ticket-media-pdf-zoom-out-aria = Zoom arrière
+ticket-media-pdf-zoom-in = Zoom avant
+ticket-media-pdf-zoom-in-aria = Zoom avant
+ticket-media-pdf-fit-width = Ajuster à la largeur
+ticket-media-pdf-fit-width-aria = Ajuster à la largeur
+ticket-media-pdf-fullscreen = Plein écran
+ticket-media-pdf-fullscreen-aria = Ouvrir en plein écran
+ticket-media-pdf-download = Télécharger le PDF
+ticket-media-pdf-download-aria = Télécharger le PDF
+
+# Ticket media: aperçu de fichier (FilePreview)
+ticket-media-file-fallback = Fichier
+ticket-media-file-pdf = Document PDF.{ $ext }
+ticket-media-file-word = Document Word.{ $ext }
+ticket-media-file-excel = Feuille Excel.{ $ext }
+ticket-media-file-powerpoint = Présentation.{ $ext }
+ticket-media-file-image = Image.{ $ext }
+ticket-media-file-archive = Archive.{ $ext }
+ticket-media-file-text = Document texte.{ $ext }
+ticket-media-file-generic = Fichier.{ $ext }
+ticket-media-file-delete = Supprimer le fichier
+ticket-media-file-download = Télécharger
+ticket-media-file-thumbnail-error = Échec de la génération de la miniature
+ticket-media-file-image-error = Échec du chargement de l'image
+ticket-media-file-animated-badge = ANIMÉ
+
+# Ticket picker: sélecteur d'utilisateur (UserPicker)
+ticket-picker-user-placeholder-assignee = Attribuer à...
+ticket-picker-user-placeholder-requester = Trouver un utilisateur...
+ticket-picker-user-search-staff = Rechercher du personnel...
+ticket-picker-user-search-users = Rechercher des utilisateurs...
+ticket-picker-user-sheet-title-assignee = Attribuer à
+ticket-picker-user-sheet-title-requester = Trouver un utilisateur
+ticket-picker-user-listbox-assignees = Utilisateurs assignables
+ticket-picker-user-listbox-users = Utilisateurs
+ticket-picker-user-loading-assignee = Chargement des assignataires
+ticket-picker-user-loading-requester = Chargement des demandeurs
+ticket-picker-user-view-profile = Voir le profil de { $name }
+ticket-picker-user-clear = Effacer la sélection
+ticket-picker-user-empty-assignees = Aucun utilisateur assignable pour le moment.
+ticket-picker-user-empty-users = Aucun utilisateur trouvé.
+ticket-picker-user-empty-search = Aucun utilisateur ne correspond à "{ $query }"
+ticket-picker-user-section-selected-assignee = Actuellement assigné
+ticket-picker-user-section-selected-requester = Demandeur actuel
+ticket-picker-user-section-you = Vous
+ticket-picker-user-section-recent = Récents
+ticket-picker-user-section-results = Résultats
+ticket-picker-user-section-staff = Personnel
+ticket-picker-user-section-all = Tous les utilisateurs
+ticket-picker-user-you-suffix = (vous)
+
+# Ticket picker: modale de ticket lié (LinkedTicketModal)
+ticket-picker-linked-title = Lier un ticket
+ticket-picker-linked-search-placeholder = Rechercher des tickets...
+ticket-picker-linked-loading = Chargement des tickets...
+ticket-picker-linked-error = Échec du chargement des tickets
+ticket-picker-linked-try-again = Réessayer
+ticket-picker-linked-empty-search = Aucun ticket ne correspond à votre recherche
+ticket-picker-linked-empty = Aucun ticket à lier
+ticket-picker-linked-col-id = ID
+ticket-picker-linked-col-title = Titre
+ticket-picker-linked-col-status = Statut
+ticket-picker-linked-col-requester = Demandeur
+ticket-picker-linked-col-updated = Mis à jour
+ticket-picker-linked-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+}
+ticket-picker-linked-cancel = Annuler
+
+# Ticket picker: réponses préenregistrées (CannedResponsePicker)
+ticket-picker-canned-trigger-aria = Insérer une réponse préenregistrée
+ticket-picker-canned-trigger-title = Insérer une réponse préenregistrée ({ $shortcut })
+ticket-picker-canned-listbox-aria = Réponses préenregistrées
+ticket-picker-canned-loading = Chargement…
+ticket-picker-canned-empty-title = Aucune réponse préenregistrée pour le moment.
+ticket-picker-canned-empty-hint = Les administrateurs peuvent ajouter des modèles dans la zone d'administration.
+ticket-picker-canned-load-error = Échec du chargement des modèles
+
+# Ticket picker: modale d'appareil (DeviceModal)
+ticket-picker-device-title = Ajouter un appareil
+ticket-picker-device-name-label = Nom
+ticket-picker-device-name-placeholder = Entrez le nom de l'appareil
+ticket-picker-device-hostname-label = Nom d'hôte
+ticket-picker-device-hostname-placeholder = Entrez le nom d'hôte
+ticket-picker-device-serial-label = Numéro de série
+ticket-picker-device-serial-placeholder = Entrez le numéro de série
+ticket-picker-device-model-label = Modèle
+ticket-picker-device-model-placeholder = Entrez le modèle
+ticket-picker-device-warranty-label = État de la garantie
+ticket-picker-device-warranty-active = Active
+ticket-picker-device-warranty-warning = Avertissement
+ticket-picker-device-warranty-expired = Expirée
+ticket-picker-device-warranty-unknown = Inconnu
+ticket-picker-device-cancel = Annuler
+ticket-picker-device-add = Ajouter l'appareil
+
+# Sélecteur d'icône de document (DocumentIconSelector)
+doc-icon-selector-trigger-aria = Sélectionner une icône de document
+doc-icon-selector-search-placeholder = Rechercher des icônes...
+doc-icon-selector-empty = Aucune icône trouvée
+doc-icon-selector-footer-hint = Cliquez sur une icône pour la sélectionner
+doc-icon-selector-random = Aléatoire
+doc-icon-selector-scroll-dot-aria = Faire défiler vers la section { $index }
+doc-icon-selector-category-suggested = Suggéré
+doc-icon-selector-category-documents = Documents
+doc-icon-selector-category-objects = Objets
+doc-icon-selector-category-symbols = Symboles
+doc-icon-selector-category-nature = Nature
+doc-icon-selector-category-animals = Animaux
+doc-icon-selector-category-people = Personnes
+doc-icon-selector-category-travel = Voyage
+doc-icon-selector-category-food = Nourriture
+doc-icon-selector-category-activities = Activités

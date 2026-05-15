@@ -1,8 +1,11 @@
 <!-- DocumentIconSelector.vue - Professional Notion-style icon picker -->
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { useHorizontalScroll } from '@/composables/useHorizontalScroll';
 import Icon from '@/components/common/Icon.vue';
+
+const { $t } = useFluent();
 
 interface Props {
   initialIcon?: string;
@@ -799,67 +802,69 @@ const emojiDatabase: EmojiData[] = [
 // Helper to deduplicate emoji arrays
 const uniqueEmojis = (emojis: string[]) => [...new Set(emojis)];
 
-// Icon categories with better organization
-const iconCategories = {
+// Icon categories with better organization. Labels are localized via
+// a computed so locale switches recompute the displayed tab names;
+// the underlying emoji buckets stay stable.
+const iconCategories = computed(() => ({
   suggested: {
-    label: 'Suggested',
+    label: $t('doc-icon-selector-category-suggested'),
     icons: ['📄', '📝', '📋', '📁', '📚', '💡', '⚙️', '🚀', '✅', '📌', '🔗', '💻', '🎯', '⭐', '🔒']
   },
   documents: {
-    label: 'Documents',
+    label: $t('doc-icon-selector-category-documents'),
     icons: uniqueEmojis(emojiDatabase.filter(e =>
       e.keywords.some(k => ['document', 'file', 'book', 'note', 'paper', 'folder', 'mail', 'email', 'card', 'calendar'].includes(k))
     ).map(e => e.emoji))
   },
   objects: {
-    label: 'Objects',
+    label: $t('doc-icon-selector-category-objects'),
     icons: uniqueEmojis(emojiDatabase.filter(e =>
       e.keywords.some(k => ['tool', 'computer', 'phone', 'device', 'light', 'key', 'lock', 'bell', 'clock', 'battery'].includes(k))
     ).map(e => e.emoji))
   },
   symbols: {
-    label: 'Symbols',
+    label: $t('doc-icon-selector-category-symbols'),
     icons: uniqueEmojis(emojiDatabase.filter(e =>
       e.keywords.some(k => ['check', 'cross', 'warning', 'question', 'exclamation', 'arrow', 'play', 'stop', 'plus', 'minus', 'star', 'heart'].includes(k))
     ).map(e => e.emoji))
   },
   nature: {
-    label: 'Nature',
+    label: $t('doc-icon-selector-category-nature'),
     icons: uniqueEmojis(emojiDatabase.filter(e =>
       e.keywords.some(k => ['plant', 'tree', 'flower', 'leaf', 'sun', 'moon', 'weather', 'cloud', 'rain', 'snow', 'earth', 'ocean', 'water'].includes(k))
     ).map(e => e.emoji))
   },
   animals: {
-    label: 'Animals',
+    label: $t('doc-icon-selector-category-animals'),
     icons: uniqueEmojis(emojiDatabase.filter(e =>
       e.keywords.some(k => ['dog', 'cat', 'bird', 'fish', 'animal', 'pet', 'bear', 'monkey', 'insect', 'bug'].includes(k))
     ).map(e => e.emoji))
   },
   people: {
-    label: 'People',
+    label: $t('doc-icon-selector-category-people'),
     icons: uniqueEmojis(emojiDatabase.filter(e =>
       e.keywords.some(k => ['face', 'person', 'user', 'people', 'hand', 'heart', 'love', 'smile', 'happy', 'think'].includes(k))
     ).map(e => e.emoji))
   },
   travel: {
-    label: 'Travel',
+    label: $t('doc-icon-selector-category-travel'),
     icons: uniqueEmojis(emojiDatabase.filter(e =>
       e.keywords.some(k => ['car', 'plane', 'train', 'ship', 'building', 'house', 'city', 'rocket', 'travel', 'transport'].includes(k))
     ).map(e => e.emoji))
   },
   food: {
-    label: 'Food',
+    label: $t('doc-icon-selector-category-food'),
     icons: uniqueEmojis(emojiDatabase.filter(e =>
       e.keywords.some(k => ['food', 'fruit', 'vegetable', 'drink', 'coffee', 'eat', 'meal', 'dessert', 'sweet'].includes(k))
     ).map(e => e.emoji))
   },
   activities: {
-    label: 'Activities',
+    label: $t('doc-icon-selector-category-activities'),
     icons: uniqueEmojis(emojiDatabase.filter(e =>
       e.keywords.some(k => ['sport', 'game', 'music', 'art', 'party', 'celebration', 'play', 'ball', 'camera', 'movie'].includes(k))
     ).map(e => e.emoji))
   }
-};
+}));
 
 // Flatten all icons for random selection
 const allIcons = computed(() => {
@@ -871,7 +876,7 @@ const filteredIcons = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
 
   if (!query) {
-    return iconCategories[activeCategory.value as keyof typeof iconCategories]?.icons || [];
+    return iconCategories.value[activeCategory.value as keyof typeof iconCategories.value]?.icons || [];
   }
 
   // Search through emoji database by keywords
@@ -1013,7 +1018,7 @@ onUnmounted(() => {
       @click="toggleDropdown"
       class="flex items-center justify-center rounded-lg transition-all duration-150 hover:bg-surface-hover active:scale-95 focus:outline-none focus:ring-2 focus:ring-accent/50"
       :class="sizeClasses.button"
-      aria-label="Select document icon"
+      :aria-label="$t('doc-icon-selector-trigger-aria')"
       type="button"
     >
       <span class="select-none" :class="sizeClasses.icon">{{ currentIcon }}</span>
@@ -1042,7 +1047,7 @@ onUnmounted(() => {
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="Search icons..."
+              :placeholder="$t('doc-icon-selector-search-placeholder')"
               class="w-full pl-10 pr-4 py-2 text-sm bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
               @click.stop
             />
@@ -1091,7 +1096,7 @@ onUnmounted(() => {
               class="w-1.5 h-1.5 p-0 border-0 rounded-full bg-tertiary transition-all duration-200 cursor-pointer hover:scale-125"
               :class="(i - 1) === activeDotIndex ? 'opacity-100' : 'opacity-30 hover:opacity-60'"
               @click.stop="scrollToDot(i - 1)"
-              :aria-label="`Scroll to section ${i}`"
+              :aria-label="$t('doc-icon-selector-scroll-dot-aria', { index: i })"
             />
           </div>
         </div>
@@ -1099,7 +1104,7 @@ onUnmounted(() => {
         <!-- Icons grid -->
         <div class="p-3 max-h-64 overflow-y-auto">
           <div v-if="searchQuery && filteredIcons.length === 0" class="py-8 text-center text-tertiary text-sm">
-            No icons found
+            {{ $t('doc-icon-selector-empty') }}
           </div>
           <div v-else class="grid grid-cols-8 gap-1">
             <button
@@ -1116,12 +1121,12 @@ onUnmounted(() => {
 
         <!-- Footer with random button -->
         <div class="px-3 py-2 border-t border-default bg-surface-alt flex items-center justify-between">
-          <span class="text-xs text-tertiary">Click an icon to select</span>
+          <span class="text-xs text-tertiary">{{ $t('doc-icon-selector-footer-hint') }}</span>
           <button
             @click.stop="selectIcon(allIcons[Math.floor(Math.random() * allIcons.length)])"
             class="px-2 py-1 text-xs font-medium text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors"
           >
-            Random
+            {{ $t('doc-icon-selector-random') }}
           </button>
         </div>
       </div>

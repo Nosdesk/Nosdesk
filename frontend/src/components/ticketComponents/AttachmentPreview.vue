@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
+import { useFluent } from 'fluent-vue';
 import AudioPlayer from "@/components/ticketComponents/AudioPlayer.vue";
 import VideoPlayer from "@/components/ticketComponents/VideoPlayer.vue";
 import FilePreview from "@/components/ticketComponents/FilePreview.vue";
@@ -10,6 +11,7 @@ import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 
 const router = useRouter();
+const { $t } = useFluent();
 
 interface Props {
   attachment: { id?: number; url: string; name: string; comment_id?: number; transcription?: string; thumbnail_url?: string };
@@ -85,7 +87,7 @@ const isVoiceNote = (filename: string): boolean => {
 // Get display name for audio files - "Voice Message" for voice notes, filename for others
 const getAudioDisplayName = (filename: string): string => {
   if (isVoiceNote(filename)) {
-    return 'Voice Message';
+    return $t('ticket-media-attachment-voice-message');
   }
   return filename;
 };
@@ -277,23 +279,23 @@ const needsConversion = (filename: string): boolean => {
 
 // Add a function to generate friendly display names for files
 const getDisplayName = (filename: string): string => {
-  if (!filename) return 'File';
-  
+  if (!filename) return $t('ticket-media-attachment-file-fallback');
+
   // Check if the filename is a UUID pattern followed by an extension
   // Example: 550e8400-e29b-41d4-a716-446655440000.pdf
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i;
-  
+
   if (uuidPattern.test(filename)) {
     // If it's a UUID, return a friendly name based on the file type
     const ext = filename.split('.').pop()?.toLowerCase() || '';
-    
-    if (isPdfFile(filename)) return `PDF Document.${ext}`;
-    if (isVideoFile(filename)) return `Video.${ext}`;
-    if (isAudioFile(filename)) return `Audio.${ext}`;
-    if (isImageFile(filename)) return `Image.${ext}`;
-    return `File.${ext}`;
+
+    if (isPdfFile(filename)) return $t('ticket-media-attachment-pdf-document', { ext });
+    if (isVideoFile(filename)) return $t('ticket-media-attachment-video', { ext });
+    if (isAudioFile(filename)) return $t('ticket-media-attachment-audio', { ext });
+    if (isImageFile(filename)) return $t('ticket-media-attachment-image', { ext });
+    return $t('ticket-media-attachment-file', { ext });
   }
-  
+
   // Otherwise, return the original filename
   return filename;
 };
@@ -388,7 +390,7 @@ const generatePdfThumbnail = async () => {
             target="_blank"
             :download="attachment.name"
             class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-            title="Download attachment"
+            :title="$t('ticket-media-attachment-download')"
             @click.stop
           >
             <Icon name="download" />
@@ -399,7 +401,7 @@ const generatePdfThumbnail = async () => {
             type="button"
             @click.stop="emit('delete')"
             class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-            :title="'Delete ' + attachmentType"
+            :title="attachmentType === 'audio' ? $t('ticket-media-attachment-delete-audio') : $t('ticket-media-attachment-delete-video')"
           >
             <Icon name="trash" />
           </button>
@@ -427,7 +429,7 @@ const generatePdfThumbnail = async () => {
           type="button"
           @click.stop="emit('delete')"
           class="absolute top-2 right-2 z-30 p-1.5 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-          title="Delete image"
+          :title="$t('ticket-media-attachment-delete-image')"
         >
           <Icon name="trash" />
         </button>
@@ -441,7 +443,7 @@ const generatePdfThumbnail = async () => {
             <svg class="w-12 h-12 mx-auto text-tertiary mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            <p class="text-sm text-secondary">This image format is not supported by your browser</p>
+            <p class="text-sm text-secondary">{{ $t('ticket-media-attachment-format-unsupported') }}</p>
           </div>
         </div>
         <!-- Regular image display with native lazy loading -->
@@ -471,7 +473,7 @@ const generatePdfThumbnail = async () => {
             v-if="isAnimatedImage(attachment.name)"
             class="absolute top-2 left-2 bg-accent/80 px-2 py-1 rounded text-xs text-white font-medium animate-pulse"
           >
-            ANIMATED
+            {{ $t('ticket-media-attachment-animated-badge') }}
           </div>
         </div>
         <div
@@ -488,7 +490,7 @@ const generatePdfThumbnail = async () => {
             target="_blank"
             :download="attachment.name"
             class="flex items-center gap-1 p-2 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-            title="Download image"
+            :title="$t('ticket-media-attachment-download-image')"
             @click.stop
           >
             <Icon name="download" />
@@ -504,7 +506,7 @@ const generatePdfThumbnail = async () => {
           type="button"
           @click.stop="emit('delete')"
           class="absolute top-2 right-2 z-30 p-1.5 bg-surface-alt/80 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-          title="Delete PDF"
+          :title="$t('ticket-media-attachment-delete-pdf')"
         >
           <Icon name="trash" />
         </button>
@@ -517,7 +519,7 @@ const generatePdfThumbnail = async () => {
           <span class="text-status-error mb-2 inline-flex">
             <Spinner size="lg" />
           </span>
-          <span class="text-sm text-primary font-medium">Loading PDF</span>
+          <span class="text-sm text-primary font-medium">{{ $t('ticket-media-attachment-loading-pdf') }}</span>
         </div>
 
         <!-- PDF Thumbnail Display -->
@@ -570,7 +572,7 @@ const generatePdfThumbnail = async () => {
             target="_blank"
             :download="attachment.name"
             class="flex items-center gap-1 p-2 bg-accent text-white hover:opacity-90 rounded transition-colors"
-            title="Download PDF"
+            :title="$t('ticket-media-attachment-download-pdf')"
             @click.stop
           >
             <Icon name="download" />
@@ -598,21 +600,21 @@ const generatePdfThumbnail = async () => {
         @click.stop="emit('delete')"
         class="px-3 py-1.5 text-secondary hover:text-primary transition-colors"
       >
-        Cancel
+        {{ $t('ticket-media-attachment-cancel') }}
       </button>
       <button
         type="button"
         @click.stop="emit('submit')"
         class="px-3 py-1.5 bg-accent text-white text-sm rounded hover:opacity-90 transition-colors"
       >
-        Submit Video
+        {{ $t('ticket-media-attachment-submit-video') }}
       </button>
     </div>
     
     <!-- Image Preview Modal (PDFs open in full page view) -->
     <Modal
       :show="showPreviewModal"
-      :title="isAnimatedImage(attachment.name) ? 'Animated Image Preview' : 'Image Preview'"
+      :title="isAnimatedImage(attachment.name) ? $t('ticket-media-attachment-preview-title-animated') : $t('ticket-media-attachment-preview-title-image')"
       size="lg"
       @close="closeImagePreview"
     >
@@ -633,7 +635,7 @@ const generatePdfThumbnail = async () => {
             v-if="isAnimatedImage(attachment.name)"
             class="absolute top-2 right-2 bg-accent px-3 py-1 rounded-full text-xs text-white font-medium animate-pulse"
           >
-            ANIMATED
+            {{ $t('ticket-media-attachment-animated-badge') }}
           </div>
         </div>
 
@@ -652,7 +654,7 @@ const generatePdfThumbnail = async () => {
               : 'px-4 py-2 bg-surface-alt text-primary text-sm rounded hover:bg-surface-hover transition-colors flex items-center gap-2'"
           >
             <Icon name="download" />
-            {{ isAnimatedImage(attachment.name) ? 'Download animated image' : 'Download image' }}
+            {{ isAnimatedImage(attachment.name) ? $t('ticket-media-attachment-download-animated') : $t('ticket-media-attachment-download-image') }}
           </a>
         </div>
       </div>

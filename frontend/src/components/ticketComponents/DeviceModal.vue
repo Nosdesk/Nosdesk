@@ -1,16 +1,19 @@
 <!-- components/ticketComponents/DeviceModal.vue -->
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useFluent } from 'fluent-vue';
 import type { Device } from '@/types/ticket';
 import Modal from '@/components/Modal.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 
-const warrantyOptions = [
-  { value: 'Active', label: 'Active' },
-  { value: 'Warning', label: 'Warning' },
-  { value: 'Expired', label: 'Expired' },
-  { value: 'Unknown', label: 'Unknown' }
-];
+const { $t } = useFluent();
+
+const warrantyOptions = computed(() => [
+  { value: 'Active', label: $t('ticket-picker-device-warranty-active') },
+  { value: 'Warning', label: $t('ticket-picker-device-warranty-warning') },
+  { value: 'Expired', label: $t('ticket-picker-device-warranty-expired') },
+  { value: 'Unknown', label: $t('ticket-picker-device-warranty-unknown') },
+]);
 
 defineProps<{
   show: boolean;
@@ -48,63 +51,63 @@ const handleSubmit = () => {
 </script>
 
 <template>
-  <Modal :show="show" title="Add Device" @close="emit('close')">
+  <Modal :show="show" :title="$t('ticket-picker-device-title')" @close="emit('close')">
     <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
       <!-- Name -->
       <div class="flex flex-col gap-1">
-        <label for="name" class="text-sm text-tertiary">Name</label>
+        <label for="name" class="text-sm text-tertiary">{{ $t('ticket-picker-device-name-label') }}</label>
         <input
           id="name"
           v-model="device.name"
           type="text"
           required
           class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-accent"
-          placeholder="Enter device name"
+          :placeholder="$t('ticket-picker-device-name-placeholder')"
         />
       </div>
 
       <!-- Hostname -->
       <div class="flex flex-col gap-1">
-        <label for="hostname" class="text-sm text-tertiary">Hostname</label>
+        <label for="hostname" class="text-sm text-tertiary">{{ $t('ticket-picker-device-hostname-label') }}</label>
         <input
           id="hostname"
           v-model="device.hostname"
           type="text"
           required
           class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-accent"
-          placeholder="Enter hostname"
+          :placeholder="$t('ticket-picker-device-hostname-placeholder')"
         />
       </div>
 
       <!-- Serial Number -->
       <div class="flex flex-col gap-1">
-        <label for="serial_number" class="text-sm text-tertiary">Serial Number</label>
+        <label for="serial_number" class="text-sm text-tertiary">{{ $t('ticket-picker-device-serial-label') }}</label>
         <input
           id="serial_number"
           v-model="device.serial_number"
           type="text"
           required
           class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-accent"
-          placeholder="Enter serial number"
+          :placeholder="$t('ticket-picker-device-serial-placeholder')"
         />
       </div>
 
       <!-- Model -->
       <div class="flex flex-col gap-1">
-        <label for="model" class="text-sm text-tertiary">Model</label>
+        <label for="model" class="text-sm text-tertiary">{{ $t('ticket-picker-device-model-label') }}</label>
         <input
           id="model"
           v-model="device.model"
           type="text"
           required
           class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-accent"
-          placeholder="Enter model"
+          :placeholder="$t('ticket-picker-device-model-placeholder')"
         />
       </div>
 
       <!-- Warranty Status -->
       <div class="flex flex-col gap-1">
-        <label for="warranty_status" class="text-sm text-tertiary">Warranty Status</label>
+        <label for="warranty_status" class="text-sm text-tertiary">{{ $t('ticket-picker-device-warranty-label') }}</label>
         <BaseDropdown
           v-model="device.warranty_status"
           :options="warrantyOptions"
@@ -119,15 +122,15 @@ const handleSubmit = () => {
           @click="emit('close')"
           class="px-4 py-2 text-sm text-secondary hover:text-primary"
         >
-          Cancel
+          {{ $t('ticket-picker-device-cancel') }}
         </button>
         <button
           type="submit"
           class="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:opacity-90"
         >
-          Add Device
+          {{ $t('ticket-picker-device-add') }}
         </button>
       </div>
     </form>
   </Modal>
-</template> 
+</template>

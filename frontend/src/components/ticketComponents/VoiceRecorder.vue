@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { useSpeechRecognition } from '@/composables/useSpeechRecognition';
 import Icon from '@/components/common/Icon.vue';
+
+const { $t } = useFluent();
 
 const emit = defineEmits<{
   (e: 'recordingComplete', value: { blob: Blob; duration: number; transcription?: string }): void;
@@ -376,7 +379,7 @@ const startRecording = async () => {
     }
   } catch (error) {
     console.error("Error accessing microphone:", error);
-    alert("Could not access microphone. Please check your permissions.");
+    alert($t('ticket-media-voice-mic-error'));
     emit('cancel');
   }
 };
@@ -457,7 +460,7 @@ onUnmounted(() => {
     <div class="recorder-header">
       <div class="recording-indicator">
         <span class="pulse-dot"></span>
-        <span class="recording-label">Recording</span>
+        <span class="recording-label">{{ $t('ticket-media-voice-recording') }}</span>
       </div>
       <span class="recording-time">{{ formatTime(recordingTime) }}</span>
     </div>
@@ -480,7 +483,7 @@ onUnmounted(() => {
         class="btn-cancel"
       >
         <Icon name="close" />
-        Cancel
+        {{ $t('ticket-media-voice-cancel') }}
       </button>
       <button
         type="button"
@@ -490,7 +493,7 @@ onUnmounted(() => {
         <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
           <rect x="6" y="6" width="12" height="12" rx="2" />
         </svg>
-        Stop Recording
+        {{ $t('ticket-media-voice-stop') }}
       </button>
     </div>
   </div>

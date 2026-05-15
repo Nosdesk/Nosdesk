@@ -2293,3 +2293,166 @@ editor-revisions-confirm-body = Hiermee wordt het ticket teruggezet naar revisie
 editor-revisions-confirm-note = Let op: er wordt een nieuwe revisie aangemaakt, zodat je deze wijziging altijd ongedaan kunt maken.
 editor-revisions-confirm-cancel = Annuleren
 editor-revisions-confirm-restore = Herstellen
+# Ticket media: bijlagevoorvertoning (AttachmentPreview)
+ticket-media-attachment-voice-message = Spraakbericht
+ticket-media-attachment-file-fallback = Bestand
+ticket-media-attachment-pdf-document = PDF-document.{ $ext }
+ticket-media-attachment-video = Video.{ $ext }
+ticket-media-attachment-audio = Audio.{ $ext }
+ticket-media-attachment-image = Afbeelding.{ $ext }
+ticket-media-attachment-file = Bestand.{ $ext }
+ticket-media-attachment-download = Bijlage downloaden
+ticket-media-attachment-download-image = Afbeelding downloaden
+ticket-media-attachment-download-animated = Geanimeerde afbeelding downloaden
+ticket-media-attachment-download-pdf = PDF downloaden
+ticket-media-attachment-delete-audio = Audio verwijderen
+ticket-media-attachment-delete-video = Video verwijderen
+ticket-media-attachment-delete-image = Afbeelding verwijderen
+ticket-media-attachment-delete-pdf = PDF verwijderen
+ticket-media-attachment-delete-file = Bestand verwijderen
+ticket-media-attachment-format-unsupported = Dit afbeeldingsformaat wordt niet ondersteund door je browser
+ticket-media-attachment-loading-pdf = PDF laden
+ticket-media-attachment-animated-badge = GEANIMEERD
+ticket-media-attachment-cancel = Annuleren
+ticket-media-attachment-submit-video = Video versturen
+ticket-media-attachment-preview-title-animated = Voorvertoning geanimeerde afbeelding
+ticket-media-attachment-preview-title-image = Voorvertoning afbeelding
+
+# Ticket media: audiospeler (AudioPlayer)
+ticket-media-audio-play = Afspelen
+ticket-media-audio-pause = Pauze
+ticket-media-audio-loading = Laden...
+ticket-media-audio-transcription = Transcriptie
+
+# Ticket media: dictafoon (VoiceRecorder)
+ticket-media-voice-recording = Opname
+ticket-media-voice-cancel = Annuleren
+ticket-media-voice-stop = Opname stoppen
+ticket-media-voice-mic-error = Geen toegang tot de microfoon. Controleer je machtigingen.
+
+# Ticket media: videospeler (VideoPlayer)
+ticket-media-video-play = Afspelen
+ticket-media-video-pause = Pauze
+ticket-media-video-mute = Dempen
+ticket-media-video-unmute = Dempen opheffen
+ticket-media-video-fullscreen-enter = Volledig scherm openen
+ticket-media-video-fullscreen-exit = Volledig scherm sluiten
+
+# Ticket media: PDF-viewer (PDFViewer)
+ticket-media-pdf-aria = PDF-viewer
+ticket-media-pdf-loading = PDF laden...
+ticket-media-pdf-zoom-out = Uitzoomen
+ticket-media-pdf-zoom-out-aria = Uitzoomen
+ticket-media-pdf-zoom-in = Inzoomen
+ticket-media-pdf-zoom-in-aria = Inzoomen
+ticket-media-pdf-fit-width = Aanpassen aan breedte
+ticket-media-pdf-fit-width-aria = Aanpassen aan breedte
+ticket-media-pdf-fullscreen = Volledig scherm
+ticket-media-pdf-fullscreen-aria = Volledig scherm openen
+ticket-media-pdf-download = PDF downloaden
+ticket-media-pdf-download-aria = PDF downloaden
+
+# Ticket media: bestandsvoorvertoning (FilePreview)
+ticket-media-file-fallback = Bestand
+ticket-media-file-pdf = PDF-document.{ $ext }
+ticket-media-file-word = Word-document.{ $ext }
+ticket-media-file-excel = Excel-werkblad.{ $ext }
+ticket-media-file-powerpoint = Presentatie.{ $ext }
+ticket-media-file-image = Afbeelding.{ $ext }
+ticket-media-file-archive = Archief.{ $ext }
+ticket-media-file-text = Tekstdocument.{ $ext }
+ticket-media-file-generic = Bestand.{ $ext }
+ticket-media-file-delete = Bestand verwijderen
+ticket-media-file-download = Downloaden
+ticket-media-file-thumbnail-error = Kon geen miniatuur maken
+ticket-media-file-image-error = Kon afbeelding niet laden
+ticket-media-file-animated-badge = GEANIMEERD
+
+# Ticket picker: gebruikerskiezer (UserPicker)
+ticket-picker-user-placeholder-assignee = Toewijzen aan...
+ticket-picker-user-placeholder-requester = Gebruiker zoeken...
+ticket-picker-user-search-staff = Personeel zoeken...
+ticket-picker-user-search-users = Gebruikers zoeken...
+ticket-picker-user-sheet-title-assignee = Toewijzen aan
+ticket-picker-user-sheet-title-requester = Gebruiker zoeken
+ticket-picker-user-listbox-assignees = Toewijsbare gebruikers
+ticket-picker-user-listbox-users = Gebruikers
+ticket-picker-user-loading-assignee = Toewijzingen laden
+ticket-picker-user-loading-requester = Aanvragers laden
+ticket-picker-user-view-profile = Profiel van { $name } bekijken
+ticket-picker-user-clear = Selectie wissen
+ticket-picker-user-empty-assignees = Nog geen toewijsbare gebruikers.
+ticket-picker-user-empty-users = Geen gebruikers gevonden.
+ticket-picker-user-empty-search = Geen gebruikers gevonden voor "{ $query }"
+ticket-picker-user-section-selected-assignee = Momenteel toegewezen
+ticket-picker-user-section-selected-requester = Huidige aanvrager
+ticket-picker-user-section-you = Jij
+ticket-picker-user-section-recent = Recent
+ticket-picker-user-section-results = Resultaten
+ticket-picker-user-section-staff = Personeel
+ticket-picker-user-section-all = Alle gebruikers
+ticket-picker-user-you-suffix = (jij)
+
+# Ticket picker: gekoppeld ticket modaal (LinkedTicketModal)
+ticket-picker-linked-title = Ticket koppelen
+ticket-picker-linked-search-placeholder = Tickets zoeken...
+ticket-picker-linked-loading = Tickets laden...
+ticket-picker-linked-error = Kan tickets niet laden
+ticket-picker-linked-try-again = Opnieuw proberen
+ticket-picker-linked-empty-search = Geen tickets gevonden voor je zoekopdracht
+ticket-picker-linked-empty = Geen tickets om te koppelen
+ticket-picker-linked-col-id = ID
+ticket-picker-linked-col-title = Titel
+ticket-picker-linked-col-status = Status
+ticket-picker-linked-col-requester = Aanvrager
+ticket-picker-linked-col-updated = Bijgewerkt
+ticket-picker-linked-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+}
+ticket-picker-linked-cancel = Annuleren
+
+# Ticket picker: standaardantwoordenkiezer (CannedResponsePicker)
+ticket-picker-canned-trigger-aria = Standaardantwoord invoegen
+ticket-picker-canned-trigger-title = Standaardantwoord invoegen ({ $shortcut })
+ticket-picker-canned-listbox-aria = Standaardantwoorden
+ticket-picker-canned-loading = Laden…
+ticket-picker-canned-empty-title = Nog geen standaardantwoorden.
+ticket-picker-canned-empty-hint = Beheerders kunnen sjablonen toevoegen in het beheergedeelte.
+ticket-picker-canned-load-error = Kan sjablonen niet laden
+
+# Ticket picker: apparaat modaal (DeviceModal)
+ticket-picker-device-title = Apparaat toevoegen
+ticket-picker-device-name-label = Naam
+ticket-picker-device-name-placeholder = Voer apparaatnaam in
+ticket-picker-device-hostname-label = Hostnaam
+ticket-picker-device-hostname-placeholder = Voer hostnaam in
+ticket-picker-device-serial-label = Serienummer
+ticket-picker-device-serial-placeholder = Voer serienummer in
+ticket-picker-device-model-label = Model
+ticket-picker-device-model-placeholder = Voer model in
+ticket-picker-device-warranty-label = Garantiestatus
+ticket-picker-device-warranty-active = Actief
+ticket-picker-device-warranty-warning = Waarschuwing
+ticket-picker-device-warranty-expired = Verlopen
+ticket-picker-device-warranty-unknown = Onbekend
+ticket-picker-device-cancel = Annuleren
+ticket-picker-device-add = Apparaat toevoegen
+
+# Documentpictogramkiezer (DocumentIconSelector)
+doc-icon-selector-trigger-aria = Documentpictogram kiezen
+doc-icon-selector-search-placeholder = Pictogrammen zoeken...
+doc-icon-selector-empty = Geen pictogrammen gevonden
+doc-icon-selector-footer-hint = Klik op een pictogram om te kiezen
+doc-icon-selector-random = Willekeurig
+doc-icon-selector-scroll-dot-aria = Naar sectie { $index } scrollen
+doc-icon-selector-category-suggested = Voorgesteld
+doc-icon-selector-category-documents = Documenten
+doc-icon-selector-category-objects = Objecten
+doc-icon-selector-category-symbols = Symbolen
+doc-icon-selector-category-nature = Natuur
+doc-icon-selector-category-animals = Dieren
+doc-icon-selector-category-people = Mensen
+doc-icon-selector-category-travel = Reizen
+doc-icon-selector-category-food = Eten
+doc-icon-selector-category-activities = Activiteiten

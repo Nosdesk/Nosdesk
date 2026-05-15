@@ -2352,3 +2352,166 @@ editor-revisions-confirm-body = This will restore the ticket to revision { $revi
 editor-revisions-confirm-note = Note: A new revision will be created so you can always undo this change.
 editor-revisions-confirm-cancel = Cancel
 editor-revisions-confirm-restore = Restore
+# Ticket media: attachment preview (AttachmentPreview)
+ticket-media-attachment-voice-message = Voice Message
+ticket-media-attachment-file-fallback = File
+ticket-media-attachment-pdf-document = PDF Document.{ $ext }
+ticket-media-attachment-video = Video.{ $ext }
+ticket-media-attachment-audio = Audio.{ $ext }
+ticket-media-attachment-image = Image.{ $ext }
+ticket-media-attachment-file = File.{ $ext }
+ticket-media-attachment-download = Download attachment
+ticket-media-attachment-download-image = Download image
+ticket-media-attachment-download-animated = Download animated image
+ticket-media-attachment-download-pdf = Download PDF
+ticket-media-attachment-delete-audio = Delete audio
+ticket-media-attachment-delete-video = Delete video
+ticket-media-attachment-delete-image = Delete image
+ticket-media-attachment-delete-pdf = Delete PDF
+ticket-media-attachment-delete-file = Delete file
+ticket-media-attachment-format-unsupported = This image format is not supported by your browser
+ticket-media-attachment-loading-pdf = Loading PDF
+ticket-media-attachment-animated-badge = ANIMATED
+ticket-media-attachment-cancel = Cancel
+ticket-media-attachment-submit-video = Submit Video
+ticket-media-attachment-preview-title-animated = Animated Image Preview
+ticket-media-attachment-preview-title-image = Image Preview
+
+# Ticket media: audio player (AudioPlayer)
+ticket-media-audio-play = Play
+ticket-media-audio-pause = Pause
+ticket-media-audio-loading = Loading...
+ticket-media-audio-transcription = Transcription
+
+# Ticket media: voice recorder (VoiceRecorder)
+ticket-media-voice-recording = Recording
+ticket-media-voice-cancel = Cancel
+ticket-media-voice-stop = Stop Recording
+ticket-media-voice-mic-error = Could not access microphone. Please check your permissions.
+
+# Ticket media: video player (VideoPlayer)
+ticket-media-video-play = Play
+ticket-media-video-pause = Pause
+ticket-media-video-mute = Mute
+ticket-media-video-unmute = Unmute
+ticket-media-video-fullscreen-enter = Enter fullscreen
+ticket-media-video-fullscreen-exit = Exit fullscreen
+
+# Ticket media: PDF viewer (PDFViewer)
+ticket-media-pdf-aria = PDF viewer
+ticket-media-pdf-loading = Loading PDF...
+ticket-media-pdf-zoom-out = Zoom Out
+ticket-media-pdf-zoom-out-aria = Zoom out
+ticket-media-pdf-zoom-in = Zoom In
+ticket-media-pdf-zoom-in-aria = Zoom in
+ticket-media-pdf-fit-width = Fit to Width
+ticket-media-pdf-fit-width-aria = Fit to width
+ticket-media-pdf-fullscreen = Fullscreen
+ticket-media-pdf-fullscreen-aria = Open fullscreen
+ticket-media-pdf-download = Download PDF
+ticket-media-pdf-download-aria = Download PDF
+
+# Ticket media: generic file preview (FilePreview)
+ticket-media-file-fallback = File
+ticket-media-file-pdf = PDF Document.{ $ext }
+ticket-media-file-word = Word Document.{ $ext }
+ticket-media-file-excel = Excel Spreadsheet.{ $ext }
+ticket-media-file-powerpoint = Presentation.{ $ext }
+ticket-media-file-image = Image.{ $ext }
+ticket-media-file-archive = Archive.{ $ext }
+ticket-media-file-text = Text Document.{ $ext }
+ticket-media-file-generic = File.{ $ext }
+ticket-media-file-delete = Delete file
+ticket-media-file-download = Download
+ticket-media-file-thumbnail-error = Failed to generate thumbnail
+ticket-media-file-image-error = Failed to load image
+ticket-media-file-animated-badge = ANIMATED
+
+# Ticket picker: user picker (UserPicker)
+ticket-picker-user-placeholder-assignee = Assign to...
+ticket-picker-user-placeholder-requester = Find a user...
+ticket-picker-user-search-staff = Search staff...
+ticket-picker-user-search-users = Search users...
+ticket-picker-user-sheet-title-assignee = Assign to
+ticket-picker-user-sheet-title-requester = Find user
+ticket-picker-user-listbox-assignees = Assignable users
+ticket-picker-user-listbox-users = Users
+ticket-picker-user-loading-assignee = Loading assignees
+ticket-picker-user-loading-requester = Loading requesters
+ticket-picker-user-view-profile = View { $name }'s profile
+ticket-picker-user-clear = Clear selection
+ticket-picker-user-empty-assignees = No assignable users yet.
+ticket-picker-user-empty-users = No users found.
+ticket-picker-user-empty-search = No users match "{ $query }"
+ticket-picker-user-section-selected-assignee = Currently assigned
+ticket-picker-user-section-selected-requester = Current requester
+ticket-picker-user-section-you = You
+ticket-picker-user-section-recent = Recent
+ticket-picker-user-section-results = Results
+ticket-picker-user-section-staff = Staff
+ticket-picker-user-section-all = All users
+ticket-picker-user-you-suffix = (you)
+
+# Ticket picker: linked ticket modal (LinkedTicketModal)
+ticket-picker-linked-title = Link Ticket
+ticket-picker-linked-search-placeholder = Search tickets...
+ticket-picker-linked-loading = Loading tickets...
+ticket-picker-linked-error = Failed to load tickets
+ticket-picker-linked-try-again = Try Again
+ticket-picker-linked-empty-search = No tickets match your search
+ticket-picker-linked-empty = No tickets available to link
+ticket-picker-linked-col-id = ID
+ticket-picker-linked-col-title = Title
+ticket-picker-linked-col-status = Status
+ticket-picker-linked-col-requester = Requester
+ticket-picker-linked-col-updated = Updated
+ticket-picker-linked-count = { $count ->
+    [one] { $count } ticket
+   *[other] { $count } tickets
+}
+ticket-picker-linked-cancel = Cancel
+
+# Ticket picker: canned response picker (CannedResponsePicker)
+ticket-picker-canned-trigger-aria = Insert canned response
+ticket-picker-canned-trigger-title = Insert canned response ({ $shortcut })
+ticket-picker-canned-listbox-aria = Canned responses
+ticket-picker-canned-loading = Loading…
+ticket-picker-canned-empty-title = No canned responses yet.
+ticket-picker-canned-empty-hint = Admins can add templates in the admin area.
+ticket-picker-canned-load-error = Failed to load templates
+
+# Ticket picker: device modal (DeviceModal)
+ticket-picker-device-title = Add Device
+ticket-picker-device-name-label = Name
+ticket-picker-device-name-placeholder = Enter device name
+ticket-picker-device-hostname-label = Hostname
+ticket-picker-device-hostname-placeholder = Enter hostname
+ticket-picker-device-serial-label = Serial Number
+ticket-picker-device-serial-placeholder = Enter serial number
+ticket-picker-device-model-label = Model
+ticket-picker-device-model-placeholder = Enter model
+ticket-picker-device-warranty-label = Warranty Status
+ticket-picker-device-warranty-active = Active
+ticket-picker-device-warranty-warning = Warning
+ticket-picker-device-warranty-expired = Expired
+ticket-picker-device-warranty-unknown = Unknown
+ticket-picker-device-cancel = Cancel
+ticket-picker-device-add = Add Device
+
+# Document icon selector (DocumentIconSelector)
+doc-icon-selector-trigger-aria = Select document icon
+doc-icon-selector-search-placeholder = Search icons...
+doc-icon-selector-empty = No icons found
+doc-icon-selector-footer-hint = Click an icon to select
+doc-icon-selector-random = Random
+doc-icon-selector-scroll-dot-aria = Scroll to section { $index }
+doc-icon-selector-category-suggested = Suggested
+doc-icon-selector-category-documents = Documents
+doc-icon-selector-category-objects = Objects
+doc-icon-selector-category-symbols = Symbols
+doc-icon-selector-category-nature = Nature
+doc-icon-selector-category-animals = Animals
+doc-icon-selector-category-people = People
+doc-icon-selector-category-travel = Travel
+doc-icon-selector-category-food = Food
+doc-icon-selector-category-activities = Activities

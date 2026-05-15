@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, watchEffect } from 'vue'
+import { useFluent } from 'fluent-vue'
 import type { TicketPriority } from '@/constants/ticketOptions'
+
+const { $t } = useFluent()
 import StatusBadge from '@/components/StatusBadge.vue'
 import Modal from '@/components/Modal.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -70,7 +73,7 @@ const loadTickets = async (page = 1, append = false) => {
     totalCount.value = response.total - excludeIds.size + 1 // Approximate
   } catch (err) {
     console.error('Error loading tickets:', err)
-    error.value = 'Failed to load tickets'
+    error.value = $t('ticket-picker-linked-error')
     if (!append) tickets.value = []
   } finally {
     loading.value = false
@@ -137,13 +140,13 @@ const getPriorityClass = (priority: TicketPriority) => {
 </script>
 
 <template>
-  <Modal :show="show" title="Link Ticket" @close="emit('close')" size="lg">
+  <Modal :show="show" :title="$t('ticket-picker-linked-title')" @close="emit('close')" size="lg">
     <div class="flex flex-col gap-4 -mb-4 sm:mb-0">
       <!-- Search -->
       <DebouncedSearchInput
         :model-value="searchQuery"
         @update:model-value="handleSearch"
-        placeholder="Search tickets..."
+        :placeholder="$t('ticket-picker-linked-search-placeholder')"
       />
 
       <!-- Loading state -->
@@ -152,7 +155,7 @@ const getPriorityClass = (priority: TicketPriority) => {
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
-        <span class="text-sm">Loading tickets...</span>
+        <span class="text-sm">{{ $t('ticket-picker-linked-loading') }}</span>
       </div>
 
       <!-- Error state -->
@@ -162,13 +165,13 @@ const getPriorityClass = (priority: TicketPriority) => {
           @click="loadTickets(1, false)"
           class="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:opacity-90"
         >
-          Try Again
+          {{ $t('ticket-picker-linked-try-again') }}
         </button>
       </div>
 
       <!-- Empty state -->
       <div v-else-if="!loading && tickets.length === 0" class="py-12 text-center text-tertiary">
-        <p class="text-sm">{{ searchQuery ? 'No tickets match your search' : 'No tickets available to link' }}</p>
+        <p class="text-sm">{{ searchQuery ? $t('ticket-picker-linked-empty-search') : $t('ticket-picker-linked-empty') }}</p>
       </div>
 
       <!-- Tickets list -->
@@ -227,11 +230,11 @@ const getPriorityClass = (priority: TicketPriority) => {
         <table class="hidden sm:table w-full">
           <thead class="bg-surface-alt text-xs text-secondary uppercase sticky top-0">
             <tr>
-              <th class="px-3 py-2 text-left w-14">ID</th>
-              <th class="px-3 py-2 text-left">Title</th>
-              <th class="px-3 py-2 text-left w-32">Status</th>
-              <th class="px-3 py-2 text-left w-40">Requester</th>
-              <th class="px-3 py-2 text-left w-24">Updated</th>
+              <th class="px-3 py-2 text-left w-14">{{ $t('ticket-picker-linked-col-id') }}</th>
+              <th class="px-3 py-2 text-left">{{ $t('ticket-picker-linked-col-title') }}</th>
+              <th class="px-3 py-2 text-left w-32">{{ $t('ticket-picker-linked-col-status') }}</th>
+              <th class="px-3 py-2 text-left w-40">{{ $t('ticket-picker-linked-col-requester') }}</th>
+              <th class="px-3 py-2 text-left w-24">{{ $t('ticket-picker-linked-col-updated') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-subtle">
@@ -296,14 +299,14 @@ const getPriorityClass = (priority: TicketPriority) => {
     <!-- Footer -->
     <div class="flex items-center justify-between pt-4 mt-4">
       <span class="text-xs text-tertiary">
-        {{ tickets.length }} ticket{{ tickets.length !== 1 ? 's' : '' }}
+        {{ $t('ticket-picker-linked-count', { count: tickets.length }) }}
       </span>
       <button
         type="button"
         class="px-4 py-2 text-sm text-secondary hover:text-primary hover:bg-surface-hover rounded-lg"
         @click="emit('close')"
       >
-        Cancel
+        {{ $t('ticket-picker-linked-cancel') }}
       </button>
     </div>
   </Modal>

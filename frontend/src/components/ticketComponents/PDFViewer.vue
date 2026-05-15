@@ -2,7 +2,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { usePdfViewer } from '@/composables/usePdfViewer'
+
+const { $t } = useFluent()
 
 interface Props {
   src: string
@@ -248,7 +251,7 @@ onBeforeUnmount(() => {
   <div
     class="pdf-viewer flex flex-col h-full w-full overflow-hidden"
     role="document"
-    aria-label="PDF viewer"
+    :aria-label="$t('ticket-media-pdf-aria')"
   >
     <!-- Loading indicator -->
     <div
@@ -269,7 +272,7 @@ onBeforeUnmount(() => {
             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
           />
         </svg>
-        <span class="text-sm text-secondary">Loading PDF...</span>
+        <span class="text-sm text-secondary">{{ $t('ticket-media-pdf-loading') }}</span>
       </div>
     </div>
 
@@ -319,8 +322,8 @@ onBeforeUnmount(() => {
             @click="pdf.zoomOut"
             :disabled="pdf.scale.value <= 0.5"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Zoom Out"
-            aria-label="Zoom out"
+            :title="$t('ticket-media-pdf-zoom-out')"
+            :aria-label="$t('ticket-media-pdf-zoom-out-aria')"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
@@ -335,8 +338,8 @@ onBeforeUnmount(() => {
             @click="pdf.zoomIn"
             :disabled="pdf.scale.value >= 3.0"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Zoom In"
-            aria-label="Zoom in"
+            :title="$t('ticket-media-pdf-zoom-in')"
+            :aria-label="$t('ticket-media-pdf-zoom-in-aria')"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -346,8 +349,8 @@ onBeforeUnmount(() => {
           <button
             @click="fitToContainerWidth"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover"
-            title="Fit to Width"
-            aria-label="Fit to width"
+            :title="$t('ticket-media-pdf-fit-width')"
+            :aria-label="$t('ticket-media-pdf-fit-width-aria')"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -361,8 +364,8 @@ onBeforeUnmount(() => {
             v-if="!isFullscreenView"
             @click="openFullscreen"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover"
-            title="Fullscreen"
-            aria-label="Open fullscreen"
+            :title="$t('ticket-media-pdf-fullscreen')"
+            :aria-label="$t('ticket-media-pdf-fullscreen-aria')"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -379,8 +382,8 @@ onBeforeUnmount(() => {
             target="_blank"
             :download="filename"
             class="p-1.5 rounded text-secondary hover:bg-surface-hover"
-            title="Download PDF"
-            aria-label="Download PDF"
+            :title="$t('ticket-media-pdf-download')"
+            :aria-label="$t('ticket-media-pdf-download-aria')"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path

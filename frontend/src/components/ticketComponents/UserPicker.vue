@@ -20,7 +20,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import UserAvatar from '@/components/UserAvatar.vue'
+
+const { $t } = useFluent()
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
@@ -328,24 +331,30 @@ function emptyHint(): string {
   if (!picker.isFiltering.value) {
     if (optionRows.value.length === 0) {
       return props.type === 'assignee'
-        ? 'No assignable users yet.'
-        : 'No users found.'
+        ? $t('ticket-picker-user-empty-assignees')
+        : $t('ticket-picker-user-empty-users')
     }
     return ''
   }
-  return `No users match "${picker.query.value.trim()}"`
+  return $t('ticket-picker-user-empty-search', { query: picker.query.value.trim() })
 }
 
 function sectionLabel(section: OptionRow['section']): string {
   switch (section) {
     case 'selected':
-      return props.type === 'assignee' ? 'Currently assigned' : 'Current requester'
+      return props.type === 'assignee'
+        ? $t('ticket-picker-user-section-selected-assignee')
+        : $t('ticket-picker-user-section-selected-requester')
     case 'you':
-      return 'You'
+      return $t('ticket-picker-user-section-you')
     case 'recent':
-      return 'Recent'
+      return $t('ticket-picker-user-section-recent')
     case 'results':
-      return picker.isFiltering.value ? 'Results' : props.type === 'assignee' ? 'Staff' : 'All users'
+      return picker.isFiltering.value
+        ? $t('ticket-picker-user-section-results')
+        : props.type === 'assignee'
+          ? $t('ticket-picker-user-section-staff')
+          : $t('ticket-picker-user-section-all')
   }
 }
 
@@ -379,7 +388,7 @@ const sectionStarts = computed(() => {
           type="button"
           @click.stop="navigateToProfile"
           class="rounded-full hover:ring-2 hover:ring-accent/50 transition-all cursor-pointer"
-          :title="`View ${picker.selectedDisplayName.value}'s profile`"
+          :title="$t('ticket-picker-user-view-profile', { name: picker.selectedDisplayName.value })"
         >
           <UserAvatar
             :name="modelValue"
@@ -413,7 +422,7 @@ const sectionStarts = computed(() => {
           autocorrect="off"
           autocapitalize="off"
           spellcheck="false"
-          :placeholder="placeholder || (type === 'assignee' ? 'Assign to...' : 'Find a user...')"
+          :placeholder="placeholder || (type === 'assignee' ? $t('ticket-picker-user-placeholder-assignee') : $t('ticket-picker-user-placeholder-requester'))"
           class="w-full bg-transparent text-secondary placeholder-tertiary focus:outline-none text-sm leading-tight py-1"
           @focus="onFocus"
           @keydown="onKeydown"
@@ -422,14 +431,14 @@ const sectionStarts = computed(() => {
 
       <div class="flex items-center gap-1.5 flex-shrink-0">
         <span v-if="picker.isLoading.value" class="text-tertiary inline-flex">
-          <Spinner size="xs" :label="`Loading ${type}s`" />
+          <Spinner size="xs" :label="type === 'assignee' ? $t('ticket-picker-user-loading-assignee') : $t('ticket-picker-user-loading-requester')" />
         </span>
         <button
           v-if="!hideInlineClear && modelValue && !isOpen"
           type="button"
           class="p-1 rounded-full text-tertiary hover:text-secondary hover:bg-surface-hover transition-colors"
-          aria-label="Clear selection"
-          title="Clear selection"
+          :aria-label="$t('ticket-picker-user-clear')"
+          :title="$t('ticket-picker-user-clear')"
           @click.stop="commitSelection('')"
         >
           <Icon name="close" size="xs" />
@@ -451,7 +460,7 @@ const sectionStarts = computed(() => {
             <ul
               :id="listboxId"
               role="listbox"
-              :aria-label="type === 'assignee' ? 'Assignable users' : 'Users'"
+              :aria-label="type === 'assignee' ? $t('ticket-picker-user-listbox-assignees') : $t('ticket-picker-user-listbox-users')"
               class="flex-1 overflow-y-auto py-1 outline-none"
               tabindex="-1"
             >
@@ -490,7 +499,7 @@ const sectionStarts = computed(() => {
                   <div class="flex-1 min-w-0">
                     <div class="text-[13px] text-primary truncate">
                       {{ row.user.name
-                      }}<span v-if="row.section === 'you'" class="text-tertiary font-normal"> (you)</span>
+                      }}<span v-if="row.section === 'you'" class="text-tertiary font-normal"> {{ $t('ticket-picker-user-you-suffix') }}</span>
                     </div>
                     <div v-if="row.user.email" class="text-[11px] text-tertiary truncate">
                       {{ row.user.email }}
@@ -530,7 +539,7 @@ const sectionStarts = computed(() => {
     <ResponsivePanel
       v-if="isMobile"
       :open="isOpen"
-      :title="type === 'assignee' ? 'Assign to' : 'Find user'"
+      :title="type === 'assignee' ? $t('ticket-picker-user-sheet-title-assignee') : $t('ticket-picker-user-sheet-title-requester')"
       side-panel-class="w-80"
       @close="closeDropdown"
     >
@@ -542,7 +551,7 @@ const sectionStarts = computed(() => {
           autocorrect="off"
           autocapitalize="off"
           spellcheck="false"
-          :placeholder="type === 'assignee' ? 'Search staff...' : 'Search users...'"
+          :placeholder="type === 'assignee' ? $t('ticket-picker-user-search-staff') : $t('ticket-picker-user-search-users')"
           class="w-full px-3 py-2 rounded-md border border-default bg-surface-alt text-sm text-primary placeholder-tertiary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
           @keydown="onKeydown"
         />

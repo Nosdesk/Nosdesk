@@ -1,8 +1,11 @@
 <!-- AudioPlayer.vue -->
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { useFluent } from 'fluent-vue';
 import { useAudioPlayer } from '@/composables/useAudioPlayer';
 import Spinner from '@/components/common/Spinner.vue';
+
+const { $t } = useFluent();
 
 const props = defineProps<{
   src: string;
@@ -618,7 +621,7 @@ onUnmounted(() => {
         @click="togglePlayPause"
         :disabled="isLoading || !!error"
         class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-accent hover:opacity-90 disabled:bg-surface-hover disabled:cursor-not-allowed transition-colors"
-        :aria-label="isPlaying ? 'Pause' : 'Play'"
+        :aria-label="isPlaying ? $t('ticket-media-audio-pause') : $t('ticket-media-audio-play')"
       >
         <template v-if="isLoading">
           <Spinner />
@@ -649,7 +652,7 @@ onUnmounted(() => {
         class="flex-1 h-10 bg-surface rounded-lg cursor-pointer overflow-hidden relative select-none min-w-0 touch-none"
       >
         <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center">
-          <span class="text-xs text-tertiary">Loading...</span>
+          <span class="text-xs text-tertiary">{{ $t('ticket-media-audio-loading') }}</span>
         </div>
         <div v-else-if="error" class="absolute inset-0 flex items-center justify-center">
           <span class="text-xs text-status-error px-2 text-center truncate">{{ error }}</span>
@@ -672,7 +675,7 @@ onUnmounted(() => {
           <svg class="w-3 h-3 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
           </svg>
-          Transcription
+          {{ $t('ticket-media-audio-transcription') }}
         </summary>
         <p class="mt-1 text-xs text-secondary italic p-2 bg-surface rounded-md">
           {{ props.transcription }}

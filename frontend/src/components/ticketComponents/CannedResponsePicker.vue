@@ -18,8 +18,8 @@ template library actually grows.
       class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info transition-colors flex items-center justify-center"
       :aria-expanded="isOpen"
       aria-haspopup="listbox"
-      aria-label="Insert canned response"
-      :title="`Insert canned response (${shortcutLabel})`"
+      :aria-label="$t('ticket-picker-canned-trigger-aria')"
+      :title="$t('ticket-picker-canned-trigger-title', { shortcut: shortcutLabel })"
     >
       <svg
         class="h-5 w-5"
@@ -55,20 +55,20 @@ template library actually grows.
         class="w-72 max-w-[calc(100vw-1rem)] max-h-80 overflow-y-auto bg-surface border border-default rounded-lg shadow-lg flex flex-col"
         role="listbox"
         tabindex="-1"
-        aria-label="Canned responses"
+        :aria-label="$t('ticket-picker-canned-listbox-aria')"
         :aria-activedescendant="activeOptionId"
         @keydown="onPanelKeydown"
       >
         <div v-if="loading" class="px-4 py-3 text-sm text-tertiary">
-          Loading…
+          {{ $t('ticket-picker-canned-loading') }}
         </div>
         <div v-else-if="error" class="px-4 py-3 text-sm text-status-error" role="alert">
           {{ error }}
         </div>
         <div v-else-if="responses.length === 0" class="px-4 py-3 flex flex-col gap-2">
-          <p class="text-sm text-secondary">No canned responses yet.</p>
+          <p class="text-sm text-secondary">{{ $t('ticket-picker-canned-empty-title') }}</p>
           <p class="text-xs text-tertiary">
-            Admins can add templates in the admin area.
+            {{ $t('ticket-picker-canned-empty-hint') }}
           </p>
         </div>
         <ul v-else class="flex flex-col" role="presentation">
@@ -96,12 +96,15 @@ template library actually grows.
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useFluent } from 'fluent-vue';
 import {
   cannedResponsesService,
   renderTemplate,
   type CannedResponse,
   type TemplateVars,
 } from '@/services/cannedResponsesService';
+
+const { $t } = useFluent();
 
 // Detect modifier label. Help Scout / Front / Zendesk all expose a
 // canned-response keybind in the composer; we pick Ctrl+/ (Cmd+/ on
@@ -192,7 +195,7 @@ async function toggleOpen() {
       responses.value = await cannedResponsesService.list();
       loaded = true;
     } catch {
-      error.value = 'Failed to load templates';
+      error.value = $t('ticket-picker-canned-load-error');
     } finally {
       loading.value = false;
     }
