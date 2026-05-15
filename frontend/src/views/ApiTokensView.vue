@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -12,6 +13,9 @@ import userService from '@/services/userService';
 import { formatDistanceToNow } from 'date-fns';
 import type { ApiToken, ApiTokenCreated, CreateApiTokenRequest } from '@/types/apiToken';
 import type { User } from '@/types/user';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 // State
 const isLoading = ref(false);
@@ -49,7 +53,7 @@ const revokedTokens = computed(() =>
 
 // Format date helper
 const formatDate = (dateStr: string | null) => {
-  if (!dateStr) return 'Never';
+  if (!dateStr) return t('admin-api-tokens-last-used-never');
   try {
     return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
   } catch {
@@ -68,7 +72,7 @@ const loadTokens = async () => {
   } catch (error) {
     console.error('Failed to load tokens:', error);
     const axiosError = error as { response?: { data?: string } };
-    errorMessage.value = axiosError.response?.data || 'Failed to load API tokens';
+    errorMessage.value = axiosError.response?.data || t('admin-api-tokens-error-load');
     tokens.value = [];
   } finally {
     isLoading.value = false;
@@ -100,11 +104,11 @@ const openCreateModal = () => {
 // Create token
 const createToken = async () => {
   if (!tokenForm.value.name.trim()) {
-    errorMessage.value = 'Token name is required';
+    errorMessage.value = t('admin-api-tokens-error-name-required');
     return;
   }
   if (!tokenForm.value.user_uuid) {
-    errorMessage.value = 'Please select a user';
+    errorMessage.value = t('admin-api-tokens-error-user-required');
     return;
   }
 
@@ -127,7 +131,7 @@ const createToken = async () => {
     await loadTokens();
   } catch (error) {
     const axiosError = error as { response?: { data?: string } };
-    errorMessage.value = axiosError.response?.data || 'Failed to create token';
+    errorMessage.value = axiosError.response?.data || t('admin-api-tokens-error-create');
   } finally {
     isSaving.value = false;
   }
@@ -161,7 +165,7 @@ const revokeToken = async () => {
 
   try {
     await apiTokenService.revokeToken(tokenToRevoke.value.uuid);
-    successMessage.value = 'Token revoked successfully';
+    successMessage.value = t('admin-api-tokens-revoke-success');
     showRevokeConfirm.value = false;
     tokenToRevoke.value = null;
     await loadTokens();
@@ -169,7 +173,7 @@ const revokeToken = async () => {
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
     const axiosError = error as { response?: { data?: string } };
-    errorMessage.value = axiosError.response?.data || 'Failed to revoke token';
+    errorMessage.value = axiosError.response?.data || t('admin-api-tokens-error-revoke');
   } finally {
     isSaving.value = false;
   }
@@ -186,16 +190,16 @@ onMounted(() => {
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 class="text-xl sm:text-2xl font-bold text-primary">API Tokens</h1>
-          <p class="text-secondary text-sm sm:text-base mt-1">Manage API tokens for programmatic access</p>
+          <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-api-tokens-title') }}</h1>
+          <p class="text-secondary text-sm sm:text-base mt-1">{{ $t('admin-api-tokens-description') }}</p>
         </div>
         <button
           @click="openCreateModal"
           class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
           <Icon name="add" />
-          <span class="hidden xs:inline">Create Token</span>
-          <span class="xs:hidden">Create</span>
+          <span class="hidden xs:inline">{{ $t('admin-api-tokens-create') }}</span>
+          <span class="xs:hidden">{{ $t('admin-api-tokens-create-short') }}</span>
         </button>
       </div>
 
@@ -206,13 +210,13 @@ onMounted(() => {
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
       <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" text="Loading tokens..." />
+      <LoadingSpinner v-if="isLoading" :text="$t('admin-api-tokens-loading')" />
 
       <!-- Tokens list -->
       <div v-else class="flex flex-col gap-4">
         <!-- Active tokens -->
         <div v-if="activeTokens.length > 0" class="flex flex-col gap-2 sm:gap-3">
-          <h2 class="text-sm font-medium text-secondary uppercase tracking-wide">Active Tokens</h2>
+          <h2 class="text-sm font-medium text-secondary uppercase tracking-wide">{{ $t('admin-api-tokens-active-heading') }}</h2>
           <div
             v-for="token in activeTokens"
             :key="token.uuid"
@@ -231,16 +235,16 @@ onMounted(() => {
                   <code class="px-1.5 py-0.5 text-xs bg-surface-alt text-secondary rounded font-mono">{{ token.token_prefix }}...</code>
                 </div>
                 <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-secondary">
-                  <span>User: {{ token.user_name }}</span>
+                  <span>{{ $t('admin-api-tokens-user-prefix') }} {{ token.user_name }}</span>
                   <span class="text-tertiary">|</span>
-                  <span>Created {{ formatDate(token.created_at) }}</span>
+                  <span>{{ t('admin-api-tokens-created-prefix', { when: formatDate(token.created_at) }) }}</span>
                   <span class="text-tertiary">|</span>
                   <span :class="token.expires_at ? '' : 'text-status-warning'">
-                    {{ token.expires_at ? `Expires ${formatDate(token.expires_at)}` : 'No expiration' }}
+                    {{ token.expires_at ? t('admin-api-tokens-expires-prefix', { when: formatDate(token.expires_at) }) : t('admin-api-tokens-no-expiration') }}
                   </span>
                 </div>
                 <div class="text-xs text-tertiary mt-1">
-                  Last used: {{ token.last_used_at ? formatDate(token.last_used_at) : 'Never' }}
+                  {{ $t('admin-api-tokens-last-used-label') }} {{ token.last_used_at ? formatDate(token.last_used_at) : $t('admin-api-tokens-last-used-never') }}
                 </div>
               </div>
 
@@ -249,7 +253,7 @@ onMounted(() => {
                 <button
                   @click="confirmRevoke(token)"
                   class="p-1.5 sm:p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md sm:rounded-lg transition-colors"
-                  title="Revoke token"
+                  :title="$t('admin-api-tokens-revoke-title')"
                 >
                   <Icon name="close" />
                 </button>
@@ -260,7 +264,7 @@ onMounted(() => {
 
         <!-- Revoked tokens -->
         <div v-if="revokedTokens.length > 0" class="flex flex-col gap-2 sm:gap-3 mt-4">
-          <h2 class="text-sm font-medium text-secondary uppercase tracking-wide">Revoked Tokens</h2>
+          <h2 class="text-sm font-medium text-secondary uppercase tracking-wide">{{ $t('admin-api-tokens-revoked-heading') }}</h2>
           <div
             v-for="token in revokedTokens"
             :key="token.uuid"
@@ -279,9 +283,9 @@ onMounted(() => {
                   <code class="px-1.5 py-0.5 text-xs bg-surface-alt text-tertiary rounded font-mono">{{ token.token_prefix }}...</code>
                 </div>
                 <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-tertiary">
-                  <span>User: {{ token.user_name }}</span>
+                  <span>{{ $t('admin-api-tokens-user-prefix') }} {{ token.user_name }}</span>
                   <span>|</span>
-                  <span class="text-status-error">Revoked {{ formatDate(token.revoked_at) }}</span>
+                  <span class="text-status-error">{{ t('admin-api-tokens-revoked-prefix', { when: formatDate(token.revoked_at) }) }}</span>
                 </div>
               </div>
             </div>
@@ -294,7 +298,7 @@ onMounted(() => {
           icon="key"
           :title="$t('empty-api-tokens-title')"
           :description="$t('empty-api-tokens-description')"
-          action-label="Create Token"
+          :action-label="$t('admin-api-tokens-create')"
           variant="card"
           @action="openCreateModal"
         />
@@ -304,48 +308,48 @@ onMounted(() => {
     <!-- Create Token Modal -->
     <Modal
       :show="showCreateModal"
-      title="Create API Token"
+      :title="$t('admin-api-tokens-modal-create-title')"
       size="sm"
       @close="showCreateModal = false"
     >
       <form @submit.prevent="createToken" class="flex flex-col gap-4">
         <!-- Name -->
         <div>
-          <label class="block text-sm font-medium text-primary mb-1">Token Name</label>
+          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-api-tokens-modal-name-label') }}</label>
           <input
             v-model="tokenForm.name"
             type="text"
-            placeholder="e.g., CI/CD Pipeline"
+            :placeholder="$t('admin-api-tokens-modal-name-placeholder')"
             class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
             required
           />
-          <p class="text-xs text-tertiary mt-1">A descriptive name to identify this token</p>
+          <p class="text-xs text-tertiary mt-1">{{ $t('admin-api-tokens-modal-name-hint') }}</p>
         </div>
 
         <!-- User selection -->
         <div>
-          <label class="block text-sm font-medium text-primary mb-1">User (acts as)</label>
+          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-api-tokens-modal-user-label') }}</label>
           <select
             v-model="tokenForm.user_uuid"
             class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
             required
           >
-            <option value="" disabled>Select a user...</option>
+            <option value="" disabled>{{ $t('admin-api-tokens-modal-user-placeholder') }}</option>
             <option v-for="user in users" :key="user.uuid" :value="user.uuid">
               {{ user.name }} ({{ user.role }})
             </option>
           </select>
-          <p class="text-xs text-tertiary mt-1">The token will have the same permissions as this user</p>
+          <p class="text-xs text-tertiary mt-1">{{ $t('admin-api-tokens-modal-user-hint') }}</p>
         </div>
 
         <!-- Expiration -->
         <div>
-          <label class="block text-sm font-medium text-primary mb-1">Expiration</label>
+          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-api-tokens-modal-expiration-label') }}</label>
           <Checkbox
             v-model="noExpiration"
             id="no-expiration"
             size="sm"
-            label="No expiration"
+            :label="$t('admin-api-tokens-modal-no-expiration-label')"
             class="mb-2"
           />
           <div v-if="!noExpiration" class="flex items-center gap-2">
@@ -356,10 +360,10 @@ onMounted(() => {
               max="365"
               class="w-24 px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
             />
-            <span class="text-sm text-secondary">days</span>
+            <span class="text-sm text-secondary">{{ $t('admin-api-tokens-modal-expires-days-suffix') }}</span>
           </div>
-          <p v-if="!noExpiration" class="text-xs text-tertiary mt-1">Token will expire after {{ tokenForm.expires_in_days }} days</p>
-          <p v-else class="text-xs text-status-warning mt-1">Tokens without expiration are less secure</p>
+          <p v-if="!noExpiration" class="text-xs text-tertiary mt-1">{{ t('admin-api-tokens-modal-expires-hint', { days: tokenForm.expires_in_days ?? 0 }) }}</p>
+          <p v-else class="text-xs text-status-warning mt-1">{{ $t('admin-api-tokens-modal-no-expiration-warning') }}</p>
         </div>
 
         <!-- Actions -->
@@ -369,14 +373,14 @@ onMounted(() => {
             @click="showCreateModal = false"
             class="px-4 py-2 text-sm text-secondary hover:text-primary transition-colors"
           >
-            Cancel
+            {{ $t('admin-api-tokens-modal-cancel') }}
           </button>
           <button
             type="submit"
             :disabled="isSaving"
             class="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
           >
-            {{ isSaving ? 'Creating...' : 'Create Token' }}
+            {{ isSaving ? $t('admin-api-tokens-modal-creating') : $t('admin-api-tokens-create') }}
           </button>
         </div>
       </form>
@@ -385,14 +389,14 @@ onMounted(() => {
     <!-- Token Created Modal -->
     <Modal
       :show="showTokenCreated"
-      title="Token Created"
+      :title="$t('admin-api-tokens-created-title')"
       size="sm"
       @close="showTokenCreated = false"
     >
       <div class="flex flex-col gap-4">
         <div class="flex items-center gap-2 p-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
           <Icon name="warning" size="md" class="text-status-warning flex-shrink-0" />
-          <p class="text-sm text-status-warning">Copy this token now - it won't be shown again!</p>
+          <p class="text-sm text-status-warning">{{ $t('admin-api-tokens-created-warning') }}</p>
         </div>
 
         <div class="relative">
@@ -402,7 +406,7 @@ onMounted(() => {
           <button
             @click="copyToken"
             class="absolute top-2 right-2 p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-            :title="copiedToken ? 'Copied!' : 'Copy to clipboard'"
+            :title="copiedToken ? $t('admin-api-tokens-copied') : $t('admin-api-tokens-copy-title')"
           >
             <Icon v-if="!copiedToken" name="copy" />
             <Icon v-else name="check" class="text-status-success" />
@@ -410,7 +414,7 @@ onMounted(() => {
         </div>
 
         <p class="text-xs text-tertiary">
-          Use this token with the <code class="px-1 py-0.5 bg-surface-alt rounded">Authorization: Bearer &lt;token&gt;</code> header
+          {{ $t('admin-api-tokens-bearer-hint-prefix') }} <code class="px-1 py-0.5 bg-surface-alt rounded">Authorization: Bearer &lt;token&gt;</code> {{ $t('admin-api-tokens-bearer-hint-suffix') }}
         </p>
 
         <div class="flex justify-end pt-2">
@@ -418,7 +422,7 @@ onMounted(() => {
             @click="showTokenCreated = false"
             class="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors"
           >
-            Done
+            {{ $t('admin-api-tokens-done') }}
           </button>
         </div>
       </div>
@@ -427,16 +431,16 @@ onMounted(() => {
     <!-- Revoke Confirmation Modal -->
     <Modal
       :show="showRevokeConfirm"
-      title="Revoke Token"
+      :title="$t('admin-api-tokens-revoke-modal-title')"
       size="sm"
       @close="showRevokeConfirm = false"
     >
       <div class="flex flex-col gap-4">
         <p class="text-secondary">
-          Are you sure you want to revoke the token <strong class="text-primary">{{ tokenToRevoke?.name }}</strong>?
+          {{ $t('admin-api-tokens-revoke-confirm-prefix') }} <strong class="text-primary">{{ tokenToRevoke?.name }}</strong>{{ $t('admin-api-tokens-revoke-confirm-suffix') }}
         </p>
         <p class="text-sm text-status-error">
-          This action cannot be undone. Any systems using this token will lose access.
+          {{ $t('admin-api-tokens-revoke-warning') }}
         </p>
 
         <div class="flex justify-end gap-2 pt-2">
@@ -445,14 +449,14 @@ onMounted(() => {
             @click="showRevokeConfirm = false"
             class="px-4 py-2 text-sm text-secondary hover:text-primary transition-colors"
           >
-            Cancel
+            {{ $t('admin-api-tokens-modal-cancel') }}
           </button>
           <button
             @click="revokeToken"
             :disabled="isSaving"
             class="px-4 py-2 bg-status-error text-white rounded-lg text-sm hover:bg-status-error/90 font-medium transition-colors disabled:opacity-50"
           >
-            {{ isSaving ? 'Revoking...' : 'Revoke Token' }}
+            {{ isSaving ? $t('admin-api-tokens-revoking') : $t('admin-api-tokens-revoke-modal-title') }}
           </button>
         </div>
       </div>
