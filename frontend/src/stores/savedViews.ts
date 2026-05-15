@@ -14,6 +14,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { logger } from '@/utils/logger'
+import { translate } from '@/i18n'
 import { dedupeInFlight } from '@/utils/dedupeInFlight'
 import {
   savedViewsService,
@@ -46,7 +47,10 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
         return rows
       } catch (e) {
         logger.warn('Failed to load saved views', { projectId, error: e })
-        lastError.value = e instanceof Error ? e.message : 'Failed to load saved views'
+        lastError.value =
+          e instanceof Error
+            ? e.message
+            : translate('error-store-saved-views-load', undefined, 'Failed to load saved views')
         return []
       }
     })
@@ -109,7 +113,10 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
       return view
     } catch (e) {
       logger.warn('Saved view create failed', { body, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to save view'
+      lastError.value =
+        e instanceof Error
+          ? e.message
+          : translate('error-store-saved-view-save', undefined, 'Failed to save view')
       return null
     }
   }
@@ -121,7 +128,10 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
       return view
     } catch (e) {
       logger.warn('Saved view update failed', { uuid, body, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to update view'
+      lastError.value =
+        e instanceof Error
+          ? e.message
+          : translate('error-store-saved-view-update', undefined, 'Failed to update view')
       return null
     }
   }
@@ -135,7 +145,10 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
       return true
     } catch (e) {
       logger.warn('Saved view delete failed', { uuid, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to delete view'
+      lastError.value =
+        e instanceof Error
+          ? e.message
+          : translate('error-store-saved-view-delete', undefined, 'Failed to delete view')
       return false
     }
   }

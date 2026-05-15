@@ -13,6 +13,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { logger } from '@/utils/logger'
+import { translate } from '@/i18n'
 import { dedupeInFlight } from '@/utils/dedupeInFlight'
 import {
   cyclesService,
@@ -38,7 +39,10 @@ export const useCyclesStore = defineStore('cycles', () => {
         return rows
       } catch (e) {
         logger.warn('Failed to load cycles', { projectId, error: e })
-        lastError.value = e instanceof Error ? e.message : 'Failed to load cycles'
+        lastError.value =
+          e instanceof Error
+            ? e.message
+            : translate('error-store-cycles-load', undefined, 'Failed to load cycles')
         return []
       }
     })
@@ -82,7 +86,10 @@ export const useCyclesStore = defineStore('cycles', () => {
       return cycle
     } catch (e) {
       logger.warn('Cycle create failed', { projectId, body, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to create cycle'
+      lastError.value =
+        e instanceof Error
+          ? e.message
+          : translate('error-store-cycle-create', undefined, 'Failed to create cycle')
       return null
     }
   }
@@ -94,7 +101,10 @@ export const useCyclesStore = defineStore('cycles', () => {
       return cycle
     } catch (e) {
       logger.warn('Cycle update failed', { uuid, body, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to update cycle'
+      lastError.value =
+        e instanceof Error
+          ? e.message
+          : translate('error-store-cycle-update', undefined, 'Failed to update cycle')
       return null
     }
   }
@@ -106,7 +116,10 @@ export const useCyclesStore = defineStore('cycles', () => {
       return cycle
     } catch (e) {
       logger.warn('Cycle complete failed', { uuid, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to complete cycle'
+      lastError.value =
+        e instanceof Error
+          ? e.message
+          : translate('error-store-cycle-complete', undefined, 'Failed to complete cycle')
       return null
     }
   }
@@ -122,7 +135,10 @@ export const useCyclesStore = defineStore('cycles', () => {
       return true
     } catch (e) {
       logger.warn('Cycle archive failed', { uuid, error: e })
-      lastError.value = e instanceof Error ? e.message : 'Failed to archive cycle'
+      lastError.value =
+        e instanceof Error
+          ? e.message
+          : translate('error-store-cycle-archive', undefined, 'Failed to archive cycle')
       return false
     }
   }

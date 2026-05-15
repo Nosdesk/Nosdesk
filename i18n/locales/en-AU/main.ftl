@@ -4047,3 +4047,32 @@ route-title-admin-backup-restore = Backup and restore
 route-title-group-detail = Group details
 route-title-authenticating = Authenticating...
 route-title-pdf-viewer = PDF viewer
+
+# Loading modals + scattered polish
+common-loading-projects = Loading projects...
+common-loading-devices = Loading devices...
+common-loading-generic = Loading...
+common-loading-groups = Loading groups...
+common-delete-item-aria = Delete { $name }
+admin-branding-aria-logo = Logo
+admin-branding-aria-logo-light = Light theme logo
+admin-branding-aria-favicon = Favicon
+
+# Store error messages
+# en-AU uses the casual "Couldn't X" register rather than "Failed to X".
+error-store-workflow-states-load = Couldn't load workflow states.
+error-store-public-settings-load = Couldn't load public settings.
+error-store-feature-flags-load = Couldn't load feature flags.
+error-store-recent-tickets-load = Couldn't fetch recent tickets.
+error-store-saved-views-load = Couldn't load saved views.
+error-store-saved-view-save = Couldn't save view.
+error-store-saved-view-update = Couldn't update view.
+error-store-saved-view-delete = Couldn't delete view.
+error-store-cycles-load = Couldn't load cycles.
+error-store-cycle-create = Couldn't create cycle.
+error-store-cycle-update = Couldn't update cycle.
+error-store-cycle-complete = Couldn't complete cycle.
+error-store-cycle-archive = Couldn't archive cycle.
+error-store-auth-profile-load = Couldn't load your profile. Give it another go.
+error-store-auth-mfa-setup-start = Couldn't start MFA setup. Give it another go.
+error-store-auth-mfa-setup-complete = Couldn't finish MFA setup. Give it another go.

@@ -4058,3 +4058,31 @@ route-title-admin-backup-restore = Sauvegarde et restauration
 route-title-group-detail = Détails du groupe
 route-title-authenticating = Authentification en cours...
 route-title-pdf-viewer = Visionneuse PDF
+
+# Loading modals + scattered polish
+common-loading-projects = Chargement des projets...
+common-loading-devices = Chargement des appareils...
+common-loading-generic = Chargement...
+common-loading-groups = Chargement des groupes...
+common-delete-item-aria = Supprimer { $name }
+admin-branding-aria-logo = Logo
+admin-branding-aria-logo-light = Logo pour thème clair
+admin-branding-aria-favicon = Favicon
+
+# Store error messages
+error-store-workflow-states-load = Impossible de charger les états du flux de travail.
+error-store-public-settings-load = Impossible de charger les paramètres publics.
+error-store-feature-flags-load = Impossible de charger les indicateurs de fonctionnalité.
+error-store-recent-tickets-load = Impossible de récupérer les tickets récents.
+error-store-saved-views-load = Impossible de charger les vues enregistrées.
+error-store-saved-view-save = Impossible d'enregistrer la vue.
+error-store-saved-view-update = Impossible de mettre à jour la vue.
+error-store-saved-view-delete = Impossible de supprimer la vue.
+error-store-cycles-load = Impossible de charger les cycles.
+error-store-cycle-create = Impossible de créer le cycle.
+error-store-cycle-update = Impossible de mettre à jour le cycle.
+error-store-cycle-complete = Impossible de terminer le cycle.
+error-store-cycle-archive = Impossible d'archiver le cycle.
+error-store-auth-profile-load = Impossible de charger votre profil. Veuillez réessayer.
+error-store-auth-mfa-setup-start = Impossible de démarrer la configuration MFA. Veuillez réessayer.
+error-store-auth-mfa-setup-complete = Impossible de terminer la configuration MFA. Veuillez réessayer.

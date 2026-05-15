@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { logger } from '@/utils/logger'
+import { translate } from '@/i18n'
 import { workflowStatesService } from '@/services/workflowStatesService'
 import type { WorkflowState, WorkflowStateCategory } from '@/types/workflow'
 
@@ -34,7 +35,10 @@ export const useWorkflowStatesStore = defineStore('workflowStates', () => {
         return next
       } catch (e) {
         logger.error('Failed to load workflow states', e)
-        error.value = e instanceof Error ? e.message : 'Failed to load workflow states'
+        error.value =
+          e instanceof Error
+            ? e.message
+            : translate('error-store-workflow-states-load', undefined, 'Failed to load workflow states')
         return states.value
       } finally {
         loading.value = false

@@ -542,7 +542,7 @@ const cancelDelete = () => {
                 <!-- Loading state -->
                 <div v-if="loadingGroups" class="flex items-center gap-3 text-secondary">
                   <span class="text-accent inline-flex"><Spinner /></span>
-                  <span class="text-sm">Loading groups...</span>
+                  <span class="text-sm">{{ $t('common-loading-groups') }}</span>
                 </div>
 
                 <!-- Empty state -->

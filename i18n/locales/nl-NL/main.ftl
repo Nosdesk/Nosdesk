@@ -4049,3 +4049,31 @@ route-title-admin-backup-restore = Back-up en herstel
 route-title-group-detail = Groepsdetails
 route-title-authenticating = Bezig met authenticeren...
 route-title-pdf-viewer = PDF-viewer
+
+# Loading modals + scattered polish
+common-loading-projects = Projecten laden...
+common-loading-devices = Apparaten laden...
+common-loading-generic = Laden...
+common-loading-groups = Groepen laden...
+common-delete-item-aria = { $name } verwijderen
+admin-branding-aria-logo = Logo
+admin-branding-aria-logo-light = Logo voor licht thema
+admin-branding-aria-favicon = Favicon
+
+# Store error messages
+error-store-workflow-states-load = Workflowstatussen konden niet worden geladen.
+error-store-public-settings-load = Openbare instellingen konden niet worden geladen.
+error-store-feature-flags-load = Functievlaggen konden niet worden geladen.
+error-store-recent-tickets-load = Recente tickets konden niet worden opgehaald.
+error-store-saved-views-load = Opgeslagen weergaven konden niet worden geladen.
+error-store-saved-view-save = Weergave kon niet worden opgeslagen.
+error-store-saved-view-update = Weergave kon niet worden bijgewerkt.
+error-store-saved-view-delete = Weergave kon niet worden verwijderd.
+error-store-cycles-load = Cycli konden niet worden geladen.
+error-store-cycle-create = Cyclus kon niet worden aangemaakt.
+error-store-cycle-update = Cyclus kon niet worden bijgewerkt.
+error-store-cycle-complete = Cyclus kon niet worden voltooid.
+error-store-cycle-archive = Cyclus kon niet worden gearchiveerd.
+error-store-auth-profile-load = Je profiel kon niet worden geladen. Probeer het opnieuw.
+error-store-auth-mfa-setup-start = MFA-instelling kon niet worden gestart. Probeer het opnieuw.
+error-store-auth-mfa-setup-complete = MFA-instelling kon niet worden voltooid. Probeer het opnieuw.

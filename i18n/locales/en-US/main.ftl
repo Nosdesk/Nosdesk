@@ -4134,3 +4134,34 @@ route-title-admin-backup-restore = Backup and restore
 route-title-group-detail = Group details
 route-title-authenticating = Authenticating...
 route-title-pdf-viewer = PDF viewer
+
+# Loading modals + scattered polish
+common-loading-projects = Loading projects...
+common-loading-devices = Loading devices...
+common-loading-generic = Loading...
+common-loading-groups = Loading groups...
+common-delete-item-aria = Delete { $name }
+admin-branding-aria-logo = Logo
+admin-branding-aria-logo-light = Light theme logo
+admin-branding-aria-favicon = Favicon
+
+# Store error messages
+# Shown to the user via toast or inline error banners when a Pinia
+# store action fails. Keep these short; they appear alongside the
+# raw error.message when one is available.
+error-store-workflow-states-load = Failed to load workflow states.
+error-store-public-settings-load = Failed to load public settings.
+error-store-feature-flags-load = Failed to load feature flags.
+error-store-recent-tickets-load = Failed to fetch recent tickets.
+error-store-saved-views-load = Failed to load saved views.
+error-store-saved-view-save = Failed to save view.
+error-store-saved-view-update = Failed to update view.
+error-store-saved-view-delete = Failed to delete view.
+error-store-cycles-load = Failed to load cycles.
+error-store-cycle-create = Failed to create cycle.
+error-store-cycle-update = Failed to update cycle.
+error-store-cycle-complete = Failed to complete cycle.
+error-store-cycle-archive = Failed to archive cycle.
+error-store-auth-profile-load = Failed to load profile data. Please try again.
+error-store-auth-mfa-setup-start = Failed to start MFA setup. Please try again.
+error-store-auth-mfa-setup-complete = Failed to complete MFA setup. Please try again.

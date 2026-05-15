@@ -1,11 +1,15 @@
 <!-- components/ticketComponents/DeviceSelectionModal.vue -->
 <script setup lang="ts">
 import { ref, watch, computed, nextTick } from 'vue';
+import { useFluent } from 'fluent-vue';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import { getDevicesByUser, getPaginatedDevicesExcluding } from '@/services/deviceService';
 import type { Device } from '@/types/device';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const props = defineProps<{
   show: boolean;
@@ -383,7 +387,7 @@ const formatLastUpdated = (dateString: string): string => {
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          <span>Loading devices...</span>
+          <span>{{ t('common-loading-devices') }}</span>
         </div>
       </div>
 
@@ -563,7 +567,7 @@ const formatLastUpdated = (dateString: string): string => {
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <span>Loading...</span>
+            <span>{{ t('common-loading-generic') }}</span>
           </div>
         </div>
       </div>

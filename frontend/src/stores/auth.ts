@@ -8,6 +8,7 @@ import router from '@/router';
 import type { User, LoginCredentials } from '@/types';
 import { useThemeStore } from './theme';
 import { useDateStore } from './dateStore';
+import { translate } from '@/i18n';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -119,7 +120,11 @@ export const useAuthStore = defineStore('auth', () => {
             logout();
           } else {
             // Other server errors - keep user logged in
-            error.value = 'Failed to load profile data. Please try again.';
+            error.value = translate(
+              'error-store-auth-profile-load',
+              undefined,
+              'Failed to load profile data. Please try again.',
+            );
             throw err;
           }
         } else {
@@ -277,7 +282,9 @@ export const useAuthStore = defineStore('auth', () => {
       } catch (err) {
         logger.error('MFA setup error:', err);
         const axiosError = err as { response?: { data?: { message?: string } } };
-        error.value = axiosError.response?.data?.message || 'Failed to start MFA setup. Please try again.';
+        error.value =
+          axiosError.response?.data?.message ||
+          translate('error-store-auth-mfa-setup-start', undefined, 'Failed to start MFA setup. Please try again.');
         return null;
       } finally {
         loading.value = false;
@@ -312,7 +319,9 @@ export const useAuthStore = defineStore('auth', () => {
       } catch (err) {
         logger.error('MFA enable login error:', err);
         const axiosError = err as { response?: { data?: { message?: string } } };
-        error.value = axiosError.response?.data?.message || 'Failed to complete MFA setup. Please try again.';
+        error.value =
+          axiosError.response?.data?.message ||
+          translate('error-store-auth-mfa-setup-complete', undefined, 'Failed to complete MFA setup. Please try again.');
         return false;
       } finally {
         loading.value = false;

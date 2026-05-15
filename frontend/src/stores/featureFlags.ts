@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { logger } from '@/utils/logger';
+import { translate } from '@/i18n';
 import {
   featureFlagsService,
   type FeatureFlagMap,
@@ -30,7 +31,10 @@ export const useFeatureFlagsStore = defineStore('featureFlags', () => {
         return next;
       } catch (e) {
         logger.error('Failed to load feature flags', e);
-        error.value = e instanceof Error ? e.message : 'Failed to load feature flags';
+        error.value =
+          e instanceof Error
+            ? e.message
+            : translate('error-store-feature-flags-load', undefined, 'Failed to load feature flags');
         return flags.value;
       } finally {
         loading.value = false;

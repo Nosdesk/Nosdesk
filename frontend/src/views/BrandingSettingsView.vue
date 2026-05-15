@@ -346,7 +346,7 @@ onMounted(() => {
                   <img
                     v-if="brandingConfig?.logo_url"
                     :src="brandingConfig.logo_url"
-                    alt="Logo"
+                    :alt="t('admin-branding-aria-logo')"
                     class="max-w-full max-h-full object-contain"
                   />
                   <svg v-else class="w-12 h-12 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -388,13 +388,13 @@ onMounted(() => {
                   <img
                     v-if="brandingConfig?.logo_light_url"
                     :src="brandingConfig.logo_light_url"
-                    alt="Light Logo"
+                    :alt="t('admin-branding-aria-logo-light')"
                     class="max-w-full max-h-full object-contain"
                   />
                   <img
                     v-else-if="brandingConfig?.logo_url"
                     :src="brandingConfig.logo_url"
-                    alt="Logo"
+                    :alt="t('admin-branding-aria-logo')"
                     class="max-w-full max-h-full object-contain opacity-50"
                   />
                   <svg v-else class="w-12 h-12 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -440,7 +440,7 @@ onMounted(() => {
                 <img
                   v-if="brandingConfig?.favicon_url"
                   :src="brandingConfig.favicon_url"
-                  alt="Favicon"
+                  :alt="t('admin-branding-aria-favicon')"
                   class="w-8 h-8 object-contain"
                 />
                 <svg v-else class="w-8 h-8 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -484,7 +484,7 @@ onMounted(() => {
               <img
                 v-if="brandingConfig?.favicon_url"
                 :src="brandingConfig.favicon_url"
-                alt="Favicon"
+                :alt="t('admin-branding-aria-favicon')"
                 class="w-4 h-4 object-contain"
               />
               <svg v-else class="w-4 h-4 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -497,7 +497,7 @@ onMounted(() => {
               <img
                 v-if="brandingConfig?.logo_url"
                 :src="brandingConfig.logo_url"
-                alt="Logo"
+                :alt="t('admin-branding-aria-logo')"
                 class="h-8 object-contain"
               />
               <span v-else class="text-lg font-semibold text-primary">{{ appName }}</span>

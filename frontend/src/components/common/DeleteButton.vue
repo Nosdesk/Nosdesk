@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useFluent } from 'fluent-vue';
 import Modal from '@/components/Modal.vue';
+
+const fluent = useFluent();
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 interface Props {
   fallbackRoute?: string;
@@ -64,7 +68,7 @@ const confirmDelete = () => {
         </svg>
       </div>
 
-      <h3 class="text-2xl font-medium text-primary mb-2">Delete {{ props.itemName }}</h3>
+      <h3 class="text-2xl font-medium text-primary mb-2">{{ t('common-delete-item-aria', { name: props.itemName }) }}</h3>
       <p class="text-base text-secondary mb-6">
         Are you sure you want to delete this {{ props.itemName.toLowerCase() }}? This action cannot be undone.
       </p>

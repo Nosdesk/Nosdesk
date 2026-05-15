@@ -15,6 +15,7 @@ import { useQuery, useQueryCache } from '@pinia/colada'
 import ticketService from '@/services/ticketService'
 import type { RecentTicket } from '@/types/ticket'
 import { logger } from '@/utils/logger'
+import { translate } from '@/i18n'
 
 export const RECENT_TICKETS_KEY = ['tickets', 'recent'] as const
 
@@ -72,7 +73,11 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   const isRefreshing = computed(
     () => query.asyncStatus.value === 'loading' && query.data.value !== undefined,
   )
-  const error = computed(() => (query.error.value ? 'Failed to fetch recent tickets' : null))
+  const error = computed(() =>
+    query.error.value
+      ? translate('error-store-recent-tickets-load', undefined, 'Failed to fetch recent tickets')
+      : null,
+  )
 
   function fetchRecentTickets() {
     return query.refresh()
