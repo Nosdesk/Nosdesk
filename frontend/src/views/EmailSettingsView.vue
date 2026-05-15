@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
+import { useFluent } from 'fluent-vue';
 
 import EnvConfigNotice from '@/components/admin/EnvConfigNotice.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+
+const fluent = useFluent();
+const t = (key: string) => fluent.$t(key);
 
 // Define types for our data structures
 interface EmailConfig {
@@ -40,7 +44,7 @@ const loadEmailConfig = async () => {
   } catch (error) {
     console.error('Failed to load email configuration:', error);
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to load email configuration';
+    errorMessage.value = axiosError.response?.data?.message || t('admin-email-settings-error-load');
   } finally {
     isLoading.value = false;
   }
@@ -49,14 +53,14 @@ const loadEmailConfig = async () => {
 // Send a test email
 const sendTestEmail = async () => {
   if (!testEmailAddress.value) {
-    errorMessage.value = 'Please enter an email address';
+    errorMessage.value = t('admin-email-settings-error-no-address');
     return;
   }
 
   // Basic email validation
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(testEmailAddress.value)) {
-    errorMessage.value = 'Please enter a valid email address';
+    errorMessage.value = t('admin-email-settings-error-bad-address');
     return;
   }
 
@@ -69,14 +73,14 @@ const sendTestEmail = async () => {
       to: testEmailAddress.value
     });
 
-    successMessage.value = response.data.message || 'Test email sent successfully';
+    successMessage.value = response.data.message || t('admin-email-settings-test-success');
     testEmailAddress.value = ''; // Clear the input after success
 
     setTimeout(() => { successMessage.value = ''; }, 5000);
   } catch (error) {
     console.error('Failed to send test email:', error);
     const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || 'Failed to send test email';
+    errorMessage.value = axiosError.response?.data?.message || t('admin-email-settings-error-test');
     setTimeout(() => { errorMessage.value = ''; }, 5000);
   } finally {
     sendingTest.value = false;
@@ -105,17 +109,17 @@ onMounted(() => {
   <div class="flex-1">
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <div class="mb-6">
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Email Configuration</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-email-settings-title') }}</h1>
         <p class="text-secondary mt-2">
-          View email configuration status and send test emails. Email settings are configured via environment variables.
+          {{ $t('admin-email-settings-description') }}
         </p>
       </div>
 
       <!-- Configuration Notice -->
       <EnvConfigNotice>
-        Email settings are configured through environment variables in your
-        <code class="bg-surface px-1 rounded text-primary">.env</code> file or Docker environment.
-        Use the "Send Test Email" feature to verify your configuration is working correctly.
+        {{ $t('admin-email-settings-env-notice-prefix') }}
+        <code class="bg-surface px-1 rounded text-primary">.env</code>
+        {{ $t('admin-email-settings-env-notice-suffix') }}
       </EnvConfigNotice>
 
       <!-- Success message -->
@@ -125,7 +129,7 @@ onMounted(() => {
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
       <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" text="Loading email configuration..." />
+      <LoadingSpinner v-if="isLoading" :text="$t('admin-email-settings-loading')" />
 
       <!-- Email configuration display -->
       <div v-else class="flex flex-col gap-4">
@@ -142,18 +146,18 @@ onMounted(() => {
 
               <!-- Title and badges -->
               <div class="flex-1 flex items-center gap-2 flex-wrap">
-                <span class="font-medium text-primary">SMTP Email Service</span>
+                <span class="font-medium text-primary">{{ $t('admin-email-settings-service') }}</span>
                 <span
                   class="px-1.5 py-0.5 text-xs rounded-full border"
                   :class="emailConfig?.is_configured ? 'bg-status-success/20 text-status-success border-status-success/50' : 'bg-surface-alt text-tertiary border-default'"
                 >
-                  {{ emailConfig?.is_configured ? 'Configured' : 'Not Configured' }}
+                  {{ emailConfig?.is_configured ? $t('admin-email-settings-configured') : $t('admin-email-settings-not-configured') }}
                 </span>
                 <span
                   v-if="emailConfig?.enabled"
                   class="px-1.5 py-0.5 text-xs rounded-full border bg-accent/20 text-accent border-accent/50"
                 >
-                  Enabled
+                  {{ $t('admin-email-settings-enabled') }}
                 </span>
               </div>
             </div>
@@ -163,23 +167,23 @@ onMounted(() => {
               <!-- Left: Server, Username, From details -->
               <div class="flex-1 flex flex-col gap-2">
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Server</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-email-settings-server') }}</span>
                   <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all">{{ emailConfig.smtp_host }}:{{ emailConfig.smtp_port }}</span>
                 </div>
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Username</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-email-settings-username') }}</span>
                   <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ emailConfig.smtp_username }}</span>
                 </div>
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">From Address</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-email-settings-from-address') }}</span>
                   <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ emailConfig.from_name }} &lt;{{ emailConfig.from_email }}&gt;</span>
                 </div>
               </div>
               <!-- Right: Password status -->
               <div class="flex flex-row md:flex-col gap-4 md:gap-2 md:w-28 md:flex-shrink-0">
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">Password</span>
-                  <span :class="emailConfig.smtp_password_configured ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ emailConfig.smtp_password_configured ? 'Configured' : 'Not Set' }}</span>
+                  <span class="text-tertiary text-xs">{{ $t('admin-email-settings-password') }}</span>
+                  <span :class="emailConfig.smtp_password_configured ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ emailConfig.smtp_password_configured ? $t('admin-email-settings-configured') : $t('admin-email-settings-password-not-set') }}</span>
                 </div>
               </div>
             </div>
@@ -194,7 +198,7 @@ onMounted(() => {
 
             <!-- Required environment variables -->
             <div class="flex items-center gap-2 text-xs">
-              <span class="text-tertiary">Env:</span>
+              <span class="text-tertiary">{{ $t('admin-email-settings-env-vars-label') }}</span>
               <div class="flex flex-wrap gap-1">
                 <code
                   v-for="envVar in getRequiredEnvVars()"
@@ -210,11 +214,11 @@ onMounted(() => {
           <!-- Test Email Section -->
           <div v-if="emailConfig?.is_configured" class="border-t border-default p-4 bg-surface-alt">
             <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <span class="text-sm text-secondary whitespace-nowrap">Send test:</span>
+              <span class="text-sm text-secondary whitespace-nowrap">{{ $t('admin-email-settings-test-send') }}</span>
               <input
                 v-model="testEmailAddress"
                 type="email"
-                placeholder="recipient@example.com"
+                :placeholder="$t('admin-email-settings-test-placeholder')"
                 class="flex-1 px-2.5 py-1.5 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent text-sm"
                 :disabled="sendingTest"
                 @keyup.enter="sendTestEmail"
@@ -229,7 +233,7 @@ onMounted(() => {
                 <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
-                {{ sendingTest ? 'Sending...' : 'Send' }}
+                {{ sendingTest ? $t('admin-email-settings-test-sending') : $t('admin-email-settings-test-send-button') }}
               </button>
             </div>
           </div>
@@ -242,8 +246,8 @@ onMounted(() => {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
           </div>
-          <p class="text-lg font-medium">Email is not configured</p>
-          <p class="mt-2 text-tertiary">Configure email settings in your environment variables to enable email functionality</p>
+          <p class="text-lg font-medium">{{ $t('admin-email-settings-empty-title') }}</p>
+          <p class="mt-2 text-tertiary">{{ $t('admin-email-settings-empty-description') }}</p>
         </div>
       </div>
     </div>

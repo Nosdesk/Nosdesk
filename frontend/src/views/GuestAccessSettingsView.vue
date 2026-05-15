@@ -2,21 +2,21 @@
   <div class="flex-1">
     <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-6xl">
       <div class="flex flex-col gap-2">
-        <h1 class="text-xl sm:text-2xl font-bold text-primary">Guest Access</h1>
+        <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-guest-title') }}</h1>
         <p class="text-secondary">
-          Control what unauthenticated visitors can see and submit. All features are disabled by default.
+          {{ $t('admin-guest-description') }}
         </p>
       </div>
 
       <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-      <LoadingSpinner v-if="loading" text="Loading guest settings..." />
+      <LoadingSpinner v-if="loading" :text="$t('admin-guest-loading')" />
 
       <div v-else-if="settings" class="flex flex-col gap-6">
         <!-- Feature toggles -->
         <div class="bg-surface border border-default rounded-xl p-6 hover:border-strong transition-colors flex flex-col gap-4">
-          <h2 class="text-lg font-semibold text-primary">Public Features</h2>
+          <h2 class="text-lg font-semibold text-primary">{{ $t('admin-guest-features-title') }}</h2>
 
           <div class="flex flex-col divide-y divide-default">
             <div v-for="toggle in toggles" :key="toggle.key" class="py-3 first:pt-0 last:pb-0">
@@ -34,20 +34,20 @@
         <!-- Ticket submission settings -->
         <div class="bg-surface border border-default rounded-xl p-6 hover:border-strong transition-colors flex flex-col gap-6">
           <div class="flex flex-col gap-1">
-            <h2 class="text-lg font-semibold text-primary">Guest Ticket Submissions</h2>
-            <p class="text-sm text-secondary">Behavior for tickets submitted through the public form.</p>
+            <h2 class="text-lg font-semibold text-primary">{{ $t('admin-guest-submissions-title') }}</h2>
+            <p class="text-sm text-secondary">{{ $t('admin-guest-submissions-description') }}</p>
           </div>
 
           <ToggleSwitch
-            label="Require email confirmation"
-            description="Hold submissions until the requester confirms via email. Also gives them portal access."
+            :label="$t('admin-guest-toggle-email-verification-label')"
+            :description="$t('admin-guest-toggle-email-verification-description')"
             :model-value="settings.guest_ticket_email_verification"
             @update:model-value="settings!.guest_ticket_email_verification = $event"
           />
 
           <ToggleSwitch
-            label="Allow attachments"
-            description="Submitters can attach images, PDFs, and text/log files (≤10MB each, up to 5 per ticket)."
+            :label="$t('admin-guest-toggle-attachments-label')"
+            :description="$t('admin-guest-toggle-attachments-description')"
             :model-value="settings.guest_ticket_attachments_enabled"
             @update:model-value="settings!.guest_ticket_attachments_enabled = $event"
           />
@@ -56,7 +56,7 @@
             <!-- Default priority -->
             <div class="flex flex-col gap-2">
               <label id="guest-default-priority-label" class="text-sm font-medium text-primary">
-                Default priority
+                {{ $t('admin-guest-default-priority-label') }}
               </label>
               <BaseDropdown
                 :model-value="priorityValue"
@@ -65,30 +65,30 @@
                 @update:model-value="onPriorityChange"
               />
               <p class="text-xs text-tertiary">
-                Applied to every guest submission. Techs can re-triage after.
+                {{ $t('admin-guest-default-priority-hint') }}
               </p>
             </div>
 
             <!-- Intro message (full-width across both columns) -->
             <div class="flex flex-col gap-2 md:col-span-2">
               <label for="guest-intro-message" class="text-sm font-medium text-primary">
-                Intro message
-                <span class="text-tertiary font-normal">(optional)</span>
+                {{ $t('admin-guest-intro-message-label') }}
+                <span class="text-tertiary font-normal">{{ $t('admin-guest-intro-message-optional') }}</span>
               </label>
               <textarea
                 id="guest-intro-message"
                 v-model="introMessage"
                 rows="3"
                 maxlength="500"
-                placeholder="e.g. For urgent outages call 555-1234. Check our docs first at /docs."
+                :placeholder="$t('admin-guest-intro-message-placeholder')"
                 class="w-full bg-surface-alt border border-default rounded-lg px-3 py-2.5 text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-y transition-colors"
               ></textarea>
               <div class="flex items-center justify-between gap-2">
                 <p class="text-xs text-tertiary">
-                  Shown above the public submit form. Plain text — line breaks preserved.
+                  {{ $t('admin-guest-intro-message-hint') }}
                 </p>
                 <p class="text-xs text-tertiary shrink-0">
-                  {{ introMessage.length }} / 500
+                  {{ $t('admin-guest-intro-message-count', { count: introMessage.length }) }}
                 </p>
               </div>
             </div>
@@ -96,7 +96,7 @@
             <!-- Rate limit -->
             <div class="flex flex-col gap-2">
               <label for="guest-rate-limit" class="text-sm font-medium text-primary">
-                Rate limit
+                {{ $t('admin-guest-rate-limit-label') }}
               </label>
               <div class="relative">
                 <input
@@ -108,11 +108,11 @@
                   class="w-full bg-surface-alt border border-default rounded-lg pl-3 pr-24 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-tertiary pointer-events-none select-none">
-                  per IP / hour
+                  {{ $t('admin-guest-rate-limit-suffix') }}
                 </span>
               </div>
               <p class="text-xs text-tertiary">
-                Lower this if you see spam from shared IPs.
+                {{ $t('admin-guest-rate-limit-hint') }}
               </p>
             </div>
           </div>
@@ -120,7 +120,7 @@
           <div class="flex items-center justify-end gap-4">
             <div v-if="dirty" class="flex items-center gap-1.5 text-xs text-tertiary">
               <span class="inline-block w-1.5 h-1.5 rounded-full bg-status-warning"></span>
-              Unsaved changes
+              {{ $t('admin-guest-unsaved') }}
             </div>
             <button
               @click="save"
@@ -132,7 +132,7 @@
                 <path class="opacity-75" fill="currentColor"
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              {{ saving ? 'Saving...' : 'Save Settings' }}
+              {{ saving ? $t('admin-guest-saving') : $t('admin-guest-save') }}
             </button>
           </div>
         </div>
@@ -143,6 +143,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
+import { useFluent } from 'fluent-vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -151,6 +152,9 @@ import {
   adminGuestSettingsService,
   type AdminGuestSettings
 } from '@/services/publicService';
+
+const fluent = useFluent();
+const t = (key: string) => fluent.$t(key);
 
 type ToggleKey =
   | 'guest_tickets_enabled'
@@ -166,44 +170,44 @@ const pristine = ref<AdminGuestSettings | null>(null);
 const errorMessage = ref('');
 const successMessage = ref('');
 
-const toggles: Array<{ key: ToggleKey; label: string; description: string }> = [
+const toggles = computed<Array<{ key: ToggleKey; label: string; description: string }>>(() => [
   {
     key: 'guest_tickets_enabled',
-    label: 'Accept guest ticket submissions',
-    description: 'Shows a public ticket form at /submit-ticket.'
+    label: t('admin-guest-toggle-tickets-label'),
+    description: t('admin-guest-toggle-tickets-description')
   },
   {
     key: 'guest_ticket_lookup_enabled',
-    label: 'Guest ticket status lookup',
-    description: 'Lets guests check status via a private link returned on submit.'
+    label: t('admin-guest-toggle-lookup-label'),
+    description: t('admin-guest-toggle-lookup-description')
   },
   {
     key: 'guest_public_docs_enabled',
-    label: 'Public documentation',
-    description: "Exposes pages marked 'public' at /docs without requiring login."
+    label: t('admin-guest-toggle-public-docs-label'),
+    description: t('admin-guest-toggle-public-docs-description')
   },
   {
     key: 'guest_kb_search_enabled',
-    label: 'Public knowledge base search',
-    description: "Search over public documentation. Requires 'Public documentation' on."
+    label: t('admin-guest-toggle-kb-search-label'),
+    description: t('admin-guest-toggle-kb-search-description')
   },
   {
     key: 'guest_help_page_enabled',
-    label: 'Self-service help page',
-    description: 'Static /help page with links to password reset and ticket submission.'
+    label: t('admin-guest-toggle-help-label'),
+    description: t('admin-guest-toggle-help-description')
   }
-];
+]);
 
 // Priority is set by admin policy, never by the submitter. Existing rows
 // with a null priority fall back to 'medium' in the UI — the next save
 // writes a real value through.
 const DEFAULT_PRIORITY = 'medium';
 
-const priorityOptions: DropdownOption[] = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' }
-];
+const priorityOptions = computed<DropdownOption[]>(() => [
+  { value: 'low', label: t('admin-guest-priority-low') },
+  { value: 'medium', label: t('admin-guest-priority-medium') },
+  { value: 'high', label: t('admin-guest-priority-high') }
+]);
 
 const priorityValue = computed(
   () => settings.value?.guest_ticket_default_priority ?? DEFAULT_PRIORITY
@@ -235,7 +239,7 @@ onMounted(async () => {
     settings.value = data;
     pristine.value = { ...data };
   } catch {
-    errorMessage.value = 'Failed to load guest settings';
+    errorMessage.value = t('admin-guest-error-load');
   } finally {
     loading.value = false;
   }
@@ -262,10 +266,10 @@ async function save() {
     });
     settings.value = data;
     pristine.value = { ...data };
-    successMessage.value = 'Guest access settings saved';
+    successMessage.value = t('admin-guest-saved');
     setTimeout(() => (successMessage.value = ''), 3000);
   } catch {
-    errorMessage.value = 'Failed to save guest settings';
+    errorMessage.value = t('admin-guest-error-save');
   } finally {
     saving.value = false;
   }
