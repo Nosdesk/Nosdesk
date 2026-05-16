@@ -156,13 +156,13 @@ const loadTargetUser = async () => {
       targetUser.value = user;
       isManagingOtherUser.value = true;
     } else {
-      error.value = 'User not found';
+      error.value = t('user-profile-not-found');
       // Redirect back to users list after a delay
       setTimeout(() => router.push('/users'), 2000);
     }
   } catch (e) {
     console.error('Error loading target user:', e);
-    error.value = 'Failed to load user information';
+    error.value = t('user-profile-load-failed');
     // Redirect back to users list after a delay
     setTimeout(() => router.push('/users'), 2000);
   } finally {

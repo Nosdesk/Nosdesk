@@ -141,7 +141,7 @@ const loadDevices = async (page: number = 1, search: string = '', append: boolea
     console.log(`Loaded page ${page}: ${response.data.length} devices, total: ${response.total}`);
   } catch (err) {
     console.error('Error loading devices:', err);
-    error.value = 'Failed to load devices. Please try again.';
+    error.value = t('device-modal-load-failed');
     devices.value = [];
     hasMore.value = false;
   } finally {

@@ -68,7 +68,7 @@ const fetchProjects = async () => {
     projects.value = await projectService.getProjects()
   } catch (err) {
     console.error('Failed to fetch projects:', err)
-    error.value = 'Failed to load projects. Please try again later.'
+    error.value = t('project-modal-load-failed')
     projects.value = []
   } finally {
     isLoading.value = false

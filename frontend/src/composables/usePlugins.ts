@@ -14,6 +14,7 @@ import { ref, readonly } from 'vue';
 import pluginService from '@/services/pluginService';
 import { unloadPlugin } from '@/plugins/loader';
 import { logger } from '@/utils/logger';
+import { translate } from '@/i18n';
 import type { Plugin } from '@/types/plugin';
 
 export function usePlugins() {
@@ -27,7 +28,7 @@ export function usePlugins() {
     try {
       plugins.value = await pluginService.listPlugins();
     } catch (e) {
-      error.value = 'Failed to load plugins';
+      error.value = translate('plugins-load-failed', undefined, 'Failed to load plugins');
       logger.error('Failed to load plugins', { error: e });
     } finally {
       loading.value = false;

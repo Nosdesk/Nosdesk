@@ -10,6 +10,7 @@ import authService, {
   type LoginResponse
 } from '@/services/authService';
 import { logger } from '@/utils/logger';
+import { translate } from '@/i18n';
 
 /**
  * Composable for MFA functionality following Vue 3 best practices
@@ -58,7 +59,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       }
     } catch (err) {
       logger.error('Error checking MFA status', { error: err });
-      error.value = 'Failed to check MFA status';
+      error.value = translate('auth-mfa-check-failed', undefined, 'Failed to check MFA status');
     } finally {
       loading.value = false;
     }
@@ -93,7 +94,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       return data;
     } catch (err) {
       logger.error('Error setting up MFA for login', { error: err });
-      error.value = 'Failed to setup MFA';
+      error.value = translate('auth-mfa-setup-failed', undefined, 'Failed to setup MFA');
       return null;
     } finally {
       loading.value = false;
@@ -126,7 +127,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       successMessage.value = 'MFA setup initiated. Please scan the QR code with your authenticator app.';
     } catch (err) {
       logger.error('Error setting up MFA', { error: err });
-      error.value = 'Failed to setup MFA';
+      error.value = translate('auth-mfa-setup-failed', undefined, 'Failed to setup MFA');
       resetMFASetup();
     } finally {
       loading.value = false;
@@ -138,12 +139,12 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
    */
   async function verifyMFAToken(token: string): Promise<boolean> {
     if (token.length !== 6) {
-      error.value = 'Please enter a valid 6-digit code';
+      error.value = translate('auth-mfa-code-invalid', undefined, 'Please enter a valid 6-digit code');
       return false;
     }
 
     if (!mfaSecret.value) {
-      error.value = 'MFA secret is missing. Please restart the setup process.';
+      error.value = translate('auth-mfa-secret-missing', undefined, 'MFA secret is missing. Please restart the setup process.');
       return false;
     }
 
@@ -161,7 +162,9 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       return result.valid;
     } catch (err) {
       logger.error('Error verifying MFA', { error: err });
-      error.value = err instanceof Error ? err.message : 'Invalid verification code. Please try again.';
+      error.value = err instanceof Error
+        ? err.message
+        : translate('auth-mfa-verify-failed', undefined, 'Invalid verification code. Please try again.');
       return false;
     } finally {
       verifying.value = false;
@@ -194,7 +197,9 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       return { success: result.success, backup_codes: result.backup_codes };
     } catch (err) {
       logger.error('Error enabling MFA', { error: err });
-      error.value = err instanceof Error ? err.message : 'Failed to enable MFA';
+      error.value = err instanceof Error
+        ? err.message
+        : translate('auth-mfa-enable-failed', undefined, 'Failed to enable MFA');
       throw err;
     } finally {
       loading.value = false;
@@ -237,7 +242,9 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       return result;
     } catch (err) {
       logger.error('Error enabling MFA for login', { error: err });
-      error.value = err instanceof Error ? err.message : 'Failed to enable MFA';
+      error.value = err instanceof Error
+        ? err.message
+        : translate('auth-mfa-enable-failed', undefined, 'Failed to enable MFA');
       throw err;
     } finally {
       loading.value = false;
@@ -265,7 +272,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       return result.success;
     } catch (err) {
       logger.error('Error disabling MFA', { error: err });
-      error.value = 'Failed to disable MFA';
+      error.value = translate('auth-mfa-disable-failed', undefined, 'Failed to disable MFA');
       return false;
     } finally {
       loading.value = false;
@@ -291,7 +298,7 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
       return null;
     } catch (err) {
       logger.error('Error regenerating backup codes', { error: err });
-      error.value = 'Failed to regenerate backup codes';
+      error.value = translate('auth-mfa-backup-codes-failed', undefined, 'Failed to regenerate backup codes');
       return null;
     } finally {
       loading.value = false;

@@ -450,7 +450,7 @@ const togglePlayPause = async () => {
     }
   } catch (err) {
     console.error('Playback error:', err);
-    error.value = "Failed to play audio";
+    error.value = $t('ticket-audio-play-failed');
   }
 };
 

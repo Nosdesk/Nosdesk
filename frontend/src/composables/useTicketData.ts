@@ -10,6 +10,7 @@ import { ticketDetailKey } from "@/loaders/ticketDetailLoader";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
 import type { Ticket, Device, Project } from '@/types/ticket';
 import type { CommentWithAttachments } from '@/types/comment';
+import { translate } from '@/i18n';
 
 // Local type extending the canonical Ticket type with UI-specific
 // fields. `projects` flows through as the `string[]` arm of the
@@ -148,7 +149,7 @@ export function useTicketData() {
       await recentTicketsStore.recordTicketView(id);
     } catch (err) {
       logger.error(`Error fetching ticket ${id}`, { error: err });
-      error.value = "Failed to load ticket. Please try again later.";
+      error.value = translate('ticket-data-load-failed', undefined, 'Failed to load ticket. Please try again later.');
     } finally {
       loading.value = false;
     }

@@ -112,7 +112,7 @@ export const useAuthStore = defineStore('auth', () => {
           if (status === 429) {
             // Rate limit error - don't logout, just show error
             logger.warn('Rate limit exceeded. Please wait before retrying.');
-            error.value = 'Too many requests. Please wait a moment.';
+            error.value = translate('auth-login-rate-limited', undefined, 'Too many requests. Please wait a moment.');
             throw err;
           } else if (status === 401 || status === 403) {
             // Unauthorized/Forbidden - logout and clear cookies
@@ -129,7 +129,7 @@ export const useAuthStore = defineStore('auth', () => {
           }
         } else {
           // Network error - keep user logged in
-          error.value = 'Network error. Please check your connection.';
+          error.value = translate('auth-login-network-error', undefined, 'Network error. Please check your connection.');
           throw err;
         }
 
@@ -226,7 +226,11 @@ export const useAuthStore = defineStore('auth', () => {
 
         // Show backup code warning if needed
         if (response.data.mfa_backup_code_used && response.data.requires_backup_code_regeneration) {
-          error.value = 'Login successful! Please regenerate your backup codes soon - you have 2 or fewer remaining.';
+          error.value = translate(
+            'auth-login-backup-codes-low',
+            undefined,
+            'Login successful! Please regenerate your backup codes soon, you have 2 or fewer remaining.',
+          );
         }
 
         mfaRequired.value = false;
@@ -313,7 +317,7 @@ export const useAuthStore = defineStore('auth', () => {
           return true;
         }
         
-        error.value = 'MFA setup failed. Please try again.';
+        error.value = translate('auth-mfa-setup-failed-retry', undefined, 'MFA setup failed. Please try again.');
         return false;
         
       } catch (err) {

@@ -4,6 +4,7 @@ import { useDebouncedRef } from '@/composables/useDebouncedRef';
 import { searchService } from '@/services/searchService';
 import type { SearchResult, SearchResponse, GroupedSearchResults } from '@/types/search';
 import { groupResultsByType, emptyGroupedResults, ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@/types/search';
+import { translate } from '@/i18n';
 
 /** Mutually exclusive states for the search surface. */
 export type SearchState = 'prompt' | 'searching' | 'results' | 'empty' | 'error';
@@ -91,7 +92,7 @@ export function useGlobalSearch() {
       selectedIndex.value = response.results.length > 0 ? 0 : -1;
     } catch (err) {
       console.error('Search error:', err);
-      error.value = 'Search failed. Please try again.';
+      error.value = translate('search-failed', undefined, 'Search failed. Please try again.');
       results.value = [];
       groupedResults.value = emptyGroupedResults();
     } finally {

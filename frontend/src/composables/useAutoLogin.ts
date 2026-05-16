@@ -2,6 +2,7 @@ import { ref, onScopeDispose } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
+import { translate } from '@/i18n';
 
 export interface AutoLoginOptions {
   /** Source identifier for MFA setup. Widened to include
@@ -48,7 +49,7 @@ export function useAutoLogin(options: AutoLoginOptions) {
    */
   const attemptLogin = async (email: string, password: string): Promise<boolean> => {
     if (!email) {
-      message.value = 'Please log in with your credentials.';
+      message.value = translate('auth-autologin-prompt', undefined, 'Please log in with your credentials.');
       onFallback?.();
       return false;
     }
@@ -99,13 +100,13 @@ export function useAutoLogin(options: AutoLoginOptions) {
       }
 
       // Fallback - login didn't succeed for unknown reason
-      message.value = 'Please log in with your credentials.';
+      message.value = translate('auth-autologin-prompt', undefined, 'Please log in with your credentials.');
       isLoggingIn.value = false;
       onFallback?.();
       return false;
     } catch (error) {
       console.error('Auto-login error:', error);
-      message.value = 'Please log in with your credentials.';
+      message.value = translate('auth-autologin-prompt', undefined, 'Please log in with your credentials.');
       isLoggingIn.value = false;
       onFallback?.();
       return false;
