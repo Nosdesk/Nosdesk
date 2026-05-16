@@ -1394,8 +1394,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/comments/{comment_id}/attachments", web::post().to(handlers::add_attachment_to_comment))
                     .route("/attachments/{id}", web::delete().to({
                         let storage = storage.clone();
-                        move |path, pool| {
-                            handlers::delete_attachment(path, pool, storage.clone())
+                        move |req, path, pool| {
+                            handlers::delete_attachment(req, path, pool, storage.clone())
                         }
                     }))
                     

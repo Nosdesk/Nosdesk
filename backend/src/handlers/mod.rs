@@ -91,8 +91,11 @@ pub use msgraph_integration::{get_connection_status, get_config_validation, test
 pub use passkeys::{start_passkey_registration, finish_passkey_registration, start_passkey_login, finish_passkey_login, list_passkeys, rename_passkey, delete_passkey, start_passkey_setup_login, finish_passkey_setup_login};
 
 // Import necessary types for placeholders
-use actix_web::{web, HttpResponse, HttpMessage, Responder};
+use actix_web::{http::StatusCode, web, HttpResponse, HttpMessage, Responder};
 use serde_json::json;
+
+use crate::utils::error_response::json_error;
+use crate::utils::locale::request_locale;
 use std::sync::Arc;
 use tracing::{info, warn, error, debug};
 use uuid::Uuid;
@@ -255,7 +258,7 @@ pub async fn add_comment_to_ticket(
     // guarantees this is present.
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return HttpResponse::Unauthorized().json(json!({"error": "Authentication required"})),
+        None => return json_error(&request_locale(&req), "backend-error-auth-required", StatusCode::UNAUTHORIZED),
     };
 
     // Get the authenticated user's full information for notifications
@@ -266,7 +269,7 @@ pub async fn add_comment_to_ticket(
         },
         Err(e) => {
             error!(user_uuid = %claims.sub, error = ?e, "Authenticated user UUID not found in database");
-            return HttpResponse::InternalServerError().json(json!({"error": "User account not found"}));
+            return json_error(&request_locale(&req), "backend-error-user-not-found", StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
 
@@ -752,10 +755,10 @@ pub async fn delete_comment(
     let ticket_id = match crate::repository::comments::get_comment_by_id(&mut conn, comment_id) {
         Ok(comment) => comment.ticket_id,
         Err(_) => {
-            return HttpResponse::NotFound().json(json!({"error": "Comment not found"}));
+            return json_error(&request_locale(&req), "backend-error-comment-not-found", StatusCode::NOT_FOUND);
         }
     };
-    
+
     let actor = {
         use actix_web::HttpMessage;
         let uuid = req
@@ -794,7 +797,7 @@ pub async fn delete_comment(
                 HttpResponse::Ok().json(json!({"success": true, "message": "Comment deleted"}))
             } else {
                 warn!(comment_id, "Comment not found in database");
-                HttpResponse::NotFound().json(json!({"error": "Comment not found"}))
+                json_error(&request_locale(&req), "backend-error-comment-not-found", StatusCode::NOT_FOUND)
             }
         },
         Err(e) => {
@@ -882,6 +885,7 @@ pub async fn get_comment_raw_eml(
 }
 
 pub async fn delete_attachment(
+    req: actix_web::HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<crate::db::Pool>,
     storage: Arc<dyn crate::utils::storage::Storage>
@@ -937,7 +941,7 @@ pub async fn delete_attachment(
                         HttpResponse::Ok().json(json!({"success": true, "message": "Attachment deleted"}))
                     } else {
                         warn!(attachment_id, "Attachment not found in database");
-                        HttpResponse::NotFound().json(json!({"error": "Attachment not found"}))
+                        json_error(&request_locale(&req), "backend-error-attachment-not-found", StatusCode::NOT_FOUND)
                     }
                 },
                 Err(e) => {
@@ -948,7 +952,7 @@ pub async fn delete_attachment(
         },
         Err(e) => {
             error!(attachment_id, error = %e, "Error finding attachment");
-            HttpResponse::NotFound().json(json!({"error": "Attachment not found"}))
+            json_error(&request_locale(&req), "backend-error-attachment-not-found", StatusCode::NOT_FOUND)
         }
     }
 }

@@ -155,6 +155,31 @@ pub fn effective_locale(user_locale: Option<&str>, site_default: &str) -> Langua
     LanguageIdentifier::from_str(DEFAULT_LOCALE).expect("DEFAULT_LOCALE parses")
 }
 
+/// Pull the user's preferred locale off an incoming HTTP request.
+///
+/// Lookup chain:
+/// 1. The `Accept-Language` header, negotiated against the
+///    supported set.
+/// 2. `DEFAULT_LOCALE`.
+///
+/// This is the cheap header-only path. For authenticated requests
+/// where the user's stored preference should win, fetch the user
+/// uuid out of `Claims` and call
+/// `repository::user_locale::resolve_effective_locale` instead.
+/// (Doing the DB lookup here would mean threading a connection
+/// through every handler that wants to localise an error string,
+/// which isn't worth it for the common case where the header is
+/// already what we'd resolve to.)
+pub fn request_locale(req: &actix_web::HttpRequest) -> LanguageIdentifier {
+    req.headers()
+        .get(actix_web::http::header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+        .map(negotiate)
+        .unwrap_or_else(|| {
+            LanguageIdentifier::from_str(DEFAULT_LOCALE).expect("DEFAULT_LOCALE parses")
+        })
+}
+
 /// Resolve the effective IANA timezone for a user. Same chain as
 /// `effective_locale`, with `UTC` as the final fallback. IANA-
 /// only; Windows-style names ("Pacific Standard Time") and bogus

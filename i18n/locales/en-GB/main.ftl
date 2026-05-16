@@ -365,7 +365,7 @@ mfa-setup-error-session-expired = Session expired. Please log in again to set up
 mfa-setup-error-invalid-access = Invalid access. Redirecting to login...
 
 # Password reset.
-password-reset-title = Reset Your Password
+password-reset-page-title = Reset Your Password
 password-reset-subtitle = Enter your new password below
 password-reset-success-title = Password Reset Complete!
 password-reset-success-body = Your password has been updated. You can now log in with your new password.
@@ -4272,7 +4272,6 @@ auth-login-backup-codes-low = Login successful. Please regenerate your backup co
 ticket-audio-play-failed = Failed to play audio
 device-modal-load-failed = Failed to load devices. Please try again.
 project-modal-load-failed = Failed to load projects. Please try again later.
-user-profile-not-found = User not found
 user-profile-load-failed = Failed to load user information
 # R2 filter facets + ticket columns
 filter-facet-title = Title
@@ -4315,3 +4314,12 @@ tickets-column-devices = Devices
 tickets-column-devices-description = Affected device count
 tickets-column-recurrence = Recur
 tickets-column-recurrence-description = Recurring ticket marker
+
+# Backend HTTP error responses (R3)
+backend-error-auth-required = Authentication required.
+backend-error-user-not-found = User account not found.
+backend-error-comment-fetch-failed = Couldn't load comments.
+backend-error-comment-create-failed = Couldn't create the comment.
+backend-error-comment-not-found = Comment not found.
+backend-error-attachment-not-found = Attachment not found.
+backend-error-attachment-delete-failed = Couldn't delete the attachment.

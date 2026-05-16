@@ -381,7 +381,7 @@ mfa-setup-error-session-expired = Sessie verlopen. Meld opnieuw aan om MFA in te
 mfa-setup-error-invalid-access = Ongeldige toegang. Doorverwijzen naar aanmelden...
 
 # Wachtwoord herstellen.
-password-reset-title = Wachtwoord opnieuw instellen
+password-reset-page-title = Wachtwoord opnieuw instellen
 password-reset-subtitle = Voer hieronder uw nieuwe wachtwoord in
 password-reset-success-title = Wachtwoord opnieuw ingesteld!
 password-reset-success-body = Uw wachtwoord is bijgewerkt. U kunt nu inloggen met uw nieuwe wachtwoord.
@@ -4286,7 +4286,6 @@ auth-login-backup-codes-low = Aanmelding gelukt. Genereer je back-upcodes binnen
 ticket-audio-play-failed = Audio kon niet worden afgespeeld
 device-modal-load-failed = Apparaten konden niet worden geladen. Probeer het opnieuw.
 project-modal-load-failed = Projecten konden niet worden geladen. Probeer het later opnieuw.
-user-profile-not-found = Gebruiker niet gevonden
 user-profile-load-failed = Gebruikersinformatie kon niet worden geladen
 # R2 filter facets + ticket columns
 filter-facet-title = Titel
@@ -4329,3 +4328,12 @@ tickets-column-devices = Apparaten
 tickets-column-devices-description = Aantal getroffen apparaten
 tickets-column-recurrence = Herh.
 tickets-column-recurrence-description = Markering voor terugkerend ticket
+
+# Backend HTTP error responses (R3)
+backend-error-auth-required = Authenticatie vereist.
+backend-error-user-not-found = Gebruikersaccount niet gevonden.
+backend-error-comment-fetch-failed = Reacties laden mislukt.
+backend-error-comment-create-failed = Reactie maken mislukt.
+backend-error-comment-not-found = Reactie niet gevonden.
+backend-error-attachment-not-found = Bijlage niet gevonden.
+backend-error-attachment-delete-failed = Bijlage verwijderen mislukt.

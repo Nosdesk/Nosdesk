@@ -384,7 +384,7 @@ mfa-setup-error-session-expired = Session expirée. Veuillez vous reconnecter po
 mfa-setup-error-invalid-access = Accès invalide. Redirection vers la connexion...
 
 # Réinitialisation du mot de passe.
-password-reset-title = Réinitialiser votre mot de passe
+password-reset-page-title = Réinitialiser votre mot de passe
 password-reset-subtitle = Saisissez votre nouveau mot de passe ci-dessous
 password-reset-success-title = Réinitialisation terminée !
 password-reset-success-body = Votre mot de passe a été mis à jour. Vous pouvez vous connecter avec le nouveau mot de passe.
@@ -4295,7 +4295,6 @@ auth-login-backup-codes-low = Connexion réussie. Pensez à régénérer vos cod
 ticket-audio-play-failed = Échec de la lecture audio
 device-modal-load-failed = Échec du chargement des appareils. Veuillez réessayer.
 project-modal-load-failed = Échec du chargement des projets. Veuillez réessayer plus tard.
-user-profile-not-found = Utilisateur introuvable
 user-profile-load-failed = Échec du chargement des informations de l'utilisateur
 # R2 filter facets + ticket columns
 filter-facet-title = Titre
@@ -4338,3 +4337,12 @@ tickets-column-devices = Appareils
 tickets-column-devices-description = Nombre d'appareils concernés
 tickets-column-recurrence = Récurr.
 tickets-column-recurrence-description = Marqueur de ticket récurrent
+
+# Backend HTTP error responses (R3)
+backend-error-auth-required = Authentification requise.
+backend-error-user-not-found = Compte utilisateur introuvable.
+backend-error-comment-fetch-failed = Impossible de charger les commentaires.
+backend-error-comment-create-failed = Impossible de créer le commentaire.
+backend-error-comment-not-found = Commentaire introuvable.
+backend-error-attachment-not-found = Pièce jointe introuvable.
+backend-error-attachment-delete-failed = Impossible de supprimer la pièce jointe.
