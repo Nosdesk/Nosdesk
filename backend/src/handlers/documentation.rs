@@ -1248,10 +1248,12 @@ pub async fn export_documentation_pages(
 
 // Export a single documentation page as Markdown
 pub async fn export_page_as_markdown(
+    req: actix_web::HttpRequest,
     page_id: web::Path<i32>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
     let id = page_id.into_inner();
+    let locale = crate::utils::locale::request_locale(&req);
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -1271,6 +1273,7 @@ pub async fn export_page_as_markdown(
                 &mut visited,
                 Some(page.uuid),
                 0,
+                &locale,
             ).unwrap_or_else(|| String::from("*Empty document*"))
         }
         None => String::from("*Empty document*"),
