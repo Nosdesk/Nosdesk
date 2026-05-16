@@ -192,10 +192,10 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
               </span>
               <span class="flex-1 min-w-0">
                 <span class="block text-xs text-primary">
-                  {{ col.label === '#' ? $t('views-display-menu-column-ticket-id') : col.label }}
+                  {{ col.label === '#' ? $t('views-display-menu-column-ticket-id') : $t(col.labelKey) }}
                 </span>
                 <span class="block text-[10px] text-tertiary truncate">
-                  {{ col.description }}
+                  {{ $t(col.descriptionKey) }}
                 </span>
               </span>
             </button>

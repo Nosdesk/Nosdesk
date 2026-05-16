@@ -36,6 +36,7 @@
  * common display change.
  */
 import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import ViewSwitcher, {
   type ViewSwitcherItem,
 } from '@/components/views/ViewSwitcher.vue'
@@ -135,6 +136,7 @@ const mobileSwitcherItems = computed<ViewSwitcherItem[]>(() => [
 
 const { getUserHandle } = useUsersDirectory()
 const addFilterRef = ref<InstanceType<typeof AddFilterMenu> | null>(null)
+const fluent = useFluent()
 
 // ---------------------------------------------------------------
 // Pickers and pills resolve options through the same helpers
@@ -206,7 +208,7 @@ const pills = computed(() => {
       : summariseSelected(facet, selected, options)
     return {
       facet,
-      label: FACET_META[facet].label,
+      label: fluent.$t(FACET_META[facet].labelKey),
       options,
       selected,
       textValue,

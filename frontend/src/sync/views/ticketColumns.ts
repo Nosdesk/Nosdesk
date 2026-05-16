@@ -33,21 +33,26 @@ export type ColumnId =
 export interface ListColumn {
   /** Stable id used in storage and shape.columns. */
   id: ColumnId
-  /** Header label. Short — table headers are not the place for prose. */
+  /** Header label, English fallback. Short, table headers are not
+   * the place for prose. Consumers should prefer `labelKey` via
+   * `translate(col.labelKey, undefined, col.label)`. */
   label: string
+  /** Fluent key for the header label. Resolved at render time so
+   * the active locale wins. */
+  labelKey: string
   /** Default pixel width when the user hasn't dragged a resize
    * handle and the saved view doesn't carry its own setting. */
   defaultWidthPx: number
-  /** Resize lower bound — narrower than this the column is illegible. */
+  /** Resize lower bound, narrower than this the column is illegible. */
   minWidthPx: number
-  /** Resize upper bound — wider than this wastes screen real estate. */
+  /** Resize upper bound, wider than this wastes screen real estate. */
   maxWidthPx: number
   /** When true the column flexes to fill remaining space rather
    * than rendering at its own fixed width. The renderer still
    * applies a max-width so very wide displays don't blow up the
    * line length. Today only the title flexes. */
   flex?: boolean
-  /** Default visibility — tuned to fit a typical agent workflow:
+  /** Default visibility, tuned to fit a typical agent workflow:
    *  id, title, status, priority, assignee, last_activity. The
    *  rest are opt-in. */
   defaultVisible: boolean
@@ -55,8 +60,11 @@ export interface ListColumn {
   sortKey: string | null
   /** Cell text alignment. */
   align: 'left' | 'right' | 'center'
-  /** Surfaced in the picker menu as the column's tooltip. */
+  /** Surfaced in the picker menu as the column's tooltip. English
+   * fallback. Consumers should prefer `descriptionKey`. */
   description: string
+  /** Fluent key for the picker tooltip. */
+  descriptionKey: string
 }
 
 /**
@@ -90,6 +98,7 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
   {
     id: 'id',
     label: '#',
+    labelKey: 'tickets-column-id',
     defaultWidthPx: 64,
     minWidthPx: 48,
     maxWidthPx: 120,
@@ -97,10 +106,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: 'id',
     align: 'left',
     description: 'Ticket number',
+    descriptionKey: 'tickets-column-id-description',
   },
   {
     id: 'title',
     label: 'Title',
+    labelKey: 'tickets-column-title',
     defaultWidthPx: 400,
     minWidthPx: 160,
     maxWidthPx: 720,
@@ -109,10 +120,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: 'title',
     align: 'left',
     description: 'Ticket subject',
+    descriptionKey: 'tickets-column-title-description',
   },
   {
     id: 'workflow_state',
     label: 'Status',
+    labelKey: 'tickets-column-status',
     defaultWidthPx: 140,
     minWidthPx: 90,
     maxWidthPx: 240,
@@ -120,16 +133,18 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     // (rendered by every TicketRow as a leading colour-coded dot)
     // already carries the workflow-state signal at-a-glance. Users
     // who want the explicit text label can re-enable via the
-    // column-visibility menu — Linear's "icon-only" mode default,
+    // column-visibility menu. Linear's "icon-only" mode default,
     // text label is opt-in.
     defaultVisible: false,
     sortKey: 'workflow_state.name',
     align: 'left',
     description: 'Workflow state',
+    descriptionKey: 'tickets-column-status-description',
   },
   {
     id: 'priority',
     label: 'Priority',
+    labelKey: 'tickets-column-priority',
     defaultWidthPx: 88,
     minWidthPx: 64,
     maxWidthPx: 160,
@@ -137,10 +152,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: 'priority',
     align: 'left',
     description: 'Priority',
+    descriptionKey: 'tickets-column-priority-description',
   },
   {
     id: 'assignee',
     label: 'Assignee',
+    labelKey: 'tickets-column-assignee',
     defaultWidthPx: 140,
     minWidthPx: 90,
     maxWidthPx: 240,
@@ -148,10 +165,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: null,
     align: 'left',
     description: 'Who owns the ticket',
+    descriptionKey: 'tickets-column-assignee-description',
   },
   {
     id: 'requester',
     label: 'Requester',
+    labelKey: 'tickets-column-requester',
     defaultWidthPx: 140,
     minWidthPx: 90,
     maxWidthPx: 240,
@@ -159,10 +178,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: null,
     align: 'left',
     description: 'Who reported the ticket',
+    descriptionKey: 'tickets-column-requester-description',
   },
   {
     id: 'category',
     label: 'Category',
+    labelKey: 'tickets-column-category',
     defaultWidthPx: 120,
     minWidthPx: 80,
     maxWidthPx: 240,
@@ -170,10 +191,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: 'category_id',
     align: 'left',
     description: 'Ticket category tag',
+    descriptionKey: 'tickets-column-category-description',
   },
   {
     id: 'cycle',
     label: 'Cycle',
+    labelKey: 'tickets-column-cycle',
     defaultWidthPx: 110,
     minWidthPx: 80,
     maxWidthPx: 200,
@@ -181,10 +204,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: 'cycle_id',
     align: 'left',
     description: 'Cycle membership',
+    descriptionKey: 'tickets-column-cycle-description',
   },
   {
     id: 'due_date',
     label: 'Due',
+    labelKey: 'tickets-column-due-date',
     defaultWidthPx: 96,
     minWidthPx: 72,
     maxWidthPx: 160,
@@ -192,10 +217,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: 'due_date',
     align: 'left',
     description: 'Calendar deadline',
+    descriptionKey: 'tickets-column-due-date-description',
   },
   {
     id: 'last_activity',
     label: 'Updated',
+    labelKey: 'tickets-column-last-activity',
     defaultWidthPx: 96,
     minWidthPx: 72,
     maxWidthPx: 160,
@@ -203,10 +230,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: 'last_activity_at',
     align: 'left',
     description: 'When the ticket last changed',
+    descriptionKey: 'tickets-column-last-activity-description',
   },
   {
     id: 'created_at',
     label: 'Created',
+    labelKey: 'tickets-column-created-at',
     defaultWidthPx: 96,
     minWidthPx: 72,
     maxWidthPx: 160,
@@ -214,10 +243,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: 'created_at',
     align: 'left',
     description: 'When the ticket was opened',
+    descriptionKey: 'tickets-column-created-at-description',
   },
   {
     id: 'sla',
     label: 'SLA',
+    labelKey: 'tickets-column-sla',
     defaultWidthPx: 88,
     minWidthPx: 64,
     maxWidthPx: 160,
@@ -225,10 +256,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: null,
     align: 'center',
     description: 'SLA pill (green / amber / red)',
+    descriptionKey: 'tickets-column-sla-description',
   },
   {
     id: 'kb_gap',
     label: 'KB',
+    labelKey: 'tickets-column-kb-gap',
     defaultWidthPx: 56,
     minWidthPx: 48,
     maxWidthPx: 120,
@@ -236,10 +269,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: null,
     align: 'center',
     description: 'Knowledge-gap signal',
+    descriptionKey: 'tickets-column-kb-gap-description',
   },
   {
     id: 'devices',
     label: 'Devices',
+    labelKey: 'tickets-column-devices',
     defaultWidthPx: 80,
     minWidthPx: 56,
     maxWidthPx: 160,
@@ -247,10 +282,12 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: null,
     align: 'center',
     description: 'Affected device count',
+    descriptionKey: 'tickets-column-devices-description',
   },
   {
     id: 'recurrence',
     label: 'Recur',
+    labelKey: 'tickets-column-recurrence',
     defaultWidthPx: 64,
     minWidthPx: 48,
     maxWidthPx: 120,
@@ -258,6 +295,7 @@ export const TICKET_COLUMNS: readonly ListColumn[] = [
     sortKey: null,
     align: 'center',
     description: 'Recurring ticket marker',
+    descriptionKey: 'tickets-column-recurrence-description',
   },
 ] as const
 

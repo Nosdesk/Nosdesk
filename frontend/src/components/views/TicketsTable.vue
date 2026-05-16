@@ -225,7 +225,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
               @dragstart="layout.onDragStart(col.id, $event)"
               @dragend="layout.onDragEnd"
             >
-              <span>{{ col.label }}</span>
+              <span>{{ $t(col.labelKey) }}</span>
               <span v-if="sortField === col.sortKey" class="text-[10px] leading-none" aria-hidden="true">
                 {{ sortDir === 'asc' ? '↑' : '↓' }}
               </span>
@@ -246,7 +246,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
               @dragstart="layout.onDragStart(col.id, $event)"
               @dragend="layout.onDragEnd"
             >
-              {{ col.label }}
+              {{ $t(col.labelKey) }}
             </div>
             <span
               class="absolute top-0 right-0 h-full w-2 cursor-col-resize touch-none group/resize z-10"
