@@ -3799,7 +3799,11 @@ dashboard-knowledge-gaps-action = Voir la file
 dashboard-knowledge-gaps-error = Impossible de charger les lacunes
 dashboard-knowledge-gaps-empty-title = Aucune lacune ouverte
 dashboard-knowledge-gaps-empty-description = Les tickets signalés pour la documentation apparaîtront ici.
-dashboard-knowledge-gaps-signal-count = { $count -> [one] 1 signal *[other] { $count } signaux }
+dashboard-knowledge-gaps-signal-count =
+    { $count ->
+        [one] 1 signal
+       *[other] { $count } signaux
+    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } recherches
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets révélant un besoin pour ce document
@@ -3862,8 +3866,16 @@ ui-quick-tooltip-status-label = Statut :
 ui-quick-tooltip-requester-label = Demandeur :
 ui-quick-tooltip-assignee-label = Affecté à :
 ui-presence-stack-fallback-name = Quelqu'un
-ui-presence-stack-aria = { $count -> [one] { $count } personne en consultation *[other] { $count } personnes en consultation }
-ui-presence-stack-overflow-title = { $count -> [one] { $count } autre en consultation *[other] { $count } autres en consultation }
+ui-presence-stack-aria =
+    { $count ->
+        [one] { $count } personne en consultation
+       *[other] { $count } personnes en consultation
+    }
+ui-presence-stack-overflow-title =
+    { $count ->
+        [one] { $count } autre en consultation
+       *[other] { $count } autres en consultation
+    }
 ui-status-badge-status-open = ouvert
 ui-status-badge-status-in-progress = en cours
 ui-status-badge-status-closed = fermé
@@ -3892,7 +3904,11 @@ search-global-empty-hint = Essayez d'autres mots-clés ou vérifiez l'orthograph
 search-global-hint-navigate = Naviguer
 search-global-hint-open = Ouvrir
 search-global-hint-close = Fermer
-search-global-results-count = { $count -> [one] { $count } résultat *[other] { $count } résultats }
+search-global-results-count =
+    { $count ->
+        [one] { $count } résultat
+       *[other] { $count } résultats
+    }
 search-global-results-took = { $ms } ms
 search-result-item-today = Aujourd'hui
 search-result-item-yesterday = Hier
@@ -3920,7 +3936,11 @@ tickets-cycle-burndown-live = En direct
 tickets-cycle-burndown-loading = Chargement...
 tickets-cycle-burndown-tickets-done = Tickets terminés
 tickets-cycle-burndown-complete = Terminé
-tickets-cycle-burndown-days-remaining = { $count -> [one] Jour restant *[other] Jours restants }
+tickets-cycle-burndown-days-remaining =
+    { $count ->
+        [one] Jour restant
+       *[other] Jours restants
+    }
 tickets-cycle-burndown-snapshot-frozen = Instantané figé { $date }
 tickets-collaborative-article-title = Notes du ticket
 tickets-collaborative-article-doc-title = Documentation : Ticket n°{ $id }
@@ -3932,7 +3952,11 @@ tickets-project-info-description = Description
 tickets-project-info-project-id = ID projet
 tickets-project-info-status = Statut
 tickets-project-info-tickets = Tickets
-tickets-project-info-print-tickets = { $count -> [one] { $count } ticket *[other] { $count } tickets }
+tickets-project-info-print-tickets =
+    { $count ->
+        [one] { $count } ticket
+       *[other] { $count } tickets
+    }
 tickets-project-info-status-active = actif
 tickets-project-info-status-completed = terminé
 tickets-project-info-status-archived = archivé
@@ -4420,19 +4444,47 @@ auth-microsoft-logout-failed = Impossible de se déconnecter de Microsoft.
 editor-ticket-link-not-found = Ticket #{ $id } introuvable
 
 # W batch: pluralization fixes
-notifications-inbox-unread-count = { $count -> [one] { $count } notification non lue *[other] { $count } notifications non lues }
-gantt-tickets-in-view = { $count -> [one] { $count } ticket affiché *[other] { $count } tickets affichés }
+notifications-inbox-unread-count =
+    { $count ->
+        [one] { $count } notification non lue
+       *[other] { $count } notifications non lues
+    }
+gantt-tickets-in-view =
+    { $count ->
+        [one] { $count } ticket affiché
+       *[other] { $count } tickets affichés
+    }
 bulk-bar-select-all-matching = Tout sélectionner ({ $count })
 bulk-bar-clear = Effacer
-bulk-bar-selected-generic = { $count -> [one] { $count } sélectionné *[other] { $count } sélectionnés }
+bulk-bar-selected-generic =
+    { $count ->
+        [one] { $count } sélectionné
+       *[other] { $count } sélectionnés
+    }
 bulk-bar-all-selected-generic = Les { $count } sont sélectionnés
-bulk-bar-tickets-selected = { $count -> [one] { $count } ticket sélectionné *[other] { $count } tickets sélectionnés }
+bulk-bar-tickets-selected =
+    { $count ->
+        [one] { $count } ticket sélectionné
+       *[other] { $count } tickets sélectionnés
+    }
 bulk-bar-tickets-all-selected = Les { $count } tickets sont sélectionnés
-bulk-bar-users-selected = { $count -> [one] { $count } utilisateur sélectionné *[other] { $count } utilisateurs sélectionnés }
+bulk-bar-users-selected =
+    { $count ->
+        [one] { $count } utilisateur sélectionné
+       *[other] { $count } utilisateurs sélectionnés
+    }
 bulk-bar-users-all-selected = Les { $count } utilisateurs sont sélectionnés
-bulk-bar-devices-selected = { $count -> [one] { $count } appareil sélectionné *[other] { $count } appareils sélectionnés }
+bulk-bar-devices-selected =
+    { $count ->
+        [one] { $count } appareil sélectionné
+       *[other] { $count } appareils sélectionnés
+    }
 bulk-bar-devices-all-selected = Les { $count } appareils sont sélectionnés
 inbox-no-unread = Vous n'avez aucune notification non lue.
-gantt-tickets-of-total-in-view = { $count -> [one] { $visible } sur { $count } ticket affiché *[other] { $visible } sur { $count } tickets affichés }
+gantt-tickets-of-total-in-view =
+    { $count ->
+        [one] { $visible } sur { $count } ticket affiché
+       *[other] { $visible } sur { $count } tickets affichés
+    }
 saved-view-name-this = Nommer cette vue
 saved-view-copy-suffix = Copie de { $name }

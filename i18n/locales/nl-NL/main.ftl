@@ -3790,7 +3790,11 @@ dashboard-knowledge-gaps-action = Wachtrij bekijken
 dashboard-knowledge-gaps-error = Kan lacunes niet laden
 dashboard-knowledge-gaps-empty-title = Geen openstaande lacunes
 dashboard-knowledge-gaps-empty-description = Tickets die zijn gemarkeerd voor documentatie verschijnen hier.
-dashboard-knowledge-gaps-signal-count = { $count -> [one] 1 signaal *[other] { $count } signalen }
+dashboard-knowledge-gaps-signal-count =
+    { $count ->
+        [one] 1 signaal
+       *[other] { $count } signalen
+    }
 dashboard-knowledge-gaps-impact-tickets = { $count } tickets
 dashboard-knowledge-gaps-impact-searches = { $count } zoekopdrachten
 dashboard-knowledge-gaps-impact-tooltip-tickets = { $count } tickets die vraag naar dit document tonen
@@ -3853,8 +3857,16 @@ ui-quick-tooltip-status-label = Status:
 ui-quick-tooltip-requester-label = Aanvrager:
 ui-quick-tooltip-assignee-label = Toegewezen aan:
 ui-presence-stack-fallback-name = Iemand
-ui-presence-stack-aria = { $count -> [one] { $count } persoon bekijkt *[other] { $count } personen bekijken }
-ui-presence-stack-overflow-title = { $count -> [one] { $count } andere bekijkt *[other] { $count } anderen bekijken }
+ui-presence-stack-aria =
+    { $count ->
+        [one] { $count } persoon bekijkt
+       *[other] { $count } personen bekijken
+    }
+ui-presence-stack-overflow-title =
+    { $count ->
+        [one] { $count } andere bekijkt
+       *[other] { $count } anderen bekijken
+    }
 ui-status-badge-status-open = open
 ui-status-badge-status-in-progress = in behandeling
 ui-status-badge-status-closed = gesloten
@@ -3883,7 +3895,11 @@ search-global-empty-hint = Probeer andere zoektermen of controleer de spelling
 search-global-hint-navigate = Navigeren
 search-global-hint-open = Openen
 search-global-hint-close = Sluiten
-search-global-results-count = { $count -> [one] { $count } resultaat *[other] { $count } resultaten }
+search-global-results-count =
+    { $count ->
+        [one] { $count } resultaat
+       *[other] { $count } resultaten
+    }
 search-global-results-took = { $ms } ms
 search-result-item-today = Vandaag
 search-result-item-yesterday = Gisteren
@@ -3911,7 +3927,11 @@ tickets-cycle-burndown-live = Live
 tickets-cycle-burndown-loading = Laden...
 tickets-cycle-burndown-tickets-done = Tickets klaar
 tickets-cycle-burndown-complete = Voltooid
-tickets-cycle-burndown-days-remaining = { $count -> [one] Dag te gaan *[other] Dagen te gaan }
+tickets-cycle-burndown-days-remaining =
+    { $count ->
+        [one] Dag te gaan
+       *[other] Dagen te gaan
+    }
 tickets-cycle-burndown-snapshot-frozen = Snapshot bevroren { $date }
 tickets-collaborative-article-title = Ticketnotities
 tickets-collaborative-article-doc-title = Documentatie: ticket #{ $id }
@@ -3923,7 +3943,11 @@ tickets-project-info-description = Beschrijving
 tickets-project-info-project-id = Project-ID
 tickets-project-info-status = Status
 tickets-project-info-tickets = Tickets
-tickets-project-info-print-tickets = { $count -> [one] { $count } ticket *[other] { $count } tickets }
+tickets-project-info-print-tickets =
+    { $count ->
+        [one] { $count } ticket
+       *[other] { $count } tickets
+    }
 tickets-project-info-status-active = actief
 tickets-project-info-status-completed = voltooid
 tickets-project-info-status-archived = gearchiveerd
@@ -4411,19 +4435,47 @@ auth-microsoft-logout-failed = Microsoft afmelden is mislukt.
 editor-ticket-link-not-found = Ticket #{ $id } niet gevonden
 
 # W batch: pluralization fixes
-notifications-inbox-unread-count = { $count -> [one] { $count } ongelezen melding *[other] { $count } ongelezen meldingen }
-gantt-tickets-in-view = { $count -> [one] { $count } ticket zichtbaar *[other] { $count } tickets zichtbaar }
+notifications-inbox-unread-count =
+    { $count ->
+        [one] { $count } ongelezen melding
+       *[other] { $count } ongelezen meldingen
+    }
+gantt-tickets-in-view =
+    { $count ->
+        [one] { $count } ticket zichtbaar
+       *[other] { $count } tickets zichtbaar
+    }
 bulk-bar-select-all-matching = Alle { $count } selecteren
 bulk-bar-clear = Wissen
-bulk-bar-selected-generic = { $count -> [one] { $count } geselecteerd *[other] { $count } geselecteerd }
+bulk-bar-selected-generic =
+    { $count ->
+        [one] { $count } geselecteerd
+       *[other] { $count } geselecteerd
+    }
 bulk-bar-all-selected-generic = Alle { $count } geselecteerd
-bulk-bar-tickets-selected = { $count -> [one] { $count } ticket geselecteerd *[other] { $count } tickets geselecteerd }
+bulk-bar-tickets-selected =
+    { $count ->
+        [one] { $count } ticket geselecteerd
+       *[other] { $count } tickets geselecteerd
+    }
 bulk-bar-tickets-all-selected = Alle { $count } tickets geselecteerd
-bulk-bar-users-selected = { $count -> [one] { $count } gebruiker geselecteerd *[other] { $count } gebruikers geselecteerd }
+bulk-bar-users-selected =
+    { $count ->
+        [one] { $count } gebruiker geselecteerd
+       *[other] { $count } gebruikers geselecteerd
+    }
 bulk-bar-users-all-selected = Alle { $count } gebruikers geselecteerd
-bulk-bar-devices-selected = { $count -> [one] { $count } apparaat geselecteerd *[other] { $count } apparaten geselecteerd }
+bulk-bar-devices-selected =
+    { $count ->
+        [one] { $count } apparaat geselecteerd
+       *[other] { $count } apparaten geselecteerd
+    }
 bulk-bar-devices-all-selected = Alle { $count } apparaten geselecteerd
 inbox-no-unread = U hebt geen ongelezen meldingen.
-gantt-tickets-of-total-in-view = { $count -> [one] { $visible } van { $count } ticket zichtbaar *[other] { $visible } van { $count } tickets zichtbaar }
+gantt-tickets-of-total-in-view =
+    { $count ->
+        [one] { $visible } van { $count } ticket zichtbaar
+       *[other] { $visible } van { $count } tickets zichtbaar
+    }
 saved-view-name-this = Geef deze weergave een naam
 saved-view-copy-suffix = Kopie van { $name }
