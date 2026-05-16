@@ -35,10 +35,7 @@ pub struct ReplaceFlagsBody {
 }
 
 /// GET /api/feature-flags — resolved flag map for the current user.
-pub async fn get_my_flags(
-    pool: web::Data<Pool>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn get_my_flags(pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
     let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,

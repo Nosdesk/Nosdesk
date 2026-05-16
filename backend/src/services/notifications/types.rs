@@ -88,9 +88,20 @@ impl NotificationChannel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NotificationEntity {
-    Ticket { id: i32, title: String },
-    Comment { id: i32, ticket_id: i32, ticket_title: String },
-    DocumentationPage { id: i32, title: String, slug: String },
+    Ticket {
+        id: i32,
+        title: String,
+    },
+    Comment {
+        id: i32,
+        ticket_id: i32,
+        ticket_title: String,
+    },
+    DocumentationPage {
+        id: i32,
+        title: String,
+        slug: String,
+    },
 }
 
 impl NotificationEntity {
@@ -281,7 +292,10 @@ mod tests {
 
     #[test]
     fn notification_entity_ticket_methods() {
-        let entity = NotificationEntity::Ticket { id: 42, title: "Test".to_string() };
+        let entity = NotificationEntity::Ticket {
+            id: 42,
+            title: "Test".to_string(),
+        };
         assert_eq!(entity.entity_type(), "ticket");
         assert_eq!(entity.entity_id(), 42);
         assert_eq!(entity.ticket_id(), 42);
@@ -306,7 +320,10 @@ mod tests {
             name: "Actor".to_string(),
             avatar_thumb: None,
         };
-        let entity = NotificationEntity::Ticket { id: 1, title: "T".to_string() };
+        let entity = NotificationEntity::Ticket {
+            id: 1,
+            title: "T".to_string(),
+        };
         let payload = NotificationPayload::new(
             NotificationTypeCode::TicketAssigned,
             Uuid::new_v4(),
@@ -349,7 +366,8 @@ mod tests {
                 Uuid::new_v4(),
                 actor,
                 entity,
-            ).with_body("hello"),
+            )
+            .with_body("hello"),
             channels: vec![NotificationChannel::InApp],
         };
 

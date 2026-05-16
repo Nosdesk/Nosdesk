@@ -6,8 +6,8 @@ use serde::Deserialize;
 use tracing::error;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::models::{Claims, SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
@@ -97,7 +97,11 @@ pub async fn update_guest_settings(
     let intro_update = body.guest_ticket_intro_message.clone().map(|outer| {
         outer.and_then(|s| {
             let trimmed = s.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         })
     });
 

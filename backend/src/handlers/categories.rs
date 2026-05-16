@@ -3,8 +3,8 @@ use diesel::result::Error;
 use serde::Deserialize;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::models::{NewTicketCategory, TicketCategoryUpdate};
 use crate::repository;
 use crate::utils::rbac::require_admin;
@@ -14,10 +14,7 @@ use crate::utils::rbac::require_admin;
 // ============================================================================
 
 /// Get categories visible to the current user
-pub async fn get_categories(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_categories(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
@@ -36,10 +33,7 @@ pub async fn get_categories(
 // ============================================================================
 
 /// Get all categories with visibility info (admin only)
-pub async fn get_all_categories_admin(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_all_categories_admin(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
@@ -108,7 +102,8 @@ pub async fn create_category(
     let created_by = Some(user_uuid);
 
     // Get next display order
-    let display_order = repository::categories::get_next_display_order(&mut conn).unwrap_or_default();
+    let display_order =
+        repository::categories::get_next_display_order(&mut conn).unwrap_or_default();
 
     let new_category = NewTicketCategory {
         name: body.name.clone(),
@@ -369,12 +364,14 @@ pub async fn set_category_visibility(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App, http::StatusCode, HttpMessage};
-    use crate::test_helpers::{setup_test_pool, create_test_claims, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
+    use actix_web::{http::StatusCode, test, App, HttpMessage};
 
     /// Helper to create a test app with category routes
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),
@@ -415,9 +412,7 @@ mod tests {
 
         let app = test::init_service(test_app(pool.clone())).await;
 
-        let req = test::TestRequest::get()
-            .uri("/categories")
-            .to_request();
+        let req = test::TestRequest::get().uri("/categories").to_request();
         req.extensions_mut().insert(claims);
 
         let resp = test::call_service(&app, req).await;

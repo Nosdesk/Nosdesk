@@ -271,7 +271,9 @@ mod tests {
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),

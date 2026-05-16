@@ -169,10 +169,8 @@ fn ensure_one_partition(
 
         // 5. The CHECK is now redundant with the partition bound;
         //    drop it so future schema introspection is clean.
-        diesel::sql_query(format!(
-            "ALTER TABLE {child} DROP CONSTRAINT {constraint}"
-        ))
-        .execute(conn)?;
+        diesel::sql_query(format!("ALTER TABLE {child} DROP CONSTRAINT {constraint}"))
+            .execute(conn)?;
 
         Ok(())
     })
@@ -564,6 +562,9 @@ mod tests {
 
         let eligible =
             partitions_eligible_for_drop(&mut conn, "audit_log", cutoff).expect("eligible");
-        assert!(eligible.is_empty(), "no partitions should match an ancient cutoff");
+        assert!(
+            eligible.is_empty(),
+            "no partitions should match an ancient cutoff"
+        );
     }
 }

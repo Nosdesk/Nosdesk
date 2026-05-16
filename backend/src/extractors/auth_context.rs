@@ -100,10 +100,12 @@ impl actix_web::ResponseError for AuthContextError {
         match self {
             Self::Unauthorized => HttpResponse::Unauthorized()
                 .json(serde_json::json!({"error": "Authentication required"})),
-            Self::InvalidUuid => HttpResponse::BadRequest()
-                .json(serde_json::json!({"error": "Invalid user UUID"})),
-            Self::UserNotFound => HttpResponse::NotFound()
-                .json(serde_json::json!({"error": "User not found"})),
+            Self::InvalidUuid => {
+                HttpResponse::BadRequest().json(serde_json::json!({"error": "Invalid user UUID"}))
+            }
+            Self::UserNotFound => {
+                HttpResponse::NotFound().json(serde_json::json!({"error": "User not found"}))
+            }
             Self::DatabaseError(_) => HttpResponse::InternalServerError()
                 .json(serde_json::json!({"error": "Internal server error"})),
         }
@@ -126,8 +128,8 @@ impl FromRequest for AuthContext {
                 .ok_or(AuthContextError::Unauthorized)?;
 
             // Parse user UUID
-            let user_uuid = Uuid::parse_str(&claims.sub)
-                .map_err(|_| AuthContextError::InvalidUuid)?;
+            let user_uuid =
+                Uuid::parse_str(&claims.sub).map_err(|_| AuthContextError::InvalidUuid)?;
 
             // Get database pool
             let pool = req
@@ -144,8 +146,9 @@ impl FromRequest for AuthContext {
                 .map_err(|_| AuthContextError::UserNotFound)?;
 
             // Fetch user's group memberships
-            let group_ids = crate::repository::groups::get_group_ids_for_user(&mut conn, &user_uuid)
-                .unwrap_or_default();
+            let group_ids =
+                crate::repository::groups::get_group_ids_for_user(&mut conn, &user_uuid)
+                    .unwrap_or_default();
 
             Ok(AuthContext {
                 user_uuid,
@@ -157,4 +160,3 @@ impl FromRequest for AuthContext {
         })
     }
 }
-

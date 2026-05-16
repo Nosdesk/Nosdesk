@@ -1,28 +1,34 @@
-use actix_web::{web, HttpResponse, HttpRequest, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 use std::panic;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use uuid::Uuid;
-use yrs::{Doc, Transact, ReadTxn, WriteTxn, GetString, Options, updates::decoder::Decode, Update, XmlFragment, XmlOut};
-use regex::Regex;
+use yrs::{
+    updates::decoder::Decode, Doc, GetString, Options, ReadTxn, Transact, Update, WriteTxn,
+    XmlFragment, XmlOut,
+};
 
-use crate::db::{Pool, DbConnection};
-use crate::handlers::helpers;
+use crate::db::{DbConnection, Pool};
 use crate::handlers::errors;
-use crate::models::{NewDocumentationPage, DocumentationPageWithChildren, DocumentationStatus, DocumentationPage, DocumentationPageResponse, DocumentationPageTicketEmbed, UserInfoWithAvatar};
+use crate::handlers::helpers;
+use crate::models::{
+    DocumentationPage, DocumentationPageResponse, DocumentationPageTicketEmbed,
+    DocumentationPageWithChildren, DocumentationStatus, NewDocumentationPage, UserInfoWithAvatar,
+};
 use crate::repository;
 use crate::repository::documentation_starred_pages;
 use crate::repository::documentation_subscriptions;
+use crate::services::notifications::{
+    types::{NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode},
+    NotificationService,
+};
+use crate::services::search::indexing_tasks;
+use crate::services::search::SearchService;
 use crate::utils;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
-use crate::services::search::SearchService;
-use crate::services::search::indexing_tasks;
-use crate::services::notifications::{
-    NotificationService,
-    types::{NotificationTypeCode, NotificationPayload, NotificationEntity, NotificationActor},
-};
 
 /// Collect text from an iterator of XmlOut children
 fn collect_children_text(children: impl Iterator<Item = XmlOut>, txn: &yrs::Transaction) -> String {
@@ -43,9 +49,7 @@ fn collect_children_text(children: impl Iterator<Item = XmlOut>, txn: &yrs::Tran
 fn extract_text_from_xml_node(node: &XmlOut, txn: &yrs::Transaction) -> String {
     match node {
         XmlOut::Text(text_ref) => {
-            match panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                text_ref.get_string(txn)
-            })) {
+            match panic::catch_unwind(panic::AssertUnwindSafe(|| text_ref.get_string(txn))) {
                 Ok(s) => s,
                 Err(_) => String::new(),
             }
@@ -106,7 +110,10 @@ fn extract_yjs_content(yjs_document: &[u8]) -> Option<String> {
             let clean_text = tag_regex.replace_all(&joined, "").to_string();
             // Normalize whitespace
             let whitespace_regex = Regex::new(r"\s+").unwrap();
-            let normalized = whitespace_regex.replace_all(&clean_text, " ").trim().to_string();
+            let normalized = whitespace_regex
+                .replace_all(&clean_text, " ")
+                .trim()
+                .to_string();
             if normalized.is_empty() {
                 None
             } else {
@@ -148,10 +155,7 @@ pub struct CreateDocumentationPageRequest {
 /// article content. Pre-Phase-1 pages were authored from a ticket and
 /// stored their content in the ticket's article_content row; the join
 /// table now expresses that relationship as a 'resolves' link.
-fn resolve_yjs_document(
-    page: &DocumentationPage,
-    conn: &mut DbConnection,
-) -> Option<Vec<u8>> {
+fn resolve_yjs_document(page: &DocumentationPage, conn: &mut DbConnection) -> Option<Vec<u8>> {
     page.yjs_document.clone().or_else(|| {
         repository::documentation_page_tickets::most_recent_resolves_ticket_id(conn, page.id)
             .ok()
@@ -188,20 +192,21 @@ fn to_page_response(
         .map_err(|_| "Failed to fetch last_edited_by user")?;
 
     // Extract content from Yjs document if available
-    let content = resolve_yjs_document(&page, conn)
-        .and_then(|doc| extract_yjs_content(&doc));
+    let content = resolve_yjs_document(&page, conn).and_then(|doc| extract_yjs_content(&doc));
 
     // Verifier user info, only fetched when the page has been
     // verified. The DB stores the uuid; the response embeds the
     // user's display info so the frontend doesn't need a second
     // round-trip to render the banner.
     let verified_by = page.verified_by.and_then(|uuid| {
-        repository::get_user_by_uuid(&uuid, conn).ok().map(|u| UserInfoWithAvatar {
-            uuid: u.uuid,
-            name: u.name,
-            avatar_url: u.avatar_url,
-            avatar_thumb: u.avatar_thumb,
-        })
+        repository::get_user_by_uuid(&uuid, conn)
+            .ok()
+            .map(|u| UserInfoWithAvatar {
+                uuid: u.uuid,
+                name: u.name,
+                avatar_url: u.avatar_url,
+                avatar_thumb: u.avatar_thumb,
+            })
     });
     let is_stale = is_page_stale(&page);
 
@@ -307,10 +312,7 @@ fn to_page_responses(
 }
 
 // Get all documentation pages
-pub async fn get_documentation_pages(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_documentation_pages(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
@@ -318,7 +320,12 @@ pub async fn get_documentation_pages(
 
     match repository::get_documentation_pages(&mut conn) {
         Ok(pages) => {
-            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+            let pages = match repository::filter_pages_for_user(
+                &mut conn,
+                pages,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
                 Ok(p) => p,
                 Err(_) => return errors::internal("Failed to check page visibility"),
             };
@@ -326,7 +333,7 @@ pub async fn get_documentation_pages(
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::internal("Failed to fetch pages"),
     }
 }
@@ -363,8 +370,13 @@ pub async fn get_documentation_page(
 
     match repository::get_documentation_page(page_id, &mut conn) {
         Ok(page) => {
-            match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
-                Ok(true) => {},
+            match repository::can_user_access_page(
+                &mut conn,
+                page.id,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
+                Ok(true) => {}
                 Ok(false) => return errors::not_found_msg("Page not found"),
                 Err(_) => return errors::internal("Failed to check page visibility"),
             }
@@ -379,7 +391,7 @@ pub async fn get_documentation_page(
                 }
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::not_found_msg("Page not found"),
     }
 }
@@ -401,8 +413,13 @@ pub async fn get_documentation_page_by_slug(
 
     match repository::get_documentation_page_by_slug(&page_slug, &mut conn) {
         Ok(page) => {
-            match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
-                Ok(true) => {},
+            match repository::can_user_access_page(
+                &mut conn,
+                page.id,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
+                Ok(true) => {}
                 Ok(false) => return errors::not_found_msg("Page not found"),
                 Err(_) => return errors::internal("Failed to check page visibility"),
             }
@@ -417,7 +434,7 @@ pub async fn get_documentation_page_by_slug(
                 }
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::not_found_msg("Page not found"),
     }
 }
@@ -442,13 +459,18 @@ pub async fn get_documentation_page_content_by_uuid(
 
     match repository::get_documentation_page_by_uuid(&page_uuid, &mut conn) {
         Ok(page) => {
-            match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
-                Ok(true) => {},
+            match repository::can_user_access_page(
+                &mut conn,
+                page.id,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
+                Ok(true) => {}
                 Ok(false) => return errors::not_found_msg("Page not found"),
                 Err(_) => return errors::internal("Failed to check page visibility"),
             }
 
-            use base64::{Engine as _, engine::general_purpose};
+            use base64::{engine::general_purpose, Engine as _};
 
             let yjs_b64 = resolve_yjs_document(&page, &mut conn)
                 .map(|doc| general_purpose::STANDARD.encode(&doc));
@@ -460,7 +482,7 @@ pub async fn get_documentation_page_content_by_uuid(
                 "status": page.status,
                 "yjs_document": yjs_b64,
             }))
-        },
+        }
         Err(_) => errors::not_found_msg("Page not found"),
     }
 }
@@ -517,7 +539,9 @@ pub async fn create_documentation_page(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can create documentation pages");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can create documentation pages",
+        );
     }
 
     let request = page_request.into_inner();
@@ -589,15 +613,18 @@ pub async fn create_documentation_page(
                     page_id: created_page.id,
                     created_by: Some(user_uuid),
                 };
-                if let Err(e) = repository::documentation_collections::add_page_to_collection(
-                    &mut conn, entry,
-                ) {
+                if let Err(e) =
+                    repository::documentation_collections::add_page_to_collection(&mut conn, entry)
+                {
                     error!(error = ?e, page_id = created_page.id, collection_id = cid, "Failed to assign page to collection");
                 }
             }
 
             // Index the new documentation page in search
-            indexing_tasks::spawn_index_documentation(search_service.get_ref().clone(), created_page.clone());
+            indexing_tasks::spawn_index_documentation(
+                search_service.get_ref().clone(),
+                created_page.clone(),
+            );
 
             match to_page_response(created_page.clone(), &mut conn) {
                 Ok(response) => {
@@ -611,10 +638,10 @@ pub async fn create_documentation_page(
                         .await;
 
                     HttpResponse::Created().json(response)
-                },
+                }
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::internal("Failed to create page"),
     }
 }
@@ -656,13 +683,14 @@ pub async fn update_documentation_page(
     let page_id = path.into_inner();
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can update documentation pages");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can update documentation pages",
+        );
     }
 
     // Check if the page exists and get its current state
     match repository::get_documentation_page(page_id, &mut conn) {
         Ok(_existing_page) => {
-
             // Create update struct with the fields from the request
             let update_req = page.into_inner();
             let now = chrono::Utc::now().naive_utc();
@@ -671,7 +699,9 @@ pub async fn update_documentation_page(
             let (archived_at, deleted_at) = match update_req.status {
                 Some(DocumentationStatus::Archived) => (Some(Some(now)), Some(None)),
                 Some(DocumentationStatus::Deleted) => (Some(None), Some(Some(now))),
-                Some(DocumentationStatus::Draft) | Some(DocumentationStatus::Published) => (Some(None), Some(None)),
+                Some(DocumentationStatus::Draft) | Some(DocumentationStatus::Published) => {
+                    (Some(None), Some(None))
+                }
                 None => (None, None),
             };
 
@@ -713,19 +743,35 @@ pub async fn update_documentation_page(
                     debug!(page_id = updated_page.id, "Documentation page updated");
 
                     // Re-index the updated documentation page in search
-                    indexing_tasks::spawn_index_documentation(search_service.get_ref().clone(), updated_page.clone());
+                    indexing_tasks::spawn_index_documentation(
+                        search_service.get_ref().clone(),
+                        updated_page.clone(),
+                    );
 
                     // Broadcast SSE events for each updated field. One
                     // event per field so the frontend can apply the
                     // change at field granularity rather than re-
                     // fetching the whole page.
                     let updates: [(&str, Option<serde_json::Value>); 4] = [
-                        ("title", update_req.title.as_ref().map(|v| serde_json::json!(v))),
-                        ("slug", update_req.slug.as_ref().map(|v| serde_json::json!(v))),
-                        ("icon", update_req.icon.as_ref().map(|v| serde_json::json!(v))),
-                        ("status", update_req.status.as_ref().map(|v| serde_json::json!(v))),
+                        (
+                            "title",
+                            update_req.title.as_ref().map(|v| serde_json::json!(v)),
+                        ),
+                        (
+                            "slug",
+                            update_req.slug.as_ref().map(|v| serde_json::json!(v)),
+                        ),
+                        (
+                            "icon",
+                            update_req.icon.as_ref().map(|v| serde_json::json!(v)),
+                        ),
+                        (
+                            "status",
+                            update_req.status.as_ref().map(|v| serde_json::json!(v)),
+                        ),
                     ];
-                    for (field, value) in updates.into_iter().filter_map(|(f, v)| v.map(|v| (f, v))) {
+                    for (field, value) in updates.into_iter().filter_map(|(f, v)| v.map(|v| (f, v)))
+                    {
                         sse_state
                             .broadcast_event(crate::handlers::sse::SseEvent::DocumentationUpdated {
                                 document_id: page_id,
@@ -749,7 +795,9 @@ pub async fn update_documentation_page(
                                 Ok(conn) => conn,
                                 Err(_) => return,
                             };
-                            let subscribers = documentation_subscriptions::get_page_subscribers(&mut conn, page_id);
+                            let subscribers = documentation_subscriptions::get_page_subscribers(
+                                &mut conn, page_id,
+                            );
                             let actor = NotificationActor {
                                 uuid: user_uuid,
                                 name: actor_name,
@@ -783,13 +831,13 @@ pub async fn update_documentation_page(
                         Ok(response) => HttpResponse::Ok().json(response),
                         Err(err) => HttpResponse::InternalServerError().json(err),
                     }
-                },
+                }
                 Err(e) => {
                     error!(page_id = page_id, error = ?e, "Error updating documentation page");
                     errors::internal("Failed to update documentation page")
-                },
+                }
             }
-        },
+        }
         Err(_) => errors::not_found_msg("Documentation page not found"),
     }
 }
@@ -810,7 +858,9 @@ pub async fn delete_documentation_page(
     let page_id = path.into_inner();
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can delete documentation pages");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can delete documentation pages",
+        );
     }
 
     // Check if the page exists
@@ -829,33 +879,39 @@ pub async fn delete_documentation_page(
             match repository::update_documentation_page(&mut conn, page_id, &page_update) {
                 Ok(_) => {
                     // Remove documentation from search index (trashed pages shouldn't appear in search)
-                    indexing_tasks::spawn_delete_documentation(search_service.get_ref().clone(), page_id);
+                    indexing_tasks::spawn_delete_documentation(
+                        search_service.get_ref().clone(),
+                        page_id,
+                    );
 
                     // Broadcast SSE event for status change to deleted
-                    let source_client_id = req.headers()
+                    let source_client_id = req
+                        .headers()
                         .get("X-SSE-Client-Id")
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string());
-                    sse_state.broadcast_event_from(
-                        crate::handlers::sse::SseEvent::DocumentationUpdated {
-                            document_id: page_id,
-                            field: "status".to_string(),
-                            value: serde_json::json!("deleted"),
-                            updated_by: claims.sub.clone(),
-                            timestamp: chrono::Utc::now(),
-                        },
-                        source_client_id,
-                    ).await;
+                    sse_state
+                        .broadcast_event_from(
+                            crate::handlers::sse::SseEvent::DocumentationUpdated {
+                                document_id: page_id,
+                                field: "status".to_string(),
+                                value: serde_json::json!("deleted"),
+                                updated_by: claims.sub.clone(),
+                                timestamp: chrono::Utc::now(),
+                            },
+                            source_client_id,
+                        )
+                        .await;
 
                     info!(page_id = page_id, deleted_by = %claims.name, "Documentation page moved to trash");
                     HttpResponse::NoContent().finish()
-                },
+                }
                 Err(e) => {
                     error!(page_id = page_id, error = ?e, "Error soft-deleting documentation page");
                     errors::internal("Failed to delete documentation page")
-                },
+                }
             }
-        },
+        }
         Err(_) => errors::not_found_msg("Documentation page not found"),
     }
 }
@@ -872,7 +928,12 @@ pub async fn get_top_level_documentation_pages(
 
     match repository::get_top_level_pages(&mut conn) {
         Ok(pages) => {
-            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+            let pages = match repository::filter_pages_for_user(
+                &mut conn,
+                pages,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
                 Ok(p) => p,
                 Err(_) => return errors::internal("Failed to check page visibility"),
             };
@@ -880,7 +941,7 @@ pub async fn get_top_level_documentation_pages(
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::internal("Failed to fetch top-level pages"),
     }
 }
@@ -900,7 +961,12 @@ pub async fn get_documentation_pages_by_parent_id(
 
     match repository::get_pages_by_parent_id(parent, &mut conn) {
         Ok(pages) => {
-            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+            let pages = match repository::filter_pages_for_user(
+                &mut conn,
+                pages,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
                 Ok(p) => p,
                 Err(_) => return errors::internal("Failed to check page visibility"),
             };
@@ -908,7 +974,7 @@ pub async fn get_documentation_pages_by_parent_id(
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::internal("Failed to fetch pages by parent ID"),
     }
 }
@@ -933,24 +999,26 @@ pub async fn get_page_with_children_by_parent_id(
     };
 
     match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
-        Ok(true) => {},
+        Ok(true) => {}
         Ok(false) => return errors::not_found_msg("Page not found"),
         Err(_) => return errors::internal("Failed to check page visibility"),
     }
 
     // Then get its children (filtered by access)
     let children = match repository::get_pages_by_parent_id(page_id, &mut conn) {
-        Ok(children) => match repository::filter_pages_for_user(&mut conn, children, &user_uuid, is_admin(&claims)) {
+        Ok(children) => match repository::filter_pages_for_user(
+            &mut conn,
+            children,
+            &user_uuid,
+            is_admin(&claims),
+        ) {
             Ok(c) => c,
             Err(_) => return errors::internal("Failed to check page visibility"),
         },
         Err(_) => return errors::internal("Failed to fetch children"),
     };
 
-    let page_with_children = DocumentationPageWithChildren {
-        page,
-        children,
-    };
+    let page_with_children = DocumentationPageWithChildren { page, children };
 
     HttpResponse::Ok().json(page_with_children)
 }
@@ -970,18 +1038,30 @@ pub async fn get_page_with_ordered_children(
 
     match repository::get_page_with_ordered_children(&mut conn, page_id) {
         Ok(mut page_with_children) => {
-            match repository::can_user_access_page(&mut conn, page_with_children.page.id, &user_uuid, is_admin(&claims)) {
-                Ok(true) => {},
-                Ok(false) => return errors::not_found_msg("Page not found or error fetching children"),
+            match repository::can_user_access_page(
+                &mut conn,
+                page_with_children.page.id,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return errors::not_found_msg("Page not found or error fetching children")
+                }
                 Err(_) => return errors::internal("Failed to check page visibility"),
             }
             // Filter children
-            page_with_children.children = match repository::filter_pages_for_user(&mut conn, page_with_children.children, &user_uuid, is_admin(&claims)) {
+            page_with_children.children = match repository::filter_pages_for_user(
+                &mut conn,
+                page_with_children.children,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
                 Ok(c) => c,
                 Err(_) => return errors::internal("Failed to check page visibility"),
             };
             HttpResponse::Ok().json(page_with_children)
-        },
+        }
         Err(_) => errors::not_found_msg("Page not found or error fetching children"),
     }
 }
@@ -1001,7 +1081,12 @@ pub async fn get_ordered_pages_by_parent_id(
 
     match repository::get_ordered_pages_by_parent_id(&mut conn, parent) {
         Ok(pages) => {
-            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+            let pages = match repository::filter_pages_for_user(
+                &mut conn,
+                pages,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
                 Ok(p) => p,
                 Err(_) => return errors::internal("Failed to check page visibility"),
             };
@@ -1009,7 +1094,7 @@ pub async fn get_ordered_pages_by_parent_id(
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::internal("Failed to fetch ordered pages by parent ID"),
     }
 }
@@ -1032,7 +1117,9 @@ pub async fn reorder_pages(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can reorder documentation pages");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can reorder documentation pages",
+        );
     }
 
     match repository::reorder_pages(&mut conn, Some(request.parent_id), &request.page_orders) {
@@ -1063,7 +1150,9 @@ pub async fn move_page_to_parent(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can move documentation pages");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can move documentation pages",
+        );
     }
 
     let display_order = request.display_order.unwrap_or(0);
@@ -1073,11 +1162,16 @@ pub async fn move_page_to_parent(
         return errors::bad_request("Invalid operation: A page cannot be its own parent");
     }
 
-    match repository::move_page_to_parent(&mut conn, request.page_id, request.new_parent_id, display_order) {
+    match repository::move_page_to_parent(
+        &mut conn,
+        request.page_id,
+        request.new_parent_id,
+        display_order,
+    ) {
         Ok(page) => HttpResponse::Ok().json(page),
-        Err(diesel::result::Error::RollbackTransaction) => {
-            errors::bad_request("Circular reference: Cannot move a page to be a child of its own descendant")
-        }
+        Err(diesel::result::Error::RollbackTransaction) => errors::bad_request(
+            "Circular reference: Cannot move a page to be a child of its own descendant",
+        ),
         Err(e) => {
             error!(page_id = request.page_id, new_parent_id = ?request.new_parent_id, error = ?e, "Error moving page");
             errors::internal("Internal server error: Failed to move page to new parent")
@@ -1097,7 +1191,12 @@ pub async fn get_ordered_top_level_pages(
 
     match repository::get_ordered_top_level_pages(&mut conn) {
         Ok(pages) => {
-            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+            let pages = match repository::filter_pages_for_user(
+                &mut conn,
+                pages,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
                 Ok(p) => p,
                 Err(_) => return errors::internal("Failed to check page visibility"),
             };
@@ -1105,7 +1204,7 @@ pub async fn get_ordered_top_level_pages(
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::internal("Failed to fetch top-level pages"),
     }
 }
@@ -1130,24 +1229,26 @@ pub async fn get_documentation_page_by_slug_with_children(
     };
 
     match repository::can_user_access_page(&mut conn, page.id, &user_uuid, is_admin(&claims)) {
-        Ok(true) => {},
+        Ok(true) => {}
         Ok(false) => return errors::not_found_msg("Page not found"),
         Err(_) => return errors::internal("Failed to check page visibility"),
     }
 
     // Then get its children (filtered by access)
     let children = match repository::get_pages_by_parent_id(page.id, &mut conn) {
-        Ok(children) => match repository::filter_pages_for_user(&mut conn, children, &user_uuid, is_admin(&claims)) {
+        Ok(children) => match repository::filter_pages_for_user(
+            &mut conn,
+            children,
+            &user_uuid,
+            is_admin(&claims),
+        ) {
             Ok(c) => c,
             Err(_) => return errors::internal("Failed to check page visibility"),
         },
         Err(_) => return errors::internal("Failed to fetch children"),
     };
 
-    let page_with_children = DocumentationPageWithChildren {
-        page,
-        children,
-    };
+    let page_with_children = DocumentationPageWithChildren { page, children };
 
     HttpResponse::Ok().json(page_with_children)
 }
@@ -1167,16 +1268,25 @@ pub async fn get_documentation_pages_by_ticket_id(
 
     match repository::get_documentation_pages_by_ticket_id(&mut conn, ticket_id) {
         Ok(pages) => {
-            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+            let pages = match repository::filter_pages_for_user(
+                &mut conn,
+                pages,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
                 Ok(p) => p,
                 Err(_) => return errors::internal("Failed to check page visibility"),
             };
-            debug!(ticket_id = ticket_id, count = pages.len(), "Found documentation pages for ticket");
+            debug!(
+                ticket_id = ticket_id,
+                count = pages.len(),
+                "Found documentation pages for ticket"
+            );
             match to_page_responses(pages, &mut conn) {
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(e) => {
             error!(ticket_id = ticket_id, error = ?e, "Error fetching documentation pages for ticket");
             errors::internal("Failed to fetch documentation pages")
@@ -1210,23 +1320,23 @@ pub struct DocumentationPageExport {
 }
 
 // Export all documentation pages with their Yjs content for markdown export
-pub async fn export_documentation_pages(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn export_documentation_pages(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can export documentation");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can export documentation",
+        );
     }
 
     match repository::get_documentation_pages(&mut conn) {
         Ok(pages) => {
-            let export_pages: Vec<DocumentationPageExport> = pages.into_iter().map(|page| {
-                DocumentationPageExport {
+            let export_pages: Vec<DocumentationPageExport> = pages
+                .into_iter()
+                .map(|page| DocumentationPageExport {
                     id: page.id,
                     uuid: page.uuid,
                     title: page.title,
@@ -1238,10 +1348,10 @@ pub async fn export_documentation_pages(
                     yjs_document: page.yjs_document,
                     created_at: page.created_at,
                     updated_at: page.updated_at,
-                }
-            }).collect();
+                })
+                .collect();
             HttpResponse::Ok().json(export_pages)
-        },
+        }
         Err(_) => errors::internal("Failed to fetch pages for export"),
     }
 }
@@ -1274,7 +1384,8 @@ pub async fn export_page_as_markdown(
                 Some(page.uuid),
                 0,
                 &locale,
-            ).unwrap_or_else(|| String::from("*Empty document*"))
+            )
+            .unwrap_or_else(|| String::from("*Empty document*"))
         }
         None => String::from("*Empty document*"),
     };
@@ -1286,7 +1397,10 @@ pub async fn export_page_as_markdown(
 
     HttpResponse::Ok()
         .content_type("text/markdown; charset=utf-8")
-        .insert_header(("Content-Disposition", format!("attachment; filename=\"{}\"", filename)))
+        .insert_header((
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", filename),
+        ))
         .body(full_markdown)
 }
 
@@ -1376,13 +1490,17 @@ pub async fn create_documentation_page_from_ticket(
             }
 
             // Auto-add to "Tickets" system collection
-            if let Ok(tickets_collection) = repository::documentation_collections::get_collection_by_slug(&mut conn, "tickets") {
+            if let Ok(tickets_collection) =
+                repository::documentation_collections::get_collection_by_slug(&mut conn, "tickets")
+            {
                 let entry = crate::models::NewDocumentationCollectionPage {
                     collection_id: tickets_collection.id,
                     page_id: page.id,
                     created_by: Some(user_uuid),
                 };
-                if let Err(e) = repository::documentation_collections::add_page_to_collection(&mut conn, entry) {
+                if let Err(e) =
+                    repository::documentation_collections::add_page_to_collection(&mut conn, entry)
+                {
                     error!(error = ?e, "Failed to add page to Tickets collection");
                 }
             }
@@ -1397,7 +1515,7 @@ pub async fn create_documentation_page_from_ticket(
                 .await;
 
             HttpResponse::Created().json(page)
-        },
+        }
         Err(e) => {
             error!(ticket_id = ticket_id, error = ?e, "Error creating documentation page from ticket");
             errors::internal("Failed to create documentation page")
@@ -1406,10 +1524,7 @@ pub async fn create_documentation_page_from_ticket(
 }
 
 // Get archived documentation pages
-pub async fn get_archived_pages(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_archived_pages(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
@@ -1417,7 +1532,12 @@ pub async fn get_archived_pages(
 
     match repository::get_pages_by_status(&mut conn, DocumentationStatus::Archived) {
         Ok(pages) => {
-            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+            let pages = match repository::filter_pages_for_user(
+                &mut conn,
+                pages,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
                 Ok(p) => p,
                 Err(_) => return errors::internal("Failed to check page visibility"),
             };
@@ -1425,16 +1545,13 @@ pub async fn get_archived_pages(
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::internal("Failed to fetch archived pages"),
     }
 }
 
 // Get trashed (soft-deleted) documentation pages
-pub async fn get_trashed_pages(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_trashed_pages(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
@@ -1442,7 +1559,12 @@ pub async fn get_trashed_pages(
 
     match repository::get_pages_by_status(&mut conn, DocumentationStatus::Deleted) {
         Ok(pages) => {
-            let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+            let pages = match repository::filter_pages_for_user(
+                &mut conn,
+                pages,
+                &user_uuid,
+                is_admin(&claims),
+            ) {
                 Ok(p) => p,
                 Err(_) => return errors::internal("Failed to check page visibility"),
             };
@@ -1450,7 +1572,7 @@ pub async fn get_trashed_pages(
                 Ok(responses) => HttpResponse::Ok().json(responses),
                 Err(err) => HttpResponse::InternalServerError().json(err),
             }
-        },
+        }
         Err(_) => errors::internal("Failed to fetch trashed pages"),
     }
 }
@@ -1471,7 +1593,9 @@ pub async fn get_page_visibility(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can view page visibility");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can view page visibility",
+        );
     }
 
     let page_id = path.into_inner();
@@ -1524,15 +1648,24 @@ pub async fn set_page_visibility(
     let created_by = Some(user_uuid);
 
     // Parse user UUIDs
-    let user_uuids: Vec<Uuid> = body.user_uuids.as_ref()
+    let user_uuids: Vec<Uuid> = body
+        .user_uuids
+        .as_ref()
         .map(|uuids| {
-            uuids.iter()
+            uuids
+                .iter()
                 .filter_map(|s| Uuid::parse_str(s).ok())
                 .collect()
         })
         .unwrap_or_default();
 
-    match repository::set_page_visibility(&mut conn, page_id, body.group_ids.clone(), user_uuids, created_by) {
+    match repository::set_page_visibility(
+        &mut conn,
+        page_id,
+        body.group_ids.clone(),
+        user_uuids,
+        created_by,
+    ) {
         Ok(entries) => HttpResponse::Ok().json(entries),
         Err(e) => {
             error!(error = ?e, "Failed to set page visibility");
@@ -1556,7 +1689,9 @@ pub async fn restore_page(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can restore documentation pages");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can restore documentation pages",
+        );
     }
 
     match repository::get_documentation_page(page_id, &mut conn) {
@@ -1573,36 +1708,42 @@ pub async fn restore_page(
             match repository::update_documentation_page(&mut conn, page_id, &page_update) {
                 Ok(restored_page) => {
                     // Re-index in search
-                    indexing_tasks::spawn_index_documentation(search_service.get_ref().clone(), restored_page.clone());
+                    indexing_tasks::spawn_index_documentation(
+                        search_service.get_ref().clone(),
+                        restored_page.clone(),
+                    );
 
                     // Broadcast SSE event for status change to draft
-                    let source_client_id = req.headers()
+                    let source_client_id = req
+                        .headers()
                         .get("X-SSE-Client-Id")
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string());
-                    sse_state.broadcast_event_from(
-                        crate::handlers::sse::SseEvent::DocumentationUpdated {
-                            document_id: page_id,
-                            field: "status".to_string(),
-                            value: serde_json::json!("draft"),
-                            updated_by: claims.sub.clone(),
-                            timestamp: chrono::Utc::now(),
-                        },
-                        source_client_id,
-                    ).await;
+                    sse_state
+                        .broadcast_event_from(
+                            crate::handlers::sse::SseEvent::DocumentationUpdated {
+                                document_id: page_id,
+                                field: "status".to_string(),
+                                value: serde_json::json!("draft"),
+                                updated_by: claims.sub.clone(),
+                                timestamp: chrono::Utc::now(),
+                            },
+                            source_client_id,
+                        )
+                        .await;
 
                     info!(page_id = page_id, restored_by = %claims.name, "Documentation page restored");
                     match to_page_response(restored_page, &mut conn) {
                         Ok(response) => HttpResponse::Ok().json(response),
                         Err(err) => HttpResponse::InternalServerError().json(err),
                     }
-                },
+                }
                 Err(e) => {
                     error!(page_id = page_id, error = ?e, "Error restoring documentation page");
                     errors::internal("Failed to restore documentation page")
-                },
+                }
             }
-        },
+        }
         Err(_) => errors::not_found_msg("Documentation page not found"),
     }
 }
@@ -1621,21 +1762,24 @@ pub async fn permanently_delete_page(
     };
 
     if !is_admin(&claims) {
-        return errors::forbidden("Forbidden: Only administrators can permanently delete documentation pages");
+        return errors::forbidden(
+            "Forbidden: Only administrators can permanently delete documentation pages",
+        );
     }
 
     match repository::get_documentation_page(page_id, &mut conn) {
-        Ok(_) => {
-            match repository::permanently_delete_page(page_id, &mut conn) {
-                Ok(_) => {
-                    indexing_tasks::spawn_delete_documentation(search_service.get_ref().clone(), page_id);
-                    info!(page_id = page_id, deleted_by = %claims.name, "Documentation page permanently deleted");
-                    HttpResponse::NoContent().finish()
-                },
-                Err(e) => {
-                    error!(page_id = page_id, error = ?e, "Error permanently deleting documentation page");
-                    errors::internal("Failed to permanently delete documentation page")
-                },
+        Ok(_) => match repository::permanently_delete_page(page_id, &mut conn) {
+            Ok(_) => {
+                indexing_tasks::spawn_delete_documentation(
+                    search_service.get_ref().clone(),
+                    page_id,
+                );
+                info!(page_id = page_id, deleted_by = %claims.name, "Documentation page permanently deleted");
+                HttpResponse::NoContent().finish()
+            }
+            Err(e) => {
+                error!(page_id = page_id, error = ?e, "Error permanently deleting documentation page");
+                errors::internal("Failed to permanently delete documentation page")
             }
         },
         Err(_) => errors::not_found_msg("Documentation page not found"),
@@ -1715,10 +1859,7 @@ pub async fn unsubscribe_from_page(
 // ============================================================================
 
 /// Get all starred pages for the current user (for sidebar)
-pub async fn get_starred_pages(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_starred_pages(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
         Err(e) => return e,
@@ -1905,9 +2046,9 @@ pub async fn create_page_ticket_link(
     }
     let page_id = path.into_inner();
     let req_body = body.into_inner();
-    let link_type = req_body.link_type.unwrap_or_else(|| {
-        repository::documentation_page_tickets::LINK_REFERENCES.to_string()
-    });
+    let link_type = req_body
+        .link_type
+        .unwrap_or_else(|| repository::documentation_page_tickets::LINK_REFERENCES.to_string());
     if let Err(msg) = repository::documentation_page_tickets::validate_link_type(&link_type) {
         return HttpResponse::BadRequest().json(json!({"error": msg}));
     }
@@ -1965,7 +2106,8 @@ pub async fn list_ticket_doc_links(
     };
     let ticket_id = path.into_inner();
 
-    let links = match repository::documentation_page_tickets::links_for_ticket(&mut conn, ticket_id) {
+    let links = match repository::documentation_page_tickets::links_for_ticket(&mut conn, ticket_id)
+    {
         Ok(rows) => rows,
         Err(e) => {
             error!(error = ?e, "Failed to load ticket<->doc links");
@@ -1995,10 +2137,11 @@ pub async fn list_ticket_doc_links(
     // Apply per-user visibility filtering — the same page_visibility
     // rules that gate page reads must gate this list, otherwise the
     // ticket panel would leak doc titles past their group boundary.
-    let pages = match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
-        Ok(p) => p,
-        Err(_) => return errors::internal("Failed to filter pages"),
-    };
+    let pages =
+        match repository::filter_pages_for_user(&mut conn, pages, &user_uuid, is_admin(&claims)) {
+            Ok(p) => p,
+            Err(_) => return errors::internal("Failed to filter pages"),
+        };
     let pages_by_id: std::collections::HashMap<i32, DocumentationPage> =
         pages.into_iter().map(|p| (p.id, p)).collect();
 

@@ -1,12 +1,12 @@
-use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
-use serde_json::json;
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
+use serde_json::json;
 use tracing::error;
 use urlencoding;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 // Auth providers are now configured via environment variables
 use crate::config_utils;
 use crate::models::AuthProvider;
@@ -16,7 +16,8 @@ fn get_default_microsoft_provider_id() -> Result<i32, diesel::result::Error> {
     // Using environment variables - return fixed ID for Microsoft
     if config_utils::get_microsoft_client_id().is_ok()
         && config_utils::get_microsoft_client_secret().is_ok()
-        && config_utils::get_microsoft_tenant_id().is_ok() {
+        && config_utils::get_microsoft_tenant_id().is_ok()
+    {
         Ok(2) // Microsoft provider ID
     } else {
         Err(diesel::result::Error::NotFound)
@@ -25,17 +26,30 @@ fn get_default_microsoft_provider_id() -> Result<i32, diesel::result::Error> {
 
 fn get_provider_by_id(provider_id: i32) -> Result<AuthProvider, diesel::result::Error> {
     match provider_id {
-        1 => Ok(AuthProvider::new(1, "Local".to_string(), "local".to_string(), true, true)),
+        1 => Ok(AuthProvider::new(
+            1,
+            "Local".to_string(),
+            "local".to_string(),
+            true,
+            true,
+        )),
         2 => {
             if config_utils::get_microsoft_client_id().is_ok()
                 && config_utils::get_microsoft_client_secret().is_ok()
-                && config_utils::get_microsoft_tenant_id().is_ok() {
-                Ok(AuthProvider::new(2, "Microsoft".to_string(), "microsoft".to_string(), true, false))
+                && config_utils::get_microsoft_tenant_id().is_ok()
+            {
+                Ok(AuthProvider::new(
+                    2,
+                    "Microsoft".to_string(),
+                    "microsoft".to_string(),
+                    true,
+                    false,
+                ))
             } else {
                 Err(diesel::result::Error::NotFound)
             }
-        },
-        _ => Err(diesel::result::Error::NotFound)
+        }
+        _ => Err(diesel::result::Error::NotFound),
     }
 }
 
@@ -53,51 +67,74 @@ pub struct MicrosoftGraphRequest {
 /// Provides helpful permission guidance based on the endpoint being accessed
 fn get_permission_help_message(endpoint: &str) -> serde_json::Value {
     // Determine the resource type from the endpoint
-    let (resource_type, permissions) = if endpoint.contains("/users") || endpoint.starts_with("/users") {
-        ("Users", json!({
-            "required_permissions": ["User.Read.All"],
-            "recommended_permissions": ["User.ReadWrite.All"],
-            "description": "Read user profiles and basic directory information"
-        }))
+    let (resource_type, permissions) = if endpoint.contains("/users")
+        || endpoint.starts_with("/users")
+    {
+        (
+            "Users",
+            json!({
+                "required_permissions": ["User.Read.All"],
+                "recommended_permissions": ["User.ReadWrite.All"],
+                "description": "Read user profiles and basic directory information"
+            }),
+        )
     } else if endpoint.contains("/devices") || endpoint.starts_with("/devices") {
-        ("Devices", json!({
-            "required_permissions": ["Device.Read.All"],
-            "recommended_permissions": ["Device.ReadWrite.All"],
-            "description": "Read device information from Intune and Azure AD"
-        }))
+        (
+            "Devices",
+            json!({
+                "required_permissions": ["Device.Read.All"],
+                "recommended_permissions": ["Device.ReadWrite.All"],
+                "description": "Read device information from Intune and Azure AD"
+            }),
+        )
     } else if endpoint.contains("/groups") || endpoint.starts_with("/groups") {
-        ("Groups", json!({
-            "required_permissions": ["Group.Read.All"],
-            "recommended_permissions": ["Group.ReadWrite.All"],
-            "description": "Read group information and memberships"
-        }))
+        (
+            "Groups",
+            json!({
+                "required_permissions": ["Group.Read.All"],
+                "recommended_permissions": ["Group.ReadWrite.All"],
+                "description": "Read group information and memberships"
+            }),
+        )
     } else if endpoint.contains("/directoryObjects") || endpoint.starts_with("/directoryObjects") {
-        ("Directory Objects", json!({
-            "required_permissions": ["Directory.Read.All"],
-            "recommended_permissions": ["Directory.ReadWrite.All"],
-            "description": "Read directory objects including users, groups, and devices"
-        }))
+        (
+            "Directory Objects",
+            json!({
+                "required_permissions": ["Directory.Read.All"],
+                "recommended_permissions": ["Directory.ReadWrite.All"],
+                "description": "Read directory objects including users, groups, and devices"
+            }),
+        )
     } else if endpoint.contains("/organization") || endpoint.starts_with("/organization") {
-        ("Organization", json!({
-            "required_permissions": ["Organization.Read.All"],
-            "recommended_permissions": ["Organization.Read.All"],
-            "description": "Read organization and tenant information"
-        }))
+        (
+            "Organization",
+            json!({
+                "required_permissions": ["Organization.Read.All"],
+                "recommended_permissions": ["Organization.Read.All"],
+                "description": "Read organization and tenant information"
+            }),
+        )
     } else if endpoint.contains("/deviceManagement") || endpoint.starts_with("/deviceManagement") {
-        ("Device Management (Intune)", json!({
-            "required_permissions": ["DeviceManagementManagedDevices.Read.All"],
-            "recommended_permissions": [
-                "DeviceManagementManagedDevices.ReadWrite.All",
-                "DeviceManagementConfiguration.Read.All"
-            ],
-            "description": "Read and manage devices enrolled in Microsoft Intune"
-        }))
+        (
+            "Device Management (Intune)",
+            json!({
+                "required_permissions": ["DeviceManagementManagedDevices.Read.All"],
+                "recommended_permissions": [
+                    "DeviceManagementManagedDevices.ReadWrite.All",
+                    "DeviceManagementConfiguration.Read.All"
+                ],
+                "description": "Read and manage devices enrolled in Microsoft Intune"
+            }),
+        )
     } else {
-        ("Microsoft Graph", json!({
-            "required_permissions": ["Directory.Read.All"],
-            "recommended_permissions": ["Directory.ReadWrite.All"],
-            "description": "General directory read access"
-        }))
+        (
+            "Microsoft Graph",
+            json!({
+                "required_permissions": ["Directory.Read.All"],
+                "recommended_permissions": ["Directory.ReadWrite.All"],
+                "description": "General directory read access"
+            }),
+        )
     };
 
     json!({
@@ -150,7 +187,9 @@ pub async fn process_graph_request(
                 Ok(provider_id) => provider_id,
                 Err(e) => {
                     if let diesel::result::Error::NotFound = e {
-                        return errors::not_found_msg("No Microsoft authentication provider configured");
+                        return errors::not_found_msg(
+                            "No Microsoft authentication provider configured",
+                        );
                     } else {
                         error!(error = ?e, "Error getting default Microsoft provider");
                         return errors::internal("Failed to retrieve Microsoft provider");
@@ -164,10 +203,12 @@ pub async fn process_graph_request(
     let provider = match get_provider_by_id(provider_id_val) {
         Ok(p) => {
             if p.provider_type != "microsoft" {
-                return errors::bad_request("This endpoint only supports Microsoft Graph API requests");
+                return errors::bad_request(
+                    "This endpoint only supports Microsoft Graph API requests",
+                );
             }
             p
-        },
+        }
         Err(e) => {
             if let diesel::result::Error::NotFound = e {
                 return errors::not_found_msg("Authentication provider not found");
@@ -210,27 +251,27 @@ pub async fn process_graph_request(
     // Make the token request
     let client = reqwest::Client::new();
     let token_response = match client
-        .post(format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"))
+        .post(format!(
+            "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+        ))
         .form(&params)
         .send()
         .await
     {
-        Ok(response) => {
-            match response.json::<serde_json::Value>().await {
-                Ok(token_data) => {
-                    if token_data.get("access_token").is_none() {
-                        return HttpResponse::BadRequest().json(json!({
+        Ok(response) => match response.json::<serde_json::Value>().await {
+            Ok(token_data) => {
+                if token_data.get("access_token").is_none() {
+                    return HttpResponse::BadRequest().json(json!({
                             "status": "error",
                             "message": "Failed to obtain access token",
                             "details": token_data.get("error_description").and_then(|v| v.as_str()).unwrap_or("Unknown error")
                         }));
-                    }
-                    token_data
-                },
-                Err(e) => {
-                    error!(error = ?e, "Error parsing token response");
-                    return errors::internal("Failed to parse Microsoft authentication response");
                 }
+                token_data
+            }
+            Err(e) => {
+                error!(error = ?e, "Error parsing token response");
+                return errors::internal("Failed to parse Microsoft authentication response");
             }
         },
         Err(e) => {
@@ -244,28 +285,36 @@ pub async fn process_graph_request(
     // Build the Microsoft Graph API request
     let endpoint = &request_data.endpoint;
     let method = request_data.method.as_deref().unwrap_or("GET");
-    
+
     // Build the URL with query parameters if provided
     let mut url = format!("https://graph.microsoft.com/v1.0{endpoint}");
-    
+
     if let Some(query) = &request_data.query_params {
         if let Some(obj) = query.as_object() {
             let mut query_string = String::new();
-            
+
             for (key, value) in obj {
                 if !query_string.is_empty() {
                     query_string.push('&');
                 } else {
                     query_string.push('?');
                 }
-                
+
                 if let Some(str_val) = value.as_str() {
-                    query_string.push_str(&format!("{}={}", urlencoding::encode(key), urlencoding::encode(str_val)));
+                    query_string.push_str(&format!(
+                        "{}={}",
+                        urlencoding::encode(key),
+                        urlencoding::encode(str_val)
+                    ));
                 } else {
-                    query_string.push_str(&format!("{}={}", urlencoding::encode(key), urlencoding::encode(&value.to_string())));
+                    query_string.push_str(&format!(
+                        "{}={}",
+                        urlencoding::encode(key),
+                        urlencoding::encode(&value.to_string())
+                    ));
                 }
             }
-            
+
             url.push_str(&query_string);
         }
     }
@@ -284,7 +333,7 @@ pub async fn process_graph_request(
 
     // Add the authorization header
     request_builder = request_builder.header("Authorization", format!("Bearer {access_token}"));
-    
+
     // Add custom headers if provided
     if let Some(headers) = &request_data.headers {
         if let Some(obj) = headers.as_object() {
@@ -340,7 +389,7 @@ pub async fn process_graph_request(
                             "permission_help": permission_help,
                             "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
                         }));
-                    },
+                    }
                     Err(_) => {
                         return HttpResponse::Forbidden().json(json!({
                             "status": "error",
@@ -374,13 +423,13 @@ pub async fn process_graph_request(
                             "data": data
                         }))
                     }
-                },
+                }
                 Err(e) => {
                     error!(error = ?e, "Error parsing Microsoft Graph response");
                     errors::internal("Failed to parse Microsoft Graph response")
                 }
             }
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error sending Microsoft Graph request");
             errors::internal("Failed to send Microsoft Graph request")
@@ -396,27 +445,35 @@ pub async fn get_graph_users(
 ) -> impl Responder {
     // Convert the query parameters to what Microsoft Graph needs, only including non-empty values
     let mut query_params = serde_json::Map::new();
-    
+
     if let Some(filter) = query.get("filter") {
         if !filter.is_empty() {
-            query_params.insert("$filter".to_string(), serde_json::Value::String(filter.clone()));
+            query_params.insert(
+                "$filter".to_string(),
+                serde_json::Value::String(filter.clone()),
+            );
         }
     }
-    
+
     if let Some(select) = query.get("select") {
         if !select.is_empty() {
-            query_params.insert("$select".to_string(), serde_json::Value::String(select.clone()));
+            query_params.insert(
+                "$select".to_string(),
+                serde_json::Value::String(select.clone()),
+            );
         }
     }
-    
+
     if let Some(top) = query.get("top") {
         if !top.is_empty() {
             query_params.insert("$top".to_string(), serde_json::Value::String(top.clone()));
         }
     }
-    
+
     // Handle providerId separately as it's not a Graph API parameter
-    let provider_id = query.get("providerId").and_then(|id| id.parse::<i32>().ok());
+    let provider_id = query
+        .get("providerId")
+        .and_then(|id| id.parse::<i32>().ok());
 
     // Create a Graph request
     let graph_request = MicrosoftGraphRequest {
@@ -424,7 +481,11 @@ pub async fn get_graph_users(
         endpoint: "/users".to_string(),
         method: Some("GET".to_string()),
         body: None,
-        query_params: if query_params.is_empty() { None } else { Some(serde_json::Value::Object(query_params)) },
+        query_params: if query_params.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(query_params))
+        },
         headers: None,
     };
 
@@ -439,27 +500,35 @@ pub async fn get_graph_devices(
 ) -> impl Responder {
     // Convert the query parameters to what Microsoft Graph needs, only including non-empty values
     let mut query_params = serde_json::Map::new();
-    
+
     if let Some(filter) = query.get("filter") {
         if !filter.is_empty() {
-            query_params.insert("$filter".to_string(), serde_json::Value::String(filter.clone()));
+            query_params.insert(
+                "$filter".to_string(),
+                serde_json::Value::String(filter.clone()),
+            );
         }
     }
-    
+
     if let Some(select) = query.get("select") {
         if !select.is_empty() {
-            query_params.insert("$select".to_string(), serde_json::Value::String(select.clone()));
+            query_params.insert(
+                "$select".to_string(),
+                serde_json::Value::String(select.clone()),
+            );
         }
     }
-    
+
     if let Some(top) = query.get("top") {
         if !top.is_empty() {
             query_params.insert("$top".to_string(), serde_json::Value::String(top.clone()));
         }
     }
-    
+
     // Handle providerId separately as it's not a Graph API parameter
-    let provider_id = query.get("providerId").and_then(|id| id.parse::<i32>().ok());
+    let provider_id = query
+        .get("providerId")
+        .and_then(|id| id.parse::<i32>().ok());
 
     // Create a Graph request
     let graph_request = MicrosoftGraphRequest {
@@ -467,7 +536,11 @@ pub async fn get_graph_devices(
         endpoint: "/devices".to_string(),
         method: Some("GET".to_string()),
         body: None,
-        query_params: if query_params.is_empty() { None } else { Some(serde_json::Value::Object(query_params)) },
+        query_params: if query_params.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(query_params))
+        },
         headers: None,
     };
 
@@ -482,27 +555,35 @@ pub async fn get_graph_groups(
 ) -> impl Responder {
     // Convert the query parameters to what Microsoft Graph needs, only including non-empty values
     let mut query_params = serde_json::Map::new();
-    
+
     if let Some(filter) = query.get("filter") {
         if !filter.is_empty() {
-            query_params.insert("$filter".to_string(), serde_json::Value::String(filter.clone()));
+            query_params.insert(
+                "$filter".to_string(),
+                serde_json::Value::String(filter.clone()),
+            );
         }
     }
-    
+
     if let Some(select) = query.get("select") {
         if !select.is_empty() {
-            query_params.insert("$select".to_string(), serde_json::Value::String(select.clone()));
+            query_params.insert(
+                "$select".to_string(),
+                serde_json::Value::String(select.clone()),
+            );
         }
     }
-    
+
     if let Some(top) = query.get("top") {
         if !top.is_empty() {
             query_params.insert("$top".to_string(), serde_json::Value::String(top.clone()));
         }
     }
-    
+
     // Handle providerId separately as it's not a Graph API parameter
-    let provider_id = query.get("providerId").and_then(|id| id.parse::<i32>().ok());
+    let provider_id = query
+        .get("providerId")
+        .and_then(|id| id.parse::<i32>().ok());
 
     // Create a Graph request
     let graph_request = MicrosoftGraphRequest {
@@ -510,7 +591,11 @@ pub async fn get_graph_groups(
         endpoint: "/groups".to_string(),
         method: Some("GET".to_string()),
         body: None,
-        query_params: if query_params.is_empty() { None } else { Some(serde_json::Value::Object(query_params)) },
+        query_params: if query_params.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(query_params))
+        },
         headers: None,
     };
 
@@ -525,27 +610,35 @@ pub async fn get_graph_directory_objects(
 ) -> impl Responder {
     // Convert the query parameters to what Microsoft Graph needs, only including non-empty values
     let mut query_params = serde_json::Map::new();
-    
+
     if let Some(filter) = query.get("filter") {
         if !filter.is_empty() {
-            query_params.insert("$filter".to_string(), serde_json::Value::String(filter.clone()));
+            query_params.insert(
+                "$filter".to_string(),
+                serde_json::Value::String(filter.clone()),
+            );
         }
     }
-    
+
     if let Some(select) = query.get("select") {
         if !select.is_empty() {
-            query_params.insert("$select".to_string(), serde_json::Value::String(select.clone()));
+            query_params.insert(
+                "$select".to_string(),
+                serde_json::Value::String(select.clone()),
+            );
         }
     }
-    
+
     if let Some(top) = query.get("top") {
         if !top.is_empty() {
             query_params.insert("$top".to_string(), serde_json::Value::String(top.clone()));
         }
     }
-    
+
     // Handle providerId separately as it's not a Graph API parameter
-    let provider_id = query.get("providerId").and_then(|id| id.parse::<i32>().ok());
+    let provider_id = query
+        .get("providerId")
+        .and_then(|id| id.parse::<i32>().ok());
 
     // Create a Graph request for directory objects
     let graph_request = MicrosoftGraphRequest {
@@ -553,10 +646,14 @@ pub async fn get_graph_directory_objects(
         endpoint: "/directoryObjects".to_string(),
         method: Some("GET".to_string()),
         body: None,
-        query_params: if query_params.is_empty() { None } else { Some(serde_json::Value::Object(query_params)) },
+        query_params: if query_params.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(query_params))
+        },
         headers: None,
     };
 
     // Process the request
     process_graph_request(db_pool, req, web::Json(graph_request)).await
-} 
+}

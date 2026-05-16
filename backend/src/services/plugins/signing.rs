@@ -58,7 +58,9 @@ pub const MAX_ARCHIVE_SIZE: usize = 2 * 1024 * 1024;
 /// key, since that weakens the trust root for anyone who forgets to
 /// set the env.
 pub fn root_pubkey() -> Option<&'static str> {
-    option_env!("NOSDESK_ROOT_PUBKEY").map(str::trim).filter(|s| !s.is_empty())
+    option_env!("NOSDESK_ROOT_PUBKEY")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
 }
 
 /// `true` if `pubkey_b64` matches the compiled-in Nosdesk root pubkey.
@@ -246,8 +248,8 @@ pub fn canonical_sign_input(digest_hex: &str) -> Vec<u8> {
 /// digest and later name-based lookups would disagree.
 pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, SigningError> {
     let reader = std::io::Cursor::new(bytes);
-    let mut zip = zip::ZipArchive::new(reader)
-        .map_err(|e| SigningError::ArchiveFormat(e.to_string()))?;
+    let mut zip =
+        zip::ZipArchive::new(reader).map_err(|e| SigningError::ArchiveFormat(e.to_string()))?;
     let mut entries = Vec::with_capacity(zip.len());
     let mut seen = std::collections::HashSet::with_capacity(zip.len());
     let mut total: u64 = 0;
@@ -301,7 +303,10 @@ pub fn read_archive(bytes: &[u8]) -> Result<Vec<ArchiveEntry>, SigningError> {
 /// Callers should prefer this over re-opening the raw zip: it
 /// guarantees installs consume the same bytes that verification did.
 pub fn find_entry<'a>(files: &'a [ArchiveEntry], name: &str) -> Option<&'a [u8]> {
-    files.iter().find(|e| e.name == name).map(|e| e.bytes.as_slice())
+    files
+        .iter()
+        .find(|e| e.name == name)
+        .map(|e| e.bytes.as_slice())
 }
 
 /// Full verification: read the archive, pull the envelope, recompute
@@ -409,11 +414,14 @@ pub fn fingerprint(pubkey: &[u8]) -> String {
 /// caller persists the PKCS8 blob encrypted at rest.
 pub fn generate_keypair() -> Result<(Vec<u8>, Vec<u8>), SigningError> {
     let rng = SystemRandom::new();
-    let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng)
-        .map_err(|e| SigningError::KeyGen(format!("{e:?}")))?;
+    let pkcs8 =
+        Ed25519KeyPair::generate_pkcs8(&rng).map_err(|e| SigningError::KeyGen(format!("{e:?}")))?;
     let keypair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
         .map_err(|e| SigningError::KeyGen(format!("{e:?}")))?;
-    Ok((pkcs8.as_ref().to_vec(), keypair.public_key().as_ref().to_vec()))
+    Ok((
+        pkcs8.as_ref().to_vec(),
+        keypair.public_key().as_ref().to_vec(),
+    ))
 }
 
 // ---------- base64 shim ----------
@@ -483,21 +491,34 @@ mod tests {
     #[test]
     fn canonical_digest_is_order_independent() {
         let a = vec![
-            ArchiveEntry { name: "manifest.json".into(), bytes: b"{\"name\":\"x\"}".to_vec() },
-            ArchiveEntry { name: "bundle.js".into(), bytes: b"export const a = 1;".to_vec() },
+            ArchiveEntry {
+                name: "manifest.json".into(),
+                bytes: b"{\"name\":\"x\"}".to_vec(),
+            },
+            ArchiveEntry {
+                name: "bundle.js".into(),
+                bytes: b"export const a = 1;".to_vec(),
+            },
         ];
         let b = vec![
-            ArchiveEntry { name: "bundle.js".into(), bytes: b"export const a = 1;".to_vec() },
-            ArchiveEntry { name: "manifest.json".into(), bytes: b"{\"name\":\"x\"}".to_vec() },
+            ArchiveEntry {
+                name: "bundle.js".into(),
+                bytes: b"export const a = 1;".to_vec(),
+            },
+            ArchiveEntry {
+                name: "manifest.json".into(),
+                bytes: b"{\"name\":\"x\"}".to_vec(),
+            },
         ];
         assert_eq!(canonical_digest(&a), canonical_digest(&b));
     }
 
     #[test]
     fn canonical_digest_ignores_signature_file() {
-        let base = vec![
-            ArchiveEntry { name: "manifest.json".into(), bytes: b"{}".to_vec() },
-        ];
+        let base = vec![ArchiveEntry {
+            name: "manifest.json".into(),
+            bytes: b"{}".to_vec(),
+        }];
         let mut with_sig = base.clone();
         with_sig.push(ArchiveEntry {
             name: SIGNATURE_FILE.into(),
@@ -510,7 +531,10 @@ mod tests {
     fn roundtrip_sign_then_verify() {
         let kp = rng_keypair();
         let zip = make_zip(&[
-            ("manifest.json", b"{\"name\":\"hello\",\"displayName\":\"Hello\",\"version\":\"0.1.0\"}"),
+            (
+                "manifest.json",
+                b"{\"name\":\"hello\",\"displayName\":\"Hello\",\"version\":\"0.1.0\"}",
+            ),
             ("bundle.js", b"export default {};"),
         ]);
         let entries = read_archive(&zip).unwrap();
@@ -521,7 +545,11 @@ mod tests {
         assert_eq!(verified.envelope.signer_source, sources::LOCAL);
         assert_eq!(verified.envelope.algorithm, "ed25519");
         assert_eq!(verified.envelope.version, ENVELOPE_VERSION);
-        let manifest = verified.files.iter().find(|f| f.name == "manifest.json").unwrap();
+        let manifest = verified
+            .files
+            .iter()
+            .find(|f| f.name == "manifest.json")
+            .unwrap();
         assert!(manifest.bytes.starts_with(b"{\"name\":\"hello\""));
     }
 
@@ -640,10 +668,7 @@ mod tests {
         let envelope = sign_entries(&entries, &kp, sources::LOCAL);
         let mut envelope_bytes = serde_json::to_vec(&envelope).unwrap();
         envelope_bytes.extend(std::iter::repeat(b' ').take(MAX_ENVELOPE_SIZE + 1));
-        let bloated = make_zip(&[
-            ("manifest.json", b"{}"),
-            (SIGNATURE_FILE, &envelope_bytes),
-        ]);
+        let bloated = make_zip(&[("manifest.json", b"{}"), (SIGNATURE_FILE, &envelope_bytes)]);
         match verify_archive(&bloated) {
             Err(SigningError::EnvelopeTooLarge) => {}
             other => panic!("expected EnvelopeTooLarge, got {other:?}"),
@@ -667,7 +692,10 @@ mod tests {
             .insert("evil".into(), serde_json::Value::String("xss".into()));
         let signed = make_zip(&[
             ("manifest.json", b"{}"),
-            (SIGNATURE_FILE, serde_json::to_vec(&as_json).unwrap().as_slice()),
+            (
+                SIGNATURE_FILE,
+                serde_json::to_vec(&as_json).unwrap().as_slice(),
+            ),
         ]);
         match verify_archive(&signed) {
             Err(SigningError::MalformedEnvelope(_)) => {}

@@ -23,8 +23,8 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::{Device, Group, UserEmail, UserResponse};
 use crate::repository::{
-    devices as devices_repo, groups as groups_repo, user_emails as user_emails_repo,
-    user_helpers, users as users_repo,
+    devices as devices_repo, groups as groups_repo, user_emails as user_emails_repo, user_helpers,
+    users as users_repo,
 };
 use crate::schema::tickets;
 

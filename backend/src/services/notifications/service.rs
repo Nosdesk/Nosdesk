@@ -15,7 +15,9 @@ use crate::models::{NewNotification, Notification, NotificationResponse};
 
 use super::channels::{ChannelError, NotificationDeliveryChannel};
 use super::preferences::PreferenceService;
-use super::types::{DeliverableNotification, NotificationChannel, NotificationEntity, NotificationPayload};
+use super::types::{
+    DeliverableNotification, NotificationChannel, NotificationEntity, NotificationPayload,
+};
 
 /// Central notification service that orchestrates notification creation and delivery
 pub struct NotificationService {
@@ -151,7 +153,9 @@ impl NotificationService {
             deliverable_channels
                 .iter()
                 .filter_map(|channel_type| {
-                    channels.get(channel_type).map(|channel| (*channel_type, channel.clone()))
+                    channels
+                        .get(channel_type)
+                        .map(|channel| (*channel_type, channel.clone()))
                 })
                 .collect()
         };
@@ -217,7 +221,10 @@ impl NotificationService {
                     map.insert("slug".to_string(), serde_json::json!(slug));
                 }
                 _ => {
-                    map.insert("ticket_id".to_string(), serde_json::json!(payload.entity.ticket_id()));
+                    map.insert(
+                        "ticket_id".to_string(),
+                        serde_json::json!(payload.entity.ticket_id()),
+                    );
                 }
             }
         } else {
@@ -309,7 +316,7 @@ impl NotificationService {
         }
 
         // Query database
-        use crate::schema::notification_types::dsl::{notification_types, code, id as id_col};
+        use crate::schema::notification_types::dsl::{code, id as id_col, notification_types};
 
         let mut conn = self
             .pool

@@ -131,22 +131,34 @@ mod tests {
     fn delete_cookies_have_zero_max_age() {
         let del_access = delete_access_token_cookie();
         assert_eq!(del_access.value(), "");
-        assert_eq!(del_access.max_age(), Some(actix_web::cookie::time::Duration::seconds(0)));
+        assert_eq!(
+            del_access.max_age(),
+            Some(actix_web::cookie::time::Duration::seconds(0))
+        );
 
         let del_refresh = delete_refresh_token_cookie();
         assert_eq!(del_refresh.value(), "");
-        assert_eq!(del_refresh.max_age(), Some(actix_web::cookie::time::Duration::seconds(0)));
+        assert_eq!(
+            del_refresh.max_age(),
+            Some(actix_web::cookie::time::Duration::seconds(0))
+        );
         assert_eq!(del_refresh.path(), Some("/api/auth/refresh"));
 
         let del_csrf = delete_csrf_token_cookie();
         assert_eq!(del_csrf.value(), "");
-        assert_eq!(del_csrf.max_age(), Some(actix_web::cookie::time::Duration::seconds(0)));
+        assert_eq!(
+            del_csrf.max_age(),
+            Some(actix_web::cookie::time::Duration::seconds(0))
+        );
     }
 
     #[test]
     fn access_token_max_age_is_15_minutes() {
         let cookie = create_access_token_cookie("t");
-        assert_eq!(cookie.max_age(), Some(actix_web::cookie::time::Duration::minutes(15)));
+        assert_eq!(
+            cookie.max_age(),
+            Some(actix_web::cookie::time::Duration::minutes(15))
+        );
     }
 
     #[test]

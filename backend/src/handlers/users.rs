@@ -1,27 +1,27 @@
-use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
+use actix_multipart::Multipart;
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use bcrypt::DEFAULT_COST;
 use diesel::prelude::*;
+use futures::{StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use uuid::Uuid;
-use futures::{StreamExt, TryStreamExt};
-use actix_multipart::Multipart;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
-use crate::handlers::helpers;
+use crate::db::DbConnection;
 use crate::handlers::errors;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
+use crate::handlers::helpers;
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword};
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
+use crate::services::search::indexing_tasks;
+use crate::services::search::SearchService;
 use crate::utils;
 use crate::utils::email_branding::get_email_branding;
-use crate::db::DbConnection;
-use crate::services::search::SearchService;
-use crate::services::search::indexing_tasks;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 
 /// Result type for invitation sending operations
 pub enum SendInvitationResult {
@@ -50,7 +50,9 @@ const MAX_DASHBOARD_LAYOUT_BYTES: usize = 4 * 1024;
 /// by the widget, not enforced here. The overall byte cap is the
 /// backstop against a client shoving megabytes of junk through.
 fn validate_dashboard_layout(layout: &serde_json::Value) -> Result<(), &'static str> {
-    if serde_json::to_vec(layout).map(|v| v.len()).unwrap_or(usize::MAX)
+    if serde_json::to_vec(layout)
+        .map(|v| v.len())
+        .unwrap_or(usize::MAX)
         > MAX_DASHBOARD_LAYOUT_BYTES
     {
         return Err("dashboard_layout exceeds the size limit");
@@ -74,16 +76,17 @@ fn validate_dashboard_layout(layout: &serde_json::Value) -> Result<(), &'static 
         if !id_ok {
             return Err("dashboard_layout.widgets[].id must be a non-empty string up to 64 chars");
         }
-        if !entry.get("visible").map(|v| v.is_boolean()).unwrap_or(false) {
+        if !entry
+            .get("visible")
+            .map(|v| v.is_boolean())
+            .unwrap_or(false)
+        {
             return Err("dashboard_layout.widgets[].visible must be a boolean");
         }
         // `span` is optional; when present it must be an integer 1-3
         // (the client restricts the UI to these three column spans).
         if let Some(span) = entry.get("span") {
-            let span_ok = span
-                .as_i64()
-                .map(|n| (1..=3).contains(&n))
-                .unwrap_or(false);
+            let span_ok = span.as_i64().map(|n| (1..=3).contains(&n)).unwrap_or(false);
             if !span_ok {
                 return Err("dashboard_layout.widgets[].span must be 1, 2, or 3 when present");
             }
@@ -135,7 +138,8 @@ async fn prepare_invitation(
     );
 
     let ip_address = crate::utils::client_ip::from_http_request(req).map(|ip| ip.to_string());
-    let user_agent = req.headers()
+    let user_agent = req
+        .headers()
         .get("User-Agent")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
@@ -268,10 +272,7 @@ pub struct PaginatedResponse<T> {
 }
 
 // User handlers
-pub async fn get_users(
-    pool: web::Data<crate::db::Pool>,
-) -> impl Responder {
-
+pub async fn get_users(pool: web::Data<crate::db::Pool>) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -280,13 +281,14 @@ pub async fn get_users(
     match repository::get_users(&mut conn) {
         Ok(users) => {
             // Convert users to UserResponse with emails (batch fetch for efficiency)
-            let user_responses = repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
+            let user_responses =
+                repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
             HttpResponse::Ok().json(user_responses)
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error fetching users");
             errors::internal("Failed to fetch users")
-        },
+        }
     }
 }
 
@@ -305,7 +307,15 @@ pub async fn get_paginated_users(
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
 
     // Validate sort_field against allowed columns
-    let allowed_sort_fields = ["name", "first_name", "last_name", "email", "role", "created_at", "updated_at"];
+    let allowed_sort_fields = [
+        "name",
+        "first_name",
+        "last_name",
+        "email",
+        "role",
+        "created_at",
+        "updated_at",
+    ];
     let sort_field = query.sort_field.as_ref().and_then(|f| {
         let f_lower = f.to_lowercase();
         if allowed_sort_fields.contains(&f_lower.as_str()) {
@@ -356,7 +366,8 @@ pub async fn get_paginated_users(
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;
 
             // Convert users to UserResponse with emails (batch fetch for efficiency)
-            let mut user_responses = repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
+            let mut user_responses =
+                repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
 
             // Enrich with ticket and device counts
             let user_uuids: Vec<Uuid> = user_responses.iter().map(|u| u.uuid).collect();
@@ -379,18 +390,21 @@ pub async fn get_paginated_users(
             };
 
             HttpResponse::Ok().json(response)
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error fetching paginated users");
             errors::internal("Failed to get paginated users")
-        },
+        }
     }
 }
 
 /// Batch count of open (non-closed) tickets assigned to each user
-fn get_open_ticket_counts_batch(user_uuids: &[Uuid], conn: &mut DbConnection) -> HashMap<Uuid, i64> {
-    use crate::schema::{tickets, workflow_states};
+fn get_open_ticket_counts_batch(
+    user_uuids: &[Uuid],
+    conn: &mut DbConnection,
+) -> HashMap<Uuid, i64> {
     use crate::models::WorkflowStateCategory;
+    use crate::schema::{tickets, workflow_states};
 
     // "Open" === any non-terminal workflow state category. Join
     // workflow_states and filter on the four non-terminal categories.
@@ -405,7 +419,10 @@ fn get_open_ticket_counts_batch(user_uuids: &[Uuid], conn: &mut DbConnection) ->
         .filter(tickets::assignee_uuid.eq_any(user_uuids))
         .filter(workflow_states::category.eq_any(open_categories))
         .group_by(tickets::assignee_uuid)
-        .select((tickets::assignee_uuid.assume_not_null(), diesel::dsl::count_star()))
+        .select((
+            tickets::assignee_uuid.assume_not_null(),
+            diesel::dsl::count_star(),
+        ))
         .load::<(Uuid, i64)>(conn)
         .unwrap_or_default();
 
@@ -419,7 +436,10 @@ fn get_device_counts_batch(user_uuids: &[Uuid], conn: &mut DbConnection) -> Hash
     let results: Vec<(Uuid, i64)> = devices::table
         .filter(devices::primary_user_uuid.eq_any(user_uuids))
         .group_by(devices::primary_user_uuid)
-        .select((devices::primary_user_uuid.assume_not_null(), diesel::dsl::count_star()))
+        .select((
+            devices::primary_user_uuid.assume_not_null(),
+            diesel::dsl::count_star(),
+        ))
         .load::<(Uuid, i64)>(conn)
         .unwrap_or_default();
 
@@ -431,13 +451,13 @@ pub async fn get_user_by_uuid(
     pool: web::Data<crate::db::Pool>,
 ) -> impl Responder {
     let uuid_str = uuid_path.into_inner();
-    
+
     // Parse the UUID string into a proper UUID type
     let user_uuid_parsed = match utils::parse_uuid(&uuid_str) {
         Ok(uuid) => uuid,
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
-    
+
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -446,9 +466,10 @@ pub async fn get_user_by_uuid(
     match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => {
             // Use helper function to fetch primary email from user_emails table
-            let user_response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+            let user_response =
+                repository::user_helpers::get_user_with_primary_email(user, &mut conn);
             HttpResponse::Ok().json(user_response)
-        },
+        }
         Err(_) => errors::not_found_msg("User not found"),
     }
 }
@@ -486,13 +507,14 @@ pub async fn get_users_batch(
     match repository::get_users_by_uuids(&uuids_vec, &mut conn) {
         Ok(users) => {
             // Convert users to UserResponse with emails (batch fetch for efficiency)
-            let user_responses = repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
+            let user_responses =
+                repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
             HttpResponse::Ok().json(user_responses)
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error fetching users batch");
             errors::internal("Failed to get users")
-        },
+        }
     }
 }
 
@@ -530,7 +552,8 @@ pub async fn create_user(
     };
 
     // Get the admin user who is creating this user (for invitation email)
-    let admin_name = req.extensions()
+    let admin_name = req
+        .extensions()
         .get::<crate::models::Claims>()
         .and_then(|claims| {
             uuid::Uuid::parse_str(&claims.sub)
@@ -542,7 +565,10 @@ pub async fn create_user(
 
     // Check email configuration
     let email_config = crate::utils::email::EmailConfig::from_env().ok();
-    let smtp_configured = email_config.as_ref().map(|c| c.is_configured()).unwrap_or(false);
+    let smtp_configured = email_config
+        .as_ref()
+        .map(|c| c.is_configured())
+        .unwrap_or(false);
 
     // Comprehensive input validation using our validation utilities
     let mut validation_errors = Vec::new();
@@ -567,13 +593,15 @@ pub async fn create_user(
         if password.len() < 8 {
             validation_errors.push("password: Password must be at least 8 characters".to_string());
         } else if password.len() > 128 {
-            validation_errors.push("password: Password must be less than 128 characters".to_string());
+            validation_errors
+                .push("password: Password must be less than 128 characters".to_string());
         }
     }
 
     // If no password provided and SMTP not configured, require password
     if user_data.password.is_none() && !smtp_configured {
-        validation_errors.push("password: Password is required when email is not configured".to_string());
+        validation_errors
+            .push("password: Password is required when email is not configured".to_string());
     }
 
     if !validation_errors.is_empty() {
@@ -595,7 +623,8 @@ pub async fn create_user(
     // Validate optional fields
     if let Some(ref pronouns) = user_data.pronouns {
         if pronouns.len() > 50 {
-            validation_errors.push("pronouns: Pronouns must be less than 50 characters".to_string());
+            validation_errors
+                .push("pronouns: Pronouns must be less than 50 characters".to_string());
         }
     }
 
@@ -613,7 +642,8 @@ pub async fn create_user(
 
     if let Some(ref avatar_thumb) = user_data.avatar_thumb {
         if avatar_thumb.len() > 500 {
-            validation_errors.push("avatar_thumb: URL must be less than 500 characters".to_string());
+            validation_errors
+                .push("avatar_thumb: URL must be less than 500 characters".to_string());
         }
     }
 
@@ -626,23 +656,35 @@ pub async fn create_user(
     let user_uuid = user_data.uuid.unwrap_or_else(uuid::Uuid::now_v7);
 
     // Create new user with normalized data using builder
-    let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let (new_user, email) = utils::NewUserBuilder::new(normalized_name.clone(), normalized_email, user_data.role)
-        .with_uuid(user_uuid)
-        .with_pronouns(user_data.pronouns.as_ref().map(|p| p.trim().to_string()))
-        .with_avatar(
-            user_data.avatar_url.as_ref().map(|u| u.trim().to_string()),
-            user_data.avatar_thumb.as_ref().map(|u| u.trim().to_string())
-        )
-        .with_banner(user_data.banner_url.as_ref().map(|u| u.trim().to_string()))
-        .with_microsoft_uuid(user_data.microsoft_uuid)
-        .build_with_email();
+    let (normalized_name, normalized_email) =
+        utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
+    let (new_user, email) =
+        utils::NewUserBuilder::new(normalized_name.clone(), normalized_email, user_data.role)
+            .with_uuid(user_uuid)
+            .with_pronouns(user_data.pronouns.as_ref().map(|p| p.trim().to_string()))
+            .with_avatar(
+                user_data.avatar_url.as_ref().map(|u| u.trim().to_string()),
+                user_data
+                    .avatar_thumb
+                    .as_ref()
+                    .map(|u| u.trim().to_string()),
+            )
+            .with_banner(user_data.banner_url.as_ref().map(|u| u.trim().to_string()))
+            .with_microsoft_uuid(user_data.microsoft_uuid)
+            .build_with_email();
 
     // Email starts as unverified - will be verified when user accepts invitation or verifies email
-    match repository::user_helpers::create_user_with_email(new_user, email.clone(), false, Some("manual".to_string()), &mut conn, Some(search_service.get_ref())) {
+    match repository::user_helpers::create_user_with_email(
+        new_user,
+        email.clone(),
+        false,
+        Some("manual".to_string()),
+        &mut conn,
+        Some(search_service.get_ref()),
+    ) {
         Ok((user, _email_entry)) => {
-            use bcrypt::hash;
             use crate::models::NewUserAuthIdentity;
+            use bcrypt::hash;
 
             // Determine how to handle authentication setup
             let (password_hash, invitation_sent) = if let Some(ref password) = user_data.password {
@@ -664,23 +706,25 @@ pub async fn create_user(
                     &email,
                     &normalized_name,
                     &admin_name,
-                ).await {
+                )
+                .await
+                {
                     SendInvitationResult::Success => {
                         // Invitation sent successfully
-                    },
+                    }
                     SendInvitationResult::TokenStorageError(e) => {
                         error!(error = %e, "Error storing invitation token");
                         return errors::internal("Error creating invitation");
-                    },
+                    }
                     SendInvitationResult::EmailServiceError(e) => {
                         error!(error = %e, "Error initializing email service");
                         return errors::internal("Error sending invitation email");
-                    },
+                    }
                     SendInvitationResult::EmailSendError(e) => {
                         error!(error = %e, "Error sending invitation email");
                         // Don't fail - user was created, just couldn't send email
                         warn!("User created but invitation email failed to send");
-                    },
+                    }
                 }
 
                 (None, true) // No password hash - user will set via invitation
@@ -709,7 +753,10 @@ pub async fn create_user(
                         info!(user_name = %user.name, "New user created (password set)");
                     }
                     let user_uuid_str = user.uuid.to_string();
-                    let response = repository::user_helpers::get_user_with_primary_email(user.clone(), &mut conn);
+                    let response = repository::user_helpers::get_user_with_primary_email(
+                        user.clone(),
+                        &mut conn,
+                    );
 
                     // Search index update is fired by the
                     // UserCreatedObserver inside create_user_with_email
@@ -725,35 +772,42 @@ pub async fn create_user(
                         .await;
 
                     // Add invitation_sent flag to response
-                    if let serde_json::Value::Object(mut map) = serde_json::to_value(&response).unwrap_or_default() {
-                        map.insert("invitation_sent".to_string(), serde_json::Value::Bool(invitation_sent));
+                    if let serde_json::Value::Object(mut map) =
+                        serde_json::to_value(&response).unwrap_or_default()
+                    {
+                        map.insert(
+                            "invitation_sent".to_string(),
+                            serde_json::Value::Bool(invitation_sent),
+                        );
                         return HttpResponse::Created().json(map);
                     }
                     HttpResponse::Created().json(response)
-                },
+                }
                 Err(e) => {
                     error!(error = ?e, "Error creating auth identity");
                     // If identity creation fails, still return the user (with primary email)
-                    let user_response = repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+                    let user_response =
+                        repository::user_helpers::get_user_with_primary_email(user, &mut conn);
                     HttpResponse::Created().json(user_response)
                 }
             }
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error creating user");
 
             // Provide more specific error messages for common issues
-            let error_message = if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
-                if format!("{e:?}").contains("email") {
-                    "Email address already exists in the system"
-                } else if format!("{e:?}").contains("uuid") {
-                    "UUID already exists in the system"
+            let error_message =
+                if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
+                    if format!("{e:?}").contains("email") {
+                        "Email address already exists in the system"
+                    } else if format!("{e:?}").contains("uuid") {
+                        "UUID already exists in the system"
+                    } else {
+                        "Duplicate entry detected"
+                    }
                 } else {
-                    "Duplicate entry detected"
-                }
-            } else {
-                "Error creating user"
-            };
+                    "Error creating user"
+                };
 
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
@@ -819,12 +873,13 @@ pub async fn delete_user(
             _ => return errors::bad_request("MFA code is required to delete users"),
         };
 
-        let mfa_result = match crate::utils::mfa::verify_mfa_token(&admin_uuid, mfa_code, &mut conn).await {
-            Ok(result) => result,
-            Err(e) => {
-                return errors::bad_request(format!("MFA verification failed: {}", e));
-            }
-        };
+        let mfa_result =
+            match crate::utils::mfa::verify_mfa_token(&admin_uuid, mfa_code, &mut conn).await {
+                Ok(result) => result,
+                Err(e) => {
+                    return errors::bad_request(format!("MFA verification failed: {}", e));
+                }
+            };
 
         if !mfa_result.is_valid {
             return errors::bad_request("Invalid MFA code");
@@ -837,13 +892,15 @@ pub async fn delete_user(
         };
 
         // Get admin's auth identity to verify password
-        let auth_identities = match repository::user_auth_identities::get_user_identities(&admin_uuid, &mut conn) {
-            Ok(identities) => identities,
-            Err(_) => return errors::internal("Failed to get authentication data"),
-        };
+        let auth_identities =
+            match repository::user_auth_identities::get_user_identities(&admin_uuid, &mut conn) {
+                Ok(identities) => identities,
+                Err(_) => return errors::internal("Failed to get authentication data"),
+            };
 
         // Find local auth identity with password
-        let local_identity = auth_identities.iter()
+        let local_identity = auth_identities
+            .iter()
             .find(|id| id.provider_type == "local" && id.password_hash.is_some());
 
         let password_hash = match local_identity {
@@ -881,13 +938,18 @@ pub async fn delete_user(
 
     // Prevent deletion of admin users (safety measure)
     if target_user.role == crate::models::UserRole::Admin {
-        return errors::bad_request("Administrator accounts cannot be deleted for security reasons");
+        return errors::bad_request(
+            "Administrator accounts cannot be deleted for security reasons",
+        );
     }
 
     // Delete the user
     match repository::delete_user(&target_user.uuid, &mut conn, Some(search_service.get_ref())) {
         Ok(count) if count > 0 => {
-            info!("User deleted successfully: {} (uuid={})", target_user.name, target_user.uuid);
+            info!(
+                "User deleted successfully: {} (uuid={})",
+                target_user.name, target_user.uuid
+            );
 
             // Search index removal is fired by the
             // UserDeletedObserver inside `delete_user`.
@@ -901,12 +963,17 @@ pub async fn delete_user(
                 .await;
 
             HttpResponse::NoContent().finish()
-        },
+        }
         Ok(_) => errors::not_found_msg("User not found"),
         Err(e) => {
-            error!("Failed to delete user {} (uuid={}): {:?}", target_user.name, target_user.uuid, e);
-            errors::internal("Failed to delete user. The user may have associated data that prevents deletion.")
-        },
+            error!(
+                "Failed to delete user {} (uuid={}): {:?}",
+                target_user.name, target_user.uuid, e
+            );
+            errors::internal(
+                "Failed to delete user. The user may have associated data that prevents deletion.",
+            )
+        }
     }
 }
 
@@ -987,7 +1054,10 @@ pub async fn get_user_auth_identities_by_uuid(
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
-    match repository::user_auth_identities::get_user_identities_display(&user_uuid_parsed, &mut conn) {
+    match repository::user_auth_identities::get_user_identities_display(
+        &user_uuid_parsed,
+        &mut conn,
+    ) {
         Ok(identities) => HttpResponse::Ok().json(identities),
         Err(e) => {
             error!(user_uuid = %user_uuid, error = ?e, "Error fetching auth identities for UUID");
@@ -1030,16 +1100,19 @@ pub async fn delete_user_auth_identity(
 
     // Ensure the user has at least one other auth method before deleting
     // (to prevent locking themselves out)
-    let identities = match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
-        Ok(identities) => identities,
-        Err(e) => {
-            error!(error = ?e, "Error getting user auth identities");
-            return errors::internal("Failed to get authentication identities");
-        }
-    };
+    let identities =
+        match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
+            Ok(identities) => identities,
+            Err(e) => {
+                error!(error = ?e, "Error getting user auth identities");
+                return errors::internal("Failed to get authentication identities");
+            }
+        };
 
     if identities.len() <= 1 {
-        return errors::bad_request("Cannot delete the only authentication method. Add another method first.");
+        return errors::bad_request(
+            "Cannot delete the only authentication method. Add another method first.",
+        );
     }
 
     // Delete the identity
@@ -1053,7 +1126,7 @@ pub async fn delete_user_auth_identity(
                     "message": "Authentication identity deleted successfully"
                 }))
             }
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error deleting user auth identity");
             errors::internal("Failed to delete authentication identity")
@@ -1091,30 +1164,39 @@ pub async fn delete_user_auth_identity_by_uuid(
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
-    let identities = match repository::user_auth_identities::get_user_identities(&user_uuid_parsed, &mut conn) {
-        Ok(identities) => identities,
-        Err(e) => {
-            error!(error = ?e, "Error getting user auth identities");
-            return errors::not_found_msg("User not found");
-        }
-    };
+    let identities =
+        match repository::user_auth_identities::get_user_identities(&user_uuid_parsed, &mut conn) {
+            Ok(identities) => identities,
+            Err(e) => {
+                error!(error = ?e, "Error getting user auth identities");
+                return errors::not_found_msg("User not found");
+            }
+        };
 
     if identities.len() <= 1 {
-        return errors::bad_request("Cannot delete the only authentication method. Add another method first.");
+        return errors::bad_request(
+            "Cannot delete the only authentication method. Add another method first.",
+        );
     }
 
     // Delete the identity
-    match repository::user_auth_identities::delete_identity(identity_id, &user_uuid_parsed, &mut conn) {
+    match repository::user_auth_identities::delete_identity(
+        identity_id,
+        &user_uuid_parsed,
+        &mut conn,
+    ) {
         Ok(count) => {
             if count == 0 {
-                errors::not_found_msg("Authentication identity not found or doesn't belong to this user")
+                errors::not_found_msg(
+                    "Authentication identity not found or doesn't belong to this user",
+                )
             } else {
                 HttpResponse::Ok().json(json!({
                     "status": "success",
                     "message": "Authentication identity deleted successfully"
                 }))
             }
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error deleting user auth identity");
             errors::internal("Failed to delete authentication identity")
@@ -1132,7 +1214,7 @@ pub async fn upload_user_image(
 ) -> impl Responder {
     let user_uuid = uuid.into_inner();
     let image_type = &type_query.type_; // "avatar" or "banner"
-    
+
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -1143,14 +1225,14 @@ pub async fn upload_user_image(
         Ok(uuid) => uuid,
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
-    
+
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
         Err(_) => {
             return errors::not_found_msg("User not found");
         }
     };
-    
+
     // Determine the upload directory based on image type
     let storage_path = match image_type.as_str() {
         "avatar" => "users/avatars",
@@ -1170,17 +1252,22 @@ pub async fn upload_user_image(
         debug!(field_name = ?field.name(), "Received multipart field");
 
         // Get content type
-        let content_type = field.content_type().map(|ct| ct.to_string()).unwrap_or_else(|| "application/octet-stream".to_string());
+        let content_type = field
+            .content_type()
+            .map(|ct| ct.to_string())
+            .unwrap_or_else(|| "application/octet-stream".to_string());
         debug!(content_type = %content_type, "Content type");
-        
+
         // Validate content type (only allow images)
         if !content_type.starts_with("image/") {
             return errors::bad_request("Only image files are allowed");
         }
-        
+
         // Check for HEIC/HEIF - these should be converted on the client side
         if content_type.as_str() == "image/heic" || content_type.as_str() == "image/heif" {
-            return errors::bad_request("HEIC/HEIF format should be converted to JPEG on the client side before upload");
+            return errors::bad_request(
+                "HEIC/HEIF format should be converted to JPEG on the client side before upload",
+            );
         }
 
         // Extract file extension from content type
@@ -1190,20 +1277,24 @@ pub async fn upload_user_image(
             "image/gif" => "gif",
             "image/webp" => "webp",
             _ => {
-                return errors::bad_request("Unsupported image format. Allowed: JPEG, PNG, GIF, WEBP");
+                return errors::bad_request(
+                    "Unsupported image format. Allowed: JPEG, PNG, GIF, WEBP",
+                );
             }
         };
-        
+
         // Clean up old files for this user and image type before saving new one
-        cleanup_old_user_images(storage_path, &user_uuid, image_type).await
+        cleanup_old_user_images(storage_path, &user_uuid, image_type)
+            .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to cleanup old images");
                 // Continue even if cleanup fails
-            }).ok();
-        
+            })
+            .ok();
+
         let filename = format!("{user_uuid}_{image_type}.{file_ext}");
         let _file_path = format!("{storage_path}/{filename}");
-        
+
         // Read file data
         let mut file_data = Vec::new();
         while let Some(chunk) = field.next().await {
@@ -1216,7 +1307,7 @@ pub async fn upload_user_image(
             };
             file_data.extend_from_slice(&data);
         }
-        
+
         // Process the image based on type
         let (final_url, thumbnail_url) = if image_type == "avatar" {
             // For avatars, process and resize to WebP format with fixed dimensions (200x200 max)
@@ -1225,15 +1316,20 @@ pub async fn upload_user_image(
                     debug!(user_uuid = %user_uuid, avatar_url = %avatar_url, "Successfully processed avatar");
 
                     // Generate thumbnail from the processed avatar
-                    let thumb_url = match crate::utils::image::generate_user_avatar_thumbnail(&avatar_url, &user_uuid).await {
+                    let thumb_url = match crate::utils::image::generate_user_avatar_thumbnail(
+                        &avatar_url,
+                        &user_uuid,
+                    )
+                    .await
+                    {
                         Ok(Some(thumb_url)) => {
                             debug!(user_uuid = %user_uuid, thumb_url = %thumb_url, "Successfully generated thumbnail");
                             Some(thumb_url)
-                        },
+                        }
                         Ok(None) => {
                             warn!(user_uuid = %user_uuid, "Failed to generate thumbnail");
                             None
-                        },
+                        }
                         Err(e) => {
                             error!(user_uuid = %user_uuid, error = %e, "Error generating thumbnail");
                             None
@@ -1241,10 +1337,10 @@ pub async fn upload_user_image(
                     };
 
                     (avatar_url, thumb_url)
-                },
+                }
                 Ok(None) => {
                     return errors::internal("Failed to process avatar image");
-                },
+                }
                 Err(e) => {
                     error!(user_uuid = %user_uuid, error = %e, "Error processing avatar");
                     return errors::internal(format!("Failed to process avatar image: {}", e));
@@ -1252,35 +1348,49 @@ pub async fn upload_user_image(
             }
         } else {
             // For banners, process and resize to WebP format with banner dimensions (1200x400 max)
-            match crate::utils::image::process_banner_image(&file_data, &user_uuid, 1200, 400).await {
+            match crate::utils::image::process_banner_image(&file_data, &user_uuid, 1200, 400).await
+            {
                 Ok(Some(banner_url)) => {
                     debug!(user_uuid = %user_uuid, banner_url = %banner_url, "Successfully processed banner");
                     (banner_url, None)
-                },
+                }
                 Ok(None) => {
                     return errors::internal("Failed to process banner image");
-                },
+                }
                 Err(e) => {
                     error!(user_uuid = %user_uuid, error = %e, "Error processing banner");
                     return errors::internal(format!("Failed to process banner image: {}", e));
                 }
             }
         };
-        
+
         // Update the user record with the new image URL
-        
+
         let user_update = UserUpdate {
             name: None,
             role: None,
             pronouns: None,
-            avatar_url: if image_type == "avatar" { Some(final_url.clone()) } else { None },
-            banner_url: if image_type == "banner" { Some(final_url.clone()) } else { None },
+            avatar_url: if image_type == "avatar" {
+                Some(final_url.clone())
+            } else {
+                None
+            },
+            banner_url: if image_type == "banner" {
+                Some(final_url.clone())
+            } else {
+                None
+            },
             avatar_thumb: thumbnail_url,
             microsoft_uuid: None, // Don't update Microsoft UUID in regular user updates
             updated_at: Some(chrono::Utc::now().naive_utc()),
         };
-        
-        match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
+
+        match repository::update_user(
+            &user.uuid,
+            user_update,
+            &mut conn,
+            Some(search_service.get_ref()),
+        ) {
             Ok(updated_user) => {
                 return HttpResponse::Ok().json(json!({
                     "status": "success",
@@ -1288,14 +1398,14 @@ pub async fn upload_user_image(
                     "url": final_url,
                     "user": UserResponse::from(updated_user)
                 }));
-            },
+            }
             Err(e) => {
                 error!(error = ?e, "Error updating user");
                 return errors::internal("Error updating user record");
             }
         }
     }
-    
+
     // If we get here, no file was provided
     errors::bad_request("No image file provided")
 }
@@ -1312,23 +1422,23 @@ async fn cleanup_old_user_images(
     image_type: &str,
 ) -> Result<(), String> {
     use tokio::fs;
-    
+
     // Read the directory
     let mut dir = match fs::read_dir(image_dir).await {
         Ok(dir) => dir,
-        Err(_) => return Ok(()) // Directory doesn't exist, nothing to clean
+        Err(_) => return Ok(()), // Directory doesn't exist, nothing to clean
     };
 
     // Look for files matching the pattern: {user_uuid}_{image_type}.{ext}
     let pattern_prefix = format!("{user_uuid}_{image_type}");
-    
+
     while let Ok(Some(entry)) = dir.next_entry().await {
         if let Some(filename) = entry.file_name().to_str() {
             // Check if this file matches our pattern (user_uuid_type.ext)
             if filename.starts_with(&pattern_prefix) && filename.contains('.') {
                 let file_path = entry.path();
                 debug!(file_path = ?file_path, "Cleaning up old image file");
-                
+
                 if let Err(e) = fs::remove_file(&file_path).await {
                     warn!(file_path = ?file_path, error = %e, "Failed to remove old image file");
                     // Continue with cleanup even if one file fails
@@ -1336,7 +1446,7 @@ async fn cleanup_old_user_images(
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -1379,32 +1489,44 @@ pub async fn cleanup_stale_images(
 
     // Clean up avatar directory
     if let Err(e) = cleanup_directory_stale_files(
-        "uploads/users/avatars", 
-        &users, 
-        &["avatar", "48x48", "120x120", "default"], 
-        &mut cleanup_stats
-    ).await {
-        cleanup_stats.errors.push(format!("Avatar cleanup error: {e}"));
+        "uploads/users/avatars",
+        &users,
+        &["avatar", "48x48", "120x120", "default"],
+        &mut cleanup_stats,
+    )
+    .await
+    {
+        cleanup_stats
+            .errors
+            .push(format!("Avatar cleanup error: {e}"));
     }
 
-    // Clean up banner directory  
+    // Clean up banner directory
     if let Err(e) = cleanup_directory_stale_files(
-        "uploads/users/banners", 
-        &users, 
-        &["banner"], 
-        &mut cleanup_stats
-    ).await {
-        cleanup_stats.errors.push(format!("Banner cleanup error: {e}"));
+        "uploads/users/banners",
+        &users,
+        &["banner"],
+        &mut cleanup_stats,
+    )
+    .await
+    {
+        cleanup_stats
+            .errors
+            .push(format!("Banner cleanup error: {e}"));
     }
 
     // Clean up thumbnail directory
     if let Err(e) = cleanup_directory_stale_files(
-        "uploads/users/thumbs", 
-        &users, 
-        &["thumb"], 
-        &mut cleanup_stats
-    ).await {
-        cleanup_stats.errors.push(format!("Thumbnail cleanup error: {e}"));
+        "uploads/users/thumbs",
+        &users,
+        &["thumb"],
+        &mut cleanup_stats,
+    )
+    .await
+    {
+        cleanup_stats
+            .errors
+            .push(format!("Thumbnail cleanup error: {e}"));
     }
 
     HttpResponse::Ok().json(json!({
@@ -1436,29 +1558,32 @@ async fn cleanup_directory_stale_files(
     valid_suffixes: &[&str],
     stats: &mut CleanupStats,
 ) -> Result<(), String> {
-    use tokio::fs;
     use std::collections::HashSet;
-    
+    use tokio::fs;
+
     // Create a set of valid file prefixes (user UUIDs)
-    let valid_uuids: HashSet<String> = users.iter().map(|u| utils::uuid_to_string(&u.uuid)).collect();
-    
+    let valid_uuids: HashSet<String> = users
+        .iter()
+        .map(|u| utils::uuid_to_string(&u.uuid))
+        .collect();
+
     // Read the directory
     let mut dir = match fs::read_dir(dir_path).await {
         Ok(dir) => dir,
-        Err(_) => return Ok(()) // Directory doesn't exist, nothing to clean
+        Err(_) => return Ok(()), // Directory doesn't exist, nothing to clean
     };
 
     while let Ok(Some(entry)) = dir.next_entry().await {
         if let Some(filename) = entry.file_name().to_str() {
             stats.total_files_checked += 1;
-            
+
             // Check if this file should be kept
             let should_keep = should_keep_file(filename, &valid_uuids, valid_suffixes);
-            
+
             if !should_keep {
                 let file_path = entry.path();
                 debug!(file_path = ?file_path, "Removing stale image file");
-                
+
                 match fs::remove_file(&file_path).await {
                     Ok(_) => {
                         if dir_path.contains("avatars") {
@@ -1468,7 +1593,7 @@ async fn cleanup_directory_stale_files(
                         } else if dir_path.contains("thumbs") {
                             stats.thumbnails_removed += 1;
                         }
-                    },
+                    }
                     Err(e) => {
                         let error_msg = format!("Failed to remove {file_path:?}: {e}");
                         warn!(file_path = ?file_path, error = %e, "Failed to remove file");
@@ -1483,7 +1608,11 @@ async fn cleanup_directory_stale_files(
 }
 
 /// Determine if a file should be kept based on naming patterns
-fn should_keep_file(filename: &str, valid_uuids: &HashSet<String>, valid_suffixes: &[&str]) -> bool {
+fn should_keep_file(
+    filename: &str,
+    valid_uuids: &HashSet<String>,
+    valid_suffixes: &[&str],
+) -> bool {
     // Skip hidden files like .DS_Store
     if filename.starts_with('.') {
         return true;
@@ -1512,7 +1641,8 @@ fn should_keep_file(filename: &str, valid_uuids: &HashSet<String>, valid_suffixe
         // Old patterns: {uuid}_120x120.jpg, {uuid}_48x48.jpg, {uuid}_{random-uuid}_banner.jpg
         if valid_uuids.contains(uuid_part) {
             // This is for a valid user but in old format - remove it
-            if suffix_part.contains("x") || suffix_part.len() > 20 { // Likely old format
+            if suffix_part.contains("x") || suffix_part.len() > 20 {
+                // Likely old format
                 debug!(filename = %filename, "Removing old format file");
                 return false;
             }
@@ -1568,8 +1698,8 @@ pub async fn update_user_by_uuid(
 
     // Check if email is being updated and if it's already in use
     if let Some(password) = &user_data.password {
-        use bcrypt::hash;
         use crate::models::NewUserAuthIdentity;
+        use bcrypt::hash;
 
         // Hash the new password
         let password_hash = match hash(password, DEFAULT_COST) {
@@ -1578,31 +1708,37 @@ pub async fn update_user_by_uuid(
         };
 
         // Find existing local auth identity
-        let auth_identities = match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
-            Ok(identities) => identities,
-            Err(e) => {
-                error!(error = ?e, "Error fetching auth identities");
-                return errors::internal("Error processing user identities");
-            }
-        };
-        
+        let auth_identities =
+            match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
+                Ok(identities) => identities,
+                Err(e) => {
+                    error!(error = ?e, "Error fetching auth identities");
+                    return errors::internal("Error processing user identities");
+                }
+            };
+
         // Find local identity
-        let local_identity = auth_identities.iter().find(|identity| identity.provider_type == "local");
-        
+        let local_identity = auth_identities
+            .iter()
+            .find(|identity| identity.provider_type == "local");
+
         match local_identity {
             Some(identity) => {
                 // Update existing local identity
-                // Delete the old identity 
+                // Delete the old identity
                 match diesel::delete(
-                    crate::schema::user_auth_identities::table.filter(crate::schema::user_auth_identities::id.eq(identity.id))
-                ).execute(&mut conn) {
-                    Ok(_) => {},
+                    crate::schema::user_auth_identities::table
+                        .filter(crate::schema::user_auth_identities::id.eq(identity.id)),
+                )
+                .execute(&mut conn)
+                {
+                    Ok(_) => {}
                     Err(e) => {
                         error!(error = ?e, "Error deleting auth identity");
                         return errors::internal("Error updating password");
                     }
                 }
-                
+
                 // Create new identity with updated password
                 let new_auth_identity = NewUserAuthIdentity {
                     user_uuid: user.uuid,
@@ -1613,23 +1749,27 @@ pub async fn update_user_by_uuid(
                     password_hash: Some(password_hash),
                 };
 
-                if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
+                if let Err(e) =
+                    repository::user_auth_identities::create_identity(new_auth_identity, &mut conn)
+                {
                     error!(error = ?e, "Error creating updated auth identity");
                     return errors::internal("Error updating password");
                 }
-            },
+            }
             None => {
                 // Create new local identity if none exists
                 let new_auth_identity = NewUserAuthIdentity {
                     user_uuid: user.uuid,
                     provider_type: "local".to_string(),
                     external_id: Uuid::now_v7().to_string(), // Generate a new provider user ID
-                    email: None, // Email in user_emails table
+                    email: None,                             // Email in user_emails table
                     metadata: None,
                     password_hash: Some(password_hash),
                 };
-                
-                if let Err(e) = repository::user_auth_identities::create_identity(new_auth_identity, &mut conn) {
+
+                if let Err(e) =
+                    repository::user_auth_identities::create_identity(new_auth_identity, &mut conn)
+                {
                     error!(error = ?e, "Error creating auth identity");
                     return errors::internal("Error setting password");
                 }
@@ -1659,7 +1799,10 @@ pub async fn update_user_by_uuid(
     // separately in user_preferences below).
     let user_update = UserUpdate {
         name: user_data.name.clone(),
-        role: user_data.role.as_ref().and_then(|r| utils::parse_role(r).ok()),
+        role: user_data
+            .role
+            .as_ref()
+            .and_then(|r| utils::parse_role(r).ok()),
         pronouns: user_data.pronouns.clone(),
         avatar_url: user_data.avatar_url.clone(),
         banner_url: user_data.banner_url.clone(),
@@ -1693,18 +1836,21 @@ pub async fn update_user_by_uuid(
         || user_data.locale.is_some()
         || user_data.timezone.is_some();
 
-    match repository::update_user(&user.uuid, user_update, &mut conn, Some(search_service.get_ref())) {
+    match repository::update_user(
+        &user.uuid,
+        user_update,
+        &mut conn,
+        Some(search_service.get_ref()),
+    ) {
         Ok(updated_user) => {
             // Apply preference changes (if any) right after the
             // core-user update. Best-effort: a transient prefs-table
             // write failure logs but doesn't fail the whole request,
             // since the core fields already committed.
             if prefs_changed {
-                if let Err(e) = repository::user_preferences::update(
-                    &mut conn,
-                    user.uuid,
-                    prefs_update,
-                ) {
+                if let Err(e) =
+                    repository::user_preferences::update(&mut conn, user.uuid, prefs_update)
+                {
                     tracing::error!(
                         error = ?e,
                         user_uuid = %user.uuid,
@@ -1712,8 +1858,7 @@ pub async fn update_user_by_uuid(
                     );
                 }
             }
-            let updated_prefs =
-                repository::user_preferences::get(&mut conn, user.uuid).ok();
+            let updated_prefs = repository::user_preferences::get(&mut conn, user.uuid).ok();
             // Broadcast SSE events for changed fields. One event per
             // field so other tabs/devices can mirror the change at
             // field granularity. The dashboard_layout payload is the
@@ -1726,15 +1871,33 @@ pub async fn update_user_by_uuid(
                 crate::models::UserRole::User => "user",
             };
             let updates: [(&str, bool, serde_json::Value); 6] = [
-                ("name", user_data.name.is_some(), json!(updated_user.name.clone())),
+                (
+                    "name",
+                    user_data.name.is_some(),
+                    json!(updated_user.name.clone()),
+                ),
                 ("role", user_data.role.is_some(), json!(role_str)),
-                ("pronouns", user_data.pronouns.is_some(), json!(updated_user.pronouns.clone())),
-                ("avatar_url", user_data.avatar_url.is_some(), json!(updated_user.avatar_url.clone())),
-                ("avatar_thumb", user_data.avatar_thumb.is_some(), json!(updated_user.avatar_thumb.clone())),
+                (
+                    "pronouns",
+                    user_data.pronouns.is_some(),
+                    json!(updated_user.pronouns.clone()),
+                ),
+                (
+                    "avatar_url",
+                    user_data.avatar_url.is_some(),
+                    json!(updated_user.avatar_url.clone()),
+                ),
+                (
+                    "avatar_thumb",
+                    user_data.avatar_thumb.is_some(),
+                    json!(updated_user.avatar_thumb.clone()),
+                ),
                 (
                     "dashboard_layout",
                     user_data.dashboard_layout.is_some(),
-                    json!(updated_prefs.as_ref().and_then(|p| p.dashboard_layout.clone())),
+                    json!(updated_prefs
+                        .as_ref()
+                        .and_then(|p| p.dashboard_layout.clone())),
                 ),
             ];
             for (field, requested, value) in updates {
@@ -1753,7 +1916,8 @@ pub async fn update_user_by_uuid(
             }
 
             // Re-index the updated user in search
-            let primary_email = repository::user_helpers::get_primary_email(&updated_user.uuid, &mut conn);
+            let primary_email =
+                repository::user_helpers::get_primary_email(&updated_user.uuid, &mut conn);
             indexing_tasks::spawn_index_user(
                 search_service.get_ref().clone(),
                 updated_user.clone(),
@@ -1761,9 +1925,10 @@ pub async fn update_user_by_uuid(
             );
 
             // Use helper function to fetch primary email from user_emails table
-            let user_response = repository::user_helpers::get_user_with_primary_email(updated_user, &mut conn);
+            let user_response =
+                repository::user_helpers::get_user_with_primary_email(updated_user, &mut conn);
             HttpResponse::Ok().json(user_response)
-        },
+        }
         Err(_) => errors::internal("Error updating user"),
     }
 }
@@ -1925,7 +2090,11 @@ pub async fn update_user_email(
     };
 
     // If setting as primary, unset other primary emails first
-    if update_data.get("is_primary").and_then(|p| p.as_bool()).unwrap_or(false) {
+    if update_data
+        .get("is_primary")
+        .and_then(|p| p.as_bool())
+        .unwrap_or(false)
+    {
         use diesel::prelude::*;
         let _ = diesel::update(crate::schema::user_emails::table)
             .filter(crate::schema::user_emails::user_uuid.eq(&user.uuid))
@@ -2009,9 +2178,7 @@ pub async fn delete_user_email(
     }
 
     // Delete the email
-    match diesel::delete(crate::schema::user_emails::table.find(email_id))
-        .execute(&mut conn)
-    {
+    match diesel::delete(crate::schema::user_emails::table.find(email_id)).execute(&mut conn) {
         Ok(_) => HttpResponse::Ok().json(json!({
             "status": "success",
             "message": "Email deleted successfully"
@@ -2048,7 +2215,10 @@ pub async fn resend_invitation(
 
     // Check email configuration
     let email_config = crate::utils::email::EmailConfig::from_env().ok();
-    let smtp_configured = email_config.as_ref().map(|c| c.is_configured()).unwrap_or(false);
+    let smtp_configured = email_config
+        .as_ref()
+        .map(|c| c.is_configured())
+        .unwrap_or(false);
 
     if !smtp_configured {
         return errors::bad_request("Email is not configured. Cannot send invitation.");
@@ -2066,14 +2236,18 @@ pub async fn resend_invitation(
     };
 
     // Check if user already has a password set (completed setup)
-    let auth_identities = repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn).unwrap_or_default();
+    let auth_identities =
+        repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn)
+            .unwrap_or_default();
 
-    let has_password = auth_identities.iter().any(|identity| {
-        identity.provider_type == "local" && identity.password_hash.is_some()
-    });
+    let has_password = auth_identities
+        .iter()
+        .any(|identity| identity.provider_type == "local" && identity.password_hash.is_some());
 
     if has_password {
-        return errors::bad_request("User has already completed account setup. Cannot resend invitation.");
+        return errors::bad_request(
+            "User has already completed account setup. Cannot resend invitation.",
+        );
     }
 
     // Get user's primary email - try to find one marked as primary first
@@ -2101,11 +2275,9 @@ pub async fn resend_invitation(
     };
 
     // Invalidate any existing invitation tokens for this user
-    if let Err(e) = repository::reset_tokens::invalidate_tokens_by_type(
-        &mut conn,
-        user.uuid,
-        "invitation",
-    ) {
+    if let Err(e) =
+        repository::reset_tokens::invalidate_tokens_by_type(&mut conn, user.uuid, "invitation")
+    {
         warn!(user_uuid = %user.uuid, error = ?e, "Failed to invalidate old invitation tokens");
         // Continue anyway - old tokens will expire naturally
     }
@@ -2118,7 +2290,9 @@ pub async fn resend_invitation(
         &user_email,
         &user.name,
         &admin_name,
-    ).await {
+    )
+    .await
+    {
         SendInvitationResult::Success => {
             info!(email = %user_email, user_name = %user.name, "Invitation email resent");
             HttpResponse::Ok().json(json!({
@@ -2126,19 +2300,19 @@ pub async fn resend_invitation(
                 "message": "Invitation email sent successfully",
                 "email": user_email
             }))
-        },
+        }
         SendInvitationResult::TokenStorageError(e) => {
             error!(error = %e, "Error storing invitation token");
             errors::internal("Error creating invitation")
-        },
+        }
         SendInvitationResult::EmailServiceError(e) => {
             error!(error = %e, "Error initializing email service");
             errors::internal("Error sending invitation email")
-        },
+        }
         SendInvitationResult::EmailSendError(e) => {
             error!(error = %e, "Error sending invitation email");
             errors::internal("Failed to send invitation email")
-        },
+        }
     }
 }
 
@@ -2246,9 +2420,13 @@ pub async fn get_user_profile_bundle(
 /// Returns 400 with the offending key when an unknown group is
 /// requested, so a registry typo on the frontend fails loud
 /// instead of silently dropping data.
-fn parse_profile_include(raw: Option<&str>) -> Result<HashSet<crate::repository::user_profile::ProfileGroup>, HttpResponse> {
+fn parse_profile_include(
+    raw: Option<&str>,
+) -> Result<HashSet<crate::repository::user_profile::ProfileGroup>, HttpResponse> {
     use crate::repository::user_profile::ProfileGroup;
-    let Some(raw) = raw else { return Ok(ProfileGroup::all()) };
+    let Some(raw) = raw else {
+        return Ok(ProfileGroup::all());
+    };
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Ok(HashSet::new());
@@ -2256,9 +2434,15 @@ fn parse_profile_include(raw: Option<&str>) -> Result<HashSet<crate::repository:
     let mut out = HashSet::new();
     for token in trimmed.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         match ProfileGroup::parse(token) {
-            Some(g) => { out.insert(g); }
+            Some(g) => {
+                out.insert(g);
+            }
             None => {
-                return Err(errors::bad_request(format!("Unknown include key '{}'. Valid: {:?}", token, ProfileGroup::all_keys())));
+                return Err(errors::bad_request(format!(
+                    "Unknown include key '{}'. Valid: {:?}",
+                    token,
+                    ProfileGroup::all_keys()
+                )));
             }
         }
     }
@@ -2289,7 +2473,9 @@ pub async fn bulk_users(
 
     // Only admins can perform bulk operations
     if claims.role != "admin" {
-        return errors::forbidden("Forbidden: Only administrators can perform bulk user operations");
+        return errors::forbidden(
+            "Forbidden: Only administrators can perform bulk user operations",
+        );
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -2306,7 +2492,9 @@ pub async fn bulk_users(
 
     // Prevent self-deletion/modification
     if ids.contains(&claims.sub) {
-        return errors::bad_request("Bad Request: Cannot perform bulk operations on your own account");
+        return errors::bad_request(
+            "Bad Request: Cannot perform bulk operations on your own account",
+        );
     }
 
     match action {
@@ -2318,7 +2506,11 @@ pub async fn bulk_users(
                     Err(_) => continue,
                 };
 
-                match repository::users::delete_user(&uuid, &mut conn, Some(search_service.get_ref())) {
+                match repository::users::delete_user(
+                    &uuid,
+                    &mut conn,
+                    Some(search_service.get_ref()),
+                ) {
                     Ok(_) => {
                         deleted += 1;
                         // Search index removal fires from the
@@ -2372,7 +2564,14 @@ pub async fn bulk_users(
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                 };
 
-                if repository::update_user(&uuid, user_update, &mut conn, Some(search_service.get_ref())).is_ok() {
+                if repository::update_user(
+                    &uuid,
+                    user_update,
+                    &mut conn,
+                    Some(search_service.get_ref()),
+                )
+                .is_ok()
+                {
                     updated += 1;
                     // Broadcast SSE event
                     sse_state
@@ -2429,7 +2628,8 @@ pub async fn get_user_security_info(
 
     // MFA status
     let mfa_enabled = user.mfa_enabled;
-    let has_backup_codes = user.mfa_backup_codes
+    let has_backup_codes = user
+        .mfa_backup_codes
         .as_ref()
         .and_then(|v| v.as_array())
         .map(|a| !a.is_empty())
@@ -2443,29 +2643,37 @@ pub async fn get_user_security_info(
             return errors::internal("Failed to load passkeys");
         }
     };
-    let passkeys: Vec<serde_json::Value> = passkey_data.credentials.iter().map(|c| {
-        json!({
-            "id": c.id,
-            "name": c.name,
-            "created_at": c.created_at.to_rfc3339(),
-            "last_used_at": c.last_used_at.map(|t| t.to_rfc3339()),
-            "transports": c.transports,
-            "backup_eligible": c.backup_eligible,
+    let passkeys: Vec<serde_json::Value> = passkey_data
+        .credentials
+        .iter()
+        .map(|c| {
+            json!({
+                "id": c.id,
+                "name": c.name,
+                "created_at": c.created_at.to_rfc3339(),
+                "last_used_at": c.last_used_at.map(|t| t.to_rfc3339()),
+                "transports": c.transports,
+                "backup_eligible": c.backup_eligible,
+            })
         })
-    }).collect();
+        .collect();
 
     // Auth identities
-    let auth_identities = repository::user_auth_identities::get_user_identities_display(&user.uuid, &mut conn)
-        .unwrap_or_default();
-    let identities_json: Vec<serde_json::Value> = auth_identities.iter().map(|i| {
-        json!({
-            "id": i.id,
-            "provider_type": i.provider_type,
-            "provider_name": i.provider_name,
-            "email": i.email,
-            "created_at": i.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+    let auth_identities =
+        repository::user_auth_identities::get_user_identities_display(&user.uuid, &mut conn)
+            .unwrap_or_default();
+    let identities_json: Vec<serde_json::Value> = auth_identities
+        .iter()
+        .map(|i| {
+            json!({
+                "id": i.id,
+                "provider_type": i.provider_type,
+                "provider_name": i.provider_name,
+                "email": i.email,
+                "created_at": i.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            })
         })
-    }).collect();
+        .collect();
 
     HttpResponse::Ok().json(json!({
         "mfa_enabled": mfa_enabled,
@@ -2489,7 +2697,8 @@ pub async fn admin_reset_user_password(
     body: web::Json<AdminResetPasswordRequest>,
 ) -> impl Responder {
     let target_uuid_str = path.into_inner();
-    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str) {
+    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)
+    {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -2497,7 +2706,10 @@ pub async fn admin_reset_user_password(
     // Validate password meets requirements
     let validation = utils::auth::validate_password(&body.new_password);
     if !validation.valid {
-        return errors::bad_request(format!("Password validation failed: {}", validation.errors.join(", ")));
+        return errors::bad_request(format!(
+            "Password validation failed: {}",
+            validation.errors.join(", ")
+        ));
     }
 
     let new_hash = match utils::auth::hash_password(&body.new_password) {
@@ -2510,10 +2722,11 @@ pub async fn admin_reset_user_password(
     let rows_updated = match diesel::update(
         user_auth_identities::table
             .filter(user_auth_identities::user_uuid.eq(&user.uuid))
-            .filter(user_auth_identities::provider_type.eq("local"))
+            .filter(user_auth_identities::provider_type.eq("local")),
     )
     .set(user_auth_identities::password_hash.eq(Some(new_hash.as_str())))
-    .execute(&mut conn) {
+    .execute(&mut conn)
+    {
         Ok(count) => count,
         Err(e) => {
             error!(error = ?e, "Error updating password hash for user");
@@ -2546,7 +2759,8 @@ pub async fn admin_disable_user_mfa(
     path: web::Path<String>,
 ) -> impl Responder {
     let target_uuid_str = path.into_inner();
-    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str) {
+    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)
+    {
         Ok(v) => v,
         Err(e) => return e,
     };
@@ -2582,7 +2796,8 @@ pub async fn admin_delete_user_passkey(
     path: web::Path<(String, String)>, // (user_uuid, credential_id)
 ) -> impl Responder {
     let (target_uuid_str, credential_id) = path.into_inner();
-    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str) {
+    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)
+    {
         Ok(v) => v,
         Err(e) => return e,
     };

@@ -135,10 +135,7 @@ mod tests {
 
     #[test]
     fn html_signature_is_escaped_and_brified() {
-        let body = compose(
-            body_html("<p>Hi!</p>"),
-            Some("Tech <admin>\nFooter line"),
-        );
+        let body = compose(body_html("<p>Hi!</p>"), Some("Tech <admin>\nFooter line"));
         // User-authored angle brackets must not break the HTML body.
         assert!(body.html.contains("Tech &lt;admin&gt;"));
         assert!(body.html.contains("<br>\nFooter line"));

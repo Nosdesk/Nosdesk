@@ -50,12 +50,20 @@ impl fmt::Display for HostError {
         match self {
             Self::Empty => write!(f, "host is empty"),
             Self::InvalidCharacter => {
-                write!(f, "host contains an invalid character (port, userinfo, path, or whitespace)")
+                write!(
+                    f,
+                    "host contains an invalid character (port, userinfo, path, or whitespace)"
+                )
             }
-            Self::InvalidLabelStructure => write!(f, "host has an empty label or leading/trailing dot"),
+            Self::InvalidLabelStructure => {
+                write!(f, "host has an empty label or leading/trailing dot")
+            }
             Self::TooLong => write!(f, "host or label exceeds the DNS length limit"),
             Self::InvalidLabelCharacter => {
-                write!(f, "host label contains a non-LDH character (only a-z, 0-9, hyphen allowed)")
+                write!(
+                    f,
+                    "host label contains a non-LDH character (only a-z, 0-9, hyphen allowed)"
+                )
             }
             Self::HyphenBoundary => write!(f, "host label starts or ends with a hyphen"),
             Self::IpLiteral => write!(f, "host looks like an IP literal; named hosts only"),
@@ -82,7 +90,11 @@ impl Host {
         if s.contains('*') {
             return Err(HostError::Wildcard);
         }
-        if s.contains(':') || s.contains('@') || s.contains('/') || s.chars().any(char::is_whitespace) {
+        if s.contains(':')
+            || s.contains('@')
+            || s.contains('/')
+            || s.chars().any(char::is_whitespace)
+        {
             return Err(HostError::InvalidCharacter);
         }
         if s.len() > 253 {
@@ -239,7 +251,9 @@ impl HostPattern {
     pub fn covers(&self, other: &HostPattern) -> bool {
         match (self, other) {
             (HostPattern::Exact(a), HostPattern::Exact(b)) => a == b,
-            (HostPattern::Wildcard(a), HostPattern::Exact(b)) => HostPattern::Wildcard(a.clone()).matches(b),
+            (HostPattern::Wildcard(a), HostPattern::Exact(b)) => {
+                HostPattern::Wildcard(a.clone()).matches(b)
+            }
             // Wildcard in `auth` is forbidden at parse time, so the
             // remaining cases are only reached if a future schema
             // change permits it. Conservative: only equal patterns
@@ -476,13 +490,22 @@ mod tests {
 
     #[test]
     fn host_rejects_port() {
-        assert_eq!(Host::parse("foo.com:8080"), Err(HostError::InvalidCharacter));
+        assert_eq!(
+            Host::parse("foo.com:8080"),
+            Err(HostError::InvalidCharacter)
+        );
     }
 
     #[test]
     fn host_rejects_userinfo() {
-        assert_eq!(Host::parse("user@foo.com"), Err(HostError::InvalidCharacter));
-        assert_eq!(Host::parse("user:pass@foo.com"), Err(HostError::InvalidCharacter));
+        assert_eq!(
+            Host::parse("user@foo.com"),
+            Err(HostError::InvalidCharacter)
+        );
+        assert_eq!(
+            Host::parse("user:pass@foo.com"),
+            Err(HostError::InvalidCharacter)
+        );
     }
 
     #[test]
@@ -511,9 +534,18 @@ mod tests {
 
     #[test]
     fn host_rejects_empty_label() {
-        assert_eq!(Host::parse("foo..com"), Err(HostError::InvalidLabelStructure));
-        assert_eq!(Host::parse(".foo.com"), Err(HostError::InvalidLabelStructure));
-        assert_eq!(Host::parse("foo.com."), Err(HostError::InvalidLabelStructure));
+        assert_eq!(
+            Host::parse("foo..com"),
+            Err(HostError::InvalidLabelStructure)
+        );
+        assert_eq!(
+            Host::parse(".foo.com"),
+            Err(HostError::InvalidLabelStructure)
+        );
+        assert_eq!(
+            Host::parse("foo.com."),
+            Err(HostError::InvalidLabelStructure)
+        );
     }
 
     #[test]
@@ -524,8 +556,14 @@ mod tests {
 
     #[test]
     fn host_rejects_non_ldh() {
-        assert_eq!(Host::parse("foo_bar.com"), Err(HostError::InvalidLabelCharacter));
-        assert_eq!(Host::parse("café.com"), Err(HostError::InvalidLabelCharacter));
+        assert_eq!(
+            Host::parse("foo_bar.com"),
+            Err(HostError::InvalidLabelCharacter)
+        );
+        assert_eq!(
+            Host::parse("café.com"),
+            Err(HostError::InvalidLabelCharacter)
+        );
     }
 
     #[test]
@@ -578,19 +616,34 @@ mod tests {
 
     #[test]
     fn host_pattern_rejects_bare_wildcard() {
-        assert_eq!(HostPattern::parse("*"), Err(HostPatternError::BadWildcardShape));
-        assert_eq!(HostPattern::parse("*."), Err(HostPatternError::BadWildcardShape));
+        assert_eq!(
+            HostPattern::parse("*"),
+            Err(HostPatternError::BadWildcardShape)
+        );
+        assert_eq!(
+            HostPattern::parse("*."),
+            Err(HostPatternError::BadWildcardShape)
+        );
     }
 
     #[test]
     fn host_pattern_rejects_inner_wildcard() {
-        assert_eq!(HostPattern::parse("foo.*.com"), Err(HostPatternError::BadWildcardShape));
-        assert_eq!(HostPattern::parse("*foo.com"), Err(HostPatternError::BadWildcardShape));
+        assert_eq!(
+            HostPattern::parse("foo.*.com"),
+            Err(HostPatternError::BadWildcardShape)
+        );
+        assert_eq!(
+            HostPattern::parse("*foo.com"),
+            Err(HostPatternError::BadWildcardShape)
+        );
     }
 
     #[test]
     fn host_pattern_rejects_double_wildcard() {
-        assert_eq!(HostPattern::parse("*.*.com"), Err(HostPatternError::BadWildcardShape));
+        assert_eq!(
+            HostPattern::parse("*.*.com"),
+            Err(HostPatternError::BadWildcardShape)
+        );
     }
 
     #[test]
@@ -615,27 +668,42 @@ mod tests {
 
     #[test]
     fn web_url_rejects_http() {
-        assert!(matches!(WebUrl::parse("http://example.com"), Err(WebUrlError::NotHttps)));
+        assert!(matches!(
+            WebUrl::parse("http://example.com"),
+            Err(WebUrlError::NotHttps)
+        ));
     }
 
     #[test]
     fn web_url_rejects_javascript_scheme() {
-        assert!(matches!(WebUrl::parse("javascript:alert(1)"), Err(WebUrlError::NotHttps)));
+        assert!(matches!(
+            WebUrl::parse("javascript:alert(1)"),
+            Err(WebUrlError::NotHttps)
+        ));
     }
 
     #[test]
     fn web_url_rejects_file_scheme() {
-        assert!(matches!(WebUrl::parse("file:///etc/passwd"), Err(WebUrlError::NotHttps)));
+        assert!(matches!(
+            WebUrl::parse("file:///etc/passwd"),
+            Err(WebUrlError::NotHttps)
+        ));
     }
 
     #[test]
     fn web_url_rejects_data_scheme() {
-        assert!(matches!(WebUrl::parse("data:text/html,<script>"), Err(WebUrlError::NotHttps)));
+        assert!(matches!(
+            WebUrl::parse("data:text/html,<script>"),
+            Err(WebUrlError::NotHttps)
+        ));
     }
 
     #[test]
     fn web_url_rejects_garbage() {
-        assert!(matches!(WebUrl::parse("not a url"), Err(WebUrlError::Invalid)));
+        assert!(matches!(
+            WebUrl::parse("not a url"),
+            Err(WebUrlError::Invalid)
+        ));
         assert!(matches!(WebUrl::parse(""), Err(WebUrlError::Invalid)));
     }
 
@@ -643,9 +711,18 @@ mod tests {
 
     #[test]
     fn permission_parses_known_capabilities() {
-        assert_eq!(Permission::parse("ticket:read").unwrap(), Permission::TicketRead);
-        assert_eq!(Permission::parse("storage:plugin").unwrap(), Permission::StoragePlugin);
-        assert_eq!(Permission::parse("collection:write").unwrap(), Permission::CollectionWrite);
+        assert_eq!(
+            Permission::parse("ticket:read").unwrap(),
+            Permission::TicketRead
+        );
+        assert_eq!(
+            Permission::parse("storage:plugin").unwrap(),
+            Permission::StoragePlugin
+        );
+        assert_eq!(
+            Permission::parse("collection:write").unwrap(),
+            Permission::CollectionWrite
+        );
     }
 
     #[test]
@@ -668,8 +745,14 @@ mod tests {
 
     #[test]
     fn permission_rejects_unknown() {
-        assert!(matches!(Permission::parse("tickets:read"), Err(PermissionError::Unknown(_))));
-        assert!(matches!(Permission::parse("storage"), Err(PermissionError::Unknown(_))));
+        assert!(matches!(
+            Permission::parse("tickets:read"),
+            Err(PermissionError::Unknown(_))
+        ));
+        assert!(matches!(
+            Permission::parse("storage"),
+            Err(PermissionError::Unknown(_))
+        ));
     }
 
     #[test]

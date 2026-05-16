@@ -1,9 +1,9 @@
-use diesel::prelude::*;
 use chrono::Utc;
+use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{UserEmail, NewUserEmail};
+use crate::models::{NewUserEmail, UserEmail};
 use crate::schema::user_emails;
 
 /// Get all emails for a specific user by UUID
@@ -61,7 +61,7 @@ pub fn add_multiple_emails(
         .do_update()
         .set((
             user_emails::is_verified.eq(diesel::dsl::sql("EXCLUDED.is_verified")),
-            user_emails::updated_at.eq(Utc::now().naive_utc())
+            user_emails::updated_at.eq(Utc::now().naive_utc()),
         ))
         .get_results(conn)
 }
@@ -77,8 +77,9 @@ pub fn cleanup_obsolete_emails(
         user_emails::table
             .filter(user_emails::user_uuid.eq(user_uuid))
             .filter(user_emails::email.ne_all(current_emails))
-            .filter(user_emails::is_primary.eq(false)) // Never delete primary emails
-    ).execute(conn)
+            .filter(user_emails::is_primary.eq(false)), // Never delete primary emails
+    )
+    .execute(conn)
 }
 
 /// Check if any of the provided emails belong to an existing user (case-insensitive)
@@ -108,8 +109,8 @@ pub fn find_user_by_any_of_emails(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn get_user_emails_by_uuid_test() {

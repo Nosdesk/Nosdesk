@@ -51,14 +51,12 @@ const AUDIT_ONLY: &[&str] = &[
     "repository/reset_tokens.rs::create_reset_token",
     "repository/reset_tokens.rs::invalidate_tokens_by_type",
     "repository/reset_tokens.rs::mark_token_as_used",
-
     // Yjs document persistence (CRDT substrate, not a sync aggregate).
     "repository/article_content.rs::create_article_content",
     "repository/article_content.rs::create_article_content_revision",
     "repository/article_content.rs::increment_article_content_revision",
     "repository/article_content.rs::update_article_yjs_state",
     "repository/article_content.rs::update_ticket_modified_timestamp",
-
     // Operational / bespoke tables.
     "repository/backup.rs::create_backup_job",
     "repository/backup.rs::delete_backup_job",
@@ -74,19 +72,16 @@ const AUDIT_ONLY: &[&str] = &[
     "repository/sync_history.rs::upsert_delta_token",
     "repository/user_ticket_views.rs::delete_view",
     "repository/user_ticket_views.rs::record_view",
-
     // Workspace settings — covered by the audit_log trigger on
     // site_settings; sync clients don't subscribe.
     "repository/site_settings.rs::update_favicon_url",
     "repository/site_settings.rs::update_logo_light_url",
     "repository/site_settings.rs::update_logo_url",
     "repository/site_settings.rs::update_site_settings",
-
     // Feature flags — workspace config, no sync subscriber.
     "repository/feature_flags.rs::set_all_workspace_flags",
     "repository/feature_flags.rs::set_user_override",
     "repository/feature_flags.rs::set_workspace_flag",
-
     // User MFA mutations — sensitive fields, not in the sync user
     // projection. Coverage lives in security_events / audit_log.
     "repository/users.rs::clear_user_mfa",
@@ -103,7 +98,6 @@ const AUDIT_ONLY: &[&str] = &[
     "repository/tags.rs::archive_tag",
     "repository/tags.rs::create_tag",
     "repository/tags.rs::update_tag",
-
     // Plugin local storage / activity log — covered by the audit_log
     // trigger on plugin_data and plugin_collection_rows.
     "repository/plugin_collections.rs::create_row",

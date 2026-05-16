@@ -1,7 +1,7 @@
-use actix_web::{web, HttpResponse, HttpMessage, Responder};
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use actix_multipart::Multipart;
+use actix_web::{web, HttpMessage, HttpResponse, Responder};
 use futures::StreamExt;
 use serde_json::json;
 use std::io::Write;
@@ -9,8 +9,8 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::models::{
-    Claims, StartBackupExportRequest, ExecuteRestoreRequest, BackupJobResponse,
-    NewBackupJob, BackupJobUpdate,
+    BackupJobResponse, BackupJobUpdate, Claims, ExecuteRestoreRequest, NewBackupJob,
+    StartBackupExportRequest,
 };
 use crate::repository::backup as backup_repo;
 use crate::services::backup as backup_service;
@@ -89,13 +89,17 @@ pub async fn start_export(
             Err(e) => {
                 log::error!("Backup failed: {e}");
                 // Update job with error
-                let _ = backup_repo::update_backup_job(&mut conn, job_id, BackupJobUpdate {
-                    status: Some("failed".to_string()),
-                    file_path: None,
-                    file_size: None,
-                    error_message: Some(e.to_string()),
-                    completed_at: Some(chrono::Utc::now().naive_utc()),
-                });
+                let _ = backup_repo::update_backup_job(
+                    &mut conn,
+                    job_id,
+                    BackupJobUpdate {
+                        status: Some("failed".to_string()),
+                        file_path: None,
+                        file_size: None,
+                        error_message: Some(e.to_string()),
+                        completed_at: Some(chrono::Utc::now().naive_utc()),
+                    },
+                );
             }
         }
     });
@@ -105,10 +109,7 @@ pub async fn start_export(
 
 /// Get all backup/restore jobs
 /// GET /api/admin/backup/jobs
-pub async fn get_jobs(
-    pool: web::Data<Pool>,
-    req: actix_web::HttpRequest,
-) -> impl Responder {
+pub async fn get_jobs(pool: web::Data<Pool>, req: actix_web::HttpRequest) -> impl Responder {
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
@@ -127,7 +128,8 @@ pub async fn get_jobs(
 
     match backup_repo::get_all_backup_jobs(&mut conn) {
         Ok(jobs) => {
-            let responses: Vec<BackupJobResponse> = jobs.into_iter().map(BackupJobResponse::from).collect();
+            let responses: Vec<BackupJobResponse> =
+                jobs.into_iter().map(BackupJobResponse::from).collect();
             HttpResponse::Ok().json(responses)
         }
         Err(e) => errors::internal(format!("Failed to get jobs: {}", e)),
@@ -222,7 +224,9 @@ pub async fn download_backup(
 
             file.set_content_disposition(actix_web::http::header::ContentDisposition {
                 disposition: actix_web::http::header::DispositionType::Attachment,
-                parameters: vec![actix_web::http::header::DispositionParam::Filename(filename.to_string())],
+                parameters: vec![actix_web::http::header::DispositionParam::Filename(
+                    filename.to_string(),
+                )],
             })
             .into_response(&req)
         }
@@ -326,13 +330,21 @@ pub async fn upload_restore(
     };
 
     // Update job with file path
-    let job = match backup_repo::update_backup_job(&mut conn, job.id, BackupJobUpdate {
-        status: None,
-        file_path: Some(filepath.to_string_lossy().to_string()),
-        file_size: Some(std::fs::metadata(&filepath).map(|m| m.len() as i64).unwrap_or(0)),
-        error_message: None,
-        completed_at: None,
-    }) {
+    let job = match backup_repo::update_backup_job(
+        &mut conn,
+        job.id,
+        BackupJobUpdate {
+            status: None,
+            file_path: Some(filepath.to_string_lossy().to_string()),
+            file_size: Some(
+                std::fs::metadata(&filepath)
+                    .map(|m| m.len() as i64)
+                    .unwrap_or(0),
+            ),
+            error_message: None,
+            completed_at: None,
+        },
+    ) {
         Ok(job) => job,
         Err(e) => return errors::internal(format!("Failed to update job: {}", e)),
     };
@@ -438,20 +450,22 @@ pub async fn execute_restore(
     // backups without a password fail here with a clear
     // "password required" error; wrong-password backups fail
     // with a decryption error.
-    if let Err(e) =
-        backup_service::preview_restore(&file_path, body.password.as_deref())
-    {
+    if let Err(e) = backup_service::preview_restore(&file_path, body.password.as_deref()) {
         return errors::bad_request(format!("Preview failed: {}", e));
     }
 
     // Update job status
-    let _ = backup_repo::update_backup_job(&mut conn, job_id, BackupJobUpdate {
-        status: Some("processing".to_string()),
-        file_path: None,
-        file_size: None,
-        error_message: None,
-        completed_at: None,
-    });
+    let _ = backup_repo::update_backup_job(
+        &mut conn,
+        job_id,
+        BackupJobUpdate {
+            status: Some("processing".to_string()),
+            file_path: None,
+            file_size: None,
+            error_message: None,
+            completed_at: None,
+        },
+    );
 
     // Restore database first, then files. Mirrors the onboarding-only
     // `setup_restore_execute` flow below — the two paths now share the
@@ -470,39 +484,45 @@ pub async fn execute_restore(
     ) {
         Ok(s) => s,
         Err(e) => {
-            let _ = backup_repo::update_backup_job(&mut conn, job_id, BackupJobUpdate {
-                status: Some("failed".to_string()),
-                file_path: None,
-                file_size: None,
-                error_message: Some(format!("database restore failed: {e}")),
-                completed_at: Some(chrono::Utc::now().naive_utc()),
-            });
+            let _ = backup_repo::update_backup_job(
+                &mut conn,
+                job_id,
+                BackupJobUpdate {
+                    status: Some("failed".to_string()),
+                    file_path: None,
+                    file_size: None,
+                    error_message: Some(format!("database restore failed: {e}")),
+                    completed_at: Some(chrono::Utc::now().naive_utc()),
+                },
+            );
             return errors::internal(format!("Database restore failed: {e}"));
         }
     };
 
     // Files restore is best-effort: a missing or partial files payload
     // shouldn't undo the database restore that just completed.
-    let files_restored = match backup_service::restore_backup_files(
-        &file_path,
-        body.password.as_deref(),
-    ) {
-        Ok(count) => count,
-        Err(e) => {
-            tracing::warn!(error = %e, "File restore had issues during admin restore");
-            0
-        }
-    };
+    let files_restored =
+        match backup_service::restore_backup_files(&file_path, body.password.as_deref()) {
+            Ok(count) => count,
+            Err(e) => {
+                tracing::warn!(error = %e, "File restore had issues during admin restore");
+                0
+            }
+        };
 
     let thumbnails_regenerated = regenerate_user_thumbnails(&mut conn).await;
 
-    let _ = backup_repo::update_backup_job(&mut conn, job_id, BackupJobUpdate {
-        status: Some("completed".to_string()),
-        file_path: None,
-        file_size: None,
-        error_message: None,
-        completed_at: Some(chrono::Utc::now().naive_utc()),
-    });
+    let _ = backup_repo::update_backup_job(
+        &mut conn,
+        job_id,
+        BackupJobUpdate {
+            status: Some("completed".to_string()),
+            file_path: None,
+            file_size: None,
+            error_message: None,
+            completed_at: Some(chrono::Utc::now().naive_utc()),
+        },
+    );
 
     HttpResponse::Ok().json(json!({
         "success": true,
@@ -600,10 +620,17 @@ async fn regenerate_user_thumbnails(conn: &mut crate::db::DbConnection) -> u64 {
                 log::debug!("Regenerated thumbnail for user {}", user_avatar.uuid_str);
             }
             Ok(None) => {
-                log::warn!("Could not generate thumbnail for user {} - avatar may be missing", user_avatar.uuid_str);
+                log::warn!(
+                    "Could not generate thumbnail for user {} - avatar may be missing",
+                    user_avatar.uuid_str
+                );
             }
             Err(e) => {
-                log::warn!("Failed to regenerate thumbnail for user {}: {}", user_avatar.uuid_str, e);
+                log::warn!(
+                    "Failed to regenerate thumbnail for user {}: {}",
+                    user_avatar.uuid_str,
+                    e
+                );
             }
         }
     }

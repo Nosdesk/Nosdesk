@@ -297,8 +297,7 @@ fn plugin_gen_key(prefix: &Path) -> Result<()> {
 
     if let Some(parent) = sk_path.parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
     }
 
@@ -322,8 +321,8 @@ fn plugin_sign(dir: &Path, key_path: &Path, out: &Path, source: &str) -> Result<
 
     let pkcs8 = fs::read(key_path)
         .with_context(|| format!("reading signing key {}", key_path.display()))?;
-    let keypair = Ed25519KeyPair::from_pkcs8(&pkcs8)
-        .map_err(|e| anyhow!("parsing signing key: {e:?}"))?;
+    let keypair =
+        Ed25519KeyPair::from_pkcs8(&pkcs8).map_err(|e| anyhow!("parsing signing key: {e:?}"))?;
 
     // Read the directory into ArchiveEntry values. Symlinks are
     // skipped (file_type() does not follow links); the same file
@@ -337,15 +336,18 @@ fn plugin_sign(dir: &Path, key_path: &Path, out: &Path, source: &str) -> Result<
     // whole set. The signing envelope is NOT covered by the
     // canonical digest (signing::SIGNATURE_FILE is filtered out),
     // but it IS stored inside the zip so verifiers can find it.
-    let envelope_bytes = serde_json::to_vec_pretty(&envelope)
-        .with_context(|| "serialising signature envelope")?;
+    let envelope_bytes =
+        serde_json::to_vec_pretty(&envelope).with_context(|| "serialising signature envelope")?;
 
     let zip_bytes = build_zip(&entries, &envelope_bytes)?;
     fs::write(out, zip_bytes).with_context(|| format!("writing {}", out.display()))?;
 
     println!("signed {} entries", entries.len());
     println!("signer pubkey:  {}", envelope.signer_pubkey);
-    println!("fingerprint:    {}", signing::fingerprint(&base64_decode(&envelope.signer_pubkey)?));
+    println!(
+        "fingerprint:    {}",
+        signing::fingerprint(&base64_decode(&envelope.signer_pubkey)?)
+    );
     println!("signer source:  {}", envelope.signer_source);
     println!("wrote {}", out.display());
     Ok(())
@@ -367,9 +369,7 @@ fn plugin_verify(zip_path: &Path) -> Result<()> {
     println!("digest:           {}", verified.envelope.signed_digest);
     println!("entries:          {}", verified.files.len());
     println!();
-    println!(
-        "note: this checks the signature primitive only, not the trust chain."
-    );
+    println!("note: this checks the signature primitive only, not the trust chain.");
     println!("use `nosdesk-cli plugin install` to resolve the pubkey against the DB.");
     Ok(())
 }
@@ -377,10 +377,7 @@ fn plugin_verify(zip_path: &Path) -> Result<()> {
 fn plugin_install(zip_path: &Path) -> Result<()> {
     let bytes = fs::read(zip_path).with_context(|| format!("reading {}", zip_path.display()))?;
     if bytes.len() > signing::MAX_ARCHIVE_SIZE {
-        bail!(
-            "zip exceeds {} bytes",
-            signing::MAX_ARCHIVE_SIZE
-        );
+        bail!("zip exceeds {} bytes", signing::MAX_ARCHIVE_SIZE);
     }
 
     let verified =
@@ -400,9 +397,8 @@ fn plugin_install(zip_path: &Path) -> Result<()> {
         skip_if_unchanged: false,
     };
 
-    let outcome =
-        install::install_verified(&mut conn, &verified.files, signer, tier, options)
-            .map_err(|e| anyhow!("install failed: {e}"))?;
+    let outcome = install::install_verified(&mut conn, &verified.files, signer, tier, options)
+        .map_err(|e| anyhow!("install failed: {e}"))?;
 
     let (action, plugin) = match &outcome {
         install::InstallOutcome::Created(p) => ("installed", p),
@@ -490,7 +486,10 @@ fn admin_create(name: &str, email: &str, password_stdin: bool) -> Result<()> {
     // matching what the HTTP path does on its success branch.
     backend::utils::bootstrap_token::consume();
 
-    println!("created administrator: {} <{}>", user.name, primary_email.email);
+    println!(
+        "created administrator: {} <{}>",
+        user.name, primary_email.email
+    );
     println!("uuid: {}", user.uuid);
     println!("the user can now log in via the web UI with the password you provided");
     Ok(())
@@ -524,8 +523,8 @@ fn secrets_bcrypt_hash(from_stdin: bool) -> Result<()> {
 }
 
 fn read_password_interactive() -> Result<String> {
-    let pw = rpassword::prompt_password("Password: ")
-        .with_context(|| "reading password from TTY")?;
+    let pw =
+        rpassword::prompt_password("Password: ").with_context(|| "reading password from TTY")?;
     let confirm = rpassword::prompt_password("Confirm password: ")
         .with_context(|| "reading password confirmation from TTY")?;
     if pw != confirm {
@@ -567,12 +566,9 @@ fn admin_reset_password(email: &str) -> Result<()> {
     // Revoke sessions so the old credentials stop working
     // everywhere the user was logged in. Matches what the web
     // password-reset flow does.
-    let revoked = backend::repository::active_sessions::revoke_other_sessions(
-        &mut conn,
-        &user.uuid,
-        None,
-    )
-    .unwrap_or(0);
+    let revoked =
+        backend::repository::active_sessions::revoke_other_sessions(&mut conn, &user.uuid, None)
+            .unwrap_or(0);
 
     println!("reset password for {} ({})", user.name, user.uuid);
     println!("revoked {revoked} active session(s)");
@@ -588,8 +584,8 @@ fn admin_clear_mfa(email: &str) -> Result<()> {
     let user = user_helpers::get_user_by_email(email, &mut conn)
         .map_err(|e| anyhow!("no user found for {email}: {e}"))?;
 
-    let rows = users_repo::clear_user_mfa(&mut conn, &user.uuid)
-        .with_context(|| "clearing MFA fields")?;
+    let rows =
+        users_repo::clear_user_mfa(&mut conn, &user.uuid).with_context(|| "clearing MFA fields")?;
     if rows == 0 {
         bail!("user {email} not found (unexpected after lookup)");
     }
@@ -612,7 +608,14 @@ fn run_db(cmd: DbCommand) -> Result<()> {
             yes,
             force,
             ignore_schema_mismatch,
-        } => db_restore(&file, password, password_env, yes, force, ignore_schema_mismatch),
+        } => db_restore(
+            &file,
+            password,
+            password_env,
+            yes,
+            force,
+            ignore_schema_mismatch,
+        ),
     }
 }
 
@@ -702,9 +705,11 @@ fn resolve_password(
     match (password, password_env) {
         (Some(_), Some(_)) => bail!("pass --password or --password-env, not both"),
         (Some(p), None) => Ok(Some(p)),
-        (None, Some(var)) => Ok(Some(std::env::var(&var).map_err(|_| {
-            anyhow!("environment variable {var} is not set")
-        })?)),
+        (None, Some(var)) => {
+            Ok(Some(std::env::var(&var).map_err(|_| {
+                anyhow!("environment variable {var} is not set")
+            })?))
+        }
         (None, None) => Ok(None),
     }
 }
@@ -820,8 +825,7 @@ fn build_zip(entries: &[signing::ArchiveEntry], envelope: &[u8]) -> Result<Vec<u
 /// that bcrypt's 72-byte cap isn't a concern.
 fn generate_password(len: usize) -> String {
     use rand::seq::SliceRandom;
-    const ALPHABET: &[u8] =
-        b"abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_@#%!";
+    const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_@#%!";
     let mut rng = rand::thread_rng();
     (0..len)
         .map(|_| *ALPHABET.choose(&mut rng).unwrap() as char)

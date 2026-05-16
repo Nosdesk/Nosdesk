@@ -18,8 +18,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::models::{
     NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority,
     WorkflowStateCategory,
@@ -29,8 +29,7 @@ use crate::repository::{self, site_settings, user_helpers};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 use crate::utils::file_validation::{
-    FileValidator, GUEST_ATTACHMENT_TTL_MINUTES, GUEST_MAX_FILES_PER_TICKET,
-    GUEST_MAX_FILE_SIZE_MB,
+    FileValidator, GUEST_ATTACHMENT_TTL_MINUTES, GUEST_MAX_FILES_PER_TICKET, GUEST_MAX_FILE_SIZE_MB,
 };
 use crate::utils::rate_limit::{self, RateLimiter};
 use crate::utils::storage::Storage;
@@ -110,7 +109,7 @@ fn parse_priority(s: Option<&str>) -> Option<TicketPriority> {
 /// authoritative "can we reach this address" check.
 async fn email_domain_has_mx(email: &str) -> bool {
     use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-    use hickory_resolver::net::{DnsError, NetError, runtime::TokioRuntimeProvider};
+    use hickory_resolver::net::{runtime::TokioRuntimeProvider, DnsError, NetError};
     use hickory_resolver::TokioResolver;
 
     let Some(domain) = email.rsplit('@').next() else {
@@ -214,8 +213,7 @@ fn client_ip(req: &HttpRequest) -> Option<IpNetwork> {
     // Guest submissions are public; per-IP rate limiting only
     // works if we see the real client. Route through the central
     // helper so TRUSTED_PROXIES gates X-Forwarded-For consistently.
-    crate::utils::client_ip::from_http_request(req)
-        .and_then(|ip| ip.to_string().parse().ok())
+    crate::utils::client_ip::from_http_request(req).and_then(|ip| ip.to_string().parse().ok())
 }
 
 /// Best-effort audit log; failures are swallowed so they can't break a
@@ -303,7 +301,12 @@ pub async fn submit_guest_ticket(
     // Honeypot: a non-empty `website` field means a bot filled a hidden
     // input. Return a plausible-looking 400 rather than surfacing that the
     // trap worked — keeps the bot from learning to avoid it.
-    if body.website.as_deref().map(str::trim).is_some_and(|s| !s.is_empty()) {
+    if body
+        .website
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+    {
         debug!(ip = ?client_ip(&req), "Guest ticket submission tripped honeypot");
         return errors::bad_request("Invalid submission");
     }
@@ -360,8 +363,8 @@ pub async fn submit_guest_ticket(
     // enforces the coarse per-minute cap underneath.
     if let Some(ip) = client_ip(&req).map(|n| n.ip()) {
         let key = format!("guest_tickets:{ip}");
-        let max = u32::try_from(settings.guest_ticket_rate_limit_per_hour.max(1))
-            .unwrap_or(u32::MAX);
+        let max =
+            u32::try_from(settings.guest_ticket_rate_limit_per_hour.max(1)).unwrap_or(u32::MAX);
         let redis_url = rate_limit::get_redis_url();
         match RateLimiter::check_rate_limit(&redis_url, &key, max, 3600).await {
             Ok(true) => { /* allowed */ }
@@ -380,7 +383,12 @@ pub async fn submit_guest_ticket(
     // Find or provision the requester user. If the email is already attached
     // to a real account we refuse the submission rather than silently
     // attaching the ticket to someone else's identity.
-    let (user, is_new_guest) = match user_helpers::find_or_create_guest_user(email, name, &mut conn, Some(search_service.get_ref())) {
+    let (user, is_new_guest) = match user_helpers::find_or_create_guest_user(
+        email,
+        name,
+        &mut conn,
+        Some(search_service.get_ref()),
+    ) {
         Ok(GuestUserResult::Created(u)) => (u, true),
         Ok(GuestUserResult::Existing(u)) => (u, false),
         Ok(GuestUserResult::EmailClaimed) => {
@@ -545,11 +553,7 @@ pub async fn submit_guest_ticket(
     let send_email = verification_required || is_new_guest;
     let email_sent = if send_email {
         match crate::handlers::users::send_guest_ticket_confirmation(
-            &mut conn,
-            &req,
-            user.uuid,
-            email,
-            name,
+            &mut conn, &req, user.uuid, email, name,
         )
         .await
         {
@@ -572,11 +576,7 @@ pub async fn submit_guest_ticket(
     // tickets skip SSE + search indexing entirely — accept_invitation picks
     // them up at verification time and fires these broadcasts then.
     if !verification_required {
-        indexing_tasks::spawn_index_ticket(
-            search_service.get_ref().clone(),
-            ticket.clone(),
-            None,
-        );
+        indexing_tasks::spawn_index_ticket(search_service.get_ref().clone(), ticket.clone(), None);
         sse_state
             .broadcast_event(crate::handlers::sse::SseEvent::TicketCreated {
                 ticket_id: ticket.id,
@@ -588,9 +588,7 @@ pub async fn submit_guest_ticket(
 
     info!(
         ticket_id = ticket.id,
-        email_sent,
-        verification_required,
-        "Guest ticket submitted"
+        email_sent, verification_required, "Guest ticket submitted"
     );
 
     if verification_required {
@@ -656,7 +654,7 @@ pub async fn get_guest_ticket_status(
                 "updated_at": t.updated_at,
                 "closed_at": t.closed_at,
             }))
-        },
+        }
         Err(diesel::result::Error::NotFound) => HttpResponse::NotFound().finish(),
         Err(e) => {
             error!(error = %e, "Error looking up guest ticket");
@@ -687,7 +685,14 @@ pub async fn list_public_docs(pool: web::Data<Pool>) -> impl Responder {
         .filter(is_public.eq(true))
         .filter(deleted_at.is_null())
         .select((id, uuid, title, slug, icon, updated_at))
-        .load::<(i32, Uuid, String, String, Option<String>, chrono::NaiveDateTime)>(&mut conn);
+        .load::<(
+            i32,
+            Uuid,
+            String,
+            String,
+            Option<String>,
+            chrono::NaiveDateTime,
+        )>(&mut conn);
 
     match rows {
         Ok(list) => {
@@ -714,10 +719,7 @@ pub async fn list_public_docs(pool: web::Data<Pool>) -> impl Responder {
 }
 
 /// GET /api/public/docs/{slug}
-pub async fn get_public_doc(
-    pool: web::Data<Pool>,
-    path: web::Path<String>,
-) -> impl Responder {
+pub async fn get_public_doc(pool: web::Data<Pool>, path: web::Path<String>) -> impl Responder {
     let slug_param = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -733,26 +735,35 @@ pub async fn get_public_doc(
     }
 
     use crate::schema::documentation_pages::dsl::*;
-    let page: Option<(i32, Uuid, String, String, Option<String>, Option<Vec<u8>>, chrono::NaiveDateTime)> =
-        documentation_pages
-            .filter(is_public.eq(true))
-            .filter(deleted_at.is_null())
-            .filter(slug.eq(&slug_param))
-            .select((id, uuid, title, slug, icon, yjs_document, updated_at))
-            .first(&mut conn)
-            .optional()
-            .unwrap_or(None);
+    let page: Option<(
+        i32,
+        Uuid,
+        String,
+        String,
+        Option<String>,
+        Option<Vec<u8>>,
+        chrono::NaiveDateTime,
+    )> = documentation_pages
+        .filter(is_public.eq(true))
+        .filter(deleted_at.is_null())
+        .filter(slug.eq(&slug_param))
+        .select((id, uuid, title, slug, icon, yjs_document, updated_at))
+        .first(&mut conn)
+        .optional()
+        .unwrap_or(None);
 
     match page {
-        Some((pid, puuid, ptitle, pslug, picon, pdoc, pupdated)) => HttpResponse::Ok().json(json!({
-            "id": pid,
-            "uuid": puuid,
-            "title": ptitle,
-            "slug": pslug,
-            "icon": picon,
-            "yjs_document": pdoc,
-            "updated_at": pupdated,
-        })),
+        Some((pid, puuid, ptitle, pslug, picon, pdoc, pupdated)) => {
+            HttpResponse::Ok().json(json!({
+                "id": pid,
+                "uuid": puuid,
+                "title": ptitle,
+                "slug": pslug,
+                "icon": picon,
+                "yjs_document": pdoc,
+                "updated_at": pupdated,
+            }))
+        }
         None => HttpResponse::NotFound().finish(),
     }
 }
@@ -793,7 +804,14 @@ pub async fn search_public_docs(
         .filter(title.ilike(&pattern))
         .select((id, uuid, title, slug, icon, updated_at))
         .limit(GUEST_DOC_SEARCH_RESULT_LIMIT)
-        .load::<(i32, Uuid, String, String, Option<String>, chrono::NaiveDateTime)>(&mut conn);
+        .load::<(
+            i32,
+            Uuid,
+            String,
+            String,
+            Option<String>,
+            chrono::NaiveDateTime,
+        )>(&mut conn);
 
     match rows {
         Ok(list) => {
@@ -915,8 +933,7 @@ pub async fn upload_guest_attachment(
     let sanitized_filename = match FileValidator::sanitize_filename(&original_filename) {
         Ok(n) => n,
         Err(e) => {
-            return HttpResponse::BadRequest()
-                .json(json!({"error": e.to_string()}));
+            return HttpResponse::BadRequest().json(json!({"error": e.to_string()}));
         }
     };
 
@@ -944,8 +961,7 @@ pub async fn upload_guest_attachment(
         Ok(m) => m,
         Err(e) => {
             debug!(error = ?e, filename = %sanitized_filename, "Guest upload rejected");
-            return HttpResponse::BadRequest()
-                .json(json!({"error": e.to_string()}));
+            return HttpResponse::BadRequest().json(json!({"error": e.to_string()}));
         }
     };
 
@@ -1050,12 +1066,13 @@ async fn claim_guest_attachments(
         // URL looks like "/uploads/temp/<uuid>_<name>" — the storage path
         // the trait wants is relative to uploads/.
         let temp_storage_path = att.url.trim_start_matches("/uploads/").to_string();
-        let file_only = temp_storage_path
-            .trim_start_matches("temp/")
-            .to_string();
+        let file_only = temp_storage_path.trim_start_matches("temp/").to_string();
         let new_storage_path = format!("tickets/{ticket_id}/{file_only}");
 
-        match storage.move_file(&temp_storage_path, &new_storage_path).await {
+        match storage
+            .move_file(&temp_storage_path, &new_storage_path)
+            .await
+        {
             Ok(_) => {
                 att.url = format!("/uploads/{new_storage_path}");
                 att.comment_id = Some(comment_id);
@@ -1085,11 +1102,26 @@ mod tests {
 
     #[test]
     fn parse_priority_accepts_canonical_names_case_insensitive() {
-        assert!(matches!(parse_priority(Some("low")), Some(TicketPriority::Low)));
-        assert!(matches!(parse_priority(Some("Low")), Some(TicketPriority::Low)));
-        assert!(matches!(parse_priority(Some("LOW")), Some(TicketPriority::Low)));
-        assert!(matches!(parse_priority(Some("medium")), Some(TicketPriority::Medium)));
-        assert!(matches!(parse_priority(Some("high")), Some(TicketPriority::High)));
+        assert!(matches!(
+            parse_priority(Some("low")),
+            Some(TicketPriority::Low)
+        ));
+        assert!(matches!(
+            parse_priority(Some("Low")),
+            Some(TicketPriority::Low)
+        ));
+        assert!(matches!(
+            parse_priority(Some("LOW")),
+            Some(TicketPriority::Low)
+        ));
+        assert!(matches!(
+            parse_priority(Some("medium")),
+            Some(TicketPriority::Medium)
+        ));
+        assert!(matches!(
+            parse_priority(Some("high")),
+            Some(TicketPriority::High)
+        ));
     }
 
     #[test]
@@ -1138,4 +1170,3 @@ mod tests {
         assert_eq!(escape_like(""), "");
     }
 }
-

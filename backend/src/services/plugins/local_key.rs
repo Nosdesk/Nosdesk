@@ -56,8 +56,8 @@ const AAD_CONTEXT: &[u8] = b"nosdesk.plugin.local_sk.v1";
 /// generate a fresh keypair, persist it encrypted, and return the
 /// newly-created values. Idempotent: safe to call on every boot.
 pub fn ensure_local_signing_key(conn: &mut DbConnection) -> Result<LocalKeyInfo, LocalKeyError> {
-    if let Some(row) = plugin_publishers::get_local_signing_key(conn)
-        .map_err(LocalKeyError::DbLoad)?
+    if let Some(row) =
+        plugin_publishers::get_local_signing_key(conn).map_err(LocalKeyError::DbLoad)?
     {
         info!(
             fingerprint = %row.fingerprint,

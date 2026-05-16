@@ -24,16 +24,20 @@
 //! ticket row and invalidate via sync_actions on workflow_state
 //! transitions.
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Timelike, Utc, Weekday};
+use chrono::{
+    DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Timelike, Utc, Weekday,
+};
 use chrono_tz::Tz;
 use std::collections::HashSet;
 
-use crate::models::{SlaPolicy, Ticket, WorkflowStateCategory, WorkingCalendar, WorkingCalendarHoliday};
+use crate::models::{
+    SlaPolicy, Ticket, WorkflowStateCategory, WorkingCalendar, WorkingCalendarHoliday,
+};
 
 /// One [open, close) interval inside a working day.
 #[derive(Debug, Clone, Copy)]
 struct WorkRange {
-    open_minutes: i32,  // minutes since midnight
+    open_minutes: i32, // minutes since midnight
     close_minutes: i32,
 }
 
@@ -79,7 +83,10 @@ fn parse_schedule(schedule: &serde_json::Value) -> ParsedSchedule {
                         let open_minutes = oh * 60 + om;
                         let close_minutes = ch * 60 + cm;
                         if close_minutes > open_minutes {
-                            days[i].push(WorkRange { open_minutes, close_minutes });
+                            days[i].push(WorkRange {
+                                open_minutes,
+                                close_minutes,
+                            });
                         }
                     }
                 }
@@ -166,7 +173,9 @@ fn next_day_midnight(tz: &Tz, date: NaiveDate) -> DateTime<Tz> {
         // 00:00 once a year (none widely used).
         let bumped = nd + Duration::hours(1);
         tz.from_local_datetime(&bumped).single().unwrap_or_else(|| {
-            tz.timestamp_opt(0, 0).single().unwrap_or_else(|| Utc::now().with_timezone(tz))
+            tz.timestamp_opt(0, 0)
+                .single()
+                .unwrap_or_else(|| Utc::now().with_timezone(tz))
         })
     })
 }
@@ -231,10 +240,7 @@ pub fn compute_pill(
 
 /// Pick the most-specific policy that matches a ticket. Highest-id
 /// match wins, with the workspace default as a fallback.
-pub fn pick_policy<'a>(
-    policies: &'a [SlaPolicy],
-    ticket: &Ticket,
-) -> Option<&'a SlaPolicy> {
+pub fn pick_policy<'a>(policies: &'a [SlaPolicy], ticket: &Ticket) -> Option<&'a SlaPolicy> {
     let priority_str = match ticket.priority {
         crate::models::TicketPriority::Low => "low",
         crate::models::TicketPriority::Medium => "medium",

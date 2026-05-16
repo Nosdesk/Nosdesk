@@ -43,14 +43,11 @@ const BLOCKED_MIME_TYPES: &[&str] = &[
 /// These are checked when magic number detection fails or as additional safety
 const BLOCKED_EXTENSIONS: &[&str] = &[
     // Windows executables
-    "exe", "dll", "scr", "cpl", "msi", "com", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "ws", "wsf", "wsc", "wsh",
-    // Linux/Unix executables
-    "sh", "bash", "csh", "ksh", "zsh", "run", "bin",
-    // Mac executables
-    "app", "command",
-    // Java
-    "jar", "class",
-    // Other potentially dangerous
+    "exe", "dll", "scr", "cpl", "msi", "com", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "ws",
+    "wsf", "wsc", "wsh", // Linux/Unix executables
+    "sh", "bash", "csh", "ksh", "zsh", "run", "bin", // Mac executables
+    "app", "command", // Java
+    "jar", "class", // Other potentially dangerous
     "reg", "inf", "scf", "lnk", "pif", "hta", "gadget",
     // SVG: see BLOCKED_MIME_TYPES comment. `.svgz` is gzipped SVG and
     // serves identically once decoded by the browser.
@@ -132,9 +129,8 @@ const GUEST_ALLOWED_MIME_TYPES: &[&str] = &[
 /// Extensions the guest upload path will accept. Must line up semantically
 /// with [`GUEST_ALLOWED_MIME_TYPES`]. Files whose magic bytes don't match
 /// their extension are rejected.
-const GUEST_ALLOWED_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "webp", "pdf", "txt", "log",
-];
+const GUEST_ALLOWED_EXTENSIONS: &[&str] =
+    &["jpg", "jpeg", "png", "gif", "webp", "pdf", "txt", "log"];
 
 /// Per-file cap for guest uploads — deliberately tighter than the
 /// authenticated `MAX_FILE_SIZE_MB` so a spam wave can't exhaust disk.
@@ -228,7 +224,10 @@ impl FileValidator {
     ///
     /// # Returns
     /// The detected MIME type if safe, or "application/octet-stream" for unknown types
-    pub fn validate_file(bytes: &[u8], filename: Option<&str>) -> Result<String, FileValidationError> {
+    pub fn validate_file(
+        bytes: &[u8],
+        filename: Option<&str>,
+    ) -> Result<String, FileValidationError> {
         if let Some(name) = filename {
             if let Some(ext) = file_extension(name) {
                 if BLOCKED_EXTENSIONS.contains(&ext.as_str()) {
@@ -383,7 +382,6 @@ impl FileValidator {
 
         Ok(sanitized)
     }
-
 }
 
 #[cfg(test)]

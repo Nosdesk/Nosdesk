@@ -78,7 +78,6 @@ static TRACKERS: &[(&str, &str)] = &[
     ("activecampaign.com", "ActiveCampaign"),
     ("klaviyomail.com", "Klaviyo"),
     ("kxcdn.com", "Klaviyo"),
-
     // -- Per-recipient pixel services --
     ("bananatag.com", "Bananatag"),
     ("mailtrack.io", "Mailtrack"),
@@ -88,7 +87,6 @@ static TRACKERS: &[(&str, &str)] = &[
     ("trackapp.io", "Trackapp"),
     ("hubspotvideo.com", "HubSpot Video"),
     ("docsend.com", "DocSend"),
-
     // -- Web analytics frequently embedded in marketing emails --
     ("doubleclick.net", "DoubleClick"),
     ("googletagmanager.com", "Google Tag Manager"),
@@ -96,7 +94,6 @@ static TRACKERS: &[(&str, &str)] = &[
     ("hotjar.com", "Hotjar"),
     ("segment.com", "Segment"),
     ("segment.io", "Segment"),
-
     // -- Read-receipt browser extensions and consumer trackers --
     ("streak.com", "Streak"),
     ("mxtrack.io", "MxTrack"),
@@ -146,18 +143,9 @@ mod tests {
     fn matches_subdomain() {
         // Marketing platforms typically wrap each customer in a
         // per-tenant subdomain. The match must catch those.
-        assert_eq!(
-            match_tracker("track.mailchimp.com"),
-            Some("Mailchimp")
-        );
-        assert_eq!(
-            match_tracker("acme.list-manage.com"),
-            Some("Mailchimp")
-        );
-        assert_eq!(
-            match_tracker("u123456.ct.sendgrid.net"),
-            Some("SendGrid")
-        );
+        assert_eq!(match_tracker("track.mailchimp.com"), Some("Mailchimp"));
+        assert_eq!(match_tracker("acme.list-manage.com"), Some("Mailchimp"));
+        assert_eq!(match_tracker("u123456.ct.sendgrid.net"), Some("SendGrid"));
     }
 
     #[test]
@@ -174,10 +162,7 @@ mod tests {
     #[test]
     fn case_insensitive() {
         assert_eq!(match_tracker("MAILCHIMP.COM"), Some("Mailchimp"));
-        assert_eq!(
-            match_tracker("Track.Mailchimp.Com"),
-            Some("Mailchimp")
-        );
+        assert_eq!(match_tracker("Track.Mailchimp.Com"), Some("Mailchimp"));
     }
 
     #[test]
@@ -192,13 +177,7 @@ mod tests {
         // Mailchimp owns several domains. All should attribute
         // to "Mailchimp" (the brand the agent recognises) rather
         // than the subsidiary domain name.
-        assert_eq!(
-            match_tracker("list-manage.com"),
-            Some("Mailchimp")
-        );
-        assert_eq!(
-            match_tracker("mailchimpapp.com"),
-            Some("Mailchimp")
-        );
+        assert_eq!(match_tracker("list-manage.com"), Some("Mailchimp"));
+        assert_eq!(match_tracker("mailchimpapp.com"), Some("Mailchimp"));
     }
 }

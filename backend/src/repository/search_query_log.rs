@@ -23,11 +23,7 @@ pub fn normalise_query(raw: &str) -> String {
 
 /// Insert one log row. Errors are non-fatal at the call site —
 /// search must succeed even if logging fails.
-pub fn log_query(
-    conn: &mut DbConnection,
-    query_raw: &str,
-    result_count: i32,
-) -> Result<(), Error> {
+pub fn log_query(conn: &mut DbConnection, query_raw: &str, result_count: i32) -> Result<(), Error> {
     let query_norm = normalise_query(query_raw);
     if query_norm.is_empty() {
         return Ok(());
@@ -63,23 +59,26 @@ pub fn aggregate_failed_searches(
 ) -> Result<Vec<FailedSearchAggregate>, Error> {
     use diesel::dsl::{count_star, max, min};
 
-    let cutoff = chrono::Utc::now().naive_utc()
-        - chrono::Duration::days(days as i64);
+    let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::days(days as i64);
 
-    let rows: Vec<(String, i64, Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>)> =
-        search_query_log::table
-            .filter(search_query_log::result_count.eq(0))
-            .filter(search_query_log::searched_at.ge(cutoff))
-            .group_by(search_query_log::query_norm)
-            .having(count_star().ge(min_count))
-            .select((
-                search_query_log::query_norm,
-                count_star(),
-                min(search_query_log::searched_at),
-                max(search_query_log::searched_at),
-            ))
-            .order_by(count_star().desc())
-            .load(conn)?;
+    let rows: Vec<(
+        String,
+        i64,
+        Option<chrono::NaiveDateTime>,
+        Option<chrono::NaiveDateTime>,
+    )> = search_query_log::table
+        .filter(search_query_log::result_count.eq(0))
+        .filter(search_query_log::searched_at.ge(cutoff))
+        .group_by(search_query_log::query_norm)
+        .having(count_star().ge(min_count))
+        .select((
+            search_query_log::query_norm,
+            count_star(),
+            min(search_query_log::searched_at),
+            max(search_query_log::searched_at),
+        ))
+        .order_by(count_star().desc())
+        .load(conn)?;
 
     if rows.is_empty() {
         return Ok(Vec::new());
@@ -122,14 +121,8 @@ pub fn aggregate_failed_searches(
 
 /// Drop log rows older than `retention_days`. Run periodically by
 /// the scheduler. Returns the number of rows deleted.
-pub fn prune_old_rows(
-    conn: &mut DbConnection,
-    retention_days: i32,
-) -> Result<usize, Error> {
-    let cutoff = chrono::Utc::now().naive_utc()
-        - chrono::Duration::days(retention_days as i64);
-    diesel::delete(
-        search_query_log::table.filter(search_query_log::searched_at.lt(cutoff)),
-    )
-    .execute(conn)
+pub fn prune_old_rows(conn: &mut DbConnection, retention_days: i32) -> Result<usize, Error> {
+    let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::days(retention_days as i64);
+    diesel::delete(search_query_log::table.filter(search_query_log::searched_at.lt(cutoff)))
+        .execute(conn)
 }

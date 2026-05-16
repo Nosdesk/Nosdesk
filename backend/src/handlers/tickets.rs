@@ -1,31 +1,34 @@
-use actix_web::{web, HttpResponse, Responder, HttpRequest, HttpMessage};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, error, warn, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TicketAccess};
-use crate::models::{AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, UserRole, WorkflowStateCategory};
+use crate::handlers::errors;
+use crate::handlers::helpers;
+use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
+use crate::models::{
+    AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, UserRole,
+    WorkflowStateCategory,
+};
 use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
 use crate::services::assignment::AssignmentEngine;
 use crate::services::notifications::{
+    types::{NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode},
     NotificationService,
-    types::{NotificationTypeCode, NotificationPayload, NotificationEntity, NotificationActor},
 };
-use crate::services::search::SearchService;
 use crate::services::search::indexing_tasks;
+use crate::services::search::SearchService;
 use crate::sync::actor::ActorContext;
-use crate::utils::rbac::{is_admin, is_technician_or_admin};
-use crate::handlers::helpers;
-use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
-use crate::handlers::errors;
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
+use crate::utils::rbac::{is_admin, is_technician_or_admin};
 
 /// Local convenience: bind the system-actor reference for this
 /// handler module so call sites stay terse.
@@ -48,7 +51,9 @@ fn validate_assignee_role(
                 Ok(())
             }
         }
-        Err(_) => Err(errors::bad_request("User not found: The specified assignee does not exist")),
+        Err(_) => Err(errors::bad_request(
+            "User not found: The specified assignee does not exist",
+        )),
     }
 }
 
@@ -68,7 +73,9 @@ fn parse_and_validate_assignee_string(
                     Ok(uuid)
                 }
             }
-            Err(_) => Err(errors::bad_request("User not found: The specified assignee does not exist")),
+            Err(_) => Err(errors::bad_request(
+                "User not found: The specified assignee does not exist",
+            )),
         }
     } else {
         // Try to look up by name
@@ -80,7 +87,9 @@ fn parse_and_validate_assignee_string(
                     Ok(user.uuid)
                 }
             }
-            Err(_) => Err(errors::bad_request("User not found: The specified assignee does not exist")),
+            Err(_) => Err(errors::bad_request(
+                "User not found: The specified assignee does not exist",
+            )),
         }
     }
 }
@@ -121,41 +130,39 @@ async fn broadcast_sse_simple(
                 }
             }
             "ticket_linked" => {
-                data.get("linked_ticket_id").and_then(|v| v.as_u64()).map(|linked_id| {
-                    SseEvent::TicketLinked {
+                data.get("linked_ticket_id")
+                    .and_then(|v| v.as_u64())
+                    .map(|linked_id| SseEvent::TicketLinked {
                         ticket_id,
                         linked_ticket_id: linked_id as i32,
                         timestamp: chrono::Utc::now(),
-                    }
-                })
+                    })
             }
             "ticket_unlinked" => {
-                data.get("linked_ticket_id").and_then(|v| v.as_u64()).map(|linked_id| {
-                    SseEvent::TicketUnlinked {
+                data.get("linked_ticket_id")
+                    .and_then(|v| v.as_u64())
+                    .map(|linked_id| SseEvent::TicketUnlinked {
                         ticket_id,
                         linked_ticket_id: linked_id as i32,
                         timestamp: chrono::Utc::now(),
-                    }
-                })
+                    })
             }
-            "device_linked" => {
-                data.get("device_id").and_then(|v| v.as_u64()).map(|device_id| {
-                    SseEvent::DeviceLinked {
-                        ticket_id,
-                        device_id: device_id as i32,
-                        timestamp: chrono::Utc::now(),
-                    }
-                })
-            }
-            "device_unlinked" => {
-                data.get("device_id").and_then(|v| v.as_u64()).map(|device_id| {
-                    SseEvent::DeviceUnlinked {
-                        ticket_id,
-                        device_id: device_id as i32,
-                        timestamp: chrono::Utc::now(),
-                    }
-                })
-            }
+            "device_linked" => data
+                .get("device_id")
+                .and_then(|v| v.as_u64())
+                .map(|device_id| SseEvent::DeviceLinked {
+                    ticket_id,
+                    device_id: device_id as i32,
+                    timestamp: chrono::Utc::now(),
+                }),
+            "device_unlinked" => data
+                .get("device_id")
+                .and_then(|v| v.as_u64())
+                .map(|device_id| SseEvent::DeviceUnlinked {
+                    ticket_id,
+                    device_id: device_id as i32,
+                    timestamp: chrono::Utc::now(),
+                }),
             _ => {
                 warn!(event_type = %event_type, "Unknown SSE event type");
                 None
@@ -163,7 +170,9 @@ async fn broadcast_sse_simple(
         };
 
         if let Some(event) = event {
-            sse_state.broadcast_event_from(event, source_client_id).await;
+            sse_state
+                .broadcast_event_from(event, source_client_id)
+                .await;
         }
     });
 }
@@ -218,10 +227,7 @@ pub struct PaginatedResponse<T> {
 }
 
 // Get all tickets (technicians and admins only)
-pub async fn get_tickets(
-    pool: web::Data<crate::db::Pool>,
-    auth: AuthContext,
-) -> impl Responder {
+pub async fn get_tickets(pool: web::Data<crate::db::Pool>, auth: AuthContext) -> impl Responder {
     // Only technicians and admins can see all tickets via this endpoint
     if !auth.is_technician_or_admin() {
         return errors::forbidden("Forbidden: Only technicians and admins can access all tickets");
@@ -341,14 +347,20 @@ pub async fn get_ticket_activity(
         Err(e) => return e,
     };
 
-    let limit = query.limit.unwrap_or(DEFAULT_ACTIVITY_LIMIT).clamp(1, MAX_ACTIVITY_LIMIT);
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_ACTIVITY_LIMIT)
+        .clamp(1, MAX_ACTIVITY_LIMIT);
     let group_marker = format!("ticket:{}", ticket_id);
 
     // Fetch limit + 1 so we can detect the boundary without a
     // separate count query — same trick `delta` uses.
     let mut q = sync_actions::table
         .filter(sync_actions::groups.contains(vec![Some(group_marker)]))
-        .order((sync_actions::occurred_at.desc(), sync_actions::sync_id.desc()))
+        .order((
+            sync_actions::occurred_at.desc(),
+            sync_actions::sync_id.desc(),
+        ))
         .limit(limit + 1)
         .select((
             sync_actions::sync_id,
@@ -383,7 +395,10 @@ pub async fn get_ticket_activity(
         None
     };
 
-    HttpResponse::Ok().json(TicketActivityResponse { events, next_cursor })
+    HttpResponse::Ok().json(TicketActivityResponse {
+        events,
+        next_cursor,
+    })
 }
 
 // ----------------------------------------------------------------------
@@ -478,10 +493,7 @@ pub async fn preview_ticket_field(
 // reaching this body means the caller is allowed to read the
 // ticket. 404 (not 403) on deny is enforced inside the extractor,
 // per the OWASP IDOR Cheatsheet.
-pub async fn get_ticket(
-    pool: web::Data<crate::db::Pool>,
-    access: TicketAccess,
-) -> impl Responder {
+pub async fn get_ticket(pool: web::Data<crate::db::Pool>, access: TicketAccess) -> impl Responder {
     use crate::repository::user_ticket_views::UserTicketViewsRepository;
 
     let TicketAccess { ticket_id, auth } = access;
@@ -532,7 +544,9 @@ pub async fn create_ticket(
         ) {
             Ok(true) => {}
             Ok(false) => {
-                return errors::forbidden("Forbidden: You do not have access to the specified category");
+                return errors::forbidden(
+                    "Forbidden: You do not have access to the specified category",
+                );
             }
             Err(_) => {
                 return errors::internal("Failed to check category visibility");
@@ -554,7 +568,11 @@ pub async fn create_ticket(
         Ok(mut ticket) => {
             // Run automatic assignment rules if no assignee
             if ticket.assignee_uuid.is_none() {
-                if let Some(result) = AssignmentEngine::evaluate_rules(&mut conn, &ticket, AssignmentTrigger::TicketCreated) {
+                if let Some(result) = AssignmentEngine::evaluate_rules(
+                    &mut conn,
+                    &ticket,
+                    AssignmentTrigger::TicketCreated,
+                ) {
                     if let Some(assigned_uuid) = result.assigned_user_uuid {
                         let assign_update = TicketUpdate {
                             assignee_uuid: Some(Some(assigned_uuid)),
@@ -562,7 +580,12 @@ pub async fn create_ticket(
                             ..Default::default()
                         };
                         if let Ok(updated) = with_actor(&mut conn, &actor_ctx, |conn| {
-                            repository::update_ticket_partial(conn, ticket.id, assign_update, Some(search_service.get_ref()))
+                            repository::update_ticket_partial(
+                                conn,
+                                ticket.id,
+                                assign_update,
+                                Some(search_service.get_ref()),
+                            )
                         }) {
                             ticket = updated;
                             info!(
@@ -623,7 +646,7 @@ pub async fn create_ticket(
                 .await;
 
             HttpResponse::Created().json(ticket)
-        },
+        }
         Err(_) => errors::internal("Failed to create ticket"),
     }
 }
@@ -656,9 +679,7 @@ pub async fn update_ticket(
         repository::update_ticket(conn, ticket_id, new_ticket)
     }) {
         Ok(ticket) => HttpResponse::Ok().json(ticket),
-        Err(e) => {
-            errors::internal(format!("Failed to update ticket: {e}"))
-        }
+        Err(e) => errors::internal(format!("Failed to update ticket: {e}")),
     }
 }
 
@@ -691,8 +712,14 @@ pub async fn delete_ticket(
 
     // Use the comprehensive deletion function that cleans up files
     let actor_ctx = actor_for(&req);
-    match repository::delete_ticket_with_cleanup(&mut conn, ticket_id, storage.as_ref().clone(), Some(search_service.get_ref()), &actor_ctx)
-        .await
+    match repository::delete_ticket_with_cleanup(
+        &mut conn,
+        ticket_id,
+        storage.as_ref().clone(),
+        Some(search_service.get_ref()),
+        &actor_ctx,
+    )
+    .await
     {
         Ok(rows_affected) => {
             if rows_affected > 0 {
@@ -700,13 +727,15 @@ pub async fn delete_ticket(
                 indexing_tasks::spawn_delete_ticket(search_service.get_ref().clone(), ticket_id);
 
                 // Broadcast ticket deletion via SSE
-                sse_state.broadcast_event_from(
-                    crate::handlers::sse::SseEvent::TicketDeleted {
-                        ticket_id,
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id,
-                ).await;
+                sse_state
+                    .broadcast_event_from(
+                        crate::handlers::sse::SseEvent::TicketDeleted {
+                            ticket_id,
+                            timestamp: chrono::Utc::now(),
+                        },
+                        source_client_id,
+                    )
+                    .await;
 
                 HttpResponse::NoContent().finish()
             } else {
@@ -862,7 +891,9 @@ pub async fn create_empty_ticket(
 
     // Run automatic assignment rules if no assignee
     if ticket.assignee_uuid.is_none() {
-        if let Some(result) = AssignmentEngine::evaluate_rules(&mut conn, &ticket, AssignmentTrigger::TicketCreated) {
+        if let Some(result) =
+            AssignmentEngine::evaluate_rules(&mut conn, &ticket, AssignmentTrigger::TicketCreated)
+        {
             // Update ticket with auto-assigned user
             if let Some(assigned_uuid) = result.assigned_user_uuid {
                 let assign_update = TicketUpdate {
@@ -871,7 +902,12 @@ pub async fn create_empty_ticket(
                     ..Default::default()
                 };
                 if let Ok(updated) = with_actor(&mut conn, &actor_ctx, |conn| {
-                    repository::update_ticket_partial(conn, ticket.id, assign_update, Some(search_service.get_ref()))
+                    repository::update_ticket_partial(
+                        conn,
+                        ticket.id,
+                        assign_update,
+                        Some(search_service.get_ref()),
+                    )
                 }) {
                     ticket = updated;
                     info!(
@@ -1011,13 +1047,12 @@ pub async fn update_ticket_partial(
         ticket_update.workflow_state_id = Some(id);
         // Recompute closed_at based on the resolved category.
         if let Ok(Some(cat)) = repository::workflow_states::category_of(&mut conn, id) {
-            ticket_update.closed_at = if cat == WorkflowStateCategory::Done
-                || cat == WorkflowStateCategory::Cancelled
-            {
-                Some(Some(chrono::Utc::now().naive_utc()))
-            } else {
-                Some(None)
-            };
+            ticket_update.closed_at =
+                if cat == WorkflowStateCategory::Done || cat == WorkflowStateCategory::Cancelled {
+                    Some(Some(chrono::Utc::now().naive_utc()))
+                } else {
+                    Some(None)
+                };
         }
     }
 
@@ -1067,14 +1102,12 @@ pub async fn update_ticket_partial(
     // view reads this; ticket_id default is null.
     if body.get("due_date").is_some() {
         match body.get("due_date") {
-            Some(Value::String(s)) => {
-                match chrono::DateTime::parse_from_rfc3339(s) {
-                    Ok(dt) => {
-                        ticket_update.due_date = Some(Some(dt.naive_utc()));
-                    }
-                    Err(_) => return errors::bad_request("due_date must be RFC3339 or null"),
+            Some(Value::String(s)) => match chrono::DateTime::parse_from_rfc3339(s) {
+                Ok(dt) => {
+                    ticket_update.due_date = Some(Some(dt.naive_utc()));
                 }
-            }
+                Err(_) => return errors::bad_request("due_date must be RFC3339 or null"),
+            },
             Some(Value::Null) => {
                 ticket_update.due_date = Some(None);
             }
@@ -1133,7 +1166,9 @@ pub async fn update_ticket_partial(
         ) {
             Ok(true) => {}
             Ok(false) => {
-                return errors::forbidden("Forbidden: You do not have access to the specified category");
+                return errors::forbidden(
+                    "Forbidden: You do not have access to the specified category",
+                );
             }
             Err(_) => {
                 return errors::internal("Failed to check category visibility");
@@ -1147,7 +1182,12 @@ pub async fn update_ticket_partial(
     // Update the ticket
     let actor_ctx = actor_for(&req);
     match with_actor(&mut conn, &actor_ctx, |conn| {
-        repository::update_ticket_partial(conn, ticket_id, ticket_update, Some(search_service.get_ref()))
+        repository::update_ticket_partial(
+            conn,
+            ticket_id,
+            ticket_update,
+            Some(search_service.get_ref()),
+        )
     }) {
         Ok(updated_ticket) => {
             // RRULE materialise-on-close: if the patch flipped the
@@ -1158,7 +1198,8 @@ pub async fn update_ticket_partial(
             // brick close.
             if let Some(rule) = updated_ticket.recurrence_rule.as_ref() {
                 let category = repository::workflow_states::category_of(
-                    &mut conn, updated_ticket.workflow_state_id,
+                    &mut conn,
+                    updated_ticket.workflow_state_id,
                 )
                 .ok()
                 .flatten();
@@ -1251,8 +1292,15 @@ pub async fn update_ticket_partial(
                             ..Default::default()
                         };
                         if with_actor(&mut conn, &actor_ctx, |conn| {
-                            repository::update_ticket_partial(conn, ticket_id, assign_update, Some(search_service.get_ref()))
-                        }).is_ok() {
+                            repository::update_ticket_partial(
+                                conn,
+                                ticket_id,
+                                assign_update,
+                                Some(search_service.get_ref()),
+                            )
+                        })
+                        .is_ok()
+                        {
                             info!(
                                 ticket_id,
                                 assignee = %assigned_uuid,
@@ -1262,14 +1310,17 @@ pub async fn update_ticket_partial(
                             );
 
                             // Get user info for the SSE event
-                            let assignee_user = repository::get_user_by_uuid(&assigned_uuid, &mut conn).ok();
-                            let user_info_for_sse = assignee_user.as_ref()
-                                .map(|u| crate::models::UserInfoWithAvatar {
-                                    uuid: u.uuid,
-                                    name: u.name.clone(),
-                                    avatar_url: u.avatar_url.clone(),
-                                    avatar_thumb: u.avatar_thumb.clone(),
-                                });
+                            let assignee_user =
+                                repository::get_user_by_uuid(&assigned_uuid, &mut conn).ok();
+                            let user_info_for_sse =
+                                assignee_user
+                                    .as_ref()
+                                    .map(|u| crate::models::UserInfoWithAvatar {
+                                        uuid: u.uuid,
+                                        name: u.name.clone(),
+                                        avatar_url: u.avatar_url.clone(),
+                                        avatar_thumb: u.avatar_thumb.clone(),
+                                    });
 
                             // Broadcast the assignment SSE event with user info
                             broadcast_sse_simple(
@@ -1347,9 +1398,7 @@ pub async fn update_ticket_partial(
             // This happens after SSE broadcast so it doesn't delay real-time updates
             let updated_ticket = match repository::get_complete_ticket(&mut conn, ticket_id) {
                 Ok(ticket) => ticket,
-                Err(_) => {
-                    return errors::internal("Failed to fetch updated ticket")
-                }
+                Err(_) => return errors::internal("Failed to fetch updated ticket"),
             };
 
             // Trigger notifications for relevant changes (runs async, doesn't block response)
@@ -1357,13 +1406,13 @@ pub async fn update_ticket_partial(
                 // Get actor info for notifications
                 let actor_uuid = Uuid::parse_str(&user_info.sub).ok();
                 let actor = actor_uuid.and_then(|uuid| {
-                    repository::get_user_by_uuid(&uuid, &mut conn).ok().map(|user| {
-                        NotificationActor {
+                    repository::get_user_by_uuid(&uuid, &mut conn)
+                        .ok()
+                        .map(|user| NotificationActor {
                             uuid: user.uuid,
                             name: user.name.clone(),
                             avatar_thumb: user.avatar_thumb.clone(),
-                        }
-                    })
+                        })
                 });
 
                 if let Some(actor) = actor {
@@ -1382,14 +1431,12 @@ pub async fn update_ticket_partial(
                     .flatten()
                     .map(|c| c.legacy_status())
                     .unwrap_or("open");
-                    let old_status = repository::workflow_states::category_of(
-                        &mut conn,
-                        old.workflow_state_id,
-                    )
-                    .ok()
-                    .flatten()
-                    .map(|c| c.legacy_status())
-                    .unwrap_or("open");
+                    let old_status =
+                        repository::workflow_states::category_of(&mut conn, old.workflow_state_id)
+                            .ok()
+                            .flatten()
+                            .map(|c| c.legacy_status())
+                            .unwrap_or("open");
                     let requester_uuid = updated_ticket.ticket.requester_uuid;
                     let actor_clone = actor.clone();
 
@@ -1407,7 +1454,9 @@ pub async fn update_ticket_partial(
                                         title: ticket_title.clone(),
                                     },
                                 )
-                                .with_body(format!("You have been assigned to ticket #{ticket_id}"));
+                                .with_body(format!(
+                                    "You have been assigned to ticket #{ticket_id}"
+                                ));
 
                                 if let Err(e) = notification_service.notify(payload).await {
                                     warn!(error = %e, "Failed to send assignment notification");
@@ -1443,7 +1492,8 @@ pub async fn update_ticket_partial(
 
             // Re-index the updated ticket in search
             // Fetch the article content if it exists for indexing
-            let article_content = repository::get_article_content_by_ticket_id(&mut conn, ticket_id).ok();
+            let article_content =
+                repository::get_article_content_by_ticket_id(&mut conn, ticket_id).ok();
             indexing_tasks::spawn_index_ticket(
                 search_service.get_ref().clone(),
                 updated_ticket.ticket.clone(),
@@ -1476,7 +1526,9 @@ pub async fn link_tickets(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can link tickets");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can link tickets",
+        );
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
@@ -1487,7 +1539,11 @@ pub async fn link_tickets(
 
     match repository::link_tickets(&mut conn, ticket_id, linked_ticket_id) {
         Ok(_) => {
-            debug!(ticket_id = ticket_id, linked_ticket_id = linked_ticket_id, "Broadcasting SSE event for ticket linking");
+            debug!(
+                ticket_id = ticket_id,
+                linked_ticket_id = linked_ticket_id,
+                "Broadcasting SSE event for ticket linking"
+            );
 
             // Broadcast SSE event for ticket linking
             broadcast_sse_simple(
@@ -1526,7 +1582,9 @@ pub async fn unlink_tickets(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can unlink tickets");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can unlink tickets",
+        );
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
@@ -1537,7 +1595,11 @@ pub async fn unlink_tickets(
 
     match repository::unlink_tickets(&mut conn, ticket_id, linked_ticket_id) {
         Ok(_) => {
-            debug!(ticket_id = ticket_id, linked_ticket_id = linked_ticket_id, "Broadcasting SSE event for ticket unlinking");
+            debug!(
+                ticket_id = ticket_id,
+                linked_ticket_id = linked_ticket_id,
+                "Broadcasting SSE event for ticket unlinking"
+            );
 
             // Broadcast SSE event for ticket unlinking
             broadcast_sse_simple(
@@ -1576,7 +1638,9 @@ pub async fn add_device_to_ticket(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can add devices to tickets");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can add devices to tickets",
+        );
     }
 
     let (ticket_id, device_id) = path.into_inner();
@@ -1587,7 +1651,11 @@ pub async fn add_device_to_ticket(
 
     match repository::add_device_to_ticket(&mut conn, ticket_id, device_id) {
         Ok(_) => {
-            debug!(ticket_id = ticket_id, device_id = device_id, "Broadcasting SSE event for device linking");
+            debug!(
+                ticket_id = ticket_id,
+                device_id = device_id,
+                "Broadcasting SSE event for device linking"
+            );
 
             // Broadcast SSE event for device linking
             broadcast_sse_simple(
@@ -1626,7 +1694,9 @@ pub async fn remove_device_from_ticket(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can remove devices from tickets");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can remove devices from tickets",
+        );
     }
 
     let (ticket_id, device_id) = path.into_inner();
@@ -1638,7 +1708,11 @@ pub async fn remove_device_from_ticket(
     match repository::remove_device_from_ticket(&mut conn, ticket_id, device_id) {
         Ok(rows_affected) => {
             if rows_affected > 0 {
-                debug!(ticket_id = ticket_id, device_id = device_id, "Broadcasting SSE event for device unlinking");
+                debug!(
+                    ticket_id = ticket_id,
+                    device_id = device_id,
+                    "Broadcasting SSE event for device unlinking"
+                );
 
                 // Broadcast SSE event for device unlinking
                 broadcast_sse_simple(
@@ -1680,7 +1754,10 @@ pub async fn get_recent_tickets(
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
 
-    let recent = match repo.get_recent_tickets(user_uuid, crate::repository::user_ticket_views::RECENT_TICKETS_LIMIT) {
+    let recent = match repo.get_recent_tickets(
+        user_uuid,
+        crate::repository::user_ticket_views::RECENT_TICKETS_LIMIT,
+    ) {
         Ok(t) => t,
         Err(e) => {
             error!(error = ?e, "Failed to fetch recent tickets");
@@ -1707,7 +1784,10 @@ pub async fn get_recent_tickets(
             return errors::internal("Failed to fetch recent tickets");
         }
     };
-    let filtered: Vec<_> = recent.into_iter().filter(|t| visible.contains(&t.id)).collect();
+    let filtered: Vec<_> = recent
+        .into_iter()
+        .filter(|t| visible.contains(&t.id))
+        .collect();
     HttpResponse::Ok().json(filtered)
 }
 
@@ -1746,7 +1826,11 @@ pub async fn remove_recent_ticket(
     let claims_inner = claims.into_inner();
     let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid user UUID: The user UUID in the authentication token is invalid"),
+        Err(_) => {
+            return errors::bad_request(
+                "Invalid user UUID: The user UUID in the authentication token is invalid",
+            )
+        }
     };
 
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
@@ -1816,19 +1900,29 @@ pub async fn bulk_tickets(
 
             let mut deleted = 0;
             for id in ids {
-                match repository::delete_ticket_with_cleanup(&mut conn, *id, storage.as_ref().clone(), Some(search_service.get_ref()), &actor_ctx).await {
+                match repository::delete_ticket_with_cleanup(
+                    &mut conn,
+                    *id,
+                    storage.as_ref().clone(),
+                    Some(search_service.get_ref()),
+                    &actor_ctx,
+                )
+                .await
+                {
                     Ok(rows) => {
                         deleted += rows;
                         // Remove from search index
                         indexing_tasks::spawn_delete_ticket(search_service.get_ref().clone(), *id);
                         // Broadcast ticket deletion via SSE
-                        sse_state.broadcast_event_from(
-                            crate::handlers::sse::SseEvent::TicketDeleted {
-                                ticket_id: *id,
-                                timestamp: chrono::Utc::now(),
-                            },
-                            source_client_id.clone(),
-                        ).await;
+                        sse_state
+                            .broadcast_event_from(
+                                crate::handlers::sse::SseEvent::TicketDeleted {
+                                    ticket_id: *id,
+                                    timestamp: chrono::Utc::now(),
+                                },
+                                source_client_id.clone(),
+                            )
+                            .await;
                     }
                     Err(e) => {
                         error!(ticket_id = id, error = ?e, "Failed to delete ticket");
@@ -1849,16 +1943,14 @@ pub async fn bulk_tickets(
                 return errors::bad_request("Bad Request: Invalid status value");
             }
 
-            let target_state = match repository::workflow_states::state_for_legacy_status(
-                &mut conn,
-                status_str,
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    error!(error = ?e, "Failed to resolve workflow state");
-                    return errors::internal("Failed to resolve workflow state");
-                }
-            };
+            let target_state =
+                match repository::workflow_states::state_for_legacy_status(&mut conn, status_str) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!(error = ?e, "Failed to resolve workflow state");
+                        return errors::internal("Failed to resolve workflow state");
+                    }
+                };
             let is_closed = matches!(
                 target_state.category,
                 WorkflowStateCategory::Done | WorkflowStateCategory::Cancelled
@@ -1878,20 +1970,29 @@ pub async fn bulk_tickets(
                 };
 
                 if with_actor(&mut conn, &actor_ctx, |conn| {
-                    repository::update_ticket_partial(conn, *id, update, Some(search_service.get_ref()))
-                }).is_ok() {
+                    repository::update_ticket_partial(
+                        conn,
+                        *id,
+                        update,
+                        Some(search_service.get_ref()),
+                    )
+                })
+                .is_ok()
+                {
                     updated += 1;
                     // Send SSE update with source_client_id for echo suppression
-                    sse_state.broadcast_event_from(
-                        crate::handlers::sse::SseEvent::TicketUpdated {
-                            ticket_id: *id,
-                            field: "status".to_string(),
-                            value: json!(status_str),
-                            updated_by: claims.sub.clone(),
-                            timestamp: chrono::Utc::now(),
-                        },
-                        source_client_id.clone(),
-                    ).await;
+                    sse_state
+                        .broadcast_event_from(
+                            crate::handlers::sse::SseEvent::TicketUpdated {
+                                ticket_id: *id,
+                                field: "status".to_string(),
+                                value: json!(status_str),
+                                updated_by: claims.sub.clone(),
+                                timestamp: chrono::Utc::now(),
+                            },
+                            source_client_id.clone(),
+                        )
+                        .await;
                 }
             }
 
@@ -1920,19 +2021,28 @@ pub async fn bulk_tickets(
                 };
 
                 if with_actor(&mut conn, &actor_ctx, |conn| {
-                    repository::update_ticket_partial(conn, *id, update, Some(search_service.get_ref()))
-                }).is_ok() {
+                    repository::update_ticket_partial(
+                        conn,
+                        *id,
+                        update,
+                        Some(search_service.get_ref()),
+                    )
+                })
+                .is_ok()
+                {
                     updated += 1;
-                    sse_state.broadcast_event_from(
-                        crate::handlers::sse::SseEvent::TicketUpdated {
-                            ticket_id: *id,
-                            field: "priority".to_string(),
-                            value: json!(priority_str),
-                            updated_by: claims.sub.clone(),
-                            timestamp: chrono::Utc::now(),
-                        },
-                        source_client_id.clone(),
-                    ).await;
+                    sse_state
+                        .broadcast_event_from(
+                            crate::handlers::sse::SseEvent::TicketUpdated {
+                                ticket_id: *id,
+                                field: "priority".to_string(),
+                                value: json!(priority_str),
+                                updated_by: claims.sub.clone(),
+                                timestamp: chrono::Utc::now(),
+                            },
+                            source_client_id.clone(),
+                        )
+                        .await;
                 }
             }
 
@@ -1963,19 +2073,28 @@ pub async fn bulk_tickets(
                 };
 
                 if with_actor(&mut conn, &actor_ctx, |conn| {
-                    repository::update_ticket_partial(conn, *id, update, Some(search_service.get_ref()))
-                }).is_ok() {
+                    repository::update_ticket_partial(
+                        conn,
+                        *id,
+                        update,
+                        Some(search_service.get_ref()),
+                    )
+                })
+                .is_ok()
+                {
                     updated += 1;
-                    sse_state.broadcast_event_from(
-                        crate::handlers::sse::SseEvent::TicketUpdated {
-                            ticket_id: *id,
-                            field: "assignee_uuid".to_string(),
-                            value: json!(assignee_str),
-                            updated_by: claims.sub.clone(),
-                            timestamp: chrono::Utc::now(),
-                        },
-                        source_client_id.clone(),
-                    ).await;
+                    sse_state
+                        .broadcast_event_from(
+                            crate::handlers::sse::SseEvent::TicketUpdated {
+                                ticket_id: *id,
+                                field: "assignee_uuid".to_string(),
+                                value: json!(assignee_str),
+                                updated_by: claims.sub.clone(),
+                                timestamp: chrono::Utc::now(),
+                            },
+                            source_client_id.clone(),
+                        )
+                        .await;
                 }
             }
 
@@ -1993,15 +2112,17 @@ pub async fn bulk_tickets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App, http::StatusCode};
-    use crate::test_helpers::{setup_test_pool, create_test_claims, TestFixtures};
     use crate::models::{TicketPriority, UserRole};
+    use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
+    use actix_web::{http::StatusCode, test, App};
 
     /// Helper to create a test app with ticket routes.
     /// Note: This is a simplified app without SSE, notification, and search services
     /// since those would require additional setup. For handlers that require those
     /// dependencies, we test them through the simpler endpoints.
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),
@@ -2049,7 +2170,9 @@ mod tests {
         let resp = test::call_service(&app, req).await;
 
         // Without auth middleware/extractor properly configured, expect 401
-        assert!(resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN);
+        assert!(
+            resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN
+        );
 
         // Additional verification: the claims were created successfully
         assert_eq!(claims.role, "admin");
@@ -2120,10 +2243,9 @@ mod tests {
 
         // Perform partial update via repository — flip to an "in-progress"
         // state via the legacy bucket helper.
-        let in_progress = repository::workflow_states::state_for_legacy_status(
-            &mut conn, "in-progress",
-        )
-        .expect("in-progress workflow state must exist");
+        let in_progress =
+            repository::workflow_states::state_for_legacy_status(&mut conn, "in-progress")
+                .expect("in-progress workflow state must exist");
         let update = TicketUpdate {
             title: Some("Updated Title".to_string()),
             workflow_state_id: Some(in_progress.id),
@@ -2157,9 +2279,7 @@ mod tests {
         let app = test::init_service(test_app(pool.clone())).await;
 
         // Request non-existent ticket
-        let req = test::TestRequest::get()
-            .uri("/tickets/999999")
-            .to_request();
+        let req = test::TestRequest::get().uri("/tickets/999999").to_request();
         req.extensions_mut().insert(claims);
 
         let resp = test::call_service(&app, req).await;
@@ -2185,7 +2305,9 @@ mod tests {
         let resp = test::call_service(&app, req).await;
 
         // Should fail - either 401 (no auth) or 403 (forbidden for regular users)
-        assert!(resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN);
+        assert!(
+            resp.status() == StatusCode::UNAUTHORIZED || resp.status() == StatusCode::FORBIDDEN
+        );
     }
 
     #[actix_web::test]

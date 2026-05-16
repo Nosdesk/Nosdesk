@@ -3,8 +3,8 @@
 //! This module defines the trait for notification delivery channels
 //! and provides implementations for in-app (SSE) and email channels.
 
-pub mod in_app;
 pub mod email;
+pub mod in_app;
 
 use async_trait::async_trait;
 use std::fmt;

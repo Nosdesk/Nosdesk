@@ -48,7 +48,4 @@ pub mod service;
 pub mod types;
 
 pub use service::NotificationService;
-pub use types::{
-    NotificationChannel,
-    NotificationEvent, NotificationTypeCode,
-};
+pub use types::{NotificationChannel, NotificationEvent, NotificationTypeCode};

@@ -3,12 +3,15 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{DocumentationStarredPage, NewDocumentationStarredPage, StarredPageInfo};
-use crate::schema::{documentation_starred_pages, documentation_pages};
+use crate::schema::{documentation_pages, documentation_starred_pages};
 
 /// Get all starred pages for a user, with page metadata, ordered by most recently starred
 pub fn get_user_starred_pages(conn: &mut DbConnection, user_uuid: Uuid) -> Vec<StarredPageInfo> {
     documentation_starred_pages::table
-        .inner_join(documentation_pages::table.on(documentation_pages::id.eq(documentation_starred_pages::page_id)))
+        .inner_join(
+            documentation_pages::table
+                .on(documentation_pages::id.eq(documentation_starred_pages::page_id)),
+        )
         .filter(documentation_starred_pages::user_uuid.eq(user_uuid))
         .filter(documentation_pages::deleted_at.is_null())
         .select((
@@ -19,7 +22,13 @@ pub fn get_user_starred_pages(conn: &mut DbConnection, user_uuid: Uuid) -> Vec<S
             documentation_starred_pages::created_at,
         ))
         .order(documentation_starred_pages::created_at.desc())
-        .load::<(i32, String, String, Option<String>, chrono::DateTime<chrono::Utc>)>(conn)
+        .load::<(
+            i32,
+            String,
+            String,
+            Option<String>,
+            chrono::DateTime<chrono::Utc>,
+        )>(conn)
         .unwrap_or_default()
         .into_iter()
         .map(|(page_id, title, slug, icon, starred_at)| StarredPageInfo {
@@ -49,13 +58,13 @@ pub fn star_page(
     user_uuid: Uuid,
     page_id: i32,
 ) -> Result<DocumentationStarredPage, diesel::result::Error> {
-    let new_star = NewDocumentationStarredPage {
-        user_uuid,
-        page_id,
-    };
+    let new_star = NewDocumentationStarredPage { user_uuid, page_id };
     diesel::insert_into(documentation_starred_pages::table)
         .values(&new_star)
-        .on_conflict((documentation_starred_pages::user_uuid, documentation_starred_pages::page_id))
+        .on_conflict((
+            documentation_starred_pages::user_uuid,
+            documentation_starred_pages::page_id,
+        ))
         .do_nothing()
         .execute(conn)?;
 

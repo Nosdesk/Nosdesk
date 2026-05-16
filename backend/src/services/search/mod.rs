@@ -25,8 +25,8 @@ use tracing::{debug, info, warn};
 use crate::db::{DbConnection, Pool};
 use crate::models;
 
-pub use types::{EntityType, IndexDocument, SearchQuery, SearchResponse};
 use schema::SearchSchema;
+pub use types::{EntityType, IndexDocument, SearchQuery, SearchResponse};
 
 /// Memory budget for the index writer (50MB)
 const INDEX_WRITER_MEMORY_BYTES: usize = 50_000_000;
@@ -43,7 +43,10 @@ pub struct SearchService {
 impl SearchService {
     /// Create a new search service with a disk-based index.
     /// Automatically rebuilds the index from the database if empty.
-    pub fn new(index_path: &Path, pool: &Pool) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn new(
+        index_path: &Path,
+        pool: &Pool,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Create index directory if it doesn't exist
         std::fs::create_dir_all(index_path)?;
 
@@ -76,7 +79,6 @@ impl SearchService {
             (idx, sch)
         };
 
-
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::OnCommitWithDelay)
@@ -99,9 +101,13 @@ impl SearchService {
             match pool.get() {
                 Ok(mut conn) => match service.rebuild_index(&mut conn) {
                     Ok(stats) => info!(total = stats.total(), "Initial index build complete"),
-                    Err(e) => warn!(error = ?e, "Initial index build failed, search will populate incrementally"),
+                    Err(e) => {
+                        warn!(error = ?e, "Initial index build failed, search will populate incrementally")
+                    }
                 },
-                Err(e) => warn!(error = ?e, "Could not connect to database for initial index build"),
+                Err(e) => {
+                    warn!(error = ?e, "Could not connect to database for initial index build")
+                }
             }
         } else {
             info!(documents = doc_count, "Search index loaded");
@@ -111,7 +117,9 @@ impl SearchService {
     }
 
     /// Delete and recreate the index with a fresh schema
-    fn recreate_index(index_path: &Path) -> Result<(Index, SearchSchema), Box<dyn std::error::Error + Send + Sync>> {
+    fn recreate_index(
+        index_path: &Path,
+    ) -> Result<(Index, SearchSchema), Box<dyn std::error::Error + Send + Sync>> {
         // Delete the old index directory contents
         if index_path.exists() {
             for entry in std::fs::read_dir(index_path)? {
@@ -166,62 +174,97 @@ impl SearchService {
     }
 
     /// Index a comment
-    pub fn index_comment(&self, comment: &models::Comment, ticket_title: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn index_comment(
+        &self,
+        comment: &models::Comment,
+        ticket_title: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let doc = indexer::index_document_from_comment(comment, ticket_title);
         self.index_document(&doc)
     }
 
     /// Index a documentation page
-    pub fn index_documentation(&self, doc_page: &models::DocumentationPage) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn index_documentation(
+        &self,
+        doc_page: &models::DocumentationPage,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let doc = indexer::index_document_from_documentation(doc_page);
         self.index_document(&doc)
     }
 
     /// Index a device
-    pub fn index_device(&self, device: &models::Device) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn index_device(
+        &self,
+        device: &models::Device,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let doc = indexer::index_document_from_device(device);
         self.index_document(&doc)
     }
 
     /// Index a user with optional primary email
-    pub fn index_user(&self, user: &models::User, primary_email: Option<&str>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn index_user(
+        &self,
+        user: &models::User,
+        primary_email: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let doc = indexer::index_document_from_user(user, primary_email);
         self.index_document(&doc)
     }
 
     /// Delete a ticket from the index
-    pub fn delete_ticket(&self, ticket_id: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn delete_ticket(
+        &self,
+        ticket_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.delete_by_key(EntityType::Ticket, &ticket_id.to_string())
     }
 
     /// Delete a comment from the index
-    pub fn delete_comment(&self, comment_id: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn delete_comment(
+        &self,
+        comment_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.delete_by_key(EntityType::Comment, &comment_id.to_string())
     }
 
     /// Delete a documentation page from the index
-    pub fn delete_documentation(&self, doc_id: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn delete_documentation(
+        &self,
+        doc_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.delete_by_key(EntityType::Documentation, &doc_id.to_string())
     }
 
     /// Delete a device from the index
-    pub fn delete_device(&self, device_id: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn delete_device(
+        &self,
+        device_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.delete_by_key(EntityType::Device, &device_id.to_string())
     }
 
     /// Delete a user from the index
-    pub fn delete_user(&self, user_uuid: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn delete_user(
+        &self,
+        user_uuid: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.delete_by_key(EntityType::User, user_uuid)
     }
 
     /// Rebuild the entire index from the database
-    pub fn rebuild_index(&self, conn: &mut DbConnection) -> Result<indexer::IndexStats, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn rebuild_index(
+        &self,
+        conn: &mut DbConnection,
+    ) -> Result<indexer::IndexStats, Box<dyn std::error::Error + Send + Sync>> {
         if self.is_rebuilding.swap(true, Ordering::SeqCst) {
             return Err("Index rebuild already in progress".into());
         }
 
         let result = {
-            let mut writer = self.writer.write().map_err(|e| format!("Lock error: {}", e))?;
+            let mut writer = self
+                .writer
+                .write()
+                .map_err(|e| format!("Lock error: {}", e))?;
 
             // Delete all existing documents
             writer.delete_all_documents()?;
@@ -246,7 +289,10 @@ impl SearchService {
 
     /// Commit pending changes to the index
     pub fn commit(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut writer = self.writer.write().map_err(|e| format!("Lock error: {}", e))?;
+        let mut writer = self
+            .writer
+            .write()
+            .map_err(|e| format!("Lock error: {}", e))?;
         writer.commit()?;
         Ok(())
     }
@@ -270,16 +316,29 @@ impl SearchService {
 
     // Internal helper methods
 
-    fn index_document(&self, doc: &IndexDocument) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let writer = self.writer.write().map_err(|e| format!("Lock error: {}", e))?;
+    fn index_document(
+        &self,
+        doc: &IndexDocument,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let writer = self
+            .writer
+            .write()
+            .map_err(|e| format!("Lock error: {}", e))?;
         indexer::add_document_to_index(&writer, &self.schema, doc)?;
         // Note: We don't commit here for performance. The caller should commit periodically
         // or use a background commit task.
         Ok(())
     }
 
-    fn delete_by_key(&self, entity_type: EntityType, key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let writer = self.writer.write().map_err(|e| format!("Lock error: {}", e))?;
+    fn delete_by_key(
+        &self,
+        entity_type: EntityType,
+        key: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let writer = self
+            .writer
+            .write()
+            .map_err(|e| format!("Lock error: {}", e))?;
         indexer::delete_document_from_index(&writer, &self.schema, entity_type, key)?;
         Ok(())
     }
@@ -309,16 +368,8 @@ impl crate::repository::user_helpers::UserCreatedObserver for Arc<SearchService>
 /// only saw ticket metadata changes (status, priority, title) and
 /// the body text typed into the editor was never searchable.
 impl crate::repository::article_content::ArticleContentSavedObserver for Arc<SearchService> {
-    fn article_content_saved(
-        &self,
-        ticket: &models::Ticket,
-        article: &models::ArticleContent,
-    ) {
-        indexing_tasks::spawn_index_ticket(
-            Arc::clone(self),
-            ticket.clone(),
-            Some(article.clone()),
-        );
+    fn article_content_saved(&self, ticket: &models::Ticket, article: &models::ArticleContent) {
+        indexing_tasks::spawn_index_ticket(Arc::clone(self), ticket.clone(), Some(article.clone()));
     }
 }
 
@@ -351,16 +402,8 @@ impl crate::repository::users::UserDeletedObserver for Arc<SearchService> {
 }
 
 impl crate::repository::tickets::TicketUpdatedObserver for Arc<SearchService> {
-    fn ticket_updated(
-        &self,
-        ticket: &models::Ticket,
-        article: Option<&models::ArticleContent>,
-    ) {
-        indexing_tasks::spawn_index_ticket(
-            Arc::clone(self),
-            ticket.clone(),
-            article.cloned(),
-        );
+    fn ticket_updated(&self, ticket: &models::Ticket, article: Option<&models::ArticleContent>) {
+        indexing_tasks::spawn_index_ticket(Arc::clone(self), ticket.clone(), article.cloned());
     }
 }
 

@@ -118,11 +118,14 @@ impl PluginProxyService {
                 let token = secrets.get(secret)?;
                 Some(("Authorization".into(), format!("Bearer {token}")))
             }
-            PluginAuthConfig::Basic { username_secret, password_secret } => {
+            PluginAuthConfig::Basic {
+                username_secret,
+                password_secret,
+            } => {
                 let user = secrets.get(username_secret)?;
                 let pass = secrets.get(password_secret)?;
-                let encoded = base64::engine::general_purpose::STANDARD
-                    .encode(format!("{user}:{pass}"));
+                let encoded =
+                    base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"));
                 Some(("Authorization".into(), format!("Basic {encoded}")))
             }
             PluginAuthConfig::ApiKey { header, secret } => {
@@ -130,7 +133,9 @@ impl PluginProxyService {
                 Some((header.clone(), value.clone()))
             }
             PluginAuthConfig::Oauth2ClientCredentials {
-                token_url, client_id_secret, client_secret_secret,
+                token_url,
+                client_id_secret,
+                client_secret_secret,
             } => {
                 let client_id = secrets.get(client_id_secret)?;
                 let client_secret = secrets.get(client_secret_secret)?;
@@ -156,9 +161,11 @@ impl PluginProxyService {
                         ("client_id", client_id.as_str()),
                         ("client_secret", client_secret.as_str()),
                     ],
-                ).ok()?;
+                )
+                .ok()?;
 
-                let resp = self.client
+                let resp = self
+                    .client
                     .post(token_request_url)
                     .header("Content-Length", "0")
                     .send()
@@ -174,13 +181,17 @@ impl PluginProxyService {
                     .ok()?;
 
                 let resp_status = resp.status();
-                let resp_text = resp.text().await.map_err(|e| {
-                    error!(
-                        plugin = plugin_name,
-                        error = %e,
-                        "Failed to read OAuth2 token response body"
-                    );
-                }).ok()?;
+                let resp_text = resp
+                    .text()
+                    .await
+                    .map_err(|e| {
+                        error!(
+                            plugin = plugin_name,
+                            error = %e,
+                            "Failed to read OAuth2 token response body"
+                        );
+                    })
+                    .ok()?;
 
                 if !resp_status.is_success() {
                     error!(
@@ -192,29 +203,35 @@ impl PluginProxyService {
                     return None;
                 }
 
-                let json: serde_json::Value = serde_json::from_str(&resp_text).map_err(|e| {
-                    error!(
-                        plugin = plugin_name,
-                        error = %e,
-                        body_preview = %resp_text.chars().take(500).collect::<String>(),
-                        "Failed to parse OAuth2 token response as JSON"
-                    );
-                }).ok()?;
+                let json: serde_json::Value = serde_json::from_str(&resp_text)
+                    .map_err(|e| {
+                        error!(
+                            plugin = plugin_name,
+                            error = %e,
+                            body_preview = %resp_text.chars().take(500).collect::<String>(),
+                            "Failed to parse OAuth2 token response as JSON"
+                        );
+                    })
+                    .ok()?;
 
                 let access_token = json.get("access_token")?.as_str()?;
                 let bearer = format!("Bearer {access_token}");
 
                 // Cache with TTL (use expires_in from response, default 50 min)
-                let ttl = json.get("expires_in")
+                let ttl = json
+                    .get("expires_in")
                     .and_then(|v| v.as_u64())
                     .map(|s| s.saturating_sub(60)) // 1 min buffer
                     .unwrap_or(3000);
 
                 if let Ok(mut cache) = self.token_cache.lock() {
-                    cache.insert(cache_key, CachedToken {
-                        token: bearer.clone(),
-                        expires_at: Instant::now() + Duration::from_secs(ttl),
-                    });
+                    cache.insert(
+                        cache_key,
+                        CachedToken {
+                            token: bearer.clone(),
+                            expires_at: Instant::now() + Duration::from_secs(ttl),
+                        },
+                    );
                 }
 
                 Some(("Authorization".into(), bearer))
@@ -294,7 +311,10 @@ impl PluginProxyService {
             .get_auth_for_url(plugin_name, &request.url, manifest, secrets)
             .await
         {
-            debug!(plugin = plugin_name, "Injecting auth header from manifest config");
+            debug!(
+                plugin = plugin_name,
+                "Injecting auth header from manifest config"
+            );
             req = req.header(&header_name, &header_value);
         }
 
@@ -525,7 +545,9 @@ mod tests {
         let mut auth = std::collections::BTreeMap::new();
         auth.insert(
             host("api.example.com"),
-            PluginAuthConfig::Bearer { secret: "token".to_string() },
+            PluginAuthConfig::Bearer {
+                secret: "token".to_string(),
+            },
         );
         let mut manifest = create_test_manifest(vec![]);
         manifest.auth = auth;
@@ -570,7 +592,9 @@ mod tests {
         let mut auth = std::collections::BTreeMap::new();
         auth.insert(
             host("api.github.com"),
-            PluginAuthConfig::Bearer { secret: "github_token".to_string() },
+            PluginAuthConfig::Bearer {
+                secret: "github_token".to_string(),
+            },
         );
         let mut manifest = create_test_manifest(vec![]);
         manifest.auth = auth;
@@ -584,7 +608,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(("Authorization".to_string(), "Bearer ghp_test123".to_string()))
+            Some((
+                "Authorization".to_string(),
+                "Bearer ghp_test123".to_string()
+            ))
         );
     }
 
@@ -613,7 +640,10 @@ mod tests {
         let expected_encoded = base64::engine::general_purpose::STANDARD.encode("admin:secret");
         assert_eq!(
             result,
-            Some(("Authorization".to_string(), format!("Basic {expected_encoded}")))
+            Some((
+                "Authorization".to_string(),
+                format!("Basic {expected_encoded}")
+            ))
         );
     }
 

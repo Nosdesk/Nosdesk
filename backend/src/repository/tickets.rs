@@ -2,9 +2,9 @@ use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
 use serde_json::json;
-use uuid::Uuid;
 use std::sync::Arc;
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
@@ -47,9 +47,7 @@ pub fn get_all_tickets(conn: &mut DbConnection) -> QueryResult<Vec<Ticket>> {
 }
 
 pub fn get_ticket_by_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Ticket> {
-    tickets::table
-        .find(ticket_id)
-        .first(conn)
+    tickets::table.find(ticket_id).first(conn)
 }
 
 /// Typed annotation describing where a ticket originated, attached
@@ -173,7 +171,11 @@ pub fn verify_pending_tickets_for_user(
     .get_results(conn)
 }
 
-pub fn update_ticket(conn: &mut DbConnection, ticket_id: i32, ticket: NewTicket) -> QueryResult<Ticket> {
+pub fn update_ticket(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    ticket: NewTicket,
+) -> QueryResult<Ticket> {
     conn.transaction(|conn| {
         let updated: Ticket = diesel::update(tickets::table.find(ticket_id))
             .set(&ticket)
@@ -266,10 +268,9 @@ pub fn update_ticket_partial(
     if let Some(observer) = observer {
         // Fetch any associated article content so the observer can
         // reindex with the body text intact, not just the metadata.
-        let article = crate::repository::article_content::get_article_content_by_ticket_id(
-            conn, ticket_id,
-        )
-        .ok();
+        let article =
+            crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
+                .ok();
         observer.ticket_updated(&result, article.as_ref());
     }
 
@@ -293,7 +294,10 @@ pub async fn delete_ticket_with_cleanup(
         // so the emitted ticket.deleted event has the correct group fan-out
         // (project memberships are about to be cascade-removed) and still
         // resolves on a row that exists.
-        let pre_delete = tickets::table.find(ticket_id).first::<Ticket>(conn).optional()?;
+        let pre_delete = tickets::table
+            .find(ticket_id)
+            .first::<Ticket>(conn)
+            .optional()?;
         let pre_groups = match pre_delete.as_ref() {
             Some(t) => groups::for_ticket(conn, t)?,
             None => Vec::new(),
@@ -301,45 +305,60 @@ pub async fn delete_ticket_with_cleanup(
 
         // 1. First, get all comments for this ticket to find attachments
         let comments = crate::repository::comments::get_comments_by_ticket_id(conn, ticket_id)?;
-        
+
         // 2. Collect all attachment paths for file cleanup
         let mut attachment_paths = Vec::new();
         for comment in &comments {
-            let attachments = crate::repository::comments::get_attachments_by_comment_id(conn, comment.id)?;
+            let attachments =
+                crate::repository::comments::get_attachments_by_comment_id(conn, comment.id)?;
             for attachment in &attachments {
                 // Extract the storage path from the URL
                 if let Some(storage_path) = extract_storage_path_from_url(&attachment.url) {
                     attachment_paths.push(storage_path);
                 }
                 // Delete the attachment record
-                diesel::delete(crate::schema::attachments::table.find(attachment.id)).execute(conn)?;
+                diesel::delete(crate::schema::attachments::table.find(attachment.id))
+                    .execute(conn)?;
             }
         }
-        
+
         // 3. Delete all comments for this ticket
-        diesel::delete(crate::schema::comments::table.filter(crate::schema::comments::ticket_id.eq(ticket_id))).execute(conn)?;
-        
+        diesel::delete(
+            crate::schema::comments::table.filter(crate::schema::comments::ticket_id.eq(ticket_id)),
+        )
+        .execute(conn)?;
+
         // 4. Delete linked tickets relationships
-        diesel::delete(crate::schema::linked_tickets::table.filter(
-            crate::schema::linked_tickets::ticket_id.eq(ticket_id)
-                .or(crate::schema::linked_tickets::linked_ticket_id.eq(ticket_id))
-        )).execute(conn)?;
-        
+        diesel::delete(
+            crate::schema::linked_tickets::table.filter(
+                crate::schema::linked_tickets::ticket_id
+                    .eq(ticket_id)
+                    .or(crate::schema::linked_tickets::linked_ticket_id.eq(ticket_id)),
+            ),
+        )
+        .execute(conn)?;
+
         // 5. Delete ticket-device relationships
-        diesel::delete(crate::schema::ticket_devices::table.filter(
-            crate::schema::ticket_devices::ticket_id.eq(ticket_id)
-        )).execute(conn)?;
-        
+        diesel::delete(
+            crate::schema::ticket_devices::table
+                .filter(crate::schema::ticket_devices::ticket_id.eq(ticket_id)),
+        )
+        .execute(conn)?;
+
         // 6. Delete ticket-project relationships
-        diesel::delete(crate::schema::project_tickets::table.filter(
-            crate::schema::project_tickets::ticket_id.eq(ticket_id)
-        )).execute(conn)?;
-        
+        diesel::delete(
+            crate::schema::project_tickets::table
+                .filter(crate::schema::project_tickets::ticket_id.eq(ticket_id)),
+        )
+        .execute(conn)?;
+
         // 7. Delete article content
-        diesel::delete(crate::schema::article_contents::table.filter(
-            crate::schema::article_contents::ticket_id.eq(ticket_id)
-        )).execute(conn)?;
-        
+        diesel::delete(
+            crate::schema::article_contents::table
+                .filter(crate::schema::article_contents::ticket_id.eq(ticket_id)),
+        )
+        .execute(conn)?;
+
         // 8. Finally, delete the ticket itself
         let result = diesel::delete(tickets::table.find(ticket_id)).execute(conn)?;
 
@@ -365,7 +384,8 @@ pub async fn delete_ticket_with_cleanup(
 
         // Return the attachment paths for file cleanup (outside transaction)
         Ok((result, attachment_paths))
-    }).map(|(result, attachment_paths)| {
+    })
+    .map(|(result, attachment_paths)| {
         // Clean up files after successful database transaction
         // This is done outside the transaction to avoid blocking the database
         tokio::spawn(async move {
@@ -396,17 +416,24 @@ fn extract_storage_path_from_url(url: &str) -> Option<String> {
 }
 
 // Composite operations for tickets
-pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<CompleteTicket, Error> {
+pub fn get_complete_ticket(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> Result<CompleteTicket, Error> {
     // Get the main ticket first
     let ticket = get_ticket_by_id(conn, ticket_id)?;
     debug!(id = ticket.id, title = %ticket.title, "Found ticket");
 
     // Look up complete user data for requester and assignee
-    let requester_user = ticket.requester_uuid.as_ref()
+    let requester_user = ticket
+        .requester_uuid
+        .as_ref()
         .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
         .map(crate::models::UserInfoWithAvatar::from);
 
-    let assignee_user = ticket.assignee_uuid.as_ref()
+    let assignee_user = ticket
+        .assignee_uuid
+        .as_ref()
         .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
         .map(UserInfoWithAvatar::from);
 
@@ -419,20 +446,28 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
     // endpoint. Two parallel implementations meant the channel-sourced
     // sender's email was missing here.
     let comments_with_attachments =
-        crate::repository::comments::get_comments_with_attachments_by_ticket_id(
-            conn, ticket_id,
-        )?;
+        crate::repository::comments::get_comments_with_attachments_by_ticket_id(conn, ticket_id)?;
 
     // Get article content (now handled by Yjs collaborative editing)
     let article_content: Option<String> = None;
 
     // Get linked tickets
-    let linked_tickets = crate::repository::linked_tickets::get_linked_tickets(conn, ticket_id).unwrap_or_default();
-    debug!(ticket_id, count = linked_tickets.len(), "Found linked tickets");
+    let linked_tickets =
+        crate::repository::linked_tickets::get_linked_tickets(conn, ticket_id).unwrap_or_default();
+    debug!(
+        ticket_id,
+        count = linked_tickets.len(),
+        "Found linked tickets"
+    );
 
     // Get projects for this ticket
-    let projects = crate::repository::projects::get_projects_for_ticket(conn, ticket_id).unwrap_or_default();
-    debug!(ticket_id, count = projects.len(), "Found projects for ticket");
+    let projects =
+        crate::repository::projects::get_projects_for_ticket(conn, ticket_id).unwrap_or_default();
+    debug!(
+        ticket_id,
+        count = projects.len(),
+        "Found projects for ticket"
+    );
 
     // Cycle membership for the sidebar pill. Embed the cycle row
     // (name + state + ids) so the frontend renders the chip
@@ -456,13 +491,15 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
                 ))
                 .first::<(i32, Uuid, i32, String, String)>(conn)
                 .ok()
-                .map(|(id, uuid, project_id, name, state)| crate::models::TicketCycleSummary {
-                    id,
-                    uuid,
-                    project_id,
-                    name,
-                    state,
-                })
+                .map(
+                    |(id, uuid, project_id, name, state)| crate::models::TicketCycleSummary {
+                        id,
+                        uuid,
+                        project_id,
+                        name,
+                        state,
+                    },
+                )
         });
 
     // SLA pill — mirrors the bootstrap stream's per-ticket
@@ -478,7 +515,11 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
             let policy = crate::services::sla::pick_policy(&ctx.policies, &ticket)?;
             let cal_id = policy.working_calendar_id?;
             let calendar = ctx.calendars_by_id.get(&cal_id)?;
-            let holidays = ctx.holidays_by_calendar.get(&cal_id).cloned().unwrap_or_default();
+            let holidays = ctx
+                .holidays_by_calendar
+                .get(&cal_id)
+                .cloned()
+                .unwrap_or_default();
             // Resolve the ticket's workflow state category for the
             // pause-state computation. Backlog default matches the
             // bootstrap fallback so a missing state row degrades
@@ -520,7 +561,10 @@ pub fn get_complete_ticket(conn: &mut DbConnection, ticket_id: i32) -> Result<Co
 }
 
 // Import from JSON
-pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson) -> Result<Ticket, Error> {
+pub fn import_ticket_from_json(
+    conn: &mut DbConnection,
+    ticket_json: &TicketJson,
+) -> Result<Ticket, Error> {
     // Map the legacy status string ("open" / "in-progress" / "closed") to a
     // concrete workflow_state row for the new schema. Unknown strings fall
     // back to the workspace default state via state_for_legacy_status.
@@ -533,7 +577,9 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
         title: ticket_json.title.clone(),
         workflow_state_id: workflow_state.id,
         priority,
-        requester_uuid: Some(Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7())),
+        requester_uuid: Some(
+            Uuid::parse_str(&ticket_json.requester).unwrap_or_else(|_| Uuid::now_v7()),
+        ),
         assignee_uuid: if ticket_json.assignee.is_empty() {
             None
         } else {
@@ -625,23 +671,32 @@ pub fn import_ticket_from_json(conn: &mut DbConnection, ticket_json: &TicketJson
 }
 
 // Ticket-Device relationship functions
-pub fn add_device_to_ticket(conn: &mut DbConnection, ticket_id: i32, device_id: i32) -> QueryResult<TicketDevice> {
+pub fn add_device_to_ticket(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    device_id: i32,
+) -> QueryResult<TicketDevice> {
     let new_ticket_device = NewTicketDevice {
         ticket_id,
         device_id,
     };
-    
+
     diesel::insert_into(ticket_devices::table)
         .values(&new_ticket_device)
         .get_result(conn)
 }
 
-pub fn remove_device_from_ticket(conn: &mut DbConnection, ticket_id: i32, device_id: i32) -> QueryResult<usize> {
+pub fn remove_device_from_ticket(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    device_id: i32,
+) -> QueryResult<usize> {
     diesel::delete(
         ticket_devices::table
             .filter(ticket_devices::ticket_id.eq(ticket_id))
-            .filter(ticket_devices::device_id.eq(device_id))
-    ).execute(conn)
+            .filter(ticket_devices::device_id.eq(device_id)),
+    )
+    .execute(conn)
 }
 
 pub fn get_devices_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Device>> {
@@ -741,7 +796,10 @@ mod tests {
     #[test]
     fn extract_storage_path_unknown_returns_none() {
         assert_eq!(extract_storage_path_from_url("/other/path.pdf"), None);
-        assert_eq!(extract_storage_path_from_url("https://example.com/file"), None);
+        assert_eq!(
+            extract_storage_path_from_url("https://example.com/file"),
+            None
+        );
     }
 
     // ---- Guest-submission helpers ----
@@ -799,9 +857,15 @@ mod tests {
 
         // Already-verified, null, and Bob's pending should be untouched.
         let mut fetch = |id| get_ticket_by_id(&mut conn, id).unwrap();
-        assert_eq!(fetch(alice_verified.id).verification_state.as_deref(), Some("verified"));
+        assert_eq!(
+            fetch(alice_verified.id).verification_state.as_deref(),
+            Some("verified")
+        );
         assert_eq!(fetch(alice_null.id).verification_state, None);
-        assert_eq!(fetch(bob_pending.id).verification_state.as_deref(), Some("pending"));
+        assert_eq!(
+            fetch(bob_pending.id).verification_state.as_deref(),
+            Some("pending")
+        );
     }
 
     #[test]
@@ -830,4 +894,3 @@ mod tests {
         assert!(matches!(result, Err(diesel::result::Error::NotFound)));
     }
 }
-

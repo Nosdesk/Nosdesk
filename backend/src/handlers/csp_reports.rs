@@ -23,14 +23,14 @@
 //! internal `ParsedReport` shape before hashing and persisting.
 
 use crate::db::Pool;
+#[allow(unused_imports)]
+use crate::handlers; // keep helpers reachable for tests
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{Claims, NewCspReport};
 use crate::repository::csp_reports as repo;
 use crate::utils::rbac;
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
-#[allow(unused_imports)]
-use crate::handlers; // keep helpers reachable for tests
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
@@ -89,9 +89,9 @@ fn parse_legacy(body: &Value) -> Option<ParsedReport> {
         referrer: s("referrer").filter(|v| !v.is_empty()),
         blocked_uri: s("blocked-uri").filter(|v| !v.is_empty()),
         effective_directive: truncate(&effective_directive, MAX_DIRECTIVE_LEN),
-        violated_directive: s("violated-directive").filter(|v| !v.is_empty()).map(|v| {
-            truncate(&v, MAX_DIRECTIVE_LEN)
-        }),
+        violated_directive: s("violated-directive")
+            .filter(|v| !v.is_empty())
+            .map(|v| truncate(&v, MAX_DIRECTIVE_LEN)),
         original_policy: s("original-policy"),
         disposition: truncate(&disposition, MAX_DISPOSITION_LEN),
         source_file: s("source-file").filter(|v| !v.is_empty()),
@@ -127,9 +127,9 @@ fn parse_modern(body: &Value) -> Option<ParsedReport> {
         referrer: s("referrer").filter(|v| !v.is_empty()),
         blocked_uri: s("blockedURL").filter(|v| !v.is_empty()),
         effective_directive: truncate(&effective_directive, MAX_DIRECTIVE_LEN),
-        violated_directive: s("violatedDirective").filter(|v| !v.is_empty()).map(|v| {
-            truncate(&v, MAX_DIRECTIVE_LEN)
-        }),
+        violated_directive: s("violatedDirective")
+            .filter(|v| !v.is_empty())
+            .map(|v| truncate(&v, MAX_DIRECTIVE_LEN)),
         original_policy: s("originalPolicy"),
         disposition: truncate(&disposition, MAX_DISPOSITION_LEN),
         source_file: s("sourceFile").filter(|v| !v.is_empty()),
@@ -326,7 +326,10 @@ mod tests {
         let r = parse_legacy(&body).expect("should parse");
         assert_eq!(r.document_uri, "https://example.com/page");
         assert_eq!(r.effective_directive, "script-src");
-        assert_eq!(r.blocked_uri.as_deref(), Some("https://evil.example.com/x.js"));
+        assert_eq!(
+            r.blocked_uri.as_deref(),
+            Some("https://evil.example.com/x.js")
+        );
         assert_eq!(r.line_number, Some(42));
         assert_eq!(r.disposition, "enforce");
     }
@@ -347,7 +350,10 @@ mod tests {
         let r = parse_modern(&body).expect("should parse");
         assert_eq!(r.document_uri, "https://example.com/page");
         assert_eq!(r.effective_directive, "script-src-elem");
-        assert_eq!(r.blocked_uri.as_deref(), Some("https://evil.example.com/x.js"));
+        assert_eq!(
+            r.blocked_uri.as_deref(),
+            Some("https://evil.example.com/x.js")
+        );
         assert_eq!(r.line_number, Some(99));
         assert_eq!(r.disposition, "report");
     }

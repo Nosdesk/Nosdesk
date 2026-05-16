@@ -75,7 +75,8 @@ pub async fn bootstrap(
         }
     });
 
-    let body = ReceiverStream::new(rx).map(|r| r.map_err(actix_web::error::ErrorInternalServerError));
+    let body =
+        ReceiverStream::new(rx).map(|r| r.map_err(actix_web::error::ErrorInternalServerError));
     HttpResponse::Ok()
         .content_type("application/x-ndjson")
         .streaming(body)
@@ -114,14 +115,17 @@ fn stream_bootstrap(
     // Header: schema hash, cursor, granted groups, and capability
     // flags. Clients read this once at the start of every
     // bootstrap and cache the values for the session.
-    send(tx, json!({
-        "__meta__": {
-            "server_schema": SERVER_SCHEMA_HASH,
-            "last_sync_id": last_sync_id,
-            "groups_granted": granted,
-            "sla_enabled": sla_enabled,
-        }
-    }))?;
+    send(
+        tx,
+        json!({
+            "__meta__": {
+                "server_schema": SERVER_SCHEMA_HASH,
+                "last_sync_id": last_sync_id,
+                "groups_granted": granted,
+                "sla_enabled": sla_enabled,
+            }
+        }),
+    )?;
 
     // Workflow states: workspace-wide config, always sent so the
     // kanban can render columns immediately even before the
@@ -134,16 +138,19 @@ fn stream_bootstrap(
     let mut states_by_id: std::collections::HashMap<i32, WorkflowState> =
         std::collections::HashMap::with_capacity(states.len());
     for state in &states {
-        send(tx, json!({
-            "__model__": "workflow_state",
-            "id": state.id,
-            "name": state.name,
-            "category": state.category.as_str(),
-            "color": state.color,
-            "position": state.position,
-            "is_default": state.is_default,
-            "archived_at": state.archived_at,
-        }))?;
+        send(
+            tx,
+            json!({
+                "__model__": "workflow_state",
+                "id": state.id,
+                "name": state.name,
+                "category": state.category.as_str(),
+                "color": state.color,
+                "position": state.position,
+                "is_default": state.is_default,
+                "archived_at": state.archived_at,
+            }),
+        )?;
     }
     for state in states {
         states_by_id.insert(state.id, state);
@@ -167,9 +174,7 @@ fn stream_bootstrap(
     // table once into a HashMap rather than joining per-row, since
     // the `User` model is `Queryable` but not `Selectable` and tuple
     // joins would force a refactor.
-    let user_rows: Vec<User> = users::table
-        .order(users::name.asc())
-        .load(&mut conn)?;
+    let user_rows: Vec<User> = users::table.order(users::name.asc()).load(&mut conn)?;
     let primary_email_rows: Vec<(uuid::Uuid, String)> = user_emails::table
         .filter(user_emails::is_primary.eq(true))
         .select((user_emails::user_uuid, user_emails::email))
@@ -177,16 +182,19 @@ fn stream_bootstrap(
     let primary_email_by_uuid: std::collections::HashMap<uuid::Uuid, String> =
         primary_email_rows.into_iter().collect();
     for user in user_rows {
-        send(tx, json!({
-            "__model__": "user",
-            "uuid": user.uuid,
-            "name": user.name,
-            "email": primary_email_by_uuid.get(&user.uuid).cloned().unwrap_or_default(),
-            "role": user.role,
-            "pronouns": user.pronouns,
-            "avatar_url": user.avatar_url,
-            "avatar_thumb": user.avatar_thumb,
-        }))?;
+        send(
+            tx,
+            json!({
+                "__model__": "user",
+                "uuid": user.uuid,
+                "name": user.name,
+                "email": primary_email_by_uuid.get(&user.uuid).cloned().unwrap_or_default(),
+                "role": user.role,
+                "pronouns": user.pronouns,
+                "avatar_url": user.avatar_url,
+                "avatar_thumb": user.avatar_thumb,
+            }),
+        )?;
     }
 
     // Two project-loading paths:
@@ -207,7 +215,9 @@ fn stream_bootstrap(
     let want_all = granted.iter().any(|g| g == "workspace:1");
 
     let project_ids: Vec<i32> = if want_all {
-        projects::table.select(projects::id).load::<i32>(&mut conn)?
+        projects::table
+            .select(projects::id)
+            .load::<i32>(&mut conn)?
     } else {
         let mut ids: HashSet<i32> = HashSet::new();
         for g in granted {
@@ -225,28 +235,34 @@ fn stream_bootstrap(
             .filter(projects::id.eq_any(&project_ids))
             .load(&mut conn)?;
         for p in projects {
-            send(tx, json!({
-                "__model__": "project",
-                "id": p.id,
-                "name": p.name,
-                "description": p.description,
-                "status": p.status,
-                "created_at": p.created_at,
-                "updated_at": p.updated_at,
-                "created_by": p.created_by,
-            }))?;
+            send(
+                tx,
+                json!({
+                    "__model__": "project",
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description,
+                    "status": p.status,
+                    "created_at": p.created_at,
+                    "updated_at": p.updated_at,
+                    "created_by": p.created_by,
+                }),
+            )?;
         }
 
         let assocs: Vec<ProjectTicket> = project_tickets::table
             .filter(project_tickets::project_id.eq_any(&project_ids))
             .load(&mut conn)?;
         for a in assocs {
-            send(tx, json!({
-                "__model__": "project_ticket",
-                "project_id": a.project_id,
-                "ticket_id": a.ticket_id,
-                "display_order": a.display_order,
-            }))?;
+            send(
+                tx,
+                json!({
+                    "__model__": "project_ticket",
+                    "project_id": a.project_id,
+                    "ticket_id": a.ticket_id,
+                    "display_order": a.display_order,
+                }),
+            )?;
         }
     }
 
@@ -273,7 +289,9 @@ fn stream_bootstrap(
             .filter(project_tickets::project_id.eq_any(&project_ids))
             .select(project_tickets::ticket_id)
             .load(&mut conn)?;
-        tickets::table.filter(tickets::id.eq_any(scoped_ids)).into_boxed()
+        tickets::table
+            .filter(tickets::id.eq_any(scoped_ids))
+            .into_boxed()
     } else {
         // No projects in the granted set and no workspace grant —
         // skip the ticket loader entirely.
@@ -287,17 +305,15 @@ fn stream_bootstrap(
     // for the tickets without signals / devices; consumers default
     // those to 'none' / null.
     let ticket_ids: Vec<i32> = ticket_rows.iter().map(|t| t.id).collect();
-    let kb_gap_counts = crate::repository::knowledge_gaps::open_signal_counts_for_tickets(
-        &mut conn, &ticket_ids,
-    )?;
+    let kb_gap_counts =
+        crate::repository::knowledge_gaps::open_signal_counts_for_tickets(&mut conn, &ticket_ids)?;
     let device_summaries =
         crate::repository::tickets::devices_summary_for_tickets(&mut conn, &ticket_ids)?;
     let cycle_membership =
         crate::repository::cycles::cycle_ids_for_tickets(&mut conn, &ticket_ids)?;
     // Tag id list per ticket. Same batched-lookup pattern the
     // cycle membership uses; empty Vec when a ticket has no tags.
-    let tag_membership =
-        crate::repository::tags::tag_ids_for_tickets(&mut conn, &ticket_ids)?;
+    let tag_membership = crate::repository::tags::tag_ids_for_tickets(&mut conn, &ticket_ids)?;
     let watcher_membership =
         crate::repository::ticket_watchers::watcher_uuids_for_tickets(&mut conn, &ticket_ids)?;
     // Load every SLA policy + working calendar once; the
@@ -308,12 +324,14 @@ fn stream_bootstrap(
 
     for t in ticket_rows {
         let ws = states_by_id.get(&t.workflow_state_id);
-        let workflow_state_payload = ws.map(|s| json!({
-            "id": s.id,
-            "name": s.name,
-            "category": s.category.as_str(),
-            "color": s.color,
-        }));
+        let workflow_state_payload = ws.map(|s| {
+            json!({
+                "id": s.id,
+                "name": s.name,
+                "category": s.category.as_str(),
+                "color": s.color,
+            })
+        });
         let kb_gap_signal = match kb_gap_counts.get(&t.id).copied().unwrap_or(0) {
             0 => "none",
             1..=2 => "weak",
@@ -338,41 +356,45 @@ fn stream_bootstrap(
                     .get(&cal_id)
                     .cloned()
                     .unwrap_or_default();
-                let category = ws.map(|s| s.category)
+                let category = ws
+                    .map(|s| s.category)
                     .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
                 Some(crate::services::sla::compute_pill(
                     &t, category, policy, calendar, &holidays, now,
                 ))
             })
             .unwrap_or(serde_json::Value::Null);
-        send(tx, json!({
-            "__model__": "ticket",
-            "id": t.id,
-            "title": t.title,
-            "workflow_state": workflow_state_payload,
-            "workflow_state_id": t.workflow_state_id,
-            "priority": match t.priority {
-                crate::models::TicketPriority::Low => "low",
-                crate::models::TicketPriority::Medium => "medium",
-                crate::models::TicketPriority::High => "high",
-            },
-            "requester_uuid": t.requester_uuid,
-            "assignee_uuid": t.assignee_uuid,
-            "category_id": t.category_id,
-            "triage_state": t.triage_state,
-            "due_date": t.due_date,
-            "kb_gap_signal": kb_gap_signal,
-            "affected_devices": affected_devices,
-            "cycle_id": cycle_membership.get(&t.id),
-            "sla": sla,
-            "recurrence_rule": t.recurrence_rule,
-            "tag_ids": tag_membership.get(&t.id).cloned().unwrap_or_default(),
-            "watcher_uuids": watcher_membership.get(&t.id).cloned().unwrap_or_default(),
-            "recurrence_template_id": t.recurrence_template_id,
-            "created_at": t.created_at,
-            "updated_at": t.updated_at,
-            "last_activity_at": t.updated_at,
-        }))?;
+        send(
+            tx,
+            json!({
+                "__model__": "ticket",
+                "id": t.id,
+                "title": t.title,
+                "workflow_state": workflow_state_payload,
+                "workflow_state_id": t.workflow_state_id,
+                "priority": match t.priority {
+                    crate::models::TicketPriority::Low => "low",
+                    crate::models::TicketPriority::Medium => "medium",
+                    crate::models::TicketPriority::High => "high",
+                },
+                "requester_uuid": t.requester_uuid,
+                "assignee_uuid": t.assignee_uuid,
+                "category_id": t.category_id,
+                "triage_state": t.triage_state,
+                "due_date": t.due_date,
+                "kb_gap_signal": kb_gap_signal,
+                "affected_devices": affected_devices,
+                "cycle_id": cycle_membership.get(&t.id),
+                "sla": sla,
+                "recurrence_rule": t.recurrence_rule,
+                "tag_ids": tag_membership.get(&t.id).cloned().unwrap_or_default(),
+                "watcher_uuids": watcher_membership.get(&t.id).cloned().unwrap_or_default(),
+                "recurrence_template_id": t.recurrence_template_id,
+                "created_at": t.created_at,
+                "updated_at": t.updated_at,
+                "last_activity_at": t.updated_at,
+            }),
+        )?;
     }
 
     finish(tx, last_sync_id)

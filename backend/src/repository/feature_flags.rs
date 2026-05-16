@@ -81,10 +81,7 @@ pub fn set_user_override(
 
 /// Replace the entire workspace flag map. Used by the admin UI's
 /// bulk-edit path; setters above are the per-flag path.
-pub fn set_all_workspace_flags(
-    conn: &mut DbConnection,
-    flags: Value,
-) -> QueryResult<Value> {
+pub fn set_all_workspace_flags(conn: &mut DbConnection, flags: Value) -> QueryResult<Value> {
     if !flags.is_object() {
         return Err(diesel::result::Error::DeserializationError(
             "feature_flags must be a JSON object".into(),
@@ -127,8 +124,8 @@ fn apply_patch(current: &mut Value, flag_name: &str, value: Option<Value>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use serde_json::json;
 
     #[test]

@@ -143,7 +143,11 @@ impl AssignmentEngine {
         // Check title_contains condition
         if let Some(title_val) = obj.get("title_contains") {
             if let Some(search_str) = title_val.as_str() {
-                if !ticket.title.to_lowercase().contains(&search_str.to_lowercase()) {
+                if !ticket
+                    .title
+                    .to_lowercase()
+                    .contains(&search_str.to_lowercase())
+                {
                     return false;
                 }
             }
@@ -159,12 +163,8 @@ impl AssignmentEngine {
                 // Assign to the specific user
                 Some(rule.target_user_uuid)
             }
-            AssignmentMethod::GroupRoundRobin => {
-                Self::round_robin_assignment(conn, rule)
-            }
-            AssignmentMethod::GroupRandom => {
-                Self::random_assignment(conn, rule)
-            }
+            AssignmentMethod::GroupRoundRobin => Self::round_robin_assignment(conn, rule),
+            AssignmentMethod::GroupRandom => Self::random_assignment(conn, rule),
             AssignmentMethod::GroupQueue => {
                 // Queue assignment: no specific user, just mark for the group
                 // Return None to indicate "assign to group" (no specific user)
@@ -174,7 +174,10 @@ impl AssignmentEngine {
     }
 
     /// Round-robin assignment from group members
-    fn round_robin_assignment(conn: &mut DbConnection, rule: &AssignmentRule) -> Option<Option<Uuid>> {
+    fn round_robin_assignment(
+        conn: &mut DbConnection,
+        rule: &AssignmentRule,
+    ) -> Option<Option<Uuid>> {
         let group_id = rule.target_group_id?;
 
         // Get group members ordered consistently
@@ -232,7 +235,9 @@ impl AssignmentEngine {
     }
 
     /// Get active rules ordered by priority (lower number = higher priority)
-    fn get_active_rules_by_priority(conn: &mut DbConnection) -> diesel::QueryResult<Vec<AssignmentRule>> {
+    fn get_active_rules_by_priority(
+        conn: &mut DbConnection,
+    ) -> diesel::QueryResult<Vec<AssignmentRule>> {
         assignment_rules::table
             .filter(assignment_rules::is_active.eq(true))
             .order(assignment_rules::priority.asc())
@@ -276,7 +281,8 @@ impl AssignmentEngine {
         diesel::update(assignment_rule_state::table.find(rule_id))
             .set((
                 assignment_rule_state::last_assigned_index.eq(new_index),
-                assignment_rule_state::total_assignments.eq(assignment_rule_state::total_assignments + 1),
+                assignment_rule_state::total_assignments
+                    .eq(assignment_rule_state::total_assignments + 1),
                 assignment_rule_state::last_assigned_at.eq(Utc::now().naive_utc()),
                 assignment_rule_state::last_assigned_user_uuid.eq(assigned_user),
             ))
@@ -382,25 +388,37 @@ mod tests {
     #[test]
     fn trigger_on_create_matches_ticket_created() {
         let rule = make_rule(|r| r.trigger_on_create = true);
-        assert!(AssignmentEngine::matches_trigger(&rule, &AssignmentTrigger::TicketCreated));
+        assert!(AssignmentEngine::matches_trigger(
+            &rule,
+            &AssignmentTrigger::TicketCreated
+        ));
     }
 
     #[test]
     fn trigger_on_create_false_does_not_match_ticket_created() {
         let rule = make_rule(|r| r.trigger_on_create = false);
-        assert!(!AssignmentEngine::matches_trigger(&rule, &AssignmentTrigger::TicketCreated));
+        assert!(!AssignmentEngine::matches_trigger(
+            &rule,
+            &AssignmentTrigger::TicketCreated
+        ));
     }
 
     #[test]
     fn trigger_on_category_change_matches() {
         let rule = make_rule(|r| r.trigger_on_category_change = true);
-        assert!(AssignmentEngine::matches_trigger(&rule, &AssignmentTrigger::CategoryChanged));
+        assert!(AssignmentEngine::matches_trigger(
+            &rule,
+            &AssignmentTrigger::CategoryChanged
+        ));
     }
 
     #[test]
     fn trigger_on_category_change_false_does_not_match() {
         let rule = make_rule(|r| r.trigger_on_category_change = false);
-        assert!(!AssignmentEngine::matches_trigger(&rule, &AssignmentTrigger::CategoryChanged));
+        assert!(!AssignmentEngine::matches_trigger(
+            &rule,
+            &AssignmentTrigger::CategoryChanged
+        ));
     }
 
     // ── matches_category ─────────────────────────────────────────────

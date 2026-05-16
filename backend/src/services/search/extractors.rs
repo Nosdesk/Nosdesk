@@ -4,20 +4,17 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::panic;
 use tracing::debug;
-use yrs::{Doc, Transact, ReadTxn, WriteTxn, GetString, Options, updates::decoder::Decode, Update, XmlFragment, XmlOut};
+use yrs::{
+    updates::decoder::Decode, Doc, GetString, Options, ReadTxn, Transact, Update, WriteTxn,
+    XmlFragment, XmlOut,
+};
 
 // Pre-compiled regexes for performance
-static HTML_TAG_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"<[^>]+>").unwrap()
-});
+static HTML_TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
 
-static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\s+").unwrap()
-});
+static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 
-static MENTION_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"@\[[^\]]+\]\([a-f0-9-]+\)").unwrap()
-});
+static MENTION_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"@\[[^\]]+\]\([a-f0-9-]+\)").unwrap());
 
 /// Strip HTML tags from content
 pub fn strip_html(content: &str) -> String {
@@ -39,9 +36,7 @@ fn extract_text_from_xml_node(node: &XmlOut, txn: &yrs::Transaction) -> String {
         XmlOut::Text(text_ref) => {
             // XmlTextRef::get_string returns the text content
             // Use panic::catch_unwind because Yjs can panic on corrupted data
-            match panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                text_ref.get_string(txn)
-            })) {
+            match panic::catch_unwind(panic::AssertUnwindSafe(|| text_ref.get_string(txn))) {
                 Ok(s) => s,
                 Err(_) => String::new(),
             }
@@ -134,7 +129,10 @@ pub fn extract_text_from_yjs(yjs_data: &[u8]) -> Option<String> {
         // Strip any remaining XML/HTML tags (e.g., <strong>, <em>, etc.)
         let clean_text = HTML_TAG_RE.replace_all(&joined, "").to_string();
         // Normalize whitespace
-        let normalized = WHITESPACE_RE.replace_all(&clean_text, " ").trim().to_string();
+        let normalized = WHITESPACE_RE
+            .replace_all(&clean_text, " ")
+            .trim()
+            .to_string();
 
         if normalized.is_empty() {
             None
@@ -173,10 +171,7 @@ mod tests {
             strip_html("<p>Hello <strong>world</strong>!</p>"),
             "Hello world !"
         );
-        assert_eq!(
-            strip_html("No HTML here"),
-            "No HTML here"
-        );
+        assert_eq!(strip_html("No HTML here"), "No HTML here");
         assert_eq!(
             strip_html("<div>Multiple\n\n\nspaces</div>"),
             "Multiple spaces"
@@ -185,7 +180,8 @@ mod tests {
 
     #[test]
     fn test_create_preview() {
-        let content = "This is a long piece of content that needs to be truncated for preview purposes.";
+        let content =
+            "This is a long piece of content that needs to be truncated for preview purposes.";
         let preview = create_preview(content, 30);
         assert!(preview.len() <= 33); // 30 + "..."
         assert!(preview.ends_with("..."));

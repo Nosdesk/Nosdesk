@@ -213,7 +213,10 @@ mod tests {
         for variant in &variants {
             let s = variant.as_str();
             let parsed = WebhookEventType::from_str(s).unwrap_or_else(|| {
-                panic!("Failed to roundtrip variant {:?} through as_str/from_str", variant);
+                panic!(
+                    "Failed to roundtrip variant {:?} through as_str/from_str",
+                    variant
+                );
             });
             assert_eq!(*variant, parsed);
         }

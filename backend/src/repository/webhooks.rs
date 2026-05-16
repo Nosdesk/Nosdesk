@@ -57,10 +57,7 @@ pub fn create_webhook(
 }
 
 /// Get a webhook by ID
-pub fn get_webhook_by_id(
-    conn: &mut DbConnection,
-    webhook_id: i32,
-) -> Result<Webhook, String> {
+pub fn get_webhook_by_id(conn: &mut DbConnection, webhook_id: i32) -> Result<Webhook, String> {
     webhooks::table
         .filter(webhooks::id.eq(webhook_id))
         .first::<Webhook>(conn)

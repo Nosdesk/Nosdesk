@@ -36,18 +36,16 @@ impl RedisYjsCache {
         let key = Self::document_key(doc_id);
 
         match self.client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                match conn.get::<_, Vec<u8>>(&key).await {
-                    Ok(data) => {
-                        debug!(doc_id = %doc_id, bytes = data.len(), "Redis cache HIT for document");
-                        Some(data)
-                    }
-                    Err(e) => {
-                        debug!(doc_id = %doc_id, error = ?e, "Redis cache MISS for document");
-                        None
-                    }
+            Ok(mut conn) => match conn.get::<_, Vec<u8>>(&key).await {
+                Ok(data) => {
+                    debug!(doc_id = %doc_id, bytes = data.len(), "Redis cache HIT for document");
+                    Some(data)
                 }
-            }
+                Err(e) => {
+                    debug!(doc_id = %doc_id, error = ?e, "Redis cache MISS for document");
+                    None
+                }
+            },
             Err(e) => {
                 warn!(doc_id = %doc_id, error = ?e, "Redis connection failed for document");
                 None
@@ -65,16 +63,14 @@ impl RedisYjsCache {
         let key = Self::document_key(doc_id);
 
         match self.client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                match conn.set_ex::<_, _, ()>(&key, data, ttl as u64).await {
-                    Ok(_) => {
-                        debug!(doc_id = %doc_id, bytes = data.len(), ttl = ttl, "Redis cached document");
-                    }
-                    Err(e) => {
-                        warn!(doc_id = %doc_id, error = ?e, "Failed to cache document in Redis");
-                    }
+            Ok(mut conn) => match conn.set_ex::<_, _, ()>(&key, data, ttl as u64).await {
+                Ok(_) => {
+                    debug!(doc_id = %doc_id, bytes = data.len(), ttl = ttl, "Redis cached document");
                 }
-            }
+                Err(e) => {
+                    warn!(doc_id = %doc_id, error = ?e, "Failed to cache document in Redis");
+                }
+            },
             Err(e) => {
                 warn!(doc_id = %doc_id, error = ?e, "Redis connection failed when caching document");
             }
@@ -86,16 +82,14 @@ impl RedisYjsCache {
         let key = Self::document_key(doc_id);
 
         match self.client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                match conn.del::<_, ()>(&key).await {
-                    Ok(_) => {
-                        debug!(doc_id = %doc_id, "Deleted document from Redis cache");
-                    }
-                    Err(e) => {
-                        warn!(doc_id = %doc_id, error = ?e, "Failed to delete document from Redis");
-                    }
+            Ok(mut conn) => match conn.del::<_, ()>(&key).await {
+                Ok(_) => {
+                    debug!(doc_id = %doc_id, "Deleted document from Redis cache");
                 }
-            }
+                Err(e) => {
+                    warn!(doc_id = %doc_id, error = ?e, "Failed to delete document from Redis");
+                }
+            },
             Err(e) => {
                 warn!(doc_id = %doc_id, error = ?e, "Redis connection failed when deleting document");
             }
@@ -112,16 +106,14 @@ impl RedisYjsCache {
         let key = Self::document_key(doc_id);
 
         match self.client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                match conn.expire::<_, ()>(&key, ttl as i64).await {
-                    Ok(_) => {
-                        debug!(doc_id = %doc_id, ttl = ttl, "Refreshed TTL for document");
-                    }
-                    Err(e) => {
-                        warn!(doc_id = %doc_id, error = ?e, "Failed to refresh TTL for document");
-                    }
+            Ok(mut conn) => match conn.expire::<_, ()>(&key, ttl as i64).await {
+                Ok(_) => {
+                    debug!(doc_id = %doc_id, ttl = ttl, "Refreshed TTL for document");
                 }
-            }
+                Err(e) => {
+                    warn!(doc_id = %doc_id, error = ?e, "Failed to refresh TTL for document");
+                }
+            },
             Err(e) => {
                 warn!(doc_id = %doc_id, error = ?e, "Redis connection failed when refreshing TTL for document");
             }
@@ -140,6 +132,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_redis_key_format() {
-        assert_eq!(RedisYjsCache::document_key("ticket-123"), "yjs:doc:ticket-123");
+        assert_eq!(
+            RedisYjsCache::document_key("ticket-123"),
+            "yjs:doc:ticket-123"
+        );
     }
 }

@@ -72,7 +72,9 @@ pub async fn list(
     // Defaults: last 7 days, 50 rows per page. The trigger fires on every
     // write to audited tables so an unfiltered scan is the wrong default;
     // the time bound keeps sensible queries cheap on partitioned tables.
-    let since = query.since.or_else(|| Some(Utc::now() - chrono::Duration::days(7)));
+    let since = query
+        .since
+        .or_else(|| Some(Utc::now() - chrono::Duration::days(7)));
 
     let filter = repo::AuditLogFilter {
         table_name: query.table_name.clone(),
@@ -161,7 +163,9 @@ mod tests {
         assert!(decode_cursor("aGVsbG8").is_err()); // valid base64, not JSON cursor
     }
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),

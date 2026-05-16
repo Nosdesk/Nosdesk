@@ -84,7 +84,10 @@ fn delta_returns_events_for_user_visible_groups() {
         .load(&mut conn)
         .unwrap();
 
-    assert!(events.len() >= 2, "expected at least two project events, got {events:?}");
+    assert!(
+        events.len() >= 2,
+        "expected at least two project events, got {events:?}"
+    );
     assert_eq!(events[0].0, SyncAggregate::Project);
     assert_eq!(events[0].1, SyncOp::Insert);
     assert_eq!(events[0].2, "project.created");

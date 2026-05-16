@@ -1,11 +1,11 @@
+use actix_web::http::header::{ACCEPT_RANGES, CACHE_CONTROL, CONTENT_TYPE};
+use actix_web::{HttpRequest, HttpResponse};
 use async_trait::async_trait;
-use std::sync::Arc;
 use std::io;
 use std::path::Path;
-use uuid::Uuid;
-use actix_web::{HttpResponse, HttpRequest};
-use actix_web::http::header::{CONTENT_TYPE, CACHE_CONTROL, ACCEPT_RANGES};
+use std::sync::Arc;
 use tracing::error;
+use uuid::Uuid;
 
 /// Storage configuration for different backends.
 ///
@@ -17,9 +17,7 @@ use tracing::error;
 /// returns as a new variant on a dedicated branch with tests.
 #[derive(Debug, Clone)]
 pub enum StorageConfig {
-    Local {
-        base_path: String,
-    },
+    Local { base_path: String },
 }
 
 /// File metadata returned after upload
@@ -98,7 +96,11 @@ impl LocalStorage {
     }
 
     fn get_full_path(&self, path: &str) -> String {
-        format!("{}/{}", self.base_path.trim_end_matches('/'), path.trim_start_matches('/'))
+        format!(
+            "{}/{}",
+            self.base_path.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
     }
 
     fn ensure_directory_exists(&self, file_path: &str) -> Result<(), StorageError> {
@@ -122,13 +124,13 @@ impl Storage for LocalStorage {
         let unique_filename = format!("{}_{}", Uuid::now_v7(), filename);
         let relative_path = format!("{}/{}", folder.trim_end_matches('/'), unique_filename);
         let full_path = self.get_full_path(&relative_path);
-        
+
         // Ensure directory exists
         self.ensure_directory_exists(&full_path)?;
-        
+
         // Write file
         std::fs::write(&full_path, data)?;
-        
+
         Ok(StoredFile {
             id: unique_filename.clone(),
             url: self.get_public_url(&relative_path),
@@ -167,16 +169,20 @@ impl Storage for LocalStorage {
     }
 
     fn get_public_url(&self, path: &str) -> String {
-        format!("{}/{}", self.public_url_base.trim_end_matches('/'), path.trim_start_matches('/'))
+        format!(
+            "{}/{}",
+            self.public_url_base.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
     }
 
     async fn move_file(&self, from_path: &str, to_path: &str) -> Result<(), StorageError> {
         let from_full = self.get_full_path(from_path);
         let to_full = self.get_full_path(to_path);
-        
+
         // Ensure destination directory exists
         self.ensure_directory_exists(&to_full)?;
-        
+
         std::fs::rename(&from_full, &to_full)?;
         Ok(())
     }
@@ -219,60 +225,72 @@ pub async fn serve_file_from_storage(
 ) -> Result<HttpResponse, actix_web::Error> {
     // Extract filename from path for content type detection
     let filename = path.split('/').next_back().unwrap_or("file");
-    
+
     // Get file data from storage
     let file_data = storage.get_file(path).await.map_err(|e| {
         error!("Failed to get file from storage: {:?}", e);
         actix_web::error::ErrorNotFound("File not found")
     })?;
-    
+
     // Determine content type based on file extension
     let content_type = get_content_type(filename);
-    
+
     // Build response with proper headers
     let mut response_builder = HttpResponse::Ok();
-    
+
     response_builder
         .insert_header((CONTENT_TYPE, content_type))
         .insert_header((ACCEPT_RANGES, "bytes"))
         .insert_header((CACHE_CONTROL, "public, max-age=3600"))
         .insert_header(("Access-Control-Allow-Origin", "*"))
         .insert_header(("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS"))
-        .insert_header(("Access-Control-Allow-Headers", "Range, Content-Type, Authorization"))
-        .insert_header(("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges"));
-    
+        .insert_header((
+            "Access-Control-Allow-Headers",
+            "Range, Content-Type, Authorization",
+        ))
+        .insert_header((
+            "Access-Control-Expose-Headers",
+            "Content-Range, Content-Length, Accept-Ranges",
+        ));
+
     // Handle range requests for PDF.js and other file types
     let range_header = req.headers().get("Range");
-            if let Some(range_value) = range_header {
-            if let Ok(range_str) = range_value.to_str() {
+    if let Some(range_value) = range_header {
+        if let Ok(range_str) = range_value.to_str() {
             if let Some(range_spec) = range_str.strip_prefix("bytes=") {
                 // Remove "bytes="
-                
+
                 // Parse range like "0-1023" or "1024-"
                 if let Some((start_str, end_str)) = range_spec.split_once('-') {
                     let start = start_str.parse::<usize>().unwrap_or(0);
                     let end = if end_str.is_empty() {
                         file_data.len() - 1
                     } else {
-                        end_str.parse::<usize>().unwrap_or(file_data.len() - 1).min(file_data.len() - 1)
+                        end_str
+                            .parse::<usize>()
+                            .unwrap_or(file_data.len() - 1)
+                            .min(file_data.len() - 1)
                     };
-                    
+
                     if start <= end && start < file_data.len() {
                         let content_length = end - start + 1;
                         let range_data = file_data[start..=end].to_vec();
-                        
+
                         // Return partial content response
                         return Ok(response_builder
                             .status(actix_web::http::StatusCode::PARTIAL_CONTENT)
                             .insert_header(("Content-Length", content_length.to_string()))
-                            .insert_header(("Content-Range", format!("bytes {}-{}/{}", start, end, file_data.len())))
+                            .insert_header((
+                                "Content-Range",
+                                format!("bytes {}-{}/{}", start, end, file_data.len()),
+                            ))
                             .body(range_data));
                     }
                 }
             }
         }
     }
-    
+
     // Full file response (no range request or invalid range)
     Ok(response_builder
         .insert_header(("Content-Length", file_data.len().to_string()))
@@ -338,24 +356,36 @@ mod tests {
     #[test]
     fn get_full_path_joins_correctly() {
         let storage = LocalStorage::new("/app/uploads".into(), "/uploads".into());
-        assert_eq!(storage.get_full_path("tickets/file.pdf"), "/app/uploads/tickets/file.pdf");
+        assert_eq!(
+            storage.get_full_path("tickets/file.pdf"),
+            "/app/uploads/tickets/file.pdf"
+        );
     }
 
     #[test]
     fn get_full_path_handles_extra_slashes() {
         let storage = LocalStorage::new("/app/uploads/".into(), "/uploads".into());
-        assert_eq!(storage.get_full_path("/tickets/file.pdf"), "/app/uploads/tickets/file.pdf");
+        assert_eq!(
+            storage.get_full_path("/tickets/file.pdf"),
+            "/app/uploads/tickets/file.pdf"
+        );
     }
 
     #[test]
     fn get_public_url_joins_correctly() {
         let storage = LocalStorage::new("/app/uploads".into(), "/uploads".into());
-        assert_eq!(storage.get_public_url("tickets/file.pdf"), "/uploads/tickets/file.pdf");
+        assert_eq!(
+            storage.get_public_url("tickets/file.pdf"),
+            "/uploads/tickets/file.pdf"
+        );
     }
 
     #[test]
     fn get_public_url_handles_extra_slashes() {
         let storage = LocalStorage::new("/app/uploads".into(), "/uploads/".into());
-        assert_eq!(storage.get_public_url("/tickets/file.pdf"), "/uploads/tickets/file.pdf");
+        assert_eq!(
+            storage.get_public_url("/tickets/file.pdf"),
+            "/uploads/tickets/file.pdf"
+        );
     }
 }

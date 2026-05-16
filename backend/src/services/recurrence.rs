@@ -82,7 +82,10 @@ mod tests {
         let start = Utc.with_ymd_and_hms(2026, 1, 5, 9, 0, 0).unwrap(); // Mon Jan 5
         let after = Utc.with_ymd_and_hms(2026, 1, 9, 17, 0, 0).unwrap(); // Fri Jan 9
         let next = next_occurrence("FREQ=WEEKLY;BYDAY=MO", start, after).unwrap();
-        assert_eq!(next, Some(Utc.with_ymd_and_hms(2026, 1, 12, 9, 0, 0).unwrap()));
+        assert_eq!(
+            next,
+            Some(Utc.with_ymd_and_hms(2026, 1, 12, 9, 0, 0).unwrap())
+        );
     }
 
     #[test]

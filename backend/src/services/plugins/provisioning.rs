@@ -184,10 +184,22 @@ fn provision_plugins_locked(conn: &mut DbConnection) -> Vec<ProvisionResult> {
         results.push(provision_zip(conn, &path, &label));
     }
 
-    let created = results.iter().filter(|r| matches!(r, ProvisionResult::Created(_))).count();
-    let updated = results.iter().filter(|r| matches!(r, ProvisionResult::Updated(_))).count();
-    let unchanged = results.iter().filter(|r| matches!(r, ProvisionResult::Unchanged(_))).count();
-    let failed = results.iter().filter(|r| matches!(r, ProvisionResult::Failed(_, _))).count();
+    let created = results
+        .iter()
+        .filter(|r| matches!(r, ProvisionResult::Created(_)))
+        .count();
+    let updated = results
+        .iter()
+        .filter(|r| matches!(r, ProvisionResult::Updated(_)))
+        .count();
+    let unchanged = results
+        .iter()
+        .filter(|r| matches!(r, ProvisionResult::Unchanged(_)))
+        .count();
+    let failed = results
+        .iter()
+        .filter(|r| matches!(r, ProvisionResult::Failed(_, _)))
+        .count();
     info!(
         "Plugin provisioning complete: {} created, {} updated, {} unchanged, {} failed",
         created, updated, unchanged, failed
@@ -269,8 +281,8 @@ fn resolve_signer(
                 "Provisioning unsigned zip because {}=1 is set. Never enable this in production.",
                 DEV_MODE_ENV
             );
-            let entries = signing::read_archive(bytes)
-                .map_err(|e| format!("Zip format error: {e}"))?;
+            let entries =
+                signing::read_archive(bytes).map_err(|e| format!("Zip format error: {e}"))?;
             Ok((
                 entries,
                 trust::PluginSignerFields::dev_mode(),

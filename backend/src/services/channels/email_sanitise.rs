@@ -147,8 +147,7 @@ static OUTLOOK_TAG_RE: Lazy<Regex> = Lazy::new(|| {
     // and its closer; this is a textual transform, not a DOM
     // walk, but it's good enough for the Word-emitted junk we're
     // targeting.
-    Regex::new(r"(?is)</?(?:o|v):[a-z0-9_-]+(?:\s[^>]*)?/?>")
-        .expect("valid Outlook tag regex")
+    Regex::new(r"(?is)</?(?:o|v):[a-z0-9_-]+(?:\s[^>]*)?/?>").expect("valid Outlook tag regex")
 });
 
 /// Strip `xmlns:v="..."` / `xmlns:o="..."` namespace attributes.
@@ -156,8 +155,7 @@ static OUTLOOK_TAG_RE: Lazy<Regex> = Lazy::new(|| {
 /// attributes; cleaner to drop them at the pre-strip stage so the
 /// final HTML is uncluttered.
 static OUTLOOK_NS_ATTR_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)\s+xmlns:(?:o|v|w|m)\s*=\s*"[^"]*""#)
-        .expect("valid Outlook xmlns regex")
+    Regex::new(r#"(?i)\s+xmlns:(?:o|v|w|m)\s*=\s*"[^"]*""#).expect("valid Outlook xmlns regex")
 });
 
 /// Remove `mso-*` CSS properties from any `style="..."` attribute.
@@ -374,8 +372,10 @@ mod tests {
         let out = sanitise(input).html;
         assert!(out.contains("color: red"), "non-mso props survive");
         assert!(out.contains("font-size: 14px"), "non-mso props survive");
-        assert!(!out.to_ascii_lowercase().contains("mso-"),
-            "mso-* props are stripped: {out}");
+        assert!(
+            !out.to_ascii_lowercase().contains("mso-"),
+            "mso-* props are stripped: {out}"
+        );
     }
 
     #[test]
@@ -387,8 +387,10 @@ mod tests {
         let out = sanitise(input).html;
         assert!(out.contains("color: red"));
         assert!(out.contains("font-weight: bold"));
-        assert!(!out.to_ascii_lowercase().contains("mso-"),
-            "mso-* stripped from single-quoted style: {out}");
+        assert!(
+            !out.to_ascii_lowercase().contains("mso-"),
+            "mso-* stripped from single-quoted style: {out}"
+        );
     }
 
     #[test]
@@ -405,7 +407,8 @@ mod tests {
     fn drops_conditional_comments() {
         // html5ever treats `<!--[if mso]>` as a comment, and ammonia
         // drops comments by default. End-to-end check.
-        let input = "<p>Visible</p><!--[if mso]><table><tr><td>Outlook only</td></tr></table><![endif]-->";
+        let input =
+            "<p>Visible</p><!--[if mso]><table><tr><td>Outlook only</td></tr></table><![endif]-->";
         let out = sanitise(input).html;
         assert!(out.contains("Visible"));
         assert!(!out.contains("Outlook only"), "conditional content gone");
@@ -482,10 +485,14 @@ mod tests {
 
     #[test]
     fn strips_known_tracker_img() {
-        let input = r#"<p>Hi</p><img src="https://track.mailchimp.com/p.gif?u=abc" width="1" height="1">"#;
+        let input =
+            r#"<p>Hi</p><img src="https://track.mailchimp.com/p.gif?u=abc" width="1" height="1">"#;
         let out = sanitise(input);
-        assert!(!out.html.to_lowercase().contains("mailchimp"),
-            "tracker img dropped: {}", out.html);
+        assert!(
+            !out.html.to_lowercase().contains("mailchimp"),
+            "tracker img dropped: {}",
+            out.html
+        );
         assert!(out.html.contains("Hi"));
         assert_eq!(out.trackers_stripped, vec!["Mailchimp".to_string()]);
     }
@@ -496,7 +503,10 @@ mod tests {
         // tracker pass, then the rewrite swaps its src for the
         // signed proxy path. The img element and alt attribute
         // stay; only the src changes.
-        std::env::set_var("JWT_SECRET", "test-secret-for-image-proxy-signing-deterministic");
+        std::env::set_var(
+            "JWT_SECRET",
+            "test-secret-for-image-proxy-signing-deterministic",
+        );
         let input = r#"<p>Hi</p><img src="https://cdn.example.com/logo.png" alt="Logo">"#;
         let out = sanitise(input);
         // Original upstream gone — the rewrite replaced it.
@@ -540,27 +550,41 @@ mod tests {
     fn rewrites_remote_img_src_to_proxy() {
         // JWT_SECRET must be set for the proxy signer to produce
         // deterministic output across test runs.
-        std::env::set_var("JWT_SECRET", "test-secret-for-image-proxy-signing-deterministic");
+        std::env::set_var(
+            "JWT_SECRET",
+            "test-secret-for-image-proxy-signing-deterministic",
+        );
         let input = r#"<p>Hi</p><img src="https://cdn.example.com/banner.png" alt="banner">"#;
         let out = sanitise(input).html;
         // Original upstream URL no longer present (replaced).
-        assert!(!out.contains("cdn.example.com"),
-            "remote src must be rewritten: {out}");
+        assert!(
+            !out.contains("cdn.example.com"),
+            "remote src must be rewritten: {out}"
+        );
         // Proxy URL is.
-        assert!(out.contains("/api/image-proxy/"),
-            "proxy URL injected: {out}");
+        assert!(
+            out.contains("/api/image-proxy/"),
+            "proxy URL injected: {out}"
+        );
         // Other attributes preserved (alt).
-        assert!(out.contains(r#"alt="banner""#),
-            "other img attrs preserved: {out}");
+        assert!(
+            out.contains(r#"alt="banner""#),
+            "other img attrs preserved: {out}"
+        );
     }
 
     #[test]
     fn passes_through_cid_images() {
-        std::env::set_var("JWT_SECRET", "test-secret-for-image-proxy-signing-deterministic");
+        std::env::set_var(
+            "JWT_SECRET",
+            "test-secret-for-image-proxy-signing-deterministic",
+        );
         let input = r#"<img src="cid:abc@example.com" alt="x">"#;
         let out = sanitise(input).html;
-        assert!(out.contains("cid:abc@example.com"),
-            "cid not rewritten: {out}");
+        assert!(
+            out.contains("cid:abc@example.com"),
+            "cid not rewritten: {out}"
+        );
         assert!(!out.contains("/api/image-proxy/"));
     }
 
@@ -569,7 +593,10 @@ mod tests {
         // Once an img src points at /api/image-proxy/... the
         // regex requires http(s):// to match again, so a second
         // sanitise pass is a no-op on the rewrite axis.
-        std::env::set_var("JWT_SECRET", "test-secret-for-image-proxy-signing-deterministic");
+        std::env::set_var(
+            "JWT_SECRET",
+            "test-secret-for-image-proxy-signing-deterministic",
+        );
         let input = r#"<img src="https://cdn.example.com/x.png">"#;
         let once = sanitise(input).html;
         let twice = sanitise(&once).html;

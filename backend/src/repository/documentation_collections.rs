@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
-use crate::schema::*;
 use crate::schema::documentation_collection_visibility;
+use crate::schema::*;
 
 // ============================================================================
 // Collection CRUD Operations
@@ -21,13 +21,19 @@ pub fn create_collection(
         .get_result(conn)
 }
 
-pub fn get_collection(conn: &mut DbConnection, collection_id: i32) -> QueryResult<DocumentationCollection> {
+pub fn get_collection(
+    conn: &mut DbConnection,
+    collection_id: i32,
+) -> QueryResult<DocumentationCollection> {
     documentation_collections::table
         .find(collection_id)
         .first(conn)
 }
 
-pub fn get_collection_by_slug(conn: &mut DbConnection, slug: &str) -> QueryResult<DocumentationCollection> {
+pub fn get_collection_by_slug(
+    conn: &mut DbConnection,
+    slug: &str,
+) -> QueryResult<DocumentationCollection> {
     documentation_collections::table
         .filter(documentation_collections::slug.eq(slug))
         .first(conn)
@@ -35,7 +41,10 @@ pub fn get_collection_by_slug(conn: &mut DbConnection, slug: &str) -> QueryResul
 
 pub fn get_all_collections(conn: &mut DbConnection) -> QueryResult<Vec<DocumentationCollection>> {
     documentation_collections::table
-        .order((documentation_collections::display_order.asc(), documentation_collections::name.asc()))
+        .order((
+            documentation_collections::display_order.asc(),
+            documentation_collections::name.asc(),
+        ))
         .load(conn)
 }
 
@@ -64,8 +73,7 @@ pub fn update_collection(
 }
 
 pub fn delete_collection(conn: &mut DbConnection, collection_id: i32) -> QueryResult<usize> {
-    diesel::delete(documentation_collections::table.find(collection_id))
-        .execute(conn)
+    diesel::delete(documentation_collections::table.find(collection_id)).execute(conn)
 }
 
 /// Soft-delete every page that lives in this collection. Called
@@ -228,15 +236,22 @@ pub fn get_pages_in_collection(
 ) -> QueryResult<Vec<DocumentationPage>> {
     documentation_collection_pages::table
         .filter(documentation_collection_pages::collection_id.eq(collection_id))
-        .inner_join(documentation_pages::table.on(
-            documentation_pages::id.eq(documentation_collection_pages::page_id),
-        ))
+        .inner_join(
+            documentation_pages::table
+                .on(documentation_pages::id.eq(documentation_collection_pages::page_id)),
+        )
         .select(documentation_pages::all_columns)
-        .order((documentation_pages::display_order.asc(), documentation_pages::title.asc()))
+        .order((
+            documentation_pages::display_order.asc(),
+            documentation_pages::title.asc(),
+        ))
         .load(conn)
 }
 
-pub fn get_page_count_in_collection(conn: &mut DbConnection, collection_id: i32) -> QueryResult<i64> {
+pub fn get_page_count_in_collection(
+    conn: &mut DbConnection,
+    collection_id: i32,
+) -> QueryResult<i64> {
     documentation_collection_pages::table
         .filter(documentation_collection_pages::collection_id.eq(collection_id))
         .count()
@@ -263,10 +278,12 @@ pub fn get_uncollected_pages(conn: &mut DbConnection) -> QueryResult<Vec<Documen
 
     documentation_pages::table
         .filter(not(documentation_pages::id.eq_any(
-            documentation_collection_pages::table
-                .select(documentation_collection_pages::page_id),
+            documentation_collection_pages::table.select(documentation_collection_pages::page_id),
         )))
-        .order((documentation_pages::display_order.asc(), documentation_pages::title.asc()))
+        .order((
+            documentation_pages::display_order.asc(),
+            documentation_pages::title.asc(),
+        ))
         .load(conn)
 }
 
@@ -281,9 +298,11 @@ pub fn get_visible_groups_for_collection(
     documentation_collection_visibility::table
         .filter(documentation_collection_visibility::collection_id.eq(collection_id))
         .filter(documentation_collection_visibility::group_id.is_not_null())
-        .inner_join(groups::table.on(
-            groups::id.nullable().eq(documentation_collection_visibility::group_id),
-        ))
+        .inner_join(
+            groups::table.on(groups::id
+                .nullable()
+                .eq(documentation_collection_visibility::group_id)),
+        )
         .select(groups::all_columns)
         .load(conn)
 }
@@ -295,23 +314,31 @@ pub fn get_visible_users_for_collection(
     documentation_collection_visibility::table
         .filter(documentation_collection_visibility::collection_id.eq(collection_id))
         .filter(documentation_collection_visibility::user_uuid.is_not_null())
-        .inner_join(users::table.on(
-            users::uuid.nullable().eq(documentation_collection_visibility::user_uuid),
+        .inner_join(
+            users::table.on(users::uuid
+                .nullable()
+                .eq(documentation_collection_visibility::user_uuid)),
+        )
+        .select((
+            users::uuid,
+            users::name,
+            users::avatar_url,
+            users::avatar_thumb,
         ))
-        .select((users::uuid, users::name, users::avatar_url, users::avatar_thumb))
         .load::<(Uuid, String, Option<String>, Option<String>)>(conn)
         .map(|rows| {
             rows.into_iter()
-                .map(|(uuid, name, avatar_url, avatar_thumb)| UserInfoWithAvatar {
-                    uuid,
-                    name,
-                    avatar_url,
-                    avatar_thumb,
-                })
+                .map(
+                    |(uuid, name, avatar_url, avatar_thumb)| UserInfoWithAvatar {
+                        uuid,
+                        name,
+                        avatar_url,
+                        avatar_thumb,
+                    },
+                )
                 .collect()
         })
 }
-
 
 pub fn set_collection_visibility(
     conn: &mut DbConnection,
@@ -385,7 +412,9 @@ pub fn get_collections_for_user(
         // Admins see all collections
         if !is_admin && !is_public {
             let collection_group_ids: Vec<i32> = visible_groups.iter().map(|g| g.id).collect();
-            let has_group_access = user_group_ids.iter().any(|id| collection_group_ids.contains(id));
+            let has_group_access = user_group_ids
+                .iter()
+                .any(|id| collection_group_ids.contains(id));
             let has_user_access = visible_users.iter().any(|u| u.uuid == *user_uuid);
             if !has_group_access && !has_user_access {
                 continue;
@@ -407,7 +436,9 @@ pub fn get_collections_for_user(
 }
 
 /// Get all collections with visibility details (for admin views)
-pub fn get_all_collections_with_details(conn: &mut DbConnection) -> Result<Vec<CollectionWithDetails>, Error> {
+pub fn get_all_collections_with_details(
+    conn: &mut DbConnection,
+) -> Result<Vec<CollectionWithDetails>, Error> {
     let all_collections = get_all_collections(conn)?;
     let mut result = Vec::new();
 

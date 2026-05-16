@@ -37,10 +37,7 @@ impl std::fmt::Display for SvgValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Empty => write!(f, "icon is empty"),
-            Self::TooLarge { size } => write!(
-                f,
-                "icon is {size} bytes; max {MAX_ICON_SIZE}"
-            ),
+            Self::TooLarge { size } => write!(f, "icon is {size} bytes; max {MAX_ICON_SIZE}"),
             Self::NotXml(m) => write!(f, "icon is not well-formed XML: {m}"),
             Self::NotSvgRoot { found } => {
                 write!(f, "icon root element is {found:?}, expected <svg>")
@@ -91,10 +88,9 @@ pub fn validate(bytes: &[u8]) -> Result<(), SvgValidationError> {
             Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
                 let raw_name = e.name();
                 let name_bytes = raw_name.as_ref();
-                let name_str =
-                    std::str::from_utf8(name_bytes).map_err(|err| {
-                        SvgValidationError::NotXml(format!("non-utf8 element name: {err}"))
-                    })?;
+                let name_str = std::str::from_utf8(name_bytes).map_err(|err| {
+                    SvgValidationError::NotXml(format!("non-utf8 element name: {err}"))
+                })?;
                 let local = local_name(name_str);
 
                 if !seen_root {
@@ -138,9 +134,8 @@ fn check_attributes(
         let attr = attr_result
             .map_err(|err| SvgValidationError::NotXml(format!("attribute parse: {err}")))?;
         let key_bytes = attr.key.as_ref();
-        let key_str = std::str::from_utf8(key_bytes).map_err(|err| {
-            SvgValidationError::NotXml(format!("non-utf8 attribute name: {err}"))
-        })?;
+        let key_str = std::str::from_utf8(key_bytes)
+            .map_err(|err| SvgValidationError::NotXml(format!("non-utf8 attribute name: {err}")))?;
         let key_lower = key_str.to_ascii_lowercase();
         let key_local = local_name(&key_lower);
 
@@ -158,9 +153,8 @@ fn check_attributes(
             let trimmed = raw_value.trim();
             // Allowlist: empty, fragment, or data: URI. Anything
             // else (http, https, file, javascript, etc.) is refused.
-            let allowed = trimmed.is_empty()
-                || trimmed.starts_with('#')
-                || trimmed.starts_with("data:");
+            let allowed =
+                trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("data:");
             if !allowed {
                 return Err(SvgValidationError::DisallowedHref {
                     value: trimmed.to_string(),
@@ -174,7 +168,10 @@ fn check_attributes(
 /// Local part of an XML name, dropping any namespace prefix. SVG
 /// uses `xlink:href` which we want to treat the same as `href`.
 fn local_name(qualified: &str) -> &str {
-    qualified.rsplit_once(':').map(|(_, rhs)| rhs).unwrap_or(qualified)
+    qualified
+        .rsplit_once(':')
+        .map(|(_, rhs)| rhs)
+        .unwrap_or(qualified)
 }
 
 #[cfg(test)]

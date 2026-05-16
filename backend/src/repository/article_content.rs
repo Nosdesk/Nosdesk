@@ -16,13 +16,19 @@ pub trait ArticleContentSavedObserver: Send + Sync {
 }
 
 // Article content operations
-pub fn get_article_content_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<ArticleContent> {
+pub fn get_article_content_by_ticket_id(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<ArticleContent> {
     article_contents::table
         .filter(article_contents::ticket_id.eq(ticket_id))
         .first(conn)
 }
 
-pub fn create_article_content(conn: &mut DbConnection, new_article_content: NewArticleContent) -> QueryResult<ArticleContent> {
+pub fn create_article_content(
+    conn: &mut DbConnection,
+    new_article_content: NewArticleContent,
+) -> QueryResult<ArticleContent> {
     diesel::insert_into(article_contents::table)
         .values(&new_article_content)
         .get_result(conn)
@@ -31,17 +37,20 @@ pub fn create_article_content(conn: &mut DbConnection, new_article_content: NewA
 // Increment the revision number for an article content
 pub fn increment_article_content_revision(
     conn: &mut DbConnection,
-    article_content_id: i32
+    article_content_id: i32,
 ) -> QueryResult<ArticleContent> {
     diesel::update(article_contents::table.find(article_content_id))
-        .set(article_contents::current_revision_number.eq(article_contents::current_revision_number + 1))
+        .set(
+            article_contents::current_revision_number
+                .eq(article_contents::current_revision_number + 1),
+        )
         .get_result(conn)
 }
 
 // Article content revision operations
 pub fn create_article_content_revision(
     conn: &mut DbConnection,
-    new_revision: NewArticleContentRevision
+    new_revision: NewArticleContentRevision,
 ) -> QueryResult<ArticleContentRevision> {
     diesel::insert_into(article_content_revisions::table)
         .values(&new_revision)
@@ -50,7 +59,7 @@ pub fn create_article_content_revision(
 
 pub fn get_article_content_revisions(
     conn: &mut DbConnection,
-    article_content_id: i32
+    article_content_id: i32,
 ) -> QueryResult<Vec<ArticleContentRevision>> {
     article_content_revisions::table
         .filter(article_content_revisions::article_content_id.eq(article_content_id))
@@ -61,7 +70,7 @@ pub fn get_article_content_revisions(
 pub fn get_article_content_revision(
     conn: &mut DbConnection,
     article_content_id: i32,
-    revision_number: i32
+    revision_number: i32,
 ) -> QueryResult<ArticleContentRevision> {
     article_content_revisions::table
         .filter(article_content_revisions::article_content_id.eq(article_content_id))
@@ -71,7 +80,7 @@ pub fn get_article_content_revision(
 
 pub fn get_latest_article_content_revision(
     conn: &mut DbConnection,
-    article_content_id: i32
+    article_content_id: i32,
 ) -> QueryResult<ArticleContentRevision> {
     article_content_revisions::table
         .filter(article_content_revisions::article_content_id.eq(article_content_id))
@@ -102,7 +111,7 @@ pub fn update_article_yjs_state(
                     article_contents::updated_at.eq(diesel::dsl::now),
                 ))
                 .get_result(conn)?
-        },
+        }
         Err(diesel::result::Error::NotFound) => {
             // Create new article content with Yjs state
             let new_content = NewArticleContent {
@@ -112,7 +121,7 @@ pub fn update_article_yjs_state(
                 yjs_client_id: None,
             };
             create_article_content(conn, new_content)?
-        },
+        }
         Err(e) => return Err(e),
     };
 

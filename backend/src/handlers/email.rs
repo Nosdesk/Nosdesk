@@ -1,11 +1,11 @@
-use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
-use crate::utils::email::{EmailService, EmailConfig};
+use crate::handlers::helpers;
+use crate::utils::email::{EmailConfig, EmailService};
 use crate::utils::email_branding::get_email_branding;
 
 /// Test email request
@@ -15,10 +15,7 @@ pub struct TestEmailRequest {
 }
 
 /// Get email configuration status (admin only, read-only)
-pub async fn get_email_config(
-    db_pool: web::Data<Pool>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn get_email_config(db_pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
     // Get database connection
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
@@ -28,9 +25,7 @@ pub async fn get_email_config(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => {
-            return errors::unauthorized("Authentication required")
-        }
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if the user is an admin
@@ -76,9 +71,7 @@ pub async fn send_test_email(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => {
-            return errors::unauthorized("Authentication required")
-        }
+        None => return errors::unauthorized("Authentication required"),
     };
 
     // Check if the user is an admin
@@ -89,13 +82,12 @@ pub async fn send_test_email(
     // Create email service
     let email_service = match EmailService::from_env() {
         Ok(service) => service,
-        Err(e) => {
-            return errors::bad_request(format!("Email is not configured: {}", e))
-        }
+        Err(e) => return errors::bad_request(format!("Email is not configured: {}", e)),
     };
 
     // Get branding for test email
-    let base_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let base_url =
+        std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
     let branding = get_email_branding(&mut conn, &base_url);
 
     // Send test email

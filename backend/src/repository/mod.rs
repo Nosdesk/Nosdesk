@@ -2,37 +2,36 @@
 pub mod article_content;
 pub mod assignment_rules;
 pub mod audit_log;
-pub mod email_suppressions;
-pub mod outbound_emails;
-pub mod ticket_visibility;
 pub mod canned_responses;
 pub mod categories;
-pub mod dashboard_stats;
 pub mod channels;
 pub mod comments;
 pub mod cycles;
+pub mod dashboard_stats;
 pub mod devices;
 pub mod documentation;
 pub mod documentation_collections;
 pub mod documentation_page_tickets;
 pub mod documentation_starred_pages;
 pub mod documentation_subscriptions;
+pub mod email_suppressions;
 pub mod feature_flags;
 pub mod groups;
 pub mod knowledge_gaps;
 pub mod linked_tickets;
+pub mod outbound_emails;
 pub mod passkey_credentials;
+pub mod projects;
 pub mod saved_views;
+pub mod search_query_log;
 pub mod sla;
 pub mod sla_admin;
-pub mod tags;
-pub mod ticket_watchers;
-pub mod search_query_log;
-pub mod projects;
 pub mod sync_history;
+pub mod tags;
 pub mod ticket_query;
+pub mod ticket_visibility;
+pub mod ticket_watchers;
 pub mod tickets;
-pub mod workflow_states;
 pub mod user_auth_identities;
 pub mod user_emails;
 pub mod user_helpers; // Helper functions for user/email operations
@@ -40,6 +39,7 @@ pub mod user_locale;
 pub mod user_preferences;
 pub mod user_profile;
 pub mod users;
+pub mod workflow_states;
 
 // Security and session management repositories
 pub mod active_sessions;
@@ -61,9 +61,9 @@ pub mod webhooks;
 pub mod csp_reports;
 
 // Plugins
-pub mod plugins;
 pub mod plugin_collections;
 pub mod plugin_publishers;
+pub mod plugins;
 
 // Re-export all functions
 pub use article_content::*;

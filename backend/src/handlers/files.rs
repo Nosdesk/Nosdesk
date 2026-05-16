@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, HttpMessage};
+use actix_web::{web, HttpMessage, HttpResponse};
 
 use crate::handlers::errors;
 use actix_multipart::Multipart;
@@ -9,8 +9,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::db::DbConnection;
 use crate::models::NewAttachment;
-use crate::utils::storage::Storage;
 use crate::utils::file_validation::FileValidator;
+use crate::utils::storage::Storage;
 
 // Upload files using the storage abstraction
 pub async fn upload_files(
@@ -19,7 +19,7 @@ pub async fn upload_files(
     storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Received file upload request");
-    
+
     let mut conn = pool.get().map_err(|e| {
         error!(error = ?e, "Database connection error");
         actix_web::error::ErrorInternalServerError("Database connection error")
@@ -46,7 +46,9 @@ pub async fn upload_files(
                 })?;
 
                 if text_data.len() + data.len() > MAX_TRANSCRIPTION_SIZE {
-                    return Err(actix_web::error::ErrorBadRequest("Transcription too large (max 64KB)"));
+                    return Err(actix_web::error::ErrorBadRequest(
+                        "Transcription too large (max 64KB)",
+                    ));
                 }
 
                 text_data.extend_from_slice(&data);
@@ -62,7 +64,7 @@ pub async fn upload_files(
             debug!(field_name = %field_name, "Skipping non-file field");
             continue;
         }
-        
+
         // Get the filename from the field
         let content_disposition = field.content_disposition();
         let original_filename = content_disposition
@@ -111,10 +113,15 @@ pub async fn upload_files(
         // SECURITY: Compute SHA-256 checksum for file integrity verification
         use ring::digest;
         let checksum_bytes = digest::digest(&digest::SHA256, &file_data);
-        let checksum = checksum_bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let checksum = checksum_bytes
+            .as_ref()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
 
         // Store the file using the storage abstraction with validated MIME type
-        let stored_file = storage.store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
+        let stored_file = storage
+            .store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
             .await
             .map_err(|e| {
                 error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
@@ -123,12 +130,15 @@ pub async fn upload_files(
 
         // Generate PDF thumbnail if applicable
         let thumbnail_url = if detected_mime == "application/pdf" {
-            let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "uploads".to_string());
+            let storage_path =
+                std::env::var("STORAGE_PATH").unwrap_or_else(|_| "uploads".to_string());
             match crate::utils::pdf::generate_and_store_pdf_thumbnail(
                 &file_data,
                 &stored_file.path,
                 &storage_path,
-            ).await {
+            )
+            .await
+            {
                 Ok(Some(url)) => {
                     info!(thumbnail_url = %url, filename = %sanitized_filename, "Generated PDF thumbnail");
                     Some(url)
@@ -153,7 +163,7 @@ pub async fn upload_files(
             file_size: Some(total_size as i64),
             mime_type: Some(detected_mime.clone()),
             checksum: Some(checksum),
-            comment_id: None, // Not linked to a comment yet
+            comment_id: None,  // Not linked to a comment yet
             uploaded_by: None, // Will be set when attached to a comment
             transcription: transcription_text.clone(),
         };
@@ -172,10 +182,12 @@ pub async fn upload_files(
                 });
                 info!(attachment_id = attachment.id, filename = %sanitized_filename, "Attachment created successfully");
                 uploaded_attachments.push(attachment_json);
-            },
+            }
             Err(e) => {
                 error!(error = ?e, "Error creating attachment record");
-                return Err(actix_web::error::ErrorInternalServerError("Error creating attachment record"));
+                return Err(actix_web::error::ErrorInternalServerError(
+                    "Error creating attachment record",
+                ));
             }
         }
     }
@@ -192,10 +204,10 @@ pub async fn serve_ticket_file(
     storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
-    
+
     // Extract token from query parameter or Authorization header
     let token = extract_token_from_request(&req)?;
-    
+
     // Validate the token
     let mut conn = pool.get().map_err(|e| {
         error!(error = ?e, "Database connection error");
@@ -207,7 +219,9 @@ pub async fn serve_ticket_file(
 
     // Use our centralized storage method instead of hardcoded paths
     let file_path = format!("tickets/{filename}");
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
+    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req)
+        .await
+    {
         Ok(response) => Ok(response),
         Err(e) => {
             warn!(error = ?e, file_path = %file_path, "Error serving ticket file");
@@ -224,10 +238,10 @@ pub async fn serve_temp_file(
     storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
-    
+
     // Extract token from query parameter or Authorization header
     let token = extract_token_from_request(&req)?;
-    
+
     // Validate the token
     let mut conn = pool.get().map_err(|e| {
         error!(error = ?e, "Database connection error");
@@ -239,7 +253,9 @@ pub async fn serve_temp_file(
 
     // Use our centralized storage method instead of hardcoded paths
     let file_path = format!("temp/{filename}");
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
+    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req)
+        .await
+    {
         Ok(response) => Ok(response),
         Err(e) => {
             warn!(error = ?e, file_path = %file_path, "Error serving temp file");
@@ -266,7 +282,9 @@ fn extract_token_from_request(req: &actix_web::HttpRequest) -> Result<String, ac
         }
     }
 
-    Err(actix_web::error::ErrorUnauthorized("No authentication token provided. Use httpOnly cookie or Authorization header."))
+    Err(actix_web::error::ErrorUnauthorized(
+        "No authentication token provided. Use httpOnly cookie or Authorization header.",
+    ))
 }
 
 // Helper function to validate token for file access
@@ -275,16 +293,16 @@ async fn validate_file_access_token(
     conn: &mut DbConnection,
 ) -> Result<(), actix_web::Error> {
     // Use JWT validation logic directly instead of creating BearerAuth
-    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
     use crate::models::Claims;
     use crate::utils::jwt::JWT_SECRET;
-    
+    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+
     // Create validation with same requirements as auth handler
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     validation.validate_nbf = true;
     validation.leeway = 30;
-    
+
     // Decode the token
     let token_data = match decode::<Claims>(
         token,
@@ -292,13 +310,21 @@ async fn validate_file_access_token(
         &validation,
     ) {
         Ok(data) => data,
-        Err(_) => return Err(actix_web::error::ErrorUnauthorized("Invalid or expired token")),
+        Err(_) => {
+            return Err(actix_web::error::ErrorUnauthorized(
+                "Invalid or expired token",
+            ))
+        }
     };
-    
+
     // Verify user still exists in database (same as auth handler)
     let user_uuid = match crate::utils::parse_uuid(&token_data.claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Err(actix_web::error::ErrorUnauthorized("Invalid user UUID in token")),
+        Err(_) => {
+            return Err(actix_web::error::ErrorUnauthorized(
+                "Invalid user UUID in token",
+            ))
+        }
     };
 
     match crate::repository::users::get_user_by_uuid(&user_uuid, conn) {
@@ -316,7 +342,10 @@ pub async fn upload_ticket_note_image(
     storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let ticket_id = path.into_inner();
-    info!(ticket_id = ticket_id, "Received ticket note image upload request");
+    info!(
+        ticket_id = ticket_id,
+        "Received ticket note image upload request"
+    );
 
     // Verify ticket exists
     let mut conn = pool.get().map_err(|e| {
@@ -366,7 +395,9 @@ pub async fn upload_ticket_note_image(
             // SECURITY: Validate chunk doesn't cause file to exceed max size (10MB for images)
             const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
             if total_size + data.len() > MAX_IMAGE_SIZE {
-                return Err(actix_web::error::ErrorBadRequest("File too large (max 10MB)"));
+                return Err(actix_web::error::ErrorBadRequest(
+                    "File too large (max 10MB)",
+                ));
             }
 
             total_size += data.len();
@@ -384,14 +415,17 @@ pub async fn upload_ticket_note_image(
 
         // Only allow image types for ticket note images
         if !detected_mime.starts_with("image/") {
-            return Err(actix_web::error::ErrorBadRequest("Only image files are allowed"));
+            return Err(actix_web::error::ErrorBadRequest(
+                "Only image files are allowed",
+            ));
         }
 
         debug!(mime_type = %detected_mime, filename = %sanitized_filename, "File validated");
 
         // Store in tickets/{ticket_id}/notes/ folder
         let folder = format!("tickets/{ticket_id}/notes");
-        let stored_file = storage.store_file(&file_data, &sanitized_filename, &detected_mime, &folder)
+        let stored_file = storage
+            .store_file(&file_data, &sanitized_filename, &detected_mime, &folder)
             .await
             .map_err(|e| {
                 error!(error = ?e, filename = %sanitized_filename, "Failed to store file");
@@ -407,7 +441,11 @@ pub async fn upload_ticket_note_image(
         }));
     }
 
-    info!(ticket_id = ticket_id, count = uploaded_files.len(), "Ticket note image upload complete");
+    info!(
+        ticket_id = ticket_id,
+        count = uploaded_files.len(),
+        "Ticket note image upload complete"
+    );
     Ok(HttpResponse::Ok().json(uploaded_files))
 }
 
@@ -434,7 +472,9 @@ pub async fn serve_ticket_note_image(
 
     // Serve from tickets/{ticket_id}/notes/ folder
     let file_path = format!("tickets/{ticket_id}/notes/{filename}");
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
+    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req)
+        .await
+    {
         Ok(response) => Ok(response),
         Err(e) => {
             warn!(error = ?e, file_path = %file_path, "Error serving ticket note image");
@@ -445,9 +485,7 @@ pub async fn serve_ticket_note_image(
 
 /// Clean up temp files older than 24 hours (admin endpoint)
 /// Should be called via cron job or scheduled task
-pub async fn cleanup_temp_files(
-    req: actix_web::HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+pub async fn cleanup_temp_files(req: actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
     // Verify admin access
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
@@ -455,7 +493,9 @@ pub async fn cleanup_temp_files(
     };
 
     if claims.role != "admin" {
-        return Ok(errors::forbidden("Only administrators can cleanup temp files"));
+        return Ok(errors::forbidden(
+            "Only administrators can cleanup temp files",
+        ));
     }
 
     let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "uploads".to_string());
@@ -513,4 +553,4 @@ pub async fn cleanup_temp_files(
             "errors": errors
         }
     })))
-} 
+}

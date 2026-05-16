@@ -14,11 +14,9 @@ use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{
-    NewPlugin, Plugin, PluginBundleUpdate, PluginManifest, PluginUpdate,
-};
-use crate::repository::plugins as plugin_repo;
+use crate::models::{NewPlugin, Plugin, PluginBundleUpdate, PluginManifest, PluginUpdate};
 use crate::repository::plugin_publishers;
+use crate::repository::plugins as plugin_repo;
 use crate::services::plugins::{manifest_validate, signing, svg_validate, trust, validation};
 
 /// Cap on the staged bundle.js size. The outer archive cap is
@@ -495,7 +493,11 @@ fn update_row(
         signature_metadata: signer.signature_metadata.clone(),
         icon_svg: icon_update,
     };
-    Ok(plugin_repo::update_plugin_by_uuid(conn, existing.uuid, update)?)
+    Ok(plugin_repo::update_plugin_by_uuid(
+        conn,
+        existing.uuid,
+        update,
+    )?)
 }
 
 fn create_row(
@@ -524,7 +526,11 @@ fn create_row(
     // The install pipeline is the only production constructor of
     // `InstallToken`, so this call is the unique entry point for
     // new plugin rows in the codebase.
-    Ok(plugin_repo::create_plugin(conn, new_plugin, InstallToken::new())?)
+    Ok(plugin_repo::create_plugin(
+        conn,
+        new_plugin,
+        InstallToken::new(),
+    )?)
 }
 
 /// Persist pre-verified bundle bytes inline on the plugin row.

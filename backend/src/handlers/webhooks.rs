@@ -9,8 +9,8 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::models::{
     Claims, CreateWebhookRequest, UpdateWebhookRequest, WebhookCreatedResponse,
     WebhookDeliveryResponse, WebhookResponse, WebhookUpdate,
@@ -37,7 +37,9 @@ fn validate_name(name: &str) -> Result<String, HttpResponse> {
         return Err(errors::bad_request("Webhook name is required"));
     }
     if trimmed.len() > 255 {
-        return Err(errors::bad_request("Webhook name must be 255 characters or less"));
+        return Err(errors::bad_request(
+            "Webhook name must be 255 characters or less",
+        ));
     }
     Ok(trimmed.to_string())
 }
@@ -45,7 +47,9 @@ fn validate_name(name: &str) -> Result<String, HttpResponse> {
 /// Validate webhook URL
 fn validate_url(url: &str) -> Result<(), HttpResponse> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(errors::bad_request("URL must start with http:// or https://"));
+        return Err(errors::bad_request(
+            "URL must start with http:// or https://",
+        ));
     }
     Ok(())
 }
@@ -57,7 +61,9 @@ fn validate_events(events: &[String]) -> Result<(), HttpResponse> {
     }
     let valid_events = WebhookEventType::all();
     if let Some(invalid) = events.iter().find(|e| !valid_events.contains(&e.as_str())) {
-        return Err(errors::bad_request(format!("Invalid event type: {invalid}")));
+        return Err(errors::bad_request(format!(
+            "Invalid event type: {invalid}"
+        )));
     }
     Ok(())
 }
@@ -379,7 +385,10 @@ pub async fn test_webhook(
 
     match webhook_service.send_test_event(webhook.id).await {
         Ok(_) => {
-            info!("Test event sent to webhook: {} ({})", webhook.uuid, webhook.name);
+            info!(
+                "Test event sent to webhook: {} ({})",
+                webhook.uuid, webhook.name
+            );
             HttpResponse::Ok().json(serde_json::json!({
                 "message": "Test event queued for delivery"
             }))
@@ -404,7 +413,9 @@ mod tests {
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App};
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),

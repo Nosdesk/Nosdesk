@@ -21,15 +21,12 @@ pub fn is_admin(claims: &Claims) -> bool {
 /// Extract claims from request and check if user is authenticated
 /// Returns Ok(Claims) if authenticated, Err(HttpResponse) with 401 if not
 pub fn require_auth(req: &HttpRequest) -> Result<Claims, HttpResponse> {
-    req.extensions()
-        .get::<Claims>()
-        .cloned()
-        .ok_or_else(|| {
-            HttpResponse::Unauthorized().json(json!({
-                "error": "Unauthorized",
-                "message": "Authentication required"
-            }))
-        })
+    req.extensions().get::<Claims>().cloned().ok_or_else(|| {
+        HttpResponse::Unauthorized().json(json!({
+            "error": "Unauthorized",
+            "message": "Authentication required"
+        }))
+    })
 }
 
 /// Extract claims and verify technician or admin role
@@ -153,16 +150,14 @@ mod tests {
     #[test]
     fn require_technician_or_admin_rejects_user_with_403() {
         let req = req_with_claims(Some(create_test_claims("user")));
-        let err = require_technician_or_admin(&req)
-            .expect_err("user role should be forbidden");
+        let err = require_technician_or_admin(&req).expect_err("user role should be forbidden");
         assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
     }
 
     #[test]
     fn require_technician_or_admin_allows_technician() {
         let req = req_with_claims(Some(create_test_claims("technician")));
-        let claims = require_technician_or_admin(&req)
-            .expect("technician should be allowed");
+        let claims = require_technician_or_admin(&req).expect("technician should be allowed");
         assert_eq!(claims.role, "technician");
     }
 

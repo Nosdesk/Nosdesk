@@ -181,10 +181,10 @@ fn paginate(mut rows: Vec<AuditLogRow>, limit: i64) -> (Vec<AuditLogRow>, Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use crate::models::UserRole;
     use crate::sync::actor::ActorContext;
     use crate::sync::session::with_actor_context;
-    use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     /// The trigger writes synchronously inside the user transaction, so a
     /// `with_actor_context` block that creates a user produces an audit_log

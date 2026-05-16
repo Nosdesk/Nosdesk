@@ -26,10 +26,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use backend::db::Pool;
-use backend::models::{
-    Channel, NewChannel, NewComment, CHANNEL_DIRECTION_OUTBOUND,
+use backend::models::{Channel, NewChannel, NewComment, CHANNEL_DIRECTION_OUTBOUND};
+use backend::repository::{
+    channels as channels_repo, comments as comments_repo, tickets as tickets_repo,
 };
-use backend::repository::{channels as channels_repo, comments as comments_repo, tickets as tickets_repo};
 use backend::services::channels::email_imap::{
     EmailImapAdapter, ImapChannelConfig, ImapRuntimeState,
 };
@@ -152,10 +152,7 @@ async fn send_fixture_email(subject: &str, body: &str, message_id: &str) {
         .body(body.to_string())
         .unwrap();
 
-    transport
-        .send(msg)
-        .await
-        .expect("send via greenmail SMTP");
+    transport.send(msg).await.expect("send via greenmail SMTP");
 }
 
 fn email_service_stub() -> Arc<EmailService> {
@@ -224,7 +221,10 @@ async fn poll_fetches_pending_email_and_advances_uid() {
     // mailbox across container restarts), so filter by OUR message-id
     // rather than asserting a total count.
     let ours = find_our_message(&events, &message_id).expect("our inbound message in fetch");
-    assert_eq!(ours.from.known_email.as_deref(), Some("alice@customer.test"));
+    assert_eq!(
+        ours.from.known_email.as_deref(),
+        Some("alice@customer.test")
+    );
     assert_eq!(ours.subject.as_deref(), Some("Printer fire"));
     assert!(ours.body_text.contains("Please help"));
 
@@ -268,9 +268,7 @@ fn greenmail_email_service() -> Arc<EmailService> {
 async fn full_cycle_inbound_internal_outbound() {
     if !greenmail_reachable() {
         let host = greenmail_host();
-        panic!(
-            "Greenmail not reachable on {host}:{IMAP_PORT} — start via --profile email-testing"
-        );
+        panic!("Greenmail not reachable on {host}:{IMAP_PORT} — start via --profile email-testing");
     }
 
     let pool = build_pool();
@@ -436,18 +434,20 @@ async fn full_cycle_inbound_internal_outbound() {
         // The outbound external_id must follow our Message-ID format
         // so the customer's reply threads back via the cascade's step 3.
         assert!(
-            result
-                .external_id
-                .starts_with(&format!("<ticket-{}.comment-{}.", ticket.id, public_comment.id)),
+            result.external_id.starts_with(&format!(
+                "<ticket-{}.comment-{}.",
+                ticket.id, public_comment.id
+            )),
             "unexpected outbound external_id {}",
             result.external_id
         );
 
         // A channel_messages row should now exist with direction=outbound
         // linking the comment.
-        let outbound = channels_repo::find_by_external_id(&mut conn, channel_id, &result.external_id)
-            .unwrap()
-            .expect("outbound channel_messages row");
+        let outbound =
+            channels_repo::find_by_external_id(&mut conn, channel_id, &result.external_id)
+                .unwrap()
+                .expect("outbound channel_messages row");
         assert_eq!(outbound.direction, CHANNEL_DIRECTION_OUTBOUND);
         assert_eq!(outbound.ticket_id, Some(ticket.id));
         assert_eq!(outbound.comment_id, Some(public_comment.id));
@@ -494,7 +494,10 @@ async fn full_cycle_inbound_internal_outbound() {
             .expect("pipeline process_event on reply");
         match outcome {
             PipelineOutcome::ReplyAppended { ticket_id, .. } => {
-                assert_eq!(ticket_id, ticket.id, "reply should attach to existing ticket")
+                assert_eq!(
+                    ticket_id, ticket.id,
+                    "reply should attach to existing ticket"
+                )
             }
             other => panic!("expected ReplyAppended, got {other:?}"),
         }
@@ -504,12 +507,7 @@ async fn full_cycle_inbound_internal_outbound() {
 /// Send a reply email with `In-Reply-To` + `References` set so the
 /// threading cascade's step 1 can match it back to the outbound
 /// message we just stored.
-async fn send_threaded_reply(
-    subject: &str,
-    body: &str,
-    message_id: &str,
-    in_reply_to: &str,
-) {
+async fn send_threaded_reply(subject: &str, body: &str, message_id: &str, in_reply_to: &str) {
     let transport: AsyncSmtpTransport<Tokio1Executor> =
         AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(greenmail_host())
             .port(SMTP_PORT)

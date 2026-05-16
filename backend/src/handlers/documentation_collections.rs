@@ -7,24 +7,21 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{
-    NewDocumentationCollection, DocumentationCollectionUpdate, NewDocumentationCollectionPage,
+    DocumentationCollectionUpdate, NewDocumentationCollection, NewDocumentationCollectionPage,
 };
 use crate::repository;
-use crate::utils::rbac::{require_auth, require_technician_or_admin, require_admin};
+use crate::utils::rbac::{require_admin, require_auth, require_technician_or_admin};
 
 // ============================================================================
 // Collection Endpoints
 // ============================================================================
 
 /// List collections visible to the current user
-pub async fn get_collections(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_collections(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     let claims = match require_auth(&req) {
         Ok(c) => c,
         Err(e) => return e,
@@ -42,7 +39,9 @@ pub async fn get_collections(
         Err(e) => return e,
     };
 
-    match repository::documentation_collections::get_collections_for_user(&mut conn, &user_uuid, is_admin) {
+    match repository::documentation_collections::get_collections_for_user(
+        &mut conn, &user_uuid, is_admin,
+    ) {
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
             error!(error = ?e, "Failed to get collections");
@@ -70,11 +69,12 @@ pub async fn get_collection(
         Err(e) => return e,
     };
 
-    let collection = match repository::documentation_collections::get_collection(&mut conn, collection_id) {
-        Ok(c) => c,
-        Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
-        Err(_) => return errors::internal("Failed to get collection"),
-    };
+    let collection =
+        match repository::documentation_collections::get_collection(&mut conn, collection_id) {
+            Ok(c) => c,
+            Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
+            Err(_) => return errors::internal("Failed to get collection"),
+        };
 
     HttpResponse::Ok().json(collection_response(&mut conn, collection))
 }
@@ -95,11 +95,12 @@ pub async fn get_collection_by_slug(
         Err(e) => return e,
     };
 
-    let collection = match repository::documentation_collections::get_collection_by_slug(&mut conn, &slug) {
-        Ok(c) => c,
-        Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
-        Err(_) => return errors::internal("Failed to get collection"),
-    };
+    let collection =
+        match repository::documentation_collections::get_collection_by_slug(&mut conn, &slug) {
+            Ok(c) => c,
+            Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
+            Err(_) => return errors::internal("Failed to get collection"),
+        };
 
     HttpResponse::Ok().json(collection_response(&mut conn, collection))
 }
@@ -114,10 +115,16 @@ fn collection_response(
 ) -> serde_json::Value {
     let pages = repository::documentation_collections::get_pages_in_collection(conn, collection.id)
         .unwrap_or_default();
-    let visible_groups = repository::documentation_collections::get_visible_groups_for_collection(conn, collection.id)
-        .unwrap_or_default();
-    let visible_users = repository::documentation_collections::get_visible_users_for_collection(conn, collection.id)
-        .unwrap_or_default();
+    let visible_groups = repository::documentation_collections::get_visible_groups_for_collection(
+        conn,
+        collection.id,
+    )
+    .unwrap_or_default();
+    let visible_users = repository::documentation_collections::get_visible_users_for_collection(
+        conn,
+        collection.id,
+    )
+    .unwrap_or_default();
     let is_public = visible_groups.is_empty() && visible_users.is_empty();
 
     json!({
@@ -144,10 +151,7 @@ fn collection_response(
 }
 
 /// Get pages that don't belong to any collection
-pub async fn get_uncollected_pages(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_uncollected_pages(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     if let Err(e) = require_auth(&req) {
         return e;
     }
@@ -199,9 +203,10 @@ pub async fn create_collection(
     };
 
     // Generate slug from name if not provided
-    let slug = body.slug.clone().unwrap_or_else(|| {
-        body.name.to_lowercase().replace(' ', "-")
-    });
+    let slug = body
+        .slug
+        .clone()
+        .unwrap_or_else(|| body.name.to_lowercase().replace(' ', "-"));
 
     let new_collection = NewDocumentationCollection {
         uuid: Uuid::now_v7(),
@@ -268,11 +273,12 @@ pub async fn update_collection(
     };
 
     // Check if system collection
-    let collection = match repository::documentation_collections::get_collection(&mut conn, collection_id) {
-        Ok(c) => c,
-        Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
-        Err(_) => return errors::internal("Failed to get collection"),
-    };
+    let collection =
+        match repository::documentation_collections::get_collection(&mut conn, collection_id) {
+            Ok(c) => c,
+            Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
+            Err(_) => return errors::internal("Failed to get collection"),
+        };
 
     if collection.is_system && (body.name.is_some() || body.slug.is_some()) {
         return errors::forbidden("Cannot rename system collections");
@@ -289,7 +295,8 @@ pub async fn update_collection(
         ..Default::default()
     };
 
-    match repository::documentation_collections::update_collection(&mut conn, collection_id, update) {
+    match repository::documentation_collections::update_collection(&mut conn, collection_id, update)
+    {
         Ok(updated) => {
             // Broadcast SSE events for each updated field. One event
             // per field so the frontend can apply the change at field
@@ -297,7 +304,10 @@ pub async fn update_collection(
             let updates: [(&str, Option<serde_json::Value>); 3] = [
                 ("name", body.name.as_ref().map(|v| serde_json::json!(v))),
                 ("icon", body.icon.as_ref().map(|v| serde_json::json!(v))),
-                ("description", body.description.as_ref().map(|v| serde_json::json!(v))),
+                (
+                    "description",
+                    body.description.as_ref().map(|v| serde_json::json!(v)),
+                ),
             ];
             for (field, value) in updates.into_iter().filter_map(|(f, v)| v.map(|v| (f, v))) {
                 sse_state
@@ -350,7 +360,10 @@ pub async fn delete_collection(
     // itself. The junction rows cascade via FK on collection
     // delete; the soft-delete pass turns the pages into trash
     // entries rather than orphaned/visible rows.
-    let soft_deleted = match repository::documentation_collections::soft_delete_pages_in_collection(&mut conn, collection_id) {
+    let soft_deleted = match repository::documentation_collections::soft_delete_pages_in_collection(
+        &mut conn,
+        collection_id,
+    ) {
         Ok(n) => n,
         Err(e) => {
             error!(error = ?e, "Failed to soft-delete pages in collection");
@@ -411,7 +424,9 @@ pub async fn add_page_to_collection(
     // membership AND nulls parent_id so the page anchors at the
     // new collection's root instead of dangling under a parent
     // that's now in a different collection.
-    match repository::documentation_collections::add_page_to_collection_at_root(&mut conn, new_entry) {
+    match repository::documentation_collections::add_page_to_collection_at_root(
+        &mut conn, new_entry,
+    ) {
         Ok(entry) => HttpResponse::Created().json(entry),
         Err(e) => {
             error!(error = ?e, "Failed to add page to collection");
@@ -436,7 +451,11 @@ pub async fn remove_page_from_collection(
         Err(e) => return e,
     };
 
-    match repository::documentation_collections::remove_page_from_collection(&mut conn, collection_id, page_id) {
+    match repository::documentation_collections::remove_page_from_collection(
+        &mut conn,
+        collection_id,
+        page_id,
+    ) {
         Ok(0) => errors::not_found_msg("Page not in collection"),
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
@@ -491,7 +510,10 @@ pub async fn get_collection_visibility(
         Err(e) => return e,
     };
 
-    match repository::documentation_collections::get_visible_groups_for_collection(&mut conn, collection_id) {
+    match repository::documentation_collections::get_visible_groups_for_collection(
+        &mut conn,
+        collection_id,
+    ) {
         Ok(groups) => HttpResponse::Ok().json(groups),
         Err(e) => {
             error!(error = ?e, "Failed to get collection visibility");
@@ -527,9 +549,12 @@ pub async fn set_collection_visibility(
     };
 
     // Parse user UUIDs
-    let user_uuids: Vec<Uuid> = body.user_uuids.as_ref()
+    let user_uuids: Vec<Uuid> = body
+        .user_uuids
+        .as_ref()
         .map(|uuids| {
-            uuids.iter()
+            uuids
+                .iter()
                 .filter_map(|s| Uuid::parse_str(s).ok())
                 .collect()
         })
@@ -567,7 +592,10 @@ pub async fn get_page_overrides_in_collection(
     };
 
     // Get all pages in the collection
-    let pages = match repository::documentation_collections::get_pages_in_collection(&mut conn, collection_id) {
+    let pages = match repository::documentation_collections::get_pages_in_collection(
+        &mut conn,
+        collection_id,
+    ) {
         Ok(p) => p,
         Err(e) => {
             error!(error = ?e, "Failed to get pages in collection");
@@ -582,7 +610,9 @@ pub async fn get_page_overrides_in_collection(
     let page_ids: Vec<i32> = pages.iter().map(|p| p.id).collect();
 
     // Batch-fetch all page-level overrides (groups and users)
-    let group_overrides = match repository::documentation::get_page_visibility_overrides_batch(&mut conn, &page_ids) {
+    let group_overrides = match repository::documentation::get_page_visibility_overrides_batch(
+        &mut conn, &page_ids,
+    ) {
         Ok(o) => o,
         Err(e) => {
             error!(error = ?e, "Failed to get page visibility overrides");
@@ -590,7 +620,9 @@ pub async fn get_page_overrides_in_collection(
         }
     };
 
-    let user_overrides = match repository::documentation::get_page_user_visibility_overrides_batch(&mut conn, &page_ids) {
+    let user_overrides = match repository::documentation::get_page_user_visibility_overrides_batch(
+        &mut conn, &page_ids,
+    ) {
         Ok(o) => o,
         Err(e) => {
             error!(error = ?e, "Failed to get page user visibility overrides");
@@ -617,7 +649,8 @@ pub async fn get_page_overrides_in_collection(
     }
 
     // Combine page_ids that have any override
-    let mut pages_with_overrides: std::collections::HashSet<i32> = page_groups.keys().copied().collect();
+    let mut pages_with_overrides: std::collections::HashSet<i32> =
+        page_groups.keys().copied().collect();
     pages_with_overrides.extend(page_users.keys());
 
     // Build response — only include pages that have overrides
@@ -625,13 +658,15 @@ pub async fn get_page_overrides_in_collection(
     let result: Vec<serde_json::Value> = pages_with_overrides
         .into_iter()
         .filter_map(|pid| {
-            page_map.get(&pid).map(|page| json!({
-                "page_id": pid,
-                "page_title": page.title,
-                "page_icon": page.icon,
-                "groups": page_groups.get(&pid).cloned().unwrap_or_default(),
-                "users": page_users.get(&pid).cloned().unwrap_or_default(),
-            }))
+            page_map.get(&pid).map(|page| {
+                json!({
+                    "page_id": pid,
+                    "page_title": page.title,
+                    "page_icon": page.icon,
+                    "groups": page_groups.get(&pid).cloned().unwrap_or_default(),
+                    "users": page_users.get(&pid).cloned().unwrap_or_default(),
+                })
+            })
         })
         .collect();
 
@@ -662,7 +697,10 @@ pub async fn reorder_collections(
         Err(e) => return e,
     };
 
-    match repository::documentation_collections::reorder_collections(&mut conn, &body.collection_orders) {
+    match repository::documentation_collections::reorder_collections(
+        &mut conn,
+        &body.collection_orders,
+    ) {
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
             error!(error = ?e, "Failed to reorder collections");
@@ -698,20 +736,23 @@ pub async fn set_page_collections(
     };
 
     // Get current collections for this page
-    let current_collections = match repository::documentation_collections::get_collections_for_page(&mut conn, page_id) {
-        Ok(c) => c,
-        Err(e) => {
-            error!(error = ?e, "Failed to get current collections");
-            return errors::internal("Failed to update page collections");
-        }
-    };
+    let current_collections =
+        match repository::documentation_collections::get_collections_for_page(&mut conn, page_id) {
+            Ok(c) => c,
+            Err(e) => {
+                error!(error = ?e, "Failed to get current collections");
+                return errors::internal("Failed to update page collections");
+            }
+        };
 
     let current_ids: Vec<i32> = current_collections.iter().map(|c| c.id).collect();
 
     // Remove from collections not in the new list
     for id in &current_ids {
         if !body.collection_ids.contains(id) {
-            let _ = repository::documentation_collections::remove_page_from_collection(&mut conn, *id, page_id);
+            let _ = repository::documentation_collections::remove_page_from_collection(
+                &mut conn, *id, page_id,
+            );
         }
     }
 
@@ -749,7 +790,9 @@ mod tests {
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),
@@ -758,9 +801,10 @@ mod tests {
             InitError = (),
         >,
     > {
-        App::new()
-            .app_data(web::Data::new(pool))
-            .route("/admin/documentation-collections/{id}", web::delete().to(delete_collection))
+        App::new().app_data(web::Data::new(pool)).route(
+            "/admin/documentation-collections/{id}",
+            web::delete().to(delete_collection),
+        )
     }
 
     #[actix_web::test]

@@ -1,108 +1,112 @@
 // Reexport handlers
-pub mod errors;
-pub mod feature_flags;
-pub mod health;
-pub mod helpers;
 pub mod api_tokens;
 pub mod assignment_rules;
 pub mod audit_log;
-pub mod collaboration;
-pub mod email_queue;
-pub mod email_suppressions;
-pub mod image_proxy;
 pub mod auth;
-pub mod users;
-pub mod files;
-pub mod tickets;
-pub mod projects;
+pub mod auth_providers;
+pub mod backup;
+pub mod branding;
+pub mod canned_responses;
+pub mod categories;
+pub mod channels;
+pub mod collaboration;
+pub mod csp_reports;
+pub mod cycles;
+pub mod dashboard;
+pub mod debug;
 pub mod devices;
 pub mod documentation;
 pub mod documentation_collections;
-pub mod knowledge_gaps;
-pub mod auth_providers;
 pub mod email;
-pub mod microsoft_graph;
-pub mod msgraph_integration;
-pub mod sse;
-pub mod password_reset;
-pub mod invitation;
-pub mod system;
-pub mod debug;
-pub mod branding;
+pub mod email_queue;
+pub mod email_suppressions;
+pub mod errors;
+pub mod feature_flags;
+pub mod files;
+pub mod groups;
 pub mod guest;
 pub mod guest_settings;
-pub mod backup;
-pub mod groups;
-pub mod categories;
+pub mod health;
+pub mod helpers;
+pub mod image_proxy;
+pub mod invitation;
+pub mod knowledge_gaps;
+pub mod microsoft_graph;
+pub mod msgraph_integration;
 pub mod notifications;
-pub mod webhooks;
-pub mod plugins;
+pub mod passkeys;
+pub mod password_reset;
 pub mod plugin_collections;
 pub mod plugin_events;
-pub mod passkeys;
-pub mod search;
-pub mod channels;
-pub mod scheduler;
-pub mod canned_responses;
-pub mod dashboard;
+pub mod plugins;
+pub mod projects;
 pub mod saved_views;
-pub mod cycles;
+pub mod scheduler;
+pub mod search;
 pub mod sla;
+pub mod sse;
 pub mod sync;
+pub mod system;
 pub mod tags;
 pub mod ticket_watchers;
+pub mod tickets;
+pub mod users;
+pub mod webhooks;
 pub mod workflow_states;
-pub mod csp_reports;
 
 // Import all handlers from modules
 pub use auth::*;
 // Export specific items from users to avoid conflicts
-pub use users::{
-    get_users, get_paginated_users, get_users_batch, create_user,
-    get_user_by_uuid, update_user_by_uuid, delete_user, upload_user_image,
-    get_user_emails, get_user_with_emails, add_user_email, update_user_email, delete_user_email,
-    cleanup_stale_images,
-    get_user_auth_identities, delete_user_auth_identity,
-    get_user_auth_identities_by_uuid, delete_user_auth_identity_by_uuid,
-    resend_invitation, bulk_users, get_user_security_info,
-    admin_reset_user_password, admin_disable_user_mfa, admin_delete_user_passkey
-};
 pub use files::*;
-// Export specific items from tickets to avoid conflicts
-pub use tickets::{
-    get_tickets, get_paginated_tickets, get_recent_tickets, create_ticket,
-    create_empty_ticket, get_ticket, get_ticket_activity, preview_ticket_field,
-    update_ticket, update_ticket_partial,
-    delete_ticket, record_ticket_view, remove_recent_ticket, import_tickets_from_json,
-    import_tickets_from_json_string, link_tickets, unlink_tickets,
-    add_device_to_ticket, remove_device_from_ticket, bulk_tickets
+pub use users::{
+    add_user_email, admin_delete_user_passkey, admin_disable_user_mfa, admin_reset_user_password,
+    bulk_users, cleanup_stale_images, create_user, delete_user, delete_user_auth_identity,
+    delete_user_auth_identity_by_uuid, delete_user_email, get_paginated_users,
+    get_user_auth_identities, get_user_auth_identities_by_uuid, get_user_by_uuid, get_user_emails,
+    get_user_security_info, get_user_with_emails, get_users, get_users_batch, resend_invitation,
+    update_user_by_uuid, update_user_email, upload_user_image,
 };
+// Export specific items from tickets to avoid conflicts
 pub use projects::*;
+pub use tickets::{
+    add_device_to_ticket, bulk_tickets, create_empty_ticket, create_ticket, delete_ticket,
+    get_paginated_tickets, get_recent_tickets, get_ticket, get_ticket_activity, get_tickets,
+    import_tickets_from_json, import_tickets_from_json_string, link_tickets, preview_ticket_field,
+    record_ticket_view, remove_device_from_ticket, remove_recent_ticket, unlink_tickets,
+    update_ticket, update_ticket_partial,
+};
 // Export specific items from devices to avoid conflicts
+pub use auth_providers::*;
 pub use devices::{
-    get_all_devices, get_paginated_devices, get_paginated_devices_excluding,
-    create_device, get_device_by_id, update_device, delete_device,
-    get_user_devices, unmanage_device, bulk_devices
+    bulk_devices, create_device, delete_device, get_all_devices, get_device_by_id,
+    get_paginated_devices, get_paginated_devices_excluding, get_user_devices, unmanage_device,
+    update_device,
 };
 pub use documentation::*;
-pub use auth_providers::*;
 pub use microsoft_graph::*;
-pub use msgraph_integration::{get_connection_status, get_config_validation, test_connection, sync_data, get_sync_progress_endpoint, get_active_syncs, cancel_sync_session, get_last_sync, get_entra_object_id};
-pub use passkeys::{start_passkey_registration, finish_passkey_registration, start_passkey_login, finish_passkey_login, list_passkeys, rename_passkey, delete_passkey, start_passkey_setup_login, finish_passkey_setup_login};
+pub use msgraph_integration::{
+    cancel_sync_session, get_active_syncs, get_config_validation, get_connection_status,
+    get_entra_object_id, get_last_sync, get_sync_progress_endpoint, sync_data, test_connection,
+};
+pub use passkeys::{
+    delete_passkey, finish_passkey_login, finish_passkey_registration, finish_passkey_setup_login,
+    list_passkeys, rename_passkey, start_passkey_login, start_passkey_registration,
+    start_passkey_setup_login,
+};
 
 // Import necessary types for placeholders
-use actix_web::{http::StatusCode, web, HttpResponse, HttpMessage, Responder};
+use actix_web::{http::StatusCode, web, HttpMessage, HttpResponse, Responder};
 use serde_json::json;
 
 use crate::utils::error_response::json_error;
 use crate::utils::locale::request_locale;
 use std::sync::Arc;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::services::notifications::{
+    types::{NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode},
     NotificationService,
-    types::{NotificationTypeCode, NotificationPayload, NotificationEntity, NotificationActor},
 };
 use crate::services::search::SearchService;
 
@@ -111,17 +115,13 @@ use regex::Regex;
 
 // Pre-compiled regexes for performance (compiled once, reused)
 static MENTION_UUID_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"@\[[^\]]+\]\(([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\)").unwrap()
+    Regex::new(r"@\[[^\]]+\]\(([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\)")
+        .unwrap()
 });
-static MENTION_DISPLAY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"@\[([^\]]+)\]\([a-f0-9-]+\)").unwrap()
-});
-static HTML_TAG_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"<[^>]+>").unwrap()
-});
-static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\s+").unwrap()
-});
+static MENTION_DISPLAY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"@\[([^\]]+)\]\([a-f0-9-]+\)").unwrap());
+static HTML_TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
+static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 
 /// Parse @mentions from comment content
 /// Returns a list of unique UUIDs mentioned
@@ -129,10 +129,7 @@ static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| {
 fn parse_mentions(content: &str) -> Vec<Uuid> {
     let mut mentions: Vec<Uuid> = MENTION_UUID_RE
         .captures_iter(content)
-        .filter_map(|cap| {
-            cap.get(1)
-                .and_then(|m| Uuid::parse_str(m.as_str()).ok())
-        })
+        .filter_map(|cap| cap.get(1).and_then(|m| Uuid::parse_str(m.as_str()).ok()))
         .collect();
 
     // Remove duplicates while preserving order
@@ -177,7 +174,9 @@ pub async fn get_comments_by_ticket_id(
         Err(e) => return e,
     };
 
-    match crate::repository::comments::get_comments_with_attachments_by_ticket_id(&mut conn, ticket_id) {
+    match crate::repository::comments::get_comments_with_attachments_by_ticket_id(
+        &mut conn, ticket_id,
+    ) {
         Ok(comments) => {
             // Serialize through serde so every field on
             // `CommentWithAttachments` (including `content_format`,
@@ -214,12 +213,17 @@ pub async fn get_comments_by_ticket_id(
                 })
                 .collect();
 
-            debug!(ticket_id, comment_count = formatted_comments.len(), "Successfully retrieved comments");
+            debug!(
+                ticket_id,
+                comment_count = formatted_comments.len(),
+                "Successfully retrieved comments"
+            );
             HttpResponse::Ok().json(formatted_comments)
-        },
+        }
         Err(e) => {
             error!(ticket_id, error = %e, "Error retrieving comments");
-            HttpResponse::InternalServerError().json(json!({"error": format!("Failed to retrieve comments: {}", e)}))
+            HttpResponse::InternalServerError()
+                .json(json!({"error": format!("Failed to retrieve comments: {}", e)}))
         }
     }
 }
@@ -237,14 +241,18 @@ pub async fn add_comment_to_ticket(
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
     let user_uuid_parsed = access.auth.user_uuid;
-    let source_client_id = req.headers()
+    let source_client_id = req
+        .headers()
         .get("X-SSE-Client-Id")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
     debug!(ticket_id, "Adding comment to ticket");
     debug!(content = %comment_data.content, "Comment content");
-    debug!(attachments_count = comment_data.attachments.len(), "Attachments count");
+    debug!(
+        attachments_count = comment_data.attachments.len(),
+        "Attachments count"
+    );
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -258,18 +266,31 @@ pub async fn add_comment_to_ticket(
     // guarantees this is present.
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return json_error(&request_locale(&req), "backend-error-auth-required", StatusCode::UNAUTHORIZED),
+        None => {
+            return json_error(
+                &request_locale(&req),
+                "backend-error-auth-required",
+                StatusCode::UNAUTHORIZED,
+            )
+        }
     };
 
     // Get the authenticated user's full information for notifications
-    let commenter_user = match crate::repository::users::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
+    let commenter_user = match crate::repository::users::get_user_by_uuid(
+        &user_uuid_parsed,
+        &mut conn,
+    ) {
         Ok(user) => {
             debug!(user_name = %user.name, user_uuid = %user.uuid, "Authenticated user");
             user
-        },
+        }
         Err(e) => {
             error!(user_uuid = %claims.sub, error = ?e, "Authenticated user UUID not found in database");
-            return json_error(&request_locale(&req), "backend-error-user-not-found", StatusCode::INTERNAL_SERVER_ERROR);
+            return json_error(
+                &request_locale(&req),
+                "backend-error-user-not-found",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            );
         }
     };
 
@@ -287,7 +308,7 @@ pub async fn add_comment_to_ticket(
     // Create the new comment using the authenticated user's UUID
     let new_comment = crate::models::NewComment {
         content: comment_data.content.clone(),
-        user_uuid: user_uuid_parsed,  // Use the user_uuid from JWT token
+        user_uuid: user_uuid_parsed, // Use the user_uuid from JWT token
         ticket_id,
         // Editor-driven flow today produces HTML. Older clients that
         // don't send the field rely on the `Default` impl on
@@ -336,7 +357,7 @@ pub async fn add_comment_to_ticket(
             // Now associate any attachments with this comment
             let mut attachments = Vec::new();
             let mut attachment_errors = Vec::new();
-            
+
             for attachment_data in &comment_data.attachments {
                 debug!(attachment = ?attachment_data, "Processing attachment");
                 // Find the existing attachment (uploaded to temp) by ID if available
@@ -347,20 +368,24 @@ pub async fn add_comment_to_ticket(
                             debug!(attachment = ?attachment, "Found attachment");
                             // Update the attachment with the comment_id
                             attachment.comment_id = Some(comment.id);
-                            
+
                             // Get the file path from the URL and use storage abstraction
                             let file_path = attachment.url.trim_start_matches("/uploads/temp/");
                             let old_storage_path = format!("temp/{file_path}");
                             let new_storage_path = format!("tickets/{ticket_id}/{file_path}");
 
                             debug!(from = %old_storage_path, to = %new_storage_path, "Moving file using storage abstraction");
-                            
+
                             // Use storage abstraction to move the file
-                            match storage.move_file(&old_storage_path, &new_storage_path).await {
+                            match storage
+                                .move_file(&old_storage_path, &new_storage_path)
+                                .await
+                            {
                                 Ok(_) => {
                                     debug!(from = %old_storage_path, to = %new_storage_path, "Moved file using storage");
                                     // Update the URL to point to the new location (keep /uploads prefix for frontend compatibility)
-                                    attachment.url = format!("/uploads/tickets/{ticket_id}/{file_path}");
+                                    attachment.url =
+                                        format!("/uploads/tickets/{ticket_id}/{file_path}");
 
                                     // Also move PDF thumbnail if it exists
                                     if attachment.mime_type.as_deref() == Some("application/pdf") {
@@ -374,22 +399,26 @@ pub async fn add_comment_to_ticket(
                                             .or_else(|| new_storage_path.strip_suffix(".PDF"))
                                             .map(|base| format!("{base}{thumb_suffix}"));
 
-                                        if let (Some(old_thumb), Some(new_thumb)) = (old_thumb_path, new_thumb_path) {
-                                            if let Err(e) = storage.move_file(&old_thumb, &new_thumb).await {
+                                        if let (Some(old_thumb), Some(new_thumb)) =
+                                            (old_thumb_path, new_thumb_path)
+                                        {
+                                            if let Err(e) =
+                                                storage.move_file(&old_thumb, &new_thumb).await
+                                            {
                                                 debug!(error = ?e, "PDF thumbnail not found or couldn't be moved (this is OK if no thumbnail was generated)");
                                             } else {
                                                 debug!(from = %old_thumb, to = %new_thumb, "Moved PDF thumbnail");
                                             }
                                         }
                                     }
-                                },
+                                }
                                 Err(e) => {
                                     warn!(error = ?e, "Error moving file with storage, falling back to filesystem");
                                     // Fallback to filesystem operations if storage fails
                                     let old_fs_path = format!("uploads/{old_storage_path}");
                                     let new_fs_path = format!("uploads/{new_storage_path}");
                                     let new_fs_dir = format!("uploads/tickets/{ticket_id}");
-                                    
+
                                     // Create directory if it doesn't exist
                                     if !std::path::Path::new(&new_fs_dir).exists() {
                                         if let Err(e) = std::fs::create_dir_all(&new_fs_dir) {
@@ -403,38 +432,61 @@ pub async fn add_comment_to_ticket(
                                         // If move fails, try to copy and then delete
                                         if let Err(e) = std::fs::copy(&old_fs_path, &new_fs_path) {
                                             error!(error = %e, file = %attachment.name, "Error copying file");
-                                            attachment_errors.push(format!("Failed to copy file {}: {}", attachment.name, e));
+                                            attachment_errors.push(format!(
+                                                "Failed to copy file {}: {}",
+                                                attachment.name, e
+                                            ));
                                         } else {
                                             // Try to delete the original file
                                             if let Err(e) = std::fs::remove_file(&old_fs_path) {
                                                 warn!(error = %e, path = %old_fs_path, "Error removing original file");
                                             }
                                             // Update the URL to point to the new location
-                                            attachment.url = format!("/uploads/tickets/{ticket_id}/{file_path}");
+                                            attachment.url =
+                                                format!("/uploads/tickets/{ticket_id}/{file_path}");
 
                                             // Also move PDF thumbnail if it exists (filesystem fallback)
-                                            if attachment.mime_type.as_deref() == Some("application/pdf") {
-                                                let old_thumb = old_fs_path.replace(".pdf", "_thumb.webp").replace(".PDF", "_thumb.webp");
-                                                let new_thumb = new_fs_path.replace(".pdf", "_thumb.webp").replace(".PDF", "_thumb.webp");
+                                            if attachment.mime_type.as_deref()
+                                                == Some("application/pdf")
+                                            {
+                                                let old_thumb = old_fs_path
+                                                    .replace(".pdf", "_thumb.webp")
+                                                    .replace(".PDF", "_thumb.webp");
+                                                let new_thumb = new_fs_path
+                                                    .replace(".pdf", "_thumb.webp")
+                                                    .replace(".PDF", "_thumb.webp");
                                                 let _ = std::fs::rename(&old_thumb, &new_thumb)
-                                                    .or_else(|_| std::fs::copy(&old_thumb, &new_thumb).map(|_| ()));
+                                                    .or_else(|_| {
+                                                        std::fs::copy(&old_thumb, &new_thumb)
+                                                            .map(|_| ())
+                                                    });
                                             }
                                         }
                                     } else {
                                         // Update the URL to point to the new location
-                                        attachment.url = format!("/uploads/tickets/{ticket_id}/{file_path}");
+                                        attachment.url =
+                                            format!("/uploads/tickets/{ticket_id}/{file_path}");
 
                                         // Also move PDF thumbnail if it exists (filesystem fallback)
-                                        if attachment.mime_type.as_deref() == Some("application/pdf") {
-                                            let old_thumb = old_fs_path.replace(".pdf", "_thumb.webp").replace(".PDF", "_thumb.webp");
-                                            let new_thumb = new_fs_path.replace(".pdf", "_thumb.webp").replace(".PDF", "_thumb.webp");
+                                        if attachment.mime_type.as_deref()
+                                            == Some("application/pdf")
+                                        {
+                                            let old_thumb = old_fs_path
+                                                .replace(".pdf", "_thumb.webp")
+                                                .replace(".PDF", "_thumb.webp");
+                                            let new_thumb = new_fs_path
+                                                .replace(".pdf", "_thumb.webp")
+                                                .replace(".PDF", "_thumb.webp");
                                             let _ = std::fs::rename(&old_thumb, &new_thumb)
-                                                .or_else(|_| std::fs::copy(&old_thumb, &new_thumb).map(|_| ()));
+                                                .or_else(|_| {
+                                                    std::fs::copy(&old_thumb, &new_thumb)
+                                                        .map(|_| ())
+                                                });
                                         }
                                     }
                                 }
                             }
-                            
+
                             // Create updated attachment for database update
                             let updated_attachment = crate::models::NewAttachment {
                                 url: attachment.url.clone(),
@@ -447,26 +499,36 @@ pub async fn add_comment_to_ticket(
                                 transcription: attachment.transcription.clone(),
                             };
 
-                            debug!(attachment_id = attachment.id, "Updating attachment in database");
+                            debug!(
+                                attachment_id = attachment.id,
+                                "Updating attachment in database"
+                            );
 
                             // Fix the diesel update query
                             use diesel::prelude::*;
-                            match diesel::update(crate::schema::attachments::table.find(attachment.id))
-                                .set(&updated_attachment)
-                                .execute(&mut conn) {
+                            match diesel::update(
+                                crate::schema::attachments::table.find(attachment.id),
+                            )
+                            .set(&updated_attachment)
+                            .execute(&mut conn)
+                            {
                                 Ok(_) => {
                                     debug!(attachment_id = attachment.id, "Updated attachment");
                                     attachments.push(attachment);
-                                },
+                                }
                                 Err(e) => {
                                     error!(error = %e, attachment_name = %attachment.name, "Error updating attachment");
-                                    attachment_errors.push(format!("Failed to update attachment {} in database: {}", attachment.name, e));
+                                    attachment_errors.push(format!(
+                                        "Failed to update attachment {} in database: {}",
+                                        attachment.name, e
+                                    ));
                                 }
                             }
-                        },
+                        }
                         Err(e) => {
                             error!(attachment_id = id, error = %e, "Error finding attachment");
-                            attachment_errors.push(format!("Failed to find attachment ID {id}: {e}"));
+                            attachment_errors
+                                .push(format!("Failed to find attachment ID {id}: {e}"));
                         }
                     }
                 }
@@ -476,13 +538,16 @@ pub async fn add_comment_to_ticket(
             if !attachment_errors.is_empty() {
                 warn!(errors = ?attachment_errors, "Some attachments had processing errors");
             }
-            
+
             // Get user info
             let user = user_info;
-            
+
             // Format the ISO timestamp correctly for JavaScript
-            let created_at = comment.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-            
+            let created_at = comment
+                .created_at
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string();
+
             // Format the data to match what TicketView.vue expects
             let response = json!({
                 "id": comment.id,
@@ -494,39 +559,50 @@ pub async fn add_comment_to_ticket(
                 "attachments": attachments,
                 "user": user
             });
-            
+
             // Broadcast SSE event for the new comment AFTER all file operations are complete
             // This prevents stream interruption during file processing
-            debug!(comment_id = comment.id, attachments_count = attachments.len(), "Broadcasting SSE event for comment");
+            debug!(
+                comment_id = comment.id,
+                attachments_count = attachments.len(),
+                "Broadcasting SSE event for comment"
+            );
 
             // Small delay to ensure stream stability after file operations
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
             debug!(ticket_id, "SSE: About to broadcast comment-added event");
-            
+
             // Broadcast with source_client_id for echo suppression
-            sse_state.broadcast_event_from(
-                crate::handlers::sse::SseEvent::CommentAdded {
-                    ticket_id,
-                    comment: response.clone(),
-                    timestamp: chrono::Utc::now(),
-                },
-                source_client_id.clone(),
-            ).await;
+            sse_state
+                .broadcast_event_from(
+                    crate::handlers::sse::SseEvent::CommentAdded {
+                        ticket_id,
+                        comment: response.clone(),
+                        timestamp: chrono::Utc::now(),
+                    },
+                    source_client_id.clone(),
+                )
+                .await;
 
             // Also broadcast the ticket modified date update
-            sse_state.broadcast_event_from(
-                crate::handlers::sse::SseEvent::TicketUpdated {
-                    ticket_id,
-                    field: "modified".to_string(),
-                    value: serde_json::json!(chrono::Utc::now()),
-                    updated_by: claims.sub.clone(),
-                    timestamp: chrono::Utc::now(),
-                },
-                source_client_id,
-            ).await;
+            sse_state
+                .broadcast_event_from(
+                    crate::handlers::sse::SseEvent::TicketUpdated {
+                        ticket_id,
+                        field: "modified".to_string(),
+                        value: serde_json::json!(chrono::Utc::now()),
+                        updated_by: claims.sub.clone(),
+                        timestamp: chrono::Utc::now(),
+                    },
+                    source_client_id,
+                )
+                .await;
 
-            debug!(ticket_id, "SSE: Successfully broadcasted comment-added and modified events");
+            debug!(
+                ticket_id,
+                "SSE: Successfully broadcasted comment-added and modified events"
+            );
 
             // Relay the comment back through the originating channel
             // (email today, chat once those adapters exist). Item J
@@ -561,7 +637,8 @@ pub async fn add_comment_to_ticket(
                 let comment_id = comment.id;
                 let comment_is_internal = comment.is_internal;
                 // Strip HTML and clean up mentions for notification preview
-                let comment_preview = truncate_preview(&strip_html_for_preview(&comment_data.content), 100);
+                let comment_preview =
+                    truncate_preview(&strip_html_for_preview(&comment_data.content), 100);
 
                 // Parse @mentions from comment content (now extracts UUIDs directly)
                 let mentioned_users: Vec<Uuid> = parse_mentions(&comment_data.content)
@@ -601,7 +678,10 @@ pub async fn add_comment_to_ticket(
                         }
                     }
                     if let Some(assignee) = ticket_assignee {
-                        if assignee != commenter_uuid && !comment_recipients.contains(&assignee) && !mentioned_users.contains(&assignee) {
+                        if assignee != commenter_uuid
+                            && !comment_recipients.contains(&assignee)
+                            && !mentioned_users.contains(&assignee)
+                        {
                             comment_recipients.push(assignee);
                         }
                     }
@@ -619,8 +699,7 @@ pub async fn add_comment_to_ticket(
                         let mut conn = pool_for_watchers.get().map_err(|_| ())?;
                         if comment_is_internal {
                             crate::repository::ticket_watchers::watcher_uuids_for_internal_notify(
-                                &mut conn,
-                                ticket_id,
+                                &mut conn, ticket_id,
                             )
                         } else {
                             crate::repository::ticket_watchers::watcher_uuids(&mut conn, ticket_id)
@@ -652,8 +731,11 @@ pub async fn add_comment_to_ticket(
                     let (mut comment_recipients, mut mentioned_users) =
                         (comment_recipients, mentioned_users);
                     if comment_is_internal {
-                        let mut all_candidates: Vec<Uuid> =
-                            comment_recipients.iter().chain(mentioned_users.iter()).copied().collect();
+                        let mut all_candidates: Vec<Uuid> = comment_recipients
+                            .iter()
+                            .chain(mentioned_users.iter())
+                            .copied()
+                            .collect();
                         all_candidates.sort();
                         all_candidates.dedup();
 
@@ -667,11 +749,13 @@ pub async fn add_comment_to_ticket(
                                 .map_err(|_| ())?;
                                 Ok(users
                                     .into_iter()
-                                    .filter(|u| matches!(
-                                        u.role,
-                                        crate::models::UserRole::Admin
-                                            | crate::models::UserRole::Technician
-                                    ))
+                                    .filter(|u| {
+                                        matches!(
+                                            u.role,
+                                            crate::models::UserRole::Admin
+                                                | crate::models::UserRole::Technician
+                                        )
+                                    })
                                     .map(|u| u.uuid)
                                     .collect())
                             })()
@@ -721,13 +805,18 @@ pub async fn add_comment_to_ticket(
                 });
             }
 
-            info!(ticket_id, attachments_count = attachments.len(), "Successfully created comment");
+            info!(
+                ticket_id,
+                attachments_count = attachments.len(),
+                "Successfully created comment"
+            );
             debug!(response = %response, "Returning JSON response");
             HttpResponse::Created().json(response)
-        },
+        }
         Err(e) => {
             error!(error = %e, "Error creating comment");
-            HttpResponse::InternalServerError().json(json!({"error": format!("Failed to create comment: {}", e)}))
+            HttpResponse::InternalServerError()
+                .json(json!({"error": format!("Failed to create comment: {}", e)}))
         }
     }
 }
@@ -740,7 +829,8 @@ pub async fn delete_comment(
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     let comment_id = path.into_inner();
-    let source_client_id = req.headers()
+    let source_client_id = req
+        .headers()
         .get("X-SSE-Client-Id")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
@@ -755,7 +845,11 @@ pub async fn delete_comment(
     let ticket_id = match crate::repository::comments::get_comment_by_id(&mut conn, comment_id) {
         Ok(comment) => comment.ticket_id,
         Err(_) => {
-            return json_error(&request_locale(&req), "backend-error-comment-not-found", StatusCode::NOT_FOUND);
+            return json_error(
+                &request_locale(&req),
+                "backend-error-comment-not-found",
+                StatusCode::NOT_FOUND,
+            );
         }
     };
 
@@ -774,7 +868,11 @@ pub async fn delete_comment(
         use diesel::Connection;
         conn.transaction::<usize, diesel::result::Error, _>(|conn| {
             crate::sync::session::set_actor(conn, &actor)?;
-            crate::repository::comments::delete_comment(conn, comment_id, Some(search_service.get_ref()))
+            crate::repository::comments::delete_comment(
+                conn,
+                comment_id,
+                Some(search_service.get_ref()),
+            )
         })
     };
     match delete_result {
@@ -784,30 +882,40 @@ pub async fn delete_comment(
                 // CommentDeletedObserver inside `delete_comment`.
 
                 // Broadcast SSE event for the deleted comment
-                sse_state.broadcast_event_from(
-                    crate::handlers::sse::SseEvent::CommentDeleted {
-                        ticket_id,
-                        comment_id,
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id,
-                ).await;
+                sse_state
+                    .broadcast_event_from(
+                        crate::handlers::sse::SseEvent::CommentDeleted {
+                            ticket_id,
+                            comment_id,
+                            timestamp: chrono::Utc::now(),
+                        },
+                        source_client_id,
+                    )
+                    .await;
 
                 info!(comment_id, "Successfully deleted comment");
                 HttpResponse::Ok().json(json!({"success": true, "message": "Comment deleted"}))
             } else {
                 warn!(comment_id, "Comment not found in database");
-                json_error(&request_locale(&req), "backend-error-comment-not-found", StatusCode::NOT_FOUND)
+                json_error(
+                    &request_locale(&req),
+                    "backend-error-comment-not-found",
+                    StatusCode::NOT_FOUND,
+                )
             }
-        },
+        }
         Err(e) => {
             error!(comment_id, error = %e, "Error deleting comment");
-            HttpResponse::InternalServerError().json(json!({"error": format!("Failed to delete comment: {}", e)}))
+            HttpResponse::InternalServerError()
+                .json(json!({"error": format!("Failed to delete comment: {}", e)}))
         }
     }
 }
 
-pub async fn add_attachment_to_comment(_: web::Path<i32>, _: web::Data<crate::db::Pool>) -> impl Responder {
+pub async fn add_attachment_to_comment(
+    _: web::Path<i32>,
+    _: web::Data<crate::db::Pool>,
+) -> impl Responder {
     HttpResponse::Ok().json(json!({"message": "Add attachment to comment handler placeholder"}))
 }
 
@@ -848,7 +956,8 @@ pub async fn get_comment_raw_eml(
     };
 
     let vis = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
-    match crate::repository::ticket_visibility::can_view_ticket(&mut conn, &vis, comment.ticket_id) {
+    match crate::repository::ticket_visibility::can_view_ticket(&mut conn, &vis, comment.ticket_id)
+    {
         Ok(true) => {}
         // 404 on deny (not 403): an attacker iterating comment ids
         // mustn't learn which exist on other users' tickets.
@@ -888,7 +997,7 @@ pub async fn delete_attachment(
     req: actix_web::HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<crate::db::Pool>,
-    storage: Arc<dyn crate::utils::storage::Storage>
+    storage: Arc<dyn crate::utils::storage::Storage>,
 ) -> impl Responder {
     let attachment_id = path.into_inner();
     debug!(attachment_id, "Deleting attachment");
@@ -916,8 +1025,12 @@ pub async fn delete_attachment(
 
             // Delete the file using the storage abstraction
             match storage.delete_file(&storage_path).await {
-                Ok(_) => debug!(storage_path = %storage_path, "Successfully deleted file from storage"),
-                Err(e) => warn!(error = ?e, storage_path = %storage_path, "Failed to delete file from storage"),
+                Ok(_) => {
+                    debug!(storage_path = %storage_path, "Successfully deleted file from storage")
+                }
+                Err(e) => {
+                    warn!(error = ?e, storage_path = %storage_path, "Failed to delete file from storage")
+                }
             }
 
             // Delete the database record. The handler's signature
@@ -937,22 +1050,35 @@ pub async fn delete_attachment(
             match delete_result {
                 Ok(deleted) => {
                     if deleted > 0 {
-                        info!(attachment_id, "Successfully deleted attachment from database");
-                        HttpResponse::Ok().json(json!({"success": true, "message": "Attachment deleted"}))
+                        info!(
+                            attachment_id,
+                            "Successfully deleted attachment from database"
+                        );
+                        HttpResponse::Ok()
+                            .json(json!({"success": true, "message": "Attachment deleted"}))
                     } else {
                         warn!(attachment_id, "Attachment not found in database");
-                        json_error(&request_locale(&req), "backend-error-attachment-not-found", StatusCode::NOT_FOUND)
+                        json_error(
+                            &request_locale(&req),
+                            "backend-error-attachment-not-found",
+                            StatusCode::NOT_FOUND,
+                        )
                     }
-                },
+                }
                 Err(e) => {
                     error!(attachment_id, error = %e, "Error deleting attachment from database");
-                    HttpResponse::InternalServerError().json(json!({"error": format!("Failed to delete attachment: {}", e)}))
+                    HttpResponse::InternalServerError()
+                        .json(json!({"error": format!("Failed to delete attachment: {}", e)}))
                 }
             }
-        },
+        }
         Err(e) => {
             error!(attachment_id, error = %e, "Error finding attachment");
-            json_error(&request_locale(&req), "backend-error-attachment-not-found", StatusCode::NOT_FOUND)
+            json_error(
+                &request_locale(&req),
+                "backend-error-attachment-not-found",
+                StatusCode::NOT_FOUND,
+            )
         }
     }
 }
@@ -964,7 +1090,7 @@ pub async fn serve_public_file(
     storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
 ) -> impl Responder {
     let filename = filename.into_inner();
-    
+
     // Determine the storage path based on the request URI
     let uri = req.uri().to_string();
     let storage_path = if uri.starts_with("/uploads/users/avatars/") {
@@ -979,7 +1105,13 @@ pub async fn serve_public_file(
     };
 
     // Serve the file using storage abstraction
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &storage_path, &req).await {
+    match crate::utils::storage::serve_file_from_storage(
+        storage.as_ref().clone(),
+        &storage_path,
+        &req,
+    )
+    .await
+    {
         Ok(response) => response,
         Err(e) => {
             error!(storage_path = %storage_path, error = ?e, "Error serving public file");
@@ -996,7 +1128,9 @@ pub async fn serve_protected_file(
     let file_path = path.into_inner();
 
     // For protected files, serve using storage abstraction
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req).await {
+    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req)
+        .await
+    {
         Ok(response) => response,
         Err(e) => {
             error!(file_path = %file_path, error = ?e, "Error serving protected file");

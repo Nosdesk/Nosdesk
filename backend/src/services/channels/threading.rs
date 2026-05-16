@@ -85,8 +85,7 @@ static OUR_MSGID_RE: Lazy<Regex> =
 // Match `#1234` anywhere. `[#1234]` inside subjects is the common form
 // we emit; the bare `#1234` form matches customer clients that strip
 // brackets from quoted subjects.
-static SUBJECT_ID_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"#(\d+)").expect("valid regex"));
+static SUBJECT_ID_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"#(\d+)").expect("valid regex"));
 
 /// Parse `support+ticket-N@domain` → `Some(N)`.
 pub fn parse_plus_addr_ticket_id(address: &str) -> Option<i32> {
@@ -154,12 +153,18 @@ mod tests {
 
     #[test]
     fn plus_addr_matches_standard_form() {
-        assert_eq!(parse_plus_addr_ticket_id("support+ticket-1234@yourco.com"), Some(1234));
+        assert_eq!(
+            parse_plus_addr_ticket_id("support+ticket-1234@yourco.com"),
+            Some(1234)
+        );
     }
 
     #[test]
     fn plus_addr_is_case_insensitive_on_prefix() {
-        assert_eq!(parse_plus_addr_ticket_id("Support+Ticket-42@yourco.com"), Some(42));
+        assert_eq!(
+            parse_plus_addr_ticket_id("Support+Ticket-42@yourco.com"),
+            Some(42)
+        );
     }
 
     #[test]
@@ -172,13 +177,19 @@ mod tests {
 
     #[test]
     fn plus_addr_ignores_non_numeric_suffix() {
-        assert_eq!(parse_plus_addr_ticket_id("support+ticket-abc@yourco.com"), None);
+        assert_eq!(
+            parse_plus_addr_ticket_id("support+ticket-abc@yourco.com"),
+            None
+        );
     }
 
     #[test]
     fn plus_addr_ignores_non_ticket_suffix() {
         // `+newsletter@` must not parse as a ticket — our suffix is literal.
-        assert_eq!(parse_plus_addr_ticket_id("support+newsletter@yourco.com"), None);
+        assert_eq!(
+            parse_plus_addr_ticket_id("support+newsletter@yourco.com"),
+            None
+        );
     }
 
     #[test]
@@ -207,21 +218,18 @@ mod tests {
 
     #[test]
     fn our_message_id_rejects_other_message_ids() {
-        assert_eq!(
-            parse_our_message_id("<CAB=abc123@mail.gmail.com>"),
-            None
-        );
-        assert_eq!(
-            parse_our_message_id("<random.id.12345@outlook.com>"),
-            None
-        );
+        assert_eq!(parse_our_message_id("<CAB=abc123@mail.gmail.com>"), None);
+        assert_eq!(parse_our_message_id("<random.id.12345@outlook.com>"), None);
     }
 
     // ---- parse_subject_ticket_id ----
 
     #[test]
     fn subject_bracketed_hash_number() {
-        assert_eq!(parse_subject_ticket_id("[#1234] Printer is on fire"), Some(1234));
+        assert_eq!(
+            parse_subject_ticket_id("[#1234] Printer is on fire"),
+            Some(1234)
+        );
     }
 
     #[test]
@@ -251,7 +259,10 @@ mod tests {
 
     #[test]
     fn subject_ignores_hash_text_without_number() {
-        assert_eq!(parse_subject_ticket_id("The #1 reason printers break"), Some(1));
+        assert_eq!(
+            parse_subject_ticket_id("The #1 reason printers break"),
+            Some(1)
+        );
         // Note: this parses '1'. Deliberate — false-positive risk exists
         // but only fires when a real ticket with that id also exists,
         // which the caller double-checks before attaching. See pipeline.
@@ -279,7 +290,10 @@ mod tests {
 
     #[test]
     fn outbound_subject_prepends_tag() {
-        assert_eq!(format_outbound_subject(42, "Printer is on fire"), "[#42] Printer is on fire");
+        assert_eq!(
+            format_outbound_subject(42, "Printer is on fire"),
+            "[#42] Printer is on fire"
+        );
     }
 
     #[test]
@@ -303,7 +317,7 @@ mod tests {
     // the resolver picks the right step.
 
     use crate::models::{
-        CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND, NewChannelMessage, UserRole,
+        NewChannelMessage, UserRole, CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND,
     };
     use crate::repository::channels as channels_repo;
     use crate::services::channels::{ExternalIdentity, InboundMessage, LoopMarkers};

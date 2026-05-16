@@ -70,8 +70,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 const TOKEN_BYTES: usize = 32;
 
 pub fn token_file_path() -> PathBuf {
-    let upload_dir =
-        std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "/app/uploads".to_string());
+    let upload_dir = std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "/app/uploads".to_string());
     PathBuf::from(upload_dir).join("bootstrap.token")
 }
 
@@ -121,8 +120,7 @@ pub fn reconcile(conn: &mut DbConnection) -> Result<()> {
         delete_token_file();
     }
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     let token = generate_token();
     write_token_file(&path, &token)?;
@@ -161,8 +159,7 @@ fn log_setup_line(token: &str) {
 
 fn read_token_file(path: &Path) -> Result<String> {
     let mut on_disk = String::new();
-    let mut f = fs::File::open(path)
-        .with_context(|| format!("opening {}", path.display()))?;
+    let mut f = fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     f.read_to_string(&mut on_disk)
         .with_context(|| "reading bootstrap token")?;
     Ok(on_disk.trim().to_string())
@@ -181,7 +178,9 @@ pub fn verify(provided: &str) -> Result<()> {
         return Err(anyhow!("bootstrap token not present; setup is closed"));
     }
     if is_expired(&path) {
-        return Err(anyhow!("bootstrap token expired; restart the backend to mint a fresh one"));
+        return Err(anyhow!(
+            "bootstrap token expired; restart the backend to mint a fresh one"
+        ));
     }
     let on_disk = read_token_file(&path)?;
     let provided = provided.trim();
@@ -336,12 +335,18 @@ mod tests {
     fn setup_url_uses_frontend_url_when_set_else_localhost() {
         with_temp_upload_dir(|| {
             std::env::remove_var("FRONTEND_URL");
-            assert_eq!(setup_url("abc"), "http://localhost:8080/onboarding?token=abc");
+            assert_eq!(
+                setup_url("abc"),
+                "http://localhost:8080/onboarding?token=abc"
+            );
 
             // Trailing slash on FRONTEND_URL must not produce a
             // double-slash in the result.
             std::env::set_var("FRONTEND_URL", "https://desk.example.com/");
-            assert_eq!(setup_url("abc"), "https://desk.example.com/onboarding?token=abc");
+            assert_eq!(
+                setup_url("abc"),
+                "https://desk.example.com/onboarding?token=abc"
+            );
             std::env::remove_var("FRONTEND_URL");
         });
     }

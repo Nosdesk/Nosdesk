@@ -96,10 +96,7 @@ pub fn resolve(peer_addr: Option<SocketAddr>, xff_header: Option<&str>) -> Optio
 
 /// Resolve the client IP from an `actix_web::HttpRequest`.
 pub fn from_http_request(req: &actix_web::HttpRequest) -> Option<IpAddr> {
-    let xff = req
-        .headers()
-        .get(XFF_HEADER)
-        .and_then(|h| h.to_str().ok());
+    let xff = req.headers().get(XFF_HEADER).and_then(|h| h.to_str().ok());
     resolve(req.peer_addr(), xff)
 }
 
@@ -107,10 +104,7 @@ pub fn from_http_request(req: &actix_web::HttpRequest) -> Option<IpAddr> {
 /// (the shape used inside middleware before the request reaches
 /// a handler).
 pub fn from_service_request(req: &actix_web::dev::ServiceRequest) -> Option<IpAddr> {
-    let xff = req
-        .headers()
-        .get(XFF_HEADER)
-        .and_then(|h| h.to_str().ok());
+    let xff = req.headers().get(XFF_HEADER).and_then(|h| h.to_str().ok());
     resolve(req.peer_addr(), xff)
 }
 
@@ -183,10 +177,7 @@ mod tests {
         with_trusted("10.0.0.0/8", || {
             // Single-hop reverse proxy: backend sees the proxy at
             // 10.0.0.5; proxy added the client's real IP to XFF.
-            let r = resolve(
-                Some(sock("10.0.0.5:80")),
-                Some("198.51.100.7"),
-            );
+            let r = resolve(Some(sock("10.0.0.5:80")), Some("198.51.100.7"));
             assert_eq!(r, Some(ip("198.51.100.7")));
         });
     }
@@ -198,10 +189,7 @@ mod tests {
             // proxy (10.0.0.5) → backend. XFF carries the client
             // then the edge proxy; we walk from the right and
             // skip the trusted hop.
-            let r = resolve(
-                Some(sock("10.0.0.5:80")),
-                Some("198.51.100.7, 10.0.0.6"),
-            );
+            let r = resolve(Some(sock("10.0.0.5:80")), Some("198.51.100.7, 10.0.0.6"));
             assert_eq!(r, Some(ip("198.51.100.7")));
         });
     }
@@ -215,10 +203,7 @@ mod tests {
             // IP, so the backend sees XFF "1.2.3.4, 5.5.5.5".
             // Walking from the right finds the attacker's real
             // IP first (5.5.5.5), not the forged value (1.2.3.4).
-            let r = resolve(
-                Some(sock("10.0.0.5:80")),
-                Some("1.2.3.4, 5.5.5.5"),
-            );
+            let r = resolve(Some(sock("10.0.0.5:80")), Some("1.2.3.4, 5.5.5.5"));
             assert_eq!(r, Some(ip("5.5.5.5")));
         });
     }
@@ -242,10 +227,7 @@ mod tests {
     #[test]
     fn malformed_xff_entries_are_skipped() {
         with_trusted("10.0.0.0/8", || {
-            let r = resolve(
-                Some(sock("10.0.0.5:80")),
-                Some("not-an-ip, 198.51.100.7"),
-            );
+            let r = resolve(Some(sock("10.0.0.5:80")), Some("not-an-ip, 198.51.100.7"));
             assert_eq!(r, Some(ip("198.51.100.7")));
         });
     }
@@ -256,10 +238,7 @@ mod tests {
             // Pathological: every hop is inside trusted
             // infrastructure (e.g. an internal-only deployment).
             // No real client IP to report; fall back to peer.
-            let r = resolve(
-                Some(sock("10.0.0.5:80")),
-                Some("10.0.0.6, 10.0.0.7"),
-            );
+            let r = resolve(Some(sock("10.0.0.5:80")), Some("10.0.0.6, 10.0.0.7"));
             assert_eq!(r, Some(ip("10.0.0.5")));
         });
     }
@@ -267,10 +246,7 @@ mod tests {
     #[test]
     fn multiple_cidrs_in_env() {
         with_trusted("10.0.0.0/8, 172.16.0.0/12", || {
-            let r = resolve(
-                Some(sock("172.20.5.5:80")),
-                Some("198.51.100.7"),
-            );
+            let r = resolve(Some(sock("172.20.5.5:80")), Some("198.51.100.7"));
             assert_eq!(r, Some(ip("198.51.100.7")));
         });
     }
@@ -278,10 +254,7 @@ mod tests {
     #[test]
     fn ipv6_peer_in_trusted_resolves_through_xff() {
         with_trusted("fd00::/8", || {
-            let r = resolve(
-                Some(sock("[fd00::1]:80")),
-                Some("2001:db8::1"),
-            );
+            let r = resolve(Some(sock("[fd00::1]:80")), Some("2001:db8::1"));
             assert_eq!(r, Some(ip("2001:db8::1")));
         });
     }
@@ -291,10 +264,7 @@ mod tests {
         with_trusted("not-a-cidr, 10.0.0.0/8", || {
             // The bogus entry is dropped; the valid one still
             // governs the gate.
-            let r = resolve(
-                Some(sock("10.0.0.5:80")),
-                Some("198.51.100.7"),
-            );
+            let r = resolve(Some(sock("10.0.0.5:80")), Some("198.51.100.7"));
             assert_eq!(r, Some(ip("198.51.100.7")));
         });
     }

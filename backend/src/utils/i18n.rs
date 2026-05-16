@@ -26,11 +26,26 @@ use crate::utils::locale::SUPPORTED_LOCALES;
 /// Embedded Fluent resources, one entry per supported locale.
 /// Adding a new locale = add the path here + create the .ftl file.
 const FTL_SOURCES: &[(&str, &str)] = &[
-    ("en-US", include_str!("../../../i18n/locales/en-US/main.ftl")),
-    ("en-GB", include_str!("../../../i18n/locales/en-GB/main.ftl")),
-    ("en-AU", include_str!("../../../i18n/locales/en-AU/main.ftl")),
-    ("fr-FR", include_str!("../../../i18n/locales/fr-FR/main.ftl")),
-    ("nl-NL", include_str!("../../../i18n/locales/nl-NL/main.ftl")),
+    (
+        "en-US",
+        include_str!("../../../i18n/locales/en-US/main.ftl"),
+    ),
+    (
+        "en-GB",
+        include_str!("../../../i18n/locales/en-GB/main.ftl"),
+    ),
+    (
+        "en-AU",
+        include_str!("../../../i18n/locales/en-AU/main.ftl"),
+    ),
+    (
+        "fr-FR",
+        include_str!("../../../i18n/locales/fr-FR/main.ftl"),
+    ),
+    (
+        "nl-NL",
+        include_str!("../../../i18n/locales/nl-NL/main.ftl"),
+    ),
 ];
 
 type Bundle = FluentBundle<FluentResource>;
@@ -46,10 +61,9 @@ fn build_bundles() -> HashMap<String, Bundle> {
         let langid: LanguageIdentifier = tag
             .parse()
             .unwrap_or_else(|_| panic!("supported locale {tag} must parse as BCP-47"));
-        let resource = FluentResource::try_new(source.to_string())
-            .unwrap_or_else(|(_, errors)| {
-                panic!("malformed FTL for {tag}: {errors:?}");
-            });
+        let resource = FluentResource::try_new(source.to_string()).unwrap_or_else(|(_, errors)| {
+            panic!("malformed FTL for {tag}: {errors:?}");
+        });
         let mut bundle = FluentBundle::new_concurrent(vec![langid]);
         // Fluent injects U+2068/U+2069 directional isolates around
         // interpolated values so RTL works correctly in mixed content.

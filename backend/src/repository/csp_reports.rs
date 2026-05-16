@@ -43,10 +43,7 @@ pub fn dedup_hash(
 /// existing row. ON CONFLICT keeps this single-roundtrip; a
 /// SELECT-then-UPDATE-or-INSERT pattern would race with concurrent
 /// reports and either lose increments or produce duplicates.
-pub fn upsert(
-    conn: &mut DbConnection,
-    report: NewCspReport,
-) -> Result<CspReport, DieselError> {
+pub fn upsert(conn: &mut DbConnection, report: NewCspReport) -> Result<CspReport, DieselError> {
     use crate::schema::csp_reports::dsl::*;
     use diesel::dsl::now;
     use diesel::pg::upsert::excluded;
@@ -73,10 +70,7 @@ pub fn upsert(
 /// Aggregate view for the admin UI. Most-recently-seen first,
 /// limited to a window. Plenty for "what's broken right now"
 /// triage; older data is queryable via raw SQL when needed.
-pub fn list_recent(
-    conn: &mut DbConnection,
-    limit: i64,
-) -> Result<Vec<CspReport>, DieselError> {
+pub fn list_recent(conn: &mut DbConnection, limit: i64) -> Result<Vec<CspReport>, DieselError> {
     use crate::schema::csp_reports::dsl::*;
 
     csp_reports

@@ -13,10 +13,10 @@
 use openidconnect::{
     core::{
         CoreAuthDisplay, CoreAuthPrompt, CoreClaimName, CoreClaimType, CoreClient,
-        CoreClientAuthMethod, CoreGrantType, CoreIdToken, CoreIdTokenClaims,
-        CoreIdTokenVerifier, CoreJsonWebKey, CoreJweContentEncryptionAlgorithm,
-        CoreJweKeyManagementAlgorithm, CoreProviderMetadata, CoreResponseMode, CoreResponseType,
-        CoreSubjectIdentifierType, CoreTokenResponse,
+        CoreClientAuthMethod, CoreGrantType, CoreIdToken, CoreIdTokenClaims, CoreIdTokenVerifier,
+        CoreJsonWebKey, CoreJweContentEncryptionAlgorithm, CoreJweKeyManagementAlgorithm,
+        CoreProviderMetadata, CoreResponseMode, CoreResponseType, CoreSubjectIdentifierType,
+        CoreTokenResponse,
     },
     AdditionalProviderMetadata, AuthUrl, AuthorizationCode, AuthorizationRequest, ClientId,
     ClientSecret, CsrfToken, EndSessionUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet,
@@ -51,12 +51,12 @@ pub struct OidcConfig {
 impl OidcConfig {
     /// Load OIDC configuration from environment variables
     pub fn from_env() -> Result<Self, String> {
-        let client_id = config_utils::get_oidc_client_id()
-            .map_err(|e| format!("OIDC_CLIENT_ID: {e}"))?;
+        let client_id =
+            config_utils::get_oidc_client_id().map_err(|e| format!("OIDC_CLIENT_ID: {e}"))?;
         let client_secret = config_utils::get_oidc_client_secret()
             .map_err(|e| format!("OIDC_CLIENT_SECRET: {e}"))?;
-        let redirect_uri = config_utils::get_oidc_redirect_uri()
-            .map_err(|e| format!("OIDC_REDIRECT_URI: {e}"))?;
+        let redirect_uri =
+            config_utils::get_oidc_redirect_uri().map_err(|e| format!("OIDC_REDIRECT_URI: {e}"))?;
 
         let issuer_url = config_utils::get_oidc_issuer_url().ok();
         let auth_uri = config_utils::get_oidc_auth_uri().ok();
@@ -139,9 +139,10 @@ pub async fn generate_logout_url(
 ) -> Option<String> {
     let end_session_endpoint = get_end_session_endpoint().await?;
 
-    let mut params: Vec<(&str, String)> = vec![
-        ("post_logout_redirect_uri", post_logout_redirect_uri.to_string()),
-    ];
+    let mut params: Vec<(&str, String)> = vec![(
+        "post_logout_redirect_uri",
+        post_logout_redirect_uri.to_string(),
+    )];
 
     if let Some(token) = id_token_hint {
         params.push(("id_token_hint", token.to_string()));
@@ -161,7 +162,11 @@ pub async fn generate_logout_url(
         .collect::<Vec<_>>()
         .join("&");
 
-    let separator = if end_session_endpoint.contains('?') { "&" } else { "?" };
+    let separator = if end_session_endpoint.contains('?') {
+        "&"
+    } else {
+        "?"
+    };
     let logout_url = format!("{end_session_endpoint}{separator}{query_string}");
 
     info!("OIDC: Generated logout URL: {}", logout_url);
@@ -273,8 +278,7 @@ impl OidcClientKind {
         SF: FnOnce() -> CsrfToken + 'static,
         NF: FnOnce() -> Nonce + 'static,
     {
-        let flow =
-            openidconnect::AuthenticationFlow::<CoreResponseType>::AuthorizationCode;
+        let flow = openidconnect::AuthenticationFlow::<CoreResponseType>::AuthorizationCode;
         match self {
             Self::Discovered(c) => c.authorize_url(flow, state_fn, nonce_fn),
             Self::ManualWithUserInfo(c) => c.authorize_url(flow, state_fn, nonce_fn),
@@ -367,16 +371,18 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<OidcClientKind, Strin
     if let Some(issuer_url) = &config.issuer_url {
         info!("OIDC: Using auto-discovery from issuer: {}", issuer_url);
 
-        let issuer = IssuerUrl::new(issuer_url.clone())
-            .map_err(|e| format!("Invalid issuer URL: {e}"))?;
+        let issuer =
+            IssuerUrl::new(issuer_url.clone()).map_err(|e| format!("Invalid issuer URL: {e}"))?;
 
         let provider_metadata: ProviderMetadataWithLogout =
             ProviderMetadataWithLogout::discover_async(issuer.clone(), &*OIDC_HTTP_CLIENT)
                 .await
                 .map_err(|e| format!("OIDC discovery failed: {e}"))?;
 
-        if let Some(end_session_url) =
-            provider_metadata.additional_metadata().end_session_endpoint.as_ref()
+        if let Some(end_session_url) = provider_metadata
+            .additional_metadata()
+            .end_session_endpoint
+            .as_ref()
         {
             let url_string = end_session_url.url().to_string();
             info!("OIDC: Discovered end_session_endpoint: {}", url_string);
@@ -399,17 +405,13 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<OidcClientKind, Strin
         // Re-discover as CoreProviderMetadata to feed the client. The logout-augmented
         // metadata above carries the same data but uses a different additional-metadata type,
         // so it isn't directly compatible with from_provider_metadata's CoreClient signature.
-        let core_metadata =
-            CoreProviderMetadata::discover_async(issuer, &*OIDC_HTTP_CLIENT)
-                .await
-                .map_err(|e| format!("OIDC discovery failed: {e}"))?;
+        let core_metadata = CoreProviderMetadata::discover_async(issuer, &*OIDC_HTTP_CLIENT)
+            .await
+            .map_err(|e| format!("OIDC discovery failed: {e}"))?;
 
-        let client = CoreClient::from_provider_metadata(
-            core_metadata,
-            client_id,
-            Some(client_secret),
-        )
-        .set_redirect_uri(redirect_url);
+        let client =
+            CoreClient::from_provider_metadata(core_metadata, client_id, Some(client_secret))
+                .set_redirect_uri(redirect_url);
 
         Ok(OidcClientKind::Discovered(client))
     } else {
@@ -504,10 +506,7 @@ pub async fn generate_auth_url(
 }
 
 /// Exchange authorization code for tokens and extract user info
-pub async fn exchange_code(
-    code: &str,
-    auth_data: &OidcAuthData,
-) -> Result<OidcUserInfo, String> {
+pub async fn exchange_code(code: &str, auth_data: &OidcAuthData) -> Result<OidcUserInfo, String> {
     let client = get_oidc_client().await?;
     let config = OidcConfig::from_env()?;
 
@@ -527,7 +526,10 @@ pub async fn exchange_code(
 
     let user_info = extract_user_info(&claims, &config)?;
 
-    info!("OIDC: Successfully authenticated user with sub: {}", user_info.sub);
+    info!(
+        "OIDC: Successfully authenticated user with sub: {}",
+        user_info.sub
+    );
 
     Ok(user_info)
 }
@@ -556,7 +558,9 @@ fn extract_user_info(
     let email = claims.email().map(|e| e.to_string());
     let email_verified = claims.email_verified();
 
-    let name = claims.name().and_then(|n| n.get(None).map(|s| s.to_string()));
+    let name = claims
+        .name()
+        .and_then(|n| n.get(None).map(|s| s.to_string()));
 
     let given_name = claims
         .given_name()
@@ -629,5 +633,4 @@ mod tests {
         let nonce2 = generate_nonce();
         assert_ne!(nonce1.secret(), nonce2.secret());
     }
-
 }

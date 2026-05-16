@@ -1,5 +1,7 @@
-use actix_web::{HttpResponse, Error as ActixError};
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation, errors::ErrorKind};
+use actix_web::{Error as ActixError, HttpResponse};
+use jsonwebtoken::{
+    decode, encode, errors::ErrorKind, Algorithm, DecodingKey, EncodingKey, Header, Validation,
+};
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 // Removed unused import: use uuid::Uuid;
@@ -7,11 +9,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::db::DbConnection;
 use crate::models::{Claims, User};
 use crate::repository;
-use crate::utils::{parse_uuid, uuid_to_string, role_to_string};
+use crate::utils::{parse_uuid, role_to_string, uuid_to_string};
 
 // Lazy static for JWT secret - initialized once
 lazy_static::lazy_static! {
-    pub static ref JWT_SECRET: String = 
+    pub static ref JWT_SECRET: String =
         std::env::var("JWT_SECRET").expect("JWT_SECRET environment variable must be set");
 }
 
@@ -91,17 +93,16 @@ impl JwtUtils {
     /// Validate token and ensure user exists in database
     pub async fn validate_token_with_user_check(
         token: &str,
-        conn: &mut DbConnection
+        conn: &mut DbConnection,
     ) -> Result<(Claims, User), JwtError> {
         let claims = Self::validate_token(token)?;
 
         // Parse UUID from claims
-        let user_uuid = parse_uuid(&claims.sub)
-            .map_err(|_| JwtError::InvalidUserUuid)?;
+        let user_uuid = parse_uuid(&claims.sub).map_err(|_| JwtError::InvalidUserUuid)?;
 
         // Get user from database to ensure they still exist and are active
-        let user = repository::get_user_by_uuid(&user_uuid, conn)
-            .map_err(|_| JwtError::UserNotFound)?;
+        let user =
+            repository::get_user_by_uuid(&user_uuid, conn).map_err(|_| JwtError::UserNotFound)?;
 
         // Verify role hasn't changed since token was issued
         let current_role = role_to_string(&user.role);
@@ -117,24 +118,27 @@ impl JwtUtils {
 
         if !is_sse_token {
             // Use sid claim to look up session by stable UUID
-            let sid_str = claims.sid.as_deref()
-                .ok_or(JwtError::SessionRevoked)?;
+            let sid_str = claims.sid.as_deref().ok_or(JwtError::SessionRevoked)?;
 
-            let session_uuid = uuid::Uuid::parse_str(sid_str)
-                .map_err(|_| JwtError::SessionRevoked)?;
+            let session_uuid =
+                uuid::Uuid::parse_str(sid_str).map_err(|_| JwtError::SessionRevoked)?;
 
-            match crate::repository::active_sessions::get_session_by_session_id(conn, &session_uuid) {
+            match crate::repository::active_sessions::get_session_by_session_id(conn, &session_uuid)
+            {
                 Ok(session) => {
                     if session.user_uuid != user_uuid {
-                        tracing::warn!("Session UUID mismatch: session belongs to {}, token claims {}",
-                            session.user_uuid, user_uuid);
+                        tracing::warn!(
+                            "Session UUID mismatch: session belongs to {}, token claims {}",
+                            session.user_uuid,
+                            user_uuid
+                        );
                         return Err(JwtError::SessionRevoked);
                     }
                     if session.expires_at < chrono::Utc::now().naive_utc() {
                         tracing::debug!("Session expired for sid {}", sid_str);
                         return Err(JwtError::SessionRevoked);
                     }
-                },
+                }
                 Err(_) => {
                     tracing::debug!("Session not found or revoked for sid: {}", sid_str);
                     return Err(JwtError::SessionRevoked);
@@ -198,10 +202,19 @@ pub enum JwtError {
     SystemTime,
     InvalidUserUuid,
     UserNotFound,
-    RoleMismatch { token_role: String, current_role: String },
+    RoleMismatch {
+        token_role: String,
+        current_role: String,
+    },
     MissingToken,
-    InsufficientPermissions { required: String, actual: String },
-    InsufficientScope { required: String, actual: String },
+    InsufficientPermissions {
+        required: String,
+        actual: String,
+    },
+    InsufficientScope {
+        required: String,
+        actual: String,
+    },
     SessionRevoked,
 }
 
@@ -212,15 +225,27 @@ impl std::fmt::Display for JwtError {
             Self::SystemTime => write!(f, "System time error"),
             Self::InvalidUserUuid => write!(f, "Invalid user UUID in token"),
             Self::UserNotFound => write!(f, "User not found or inactive"),
-            Self::RoleMismatch { token_role, current_role } => {
-                write!(f, "Role mismatch - token has '{token_role}', current role is '{current_role}'")
+            Self::RoleMismatch {
+                token_role,
+                current_role,
+            } => {
+                write!(
+                    f,
+                    "Role mismatch - token has '{token_role}', current role is '{current_role}'"
+                )
             }
             Self::MissingToken => write!(f, "Missing authentication token"),
             Self::InsufficientPermissions { required, actual } => {
-                write!(f, "Insufficient permissions - required: {required}, actual: {actual}")
+                write!(
+                    f,
+                    "Insufficient permissions - required: {required}, actual: {actual}"
+                )
             }
             Self::InsufficientScope { required, actual } => {
-                write!(f, "Insufficient token scope - required: {required}, actual: {actual}")
+                write!(
+                    f,
+                    "Insufficient token scope - required: {required}, actual: {actual}"
+                )
             }
             Self::SessionRevoked => write!(f, "Session has been revoked"),
         }
@@ -246,38 +271,34 @@ impl From<jsonwebtoken::errors::Error> for JwtError {
 impl From<JwtError> for ActixError {
     fn from(error: JwtError) -> Self {
         match error {
-            JwtError::EncodingError(ref jwt_err) => {
-                match jwt_err.kind() {
-                    ErrorKind::ExpiredSignature => {
-                        actix_web::error::ErrorUnauthorized("Token has expired")
-                    },
-                    ErrorKind::InvalidToken => {
-                        actix_web::error::ErrorUnauthorized("Invalid token format")
-                    },
-                    _ => actix_web::error::ErrorUnauthorized("Invalid token"),
+            JwtError::EncodingError(ref jwt_err) => match jwt_err.kind() {
+                ErrorKind::ExpiredSignature => {
+                    actix_web::error::ErrorUnauthorized("Token has expired")
                 }
+                ErrorKind::InvalidToken => {
+                    actix_web::error::ErrorUnauthorized("Invalid token format")
+                }
+                _ => actix_web::error::ErrorUnauthorized("Invalid token"),
             },
             JwtError::InvalidUserUuid | JwtError::UserNotFound => {
                 actix_web::error::ErrorUnauthorized("Invalid user credentials")
-            },
+            }
             JwtError::RoleMismatch { .. } => {
                 actix_web::error::ErrorUnauthorized("Token role mismatch - please log in again")
-            },
+            }
             JwtError::MissingToken => {
                 actix_web::error::ErrorUnauthorized("Missing authentication token")
-            },
+            }
             JwtError::InsufficientPermissions { .. } => {
                 actix_web::error::ErrorForbidden("Insufficient permissions")
-            },
-            JwtError::InsufficientScope { .. } => {
-                actix_web::error::ErrorForbidden("This action requires a full session - please log in again")
-            },
-            JwtError::SessionRevoked => {
-                actix_web::error::ErrorUnauthorized("Session has been revoked - please log in again")
-            },
-            JwtError::SystemTime => {
-                actix_web::error::ErrorInternalServerError("Server time error")
-            },
+            }
+            JwtError::InsufficientScope { .. } => actix_web::error::ErrorForbidden(
+                "This action requires a full session - please log in again",
+            ),
+            JwtError::SessionRevoked => actix_web::error::ErrorUnauthorized(
+                "Session has been revoked - please log in again",
+            ),
+            JwtError::SystemTime => actix_web::error::ErrorInternalServerError("Server time error"),
         }
     }
 }
@@ -361,23 +382,28 @@ pub mod helpers {
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
     ) -> Result<LoginTokens, HttpResponse> {
-        let access_token = JwtUtils::create_token(user, session_id)
-            .map_err(|_| HttpResponse::InternalServerError().json(json!({
+        let access_token = JwtUtils::create_token(user, session_id).map_err(|_| {
+            HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error generating token"
-            })))?;
+            }))
+        })?;
 
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
 
         let refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
-        crate::repository::refresh_tokens::create_refresh_token(conn, crate::models::NewRefreshToken {
-            token_hash: refresh_token_hash,
-            user_uuid: user.uuid,
-            expires_at: refresh_expires,
-            session_id: Some(*session_id),
-            family_id: *family_id,
-        }).map_err(|e| {
+        crate::repository::refresh_tokens::create_refresh_token(
+            conn,
+            crate::models::NewRefreshToken {
+                token_hash: refresh_token_hash,
+                user_uuid: user.uuid,
+                expires_at: refresh_expires,
+                session_id: Some(*session_id),
+                family_id: *family_id,
+            },
+        )
+        .map_err(|e| {
             tracing::error!("Failed to store refresh token: {}", e);
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
@@ -387,7 +413,11 @@ pub mod helpers {
 
         let csrf_token = crate::utils::csrf::generate_csrf_token();
 
-        Ok(LoginTokens { access_token, refresh_token, csrf_token })
+        Ok(LoginTokens {
+            access_token,
+            refresh_token,
+            csrf_token,
+        })
     }
 
     /// Create a successful login response with tokens (caller sets cookies)
@@ -434,7 +464,9 @@ pub mod helpers {
     }
 
     /// Create a response indicating MFA setup is required
-    pub fn create_mfa_setup_required_response(user_uuid: uuid::Uuid) -> crate::models::LoginResponse {
+    pub fn create_mfa_setup_required_response(
+        user_uuid: uuid::Uuid,
+    ) -> crate::models::LoginResponse {
         crate::models::LoginResponse {
             success: false,
             mfa_required: Some(false),
@@ -443,7 +475,9 @@ pub mod helpers {
             user_uuid: Some(user_uuid.to_string()),
             csrf_token: None,
             user: None,
-            message: Some("Multi-factor authentication setup required for your account type".to_string()),
+            message: Some(
+                "Multi-factor authentication setup required for your account type".to_string(),
+            ),
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
             backup_codes: None,
@@ -451,7 +485,9 @@ pub mod helpers {
     }
 
     /// Create a response indicating passkey verification is required after password login
-    pub fn create_passkey_mfa_required_response(user_uuid: uuid::Uuid) -> crate::models::LoginResponse {
+    pub fn create_passkey_mfa_required_response(
+        user_uuid: uuid::Uuid,
+    ) -> crate::models::LoginResponse {
         crate::models::LoginResponse {
             success: false,
             mfa_required: None,
@@ -466,8 +502,6 @@ pub mod helpers {
             backup_codes: None,
         }
     }
-
-
 
     /// Create a successful MFA login response with tokens (caller sets cookies)
     pub fn create_mfa_login_response(
@@ -540,7 +574,9 @@ mod tests {
 
     #[test]
     fn create_token_and_validate_roundtrip() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only"); }
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");
+        }
 
         // Force lazy_static initialization by accessing JWT_SECRET
         let _ = &*JWT_SECRET;
@@ -575,11 +611,14 @@ mod tests {
 
     #[test]
     fn create_sse_token_has_sse_scope() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only"); }
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");
+        }
         let _ = &*JWT_SECRET;
 
         let user_id = uuid::Uuid::new_v4().to_string();
-        let token = JwtUtils::create_sse_token(&user_id, "admin").expect("Failed to create SSE token");
+        let token =
+            JwtUtils::create_sse_token(&user_id, "admin").expect("Failed to create SSE token");
         let claims = JwtUtils::validate_token(&token).expect("Failed to validate SSE token");
         assert_eq!(claims.scope, "sse");
         assert_eq!(claims.sub, user_id);

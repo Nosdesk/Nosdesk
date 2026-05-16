@@ -21,8 +21,8 @@ fn emit_user_event(
     op: SyncOp,
     event_type: &'static str,
 ) -> QueryResult<()> {
-    let email = crate::repository::user_helpers::get_primary_email(&user.uuid, conn)
-        .unwrap_or_default();
+    let email =
+        crate::repository::user_helpers::get_primary_email(&user.uuid, conn).unwrap_or_default();
     emit::record(
         conn,
         SyncEmit {
@@ -63,9 +63,7 @@ pub trait UserDeletedObserver: Send + Sync {
 
 // User repository functions
 pub fn get_users(conn: &mut DbConnection) -> Result<Vec<User>, Error> {
-    users::table
-        .order_by(users::name.asc())
-        .load::<User>(conn)
+    users::table.order_by(users::name.asc()).load::<User>(conn)
 }
 
 // Get paginated users with filtering and sorting
@@ -84,12 +82,18 @@ pub fn get_paginated_users(
     let search_uuids: Option<Vec<Uuid>> = match search.as_deref() {
         Some(term) if !term.is_empty() => {
             let pattern = format!("%{}%", term.to_lowercase());
-            Some(users::table
-                .left_join(user_emails::table.on(user_emails::user_uuid.eq(users::uuid)))
-                .select(users::uuid)
-                .filter(users::name.ilike(pattern.clone()).or(user_emails::email.ilike(pattern)))
-                .distinct()
-                .load::<Uuid>(conn)?)
+            Some(
+                users::table
+                    .left_join(user_emails::table.on(user_emails::user_uuid.eq(users::uuid)))
+                    .select(users::uuid)
+                    .filter(
+                        users::name
+                            .ilike(pattern.clone())
+                            .or(user_emails::email.ilike(pattern)),
+                    )
+                    .distinct()
+                    .load::<Uuid>(conn)?,
+            )
         }
         _ => None,
     };
@@ -143,9 +147,7 @@ pub fn get_paginated_users(
 // Note: get_user_by_id removed - users table now uses UUID as primary key
 // Use get_user_by_uuid instead
 pub fn get_user_by_uuid(uuid: &Uuid, conn: &mut DbConnection) -> Result<User, Error> {
-    users::table
-        .find(uuid)
-        .first::<User>(conn)
+    users::table.find(uuid).first::<User>(conn)
 }
 
 // This function now delegates to user_helpers module since email is in user_emails table
@@ -159,10 +161,7 @@ pub fn get_user_by_name(name: &str, conn: &mut DbConnection) -> Result<User, Err
         .first::<User>(conn)
 }
 
-pub fn create_user(
-    user: NewUser,
-    conn: &mut DbConnection,
-) -> Result<User, Error> {
+pub fn create_user(user: NewUser, conn: &mut DbConnection) -> Result<User, Error> {
     diesel::insert_into(users::table)
         .values(user)
         .get_result(conn)
@@ -201,9 +200,9 @@ pub fn delete_user(
     observer: Option<&dyn UserDeletedObserver>,
 ) -> Result<usize, Error> {
     use crate::schema::{
-        comments, devices, tickets, attachments, linked_tickets, project_tickets,
-        ticket_devices, article_contents, sync_history, user_auth_identities, user_emails,
-        documentation_pages, documentation_revisions, projects,
+        article_contents, attachments, comments, devices, documentation_pages,
+        documentation_revisions, linked_tickets, project_tickets, projects, sync_history,
+        ticket_devices, tickets, user_auth_identities, user_emails,
     };
 
     // Start a transaction to ensure all-or-nothing deletion
@@ -212,8 +211,7 @@ pub fn delete_user(
         // Tables with ON DELETE RESTRICT require explicit deletion/reassignment first
 
         // 1a. Delete all comments by this user
-        diesel::delete(comments::table.filter(comments::user_uuid.eq(user_uuid)))
-            .execute(conn)?;
+        diesel::delete(comments::table.filter(comments::user_uuid.eq(user_uuid))).execute(conn)?;
 
         // 1b. Update tickets where user is requester (RESTRICT) - set to NULL
         diesel::update(tickets::table.filter(tickets::requester_uuid.eq(user_uuid)))
@@ -231,17 +229,25 @@ pub fn delete_user(
 
         if let Some(admin) = first_admin {
             // Reassign documentation to another admin
-            diesel::update(documentation_pages::table.filter(documentation_pages::created_by.eq(user_uuid)))
-                .set(documentation_pages::created_by.eq(admin.uuid))
-                .execute(conn)?;
+            diesel::update(
+                documentation_pages::table.filter(documentation_pages::created_by.eq(user_uuid)),
+            )
+            .set(documentation_pages::created_by.eq(admin.uuid))
+            .execute(conn)?;
 
-            diesel::update(documentation_pages::table.filter(documentation_pages::last_edited_by.eq(user_uuid)))
-                .set(documentation_pages::last_edited_by.eq(admin.uuid))
-                .execute(conn)?;
+            diesel::update(
+                documentation_pages::table
+                    .filter(documentation_pages::last_edited_by.eq(user_uuid)),
+            )
+            .set(documentation_pages::last_edited_by.eq(admin.uuid))
+            .execute(conn)?;
 
-            diesel::update(documentation_revisions::table.filter(documentation_revisions::created_by.eq(user_uuid)))
-                .set(documentation_revisions::created_by.eq(admin.uuid))
-                .execute(conn)?;
+            diesel::update(
+                documentation_revisions::table
+                    .filter(documentation_revisions::created_by.eq(user_uuid)),
+            )
+            .set(documentation_revisions::created_by.eq(admin.uuid))
+            .execute(conn)?;
         }
         // Note: If no other admin exists, delete fails due to FK constraint
         // Intentional - at least one admin must own documentation
@@ -310,9 +316,11 @@ pub fn delete_user(
             .execute(conn)?;
 
         // 2j. User auth identities created_by
-        diesel::update(user_auth_identities::table.filter(user_auth_identities::created_by.eq(user_uuid)))
-            .set(user_auth_identities::created_by.eq::<Option<Uuid>>(None))
-            .execute(conn)?;
+        diesel::update(
+            user_auth_identities::table.filter(user_auth_identities::created_by.eq(user_uuid)),
+        )
+        .set(user_auth_identities::created_by.eq::<Option<Uuid>>(None))
+        .execute(conn)?;
 
         // 2k. User emails created_by
         diesel::update(user_emails::table.filter(user_emails::created_by.eq(user_uuid)))
@@ -323,8 +331,10 @@ pub fn delete_user(
         // These would be deleted automatically by CASCADE, but explicit is clearer
 
         // 3a. Delete user auth identities
-        diesel::delete(user_auth_identities::table.filter(user_auth_identities::user_uuid.eq(user_uuid)))
-            .execute(conn)?;
+        diesel::delete(
+            user_auth_identities::table.filter(user_auth_identities::user_uuid.eq(user_uuid)),
+        )
+        .execute(conn)?;
 
         // 3b. Delete user emails
         diesel::delete(user_emails::table.filter(user_emails::user_uuid.eq(user_uuid)))
@@ -343,7 +353,8 @@ pub fn delete_user(
         }
 
         Ok(deleted_count)
-    }).inspect(|count| {
+    })
+    .inspect(|count| {
         if *count > 0 {
             if let Some(observer) = observer {
                 observer.user_deleted(user_uuid);
@@ -383,10 +394,7 @@ pub fn update_user_mfa(
 /// nullable column would be ambiguous between "leave alone" and
 /// "set NULL"; we write the clearing SQL directly to avoid the
 /// ambiguity.
-pub fn clear_user_mfa(
-    conn: &mut DbConnection,
-    user_uuid: &Uuid,
-) -> Result<usize, Error> {
+pub fn clear_user_mfa(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<usize, Error> {
     diesel::update(users::table.filter(users::uuid.eq(user_uuid)))
         .set((
             users::mfa_secret.eq::<Option<String>>(None),
@@ -400,8 +408,8 @@ pub fn clear_user_mfa(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn create_and_get_user_by_uuid() {

@@ -57,8 +57,7 @@ pub async fn ensure_sync_partitions(pool: Pool) -> Result<()> {
     // 60-day lookahead matches the architecture doc's recommendation
     // and gives us nearly two months of headroom against any single
     // missed run.
-    crate::sync::partitions::ensure_partitions(&mut conn, 60)
-        .context("ensure sync partitions")?;
+    crate::sync::partitions::ensure_partitions(&mut conn, 60).context("ensure sync partitions")?;
     Ok(())
 }
 
@@ -87,7 +86,11 @@ pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
     let removed = crate::repository::csp_reports::prune_older_than(&mut conn, days)
         .context("prune CSP reports")?;
     if removed > 0 {
-        info!(count = removed, retention_days = days, "scheduler: CSP reports pruned");
+        info!(
+            count = removed,
+            retention_days = days,
+            "scheduler: CSP reports pruned"
+        );
     }
     Ok(())
 }
@@ -102,7 +105,11 @@ pub async fn prune_security_events(pool: Pool) -> Result<()> {
     let removed = crate::utils::security_events::prune_older_than(&mut conn, days)
         .context("prune security events")?;
     if removed > 0 {
-        info!(count = removed, retention_days = days, "scheduler: security events pruned");
+        info!(
+            count = removed,
+            retention_days = days,
+            "scheduler: security events pruned"
+        );
     }
     Ok(())
 }
@@ -117,7 +124,11 @@ pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
     let removed = crate::repository::webhooks::prune_deliveries_older_than(&mut conn, days)
         .context("prune webhook deliveries")?;
     if removed > 0 {
-        info!(count = removed, retention_days = days, "scheduler: webhook deliveries pruned");
+        info!(
+            count = removed,
+            retention_days = days,
+            "scheduler: webhook deliveries pruned"
+        );
     }
     Ok(())
 }

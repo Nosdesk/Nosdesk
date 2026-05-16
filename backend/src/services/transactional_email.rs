@@ -79,12 +79,8 @@ pub fn prepare_password_reset(
     reset_token: &str,
     locale: &unic_langid::LanguageIdentifier,
 ) -> NewOutboundEmail {
-    let (subject, body_html, body_text) = svc.compose_password_reset(
-        user_name,
-        reset_token,
-        branding,
-        locale,
-    );
+    let (subject, body_html, body_text) =
+        svc.compose_password_reset(user_name, reset_token, branding, locale);
     let message_id = make_message_id("password-reset", &from_email_domain(svc));
 
     // Auto-Submitted signals well-behaved auto-responders (out-of-
@@ -139,13 +135,8 @@ pub fn prepare_invitation(
     invited_by: &str,
     locale: &unic_langid::LanguageIdentifier,
 ) -> NewOutboundEmail {
-    let (subject, body_html, body_text) = svc.compose_invitation(
-        user_name,
-        invitation_token,
-        branding,
-        invited_by,
-        locale,
-    );
+    let (subject, body_html, body_text) =
+        svc.compose_invitation(user_name, invitation_token, branding, invited_by, locale);
     let message_id = make_message_id("invitation", &from_email_domain(svc));
     let headers_json = serde_json::json!({
         "Auto-Submitted": "auto-generated",
@@ -210,14 +201,8 @@ pub fn prepare_notification(
     recipient_uuid: &str,
     locale: &unic_langid::LanguageIdentifier,
 ) -> NewOutboundEmail {
-    let (body_html, body_text) = svc.compose_notification(
-        title,
-        body,
-        actor_name,
-        cta_url,
-        branding,
-        locale,
-    );
+    let (body_html, body_text) =
+        svc.compose_notification(title, body, actor_name, cta_url, branding, locale);
     let message_id = make_message_id("notify", &from_email_domain(svc));
     // Notification emails are system-generated but represent a
     // human-authored underlying event (a comment a person wrote).
@@ -369,7 +354,10 @@ mod tests {
         );
 
         assert_eq!(row.recipient, "alice@example.com");
-        assert!(row.channel_id.is_none(), "transactional rows have no channel");
+        assert!(
+            row.channel_id.is_none(),
+            "transactional rows have no channel"
+        );
         assert!(row.subject.contains("Reset"));
         assert!(
             row.subject.contains("Nosdesk"),
@@ -378,7 +366,9 @@ mod tests {
         );
 
         assert_eq!(
-            row.headers_json.get("Auto-Submitted").and_then(|v| v.as_str()),
+            row.headers_json
+                .get("Auto-Submitted")
+                .and_then(|v| v.as_str()),
             Some("auto-generated"),
             "password reset must carry RFC 3834 loop-break header"
         );
@@ -403,7 +393,8 @@ mod tests {
 
         assert!(!row.body_text.trim().is_empty(), "plain-text alt non-empty");
         assert!(
-            row.body_text.contains("reset-password?token=raw-token-abc123"),
+            row.body_text
+                .contains("reset-password?token=raw-token-abc123"),
             "plain-text alt carries the link as a bare URL: {}",
             row.body_text
         );
@@ -426,7 +417,9 @@ mod tests {
         assert!(row.subject.contains("Invited"));
 
         assert_eq!(
-            row.headers_json.get("Auto-Submitted").and_then(|v| v.as_str()),
+            row.headers_json
+                .get("Auto-Submitted")
+                .and_then(|v| v.as_str()),
             Some("auto-generated"),
             "invitations must carry RFC 3834 loop-break header"
         );
@@ -444,7 +437,9 @@ mod tests {
         assert!(html.contains("Kyle"), "inviter name appears");
 
         assert!(!row.body_text.trim().is_empty());
-        assert!(row.body_text.contains("accept-invitation?token=invite-token-xyz"));
+        assert!(row
+            .body_text
+            .contains("accept-invitation?token=invite-token-xyz"));
     }
 
     #[test]
@@ -483,12 +478,16 @@ mod tests {
         assert!(html.contains("display: none"), "preheader present");
         assert!(html.contains("https://desk.example.com/tickets/42"));
         assert!(html.contains("Kyle"), "actor name appears");
-        assert!(html.contains("It&#x27;s still burning.") || html.contains("It's still burning."),
-            "body content rendered (possibly HTML-escaped)");
+        assert!(
+            html.contains("It&#x27;s still burning.") || html.contains("It's still burning."),
+            "body content rendered (possibly HTML-escaped)"
+        );
 
         assert!(!row.body_text.trim().is_empty());
         assert!(row.body_text.contains("It's still burning."));
-        assert!(row.body_text.contains("https://desk.example.com/tickets/42"));
+        assert!(row
+            .body_text
+            .contains("https://desk.example.com/tickets/42"));
     }
 
     #[test]

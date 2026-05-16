@@ -27,8 +27,13 @@ pub fn get_rule_by_id(conn: &mut DbConnection, rule_id: i32) -> QueryResult<Assi
 }
 
 /// Get a rule with all related details (user, group, category, state)
-pub fn get_rule_with_details(conn: &mut DbConnection, rule_id: i32) -> Result<AssignmentRuleWithDetails, Error> {
-    let rule = assignment_rules::table.find(rule_id).first::<AssignmentRule>(conn)?;
+pub fn get_rule_with_details(
+    conn: &mut DbConnection,
+    rule_id: i32,
+) -> Result<AssignmentRuleWithDetails, Error> {
+    let rule = assignment_rules::table
+        .find(rule_id)
+        .first::<AssignmentRule>(conn)?;
 
     // Get target user if set
     let target_user = if let Some(user_uuid) = rule.target_user_uuid {
@@ -66,7 +71,9 @@ pub fn get_rule_with_details(conn: &mut DbConnection, rule_id: i32) -> Result<As
 }
 
 /// Get all rules with details
-pub fn get_all_rules_with_details(conn: &mut DbConnection) -> Result<Vec<AssignmentRuleWithDetails>, Error> {
+pub fn get_all_rules_with_details(
+    conn: &mut DbConnection,
+) -> Result<Vec<AssignmentRuleWithDetails>, Error> {
     let rules = get_all_rules(conn)?;
     let mut result = Vec::new();
 
@@ -79,7 +86,10 @@ pub fn get_all_rules_with_details(conn: &mut DbConnection) -> Result<Vec<Assignm
 }
 
 /// Create a new assignment rule
-pub fn create_rule(conn: &mut DbConnection, new_rule: NewAssignmentRule) -> QueryResult<AssignmentRule> {
+pub fn create_rule(
+    conn: &mut DbConnection,
+    new_rule: NewAssignmentRule,
+) -> QueryResult<AssignmentRule> {
     diesel::insert_into(assignment_rules::table)
         .values(&new_rule)
         .get_result(conn)
@@ -156,7 +166,11 @@ pub fn get_next_priority(conn: &mut DbConnection) -> QueryResult<i32> {
 }
 
 /// Check if a rule name already exists
-pub fn rule_name_exists(conn: &mut DbConnection, name: &str, exclude_id: Option<i32>) -> QueryResult<bool> {
+pub fn rule_name_exists(
+    conn: &mut DbConnection,
+    name: &str,
+    exclude_id: Option<i32>,
+) -> QueryResult<bool> {
     let mut query = assignment_rules::table
         .filter(assignment_rules::name.eq(name))
         .into_boxed();

@@ -1,30 +1,26 @@
-use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use bcrypt::verify;
 use serde_json::json;
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-use tracing::{debug, info, warn, error};
-
 
 use crate::db::DbConnection;
-use crate::handlers::helpers;
 use crate::handlers::errors;
-use crate::models::{
-    LoginRequest, PasswordChangeRequest,
-    UserRegistration,
-};
+use crate::handlers::helpers;
+use crate::models::{LoginRequest, PasswordChangeRequest, UserRegistration};
 use crate::repository;
-use crate::utils::{self, ValidationError, parse_uuid};
 use crate::utils::auth::{hash_password, validate_password};
 use crate::utils::mfa;
-use crate::utils::rate_limit::{RateLimiter, get_redis_url};
+use crate::utils::rate_limit::{get_redis_url, RateLimiter};
+use crate::utils::{self, parse_uuid, ValidationError};
 
 // Import JWT utilities
-use crate::utils::jwt::{JwtUtils, helpers as jwt_helpers};
+use crate::utils::jwt::{helpers as jwt_helpers, JwtUtils};
 
 /// Helper function to get password hash from user_auth_identities for local auth
 fn get_local_password_hash(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<String, String> {
-    use diesel::prelude::*;
     use crate::schema::user_auth_identities;
+    use diesel::prelude::*;
 
     let password_hash: Option<String> = user_auth_identities::table
         .filter(user_auth_identities::user_uuid.eq(user_uuid))
@@ -39,22 +35,24 @@ fn get_local_password_hash(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<
 }
 
 /// Helper function to update password hash in user_auth_identities for local auth
-fn update_local_password_hash(user_uuid: &Uuid, new_password_hash: &str, conn: &mut DbConnection) -> Result<(), diesel::result::Error> {
-    use diesel::prelude::*;
+fn update_local_password_hash(
+    user_uuid: &Uuid,
+    new_password_hash: &str,
+    conn: &mut DbConnection,
+) -> Result<(), diesel::result::Error> {
     use crate::schema::user_auth_identities;
+    use diesel::prelude::*;
 
     diesel::update(
         user_auth_identities::table
             .filter(user_auth_identities::user_uuid.eq(user_uuid))
-            .filter(user_auth_identities::provider_type.eq("local"))
+            .filter(user_auth_identities::provider_type.eq("local")),
     )
     .set(user_auth_identities::password_hash.eq(Some(new_password_hash)))
     .execute(conn)?;
 
     Ok(())
 }
-
-
 
 /// Convert ValidationError to HTTP response
 impl From<ValidationError> for HttpResponse {
@@ -65,20 +63,20 @@ impl From<ValidationError> for HttpResponse {
                 "message": error.to_string()
             })),
             ValidationError::InvalidRole(_) => HttpResponse::BadRequest().json(json!({
-                "status": "error", 
+                "status": "error",
                 "message": error.to_string()
             })),
-            ValidationError::ValidationFailed(msg) => HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": msg
-            })),
+            ValidationError::ValidationFailed(msg) => {
+                HttpResponse::InternalServerError().json(json!({
+                    "status": "error",
+                    "message": msg
+                }))
+            }
         }
     }
 }
 
 // JWT token creation functions moved to jwt utils module
-
-
 
 /// Helper function to log password change security event
 async fn log_password_change_event(
@@ -110,13 +108,21 @@ async fn log_password_change_event(
 
 /// Parse a device name from a user-agent string.
 fn parse_device_name(ua: &str) -> &'static str {
-    if ua.contains("iPhone") { "iPhone" }
-    else if ua.contains("iPad") { "iPad" }
-    else if ua.contains("Android") { "Android Device" }
-    else if ua.contains("Macintosh") || ua.contains("Mac OS") { "Mac" }
-    else if ua.contains("Windows") { "Windows PC" }
-    else if ua.contains("Linux") { "Linux" }
-    else { "Unknown Device" }
+    if ua.contains("iPhone") {
+        "iPhone"
+    } else if ua.contains("iPad") {
+        "iPad"
+    } else if ua.contains("Android") {
+        "Android Device"
+    } else if ua.contains("Macintosh") || ua.contains("Mac OS") {
+        "Mac"
+    } else if ua.contains("Windows") {
+        "Windows PC"
+    } else if ua.contains("Linux") {
+        "Linux"
+    } else {
+        "Unknown Device"
+    }
 }
 
 /// Create a session record from an HTTP request. Returns the ActiveSession with its DB-generated session_id.
@@ -128,12 +134,15 @@ pub fn create_session_record(
     let ip_address = crate::utils::client_ip::from_http_request(request)
         .and_then(|ip| ip.to_string().parse().ok());
 
-    let user_agent = request.headers()
+    let user_agent = request
+        .headers()
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
 
-    let device_name = user_agent.as_deref().map(|ua| parse_device_name(ua).to_string());
+    let device_name = user_agent
+        .as_deref()
+        .map(|ua| parse_device_name(ua).to_string());
 
     let new_session = crate::models::NewActiveSession {
         user_uuid: *user_uuid,
@@ -193,8 +202,12 @@ fn complete_mfa_login(
     let family_id = Uuid::new_v4();
 
     match jwt_helpers::create_mfa_login_response(
-        user, backup_code_used, requires_regeneration,
-        &session.session_id, &family_id, conn,
+        user,
+        backup_code_used,
+        requires_regeneration,
+        &session.session_id,
+        &family_id,
+        conn,
     ) {
         Ok((response, tokens)) => build_auth_cookie_response(response, &tokens),
         Err(error_response) => error_response,
@@ -207,9 +220,15 @@ pub(crate) fn build_auth_cookie_response(
     tokens: &jwt_helpers::LoginTokens,
 ) -> HttpResponse {
     HttpResponse::Ok()
-        .cookie(crate::utils::cookies::create_access_token_cookie(&tokens.access_token))
-        .cookie(crate::utils::cookies::create_refresh_token_cookie(&tokens.refresh_token))
-        .cookie(crate::utils::cookies::create_csrf_token_cookie(&tokens.csrf_token))
+        .cookie(crate::utils::cookies::create_access_token_cookie(
+            &tokens.access_token,
+        ))
+        .cookie(crate::utils::cookies::create_refresh_token_cookie(
+            &tokens.refresh_token,
+        ))
+        .cookie(crate::utils::cookies::create_csrf_token_cookie(
+            &tokens.csrf_token,
+        ))
         .json(body)
 }
 
@@ -236,7 +255,10 @@ pub async fn login(
         Ok(Some(remaining_seconds)) => {
             warn!(email = %login_data.email, remaining_seconds, "Login attempt on locked account");
             return errors::too_many_requests(
-                format!("Account temporarily locked. Try again in {} minutes.", (remaining_seconds / 60) + 1),
+                format!(
+                    "Account temporarily locked. Try again in {} minutes.",
+                    (remaining_seconds / 60) + 1
+                ),
                 remaining_seconds as u64,
             );
         }
@@ -245,7 +267,9 @@ pub async fn login(
             error!(error = %e, "Redis error checking account lockout");
             if is_production {
                 // Fail closed in production - deny login if we can't verify lockout status
-                return errors::service_unavailable("Authentication service temporarily unavailable. Please try again.");
+                return errors::service_unavailable(
+                    "Authentication service temporarily unavailable. Please try again.",
+                );
             }
             // Fail open in development for convenience
         }
@@ -266,7 +290,13 @@ pub async fn login(
     ) {
         Some(u) => u,
         None => {
-            match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+            match RateLimiter::record_failed_attempt(
+                &redis_url,
+                &lockout_key,
+                LOCKOUT_DURATION_SECONDS,
+            )
+            .await
+            {
                 Ok(attempts) => {
                     let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
                     if remaining == 0 {
@@ -341,12 +371,13 @@ pub async fn mfa_login(
     }
 
     // Verify MFA token (TOTP or backup code)
-    let mfa_result = match mfa::verify_mfa_token(&user.uuid, &login_data.mfa_token, &mut conn).await {
+    let mfa_result = match mfa::verify_mfa_token(&user.uuid, &login_data.mfa_token, &mut conn).await
+    {
         Ok(result) => result,
         Err(e) => {
             // Log failed MFA attempt for security monitoring
             mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
-            
+
             return errors::bad_request(format!("MFA verification failed: {}", e));
         }
     };
@@ -354,7 +385,7 @@ pub async fn mfa_login(
     if !mfa_result.is_valid {
         // Log failed MFA attempt
         mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
-        
+
         return errors::bad_request("Invalid MFA token");
     }
 
@@ -386,7 +417,10 @@ pub async fn recovery_login(
         Ok(Some(remaining_seconds)) => {
             warn!(email = %login_data.email, remaining_seconds, "Recovery login attempt on locked account");
             return errors::too_many_requests(
-                format!("Account temporarily locked. Try again in {} minutes.", (remaining_seconds / 60) + 1),
+                format!(
+                    "Account temporarily locked. Try again in {} minutes.",
+                    (remaining_seconds / 60) + 1
+                ),
                 remaining_seconds as u64,
             );
         }
@@ -397,7 +431,9 @@ pub async fn recovery_login(
                 .map(|v| v.to_lowercase() == "production")
                 .unwrap_or(false);
             if is_production {
-                return errors::service_unavailable("Authentication service temporarily unavailable. Please try again.");
+                return errors::service_unavailable(
+                    "Authentication service temporarily unavailable. Please try again.",
+                );
             }
         }
     }
@@ -414,7 +450,12 @@ pub async fn recovery_login(
     ) {
         Some(u) => u,
         None => {
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            let _ = RateLimiter::record_failed_attempt(
+                &redis_url,
+                &lockout_key,
+                LOCKOUT_DURATION_SECONDS,
+            )
+            .await;
             return errors::unauthorized("Invalid email or password");
         }
     };
@@ -430,11 +471,20 @@ pub async fn recovery_login(
 
     // Check rate limiting for MFA/recovery attempts
     if !mfa::check_mfa_rate_limit(&user.uuid).await {
-        return errors::too_many_requests("Too many recovery attempts. Please try again later.", 60);
+        return errors::too_many_requests(
+            "Too many recovery attempts. Please try again later.",
+            60,
+        );
     }
 
     // Verify recovery code directly (bypasses TOTP check)
-    let result = match mfa::verify_backup_code(&user.uuid, &login_data.recovery_code.trim(), &mut conn).await {
+    let result = match mfa::verify_backup_code(
+        &user.uuid,
+        &login_data.recovery_code.trim(),
+        &mut conn,
+    )
+    .await
+    {
         Ok(result) => result,
         Err(_) => {
             mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
@@ -462,14 +512,14 @@ pub async fn recovery_login(
 }
 
 /// Logout endpoint - revokes session from DB and clears cookies
-pub async fn logout(
-    db_pool: web::Data<crate::db::Pool>,
-    req: HttpRequest,
-) -> impl Responder {
-    use crate::utils::cookies::{delete_access_token_cookie, delete_refresh_token_cookie, delete_csrf_token_cookie};
+pub async fn logout(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> impl Responder {
+    use crate::utils::cookies::{
+        delete_access_token_cookie, delete_csrf_token_cookie, delete_refresh_token_cookie,
+    };
 
     // Best-effort session revocation — CASCADE handles linked refresh_tokens
-    if let (Ok(claims), Ok(mut conn)) = (JwtUtils::extract_claims(&req), helpers::db_conn(&db_pool)) {
+    if let (Ok(claims), Ok(mut conn)) = (JwtUtils::extract_claims(&req), helpers::db_conn(&db_pool))
+    {
         if let Some(sid) = claims.session_uuid() {
             match crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid) {
                 Ok(n) => tracing::info!("Logout: revoked {n} session(s) for sid {sid}"),
@@ -530,13 +580,15 @@ pub async fn register(
     // Validate role
     let trimmed_role = user_data.role.trim().to_lowercase();
     if !["admin", "technician", "user"].contains(&trimmed_role.as_str()) {
-        validation_errors.push("role: Invalid role. Must be 'admin', 'technician', or 'user'".to_string());
+        validation_errors
+            .push("role: Invalid role. Must be 'admin', 'technician', or 'user'".to_string());
     }
 
     // Validate optional fields
     if let Some(ref pronouns) = user_data.pronouns {
         if pronouns.len() > 50 {
-            validation_errors.push("pronouns: Pronouns must be less than 50 characters".to_string());
+            validation_errors
+                .push("pronouns: Pronouns must be less than 50 characters".to_string());
         }
     }
 
@@ -554,7 +606,8 @@ pub async fn register(
 
     if let Some(ref avatar_thumb) = user_data.avatar_thumb {
         if avatar_thumb.len() > 500 {
-            validation_errors.push("avatar_thumb: URL must be less than 500 characters".to_string());
+            validation_errors
+                .push("avatar_thumb: URL must be less than 500 characters".to_string());
         }
     }
 
@@ -588,23 +641,36 @@ pub async fn register(
     };
 
     // Create new user using builder pattern with normalized data
-    let (normalized_name, normalized_email) = utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let (new_user, email) = utils::NewUserBuilder::new(normalized_name, normalized_email.clone(), user_role)
-        .with_uuid(user_uuid)
-        .with_pronouns(utils::normalization::normalize_optional_string(user_data.pronouns.as_deref()))
-        .with_avatar(
-            utils::normalization::normalize_optional_string(user_data.avatar_url.as_deref()),
-            utils::normalization::normalize_optional_string(user_data.avatar_thumb.as_deref())
-        )
-        .with_banner(utils::normalization::normalize_optional_string(user_data.banner_url.as_deref()))
-        .build_with_email();
+    let (normalized_name, normalized_email) =
+        utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
+    let (new_user, email) =
+        utils::NewUserBuilder::new(normalized_name, normalized_email.clone(), user_role)
+            .with_uuid(user_uuid)
+            .with_pronouns(utils::normalization::normalize_optional_string(
+                user_data.pronouns.as_deref(),
+            ))
+            .with_avatar(
+                utils::normalization::normalize_optional_string(user_data.avatar_url.as_deref()),
+                utils::normalization::normalize_optional_string(user_data.avatar_thumb.as_deref()),
+            )
+            .with_banner(utils::normalization::normalize_optional_string(
+                user_data.banner_url.as_deref(),
+            ))
+            .build_with_email();
 
     // Save user to database with email (atomically creates both user and email entry)
-    match repository::user_helpers::create_user_with_email(new_user, email, true, Some("manual".to_string()), &mut conn, Some(search_service.get_ref())) {
+    match repository::user_helpers::create_user_with_email(
+        new_user,
+        email,
+        true,
+        Some("manual".to_string()),
+        &mut conn,
+        Some(search_service.get_ref()),
+    ) {
         Ok((created_user, _email_entry)) => {
             // Create local auth identity with password hash
-            use diesel::prelude::*;
             use crate::schema::user_auth_identities;
+            use diesel::prelude::*;
 
             #[derive(diesel::Insertable)]
             #[diesel(table_name = user_auth_identities)]
@@ -626,32 +692,39 @@ pub async fn register(
 
             if let Err(e) = diesel::insert_into(user_auth_identities::table)
                 .values(&auth_identity)
-                .execute(&mut conn) {
+                .execute(&mut conn)
+            {
                 error!(error = ?e, "Error creating auth identity");
                 // Rollback by deleting the user
-                let _ = repository::users::delete_user(&created_user.uuid, &mut conn, Some(search_service.get_ref()));
+                let _ = repository::users::delete_user(
+                    &created_user.uuid,
+                    &mut conn,
+                    Some(search_service.get_ref()),
+                );
                 return errors::internal("Error creating user authentication");
             }
 
             info!(user_name = %created_user.name, user_uuid = %created_user.uuid, "New user registered successfully");
-            let response = repository::user_helpers::get_user_with_primary_email(created_user, &mut conn);
+            let response =
+                repository::user_helpers::get_user_with_primary_email(created_user, &mut conn);
             HttpResponse::Created().json(response)
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error creating user");
-            
+
             // Provide more specific error messages for common issues
-            let error_message = if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
-                "Email address already exists in the system"
-            } else {
-                "Error creating user"
-            };
-            
+            let error_message =
+                if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
+                    "Email address already exists in the system"
+                } else {
+                    "Error creating user"
+                };
+
             HttpResponse::InternalServerError().json(json!({
             "status": "error",
                 "message": error_message
             }))
-        },
+        }
     }
 }
 
@@ -662,9 +735,13 @@ pub async fn change_password(
 ) -> impl Responder {
     // Validate new password first
     if password_data.new_password.len() < 8 {
-        return errors::bad_request("New password validation failed: Password must be at least 8 characters long");
+        return errors::bad_request(
+            "New password validation failed: Password must be at least 8 characters long",
+        );
     } else if password_data.new_password.len() > 128 {
-        return errors::bad_request("New password validation failed: Password must be less than 128 characters");
+        return errors::bad_request(
+            "New password validation failed: Password must be less than 128 characters",
+        );
     }
 
     // Get database connection
@@ -697,13 +774,14 @@ pub async fn change_password(
             };
 
             // Verify current password
-            let password_matches = match verify(&password_data.current_password, &current_password_hash) {
-                Ok(matches) => matches,
-                Err(_) => {
-                    error!("Error verifying current password during password change");
-                    return errors::internal("Error verifying password");
-                }
-            };
+            let password_matches =
+                match verify(&password_data.current_password, &current_password_hash) {
+                    Ok(matches) => matches,
+                    Err(_) => {
+                        error!("Error verifying current password during password change");
+                        return errors::internal("Error verifying password");
+                    }
+                };
 
             if !password_matches {
                 return errors::unauthorized("Current password is incorrect");
@@ -733,7 +811,8 @@ pub async fn change_password(
             // Update password_changed_at timestamp in users table
             match diesel::update(crate::schema::users::table.find(&user.uuid))
                 .set(crate::schema::users::password_changed_at.eq(now))
-                .execute(&mut conn) {
+                .execute(&mut conn)
+            {
                 Ok(_) => {
                     info!(user_name = %user.name, "Password changed successfully");
 
@@ -760,13 +839,13 @@ pub async fn change_password(
                         "status": "success",
                         "message": "Password changed successfully"
                     }))
-                },
+                }
                 Err(e) => {
                     error!(error = ?e, "Error updating password");
                     errors::internal("Error updating password")
                 }
             }
-        },
+        }
         Err(_) => errors::not_found_msg("User not found"),
     }
 }
@@ -801,7 +880,8 @@ pub async fn get_current_user(
     // Flatten user_preferences + primary_email into the response so
     // /me carries the same shape it did before the preferences
     // refactor.
-    let mut response = crate::repository::user_helpers::get_user_with_primary_email(user, &mut conn);
+    let mut response =
+        crate::repository::user_helpers::get_user_with_primary_email(user, &mut conn);
 
     // Populate effective_locale / effective_timezone by walking the
     // chain: user pref -> site default -> hardcoded fallback. A
@@ -813,14 +893,10 @@ pub async fn get_current_user(
             Ok(s) => (s.default_locale, s.default_timezone),
             Err(_) => (String::new(), String::new()),
         };
-    let eff_locale = crate::utils::locale::effective_locale(
-        response.locale.as_deref(),
-        &default_locale,
-    );
-    let eff_timezone = crate::utils::locale::effective_timezone(
-        response.timezone.as_deref(),
-        &default_timezone,
-    );
+    let eff_locale =
+        crate::utils::locale::effective_locale(response.locale.as_deref(), &default_locale);
+    let eff_timezone =
+        crate::utils::locale::effective_timezone(response.timezone.as_deref(), &default_timezone);
     response.effective_locale = Some(eff_locale.to_string());
     response.effective_timezone = Some(eff_timezone.name().to_string());
 
@@ -838,7 +914,7 @@ pub async fn check_setup_status(
         .unwrap_or_else(|| "unknown".to_string());
 
     debug!("Setup status check from IP: {}", client_ip);
-    
+
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -869,7 +945,7 @@ pub async fn check_setup_status(
 
             // Security headers now applied globally by SecurityHeaders middleware
             HttpResponse::Ok().json(response)
-        },
+        }
         Err(e) => {
             error!("Error counting users: {:?}", e);
             errors::internal("Failed to check setup status")
@@ -991,7 +1067,9 @@ pub async fn setup_initial_admin(
 
     // Search indexing happens post-commit so a rolled-back insert
     // never leaves an orphan document in tantivy.
-    search_service.index_user(&created_user, Some(user_email.email.as_str())).ok();
+    search_service
+        .index_user(&created_user, Some(user_email.email.as_str()))
+        .ok();
 
     match repository::categories::seed_defaults_if_empty(&mut conn, Some(created_user.uuid)) {
         Ok(0) => debug!("Default categories already present, skipping seed"),
@@ -1015,10 +1093,7 @@ pub async fn setup_initial_admin(
 // === MFA (Multi-Factor Authentication) Handlers ===
 
 /// MFA Setup - Generate secret and QR code
-pub async fn mfa_setup(
-    db_pool: web::Data<crate::db::Pool>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn mfa_setup(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -1160,7 +1235,7 @@ pub async fn mfa_enable(
     // Use pre-hashed backup codes from setup phase
     // Note: backup_codes from frontend are plaintext from setup, hashed here for storage
     // This maintains security while keeping the API simple
-    
+
     let backup_codes_json = match serde_json::to_value(&backup_codes_hashed) {
         Ok(json) => json,
         Err(_) => return errors::internal("Failed to serialize backup codes"),
@@ -1182,7 +1257,7 @@ pub async fn mfa_enable(
                 "message": "MFA enabled successfully",
                 "backup_codes": backup_codes_plaintext
             }))
-        },
+        }
         Err(e) => {
             tracing::error!("Failed to enable MFA in database: {:?}", e);
             errors::internal("Failed to enable MFA")
@@ -1237,19 +1312,23 @@ pub async fn mfa_disable(
     // Disable MFA
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(false),
-        mfa_secret: None, // Clear the secret
+        mfa_secret: None,                                // Clear the secret
         mfa_backup_codes: Some(serde_json::Value::Null), // Clear backup codes
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
     match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
         Ok(_) => {
-            tracing::info!("MFA disabled for user: {} (scope: {})", user_uuid, claims.scope);
+            tracing::info!(
+                "MFA disabled for user: {} (scope: {})",
+                user_uuid,
+                claims.scope
+            );
             HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": "MFA disabled successfully"
             }))
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error disabling MFA");
             errors::internal("Failed to disable MFA")
@@ -1312,7 +1391,7 @@ pub async fn mfa_regenerate_backup_codes(
                 backup_codes: backup_codes_plaintext,
             };
             HttpResponse::Ok().json(response)
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error regenerating backup codes");
             errors::internal("Failed to regenerate backup codes")
@@ -1321,10 +1400,7 @@ pub async fn mfa_regenerate_backup_codes(
 }
 
 /// MFA Status - Get current MFA status for the user
-pub async fn mfa_status(
-    db_pool: web::Data<crate::db::Pool>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn mfa_status(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -1348,7 +1424,8 @@ pub async fn mfa_status(
     };
 
     // Check if user has backup codes
-    let has_backup_codes = user.mfa_backup_codes
+    let has_backup_codes = user
+        .mfa_backup_codes
         .as_ref()
         .and_then(|codes| codes.as_array())
         .map(|array| !array.is_empty())
@@ -1361,8 +1438,6 @@ pub async fn mfa_status(
 
     HttpResponse::Ok().json(response)
 }
-
-
 
 /// MFA Setup for Login (Unauthenticated) - For users who need MFA to login but haven't set it up yet
 pub async fn mfa_setup_login(
@@ -1380,7 +1455,10 @@ pub async fn mfa_setup_login(
         Ok(Some(remaining_seconds)) => {
             warn!(email = %email_lower, remaining_seconds, "MFA setup attempt on locked account");
             return errors::too_many_requests(
-                format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds),
+                format!(
+                    "Account temporarily locked. Try again in {} seconds.",
+                    remaining_seconds
+                ),
                 remaining_seconds as u64,
             );
         }
@@ -1402,7 +1480,13 @@ pub async fn mfa_setup_login(
     ) {
         Some(u) => u,
         None => {
-            match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+            match RateLimiter::record_failed_attempt(
+                &redis_url,
+                &lockout_key,
+                LOCKOUT_DURATION_SECONDS,
+            )
+            .await
+            {
                 Ok(attempts) => {
                     let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
                     if remaining == 0 {
@@ -1479,7 +1563,10 @@ pub async fn mfa_enable_login(
         Ok(Some(remaining_seconds)) => {
             warn!(email = %email_lower, remaining_seconds, "MFA enable attempt on locked account");
             return errors::too_many_requests(
-                format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds),
+                format!(
+                    "Account temporarily locked. Try again in {} seconds.",
+                    remaining_seconds
+                ),
                 remaining_seconds as u64,
             );
         }
@@ -1501,7 +1588,13 @@ pub async fn mfa_enable_login(
     ) {
         Some(u) => u,
         None => {
-            match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+            match RateLimiter::record_failed_attempt(
+                &redis_url,
+                &lockout_key,
+                LOCKOUT_DURATION_SECONDS,
+            )
+            .await
+            {
                 Ok(attempts) => {
                     let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
                     if remaining == 0 {
@@ -1537,7 +1630,10 @@ pub async fn mfa_enable_login(
 
     // Final TOTP verification before enabling
     if !mfa::verify_totp_token(mfa_secret, &request.token) {
-        tracing::warn!("MFA enable verification failed for user during login: {}", user.uuid);
+        tracing::warn!(
+            "MFA enable verification failed for user during login: {}",
+            user.uuid
+        );
         return errors::bad_request("Invalid verification code");
     }
 
@@ -1571,26 +1667,38 @@ pub async fn mfa_enable_login(
 
     match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
         Ok(_) => {
-            tracing::info!("MFA enabled successfully for user during login: {}", user_uuid);
+            tracing::info!(
+                "MFA enabled successfully for user during login: {}",
+                user_uuid
+            );
 
             // Create session + tokens (same as login, but attach backup codes)
             let session = match create_session_record(&user_uuid, &http_request, &mut conn) {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::error!("Failed to create session for MFA enable login {}: {}", user_uuid, e);
+                    tracing::error!(
+                        "Failed to create session for MFA enable login {}: {}",
+                        user_uuid,
+                        e
+                    );
                     return errors::internal("Failed to create authentication session");
                 }
             };
             let family_id = Uuid::new_v4();
 
-            match jwt_helpers::create_login_response(user, &session.session_id, &family_id, &mut conn) {
+            match jwt_helpers::create_login_response(
+                user,
+                &session.session_id,
+                &family_id,
+                &mut conn,
+            ) {
                 Ok((mut response, tokens)) => {
                     response.backup_codes = Some(backup_codes_plaintext);
                     build_auth_cookie_response(response, &tokens)
-                },
+                }
                 Err(error_response) => error_response,
             }
-        },
+        }
         Err(e) => {
             tracing::error!("Failed to enable MFA in database: {:?}", e);
             errors::internal("Failed to enable MFA")
@@ -1624,30 +1732,34 @@ pub async fn get_user_sessions(
     let current_sid = claims.session_uuid();
 
     // Get all sessions for the user
-    let sessions = match crate::repository::active_sessions::get_user_sessions(&mut conn, &user_uuid) {
-        Ok(sessions) => sessions,
-        Err(e) => {
-            tracing::error!("Failed to get user sessions: {}", e);
-            return errors::internal("Failed to retrieve sessions");
-        }
-    };
+    let sessions =
+        match crate::repository::active_sessions::get_user_sessions(&mut conn, &user_uuid) {
+            Ok(sessions) => sessions,
+            Err(e) => {
+                tracing::error!("Failed to get user sessions: {}", e);
+                return errors::internal("Failed to retrieve sessions");
+            }
+        };
 
     // Convert sessions to response format
-    let session_responses: Vec<serde_json::Value> = sessions.into_iter().map(|session| {
-        let is_current = current_sid.map_or(false, |sid| session.session_id == sid);
-        json!({
-            "id": session.id,
-            "session_id": session.session_id.to_string(),
-            "device_name": session.device_name,
-            "ip_address": session.ip_address.map(|ip| ip.to_string()),
-            "user_agent": session.user_agent,
-            "location": session.location,
-            "created_at": session.created_at,
-            "last_active": session.last_active,
-            "expires_at": session.expires_at,
-            "is_current": is_current
+    let session_responses: Vec<serde_json::Value> = sessions
+        .into_iter()
+        .map(|session| {
+            let is_current = current_sid.map_or(false, |sid| session.session_id == sid);
+            json!({
+                "id": session.id,
+                "session_id": session.session_id.to_string(),
+                "device_name": session.device_name,
+                "ip_address": session.ip_address.map(|ip| ip.to_string()),
+                "user_agent": session.user_agent,
+                "location": session.location,
+                "created_at": session.created_at,
+                "last_active": session.last_active,
+                "expires_at": session.expires_at,
+                "is_current": is_current
+            })
         })
-    }).collect();
+        .collect();
 
     HttpResponse::Ok().json(json!({
         "status": "success",
@@ -1683,10 +1795,10 @@ pub async fn revoke_session(
     match crate::repository::active_sessions::get_session_by_id(&mut conn, session_id) {
         Ok(session) if session.user_uuid == user_uuid => {
             // Session belongs to user, proceed with revocation
-        },
+        }
         Ok(_) => {
             return errors::forbidden("You can only revoke your own sessions");
-        },
+        }
         Err(_) => {
             return errors::not_found_msg("Session not found");
         }
@@ -1700,7 +1812,7 @@ pub async fn revoke_session(
                 "status": "success",
                 "message": "Session revoked successfully"
             }))
-        },
+        }
         Ok(_) => errors::not_found_msg("Session not found"),
         Err(e) => {
             tracing::error!("Failed to revoke session: {}", e);
@@ -1733,22 +1845,26 @@ pub async fn revoke_all_other_sessions(
     // Revoke all other sessions (if we can't identify current session, revoke everything)
     let revoke_result = match claims.session_uuid() {
         Some(sid) => crate::repository::active_sessions::revoke_other_sessions_by_uuid(
-            &mut conn, &user_uuid, &sid
+            &mut conn, &user_uuid, &sid,
         ),
-        None => crate::repository::active_sessions::revoke_other_sessions(
-            &mut conn, &user_uuid, None
-        ),
+        None => {
+            crate::repository::active_sessions::revoke_other_sessions(&mut conn, &user_uuid, None)
+        }
     };
 
     match revoke_result {
         Ok(revoked_count) => {
-            tracing::info!("Revoked {} other session(s) for user {}", revoked_count, user_uuid);
+            tracing::info!(
+                "Revoked {} other session(s) for user {}",
+                revoked_count,
+                user_uuid
+            );
             HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": format!("Successfully revoked {} session(s)", revoked_count),
                 "revoked_count": revoked_count
             }))
-        },
+        }
         Err(e) => {
             tracing::error!("Failed to revoke other sessions: {}", e);
             errors::internal("Failed to revoke sessions")
@@ -1778,7 +1894,10 @@ pub async fn refresh_token(
 
     let token_hash = JwtUtils::hash_refresh_token(&refresh_cookie);
 
-    let old_token = match crate::repository::refresh_tokens::get_refresh_token_by_hash(&mut conn, &token_hash) {
+    let old_token = match crate::repository::refresh_tokens::get_refresh_token_by_hash(
+        &mut conn,
+        &token_hash,
+    ) {
         Ok(token) => token,
         Err(_) => {
             return errors::unauthorized("Invalid or expired refresh token");
@@ -1787,27 +1906,40 @@ pub async fn refresh_token(
 
     // 2. Check if revoked
     if old_token.revoked_at.is_some() {
-        tracing::warn!("Revoked refresh token presented, family={}", old_token.family_id);
+        tracing::warn!(
+            "Revoked refresh token presented, family={}",
+            old_token.family_id
+        );
         return errors::unauthorized("Refresh token has been revoked");
     }
 
     // 3. Reuse detection
     if old_token.is_used {
         let now = chrono::Utc::now().naive_utc();
-        let within_grace = old_token.grace_expires_at
+        let within_grace = old_token
+            .grace_expires_at
             .map_or(false, |grace| grace > now);
 
         if !within_grace {
             // Token reuse outside grace period — potential theft!
-            tracing::warn!("Refresh token reuse detected outside grace period! Revoking family={}", old_token.family_id);
-            let _ = crate::repository::refresh_tokens::revoke_token_family(&mut conn, &old_token.family_id);
+            tracing::warn!(
+                "Refresh token reuse detected outside grace period! Revoking family={}",
+                old_token.family_id
+            );
+            let _ = crate::repository::refresh_tokens::revoke_token_family(
+                &mut conn,
+                &old_token.family_id,
+            );
             if let Some(sid) = old_token.session_id {
                 let _ = crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid);
             }
             return errors::unauthorized("Token reuse detected — session revoked for security");
         }
         // Within grace period — allow (concurrent tab scenario)
-        tracing::debug!("Refresh token reuse within grace period, family={}", old_token.family_id);
+        tracing::debug!(
+            "Refresh token reuse within grace period, family={}",
+            old_token.family_id
+        );
     }
 
     // 4. Get user
@@ -1849,7 +1981,10 @@ pub async fn refresh_token(
     if !old_token.is_used {
         let grace_until = chrono::Utc::now().naive_utc() + chrono::Duration::seconds(5);
         if let Err(e) = crate::repository::refresh_tokens::mark_token_used(
-            &mut conn, &token_hash, &new_refresh_hash, grace_until,
+            &mut conn,
+            &token_hash,
+            &new_refresh_hash,
+            grace_until,
         ) {
             tracing::error!("Failed to mark old refresh token as used: {}", e);
         }
@@ -1865,7 +2000,9 @@ pub async fn refresh_token(
         family_id: old_token.family_id,
     };
 
-    if let Err(e) = crate::repository::refresh_tokens::create_refresh_token(&mut conn, new_refresh_record) {
+    if let Err(e) =
+        crate::repository::refresh_tokens::create_refresh_token(&mut conn, new_refresh_record)
+    {
         tracing::error!("Failed to store new refresh token: {}", e);
         return errors::internal("Failed to create refresh token");
     }
@@ -1873,7 +2010,9 @@ pub async fn refresh_token(
     // 10. Update session activity
     let new_session_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
     if let Err(e) = crate::repository::active_sessions::update_session_activity(
-        &mut conn, &session_id, new_session_expires,
+        &mut conn,
+        &session_id,
+        new_session_expires,
     ) {
         tracing::warn!("Failed to update session activity: {}", e);
     }
@@ -1887,24 +2026,32 @@ pub async fn refresh_token(
     };
 
     HttpResponse::Ok()
-        .cookie(crate::utils::cookies::create_access_token_cookie(&new_access_token))
-        .cookie(crate::utils::cookies::create_refresh_token_cookie(&new_refresh_raw))
-        .cookie(crate::utils::cookies::create_csrf_token_cookie(&new_csrf_token))
+        .cookie(crate::utils::cookies::create_access_token_cookie(
+            &new_access_token,
+        ))
+        .cookie(crate::utils::cookies::create_refresh_token_cookie(
+            &new_refresh_raw,
+        ))
+        .cookie(crate::utils::cookies::create_csrf_token_cookie(
+            &new_csrf_token,
+        ))
         .json(response)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App, http::StatusCode};
-    use crate::test_helpers::{setup_test_pool, create_test_claims, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
+    use actix_web::{http::StatusCode, test, App};
 
     /// Helper to create a test app with auth routes. The
     /// `SearchService` here is a throwaway tempdir-backed instance so
     /// `register` (which writes through the user-creation observer)
     /// has somewhere to send its index updates.
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),
@@ -1913,7 +2060,8 @@ mod tests {
             InitError = (),
         >,
     > {
-        let tmp = std::env::temp_dir().join(format!("nosdesk-test-search-{}", uuid::Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("nosdesk-test-search-{}", uuid::Uuid::new_v4()));
         let search_service = std::sync::Arc::new(
             crate::services::search::SearchService::new(&tmp, &pool)
                 .expect("Failed to build test SearchService"),
@@ -1936,9 +2084,7 @@ mod tests {
         let pool = setup_test_pool();
         let app = test::init_service(test_app(pool)).await;
 
-        let req = test::TestRequest::get()
-            .uri("/setup/status")
-            .to_request();
+        let req = test::TestRequest::get().uri("/setup/status").to_request();
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::OK);
@@ -1977,7 +2123,10 @@ mod tests {
         let body = test::read_body(resp).await;
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json.get("error").and_then(|v| v.as_str()).is_some());
-        assert_eq!(json.get("code").and_then(|v| v.as_str()), Some("AUTH_REQUIRED"));
+        assert_eq!(
+            json.get("code").and_then(|v| v.as_str()),
+            Some("AUTH_REQUIRED")
+        );
     }
 
     #[actix_web::test]
@@ -2020,9 +2169,7 @@ mod tests {
         let app = test::init_service(test_app(pool)).await;
 
         // Request without authentication
-        let req = test::TestRequest::get()
-            .uri("/me")
-            .to_request();
+        let req = test::TestRequest::get().uri("/me").to_request();
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -2033,7 +2180,10 @@ mod tests {
             json.get("error").and_then(|v| v.as_str()),
             Some("Authentication required")
         );
-        assert_eq!(json.get("code").and_then(|v| v.as_str()), Some("AUTH_REQUIRED"));
+        assert_eq!(
+            json.get("code").and_then(|v| v.as_str()),
+            Some("AUTH_REQUIRED")
+        );
     }
 
     #[actix_web::test]
@@ -2048,9 +2198,7 @@ mod tests {
 
         let app = test::init_service(test_app(pool.clone())).await;
 
-        let req = test::TestRequest::get()
-            .uri("/me")
-            .to_request();
+        let req = test::TestRequest::get().uri("/me").to_request();
         req.extensions_mut().insert(claims);
 
         let resp = test::call_service(&app, req).await;
@@ -2058,7 +2206,10 @@ mod tests {
 
         let body = test::read_body(resp).await;
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json.get("uuid").and_then(|v| v.as_str()), Some(user_uuid.to_string().as_str()));
+        assert_eq!(
+            json.get("uuid").and_then(|v| v.as_str()),
+            Some(user_uuid.to_string().as_str())
+        );
         assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("authuser"));
     }
 }

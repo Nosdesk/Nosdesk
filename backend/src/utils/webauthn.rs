@@ -4,12 +4,12 @@
 //! for passwordless authentication via passkeys.
 
 use anyhow::{anyhow, Result};
+use base64::Engine;
 use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
 use std::env;
 use url::Url;
 use uuid::Uuid;
-use base64::Engine;
 use webauthn_rs::prelude::*;
 
 use crate::db::DbConnection;
@@ -58,8 +58,7 @@ impl WebAuthnConfig {
             }
         };
 
-        let rp_name = env::var("WEBAUTHN_RP_NAME")
-            .unwrap_or_else(|_| "Nosdesk".to_string());
+        let rp_name = env::var("WEBAUTHN_RP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
 
         let rp_origin_str = match env::var("WEBAUTHN_RP_ORIGIN") {
             Ok(origin) => origin,
@@ -78,8 +77,8 @@ impl WebAuthnConfig {
             }
         };
 
-        let rp_origin = Url::parse(&rp_origin_str)
-            .map_err(|e| anyhow!("Invalid WEBAUTHN_RP_ORIGIN: {}", e))?;
+        let rp_origin =
+            Url::parse(&rp_origin_str).map_err(|e| anyhow!("Invalid WEBAUTHN_RP_ORIGIN: {}", e))?;
 
         // Validate RP ID matches origin host in production
         if is_production {
@@ -114,7 +113,8 @@ impl WebAuthnConfig {
             .map_err(|e| anyhow!("Failed to create WebAuthn builder: {:?}", e))?
             .rp_name(&self.rp_name);
 
-        builder.build()
+        builder
+            .build()
             .map_err(|e| anyhow!("Failed to build WebAuthn: {:?}", e))
     }
 }
@@ -184,7 +184,10 @@ impl UserPasskeyData {
     }
 
     pub fn get_passkeys(&self) -> Vec<Passkey> {
-        self.credentials.iter().map(|c| c.credential.clone()).collect()
+        self.credentials
+            .iter()
+            .map(|c| c.credential.clone())
+            .collect()
     }
 }
 
@@ -220,12 +223,15 @@ pub fn add_credential(
         credential_id: credential.id.clone(),
         name: credential.name.clone(),
         credential: credential_json,
-        transports: credential.transports.iter().map(|t| Some(t.clone())).collect(),
+        transports: credential
+            .transports
+            .iter()
+            .map(|t| Some(t.clone()))
+            .collect(),
         backup_eligible: credential.backup_eligible,
         backup_state: credential.backup_state,
     };
-    repo::create(conn, new)
-        .map_err(|e| anyhow!("Failed to insert passkey: {:?}", e))?;
+    repo::create(conn, new).map_err(|e| anyhow!("Failed to insert passkey: {:?}", e))?;
     Ok(())
 }
 
@@ -294,10 +300,7 @@ pub fn get_passkey_count(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<us
 const CHALLENGE_TTL_SECONDS: u64 = 300; // 5 minutes
 
 /// Store registration challenge state in Redis
-pub async fn store_registration_state(
-    user_uuid: &Uuid,
-    state: &PasskeyRegistration,
-) -> Result<()> {
+pub async fn store_registration_state(user_uuid: &Uuid, state: &PasskeyRegistration) -> Result<()> {
     let redis_url = get_redis_url();
     let client = redis::Client::open(redis_url.as_str())?;
     let mut con = client.get_multiplexed_async_connection().await?;
@@ -305,7 +308,8 @@ pub async fn store_registration_state(
     let key = format!("webauthn:reg_challenge:{user_uuid}");
     let state_json = serde_json::to_string(state)?;
 
-    con.set_ex::<_, _, ()>(&key, state_json, CHALLENGE_TTL_SECONDS).await?;
+    con.set_ex::<_, _, ()>(&key, state_json, CHALLENGE_TTL_SECONDS)
+        .await?;
 
     tracing::debug!("Stored registration challenge for user {}", user_uuid);
     Ok(())
@@ -330,10 +334,7 @@ pub async fn get_registration_state(user_uuid: &Uuid) -> Result<PasskeyRegistrat
 }
 
 /// Store authentication challenge state in Redis
-pub async fn store_authentication_state(
-    email: &str,
-    state: &PasskeyAuthentication,
-) -> Result<()> {
+pub async fn store_authentication_state(email: &str, state: &PasskeyAuthentication) -> Result<()> {
     let redis_url = get_redis_url();
     let client = redis::Client::open(redis_url.as_str())?;
     let mut con = client.get_multiplexed_async_connection().await?;
@@ -343,9 +344,13 @@ pub async fn store_authentication_state(
     let key = format!("webauthn:auth_challenge:{email_hash}");
     let state_json = serde_json::to_string(state)?;
 
-    con.set_ex::<_, _, ()>(&key, state_json, CHALLENGE_TTL_SECONDS).await?;
+    con.set_ex::<_, _, ()>(&key, state_json, CHALLENGE_TTL_SECONDS)
+        .await?;
 
-    tracing::debug!("Stored authentication challenge for email hash {}", email_hash);
+    tracing::debug!(
+        "Stored authentication challenge for email hash {}",
+        email_hash
+    );
     Ok(())
 }
 
@@ -364,7 +369,10 @@ pub async fn get_authentication_state(email: &str) -> Result<PasskeyAuthenticati
     let state_json = state_json.ok_or_else(|| anyhow!("No authentication challenge found"))?;
     let state: PasskeyAuthentication = serde_json::from_str(&state_json)?;
 
-    tracing::debug!("Retrieved authentication challenge for email hash {}", email_hash);
+    tracing::debug!(
+        "Retrieved authentication challenge for email hash {}",
+        email_hash
+    );
     Ok(state)
 }
 
@@ -395,9 +403,13 @@ pub async fn store_discoverable_auth_state(
     let key = format!("webauthn:discoverable_auth:{session_id}");
     let state_json = serde_json::to_string(state)?;
 
-    con.set_ex::<_, _, ()>(&key, state_json, CHALLENGE_TTL_SECONDS).await?;
+    con.set_ex::<_, _, ()>(&key, state_json, CHALLENGE_TTL_SECONDS)
+        .await?;
 
-    tracing::debug!("Stored discoverable auth challenge for session {}", session_id);
+    tracing::debug!(
+        "Stored discoverable auth challenge for session {}",
+        session_id
+    );
     Ok(())
 }
 
@@ -415,7 +427,10 @@ pub async fn get_discoverable_auth_state(session_id: &str) -> Result<Discoverabl
     let state_json = state_json.ok_or_else(|| anyhow!("No discoverable auth challenge found"))?;
     let state: DiscoverableAuthentication = serde_json::from_str(&state_json)?;
 
-    tracing::debug!("Retrieved discoverable auth challenge for session {}", session_id);
+    tracing::debug!(
+        "Retrieved discoverable auth challenge for session {}",
+        session_id
+    );
     Ok(state)
 }
 
@@ -478,9 +493,18 @@ mod tests {
 
     #[test]
     fn test_generate_passkey_name() {
-        assert_eq!(generate_passkey_name(Some("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0")), "iPhone");
-        assert_eq!(generate_passkey_name(Some("Mozilla/5.0 (Macintosh; Intel Mac OS X")), "Mac");
-        assert_eq!(generate_passkey_name(Some("Mozilla/5.0 (Windows NT 10.0")), "Windows");
+        assert_eq!(
+            generate_passkey_name(Some("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0")),
+            "iPhone"
+        );
+        assert_eq!(
+            generate_passkey_name(Some("Mozilla/5.0 (Macintosh; Intel Mac OS X")),
+            "Mac"
+        );
+        assert_eq!(
+            generate_passkey_name(Some("Mozilla/5.0 (Windows NT 10.0")),
+            "Windows"
+        );
         assert_eq!(generate_passkey_name(None), "Passkey");
     }
 }

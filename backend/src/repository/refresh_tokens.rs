@@ -1,9 +1,9 @@
-use diesel::prelude::*;
 use chrono::Utc;
+use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{RefreshToken, NewRefreshToken};
+use crate::models::{NewRefreshToken, RefreshToken};
 use crate::schema::refresh_tokens;
 
 /// Create a new refresh token
@@ -34,16 +34,14 @@ pub fn mark_token_used(
     replacement_hash: &str,
     grace_until: chrono::NaiveDateTime,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::update(
-        refresh_tokens::table.filter(refresh_tokens::token_hash.eq(token_hash))
-    )
-    .set((
-        refresh_tokens::is_used.eq(true),
-        refresh_tokens::used_at.eq(Utc::now().naive_utc()),
-        refresh_tokens::replaced_by_hash.eq(replacement_hash),
-        refresh_tokens::grace_expires_at.eq(grace_until),
-    ))
-    .execute(conn)
+    diesel::update(refresh_tokens::table.filter(refresh_tokens::token_hash.eq(token_hash)))
+        .set((
+            refresh_tokens::is_used.eq(true),
+            refresh_tokens::used_at.eq(Utc::now().naive_utc()),
+            refresh_tokens::replaced_by_hash.eq(replacement_hash),
+            refresh_tokens::grace_expires_at.eq(grace_until),
+        ))
+        .execute(conn)
 }
 
 /// Revoke all tokens in a family (reuse detection)
@@ -51,11 +49,9 @@ pub fn revoke_token_family(
     conn: &mut DbConnection,
     family_id: &Uuid,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::update(
-        refresh_tokens::table.filter(refresh_tokens::family_id.eq(family_id))
-    )
-    .set(refresh_tokens::revoked_at.eq(Utc::now().naive_utc()))
-    .execute(conn)
+    diesel::update(refresh_tokens::table.filter(refresh_tokens::family_id.eq(family_id)))
+        .set(refresh_tokens::revoked_at.eq(Utc::now().naive_utc()))
+        .execute(conn)
 }
 
 /// Delete refresh tokens whose `expires_at` is in the past. Intended
@@ -63,8 +59,10 @@ pub fn revoke_token_family(
 /// expired tokens are kept so audit trails survive — only naturally
 /// expired rows are pruned.
 pub fn cleanup_expired(conn: &mut DbConnection) -> Result<usize, diesel::result::Error> {
-    diesel::delete(refresh_tokens::table.filter(refresh_tokens::expires_at.lt(Utc::now().naive_utc())))
-        .execute(conn)
+    diesel::delete(
+        refresh_tokens::table.filter(refresh_tokens::expires_at.lt(Utc::now().naive_utc())),
+    )
+    .execute(conn)
 }
 
 /// Revoke a refresh token by hash
@@ -72,19 +70,17 @@ pub fn revoke_refresh_token(
     conn: &mut DbConnection,
     token_hash: &str,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::update(
-        refresh_tokens::table.filter(refresh_tokens::token_hash.eq(token_hash))
-    )
-    .set(refresh_tokens::revoked_at.eq(Utc::now().naive_utc()))
-    .execute(conn)
+    diesel::update(refresh_tokens::table.filter(refresh_tokens::token_hash.eq(token_hash)))
+        .set(refresh_tokens::revoked_at.eq(Utc::now().naive_utc()))
+        .execute(conn)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{NewRefreshToken, UserRole};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
-    use crate::models::{UserRole, NewRefreshToken};
-    use chrono::{Utc, Duration};
+    use chrono::{Duration, Utc};
 
     #[test]
     fn create_and_get_refresh_token() {

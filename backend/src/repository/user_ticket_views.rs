@@ -107,7 +107,9 @@ impl UserTicketViewsRepository {
             i32,
         )> = user_ticket_views::table
             .inner_join(tickets::table.on(user_ticket_views::ticket_id.eq(tickets::id)))
-            .left_join(workflow_states::table.on(tickets::workflow_state_id.eq(workflow_states::id)))
+            .left_join(
+                workflow_states::table.on(tickets::workflow_state_id.eq(workflow_states::id)),
+            )
             .filter(user_ticket_views::user_uuid.eq(user_uuid_param))
             .order(user_ticket_views::last_viewed_at.desc())
             .limit(limit)

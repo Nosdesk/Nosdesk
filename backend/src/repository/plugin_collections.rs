@@ -2,8 +2,8 @@
 //!
 //! Provides database operations for plugin collection schemas and rows.
 
-use diesel::prelude::*;
 use diesel::dsl::count_star;
+use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
@@ -99,22 +99,15 @@ pub fn update_row(
     row_uuid: Uuid,
     update: PluginCollectionRowUpdate,
 ) -> Result<PluginCollectionRow, diesel::result::Error> {
-    diesel::update(
-        plugin_collection_rows::table.filter(plugin_collection_rows::uuid.eq(row_uuid)),
-    )
-    .set(&update)
-    .get_result(conn)
+    diesel::update(plugin_collection_rows::table.filter(plugin_collection_rows::uuid.eq(row_uuid)))
+        .set(&update)
+        .get_result(conn)
 }
 
 /// Delete a row
-pub fn delete_row(
-    conn: &mut DbConnection,
-    row_uuid: Uuid,
-) -> Result<usize, diesel::result::Error> {
-    diesel::delete(
-        plugin_collection_rows::table.filter(plugin_collection_rows::uuid.eq(row_uuid)),
-    )
-    .execute(conn)
+pub fn delete_row(conn: &mut DbConnection, row_uuid: Uuid) -> Result<usize, diesel::result::Error> {
+    diesel::delete(plugin_collection_rows::table.filter(plugin_collection_rows::uuid.eq(row_uuid)))
+        .execute(conn)
 }
 
 /// List rows for a schema with pagination, optional JSONB filter and sort

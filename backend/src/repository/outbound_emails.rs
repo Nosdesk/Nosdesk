@@ -107,7 +107,8 @@ pub fn enqueue_or_suppress(
 ) -> Result<OutboundEmail, DieselError> {
     use diesel::Connection;
     conn.transaction::<OutboundEmail, DieselError, _>(|conn| {
-        let suppressed = crate::repository::email_suppressions::is_suppressed(conn, &new_row.recipient)?;
+        let suppressed =
+            crate::repository::email_suppressions::is_suppressed(conn, &new_row.recipient)?;
         if suppressed {
             let row: OutboundEmail = diesel::insert_into(outbound_emails::table)
                 .values(&new_row)

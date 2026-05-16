@@ -2,7 +2,10 @@ use std::collections::HashSet;
 use std::panic;
 use unic_langid::LanguageIdentifier;
 use uuid::Uuid;
-use yrs::{Doc, Transact, ReadTxn, WriteTxn, GetString, Options, updates::decoder::Decode, Update, XmlFragment, XmlOut, Xml};
+use yrs::{
+    updates::decoder::Decode, Doc, GetString, Options, ReadTxn, Transact, Update, WriteTxn, Xml,
+    XmlFragment, XmlOut,
+};
 
 use crate::db::DbConnection;
 use crate::repository;
@@ -48,7 +51,11 @@ pub fn yjs_to_markdown(yjs_document: &[u8]) -> Option<String> {
     }
 
     let trimmed = output.trim_end().to_string();
-    if trimmed.is_empty() { None } else { Some(trimmed) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 /// Convert a Yjs document to Markdown with recursive embed resolution
@@ -61,12 +68,18 @@ pub fn yjs_to_markdown_with_embeds(
     locale: &LanguageIdentifier,
 ) -> Option<String> {
     if depth > MAX_EMBED_DEPTH {
-        return Some(format!("> {}\n", i18n::tr(locale, "markdown-embed-depth-limit")));
+        return Some(format!(
+            "> {}\n",
+            i18n::tr(locale, "markdown-embed-depth-limit")
+        ));
     }
 
     if let Some(uuid) = current_uuid {
         if visited.contains(&uuid) {
-            return Some(format!("> {}\n", i18n::tr(locale, "markdown-embed-circular")));
+            return Some(format!(
+                "> {}\n",
+                i18n::tr(locale, "markdown-embed-circular")
+            ));
         }
         visited.insert(uuid);
     }
@@ -107,18 +120,29 @@ pub fn yjs_to_markdown_with_embeds(
     }
 
     let trimmed = output.trim_end().to_string();
-    if trimmed.is_empty() { None } else { Some(trimmed) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 /// Convert a single XML node to Markdown (block-level)
 fn node_to_markdown(node: &XmlOut, txn: &yrs::Transaction, list_depth: usize) -> String {
     match node {
-        XmlOut::Text(text_ref) => {
-            get_text_safe(text_ref, txn)
-        }
+        XmlOut::Text(text_ref) => get_text_safe(text_ref, txn),
         XmlOut::Element(elem) => {
             let tag = elem.tag().to_string();
-            element_to_markdown(&tag, elem, txn, list_depth, None, &mut HashSet::new(), 0, None)
+            element_to_markdown(
+                &tag,
+                elem,
+                txn,
+                list_depth,
+                None,
+                &mut HashSet::new(),
+                0,
+                None,
+            )
         }
         XmlOut::Fragment(frag) => {
             let mut out = String::new();
@@ -141,17 +165,32 @@ fn node_to_markdown_with_embeds(
     locale: &LanguageIdentifier,
 ) -> String {
     match node {
-        XmlOut::Text(text_ref) => {
-            get_text_safe(text_ref, txn)
-        }
+        XmlOut::Text(text_ref) => get_text_safe(text_ref, txn),
         XmlOut::Element(elem) => {
             let tag = elem.tag().to_string();
-            element_to_markdown(&tag, elem, txn, list_depth, Some(conn), visited, embed_depth, Some(locale))
+            element_to_markdown(
+                &tag,
+                elem,
+                txn,
+                list_depth,
+                Some(conn),
+                visited,
+                embed_depth,
+                Some(locale),
+            )
         }
         XmlOut::Fragment(frag) => {
             let mut out = String::new();
             for child in frag.children(txn) {
-                out.push_str(&node_to_markdown_with_embeds(&child, txn, list_depth, conn, visited, embed_depth, locale));
+                out.push_str(&node_to_markdown_with_embeds(
+                    &child,
+                    txn,
+                    list_depth,
+                    conn,
+                    visited,
+                    embed_depth,
+                    locale,
+                ));
             }
             out
         }
@@ -182,7 +221,8 @@ fn element_to_markdown(
             format!("{}\n", text)
         }
         "heading" => {
-            let level = elem.get_attribute(txn, "level")
+            let level = elem
+                .get_attribute(txn, "level")
                 .and_then(|v| v.to_string(txn).parse::<usize>().ok())
                 .unwrap_or(1)
                 .min(6);
@@ -191,13 +231,25 @@ fn element_to_markdown(
             format!("{} {}\n", prefix, text)
         }
         "code_block" => {
-            let language = elem.get_attribute(txn, "language").map(|v| v.to_string(txn)).unwrap_or_default();
+            let language = elem
+                .get_attribute(txn, "language")
+                .map(|v| v.to_string(txn))
+                .unwrap_or_default();
             let text = collect_raw_text(elem, txn);
             format!("```{}\n{}\n```\n", language, text)
         }
         "blockquote" => {
-            let inner = collect_block_children(elem, txn, list_depth, conn.as_deref_mut(), visited, embed_depth, locale);
-            let quoted: String = inner.lines()
+            let inner = collect_block_children(
+                elem,
+                txn,
+                list_depth,
+                conn.as_deref_mut(),
+                visited,
+                embed_depth,
+                locale,
+            );
+            let quoted: String = inner
+                .lines()
                 .map(|line| format!("> {}", line))
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -209,7 +261,15 @@ fn element_to_markdown(
                 if let XmlOut::Element(li) = &child {
                     if li.tag().as_ref() == "list_item" {
                         let indent = "  ".repeat(list_depth);
-                        let content = collect_list_item_content(li, txn, list_depth, conn.as_deref_mut(), visited, embed_depth, locale);
+                        let content = collect_list_item_content(
+                            li,
+                            txn,
+                            list_depth,
+                            conn.as_deref_mut(),
+                            visited,
+                            embed_depth,
+                            locale,
+                        );
                         out.push_str(&format!("{}- {}\n", indent, content.trim_end()));
                     }
                 }
@@ -223,7 +283,15 @@ fn element_to_markdown(
                 if let XmlOut::Element(li) = &child {
                     if li.tag().as_ref() == "list_item" {
                         let indent = "  ".repeat(list_depth);
-                        let content = collect_list_item_content(li, txn, list_depth, conn.as_deref_mut(), visited, embed_depth, locale);
+                        let content = collect_list_item_content(
+                            li,
+                            txn,
+                            list_depth,
+                            conn.as_deref_mut(),
+                            visited,
+                            embed_depth,
+                            locale,
+                        );
                         out.push_str(&format!("{}{}. {}\n", indent, index, content.trim_end()));
                         index += 1;
                     }
@@ -231,32 +299,49 @@ fn element_to_markdown(
             }
             out
         }
-        "horizontal_rule" => {
-            String::from("---\n")
-        }
-        "hard_break" => {
-            String::from("  \n")
-        }
+        "horizontal_rule" => String::from("---\n"),
+        "hard_break" => String::from("  \n"),
         "image" => {
-            let src = elem.get_attribute(txn, "src").map(|v| v.to_string(txn)).unwrap_or_default();
-            let alt = elem.get_attribute(txn, "alt").map(|v| v.to_string(txn)).unwrap_or_default();
+            let src = elem
+                .get_attribute(txn, "src")
+                .map(|v| v.to_string(txn))
+                .unwrap_or_default();
+            let alt = elem
+                .get_attribute(txn, "alt")
+                .map(|v| v.to_string(txn))
+                .unwrap_or_default();
             format!("![{}]({})\n", alt, src)
         }
         "ticket_link" => {
-            let ticket_id = elem.get_attribute(txn, "ticketId").map(|v| v.to_string(txn)).unwrap_or_default();
-            let href = elem.get_attribute(txn, "href").map(|v| v.to_string(txn)).unwrap_or_else(|| format!("/tickets/{}", ticket_id));
+            let ticket_id = elem
+                .get_attribute(txn, "ticketId")
+                .map(|v| v.to_string(txn))
+                .unwrap_or_default();
+            let href = elem
+                .get_attribute(txn, "href")
+                .map(|v| v.to_string(txn))
+                .unwrap_or_else(|| format!("/tickets/{}", ticket_id));
             format!("[Ticket #{}]({})", ticket_id, href)
         }
         "mention" => {
-            let name = elem.get_attribute(txn, "name").map(|v| v.to_string(txn)).unwrap_or_else(|| "unknown".to_string());
+            let name = elem
+                .get_attribute(txn, "name")
+                .map(|v| v.to_string(txn))
+                .unwrap_or_else(|| "unknown".to_string());
             format!("@{}", name)
         }
         "embedded_document" => {
-            let doc_uuid_str = elem.get_attribute(txn, "documentUuid").map(|v| v.to_string(txn)).unwrap_or_default();
+            let doc_uuid_str = elem
+                .get_attribute(txn, "documentUuid")
+                .map(|v| v.to_string(txn))
+                .unwrap_or_default();
             let untitled_fallback = locale
                 .map(|l| i18n::tr(l, "docs-untitled-page"))
                 .unwrap_or_else(|| "Untitled".to_string());
-            let doc_title = elem.get_attribute(txn, "documentTitle").map(|v| v.to_string(txn)).unwrap_or(untitled_fallback);
+            let doc_title = elem
+                .get_attribute(txn, "documentTitle")
+                .map(|v| v.to_string(txn))
+                .unwrap_or(untitled_fallback);
 
             if let Some(conn) = conn {
                 if let (Ok(uuid), Some(loc)) = (Uuid::parse_str(&doc_uuid_str), locale) {
@@ -274,7 +359,12 @@ fn element_to_markdown(
 
                             if let Some(doc_bytes) = yjs_doc {
                                 if let Some(content) = yjs_to_markdown_with_embeds(
-                                    &doc_bytes, conn, visited, Some(uuid), embed_depth + 1, loc,
+                                    &doc_bytes,
+                                    conn,
+                                    visited,
+                                    Some(uuid),
+                                    embed_depth + 1,
+                                    loc,
                                 ) {
                                     let header = i18n::tr_with(
                                         loc,
@@ -295,11 +385,13 @@ fn element_to_markdown(
             // Fallback: just show a reference (no embed-resolve possible
             // here, e.g. the no-locale path from yjs_to_markdown).
             let reference = locale
-                .map(|l| i18n::tr_with(
-                    l,
-                    "markdown-embed-reference-fallback",
-                    &[("title", doc_title.clone().into())],
-                ))
+                .map(|l| {
+                    i18n::tr_with(
+                        l,
+                        "markdown-embed-reference-fallback",
+                        &[("title", doc_title.clone().into())],
+                    )
+                })
                 .unwrap_or_else(|| format!("[Embedded: {}]", doc_title));
             format!("{}\n", reference)
         }
@@ -323,18 +415,31 @@ fn collect_inline_children(elem: &yrs::XmlElementRef, txn: &yrs::Transaction) ->
                 match tag.as_str() {
                     "hard_break" | "br" => out.push_str("  \n"),
                     "image" => {
-                        let src = child_elem.get_attribute(txn, "src").map(|v| v.to_string(txn)).unwrap_or_default();
-                        let alt = child_elem.get_attribute(txn, "alt").map(|v| v.to_string(txn)).unwrap_or_default();
+                        let src = child_elem
+                            .get_attribute(txn, "src")
+                            .map(|v| v.to_string(txn))
+                            .unwrap_or_default();
+                        let alt = child_elem
+                            .get_attribute(txn, "alt")
+                            .map(|v| v.to_string(txn))
+                            .unwrap_or_default();
                         out.push_str(&format!("![{}]({})", alt, src));
                     }
                     "ticket_link" => {
-                        let ticket_id = child_elem.get_attribute(txn, "ticketId").map(|v| v.to_string(txn)).unwrap_or_default();
-                        let href = child_elem.get_attribute(txn, "href").map(|v| v.to_string(txn))
+                        let ticket_id = child_elem
+                            .get_attribute(txn, "ticketId")
+                            .map(|v| v.to_string(txn))
+                            .unwrap_or_default();
+                        let href = child_elem
+                            .get_attribute(txn, "href")
+                            .map(|v| v.to_string(txn))
                             .unwrap_or_else(|| format!("/tickets/{}", ticket_id));
                         out.push_str(&format!("[Ticket #{}]({})", ticket_id, href));
                     }
                     "mention" => {
-                        let name = child_elem.get_attribute(txn, "name").map(|v| v.to_string(txn))
+                        let name = child_elem
+                            .get_attribute(txn, "name")
+                            .map(|v| v.to_string(txn))
                             .unwrap_or_else(|| "unknown".to_string());
                         out.push_str(&format!("@{}", name));
                     }
@@ -358,13 +463,21 @@ fn collect_inline_children(elem: &yrs::XmlElementRef, txn: &yrs::Transaction) ->
 }
 
 /// Wrap text with markdown formatting based on the mark/tag name
-fn wrap_with_mark(tag: &str, elem: &yrs::XmlElementRef, txn: &yrs::Transaction, inner: &str) -> String {
+fn wrap_with_mark(
+    tag: &str,
+    elem: &yrs::XmlElementRef,
+    txn: &yrs::Transaction,
+    inner: &str,
+) -> String {
     match tag {
         "strong" | "b" => format!("**{}**", inner),
         "em" | "i" => format!("*{}*", inner),
         "code" => format!("`{}`", inner),
         "link" | "a" => {
-            let href = elem.get_attribute(txn, "href").map(|v| v.to_string(txn)).unwrap_or_default();
+            let href = elem
+                .get_attribute(txn, "href")
+                .map(|v| v.to_string(txn))
+                .unwrap_or_default();
             format!("[{}]({})", inner, href)
         }
         _ => inner.to_string(),
@@ -414,7 +527,16 @@ fn collect_block_children(
         match &child {
             XmlOut::Element(child_elem) => {
                 let tag = child_elem.tag().to_string();
-                out.push_str(&element_to_markdown(&tag, child_elem, txn, list_depth, conn.as_deref_mut(), visited, embed_depth, locale));
+                out.push_str(&element_to_markdown(
+                    &tag,
+                    child_elem,
+                    txn,
+                    list_depth,
+                    conn.as_deref_mut(),
+                    visited,
+                    embed_depth,
+                    locale,
+                ));
             }
             XmlOut::Text(text_ref) => {
                 out.push_str(&get_text_safe(text_ref, txn));
@@ -451,9 +573,27 @@ fn collect_list_item_content(
                 first = false;
             } else if tag == "bullet_list" || tag == "ordered_list" {
                 out.push('\n');
-                out.push_str(&element_to_markdown(&tag, child_elem, txn, list_depth + 1, conn.as_deref_mut(), visited, embed_depth, locale));
+                out.push_str(&element_to_markdown(
+                    &tag,
+                    child_elem,
+                    txn,
+                    list_depth + 1,
+                    conn.as_deref_mut(),
+                    visited,
+                    embed_depth,
+                    locale,
+                ));
             } else {
-                out.push_str(&element_to_markdown(&tag, child_elem, txn, list_depth, conn.as_deref_mut(), visited, embed_depth, locale));
+                out.push_str(&element_to_markdown(
+                    &tag,
+                    child_elem,
+                    txn,
+                    list_depth,
+                    conn.as_deref_mut(),
+                    visited,
+                    embed_depth,
+                    locale,
+                ));
             }
         }
     }

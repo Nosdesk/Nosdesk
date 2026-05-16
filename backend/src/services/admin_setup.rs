@@ -317,10 +317,7 @@ mod tests {
             // wrong prefix entirely
             "{bcrypt}$2b$12$valid-looking-rest-of-the-hash-string-here",
         ] {
-            assert!(
-                !looks_like_bcrypt_hash(bad),
-                "should reject: {bad:?}"
-            );
+            assert!(!looks_like_bcrypt_hash(bad), "should reject: {bad:?}");
         }
     }
 

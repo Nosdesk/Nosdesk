@@ -1,6 +1,6 @@
+use chrono::Utc;
 use diesel::prelude::*;
 use uuid::Uuid;
-use chrono::Utc;
 
 use crate::db::DbConnection;
 use crate::models::{ActiveSession, NewActiveSession};
@@ -11,8 +11,10 @@ use crate::schema::active_sessions;
 /// `active_sessions` table doesn't accrete dead rows indefinitely.
 /// Returns the number of rows removed.
 pub fn cleanup_expired(conn: &mut DbConnection) -> Result<usize, diesel::result::Error> {
-    diesel::delete(active_sessions::table.filter(active_sessions::expires_at.lt(Utc::now().naive_utc())))
-        .execute(conn)
+    diesel::delete(
+        active_sessions::table.filter(active_sessions::expires_at.lt(Utc::now().naive_utc())),
+    )
+    .execute(conn)
 }
 
 /// Create a new active session
@@ -60,8 +62,7 @@ pub fn revoke_session(
     conn: &mut DbConnection,
     session_id: i32,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::delete(active_sessions::table.find(session_id))
-        .execute(conn)
+    diesel::delete(active_sessions::table.find(session_id)).execute(conn)
 }
 
 /// Revoke a session by its stable UUID (CASCADE deletes linked refresh_tokens)
@@ -69,10 +70,7 @@ pub fn revoke_session_by_uuid(
     conn: &mut DbConnection,
     sid: &Uuid,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::delete(
-        active_sessions::table.filter(active_sessions::session_id.eq(sid))
-    )
-    .execute(conn)
+    diesel::delete(active_sessions::table.filter(active_sessions::session_id.eq(sid))).execute(conn)
 }
 
 /// Update session activity timestamp and expiry
@@ -81,14 +79,12 @@ pub fn update_session_activity(
     sid: &Uuid,
     new_expires_at: chrono::NaiveDateTime,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::update(
-        active_sessions::table.filter(active_sessions::session_id.eq(sid))
-    )
-    .set((
-        active_sessions::last_active.eq(Utc::now().naive_utc()),
-        active_sessions::expires_at.eq(new_expires_at),
-    ))
-    .execute(conn)
+    diesel::update(active_sessions::table.filter(active_sessions::session_id.eq(sid)))
+        .set((
+            active_sessions::last_active.eq(Utc::now().naive_utc()),
+            active_sessions::expires_at.eq(new_expires_at),
+        ))
+        .execute(conn)
 }
 
 /// Revoke all sessions for a user except the current one
@@ -98,19 +94,15 @@ pub fn revoke_other_sessions(
     current_session_id: Option<i32>,
 ) -> Result<usize, diesel::result::Error> {
     match current_session_id {
-        Some(session_id) => {
-            diesel::delete(
-                active_sessions::table
-                    .filter(active_sessions::user_uuid.eq(user_uuid))
-                    .filter(active_sessions::id.ne(session_id))
-            )
-            .execute(conn)
-        }
+        Some(session_id) => diesel::delete(
+            active_sessions::table
+                .filter(active_sessions::user_uuid.eq(user_uuid))
+                .filter(active_sessions::id.ne(session_id)),
+        )
+        .execute(conn),
         None => {
-            diesel::delete(
-                active_sessions::table.filter(active_sessions::user_uuid.eq(user_uuid))
-            )
-            .execute(conn)
+            diesel::delete(active_sessions::table.filter(active_sessions::user_uuid.eq(user_uuid)))
+                .execute(conn)
         }
     }
 }
@@ -124,7 +116,7 @@ pub fn revoke_other_sessions_by_uuid(
     diesel::delete(
         active_sessions::table
             .filter(active_sessions::user_uuid.eq(user_uuid))
-            .filter(active_sessions::session_id.ne(current_session_uuid))
+            .filter(active_sessions::session_id.ne(current_session_uuid)),
     )
     .execute(conn)
 }

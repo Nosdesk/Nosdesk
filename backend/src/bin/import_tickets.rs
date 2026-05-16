@@ -18,7 +18,7 @@ fn main() {
 
     let json_path = &args[1];
     let path = Path::new(json_path);
-    
+
     // Read the JSON file
     let json_content = match fs::read_to_string(path) {
         Ok(content) => content,
@@ -66,4 +66,4 @@ fn main() {
     }
 
     println!("Import complete. Imported: {imported_count}, Failed: {failed_count}");
-} 
+}

@@ -140,8 +140,8 @@ pub fn delete_plugin_by_uuid(
     plugin_uuid: Uuid,
 ) -> Result<usize, diesel::result::Error> {
     conn.transaction(|conn| {
-        let result = diesel::delete(plugins::table.filter(plugins::uuid.eq(plugin_uuid)))
-            .execute(conn)?;
+        let result =
+            diesel::delete(plugins::table.filter(plugins::uuid.eq(plugin_uuid))).execute(conn)?;
         if result > 0 {
             emit::record(
                 conn,
@@ -407,8 +407,12 @@ mod tests {
     /// can only build a token through the verified install
     /// pipeline; tests bypass that for fixture setup.
     fn create_test_plugin(conn: &mut DbConnection, name: &str, enabled: bool) -> Plugin {
-        create_plugin(conn, make_new_plugin(name, enabled), InstallToken::for_test())
-            .expect("test plugin insert must succeed")
+        create_plugin(
+            conn,
+            make_new_plugin(name, enabled),
+            InstallToken::for_test(),
+        )
+        .expect("test plugin insert must succeed")
     }
 
     fn make_new_plugin(name: &str, enabled: bool) -> NewPlugin {

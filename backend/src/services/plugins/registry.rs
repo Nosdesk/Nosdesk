@@ -277,10 +277,17 @@ impl std::fmt::Display for RegistryError {
             Self::TooLarge => write!(f, "registry document exceeds size limit"),
             Self::Malformed(m) => write!(f, "registry document is malformed: {m}"),
             Self::InvalidSignature => {
-                write!(f, "registry signature file is not valid base64 or wrong length")
+                write!(
+                    f,
+                    "registry signature file is not valid base64 or wrong length"
+                )
             }
             Self::BadSignature => write!(f, "registry signature verification failed"),
-            Self::Rollback { document, seen, offered } => write!(
+            Self::Rollback {
+                document,
+                seen,
+                offered,
+            } => write!(
                 f,
                 "refusing rollback of {document}: last accepted v{seen}, offered v{offered}"
             ),
@@ -334,8 +341,8 @@ pub async fn sync_once(
     // Exact-version replay is a no-op. Combined with the strict
     // anti-rollback in `fetch_and_verify`, an attacker can at most
     // waste one fetch cycle per version — never regress the DB.
-    let unchanged = publishers.version == state.publishers_version
-        && index.version == state.index_version;
+    let unchanged =
+        publishers.version == state.publishers_version && index.version == state.index_version;
 
     if !unchanged {
         // reconcile + state bump must commit together so a crash
@@ -517,7 +524,11 @@ async fn fetch_signed<T: for<'de> Deserialize<'de>>(
             http,
             &sig_url,
             MAX_SIG_SIZE,
-            &["application/pgp-signature", "application/octet-stream", "text/plain"],
+            &[
+                "application/pgp-signature",
+                "application/octet-stream",
+                "text/plain"
+            ],
         ),
     );
     let doc_bytes = doc_bytes?;
@@ -585,7 +596,10 @@ async fn fetch_bytes(
         .and_then(|v| v.to_str().ok())
     {
         let primary = ct.split(';').next().unwrap_or("").trim();
-        if !accept_content_types.iter().any(|allowed| primary.eq_ignore_ascii_case(allowed)) {
+        if !accept_content_types
+            .iter()
+            .any(|allowed| primary.eq_ignore_ascii_case(allowed))
+        {
             return Err(RegistryError::Fetch(format!(
                 "{url}: unexpected Content-Type {primary:?} (expected one of {accept_content_types:?})"
             )));
@@ -676,9 +690,7 @@ fn reconcile(
             "snapshot has zero publishers; refusing to mass-revoke".into(),
         ));
     }
-    if active_before >= 2
-        && would_revoke as f32 / active_before as f32 > MAX_SHRINKAGE_RATIO
-    {
+    if active_before >= 2 && would_revoke as f32 / active_before as f32 > MAX_SHRINKAGE_RATIO {
         warn!(
             active_before,
             would_revoke,

@@ -37,18 +37,18 @@ use serde_json::json;
 use tracing::{debug, info, warn};
 
 use crate::db::DbConnection;
+use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{
     Channel, Comment, NewAttachment, NewChannelMessage, NewComment, NewTicket, Ticket,
     CHANNEL_DIRECTION_INBOUND,
 };
-use crate::repository::{channels as channels_repo, comments as comments_repo, tickets as tickets_repo};
 use crate::repository::user_helpers::{find_or_create_guest_user, GuestUserResult};
+use crate::repository::{
+    channels as channels_repo, comments as comments_repo, tickets as tickets_repo,
+};
+use crate::services::channels::{ChannelAdapter, InboundAttachment, InboundEvent, InboundMessage};
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
-use crate::services::channels::{
-    ChannelAdapter, InboundAttachment, InboundEvent, InboundMessage,
-};
-use crate::handlers::sse::{SseEvent, SseState};
 use crate::utils::storage::Storage;
 
 /// Outcome of processing a single inbound event. Returned for logging /
@@ -356,13 +356,14 @@ pub async fn process_event(
         // branch when the envelope sender is a verified tech;
         // otherwise falls into the normal guest-user path. See
         // `resolve_identity` for the full decision tree.
-        let (sender, forwarded_by_uuid) = match resolve_identity(channel, &msg, &sender_email, conn, ctx)? {
-            Resolved::Identified { user, forwarded_by } => (user, forwarded_by),
-            // Skip paths write nothing; the transaction commits as a
-            // no-op and the outer code turns `Ingest::Skip` into the
-            // matching `PipelineOutcome`.
-            Resolved::Skip(outcome) => return Ok(Ingest::Skip(outcome)),
-        };
+        let (sender, forwarded_by_uuid) =
+            match resolve_identity(channel, &msg, &sender_email, conn, ctx)? {
+                Resolved::Identified { user, forwarded_by } => (user, forwarded_by),
+                // Skip paths write nothing; the transaction commits as a
+                // no-op and the outer code turns `Ingest::Skip` into the
+                // matching `PipelineOutcome`.
+                Resolved::Skip(outcome) => return Ok(Ingest::Skip(outcome)),
+            };
         let sender_uuid = sender.uuid;
 
         let (ticket, comment, is_new_ticket) = match existing_ticket_id {
@@ -579,12 +580,17 @@ fn resolve_identity(
             original = %fwd.email,
             "tech forward detected; attributing ticket to original sender"
         );
-        let display = fwd.display_name.clone().unwrap_or_else(|| fwd.email.clone());
+        let display = fwd
+            .display_name
+            .clone()
+            .unwrap_or_else(|| fwd.email.clone());
         match find_or_create_guest_user(&fwd.email, &display, conn, observer)? {
-            GuestUserResult::Created(u) | GuestUserResult::Existing(u) => Ok(Resolved::Identified {
-                user: u,
-                forwarded_by: Some(tech.uuid),
-            }),
+            GuestUserResult::Created(u) | GuestUserResult::Existing(u) => {
+                Ok(Resolved::Identified {
+                    user: u,
+                    forwarded_by: Some(tech.uuid),
+                })
+            }
             // Tech A forwarding tech B's message — refuse. Either
             // direction of attribution is surprising; we'd rather the
             // tech handle this manually.
@@ -604,11 +610,15 @@ fn resolve_identity(
         // races between this call and
         // `find_or_create_guest_user`'s own check.
         match find_or_create_guest_user(sender_email, &msg.from.display_name, conn, observer)? {
-            GuestUserResult::Created(u) | GuestUserResult::Existing(u) => Ok(Resolved::Identified {
-                user: u,
-                forwarded_by: None,
-            }),
-            GuestUserResult::EmailClaimed => Ok(Resolved::Skip(PipelineOutcome::SkippedEmailClaimed)),
+            GuestUserResult::Created(u) | GuestUserResult::Existing(u) => {
+                Ok(Resolved::Identified {
+                    user: u,
+                    forwarded_by: None,
+                })
+            }
+            GuestUserResult::EmailClaimed => {
+                Ok(Resolved::Skip(PipelineOutcome::SkippedEmailClaimed))
+            }
         }
     }
 }
@@ -695,10 +705,11 @@ fn insert_inbound_comment(
     // preserved. Fall back to the flat `body_text` for plaintext-only
     // emails (mailing lists, bots, console-mail clients).
     let (content, content_format) = match msg.body_html.as_ref() {
-        Some(html) if !html.trim().is_empty() => {
-            (html.clone(), crate::models::ContentFormat::Html)
-        }
-        _ => (msg.body_text.clone(), crate::models::ContentFormat::Plaintext),
+        Some(html) if !html.trim().is_empty() => (html.clone(), crate::models::ContentFormat::Html),
+        _ => (
+            msg.body_text.clone(),
+            crate::models::ContentFormat::Plaintext,
+        ),
     };
 
     // Order matters: for HTML bodies we sanitise FIRST, then split,
@@ -730,8 +741,7 @@ fn insert_inbound_comment(
         // = a real body. `body_html` is already `Option<String>`
         // and the parser only sets it when an `text/html` part
         // existed, so the same invariant holds without coercion.
-        body_text: (!msg.body_text.trim().is_empty())
-            .then(|| msg.body_text.clone()),
+        body_text: (!msg.body_text.trim().is_empty()).then(|| msg.body_text.clone()),
         body_html: msg.body_html.clone(),
         new_content: Some(split.new_content),
         quoted_content: split.quoted_content,
@@ -750,7 +760,11 @@ fn insert_inbound_comment(
     // as the `ticket.created` annotation upstream.
     fn non_empty(s: &str) -> Option<String> {
         let t = s.trim();
-        if t.is_empty() { None } else { Some(t.to_string()) }
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
     }
     let annotation = crate::repository::comments::CommentCreationAnnotation {
         source: Some(format!("channel:{}", msg.from.provider)),
@@ -1071,7 +1085,11 @@ mod tests {
         }
     }
 
-    fn sample_message(external_id: &str, references: Vec<String>, subject: Option<&str>) -> InboundMessage {
+    fn sample_message(
+        external_id: &str,
+        references: Vec<String>,
+        subject: Option<&str>,
+    ) -> InboundMessage {
         InboundMessage {
             external_id: external_id.into(),
             from: ExternalIdentity {
@@ -1103,12 +1121,21 @@ mod tests {
         let event =
             InboundEvent::MessageReceived(sample_message("<m1@ex>", vec![], Some("Printer fire")));
 
-        let outcome = process_event(&StubAdapter, &ch, event, &mut conn, &PipelineContext::bare())
-            .await
-            .unwrap();
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            event,
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
 
         let (ticket_id, comment_id) = match outcome {
-            PipelineOutcome::TicketOpened { ticket_id, comment_id } => (ticket_id, comment_id),
+            PipelineOutcome::TicketOpened {
+                ticket_id,
+                comment_id,
+            } => (ticket_id, comment_id),
             other => panic!("expected TicketOpened, got {other:?}"),
         };
 
@@ -1133,9 +1160,15 @@ mod tests {
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
         let event = InboundEvent::MessageReceived(sample_message("<m2@ex>", vec![], Some("   ")));
 
-        let outcome = process_event(&StubAdapter, &ch, event, &mut conn, &PipelineContext::bare())
-            .await
-            .unwrap();
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            event,
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
         let ticket_id = match outcome {
             PipelineOutcome::TicketOpened { ticket_id, .. } => ticket_id,
             other => panic!("{other:?}"),
@@ -1174,11 +1207,20 @@ mod tests {
             Some("Re: parent"),
         ));
 
-        let outcome = process_event(&StubAdapter, &ch, event, &mut conn, &PipelineContext::bare())
-            .await
-            .unwrap();
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            event,
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
         let (attached_ticket, comment_id) = match outcome {
-            PipelineOutcome::ReplyAppended { ticket_id, comment_id } => (ticket_id, comment_id),
+            PipelineOutcome::ReplyAppended {
+                ticket_id,
+                comment_id,
+            } => (ticket_id, comment_id),
             other => panic!("expected ReplyAppended, got {other:?}"),
         };
         assert_eq!(attached_ticket, ticket.id);
@@ -1210,9 +1252,11 @@ mod tests {
         assert_eq!(outcome, PipelineOutcome::SkippedLoop);
 
         // No channel_messages row should have been recorded.
-        assert!(channels_repo::find_by_external_id(&mut conn, ch.id, "<loop@ex>")
-            .unwrap()
-            .is_none());
+        assert!(
+            channels_repo::find_by_external_id(&mut conn, ch.id, "<loop@ex>")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -1248,7 +1292,11 @@ mod tests {
     /// All fields are filled with realistic-but-uninteresting values
     /// so each test only has to specify what it actually cares about
     /// (Message-ID for linkage, recipient for suppression).
-    fn outbound_row(channel_id: i32, message_id: &str, recipient: &str) -> crate::models::NewOutboundEmail {
+    fn outbound_row(
+        channel_id: i32,
+        message_id: &str,
+        recipient: &str,
+    ) -> crate::models::NewOutboundEmail {
         crate::models::NewOutboundEmail {
             channel_id: Some(channel_id),
             ticket_id: None,
@@ -1284,7 +1332,10 @@ mod tests {
             outbound_row(ch.id, "out-42-canonical@yourco.com", "bob@example.org"),
         )
         .unwrap();
-        assert!(original.bounced_at.is_none(), "fresh row has no bounce stamp");
+        assert!(
+            original.bounced_at.is_none(),
+            "fresh row has no bounce stamp"
+        );
 
         // Parse the canonical Postfix DSN fixture through the real
         // email_imap entry point so detect_bounce + parse_bounce both
@@ -1293,7 +1344,10 @@ mod tests {
         let msg = super::super::email_imap::parse_rfc822_into_inbound_message(raw, None)
             .expect("fixture should parse");
         assert!(msg.is_bounce, "detect_bounce should flag the fixture");
-        assert!(!msg.bounce_reports.is_empty(), "parse_bounce should yield at least one report");
+        assert!(
+            !msg.bounce_reports.is_empty(),
+            "parse_bounce should yield at least one report"
+        );
 
         let outcome = process_event(
             &StubAdapter,
@@ -1308,8 +1362,14 @@ mod tests {
 
         // Outbound row should now carry the bounce stamp.
         let refreshed = crate::repository::outbound_emails::get(&mut conn, original.id).unwrap();
-        assert!(refreshed.bounced_at.is_some(), "outbound row should be marked bounced");
-        assert_eq!(refreshed.bounce_recipient.as_deref(), Some("bob@example.org"));
+        assert!(
+            refreshed.bounced_at.is_some(),
+            "outbound row should be marked bounced"
+        );
+        assert_eq!(
+            refreshed.bounce_recipient.as_deref(),
+            Some("bob@example.org")
+        );
         assert!(
             refreshed
                 .bounce_diagnostic
@@ -1637,8 +1697,15 @@ mod tests {
             mfa_enabled: false,
             mfa_backup_codes: None,
         };
-        create_user_with_email(admin, "claimed@example.com".into(), true, None, &mut conn, None)
-            .expect("seed admin");
+        create_user_with_email(
+            admin,
+            "claimed@example.com".into(),
+            true,
+            None,
+            &mut conn,
+            None,
+        )
+        .expect("seed admin");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
         let mut msg = sample_message("<claimed@ex>", vec![], Some("hi"));
@@ -1679,9 +1746,15 @@ mod tests {
             mfa_enabled: false,
             mfa_backup_codes: None,
         };
-        let (tech, _) =
-            create_user_with_email(tech_user, "tech@yourco.com".into(), true, None, &mut conn, None)
-                .expect("seed tech");
+        let (tech, _) = create_user_with_email(
+            tech_user,
+            "tech@yourco.com".into(),
+            true,
+            None,
+            &mut conn,
+            None,
+        )
+        .expect("seed tech");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
         let mut msg = sample_message("<fwd-1@yourco>", vec![], Some("Fwd: Printer fire"));
@@ -1710,7 +1783,10 @@ My printer is literally on fire.
         .unwrap();
 
         let (ticket_id, comment_id) = match outcome {
-            PipelineOutcome::TicketOpened { ticket_id, comment_id } => (ticket_id, comment_id),
+            PipelineOutcome::TicketOpened {
+                ticket_id,
+                comment_id,
+            } => (ticket_id, comment_id),
             other => panic!("expected TicketOpened, got {other:?}"),
         };
 
@@ -1756,8 +1832,15 @@ My printer is literally on fire.
             mfa_enabled: false,
             mfa_backup_codes: None,
         };
-        create_user_with_email(tech, "admin2@yourco.com".into(), true, None, &mut conn, None)
-            .expect("seed admin");
+        create_user_with_email(
+            tech,
+            "admin2@yourco.com".into(),
+            true,
+            None,
+            &mut conn,
+            None,
+        )
+        .expect("seed admin");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
         let mut msg = sample_message("<plain@yourco>", vec![], Some("just a note"));
@@ -1815,10 +1898,7 @@ My printer is literally on fire.
             "1.1.1.1",
             "storage.googleapis.com",
         ] {
-            assert!(
-                !host_looks_internal(ok),
-                "expected {ok} to be accepted"
-            );
+            assert!(!host_looks_internal(ok), "expected {ok} to be accepted");
         }
     }
 

@@ -21,7 +21,9 @@ use chrono::{DateTime, Utc};
 use super::reply_body::ReplyBody;
 use crate::db::DbConnection;
 use crate::models::{Channel, Comment, ContentFormat, Ticket};
-use crate::repository::{channels as channels_repo, comments as comments_repo, users as users_repo};
+use crate::repository::{
+    channels as channels_repo, comments as comments_repo, users as users_repo,
+};
 use crate::utils::content::html_to_plaintext;
 
 /// Pull the customer's latest inbound message for this ticket and
@@ -53,7 +55,12 @@ pub fn build_for_outbound(
     // "UTC" on a customer's screen looks robotic. Absolute time lives
     // in the `Date` header anyway.
     let received = DateTime::<Utc>::from_naive_utc_and_offset(last.received_at, Utc);
-    Some(format_quote(&comment, display_name.as_deref(), from_email, received))
+    Some(format_quote(
+        &comment,
+        display_name.as_deref(),
+        from_email,
+        received,
+    ))
 }
 
 /// Both representations of the quoted prelude. Always produced as a
@@ -173,7 +180,9 @@ mod tests {
         let at = Utc.with_ymd_and_hms(2024, 1, 2, 10, 15, 0).unwrap();
         let q = format_quote(&c, Some("Alice Example"), "alice@example.com", at);
         assert!(
-            q.text.contains("On Tue, Jan 2, 2024 at 10:15 AM, Alice Example <alice@example.com> wrote:"),
+            q.text.contains(
+                "On Tue, Jan 2, 2024 at 10:15 AM, Alice Example <alice@example.com> wrote:"
+            ),
             "got:\n{}",
             q.text
         );
@@ -188,7 +197,8 @@ mod tests {
         let at = Utc.with_ymd_and_hms(2024, 1, 2, 10, 15, 0).unwrap();
         let q = format_quote(&c, None, "alice@example.com", at);
         assert!(
-            q.text.contains("On Tue, Jan 2, 2024 at 10:15 AM, <alice@example.com> wrote:"),
+            q.text
+                .contains("On Tue, Jan 2, 2024 at 10:15 AM, <alice@example.com> wrote:"),
             "got:\n{}",
             q.text
         );
@@ -234,7 +244,9 @@ mod tests {
         let c = make_comment("<p>printer <strong>dead</strong></p>", ContentFormat::Html);
         let at = Utc.with_ymd_and_hms(2024, 1, 2, 10, 15, 0).unwrap();
         let q = format_quote(&c, Some("Alice"), "alice@example.com", at);
-        assert!(q.html.contains("<blockquote><p>printer <strong>dead</strong></p></blockquote>"));
+        assert!(q
+            .html
+            .contains("<blockquote><p>printer <strong>dead</strong></p></blockquote>"));
         // Plaintext side rendered the HTML through html2text.
         assert!(q.text.contains("> "), "got:\n{}", q.text);
     }

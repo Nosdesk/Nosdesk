@@ -100,9 +100,7 @@ impl VisibilityContext {
 /// for staff, two `OR`-combined clauses for end-users) and Diesel's
 /// type-level branching would force every caller to use a trait
 /// object anyway.
-pub fn visible_tickets_query<'a>(
-    ctx: &VisibilityContext,
-) -> tickets::BoxedQuery<'a, Pg> {
+pub fn visible_tickets_query<'a>(ctx: &VisibilityContext) -> tickets::BoxedQuery<'a, Pg> {
     let base = tickets::table.into_boxed();
     if ctx.sees_all() {
         return base;
@@ -172,13 +170,11 @@ pub fn can_view_ticket(
         .filter(ticket_watchers::user_uuid.eq(ctx.user_uuid))
         .select(ticket_watchers::ticket_id);
     select(exists(
-        tickets::table
-            .find(ticket_id)
-            .filter(
-                tickets::requester_uuid
-                    .eq(ctx.user_uuid)
-                    .or(tickets::id.eq_any(watched_ticket_ids)),
-            ),
+        tickets::table.find(ticket_id).filter(
+            tickets::requester_uuid
+                .eq(ctx.user_uuid)
+                .or(tickets::id.eq_any(watched_ticket_ids)),
+        ),
     ))
     .get_result(conn)
 }
@@ -209,7 +205,9 @@ mod tests {
         let requester = TestFixtures::create_user(&mut conn, "req", UserRole::User);
         let ticket = TestFixtures::create_ticket(&mut conn, "other", Some(requester.uuid), None);
 
-        assert!(can_view_ticket(&mut conn, &ctx(tech.uuid, UserRole::Technician), ticket.id).unwrap());
+        assert!(
+            can_view_ticket(&mut conn, &ctx(tech.uuid, UserRole::Technician), ticket.id).unwrap()
+        );
     }
 
     #[test]
@@ -228,8 +226,9 @@ mod tests {
         let bob = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
         let bob_ticket = TestFixtures::create_ticket(&mut conn, "bob's", Some(bob.uuid), None);
 
-        assert!(!can_view_ticket(&mut conn, &ctx(alice.uuid, UserRole::User), bob_ticket.id)
-            .unwrap());
+        assert!(
+            !can_view_ticket(&mut conn, &ctx(alice.uuid, UserRole::User), bob_ticket.id).unwrap()
+        );
     }
 
     #[test]

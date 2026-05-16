@@ -2,35 +2,35 @@ pub mod auth;
 pub mod bootstrap_token;
 pub mod client_ip;
 pub mod content;
-pub mod login_timing;
-pub mod user;
-pub mod image;
-pub mod jwt;
-pub mod mfa;
-pub mod storage;
+pub mod cookies;
+pub mod csrf;
 pub mod email;
 pub mod email_branding;
-pub mod reset_tokens;
-pub mod csrf;
-pub mod cookies;
 pub mod encryption;
-pub mod file_validation;
-pub mod rate_limit;
-pub mod redis_yjs_cache;
-pub mod security_events;
-pub mod rbac;
-pub mod pdf;
-pub mod webauthn;
 pub mod error_response;
+pub mod file_validation;
 pub mod i18n;
+pub mod image;
+pub mod jwt;
 pub mod locale;
+pub mod login_timing;
 pub mod markdown_export;
+pub mod mfa;
+pub mod pdf;
+pub mod rate_limit;
+pub mod rbac;
+pub mod redis_yjs_cache;
+pub mod reset_tokens;
 pub mod safe_http;
+pub mod security_events;
 pub mod slug;
+pub mod storage;
+pub mod user;
 pub mod utf8_trunc;
+pub mod webauthn;
 
-use uuid::Uuid;
 use crate::models::UserRole;
+use uuid::Uuid;
 
 /// Custom error types for better error handling
 #[derive(Debug)]
@@ -44,7 +44,10 @@ impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidUuid(s) => write!(f, "Invalid UUID format: {s}"),
-            Self::InvalidRole(s) => write!(f, "Invalid role: {s}. Must be 'admin', 'technician', or 'user'"),
+            Self::InvalidRole(s) => write!(
+                f,
+                "Invalid role: {s}. Must be 'admin', 'technician', or 'user'"
+            ),
             Self::ValidationFailed(s) => write!(f, "Validation failed: {s}"),
         }
     }
@@ -57,8 +60,7 @@ pub type ValidationResult<T> = Result<T, ValidationError>;
 
 /// Parse UUID from string with proper error handling
 pub fn parse_uuid(uuid_str: &str) -> ValidationResult<Uuid> {
-    Uuid::parse_str(uuid_str)
-        .map_err(|_| ValidationError::InvalidUuid(uuid_str.to_string()))
+    Uuid::parse_str(uuid_str).map_err(|_| ValidationError::InvalidUuid(uuid_str.to_string()))
 }
 
 /// Convert UUID to string safely
@@ -91,8 +93,8 @@ pub fn normalize_email(email: &str) -> String {
     email.trim().to_lowercase()
 }
 
-pub use user::*;
 pub use image::*;
+pub use user::*;
 
 #[cfg(test)]
 mod tests {
@@ -135,6 +137,9 @@ mod tests {
 
     #[test]
     fn normalize_email_trims_and_lowercases() {
-        assert_eq!(normalize_email("  Alice@Example.COM  "), "alice@example.com");
+        assert_eq!(
+            normalize_email("  Alice@Example.COM  "),
+            "alice@example.com"
+        );
     }
 }

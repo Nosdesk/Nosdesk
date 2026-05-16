@@ -40,9 +40,9 @@ pub mod forward_parser;
 pub mod outbound;
 pub mod pipeline;
 pub mod quote_previous;
-pub mod reply_body;
 pub mod registry;
 pub mod relay;
+pub mod reply_body;
 pub mod signature;
 pub mod supervisor;
 pub mod threading;
@@ -83,25 +83,19 @@ impl ChannelError {
     /// Closure constructor for the very common
     /// `Result::map_err(|e| ChannelError::Transient(format!("prefix: {e}")))`
     /// pattern. Use as: `.map_err(ChannelError::transient("tcp connect"))?`.
-    pub fn transient<E: std::fmt::Display>(
-        prefix: &'static str,
-    ) -> impl FnOnce(E) -> Self {
+    pub fn transient<E: std::fmt::Display>(prefix: &'static str) -> impl FnOnce(E) -> Self {
         move |e| Self::Transient(format!("{prefix}: {e}"))
     }
 
     /// Companion to [`Self::transient`] for misconfiguration errors —
     /// things an admin must fix before the worker can proceed.
-    pub fn configuration<E: std::fmt::Display>(
-        prefix: &'static str,
-    ) -> impl FnOnce(E) -> Self {
+    pub fn configuration<E: std::fmt::Display>(prefix: &'static str) -> impl FnOnce(E) -> Self {
         move |e| Self::Configuration(format!("{prefix}: {e}"))
     }
 
     /// Companion to [`Self::transient`] for unclassified errors; the
     /// registry treats these as transient for backoff purposes.
-    pub fn other<E: std::fmt::Display>(
-        prefix: &'static str,
-    ) -> impl FnOnce(E) -> Self {
+    pub fn other<E: std::fmt::Display>(prefix: &'static str) -> impl FnOnce(E) -> Self {
         move |e| Self::Other(format!("{prefix}: {e}"))
     }
 }
@@ -401,8 +395,20 @@ mod tests {
 
     #[test]
     fn loop_markers_any_detects_each_flag() {
-        assert!(LoopMarkers { is_auto_reply: true, ..Default::default() }.any());
-        assert!(LoopMarkers { is_bulk: true, ..Default::default() }.any());
-        assert!(LoopMarkers { is_suppressed: true, ..Default::default() }.any());
+        assert!(LoopMarkers {
+            is_auto_reply: true,
+            ..Default::default()
+        }
+        .any());
+        assert!(LoopMarkers {
+            is_bulk: true,
+            ..Default::default()
+        }
+        .any());
+        assert!(LoopMarkers {
+            is_suppressed: true,
+            ..Default::default()
+        }
+        .any());
     }
 }

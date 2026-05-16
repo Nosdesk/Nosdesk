@@ -1,7 +1,7 @@
-use diesel::prelude::*;
-use diesel::QueryResult;
-use diesel::result::Error;
 use chrono::Utc;
+use diesel::prelude::*;
+use diesel::result::Error;
+use diesel::QueryResult;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
@@ -36,14 +36,19 @@ fn apply_device_filters<'a>(
         if !search_term.is_empty() {
             let pattern = format!("%{}%", search_term.to_lowercase());
             query = query.filter(
-                devices::name.ilike(pattern.clone())
+                devices::name
+                    .ilike(pattern.clone())
                     .or(devices::hostname.ilike(pattern.clone()))
                     .or(devices::serial_number.ilike(pattern.clone()))
                     .or(devices::model.ilike(pattern.clone()))
                     .or(devices::manufacturer.ilike(pattern.clone()))
                     .or(devices::id.eq_any(
-                        search_term.parse::<i32>().ok().map(|id| vec![id]).unwrap_or_default()
-                    ))
+                        search_term
+                            .parse::<i32>()
+                            .ok()
+                            .map(|id| vec![id])
+                            .unwrap_or_default(),
+                    )),
             );
         }
     }
@@ -73,12 +78,18 @@ pub fn get_paginated_devices(
 ) -> Result<(Vec<Device>, i64), Error> {
     let total: i64 = apply_device_filters(
         devices::table.into_boxed(),
-        search.as_deref(), warranty.as_deref(), device_type.as_deref(),
-    ).count().get_result(conn)?;
+        search.as_deref(),
+        warranty.as_deref(),
+        device_type.as_deref(),
+    )
+    .count()
+    .get_result(conn)?;
 
     let mut query = apply_device_filters(
         devices::table.into_boxed(),
-        search.as_deref(), warranty.as_deref(), device_type.as_deref(),
+        search.as_deref(),
+        warranty.as_deref(),
+        device_type.as_deref(),
     );
 
     // Apply sorting
@@ -93,7 +104,9 @@ pub fn get_paginated_devices(
         (Some("model"), _) => query = query.order(devices::model.desc()),
         (Some("manufacturer"), Some("asc")) => query = query.order(devices::manufacturer.asc()),
         (Some("manufacturer"), _) => query = query.order(devices::manufacturer.desc()),
-        (Some("warranty_status"), Some("asc")) => query = query.order(devices::warranty_status.asc()),
+        (Some("warranty_status"), Some("asc")) => {
+            query = query.order(devices::warranty_status.asc())
+        }
         (Some("warranty_status"), _) => query = query.order(devices::warranty_status.desc()),
         (Some("serial_number"), Some("asc")) => query = query.order(devices::serial_number.asc()),
         (Some("serial_number"), _) => query = query.order(devices::serial_number.desc()),
@@ -111,18 +124,22 @@ pub fn get_paginated_devices(
 }
 
 pub fn get_device_by_id(conn: &mut DbConnection, device_id: i32) -> QueryResult<Device> {
-    devices::table
-        .find(device_id)
-        .first(conn)
+    devices::table.find(device_id).first(conn)
 }
 
-pub fn get_device_by_entra_id(conn: &mut DbConnection, entra_device_id: &str) -> QueryResult<Device> {
+pub fn get_device_by_entra_id(
+    conn: &mut DbConnection,
+    entra_device_id: &str,
+) -> QueryResult<Device> {
     devices::table
         .filter(devices::entra_device_id.eq(entra_device_id))
         .first(conn)
 }
 
-pub fn get_device_by_microsoft_id(conn: &mut DbConnection, microsoft_device_id: &str) -> QueryResult<Device> {
+pub fn get_device_by_microsoft_id(
+    conn: &mut DbConnection,
+    microsoft_device_id: &str,
+) -> QueryResult<Device> {
     devices::table
         .filter(devices::microsoft_device_id.eq(microsoft_device_id))
         .first(conn)
@@ -134,10 +151,14 @@ pub fn create_device(conn: &mut DbConnection, new_device: NewDevice) -> QueryRes
         .get_result(conn)
 }
 
-pub fn update_device(conn: &mut DbConnection, device_id: i32, device_update: DeviceUpdate) -> QueryResult<Device> {
+pub fn update_device(
+    conn: &mut DbConnection,
+    device_id: i32,
+    device_update: DeviceUpdate,
+) -> QueryResult<Device> {
     let mut update = device_update;
     update.updated_at = Some(Utc::now().naive_utc());
-    
+
     diesel::update(devices::table.find(device_id))
         .set(&update)
         .get_result(conn)
@@ -159,7 +180,7 @@ pub fn delete_device(
 
 pub fn get_devices_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Vec<Device>> {
     use crate::schema::devices::dsl::*;
-    
+
     devices
         .filter(primary_user_uuid.eq(user_uuid))
         .order(name.asc())
@@ -171,19 +192,15 @@ pub fn get_paginated_devices_excluding_ids(
     page: i64,
     page_size: i64,
     search: Option<&str>,
-    exclude_ids: &[i32]
+    exclude_ids: &[i32],
 ) -> QueryResult<(Vec<Device>, i64)> {
-    let mut count_query = apply_device_filters(
-        devices::table.into_boxed(), search, None, None,
-    );
+    let mut count_query = apply_device_filters(devices::table.into_boxed(), search, None, None);
     if !exclude_ids.is_empty() {
         count_query = count_query.filter(devices::id.ne_all(exclude_ids));
     }
     let total_count = count_query.count().get_result::<i64>(conn)?;
 
-    let mut data_query = apply_device_filters(
-        devices::table.into_boxed(), search, None, None,
-    );
+    let mut data_query = apply_device_filters(devices::table.into_boxed(), search, None, None);
     if !exclude_ids.is_empty() {
         data_query = data_query.filter(devices::id.ne_all(exclude_ids));
     }
@@ -212,8 +229,8 @@ pub fn get_devices_by_entra_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::setup_test_connection;
     use crate::models::NewDevice;
+    use crate::test_helpers::setup_test_connection;
 
     fn minimal_device(name: &str) -> NewDevice {
         NewDevice {

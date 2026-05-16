@@ -64,7 +64,8 @@ impl EmailChannel {
                 ..
             } => ticket_title.clone(),
             crate::services::notifications::types::NotificationEntity::DocumentationPage {
-                title, ..
+                title,
+                ..
             } => title.clone(),
         };
 
@@ -93,7 +94,10 @@ impl EmailChannel {
     /// Generate the entity URL for the email
     fn generate_entity_url(&self, notification: &DeliverableNotification) -> String {
         match &notification.payload.entity {
-            crate::services::notifications::types::NotificationEntity::DocumentationPage { slug, .. } => {
+            crate::services::notifications::types::NotificationEntity::DocumentationPage {
+                slug,
+                ..
+            } => {
                 format!("{}/documentation/{}", self.base_url, slug)
             }
             _ => {
@@ -105,7 +109,7 @@ impl EmailChannel {
 
     /// Get the recipient's primary email address
     async fn get_recipient_email(&self, recipient_uuid: &Uuid) -> ChannelResult<String> {
-        use crate::schema::user_emails::dsl::{user_emails, user_uuid, email, is_primary};
+        use crate::schema::user_emails::dsl::{email, is_primary, user_emails, user_uuid};
 
         let mut conn = self
             .pool
@@ -134,8 +138,8 @@ impl EmailChannel {
         entity_id_val: i32,
     ) -> ChannelResult<()> {
         use crate::schema::notification_rate_limits::dsl::{
-            notification_rate_limits, user_uuid, notification_type_id, entity_type, entity_id,
-            last_notified_at,
+            entity_id, entity_type, last_notified_at, notification_rate_limits,
+            notification_type_id, user_uuid,
         };
 
         let mut conn = self
@@ -175,7 +179,7 @@ impl EmailChannel {
         }
 
         // Query database
-        use crate::schema::notification_types::dsl::{notification_types, code, id as id_col};
+        use crate::schema::notification_types::dsl::{code, id as id_col, notification_types};
 
         let mut conn = self
             .pool
@@ -186,7 +190,9 @@ impl EmailChannel {
             .filter(code.eq(type_code))
             .select(id_col)
             .first(&mut conn)
-            .map_err(|e| ChannelError::DatabaseError(format!("Notification type not found: {e}")))?;
+            .map_err(|e| {
+                ChannelError::DatabaseError(format!("Notification type not found: {e}"))
+            })?;
 
         // Update cache
         {
@@ -231,11 +237,7 @@ impl NotificationDeliveryChannel for EmailChannel {
         let entity_url = self.generate_entity_url(notification);
         let body_text = match notification.payload.body.as_deref() {
             Some(text) if !text.is_empty() => text.to_string(),
-            _ => crate::utils::i18n::tr_with(
-                &recipient_locale,
-                "notif-body-fallback",
-                &[],
-            ),
+            _ => crate::utils::i18n::tr_with(&recipient_locale, "notif-body-fallback", &[]),
         };
         let title = notification.payload.title.clone();
         let actor_name = notification.payload.actor.name.clone();
@@ -313,8 +315,8 @@ impl NotificationDeliveryChannel for EmailChannel {
         entity_id_val: i32,
     ) -> bool {
         use crate::schema::notification_rate_limits::dsl::{
-            notification_rate_limits, user_uuid, notification_type_id, entity_type, entity_id,
-            last_notified_at, id as rate_limit_id,
+            entity_id, entity_type, id as rate_limit_id, last_notified_at,
+            notification_rate_limits, notification_type_id, user_uuid,
         };
 
         // Get notification type ID from shared cache

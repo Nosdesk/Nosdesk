@@ -78,7 +78,8 @@ fn manifest_schema_version_matches_registry() {
         let m = load_manifest(agg.as_str());
         let registry_version = schema_version_for(agg);
         assert_eq!(
-            m.schema_version, registry_version,
+            m.schema_version,
+            registry_version,
             "schema_version mismatch for `{}`: manifest={}, registry={}",
             agg.as_str(),
             m.schema_version,

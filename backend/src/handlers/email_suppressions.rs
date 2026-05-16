@@ -16,9 +16,9 @@ use tracing::warn;
 
 use crate::db::Pool;
 use crate::handlers::{errors, helpers};
-use crate::utils::rbac;
 use crate::models::{email_suppression_reason, EmailSuppression, NewEmailSuppression};
 use crate::repository::email_suppressions as repo;
+use crate::utils::rbac;
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {

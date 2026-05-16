@@ -40,7 +40,10 @@ pub fn find(conn: &mut DbConnection, channel_id: i32) -> QueryResult<Channel> {
 /// Find-or-create by `provider` name. Used by the phase-1 single-mailbox
 /// admin UI which upserts the one `email_imap` row; multi-mailbox UIs can
 /// call `create`/`update` directly keyed on `id`.
-pub fn find_by_provider(conn: &mut DbConnection, provider_name: &str) -> QueryResult<Option<Channel>> {
+pub fn find_by_provider(
+    conn: &mut DbConnection,
+    provider_name: &str,
+) -> QueryResult<Option<Channel>> {
     use crate::schema::channels::dsl::*;
     channels
         .filter(provider.eq(provider_name))
@@ -125,7 +128,8 @@ pub fn put_credential(
 ) -> Result<(), CredentialError> {
     use crate::schema::channel_credentials::dsl as cc;
 
-    let encrypted = encryption::encrypt(plaintext).map_err(|e| CredentialError::Crypto(e.to_string()))?;
+    let encrypted =
+        encryption::encrypt(plaintext).map_err(|e| CredentialError::Crypto(e.to_string()))?;
 
     let row = NewChannelCredential {
         channel_id,
@@ -284,8 +288,8 @@ pub fn latest_inbound_for_ticket(
     channel_id: i32,
     ticket_id: i32,
 ) -> QueryResult<Option<ChannelMessage>> {
-    use crate::schema::channel_messages::dsl as cm;
     use crate::models::CHANNEL_DIRECTION_INBOUND;
+    use crate::schema::channel_messages::dsl as cm;
     cm::channel_messages
         .filter(cm::channel_id.eq(channel_id))
         .filter(cm::ticket_id.eq(ticket_id))
@@ -298,7 +302,7 @@ pub fn latest_inbound_for_ticket(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND, UserRole};
+    use crate::models::{UserRole, CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use serde_json::json;
 
@@ -383,7 +387,9 @@ mod tests {
         put_credential(&mut conn, ch.id, "imap_password", "new", None).unwrap();
 
         assert_eq!(
-            get_credential(&mut conn, ch.id, "imap_password").unwrap().as_deref(),
+            get_credential(&mut conn, ch.id, "imap_password")
+                .unwrap()
+                .as_deref(),
             Some("new")
         );
     }
@@ -392,7 +398,9 @@ mod tests {
     fn credential_missing_returns_none() {
         let mut conn = setup_test_connection();
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
-        assert!(get_credential(&mut conn, ch.id, "imap_password").unwrap().is_none());
+        assert!(get_credential(&mut conn, ch.id, "imap_password")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -460,19 +468,12 @@ mod tests {
         .unwrap();
 
         // Chain includes a miss and a hit; we should find the ticket via the hit.
-        let references = vec![
-            "<unknown@somewhere>".to_string(),
-            "<parent@x>".to_string(),
-        ];
+        let references = vec!["<unknown@somewhere>".to_string(), "<parent@x>".to_string()];
         let hit = find_ticket_by_reference_chain(&mut conn, ch.id, &references).unwrap();
         assert_eq!(hit, Some(ticket.id));
 
-        let miss = find_ticket_by_reference_chain(
-            &mut conn,
-            ch.id,
-            &["<nope@nope>".to_string()],
-        )
-        .unwrap();
+        let miss =
+            find_ticket_by_reference_chain(&mut conn, ch.id, &["<nope@nope>".to_string()]).unwrap();
         assert_eq!(miss, None);
     }
 
@@ -525,5 +526,4 @@ mod tests {
         assert_eq!(creds_left, 0);
         assert_eq!(msgs_left, 0);
     }
-
 }

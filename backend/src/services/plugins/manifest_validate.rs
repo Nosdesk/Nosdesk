@@ -359,10 +359,12 @@ pub fn validate(
 
     for (collection_name, def) in &manifest.collections {
         if def.schema_version != 1 {
-            errors.push(ManifestValidationError::UnsupportedCollectionSchemaVersion {
-                collection: collection_name.clone(),
-                version: def.schema_version,
-            });
+            errors.push(
+                ManifestValidationError::UnsupportedCollectionSchemaVersion {
+                    collection: collection_name.clone(),
+                    version: def.schema_version,
+                },
+            );
         }
     }
 
@@ -376,8 +378,7 @@ pub fn validate(
         .filter_map(crate::services::plugins::types::Permission::network_pattern)
         .collect();
     for host in manifest.auth.keys() {
-        let auth_pattern =
-            crate::services::plugins::types::HostPattern::Exact(host.clone());
+        let auth_pattern = crate::services::plugins::types::HostPattern::Exact(host.clone());
         if !network_patterns.iter().any(|p| p.covers(&auth_pattern)) {
             errors.push(ManifestValidationError::AuthRefersToUndeclaredHost(
                 host.as_str().to_string(),
@@ -406,8 +407,7 @@ pub fn validate(
         }
     }
     if let Some(contact) = &manifest.support_contact {
-        let looks_like_url =
-            crate::services::plugins::types::WebUrl::parse(contact).is_ok();
+        let looks_like_url = crate::services::plugins::types::WebUrl::parse(contact).is_ok();
         let looks_like_email = contact.contains('@')
             && !contact.contains(' ')
             && !contact.starts_with('@')
@@ -573,9 +573,7 @@ fn validate_author(
     }
 }
 
-fn validate_component(
-    component: &PluginComponentConfig,
-) -> Result<(), ManifestValidationError> {
+fn validate_component(component: &PluginComponentConfig) -> Result<(), ManifestValidationError> {
     // v1 only implements `Slot`. Other variants parse so future
     // plugins can declare them, but are refused at install with a
     // clear "kind not yet supported" message.
@@ -596,9 +594,7 @@ fn validate_component(
     Ok(())
 }
 
-fn validate_setting(
-    setting: &PluginSettingDefinition,
-) -> Result<(), ManifestValidationError> {
+fn validate_setting(setting: &PluginSettingDefinition) -> Result<(), ManifestValidationError> {
     if !KNOWN_SETTING_TYPES.contains(&setting.setting_type.as_str()) {
         return Err(ManifestValidationError::InvalidSettingType(
             setting.setting_type.clone(),
@@ -781,7 +777,9 @@ mod tests {
         m.permissions = vec![perm("network:*.github.com")];
         m.auth.insert(
             host("api.github.com"),
-            crate::models::PluginAuthConfig::Bearer { secret: "tok".into() },
+            crate::models::PluginAuthConfig::Bearer {
+                secret: "tok".into(),
+            },
         );
         validate(&m, &ctx_official()).unwrap();
     }
@@ -796,7 +794,9 @@ mod tests {
         m.permissions = vec![perm("network:api.github.com")];
         m.auth.insert(
             host("API.GITHUB.COM"),
-            crate::models::PluginAuthConfig::Bearer { secret: "tok".into() },
+            crate::models::PluginAuthConfig::Bearer {
+                secret: "tok".into(),
+            },
         );
         validate(&m, &ctx_official()).unwrap();
     }
@@ -847,7 +847,10 @@ mod tests {
                 action: None,
             },
         );
-        assert_err!(validate(&m, &ctx_official()), ManifestValidationError::InvalidSlot(_));
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::InvalidSlot(_)
+        );
     }
 
     #[test]
@@ -929,7 +932,10 @@ mod tests {
         m.engines.nosdesk = ">=99.0.0".into();
         assert_err!(
             validate(&m, &ctx_official()),
-            ManifestValidationError::EngineNotSatisfied { kind: "nosdesk", .. },
+            ManifestValidationError::EngineNotSatisfied {
+                kind: "nosdesk",
+                ..
+            },
         );
     }
 
@@ -949,7 +955,10 @@ mod tests {
         m.engines.nosdesk = "not a semver req".into();
         assert_err!(
             validate(&m, &ctx_official()),
-            ManifestValidationError::InvalidEngineRequirement { kind: "nosdesk", .. },
+            ManifestValidationError::InvalidEngineRequirement {
+                kind: "nosdesk",
+                ..
+            },
         );
     }
 
@@ -1004,7 +1013,9 @@ mod tests {
             .insert("future_feature".into(), serde_json::json!({"x": 1}));
         assert_err!(
             validate(&m, &ctx_official()),
-            ManifestValidationError::ReservedFieldNotEmpty { field: "extensions" },
+            ManifestValidationError::ReservedFieldNotEmpty {
+                field: "extensions"
+            },
         );
     }
 
@@ -1029,7 +1040,10 @@ mod tests {
         m.display_name = "%my.app.name%".into();
         assert_err!(
             validate(&m, &ctx_official()),
-            ManifestValidationError::LocalisationKeyReserved { location: "displayName", .. },
+            ManifestValidationError::LocalisationKeyReserved {
+                location: "displayName",
+                ..
+            },
         );
     }
 
@@ -1049,7 +1063,11 @@ mod tests {
         // C5 finding from the architectural review: previously
         // `url::Url::parse` accepted any scheme so `javascript:`
         // and `file:` slipped through.
-        for bad in ["http://example.com", "javascript:alert(1)", "file:///etc/passwd"] {
+        for bad in [
+            "http://example.com",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+        ] {
             let mut m = baseline_manifest();
             m.bugs = Some(bad.into());
             assert_err!(
@@ -1139,10 +1157,20 @@ mod tests {
         m.screenshots.push("../etc/passwd".into());
 
         let errs = validate(&m, &ctx_official()).unwrap_err();
-        assert!(errs.iter().any(|e| matches!(e, ManifestValidationError::InvalidEvent(_))));
-        assert!(errs.iter().any(|e| matches!(e, ManifestValidationError::InvalidCategory(_))));
-        assert!(errs.iter().any(|e| matches!(e, ManifestValidationError::InvalidScreenshotPath(_))));
-        assert!(errs.len() >= 3, "expected >= 3 errors, got {}: {errs:?}", errs.len());
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, ManifestValidationError::InvalidEvent(_))));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, ManifestValidationError::InvalidCategory(_))));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, ManifestValidationError::InvalidScreenshotPath(_))));
+        assert!(
+            errs.len() >= 3,
+            "expected >= 3 errors, got {}: {errs:?}",
+            errs.len()
+        );
     }
 
     #[test]

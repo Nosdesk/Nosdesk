@@ -15,8 +15,8 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::extractors::AuthContext;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::repository::dashboard_stats::{self, StatsGroup};
 
 #[derive(Deserialize)]

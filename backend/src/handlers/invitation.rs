@@ -1,17 +1,20 @@
-use actix_web::{web, HttpResponse, Responder, HttpRequest};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use chrono::Utc;
 use serde_json::json;
 use std::sync::Arc;
-use chrono::Utc;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use crate::db::DbConnection;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::handlers::sse::SseState;
-use crate::models::{AcceptInvitationRequest, AcceptInvitationResponse, ValidateInvitationRequest, ValidateInvitationResponse};
+use crate::models::{
+    AcceptInvitationRequest, AcceptInvitationResponse, ValidateInvitationRequest,
+    ValidateInvitationResponse,
+};
 use crate::repository;
-use crate::services::search::SearchService;
 use crate::services::search::indexing_tasks;
+use crate::services::search::SearchService;
 use crate::utils::auth::hash_password;
 use crate::utils::reset_tokens::TokenType;
 
@@ -157,7 +160,10 @@ pub async fn accept_invitation(
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(e) => {
-            error!("User not found for invitation acceptance: user_uuid={}, error={}", user_uuid, e);
+            error!(
+                "User not found for invitation acceptance: user_uuid={}, error={}",
+                user_uuid, e
+            );
             return errors::bad_request("Invalid or expired invitation");
         }
     };
@@ -172,8 +178,8 @@ pub async fn accept_invitation(
     };
 
     // Update the user's password hash in user_auth_identities
-    use diesel::prelude::*;
     use crate::schema::user_auth_identities;
+    use diesel::prelude::*;
 
     // First, check if a local auth identity already exists
     let existing_identity: Option<i32> = user_auth_identities::table
@@ -190,10 +196,11 @@ pub async fn accept_invitation(
         if let Err(e) = diesel::update(
             user_auth_identities::table
                 .filter(user_auth_identities::user_uuid.eq(&user.uuid))
-                .filter(user_auth_identities::provider_type.eq("local"))
+                .filter(user_auth_identities::provider_type.eq("local")),
         )
         .set(user_auth_identities::password_hash.eq(Some(&password_hash)))
-        .execute(&mut conn) {
+        .execute(&mut conn)
+        {
             error!("Failed to update password hash for invitation: {:?}", e);
             return errors::internal("Error setting password");
         }
@@ -222,7 +229,8 @@ pub async fn accept_invitation(
 
         if let Err(e) = diesel::insert_into(user_auth_identities::table)
             .values(&auth_identity)
-            .execute(&mut conn) {
+            .execute(&mut conn)
+        {
             error!("Failed to create auth identity for invitation: {:?}", e);
             return errors::internal("Error setting password");
         }
@@ -232,7 +240,8 @@ pub async fn accept_invitation(
     let now = Utc::now().naive_utc();
     if let Err(e) = diesel::update(crate::schema::users::table.find(&user.uuid))
         .set(crate::schema::users::password_changed_at.eq(now))
-        .execute(&mut conn) {
+        .execute(&mut conn)
+    {
         warn!("Failed to update password_changed_at: {:?}", e);
         // Don't fail the request for this
     }
@@ -242,10 +251,11 @@ pub async fn accept_invitation(
     if let Err(e) = diesel::update(
         user_emails::table
             .filter(user_emails::user_uuid.eq(&user.uuid))
-            .filter(user_emails::is_primary.eq(true))
+            .filter(user_emails::is_primary.eq(true)),
     )
     .set(user_emails::is_verified.eq(true))
-    .execute(&mut conn) {
+    .execute(&mut conn)
+    {
         warn!("Failed to mark email as verified: {:?}", e);
         // Don't fail the request for this
     }
@@ -289,11 +299,16 @@ pub async fn accept_invitation(
         // Don't fail the request if logging fails
     }
 
-    info!("Invitation accepted successfully for user: {} (uuid={})", user.name, user.uuid);
+    info!(
+        "Invitation accepted successfully for user: {} (uuid={})",
+        user.name, user.uuid
+    );
 
     HttpResponse::Ok().json(AcceptInvitationResponse {
         success: true,
-        message: "Your account has been activated. You can now log in with your email and password.".to_string(),
+        message:
+            "Your account has been activated. You can now log in with your email and password."
+                .to_string(),
     })
 }
 

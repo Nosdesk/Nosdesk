@@ -12,7 +12,14 @@ use tracing::{info, warn};
 
 /// Valid field types for collection definitions
 const VALID_FIELD_TYPES: &[&str] = &[
-    "string", "number", "boolean", "date", "datetime", "uuid", "json", "reference",
+    "string",
+    "number",
+    "boolean",
+    "date",
+    "datetime",
+    "uuid",
+    "json",
+    "reference",
 ];
 
 /// Validate a collection definition from a manifest
@@ -22,7 +29,9 @@ pub fn validate_collection_definition(
 ) -> Result<(), String> {
     // Validate collection name
     if name.is_empty() || name.len() > 100 {
-        return Err(format!("Collection name must be 1-100 characters: '{name}'"));
+        return Err(format!(
+            "Collection name must be 1-100 characters: '{name}'"
+        ));
     }
 
     if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
@@ -188,7 +197,10 @@ pub fn sync_collection_schemas(
                 };
                 collection_repo::update_schema(conn, existing_schema.id, update)
                     .map_err(|e| format!("Failed to update schema '{name}': {e}"))?;
-                info!("Updated collection schema: {name} (v{})", existing_schema.version + 1);
+                info!(
+                    "Updated collection schema: {name} (v{})",
+                    existing_schema.version + 1
+                );
             }
         } else {
             // Create new schema
@@ -207,8 +219,12 @@ pub fn sync_collection_schemas(
     // Delete schemas removed from manifest (cascade deletes rows)
     for existing_schema in &existing {
         if !manifest_names.contains(&existing_schema.collection_name) {
-            collection_repo::delete_schema(conn, existing_schema.id)
-                .map_err(|e| format!("Failed to delete schema '{}': {e}", existing_schema.collection_name))?;
+            collection_repo::delete_schema(conn, existing_schema.id).map_err(|e| {
+                format!(
+                    "Failed to delete schema '{}': {e}",
+                    existing_schema.collection_name
+                )
+            })?;
             warn!(
                 "Deleted collection schema: {} (and all its data)",
                 existing_schema.collection_name

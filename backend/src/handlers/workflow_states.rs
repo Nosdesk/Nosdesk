@@ -15,9 +15,11 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::{errors, helpers};
 use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
-use crate::models::{Claims, NewWorkflowState, WorkflowState, WorkflowStateCategory, WorkflowStateUpdate};
+use crate::handlers::{errors, helpers};
+use crate::models::{
+    Claims, NewWorkflowState, WorkflowState, WorkflowStateCategory, WorkflowStateUpdate,
+};
 use crate::repository::workflow_states as repo;
 use crate::sync::actor::ActorContext;
 
@@ -67,7 +69,10 @@ pub async fn list(pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
 
     match repo::list_all(&mut conn) {
         Ok(states) => {
-            let active = states.into_iter().filter(|s| s.archived_at.is_none()).collect();
+            let active = states
+                .into_iter()
+                .filter(|s| s.archived_at.is_none())
+                .collect();
             HttpResponse::Ok().json(WorkflowStatesResponse { states: active })
         }
         Err(e) => {
@@ -223,7 +228,9 @@ pub async fn archive(
     // exist for new tickets to land somewhere sensible.
     match repo::find_by_id(&mut conn, id) {
         Ok(Some(s)) if s.is_default => {
-            return errors::bad_request("Cannot archive the default state; promote a different state first");
+            return errors::bad_request(
+                "Cannot archive the default state; promote a different state first",
+            );
         }
         Ok(Some(_)) => {}
         Ok(None) => return errors::not_found_msg("Workflow state not found"),

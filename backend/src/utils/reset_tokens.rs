@@ -21,8 +21,8 @@ impl TokenType {
     /// Get the expiration duration for this token type
     pub fn expiration_duration(&self) -> Duration {
         match self {
-            TokenType::PasswordReset => Duration::hours(1),  // 1 hour for password resets
-            TokenType::Invitation => Duration::days(7),      // 7 days for user invitations
+            TokenType::PasswordReset => Duration::hours(1), // 1 hour for password resets
+            TokenType::Invitation => Duration::days(7),     // 7 days for user invitations
         }
     }
 }
@@ -160,7 +160,10 @@ mod tests {
         assert!(!ResetTokenUtils::is_token_expired(token.expires_at));
 
         // Hash should match the raw token
-        assert!(ResetTokenUtils::validate_token_hash(&token.raw_token, &token.token_hash));
+        assert!(ResetTokenUtils::validate_token_hash(
+            &token.raw_token,
+            &token.token_hash
+        ));
     }
 
     #[test]

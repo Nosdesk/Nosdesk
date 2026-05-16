@@ -127,10 +127,7 @@ pub async fn delta(
         actions.truncate(limit as usize);
     }
 
-    let last_sync_id = actions
-        .last()
-        .map(|a| a.sync_id)
-        .unwrap_or(query.from);
+    let last_sync_id = actions.last().map(|a| a.sync_id).unwrap_or(query.from);
 
     HttpResponse::Ok().json(DeltaResponse {
         actions,

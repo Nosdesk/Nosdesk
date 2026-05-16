@@ -1,21 +1,20 @@
+use chrono::Utc;
+use diesel::prelude::*;
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
+use ring::pbkdf2;
+use ring::rand::{SecureRandom, SystemRandom};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use chrono::Utc;
-use diesel::prelude::*;
 use uuid::Uuid;
+use walkdir::WalkDir;
 use zip::write::FileOptions;
 use zip::{ZipArchive, ZipWriter};
-use walkdir::WalkDir;
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
-use ring::rand::{SecureRandom, SystemRandom};
-use ring::pbkdf2;
 
 use crate::db::DbConnection;
 use crate::models::{
-    BackupManifest, TableManifest, FilesManifest, RestorePreview,
-    BackupJobUpdate,
+    BackupJobUpdate, BackupManifest, FilesManifest, RestorePreview, TableManifest,
 };
 use crate::repository::backup as backup_repo;
 
@@ -124,10 +123,7 @@ fn discover_user_tables(conn: &mut DbConnection) -> Result<Vec<String>, BackupEr
 /// poisoned backup file (or a future caller bug) can't trick
 /// the writer into interpolating an arbitrary identifier into
 /// SQL.
-fn table_exists_in_db(
-    conn: &mut DbConnection,
-    table_name: &str,
-) -> Result<bool, BackupError> {
+fn table_exists_in_db(conn: &mut DbConnection, table_name: &str) -> Result<bool, BackupError> {
     use diesel::deserialize::QueryableByName;
     use diesel::prelude::*;
     use diesel::sql_query;
@@ -231,7 +227,8 @@ fn encrypt_data(data: &[u8], key: &[u8; 32]) -> Result<(Vec<u8>, [u8; NONCE_LEN]
 
     // Encrypt the data
     let mut in_out = data.to_vec();
-    sealing_key.seal_in_place_append_tag(nonce, Aad::empty(), &mut in_out)
+    sealing_key
+        .seal_in_place_append_tag(nonce, Aad::empty(), &mut in_out)
         .map_err(|_| BackupError::EncryptionError("Encryption failed".to_string()))?;
 
     Ok((in_out, nonce_bytes))
@@ -319,9 +316,7 @@ fn load_inner_zip(backup_path: &Path, password: Option<&str>) -> Result<Vec<u8>,
     if is_encrypted_backup(backup_path)? {
         let bytes = fs::read(backup_path)?;
         let password = password.ok_or_else(|| {
-            BackupError::EncryptionError(
-                "backup is encrypted; password is required".to_string(),
-            )
+            BackupError::EncryptionError("backup is encrypted; password is required".to_string())
         })?;
         unseal_inner_zip(&bytes, password)
     } else {
@@ -330,7 +325,11 @@ fn load_inner_zip(backup_path: &Path, password: Option<&str>) -> Result<Vec<u8>,
 }
 
 /// Decrypt data using AES-256-GCM
-fn decrypt_data(encrypted_data: &[u8], key: &[u8; 32], nonce_bytes: &[u8; NONCE_LEN]) -> Result<Vec<u8>, BackupError> {
+fn decrypt_data(
+    encrypted_data: &[u8],
+    key: &[u8; 32],
+    nonce_bytes: &[u8; NONCE_LEN],
+) -> Result<Vec<u8>, BackupError> {
     let unbound_key = UnboundKey::new(&AES_256_GCM, key)
         .map_err(|_| BackupError::EncryptionError("Failed to create decryption key".to_string()))?;
     let opening_key = LessSafeKey::new(unbound_key);
@@ -340,7 +339,8 @@ fn decrypt_data(encrypted_data: &[u8], key: &[u8; 32], nonce_bytes: &[u8; NONCE_
 
     // Decrypt
     let mut in_out = encrypted_data.to_vec();
-    let plaintext = opening_key.open_in_place(nonce, Aad::empty(), &mut in_out)
+    let plaintext = opening_key
+        .open_in_place(nonce, Aad::empty(), &mut in_out)
         .map_err(|_| BackupError::InvalidPassword)?;
 
     Ok(plaintext.to_vec())
@@ -385,7 +385,8 @@ fn export_table_data(
 
         // If not including sensitive data, remove sensitive fields
         if !include_sensitive {
-            if let Some(fields) = SENSITIVE_FIELDS.iter()
+            if let Some(fields) = SENSITIVE_FIELDS
+                .iter()
                 .find(|(t, _)| *t == table_name)
                 .map(|(_, fields)| *fields)
             {
@@ -507,10 +508,7 @@ fn build_inner_zip(
         zip.start_file(&path, options)?;
         zip.write_all(json_content.as_bytes())?;
 
-        table_manifests.insert(
-            table_name.to_string(),
-            TableManifest { count, sha256 },
-        );
+        table_manifests.insert(table_name.to_string(), TableManifest { count, sha256 });
     }
 
     // Files. Same skip-rules as before: avoid recursing into our
@@ -534,9 +532,7 @@ fn build_inner_zip(
                 let file_path = entry.path();
                 let relative_path = file_path
                     .strip_prefix(&uploads_dir)
-                    .map_err(|e| {
-                        BackupError::IoError(std::io::Error::other(e.to_string()))
-                    })?;
+                    .map_err(|e| BackupError::IoError(std::io::Error::other(e.to_string())))?;
                 let archive_path = format!("files/{}", relative_path.display());
 
                 zip.start_file(&archive_path, options)?;
@@ -1110,14 +1106,14 @@ mod tests {
         let mut conn = setup_test_connection();
         for hostile in [
             "",
-            "pg_authid",  // exists in pg_catalog, not public
+            "pg_authid", // exists in pg_catalog, not public
             "users; DROP TABLE users; --",
             "users) RETURNING *; --",
-            "USERS",  // case-sensitive in PG; public.users is lowercase
+            "USERS", // case-sensitive in PG; public.users is lowercase
             "Users",
             "schema.users",
             "secret_table",
-            "__diesel_schema_migrations",  // in EXCLUDE list at discover time, but still exists; the test guards the WRONG-table path
+            "__diesel_schema_migrations", // in EXCLUDE list at discover time, but still exists; the test guards the WRONG-table path
         ] {
             if hostile == "__diesel_schema_migrations" {
                 // The exclude list is enforced at *discover* time

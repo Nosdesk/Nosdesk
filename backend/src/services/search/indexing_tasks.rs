@@ -13,7 +13,9 @@ use crate::models;
 fn spawn_indexing_task(
     search_service: Arc<SearchService>,
     label: &'static str,
-    task: impl FnOnce(&SearchService) -> Result<(), Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
+    task: impl FnOnce(&SearchService) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+        + Send
+        + 'static,
 ) {
     tokio::spawn(async move {
         if let Err(e) = task(&search_service) {

@@ -160,7 +160,14 @@ impl WebhookDeliveryWorker {
 
                 if (200..300).contains(&status) {
                     // Success
-                    self.handle_success(&mut conn, &task, delivery.id, status, response_body, duration_ms)?;
+                    self.handle_success(
+                        &mut conn,
+                        &task,
+                        delivery.id,
+                        status,
+                        response_body,
+                        duration_ms,
+                    )?;
                 } else {
                     // HTTP error - schedule retry
                     self.handle_failure(

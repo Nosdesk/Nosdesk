@@ -160,7 +160,10 @@ async fn reconcile(id: i32, registry: &mut ChannelRegistry, deps: &RegistryDeps)
     let channel = match channels_repo::find(&mut conn, id) {
         Ok(c) => c,
         Err(diesel::result::Error::NotFound) => {
-            debug!(channel_id = id, "channel supervisor: row deleted; no worker to start");
+            debug!(
+                channel_id = id,
+                "channel supervisor: row deleted; no worker to start"
+            );
             return;
         }
         Err(e) => {
@@ -170,7 +173,10 @@ async fn reconcile(id: i32, registry: &mut ChannelRegistry, deps: &RegistryDeps)
     };
 
     if !channel.enabled {
-        debug!(channel_id = id, "channel supervisor: row disabled; leaving stopped");
+        debug!(
+            channel_id = id,
+            "channel supervisor: row disabled; leaving stopped"
+        );
         return;
     }
 
@@ -293,4 +299,3 @@ mod tests {
         assert!(!registry.is_running(id));
     }
 }
-

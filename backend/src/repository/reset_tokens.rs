@@ -1,10 +1,10 @@
-use diesel::prelude::*;
-use chrono::{DateTime, Utc};
-use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::ResetToken;
 use crate::schema::reset_tokens;
 use crate::utils::reset_tokens::ResetTokenUtils;
+use chrono::{DateTime, Utc};
+use diesel::prelude::*;
+use uuid::Uuid;
 
 /// Create a new reset token in the database
 pub fn create_reset_token(
@@ -84,7 +84,7 @@ pub fn invalidate_tokens_by_type(
         reset_tokens::table
             .filter(reset_tokens::user_uuid.eq(user_uuid_value))
             .filter(reset_tokens::token_type.eq(token_type_value))
-            .filter(reset_tokens::is_used.eq(false))
+            .filter(reset_tokens::is_used.eq(false)),
     )
     .set((
         reset_tokens::is_used.eq(true),
@@ -139,9 +139,9 @@ pub fn validate_and_consume_token(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::utils::reset_tokens::TokenType;
-    use crate::models::UserRole;
 
     fn create_invitation_token(conn: &mut DbConnection, user_uuid: Uuid) -> String {
         let issued = crate::utils::reset_tokens::ResetTokenUtils::create_reset_token(
@@ -168,12 +168,8 @@ mod tests {
         let user = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
         let raw = create_invitation_token(&mut conn, user.uuid);
 
-        let claimed = validate_and_consume_token(
-            &mut conn,
-            &raw,
-            TokenType::Invitation.as_str(),
-        )
-        .expect("first consume must succeed");
+        let claimed = validate_and_consume_token(&mut conn, &raw, TokenType::Invitation.as_str())
+            .expect("first consume must succeed");
         assert_eq!(claimed, user.uuid);
     }
 
@@ -189,11 +185,7 @@ mod tests {
 
         validate_and_consume_token(&mut conn, &raw, TokenType::Invitation.as_str())
             .expect("first consume succeeds");
-        let second = validate_and_consume_token(
-            &mut conn,
-            &raw,
-            TokenType::Invitation.as_str(),
-        );
+        let second = validate_and_consume_token(&mut conn, &raw, TokenType::Invitation.as_str());
         assert!(second.is_err(), "second consume must fail");
         assert_eq!(
             second.unwrap_err(),
@@ -212,22 +204,14 @@ mod tests {
         // expected type doesn't match. The atomic UPDATE filters
         // on token_type so the row is unchanged and the response
         // is the same generic error.
-        let err = validate_and_consume_token(
-            &mut conn,
-            &raw,
-            TokenType::PasswordReset.as_str(),
-        )
-        .expect_err("wrong token type must fail");
+        let err = validate_and_consume_token(&mut conn, &raw, TokenType::PasswordReset.as_str())
+            .expect_err("wrong token type must fail");
         assert_eq!(err, "Invalid or expired token");
 
         // Confirm the row was NOT consumed — a subsequent call
         // with the correct type still succeeds.
-        validate_and_consume_token(
-            &mut conn,
-            &raw,
-            TokenType::Invitation.as_str(),
-        )
-        .expect("token remains consumable with the right type");
+        validate_and_consume_token(&mut conn, &raw, TokenType::Invitation.as_str())
+            .expect("token remains consumable with the right type");
     }
 
     #[test]

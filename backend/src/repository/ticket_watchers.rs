@@ -94,7 +94,9 @@ pub fn set_notify_on_internal_notes(
     notify: bool,
 ) -> QueryResult<bool> {
     conn.transaction::<bool, diesel::result::Error, _>(|conn| {
-        let ticket = tickets::table.find(ticket_id).first::<crate::models::Ticket>(conn)?;
+        let ticket = tickets::table
+            .find(ticket_id)
+            .first::<crate::models::Ticket>(conn)?;
         let updated = diesel::update(
             ticket_watchers::table
                 .filter(ticket_watchers::ticket_id.eq(ticket_id))
@@ -152,12 +154,18 @@ pub fn add_watcher(
         // Resolve the parent ticket up front for the sync emit's
         // group computation. Surfaces a clear "no such ticket"
         // error rather than letting the FK insert fail later.
-        let ticket = tickets::table.find(ticket_id).first::<crate::models::Ticket>(conn)?;
+        let ticket = tickets::table
+            .find(ticket_id)
+            .first::<crate::models::Ticket>(conn)?;
         let already = is_watching(conn, ticket_id, &user_uuid)?;
         if already {
             return Ok(false);
         }
-        let row = NewTicketWatcher { ticket_id, user_uuid, auto_added };
+        let row = NewTicketWatcher {
+            ticket_id,
+            user_uuid,
+            auto_added,
+        };
         diesel::insert_into(ticket_watchers::table)
             .values(&row)
             .execute(conn)?;
@@ -190,7 +198,9 @@ pub fn remove_watcher(
     user_uuid: &Uuid,
 ) -> QueryResult<bool> {
     conn.transaction::<bool, diesel::result::Error, _>(|conn| {
-        let ticket = tickets::table.find(ticket_id).first::<crate::models::Ticket>(conn)?;
+        let ticket = tickets::table
+            .find(ticket_id)
+            .first::<crate::models::Ticket>(conn)?;
         let removed = diesel::delete(
             ticket_watchers::table
                 .filter(ticket_watchers::ticket_id.eq(ticket_id))

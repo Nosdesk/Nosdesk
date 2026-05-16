@@ -311,9 +311,9 @@ impl ResponseError for ApiError {
                 use diesel::result::DatabaseErrorKind as Kind;
                 match kind {
                     Kind::UniqueViolation => StatusCode::CONFLICT,
-                    Kind::ForeignKeyViolation
-                    | Kind::NotNullViolation
-                    | Kind::CheckViolation => StatusCode::BAD_REQUEST,
+                    Kind::ForeignKeyViolation | Kind::NotNullViolation | Kind::CheckViolation => {
+                        StatusCode::BAD_REQUEST
+                    }
                     _ => StatusCode::INTERNAL_SERVER_ERROR,
                 }
             }

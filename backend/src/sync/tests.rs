@@ -90,7 +90,10 @@ fn system_actor_records_with_null_uuid_and_a_reference() {
 
     assert_eq!(actor_uuid, None);
     assert_eq!(actor_kind, "system");
-    assert_eq!(actor_ref, Some("scheduler:partition_provisioner".to_string()));
+    assert_eq!(
+        actor_ref,
+        Some("scheduler:partition_provisioner".to_string())
+    );
 }
 
 #[test]

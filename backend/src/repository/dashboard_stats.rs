@@ -154,36 +154,37 @@ fn knowledge_gaps_stats(conn: &mut DbConnection) -> QueryResult<KnowledgeGapsSta
 
     // Top 5 by impact_score. The composite index
     // idx_knowledge_gaps_active covers this — see the migration.
-    let top: Vec<(i64, String, i32, i32, Option<chrono::NaiveDateTime>)> =
-        knowledge_gaps::table
-            .filter(knowledge_gaps::status.eq_any(["open", "drafting"]))
-            .order_by((
-                knowledge_gaps::impact_score.desc(),
-                knowledge_gaps::last_evidence_at.desc().nulls_last(),
-            ))
-            .select((
-                knowledge_gaps::id,
-                knowledge_gaps::title,
-                knowledge_gaps::impact_score,
-                knowledge_gaps::evidence_count,
-                knowledge_gaps::last_evidence_at,
-            ))
-            .limit(5)
-            .load(conn)?;
+    let top: Vec<(i64, String, i32, i32, Option<chrono::NaiveDateTime>)> = knowledge_gaps::table
+        .filter(knowledge_gaps::status.eq_any(["open", "drafting"]))
+        .order_by((
+            knowledge_gaps::impact_score.desc(),
+            knowledge_gaps::last_evidence_at.desc().nulls_last(),
+        ))
+        .select((
+            knowledge_gaps::id,
+            knowledge_gaps::title,
+            knowledge_gaps::impact_score,
+            knowledge_gaps::evidence_count,
+            knowledge_gaps::last_evidence_at,
+        ))
+        .limit(5)
+        .load(conn)?;
 
     Ok(KnowledgeGapsStats {
         total,
         top: top
             .into_iter()
-            .map(|(id, title, impact_score, evidence_count, last_evidence_at)| {
-                KnowledgeGapsStatsItem {
-                    id,
-                    title,
-                    impact_score,
-                    evidence_count,
-                    last_evidence_at,
-                }
-            })
+            .map(
+                |(id, title, impact_score, evidence_count, last_evidence_at)| {
+                    KnowledgeGapsStatsItem {
+                        id,
+                        title,
+                        impact_score,
+                        evidence_count,
+                        last_evidence_at,
+                    }
+                },
+            )
             .collect(),
     })
 }
@@ -242,10 +243,7 @@ fn queue_stats(conn: &mut DbConnection) -> QueryResult<QueueStats> {
     Ok(s)
 }
 
-fn scoped_stats_assignee(
-    conn: &mut DbConnection,
-    user_uuid: &Uuid,
-) -> QueryResult<ScopedStats> {
+fn scoped_stats_assignee(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<ScopedStats> {
     let rows: Vec<(i32, TicketPriority, i64)> = tickets::table
         .filter(tickets::assignee_uuid.eq(*user_uuid))
         .group_by((tickets::workflow_state_id, tickets::priority))
@@ -268,10 +266,7 @@ fn scoped_stats_assignee(
     Ok(s)
 }
 
-fn scoped_stats_requester(
-    conn: &mut DbConnection,
-    user_uuid: &Uuid,
-) -> QueryResult<ScopedStats> {
+fn scoped_stats_requester(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<ScopedStats> {
     let rows: Vec<(i32, TicketPriority, i64)> = tickets::table
         .filter(tickets::requester_uuid.eq(*user_uuid))
         .group_by((tickets::workflow_state_id, tickets::priority))
@@ -360,7 +355,10 @@ mod tests {
     #[test]
     fn partial_bundle_omits_missing_groups() {
         let bundle = StatsBundle {
-            queue: Some(QueueStats { unassigned: 5, ..Default::default() }),
+            queue: Some(QueueStats {
+                unassigned: 5,
+                ..Default::default()
+            }),
             yours: None,
             summary: None,
             knowledge_gaps: None,

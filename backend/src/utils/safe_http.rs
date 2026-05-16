@@ -153,14 +153,13 @@ impl Resolve for SafeResolver {
             // tokio::net::lookup_host with port 0 mirrors what the
             // default reqwest resolver does — hyper-util sets the
             // real port after we hand the iterator back.
-            let resolved: Vec<SocketAddr> = match tokio::net::lookup_host((host.as_str(), 0u16))
-                .await
-            {
-                Ok(it) => it.collect(),
-                Err(e) => {
-                    return Err(format!("{host}: dns lookup failed: {e}").into());
-                }
-            };
+            let resolved: Vec<SocketAddr> =
+                match tokio::net::lookup_host((host.as_str(), 0u16)).await {
+                    Ok(it) => it.collect(),
+                    Err(e) => {
+                        return Err(format!("{host}: dns lookup failed: {e}").into());
+                    }
+                };
 
             if !is_host_allowlisted(&host) {
                 for addr in &resolved {
@@ -353,8 +352,7 @@ mod tests {
 
     #[test]
     fn ip_literal_guard_rejects_aws_metadata() {
-        let err =
-            reject_unsafe_ip_literal("http://169.254.169.254/latest/meta-data/").unwrap_err();
+        let err = reject_unsafe_ip_literal("http://169.254.169.254/latest/meta-data/").unwrap_err();
         assert!(matches!(err, SafeHttpError::NonRoutable(_)));
     }
 

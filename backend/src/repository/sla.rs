@@ -41,5 +41,9 @@ pub fn load_for_pill_computation(conn: &mut DbConnection) -> QueryResult<SlaCont
             .insert(h.date);
     }
 
-    Ok(SlaContext { policies, calendars_by_id, holidays_by_calendar })
+    Ok(SlaContext {
+        policies,
+        calendars_by_id,
+        holidays_by_calendar,
+    })
 }

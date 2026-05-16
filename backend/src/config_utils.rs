@@ -101,4 +101,4 @@ pub fn get_oidc_username_claim() -> String {
 /// Get OIDC logout URI (optional)
 pub fn get_oidc_logout_uri() -> Option<String> {
     get_env_var("OIDC_LOGOUT_URI").ok()
-} 
+}

@@ -113,9 +113,7 @@ pub fn decide_relay(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{
-        NewChannelMessage, TicketUpdate, UserRole, CHANNEL_DIRECTION_INBOUND,
-    };
+    use crate::models::{NewChannelMessage, TicketUpdate, UserRole, CHANNEL_DIRECTION_INBOUND};
     use crate::repository::{tickets as tickets_repo, user_helpers::create_user_with_email};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
@@ -270,7 +268,10 @@ mod tests {
             thread.external_thread_id.as_deref(),
             Some("<customer-msg@ex>")
         );
-        assert_eq!(thread.recipient.known_email.as_deref(), Some("alice@example.com"));
+        assert_eq!(
+            thread.recipient.known_email.as_deref(),
+            Some("alice@example.com")
+        );
     }
 
     #[test]

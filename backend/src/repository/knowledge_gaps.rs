@@ -68,10 +68,7 @@ pub fn open_signal_counts_for_tickets(
         .filter(knowledge_gap_signals::source_ref.eq_any(&refs))
         .filter(knowledge_gap_signals::dismissed_at.is_null())
         .group_by(knowledge_gap_signals::source_ref)
-        .select((
-            knowledge_gap_signals::source_ref,
-            sql::<BigInt>("COUNT(*)"),
-        ))
+        .select((knowledge_gap_signals::source_ref, sql::<BigInt>("COUNT(*)")))
         .load(conn)?;
 
     let mut out = std::collections::HashMap::new();
@@ -115,8 +112,7 @@ pub fn find_open_gap_for_source(
 ) -> Result<Option<KnowledgeGap>, Error> {
     knowledge_gaps::table
         .inner_join(
-            knowledge_gap_signals::table
-                .on(knowledge_gap_signals::gap_id.eq(knowledge_gaps::id)),
+            knowledge_gap_signals::table.on(knowledge_gap_signals::gap_id.eq(knowledge_gaps::id)),
         )
         .filter(knowledge_gap_signals::source_kind.eq(source_kind))
         .filter(knowledge_gap_signals::source_ref.eq(source_ref))
@@ -184,7 +180,10 @@ pub fn list_gaps(
 
 /// Insert a new gap. Caller is responsible for attaching at least
 /// one signal afterwards via `attach_signal_to_gap`.
-pub fn create_gap(conn: &mut DbConnection, new_gap: NewKnowledgeGap) -> Result<KnowledgeGap, Error> {
+pub fn create_gap(
+    conn: &mut DbConnection,
+    new_gap: NewKnowledgeGap,
+) -> Result<KnowledgeGap, Error> {
     diesel::insert_into(knowledge_gaps::table)
         .values(&new_gap)
         .get_result(conn)
@@ -528,27 +527,35 @@ fn load_candidate_tickets(
     // ones that already have a 'resolves' link. We filter "closed"
     // by joining to workflow_states and matching the terminal
     // categories (Done, Cancelled).
-    use crate::schema::workflow_states;
     use crate::models::WorkflowStateCategory;
-    let rows: Vec<(i32, String, Option<i32>, Option<String>, Option<String>, Option<String>)> =
-        tickets::table
-            .inner_join(workflow_states::table)
-            .left_join(ticket_categories::table.on(ticket_categories::id.nullable().eq(tickets::category_id)))
-            .left_join(channels::table.on(channels::id.nullable().eq(tickets::origin_channel_id)))
-            .filter(workflow_states::category.eq_any(vec![
-                WorkflowStateCategory::Done,
-                WorkflowStateCategory::Cancelled,
-            ]))
-            .filter(tickets::updated_at.ge(cutoff))
-            .select((
-                tickets::id,
-                tickets::title,
-                tickets::category_id,
-                ticket_categories::name.nullable(),
-                tickets::submitted_via,
-                channels::provider.nullable(),
-            ))
-            .load(conn)?;
+    use crate::schema::workflow_states;
+    let rows: Vec<(
+        i32,
+        String,
+        Option<i32>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = tickets::table
+        .inner_join(workflow_states::table)
+        .left_join(
+            ticket_categories::table.on(ticket_categories::id.nullable().eq(tickets::category_id)),
+        )
+        .left_join(channels::table.on(channels::id.nullable().eq(tickets::origin_channel_id)))
+        .filter(workflow_states::category.eq_any(vec![
+            WorkflowStateCategory::Done,
+            WorkflowStateCategory::Cancelled,
+        ]))
+        .filter(tickets::updated_at.ge(cutoff))
+        .select((
+            tickets::id,
+            tickets::title,
+            tickets::category_id,
+            ticket_categories::name.nullable(),
+            tickets::submitted_via,
+            channels::provider.nullable(),
+        ))
+        .load(conn)?;
 
     if rows.is_empty() {
         return Ok(Vec::new());
@@ -569,16 +576,18 @@ fn load_candidate_tickets(
     Ok(rows
         .into_iter()
         .filter(|(id, _, _, _, _, _)| !resolved_ids.contains(id))
-        .map(|(id, title, category_id, category_name, submitted_via, channel_provider)| {
-            CandidateTicket {
-                id,
-                title,
-                category_id,
-                category_name,
-                submitted_via,
-                channel_provider,
-            }
-        })
+        .map(
+            |(id, title, category_id, category_name, submitted_via, channel_provider)| {
+                CandidateTicket {
+                    id,
+                    title,
+                    category_id,
+                    category_name,
+                    submitted_via,
+                    channel_provider,
+                }
+            },
+        )
         .collect())
 }
 
@@ -602,14 +611,14 @@ fn most_recent_device_models(
         .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
         .filter(devices::model.is_not_null())
         .distinct_on(ticket_devices::ticket_id)
-        .order_by((
-            ticket_devices::ticket_id,
-            ticket_devices::created_at.desc(),
-        ))
+        .order_by((ticket_devices::ticket_id, ticket_devices::created_at.desc()))
         .select((ticket_devices::ticket_id, devices::model))
         .load(conn)?;
 
-    Ok(rows.into_iter().filter_map(|(tid, m)| m.map(|s| (tid, s))).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|(tid, m)| m.map(|s| (tid, s)))
+        .collect())
 }
 
 /// Build a deterministic fingerprint string for a cluster key.
@@ -623,7 +632,9 @@ fn cluster_fingerprint(
 ) -> String {
     format!(
         "category:{}|device:{}|channel:{}",
-        category_id.map(|id| id.to_string()).unwrap_or_else(|| "_".into()),
+        category_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "_".into()),
         device_model.unwrap_or("_"),
         channel.unwrap_or("_"),
     )
@@ -661,9 +672,7 @@ fn group_into_clusters(
             // Up to three sample titles for the queue card preview.
             let sample_titles: Vec<String> =
                 tickets.iter().take(3).map(|t| t.title.clone()).collect();
-            let category_name = tickets
-                .iter()
-                .find_map(|t| t.category_name.clone());
+            let category_name = tickets.iter().find_map(|t| t.category_name.clone());
             let ticket_ids: Vec<i32> = tickets.iter().map(|t| t.id).collect();
             DetectedCluster {
                 fingerprint,
@@ -866,7 +875,6 @@ pub fn run_failed_search_detection(
     Ok(stats)
 }
 
-
 // =================================================================
 // Stale-doc detection (Phase 2d)
 // =================================================================
@@ -937,13 +945,11 @@ fn find_stale_doc_candidates(
     // Step 2: which of those pages have 'resolves' links to
     // tickets that closed in the recent window? Join workflow_states
     // so we can filter on the terminal categories.
-    use crate::schema::workflow_states;
     use crate::models::WorkflowStateCategory;
+    use crate::schema::workflow_states;
     let resolves_tickets: Vec<(i32, i32)> = documentation_page_tickets::table
         .inner_join(tickets::table.on(tickets::id.eq(documentation_page_tickets::ticket_id)))
-        .inner_join(
-            workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)),
-        )
+        .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
         .filter(documentation_page_tickets::page_id.eq_any(&stale_ids))
         .filter(
             documentation_page_tickets::link_type
@@ -965,21 +971,23 @@ fn find_stale_doc_candidates(
 
     Ok(stale
         .into_iter()
-        .filter_map(|(page_id, page_uuid, page_title, page_slug, verified_at, verify_interval_days)| {
-            let recent_ticket_ids = by_page.remove(&page_id)?;
-            if recent_ticket_ids.len() < min_recent_tickets {
-                return None;
-            }
-            Some(StaleDocCandidate {
-                page_id,
-                page_uuid,
-                page_title,
-                page_slug,
-                verified_at,
-                verify_interval_days,
-                recent_ticket_ids,
-            })
-        })
+        .filter_map(
+            |(page_id, page_uuid, page_title, page_slug, verified_at, verify_interval_days)| {
+                let recent_ticket_ids = by_page.remove(&page_id)?;
+                if recent_ticket_ids.len() < min_recent_tickets {
+                    return None;
+                }
+                Some(StaleDocCandidate {
+                    page_id,
+                    page_uuid,
+                    page_title,
+                    page_slug,
+                    verified_at,
+                    verify_interval_days,
+                    recent_ticket_ids,
+                })
+            },
+        )
         .collect())
 }
 

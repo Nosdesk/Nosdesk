@@ -99,7 +99,9 @@ impl CircuitBreaker {
         let mut inner = self.inner.lock().await;
         let now = Instant::now();
         // Drop failures outside the rolling window before deciding.
-        inner.failures.retain(|t| now.duration_since(*t) < FAILURE_WINDOW);
+        inner
+            .failures
+            .retain(|t| now.duration_since(*t) < FAILURE_WINDOW);
         inner.failures.push(now);
         if inner.failures.len() as u32 >= FAILURE_THRESHOLD {
             inner.state = BreakerState::Open;

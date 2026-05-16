@@ -1,8 +1,8 @@
 // models.rs
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use diesel::prelude::*;
 use diesel::deserialize::{self, FromSql};
 use diesel::pg::{Pg, PgValue};
+use diesel::prelude::*;
 use diesel::serialize::{self, IsNull, Output, ToSql};
 // Removed unused import: use diesel::sql_types::Text;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,10 @@ use std::io::Write;
 use uuid::Uuid;
 
 // Simple UUID serialization helpers
-fn serialize_optional_uuid_as_string<S>(uuid: &Option<Uuid>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_optional_uuid_as_string<S>(
+    uuid: &Option<Uuid>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -21,8 +24,18 @@ where
 /// stable contract that downstream code reasons in (SLA timers, dashboard
 /// rollups, automation triggers); the user-visible state names live on
 /// `workflow_states` and can be customised per workspace.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = crate::schema::sql_types::WorkflowStateCategory)]
 pub enum WorkflowStateCategory {
     #[serde(rename = "triage")]
@@ -268,8 +281,18 @@ pub struct SlaPolicy {
 /// `Archive` distinguishes a soft-delete (row stays, marked archived)
 /// from a hard delete; consumers that maintain projections need to
 /// know the difference.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = crate::schema::sql_types::SyncOp)]
 pub enum SyncOp {
     #[serde(rename = "I")]
@@ -316,8 +339,18 @@ impl FromSql<crate::schema::sql_types::SyncOp, Pg> for SyncOp {
 /// aggregate requires both an `ALTER TYPE` migration and a Rust
 /// variant; the registry module is the single source of truth for
 /// what each variant means.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = crate::schema::sql_types::SyncAggregate)]
 pub enum SyncAggregate {
     #[serde(rename = "ticket")]
@@ -387,9 +420,9 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"cycle" => Ok(Self::Cycle),
             b"cycle_ticket" => Ok(Self::CycleTicket),
             b"user" => Ok(Self::User),
-            other => Err(
-                format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into(),
-            ),
+            other => {
+                Err(format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into())
+            }
         }
     }
 }
@@ -520,8 +553,16 @@ pub struct WorkflowStateUpdate {
     pub archived_at: Option<Option<DateTime<Utc>>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = crate::schema::sql_types::TicketPriority)]
 pub enum TicketPriority {
     #[serde(rename = "low")]
@@ -568,8 +609,17 @@ impl ToSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
 /// code alone, without an `ALTER TYPE` migration. An unknown string in
 /// the DB is treated as a hard error so a typo in the inbound pipeline
 /// is caught at the boundary instead of corrupting reply rendering.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = diesel::sql_types::Text)]
 #[serde(rename_all = "lowercase")]
 pub enum ContentFormat {
@@ -638,11 +688,17 @@ pub struct Ticket {
     pub id: i32,
     pub title: String,
     pub priority: TicketPriority,
-    #[serde(serialize_with = "serialize_optional_uuid_as_string", rename = "requester")]
+    #[serde(
+        serialize_with = "serialize_optional_uuid_as_string",
+        rename = "requester"
+    )]
     pub requester_uuid: Option<Uuid>,
-    #[serde(serialize_with = "serialize_optional_uuid_as_string", rename = "assignee")]
+    #[serde(
+        serialize_with = "serialize_optional_uuid_as_string",
+        rename = "assignee"
+    )]
     pub assignee_uuid: Option<Uuid>,
-    #[serde(rename = "created")]  // Map to frontend field name
+    #[serde(rename = "created")] // Map to frontend field name
     pub created_at: NaiveDateTime,
     #[serde(rename = "modified")] // Map to frontend field name
     pub updated_at: NaiveDateTime,
@@ -1049,8 +1105,8 @@ impl From<ArticleContentRevision> for ArticleContentRevisionResponse {
 pub struct CompleteTicket {
     #[serde(flatten)]
     pub ticket: Ticket,
-    pub requester_user: Option<UserInfoWithAvatar>,  // Complete requester data
-    pub assignee_user: Option<UserInfoWithAvatar>,   // Complete assignee data
+    pub requester_user: Option<UserInfoWithAvatar>, // Complete requester data
+    pub assignee_user: Option<UserInfoWithAvatar>,  // Complete assignee data
     pub devices: Vec<Device>,
     pub comments: Vec<CommentWithAttachments>,
     pub article_content: Option<String>,
@@ -1103,8 +1159,8 @@ pub struct TicketCycleSummary {
 pub struct TicketListItem {
     #[serde(flatten)]
     pub ticket: Ticket,
-    pub requester_user: Option<UserInfoWithAvatar>,  // Complete requester data
-    pub assignee_user: Option<UserInfoWithAvatar>,   // Complete assignee data
+    pub requester_user: Option<UserInfoWithAvatar>, // Complete requester data
+    pub assignee_user: Option<UserInfoWithAvatar>,  // Complete assignee data
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1112,7 +1168,7 @@ pub struct CommentWithAttachments {
     #[serde(flatten)]
     pub comment: Comment,
     pub attachments: Vec<Attachment>,
-    pub user: Option<UserInfoWithAvatar>,  // Use enhanced user info with avatar
+    pub user: Option<UserInfoWithAvatar>, // Use enhanced user info with avatar
     /// Sender's external address (email for IMAP; equivalent identity
     /// for chat channels). Sourced from the joined `channel_messages`
     /// row when the comment came from a channel; `None` for comments
@@ -1179,8 +1235,16 @@ pub struct TicketsJson {
 }
 
 // Documentation Status Enum
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = crate::schema::sql_types::DocumentationStatus)]
 pub enum DocumentationStatus {
     #[serde(rename = "draft")]
@@ -1275,8 +1339,16 @@ pub struct CollectionOrder {
 }
 
 // User Role Enum
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = crate::schema::sql_types::UserRole)]
 pub enum UserRole {
     #[serde(rename = "admin")]
@@ -1368,7 +1440,7 @@ pub struct NewUser {
 pub struct UserRegistration {
     pub name: String,
     pub email: String,
-    pub role: String, 
+    pub role: String,
     pub password: String,
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
@@ -1637,8 +1709,16 @@ pub struct UserWithEmails {
 }
 
 // Project Status Enum
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = crate::schema::sql_types::ProjectStatus)]
 pub enum ProjectStatus {
     #[serde(rename = "active")]
@@ -1799,16 +1879,17 @@ pub struct NewCommentWithAttachments {
 // JWT Claims structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,  // Subject (user UUID as string for JWT compatibility)
-    pub name: String, // User's name
+    pub sub: String,   // Subject (user UUID as string for JWT compatibility)
+    pub name: String,  // User's name
     pub email: String, // User's email
-    pub role: String, // User's role
-    #[serde(default = "default_scope")] // Default to "full" for backward compatibility with existing tokens
+    pub role: String,  // User's role
+    #[serde(default = "default_scope")]
+    // Default to "full" for backward compatibility with existing tokens
     pub scope: String, // Token scope: "full" for normal sessions
     #[serde(default)] // Session ID (UUID) — None for SSE/API tokens
     pub sid: Option<String>,
-    pub exp: usize,   // Expiration time
-    pub iat: usize,   // Issued at
+    pub exp: usize, // Expiration time
+    pub iat: usize, // Issued at
 }
 
 impl Claims {
@@ -1894,8 +1975,15 @@ pub struct PasswordChangeRequest {
 }
 
 // Authentication Provider models
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    PartialEq,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = diesel::sql_types::Text)]
 pub enum AuthProviderType {
     #[serde(rename = "local")]
@@ -1945,7 +2033,13 @@ pub struct AuthProvider {
 }
 
 impl AuthProvider {
-    pub fn new(id: i32, name: String, provider_type: String, enabled: bool, is_default: bool) -> Self {
+    pub fn new(
+        id: i32,
+        name: String,
+        provider_type: String,
+        enabled: bool,
+        is_default: bool,
+    ) -> Self {
         Self {
             id,
             name,
@@ -2017,7 +2111,7 @@ pub struct OAuthExchangeRequest {
     pub code: Option<String>,
     pub state: Option<String>,
     pub error: Option<String>,
-    pub error_description: Option<String>
+    pub error_description: Option<String>,
 }
 
 // Microsoft Entra specific models
@@ -2319,8 +2413,7 @@ pub struct CompleteTicketResponse {
     pub projects: Vec<Project>,
 }
 
-impl CompleteTicketResponse {
-}
+impl CompleteTicketResponse {}
 
 // === MFA (Multi-Factor Authentication) Models ===
 
@@ -3738,8 +3831,16 @@ pub struct StarredPageInfo {
 // ============================================================================
 
 /// Assignment method enum - how tickets are assigned
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
-#[derive(diesel::deserialize::FromSqlRow, diesel::expression::AsExpression)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    diesel::deserialize::FromSqlRow,
+    diesel::expression::AsExpression,
+)]
 #[diesel(sql_type = crate::schema::sql_types::AssignmentMethod)]
 pub enum AssignmentMethod {
     #[serde(rename = "direct_user")]
@@ -4279,7 +4380,6 @@ pub enum PluginTrustLevel {
     #[default]
     Community,
 }
-
 
 impl std::fmt::Display for PluginTrustLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4906,19 +5006,14 @@ pub struct PluginUrlHandler {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PluginAuthConfig {
     /// Authorization: Bearer <secret_value>
-    Bearer {
-        secret: String,
-    },
+    Bearer { secret: String },
     /// Authorization: Basic base64(username:password)
     Basic {
         username_secret: String,
         password_secret: String,
     },
     /// Custom header with secret value (e.g. X-API-Key)
-    ApiKey {
-        header: String,
-        secret: String,
-    },
+    ApiKey { header: String, secret: String },
     /// OAuth2 Client Credentials flow: exchanges client_id + client_secret for a bearer token
     Oauth2ClientCredentials {
         token_url: String,

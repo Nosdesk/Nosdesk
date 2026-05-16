@@ -103,7 +103,9 @@ pub fn default_state(conn: &mut DbConnection) -> QueryResult<WorkflowState> {
             .cloned()
             .or_else(|| {
                 map.values()
-                    .filter(|s| s.category == WorkflowStateCategory::Backlog && s.archived_at.is_none())
+                    .filter(|s| {
+                        s.category == WorkflowStateCategory::Backlog && s.archived_at.is_none()
+                    })
                     .min_by_key(|s| s.position)
                     .cloned()
             })
@@ -132,7 +134,10 @@ pub fn first_in_category(
 /// concrete workflow state id. Picks the lowest-position state in the
 /// canonical category for that bucket: `open → backlog`, `in-progress →
 /// active`, `closed → done`.
-pub fn state_for_legacy_status(conn: &mut DbConnection, status: &str) -> QueryResult<WorkflowState> {
+pub fn state_for_legacy_status(
+    conn: &mut DbConnection,
+    status: &str,
+) -> QueryResult<WorkflowState> {
     let category = match status {
         "open" => WorkflowStateCategory::Backlog,
         "in-progress" => WorkflowStateCategory::Active,

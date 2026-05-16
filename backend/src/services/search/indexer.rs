@@ -32,11 +32,10 @@ pub fn index_document_from_ticket(
     // workflow state's category; the cached lookup avoids a DB roundtrip
     // here on the indexing hot path. Falls back to "open" if the cache
     // is cold (the next reindex will pick up the correct value).
-    let status_str = crate::repository::workflow_states::category_of_cached(
-        ticket.workflow_state_id,
-    )
-    .map(|c| c.legacy_status())
-    .unwrap_or("open");
+    let status_str =
+        crate::repository::workflow_states::category_of_cached(ticket.workflow_state_id)
+            .map(|c| c.legacy_status())
+            .unwrap_or("open");
     let priority_str = ticket.priority.as_str();
     let metadata = format!("{} {}", status_str, priority_str);
 
@@ -79,10 +78,15 @@ pub fn index_document_from_documentation(doc_page: &models::DocumentationPage) -
 
     let url = format!("/documentation/{}", doc_page.slug);
 
-    IndexDocument::new(EntityType::Documentation, doc_page.id as i64, &doc_page.title, content)
-        .url(url)
-        .preview(preview)
-        .updated_at(doc_page.updated_at.and_utc().timestamp())
+    IndexDocument::new(
+        EntityType::Documentation,
+        doc_page.id as i64,
+        &doc_page.title,
+        content,
+    )
+    .url(url)
+    .preview(preview)
+    .updated_at(doc_page.updated_at.and_utc().timestamp())
 }
 
 /// Create an index document from an attachment
@@ -150,7 +154,12 @@ pub fn index_document_from_device(device: &models::Device) -> IndexDocument {
         metadata_parts.push(device_type.clone());
     }
 
-    let preview = metadata_parts.iter().take(3).cloned().collect::<Vec<_>>().join(" | ");
+    let preview = metadata_parts
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" | ");
 
     IndexDocument::new(EntityType::Device, device.id as i64, title, "")
         .metadata(metadata_parts.join(" "))
@@ -223,7 +232,10 @@ pub fn rebuild_index(
     writer: &IndexWriter,
     schema: &SearchSchema,
 ) -> Result<IndexStats, Box<dyn std::error::Error + Send + Sync>> {
-    use crate::schema::{tickets, documentation_pages, devices, users, comments, attachments, article_contents, user_emails};
+    use crate::schema::{
+        article_contents, attachments, comments, devices, documentation_pages, tickets,
+        user_emails, users,
+    };
 
     info!("Starting full index rebuild");
 
@@ -241,10 +253,11 @@ pub fn rebuild_index(
     let all_article_contents: Vec<models::ArticleContent> = article_contents::table.load(conn)?;
 
     // Build a map of ticket_id to article_content
-    let article_content_map: std::collections::HashMap<i32, &models::ArticleContent> = all_article_contents
-        .iter()
-        .filter_map(|ac| ac.ticket_id.map(|tid| (tid, ac)))
-        .collect();
+    let article_content_map: std::collections::HashMap<i32, &models::ArticleContent> =
+        all_article_contents
+            .iter()
+            .filter_map(|ac| ac.ticket_id.map(|tid| (tid, ac)))
+            .collect();
 
     info!(count = all_tickets.len(), "Indexing tickets");
     for ticket in &all_tickets {
@@ -267,7 +280,10 @@ pub fn rebuild_index(
     let all_comments: Vec<models::Comment> = comments::table.load(conn)?;
     info!(count = all_comments.len(), "Indexing comments");
     for comment in &all_comments {
-        let ticket_title = ticket_titles.get(&comment.ticket_id).map(|s| s.as_str()).unwrap_or("Unknown Ticket");
+        let ticket_title = ticket_titles
+            .get(&comment.ticket_id)
+            .map(|s| s.as_str())
+            .unwrap_or("Unknown Ticket");
         let doc = index_document_from_comment(comment, ticket_title);
         if let Err(e) = add_document_to_index(writer, schema, &doc) {
             warn!(comment_id = comment.id, error = ?e, "Failed to index comment");
@@ -280,13 +296,23 @@ pub fn rebuild_index(
     let all_attachments: Vec<models::Attachment> = attachments::table
         .filter(attachments::transcription.is_not_null())
         .load(conn)?;
-    info!(count = all_attachments.len(), "Indexing attachments with transcriptions");
+    info!(
+        count = all_attachments.len(),
+        "Indexing attachments with transcriptions"
+    );
     for attachment in &all_attachments {
         if let Some(comment_id) = attachment.comment_id {
             // Get the ticket_id from the comment
-            if let Ok(comment) = comments::table.find(comment_id).first::<models::Comment>(conn) {
-                let ticket_title = ticket_titles.get(&comment.ticket_id).map(|s| s.as_str()).unwrap_or("Unknown Ticket");
-                let doc = index_document_from_attachment(attachment, comment.ticket_id, ticket_title);
+            if let Ok(comment) = comments::table
+                .find(comment_id)
+                .first::<models::Comment>(conn)
+            {
+                let ticket_title = ticket_titles
+                    .get(&comment.ticket_id)
+                    .map(|s| s.as_str())
+                    .unwrap_or("Unknown Ticket");
+                let doc =
+                    index_document_from_attachment(attachment, comment.ticket_id, ticket_title);
                 if let Err(e) = add_document_to_index(writer, schema, &doc) {
                     warn!(attachment_id = attachment.id, error = ?e, "Failed to index attachment");
                 } else {
@@ -372,6 +398,11 @@ pub struct IndexStats {
 
 impl IndexStats {
     pub fn total(&self) -> usize {
-        self.tickets + self.comments + self.documentation + self.attachments + self.devices + self.users
+        self.tickets
+            + self.comments
+            + self.documentation
+            + self.attachments
+            + self.devices
+            + self.users
     }
 }

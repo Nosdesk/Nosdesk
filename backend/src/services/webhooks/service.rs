@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::sse::{SseState, SseEvent};
+use crate::handlers::sse::{SseEvent, SseState};
 use crate::repository::webhooks as webhook_repo;
 
 use super::delivery::{DeliveryTask, WebhookDeliveryWorker};

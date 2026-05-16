@@ -238,10 +238,7 @@ fn find_wrapped_quote_header(body: &str) -> Option<usize> {
                 // `contains` does a byte-substring search, so a
                 // proper lowercase is needed for case-insensitive
                 // contains.
-                let scan_end = line_starts
-                    .get(i + 4)
-                    .copied()
-                    .unwrap_or(body.len());
+                let scan_end = line_starts.get(i + 4).copied().unwrap_or(body.len());
                 let window_lower = body[start..scan_end].to_lowercase();
                 if window_lower.contains(closer) {
                     return Some(start);
@@ -268,10 +265,7 @@ fn find_outlook_header_block(body: &str) -> Option<usize> {
             Ok(idx) => idx,
             Err(idx) => idx.saturating_sub(1),
         };
-        let scan_end = line_starts
-            .get(line_idx + 5)
-            .copied()
-            .unwrap_or(body.len());
+        let scan_end = line_starts.get(line_idx + 5).copied().unwrap_or(body.len());
         let window = &body[from_start..scan_end];
         let companions = OUTLOOK_COMPANION_RE.find_iter(window).count();
         if companions >= 2 {
@@ -304,8 +298,7 @@ fn find_quoted_run(body: &str) -> Option<usize> {
         if i > 0 {
             let prev_start = line_starts[i - 1];
             let prev_end = start;
-            let prev_line =
-                body[prev_start..prev_end].trim_end_matches(['\r', '\n']);
+            let prev_line = body[prev_start..prev_end].trim_end_matches(['\r', '\n']);
             if !prev_line.trim().is_empty() {
                 continue;
             }
@@ -313,13 +306,9 @@ fn find_quoted_run(body: &str) -> Option<usize> {
 
         // Depth gate: at least two consecutive quoted lines.
         let next_start = line_starts.get(i + 1).copied().unwrap_or(body.len());
-        let next_end = line_starts
-            .get(i + 2)
-            .copied()
-            .unwrap_or(body.len());
+        let next_end = line_starts.get(i + 2).copied().unwrap_or(body.len());
         if next_end > next_start {
-            let next_line = body[next_start..next_end]
-                .trim_end_matches(['\r', '\n']);
+            let next_line = body[next_start..next_end].trim_end_matches(['\r', '\n']);
             if next_line.starts_with('>') {
                 return Some(start);
             }
@@ -601,13 +590,11 @@ mod tests {
                     <blockquote type=\"cite\">Original message</blockquote>";
         let split = split_html(html);
         assert_eq!(split.new_content, "<p>Got it.</p>");
-        assert!(
-            split
-                .quoted_content
-                .as_deref()
-                .unwrap()
-                .starts_with("<blockquote type=\"cite\"")
-        );
+        assert!(split
+            .quoted_content
+            .as_deref()
+            .unwrap()
+            .starts_with("<blockquote type=\"cite\""));
     }
 
     #[test]
@@ -639,12 +626,10 @@ mod tests {
                     <div class=\"WordSection1\">B</div>";
         let split = split_html(html);
         assert_eq!(split.new_content, "<p>Reply.</p>");
-        assert!(
-            split
-                .quoted_content
-                .as_deref()
-                .unwrap()
-                .starts_with("<div class=\"gmail_quote\"")
-        );
+        assert!(split
+            .quoted_content
+            .as_deref()
+            .unwrap()
+            .starts_with("<div class=\"gmail_quote\""));
     }
 }

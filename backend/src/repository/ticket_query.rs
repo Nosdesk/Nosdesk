@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::extractors::AuthContext;
-use crate::models::{Ticket, TicketListItem, TicketPriority, UserInfoWithAvatar, WorkflowStateCategory};
+use crate::models::{
+    Ticket, TicketListItem, TicketPriority, UserInfoWithAvatar, WorkflowStateCategory,
+};
 use crate::schema::{tickets, workflow_states};
 
 /// Parse comma-separated legacy status filter ("open" / "in-progress" /
@@ -250,7 +252,9 @@ impl TicketQuery {
     /// legacy status bucket. Run before `apply_filters` so the boxed
     /// query can splat the ids directly.
     fn resolve_status_filter(&mut self, conn: &mut DbConnection) {
-        let Some(ref status_str) = self.status else { return };
+        let Some(ref status_str) = self.status else {
+            return;
+        };
         let categories = parse_status_filter(status_str);
         if categories.is_empty() {
             return;
@@ -295,7 +299,9 @@ impl TicketQuery {
 
         let public_category_ids: Vec<i32> = ticket_categories::table
             .filter(ticket_categories::is_active.eq(true))
-            .filter(diesel::dsl::not(ticket_categories::id.eq_any(&restricted_category_ids)))
+            .filter(diesel::dsl::not(
+                ticket_categories::id.eq_any(&restricted_category_ids),
+            ))
             .select(ticket_categories::id)
             .load(conn)
             .unwrap_or_default();
@@ -332,18 +338,23 @@ impl TicketQuery {
             if let Some(ref visible_cats) = self.visible_category_ids {
                 // User can see: their own tickets OR tickets in visible categories OR uncategorized tickets
                 query = query.filter(
-                    tickets::requester_uuid.eq(Some(user_uuid))
+                    tickets::requester_uuid
+                        .eq(Some(user_uuid))
                         .or(tickets::assignee_uuid.eq(Some(user_uuid)))
                         .or(tickets::category_id.is_null())
                         .or(tickets::category_id.eq_any(
-                            visible_cats.iter().map(|&id| Some(id)).collect::<Vec<Option<i32>>>()
-                        ))
+                            visible_cats
+                                .iter()
+                                .map(|&id| Some(id))
+                                .collect::<Vec<Option<i32>>>(),
+                        )),
                 );
             } else {
                 // No visibility resolved (shouldn't happen), fall back to own tickets only
                 query = query.filter(
-                    tickets::requester_uuid.eq(Some(user_uuid))
-                        .or(tickets::assignee_uuid.eq(Some(user_uuid)))
+                    tickets::requester_uuid
+                        .eq(Some(user_uuid))
+                        .or(tickets::assignee_uuid.eq(Some(user_uuid))),
                 );
             }
         }
@@ -352,10 +363,13 @@ impl TicketQuery {
         if let Some(ref search_term) = self.search {
             let pattern = format!("%{}%", search_term.to_lowercase());
             query = query.filter(
-                tickets::title.ilike(pattern.clone())
-                    .or(tickets::id.eq_any(
-                        search_term.parse::<i32>().ok().map(|id| vec![id]).unwrap_or_default()
-                    ))
+                tickets::title.ilike(pattern.clone()).or(tickets::id.eq_any(
+                    search_term
+                        .parse::<i32>()
+                        .ok()
+                        .map(|id| vec![id])
+                        .unwrap_or_default(),
+                )),
             );
         }
 
@@ -363,8 +377,9 @@ impl TicketQuery {
         if let Some(ref status_str) = self.status {
             let categories = parse_status_filter(status_str);
             if !categories.is_empty() && !self.matching_workflow_state_ids.is_empty() {
-                query = query
-                    .filter(tickets::workflow_state_id.eq_any(self.matching_workflow_state_ids.clone()));
+                query = query.filter(
+                    tickets::workflow_state_id.eq_any(self.matching_workflow_state_ids.clone()),
+                );
             } else if !categories.is_empty() {
                 // No matching workflow states means the filter is satisfiable
                 // by no row — apply an impossible predicate so the result set
@@ -470,11 +485,14 @@ impl TicketQuery {
         let items = tickets
             .into_iter()
             .map(|ticket| {
-                let requester_user = ticket.requester_uuid.as_ref()
+                let requester_user = ticket
+                    .requester_uuid
+                    .as_ref()
                     .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
                     .map(UserInfoWithAvatar::from);
 
-                let assignee_user = ticket.assignee_uuid
+                let assignee_user = ticket
+                    .assignee_uuid
                     .and_then(|uuid| crate::repository::get_user_by_uuid(&uuid, conn).ok())
                     .map(UserInfoWithAvatar::from);
 
@@ -496,7 +514,6 @@ impl TicketQuery {
             total_pages,
         })
     }
-
 }
 
 /// Paginated query result
@@ -559,9 +576,19 @@ mod tests {
         // Ticket the user requested (should see)
         TestFixtures::create_ticket(&mut conn, "My ticket", Some(user.uuid), None);
         // Ticket in public category by someone else (should see)
-        TestFixtures::create_ticket(&mut conn, "Public ticket", Some(other.uuid), Some(public_cat.id));
+        TestFixtures::create_ticket(
+            &mut conn,
+            "Public ticket",
+            Some(other.uuid),
+            Some(public_cat.id),
+        );
         // Ticket in secret category (should NOT see)
-        TestFixtures::create_ticket(&mut conn, "Secret ticket", Some(other.uuid), Some(secret_cat.id));
+        TestFixtures::create_ticket(
+            &mut conn,
+            "Secret ticket",
+            Some(other.uuid),
+            Some(secret_cat.id),
+        );
 
         let auth = AuthContext::test_context(user.uuid, UserRole::User, vec![group.id]);
         let result = TicketQuery::new()
@@ -570,7 +597,11 @@ mod tests {
             .execute_with_users(&mut conn)
             .unwrap();
 
-        let titles: Vec<&str> = result.data.iter().map(|i| i.ticket.title.as_str()).collect();
+        let titles: Vec<&str> = result
+            .data
+            .iter()
+            .map(|i| i.ticket.title.as_str())
+            .collect();
         assert!(titles.contains(&"My ticket"));
         assert!(titles.contains(&"Public ticket"));
         assert!(!titles.contains(&"Secret ticket"));

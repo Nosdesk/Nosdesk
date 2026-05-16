@@ -3,7 +3,7 @@ use diesel::result::Error;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{UserAuthIdentity, NewUserAuthIdentity, UserAuthIdentityDisplay};
+use crate::models::{NewUserAuthIdentity, UserAuthIdentity, UserAuthIdentityDisplay};
 use crate::schema::user_auth_identities;
 
 // Create a new user auth identity
@@ -25,7 +25,6 @@ pub fn get_user_identities(
         .filter(user_auth_identities::user_uuid.eq(user_uuid))
         .load::<UserAuthIdentity>(conn)
 }
-
 
 // Get identities with provider info for display by UUID
 pub fn get_user_identities_display(
@@ -58,7 +57,6 @@ pub fn get_user_identities_display(
         })
 }
 
-
 // Find user by their external identity (for auth)
 pub fn find_user_by_identity(
     provider_type: &str,
@@ -85,7 +83,7 @@ pub fn delete_identity(
     diesel::delete(
         user_auth_identities::table
             .filter(user_auth_identities::id.eq(identity_id))
-            .filter(user_auth_identities::user_uuid.eq(user_uuid))
+            .filter(user_auth_identities::user_uuid.eq(user_uuid)),
     )
     .execute(conn)
 }
@@ -118,7 +116,10 @@ pub fn get_user_uuids_by_external_ids(
     user_auth_identities::table
         .filter(user_auth_identities::external_id.eq_any(external_ids))
         .filter(user_auth_identities::provider_type.eq(provider_type))
-        .select((user_auth_identities::external_id, user_auth_identities::user_uuid))
+        .select((
+            user_auth_identities::external_id,
+            user_auth_identities::user_uuid,
+        ))
         .load::<(String, Uuid)>(conn)
 }
 
@@ -155,7 +156,8 @@ mod tests {
         let mut conn = setup_test_connection();
         let user = TestFixtures::create_user(&mut conn, "delid", UserRole::User);
 
-        let identity = create_identity(make_identity(user.uuid, "google", "g_456"), &mut conn).unwrap();
+        let identity =
+            create_identity(make_identity(user.uuid, "google", "g_456"), &mut conn).unwrap();
         let rows = delete_identity(identity.id, &user.uuid, &mut conn).unwrap();
         assert_eq!(rows, 1);
 

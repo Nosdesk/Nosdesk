@@ -5,8 +5,8 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::models::{
     AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, Claims, NewAssignmentRule,
 };
@@ -19,10 +19,7 @@ use crate::utils::rbac::require_admin;
 // ============================================================================
 
 /// Get all assignment rules with details (admin only)
-pub async fn get_all_rules(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_all_rules(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
@@ -125,7 +122,9 @@ pub async fn create_rule(
                 return errors::bad_request("target_user_uuid is required for direct_user method");
             }
         }
-        AssignmentMethod::GroupRoundRobin | AssignmentMethod::GroupRandom | AssignmentMethod::GroupQueue => {
+        AssignmentMethod::GroupRoundRobin
+        | AssignmentMethod::GroupRandom
+        | AssignmentMethod::GroupQueue => {
             if body.target_group_id.is_none() {
                 return errors::bad_request("target_group_id is required for group-based methods");
             }
@@ -242,7 +241,9 @@ pub async fn update_rule(
     // Check for duplicate name if name is being changed
     if let Some(ref new_name) = body.name {
         if new_name != &existing.name {
-            if let Ok(true) = repository::assignment_rules::rule_name_exists(&mut conn, new_name, Some(rule_id)) {
+            if let Ok(true) =
+                repository::assignment_rules::rule_name_exists(&mut conn, new_name, Some(rule_id))
+            {
                 return errors::conflict("A rule with this name already exists");
             }
         }
@@ -448,10 +449,7 @@ pub async fn preview_assignment(
 // ============================================================================
 
 /// Get recent assignment logs (admin only)
-pub async fn get_assignment_logs(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_assignment_logs(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
@@ -477,7 +475,9 @@ mod tests {
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),
@@ -489,7 +489,10 @@ mod tests {
         App::new()
             .app_data(web::Data::new(pool))
             .route("/admin/assignment-rules", web::get().to(get_all_rules))
-            .route("/admin/assignment-rules/{id}", web::delete().to(delete_rule))
+            .route(
+                "/admin/assignment-rules/{id}",
+                web::delete().to(delete_rule),
+            )
     }
 
     #[actix_web::test]

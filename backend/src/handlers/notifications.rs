@@ -8,7 +8,9 @@ use crate::handlers::{errors, helpers};
 use serde::Deserialize;
 
 use crate::models::Claims;
-use crate::services::notifications::{NotificationChannel, NotificationService, NotificationTypeCode};
+use crate::services::notifications::{
+    NotificationChannel, NotificationService, NotificationTypeCode,
+};
 
 /// Query parameters for fetching notifications
 #[derive(Debug, Deserialize)]
@@ -63,7 +65,9 @@ pub async fn get_notifications(
     let result = if unread_only {
         notification_service.get_unread(&user_uuid, limit).await
     } else {
-        notification_service.get_all(&user_uuid, limit, offset).await
+        notification_service
+            .get_all(&user_uuid, limit, offset)
+            .await
     };
 
     match result {
@@ -209,15 +213,16 @@ pub async fn update_preference(
     let notification_type = match NotificationTypeCode::from_str(&body.notification_type) {
         Some(t) => t,
         None => {
-            return errors::bad_request(format!("Invalid notification type: {}", body.notification_type))
+            return errors::bad_request(format!(
+                "Invalid notification type: {}",
+                body.notification_type
+            ))
         }
     };
 
     let channel = match NotificationChannel::from_str(&body.channel) {
         Some(c) => c,
-        None => {
-            return errors::bad_request(format!("Invalid channel: {}", body.channel))
-        }
+        None => return errors::bad_request(format!("Invalid channel: {}", body.channel)),
     };
 
     match notification_service

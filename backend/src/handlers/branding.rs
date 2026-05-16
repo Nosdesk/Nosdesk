@@ -6,8 +6,8 @@ use serde_json::json;
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
@@ -85,7 +85,9 @@ pub async fn update_branding_config(
     // Validate primary_color if provided (must be valid hex color)
     if let Some(ref color) = body.primary_color {
         if !is_valid_hex_color(color) {
-            return errors::bad_request("Invalid color format. Must be a valid hex color (e.g., #2C80FF)");
+            return errors::bad_request(
+                "Invalid color format. Must be a valid hex color (e.g., #2C80FF)",
+            );
         }
     }
 
@@ -122,7 +124,9 @@ pub async fn upload_branding_image(
 
     // Validate image type
     if !["logo", "logo_light", "favicon"].contains(&image_type.as_str()) {
-        return errors::bad_request("Invalid image type. Must be 'logo', 'logo_light', or 'favicon'");
+        return errors::bad_request(
+            "Invalid image type. Must be 'logo', 'logo_light', or 'favicon'",
+        );
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -174,7 +178,10 @@ pub async fn upload_branding_image(
             } else {
                 "PNG, SVG, JPEG, or WebP"
             };
-            return errors::bad_request(format!("Invalid file type for {}. Allowed: {}", image_type, allowed));
+            return errors::bad_request(format!(
+                "Invalid file type for {}. Allowed: {}",
+                image_type, allowed
+            ));
         }
 
         // Determine file extension
@@ -272,7 +279,9 @@ pub async fn delete_branding_image(
     let image_type = &type_query.type_;
 
     if !["logo", "logo_light", "favicon"].contains(&image_type.as_str()) {
-        return errors::bad_request("Invalid image type. Must be 'logo', 'logo_light', or 'favicon'");
+        return errors::bad_request(
+            "Invalid image type. Must be 'logo', 'logo_light', or 'favicon'",
+        );
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -376,10 +385,7 @@ async fn cleanup_old_branding_images(dir: &str, image_type: &str) {
 }
 
 // Serve branding files publicly (no auth required)
-pub async fn serve_branding_file(
-    filename: web::Path<String>,
-    _req: HttpRequest,
-) -> impl Responder {
+pub async fn serve_branding_file(filename: web::Path<String>, _req: HttpRequest) -> impl Responder {
     let filename = filename.into_inner();
 
     // Only allow specific branding files

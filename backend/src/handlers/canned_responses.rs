@@ -50,10 +50,7 @@ pub async fn list_canned(pool: web::Data<Pool>, req: HttpRequest) -> HttpRespons
     collapse(list_impl(pool, req).await)
 }
 
-async fn list_impl(
-    pool: web::Data<Pool>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
+async fn list_impl(pool: web::Data<Pool>, req: HttpRequest) -> Result<HttpResponse, HttpResponse> {
     // auth_conn requires any authenticated user — read is open to
     // all techs / admins. We only care that the caller is logged in.
     let (_claims, _uuid, mut conn) = helpers::auth_conn(&req, &pool)?;

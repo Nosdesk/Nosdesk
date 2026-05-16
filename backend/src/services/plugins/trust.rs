@@ -248,7 +248,9 @@ fn resolve_inner(
         }
     }
 
-    if let Some(publisher) = plugin_publishers::find_publisher_by_pubkey(conn, &envelope.signer_pubkey)? {
+    if let Some(publisher) =
+        plugin_publishers::find_publisher_by_pubkey(conn, &envelope.signer_pubkey)?
+    {
         if publisher.revoked_at.is_some() {
             return Err(TrustError::RevokedPublisher);
         }

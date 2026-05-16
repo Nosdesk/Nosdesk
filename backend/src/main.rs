@@ -5,18 +5,18 @@ use backend::services;
 use backend::utils;
 
 use actix_cors::Cors;
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
-use actix_web::dev::{ServiceRequest, ServiceResponse, fn_service};
 use actix_files::Files;
 use actix_limitation::{Limiter, RateLimiter};
+use actix_web::dev::{fn_service, ServiceRequest, ServiceResponse};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use dotenvy::dotenv;
 use std::env;
 use std::time::Duration;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 use tracing_actix_web::TracingLogger;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
-use utils::storage::{get_storage_config, create_storage};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use utils::redis_yjs_cache::create_redis_cache;
+use utils::storage::{create_storage, get_storage_config};
 
 /// Handle missing assets in development mode
 /// When frontend rebuilds, old asset hashes become invalid - this helps developers.
@@ -88,7 +88,8 @@ async fn serve_spa(_req: HttpRequest) -> HttpResponse {
         }
         Err(_) => {
             // Fallback if index.html doesn't exist
-            let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
+            let environment =
+                std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
             if environment != "production" {
                 HttpResponse::NotFound()
                     .content_type("text/html")
@@ -127,7 +128,10 @@ use middleware::cookie_auth_middleware;
 async fn main() -> std::io::Result<()> {
     // Early startup logging before tracing is initialized
     // Using eprintln! here since tracing isn't set up yet
-    eprintln!("BACKEND STARTING - Current dir: {:?}", std::env::current_dir());
+    eprintln!(
+        "BACKEND STARTING - Current dir: {:?}",
+        std::env::current_dir()
+    );
     std::io::Write::flush(&mut std::io::stderr()).ok();
 
     // Load .env file if it exists (for local development), but don't fail if it doesn't exist
@@ -150,14 +154,13 @@ async fn main() -> std::io::Result<()> {
     eprintln!("Initializing tracing...");
 
     // Initialize tracing/logging subsystem with better error handling
-    let log_level = env::var("RUST_LOG")
-        .unwrap_or_else(|_| {
-            if env::var("ENVIRONMENT").unwrap_or_default() == "production" {
-                "info".to_string()
-            } else {
-                "debug".to_string()
-            }
-        });
+    let log_level = env::var("RUST_LOG").unwrap_or_else(|_| {
+        if env::var("ENVIRONMENT").unwrap_or_default() == "production" {
+            "info".to_string()
+        } else {
+            "debug".to_string()
+        }
+    });
 
     // Ignore tracing init errors (might already be initialized by cargo watch)
     // Docker best practice: log to stdout (not files), Docker daemon handles log forwarding
@@ -166,7 +169,7 @@ async fn main() -> std::io::Result<()> {
             fmt::layer()
                 .with_target(true)
                 .with_line_number(true)
-                .with_writer(std::io::stdout)
+                .with_writer(std::io::stdout),
         )
         .with(EnvFilter::new(&log_level))
         .try_init();
@@ -176,14 +179,23 @@ async fn main() -> std::io::Result<()> {
     // === SECURITY STARTUP VALIDATION ===
     info!("Starting Nosdesk API Server");
     info!(log_level = %log_level, "Log level configured");
-    
+
     // Debug: Print some environment variables to see what's available
     debug!("Environment check:");
-    debug!("  DATABASE_URL is set: {}", env::var("DATABASE_URL").is_ok());
+    debug!(
+        "  DATABASE_URL is set: {}",
+        env::var("DATABASE_URL").is_ok()
+    );
     debug!("  JWT_SECRET is set: {}", env::var("JWT_SECRET").is_ok());
-    debug!("  HOST: {}", env::var("HOST").unwrap_or("NOT_SET".to_string()));
-    debug!("  PORT: {}", env::var("PORT").unwrap_or("NOT_SET".to_string()));
-    
+    debug!(
+        "  HOST: {}",
+        env::var("HOST").unwrap_or("NOT_SET".to_string())
+    );
+    debug!(
+        "  PORT: {}",
+        env::var("PORT").unwrap_or("NOT_SET".to_string())
+    );
+
     // Get environment early for validation
     let environment = env::var("ENVIRONMENT").unwrap_or("development".to_string());
     info!("Environment: {}", environment);
@@ -226,7 +238,7 @@ async fn main() -> std::io::Result<()> {
                 }
             }
             secret
-        },
+        }
         Err(e) => {
             error!(error = %e, "JWT_SECRET environment variable must be set");
             error!("Generate a secure key with: openssl rand -base64 32");
@@ -245,8 +257,8 @@ async fn main() -> std::io::Result<()> {
     // Production refuses to boot on missing / placeholder / malformed
     // keys. Dev tolerates a missing key (logs a warning and disables
     // MFA features) but still validates the format if one is set.
-    let encryption_key_set = std::env::var("ENCRYPTION_KEY").is_ok()
-        || std::env::var("MFA_ENCRYPTION_KEY").is_ok();
+    let encryption_key_set =
+        std::env::var("ENCRYPTION_KEY").is_ok() || std::env::var("MFA_ENCRYPTION_KEY").is_ok();
     if let Some(placeholder_key) = std::env::var("MFA_ENCRYPTION_KEY")
         .ok()
         .or_else(|| std::env::var("ENCRYPTION_KEY").ok())
@@ -273,7 +285,9 @@ async fn main() -> std::io::Result<()> {
                 error!("Fix or unset ENCRYPTION_KEY / MFA_ENCRYPTION_KEY");
                 std::process::exit(1);
             } else {
-                warn!("ENCRYPTION_KEY / MFA_ENCRYPTION_KEY not set - MFA features will be disabled");
+                warn!(
+                    "ENCRYPTION_KEY / MFA_ENCRYPTION_KEY not set - MFA features will be disabled"
+                );
                 warn!("Generate with: openssl rand -hex 32");
             }
         }
@@ -285,9 +299,7 @@ async fn main() -> std::io::Result<()> {
     // tiers; only `local` (CLI-installed) plugins work. That's
     // acceptable for an unconfigured fork but not for a Nosdesk
     // production deployment.
-    if environment == "production"
-        && crate::services::plugins::signing::root_pubkey().is_none()
-    {
+    if environment == "production" && crate::services::plugins::signing::root_pubkey().is_none() {
         error!("NOSDESK_ROOT_PUBKEY was not set at build time");
         error!("Refusing to start in production without a plugin trust root");
         error!("Rebuild with: docker build --build-arg NOSDESK_ROOT_PUBKEY=<base64> ...");
@@ -315,9 +327,7 @@ async fn main() -> std::io::Result<()> {
                 std::process::exit(1);
             }
             if env::var("REDIS_PASSWORD").as_deref() == Ok(EX_REDIS_PASSWORD) {
-                error!(
-                    "REDIS_PASSWORD matches docker.env.example default ({EX_REDIS_PASSWORD})"
-                );
+                error!("REDIS_PASSWORD matches docker.env.example default ({EX_REDIS_PASSWORD})");
                 error!("Refusing to start in production with documented sample credentials");
                 error!("Change REDIS_PASSWORD or set ALLOW_INSECURE_DEFAULT_SECRETS=1 only for isolated labs");
                 std::process::exit(1);
@@ -326,12 +336,14 @@ async fn main() -> std::io::Result<()> {
             warn!("ALLOW_INSECURE_DEFAULT_SECRETS enabled — example Postgres/Redis passwords accepted (labs only)");
         }
     }
-    
+
     // Security: Validate environment (already declared above)
     if environment == "production" {
         // Check for HTTPS in production URLs
         if let Ok(frontend_url) = env::var("FRONTEND_URL") {
-            if !frontend_url.starts_with("https://") && !frontend_url.starts_with("http://localhost") {
+            if !frontend_url.starts_with("https://")
+                && !frontend_url.starts_with("http://localhost")
+            {
                 warn!("FRONTEND_URL should use HTTPS in production");
             }
         }
@@ -343,7 +355,7 @@ async fn main() -> std::io::Result<()> {
             }
         }
     }
-    
+
     // === RATE LIMITING CONFIGURATION ===
     // Get rate limiting configuration from environment with reasonable defaults
     let rate_limit_per_minute = env::var("RATE_LIMIT_PER_MINUTE")
@@ -373,8 +385,7 @@ async fn main() -> std::io::Result<()> {
     // attacker can't rotate spoofed headers to bypass the limit.
     let public_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req)
-                .map(|ip| format!("public:{ip}"))
+            crate::utils::client_ip::from_service_request(req).map(|ip| format!("public:{ip}"))
         })
         .limit(rate_limit_per_minute as usize)
         .period(Duration::from_secs(60)) // 1 minute window
@@ -383,8 +394,7 @@ async fn main() -> std::io::Result<()> {
     // Build the authenticated limiter (for authenticated requests)
     let auth_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req)
-                .map(|ip| format!("auth:{ip}"))
+            crate::utils::client_ip::from_service_request(req).map(|ip| format!("auth:{ip}"))
         })
         .limit(auth_rate_limit_per_minute as usize)
         .period(Duration::from_secs(60)) // 1 minute window
@@ -434,7 +444,9 @@ async fn main() -> std::io::Result<()> {
                 Ok(limiter) => limiter,
                 Err(fallback_err) => {
                     error!(error = %fallback_err, "Failed to initialize fallback auth rate limiter");
-                    return Err(std::io::Error::other("Auth rate limiter initialization failed"));
+                    return Err(std::io::Error::other(
+                        "Auth rate limiter initialization failed",
+                    ));
                 }
             }
         }
@@ -442,10 +454,13 @@ async fn main() -> std::io::Result<()> {
 
     // Get host and port from environment variables
     let host = env::var("HOST").unwrap_or("127.0.0.1".to_string());
-    let port = env::var("PORT").unwrap_or("8080".to_string()).parse::<u16>().map_err(|e| {
-        error!(error = %e, "Invalid PORT value");
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid PORT")
-    })?;
+    let port = env::var("PORT")
+        .unwrap_or("8080".to_string())
+        .parse::<u16>()
+        .map_err(|e| {
+            error!(error = %e, "Invalid PORT value");
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid PORT")
+        })?;
 
     // Security: Get file upload limits from environment
     let max_file_size_mb = env::var("MAX_FILE_SIZE_MB")
@@ -463,7 +478,7 @@ async fn main() -> std::io::Result<()> {
             error!("FRONTEND_URL must be set in production for CORS security");
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "FRONTEND_URL environment variable is required in production"
+                "FRONTEND_URL environment variable is required in production",
             ));
         }
         Err(_) => "http://localhost:3000".to_string(),
@@ -488,29 +503,44 @@ async fn main() -> std::io::Result<()> {
 
     // === DATABASE INITIALIZATION ===
     match db::initialize_database(&pool).await {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             error!(error = %e, "Database initialization failed");
-            return Err(std::io::Error::other(format!("Database initialization failed: {e}")));
+            return Err(std::io::Error::other(format!(
+                "Database initialization failed: {e}"
+            )));
         }
     }
 
     // Security: Verify initialization was successful
     if !db::is_initialized() {
         error!("Database initialization verification failed");
-        return Err(std::io::Error::other("Database initialization verification failed"));
+        return Err(std::io::Error::other(
+            "Database initialization verification failed",
+        ));
     }
 
     // Create uploads directory structure if it doesn't exist
     let uploads_dir = "/app/uploads";
-    let directories = ["", "temp", "tickets", "users", "users/avatars", "users/banners", "users/thumbs", "plugins"];
+    let directories = [
+        "",
+        "temp",
+        "tickets",
+        "users",
+        "users/avatars",
+        "users/banners",
+        "users/thumbs",
+        "plugins",
+    ];
     for dir in directories.iter() {
         let full_path = format!("{uploads_dir}/{dir}");
         match std::fs::create_dir_all(&full_path) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 error!(path = %full_path, error = %e, "Failed to create directory");
-                return Err(std::io::Error::other(format!("Failed to create directory: {full_path}")));
+                return Err(std::io::Error::other(format!(
+                    "Failed to create directory: {full_path}"
+                )));
             }
         }
     }
@@ -518,7 +548,9 @@ async fn main() -> std::io::Result<()> {
     // Bootstrap local plugin signing key before provisioning so any
     // verification path can resolve the `local` trust tier.
     {
-        let mut conn = pool.get().expect("Failed to get connection for local key bootstrap");
+        let mut conn = pool
+            .get()
+            .expect("Failed to get connection for local key bootstrap");
         if let Err(e) = services::plugins::local_key::ensure_local_signing_key(&mut conn) {
             error!(error = %e, "Failed to bootstrap plugin local signing key");
             return Err(std::io::Error::other(format!(
@@ -601,7 +633,9 @@ async fn main() -> std::io::Result<()> {
 
     // Provision plugins from /app/plugins/ directory
     {
-        let mut conn = pool.get().expect("Failed to get connection for plugin provisioning");
+        let mut conn = pool
+            .get()
+            .expect("Failed to get connection for plugin provisioning");
         let results = services::plugins::provision_plugins(&mut conn);
         for result in results {
             match result {
@@ -638,12 +672,14 @@ async fn main() -> std::io::Result<()> {
         Ok(cache) => {
             info!(url = %yjs_redis_url, "Redis cache initialized for Yjs documents");
             cache
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Failed to initialize Redis cache for Yjs");
             error!("CRITICAL: Yjs documents will NOT persist across server restarts");
             error!("Please ensure Redis is running and REDIS_URL is configured correctly");
-            return Err(std::io::Error::other(format!("Redis initialization failed: {e:?}")));
+            return Err(std::io::Error::other(format!(
+                "Redis initialization failed: {e:?}"
+            )));
         }
     };
 
@@ -661,11 +697,7 @@ async fn main() -> std::io::Result<()> {
     // `services/sync_outbox.rs` for the full lifecycle / recovery
     // semantics.
     if let Ok(database_url) = std::env::var("DATABASE_URL") {
-        services::sync_outbox::spawn(
-            database_url,
-            pool.clone(),
-            sse_state.clone().into_inner(),
-        );
+        services::sync_outbox::spawn(database_url, pool.clone(), sse_state.clone().into_inner());
     } else {
         warn!("DATABASE_URL not set; sync outbox listener not spawned (SSE will not deliver real-time updates)");
     }
@@ -696,8 +728,7 @@ async fn main() -> std::io::Result<()> {
     // just mark every row failed forever; better not to enqueue at all
     // (the cutover at services/channels/outbound.rs honours the same
     // gate).
-    if let (Ok(database_url), Some(email)) =
-        (std::env::var("DATABASE_URL"), email_service.clone())
+    if let (Ok(database_url), Some(email)) = (std::env::var("DATABASE_URL"), email_service.clone())
     {
         services::email_queue::spawn(database_url, pool.clone(), email);
     } else if email_service.is_some() {
@@ -706,31 +737,34 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize notification service for in-app and email notifications
     let notification_service = {
-        use std::sync::Arc;
         use std::collections::HashMap;
+        use std::sync::Arc;
         use tokio::sync::RwLock as TokioRwLock;
 
         // Shared cache for notification type ID lookups (used by both service and email channel)
         let type_id_cache = Arc::new(TokioRwLock::new(HashMap::<String, i32>::new()));
 
-        let service = services::notifications::NotificationService::new(pool.clone(), type_id_cache.clone());
+        let service =
+            services::notifications::NotificationService::new(pool.clone(), type_id_cache.clone());
 
         // Register in-app channel (SSE)
         // web::Data<T> wraps Arc<T>, so we can get the inner Arc directly
         let sse_state_arc: Arc<handlers::sse::SseState> = sse_state.clone().into_inner();
-        let in_app_channel = Arc::new(services::notifications::channels::in_app::InAppChannel::new(sse_state_arc));
+        let in_app_channel =
+            Arc::new(services::notifications::channels::in_app::InAppChannel::new(sse_state_arc));
         service.register_channel(in_app_channel);
 
         // Register email channel if email service is configured.
         // App name comes from the workspace branding (site_settings) at
         // send time, not env, so admin renames take effect without restart.
         if let Some(email_svc) = email_service.clone() {
-            let email_channel = Arc::new(services::notifications::channels::email::EmailChannel::new(
-                email_svc,
-                pool.clone(),
-                frontend_url.clone(),
-                type_id_cache,
-            ));
+            let email_channel =
+                Arc::new(services::notifications::channels::email::EmailChannel::new(
+                    email_svc,
+                    pool.clone(),
+                    frontend_url.clone(),
+                    type_id_cache,
+                ));
             service.register_channel(email_channel);
         }
 
@@ -746,7 +780,10 @@ async fn main() -> std::io::Result<()> {
     let webhook_service = {
         use std::sync::Arc;
         let sse_state_arc: Arc<handlers::sse::SseState> = sse_state.clone().into_inner();
-        web::Data::new(services::webhooks::WebhookService::new(pool.clone(), sse_state_arc))
+        web::Data::new(services::webhooks::WebhookService::new(
+            pool.clone(),
+            sse_state_arc,
+        ))
     };
 
     // Initialize plugin proxy service for external requests
@@ -774,11 +811,11 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize search service for full-text search
     let search_service = {
-        use std::sync::Arc;
         use std::path::Path;
+        use std::sync::Arc;
 
-        let search_index_path = env::var("SEARCH_INDEX_PATH")
-            .unwrap_or_else(|_| "data/search_index".to_string());
+        let search_index_path =
+            env::var("SEARCH_INDEX_PATH").unwrap_or_else(|_| "data/search_index".to_string());
 
         match services::search::SearchService::new(Path::new(&search_index_path), &pool) {
             Ok(service) => {
@@ -790,7 +827,9 @@ async fn main() -> std::io::Result<()> {
                 error!("Search functionality will be unavailable");
                 // Return a placeholder - search endpoints will fail gracefully
                 // In a real deployment, you might want to fail startup here
-                return Err(std::io::Error::other(format!("Search service initialization failed: {e}")));
+                return Err(std::io::Error::other(format!(
+                    "Search service initialization failed: {e}"
+                )));
             }
         }
     };
@@ -1052,7 +1091,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(search_service.clone())
             .app_data(json_config)
             .app_data(multipart_config)
-            
+
             // === PUBLIC ROUTES (NO AUTHENTICATION REQUIRED) ===
             .route("/health", web::get().to(handlers::health::liveness))
             .route("/readiness", web::get().to(handlers::health::readiness))
@@ -1092,7 +1131,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/docs/search", web::get().to(handlers::guest::search_public_docs))
                     .route("/docs/{slug}", web::get().to(handlers::guest::get_public_doc))
             )
-            
+
             // Public WebSocket for collaboration (auth handled in WebSocket handler)
             .service(
                 web::scope("/api/collaboration")
@@ -1113,17 +1152,17 @@ async fn main() -> std::io::Result<()> {
                     .wrap(RateLimiter::default())
                     .route(web::post().to(handlers::csp_reports::report_violation))
             )
-            
+
             // Public file serving with token-based auth for attachments
             .route("/api/files/tickets/{ticket_id}/notes/{filename:.*}", web::get().to(handlers::serve_ticket_note_image))
             .route("/api/files/tickets/{filename:.*}", web::get().to(handlers::serve_ticket_file))
             .route("/api/files/temp/{filename:.*}", web::get().to(handlers::serve_temp_file))
-            
+
             // SSE endpoints (with custom token-based auth)
             // Main event stream for all real-time updates (tickets, documentation, devices, etc.)
             .route("/api/events/stream", web::get().to(handlers::sse::sse_events_stream))
             .route("/api/events/status", web::get().to(handlers::sse::sse_status))
-            
+
             // Authentication routes (public by design)
             .service(
                 web::scope("/api/auth")
@@ -1191,13 +1230,13 @@ async fn main() -> std::io::Result<()> {
                             .route("/{credential_id}", web::delete().to(handlers::delete_passkey))
                     )
             )
-            
+
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===
             // Supports both cookie-based auth (browser) and Bearer token auth (API clients)
             .service(
                 web::scope("/api")
                     .wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware))
-                    
+
                     // Authentication Provider management (admin only) - simplified for environment-based config
                     .route("/admin/auth/providers", web::get().to(handlers::get_auth_providers))
 
@@ -1353,7 +1392,7 @@ async fn main() -> std::io::Result<()> {
                             .route("/groups", web::get().to(handlers::get_graph_groups))
                             .route("/directory-objects", web::get().to(handlers::get_graph_directory_objects))
                     )
-                    
+
                     // Microsoft Graph Integration endpoints
                     .service(
                         web::scope("/integrations/graph")
@@ -1368,10 +1407,10 @@ async fn main() -> std::io::Result<()> {
                             .route("/cancel/{session_id}", web::post().to(handlers::cancel_sync_session))
                             .route("/entra-object-id/{azure_ad_device_id}", web::get().to(handlers::get_entra_object_id))
                     )
-                    
+
                     // File upload endpoint
                     .route("/upload", web::post().to(handlers::upload_files))
-                    
+
                     // ===== SERVER-SENT EVENTS (SSE) =====
                     .route("/events/token", web::post().to(handlers::sse::get_sse_token))
 
@@ -1437,7 +1476,7 @@ async fn main() -> std::io::Result<()> {
                             handlers::delete_attachment(req, path, pool, storage.clone())
                         }
                     }))
-                    
+
                     // ===== PROJECT MANAGEMENT =====
                     .route("/projects", web::get().to(handlers::get_all_projects))
                     .route("/projects", web::post().to(handlers::create_project))
@@ -1594,7 +1633,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/devices/{id}", web::delete().to(handlers::delete_device))
                     .route("/devices/{id}/unmanage", web::post().to(handlers::unmanage_device))
                     .route("/users/{uuid}/devices", web::get().to(handlers::get_user_devices))
-                    
+
                     // ===== DOCUMENTATION SYSTEM =====
                     // Literal paths MUST come before {id} wildcard to avoid being swallowed
                     .route("/documentation/pages", web::get().to(handlers::get_documentation_pages))
@@ -1667,10 +1706,10 @@ async fn main() -> std::io::Result<()> {
                     .route("/documentation/{id}", web::put().to(handlers::update_documentation_page))
                     .route("/documentation/{id}", web::delete().to(handlers::delete_documentation_page))
             )
-            
+
             // Unified file serving using storage abstraction (protected routes)
             .route("/uploads/{path:.*}", web::get().to(handlers::serve_protected_file))
-            
+
             // === FRONTEND STATIC FILES ===
             // Serve static frontend files with SPA fallback using default_handler
             // This is the recommended actix-web pattern for SPAs

@@ -1,7 +1,9 @@
-use diesel::prelude::*;
 use crate::db::DbConnection;
-use crate::models::{SyncHistory, NewSyncHistory, SyncHistoryUpdate, SyncDeltaToken, NewSyncDeltaToken};
-use crate::schema::{sync_history, sync_delta_tokens};
+use crate::models::{
+    NewSyncDeltaToken, NewSyncHistory, SyncDeltaToken, SyncHistory, SyncHistoryUpdate,
+};
+use crate::schema::{sync_delta_tokens, sync_history};
+use diesel::prelude::*;
 
 /// Create a new sync history record
 pub fn create_sync_history(
@@ -25,14 +27,13 @@ pub fn update_sync_history(
 }
 
 /// Get the most recent completed sync
-pub fn get_last_completed_sync(
-    conn: &mut DbConnection,
-) -> QueryResult<SyncHistory> {
+pub fn get_last_completed_sync(conn: &mut DbConnection) -> QueryResult<SyncHistory> {
     sync_history::table
         .filter(
-            sync_history::status.eq("completed")
+            sync_history::status
+                .eq("completed")
                 .or(sync_history::status.eq("error"))
-                .or(sync_history::status.eq("cancelled"))
+                .or(sync_history::status.eq("cancelled")),
         )
         .order(sync_history::started_at.desc())
         .first(conn)
@@ -104,7 +105,7 @@ pub fn delete_delta_token(
     diesel::delete(
         sync_delta_tokens::table
             .filter(sync_delta_tokens::provider_type.eq(provider_type))
-            .filter(sync_delta_tokens::entity_type.eq(entity_type))
+            .filter(sync_delta_tokens::entity_type.eq(entity_type)),
     )
     .execute(conn)
 }
@@ -145,13 +146,15 @@ mod tests {
     fn upsert_and_get_delta_token() {
         let mut conn = setup_test_connection();
 
-        let token = upsert_delta_token(&mut conn, "microsoft", "users", "https://delta.link/1").unwrap();
+        let token =
+            upsert_delta_token(&mut conn, "microsoft", "users", "https://delta.link/1").unwrap();
         assert_eq!(token.provider_type, "microsoft");
         assert_eq!(token.entity_type, "users");
         assert_eq!(token.delta_link, "https://delta.link/1");
 
         // Upsert again with new link
-        let updated = upsert_delta_token(&mut conn, "microsoft", "users", "https://delta.link/2").unwrap();
+        let updated =
+            upsert_delta_token(&mut conn, "microsoft", "users", "https://delta.link/2").unwrap();
         assert_eq!(updated.id, token.id);
         assert_eq!(updated.delta_link, "https://delta.link/2");
 

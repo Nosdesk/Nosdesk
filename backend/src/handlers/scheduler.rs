@@ -9,8 +9,8 @@ use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Serialize;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::services::scheduler::{PeriodicStatus, StatusRegistry};
 
 /// One row of the response. Adds `name` so the client can render a

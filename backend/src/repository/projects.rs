@@ -14,13 +14,18 @@ use crate::schema::*;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
-pub fn get_projects_with_ticket_count(conn: &mut DbConnection) -> Result<Vec<ProjectWithTicketCount>, Error> {
+pub fn get_projects_with_ticket_count(
+    conn: &mut DbConnection,
+) -> Result<Vec<ProjectWithTicketCount>, Error> {
     // One pass over project_tickets to get every (project_id, count)
     // pair, then one pass over projects. Replaces an N+1 that fired
     // a COUNT() per project on every list-page render.
     let counts: Vec<(i32, i64)> = project_tickets::table
         .group_by(project_tickets::project_id)
-        .select((project_tickets::project_id, count(project_tickets::ticket_id)))
+        .select((
+            project_tickets::project_id,
+            count(project_tickets::ticket_id),
+        ))
         .load(conn)?;
     let count_map: HashMap<i32, i64> = counts.into_iter().collect();
 
@@ -46,16 +51,17 @@ pub fn get_projects_with_ticket_count(conn: &mut DbConnection) -> Result<Vec<Pro
         .collect())
 }
 
-pub fn get_project_with_ticket_count(conn: &mut DbConnection, project_id: i32) -> Result<ProjectWithTicketCount, Error> {
-    let project = projects::table
-        .find(project_id)
-        .first::<Project>(conn)?;
-    
+pub fn get_project_with_ticket_count(
+    conn: &mut DbConnection,
+    project_id: i32,
+) -> Result<ProjectWithTicketCount, Error> {
+    let project = projects::table.find(project_id).first::<Project>(conn)?;
+
     let count = project_tickets::table
         .filter(project_tickets::project_id.eq(project_id))
         .count()
         .get_result::<i64>(conn)?;
-    
+
     Ok(ProjectWithTicketCount {
         id: project.id,
         name: project.name,
@@ -96,7 +102,11 @@ pub fn create_project(conn: &mut DbConnection, new_project: NewProject) -> Query
     })
 }
 
-pub fn update_project(conn: &mut DbConnection, project_id: i32, project_update: ProjectUpdate) -> QueryResult<Project> {
+pub fn update_project(
+    conn: &mut DbConnection,
+    project_id: i32,
+    project_update: ProjectUpdate,
+) -> QueryResult<Project> {
     // Set updated_at to current time if not provided
     let project_update = if project_update.updated_at.is_none() {
         let mut update = project_update;
@@ -158,7 +168,11 @@ pub fn delete_project(conn: &mut DbConnection, project_id: i32) -> QueryResult<u
 }
 
 // Project-Ticket association operations
-pub fn add_ticket_to_project(conn: &mut DbConnection, project_id: i32, ticket_id: i32) -> QueryResult<ProjectTicket> {
+pub fn add_ticket_to_project(
+    conn: &mut DbConnection,
+    project_id: i32,
+    ticket_id: i32,
+) -> QueryResult<ProjectTicket> {
     // First check if the ticket exists
     match crate::repository::tickets::get_ticket_by_id(conn, ticket_id) {
         Ok(_) => debug!(ticket_id, "Ticket exists"),
@@ -202,7 +216,12 @@ pub fn add_ticket_to_project(conn: &mut DbConnection, project_id: i32, ticket_id
         display_order: new_order,
     };
 
-    debug!(project_id, ticket_id, display_order = new_order, "Creating new project-ticket association");
+    debug!(
+        project_id,
+        ticket_id,
+        display_order = new_order,
+        "Creating new project-ticket association"
+    );
     conn.transaction(|conn| {
         let association: ProjectTicket = diesel::insert_into(project_tickets::table)
             .values(&new_association)
@@ -234,13 +253,18 @@ pub fn add_ticket_to_project(conn: &mut DbConnection, project_id: i32, ticket_id
     })
 }
 
-pub fn remove_ticket_from_project(conn: &mut DbConnection, project_id: i32, ticket_id: i32) -> QueryResult<usize> {
+pub fn remove_ticket_from_project(
+    conn: &mut DbConnection,
+    project_id: i32,
+    ticket_id: i32,
+) -> QueryResult<usize> {
     conn.transaction(|conn| {
         let result = diesel::delete(
             project_tickets::table
                 .filter(project_tickets::project_id.eq(project_id))
-                .filter(project_tickets::ticket_id.eq(ticket_id))
-        ).execute(conn)?;
+                .filter(project_tickets::ticket_id.eq(ticket_id)),
+        )
+        .execute(conn)?;
         if result > 0 {
             emit::record(
                 conn,
@@ -263,7 +287,10 @@ pub fn remove_ticket_from_project(conn: &mut DbConnection, project_id: i32, tick
     })
 }
 
-pub fn get_project_tickets(conn: &mut DbConnection, project_id: i32) -> QueryResult<Vec<TicketListItem>> {
+pub fn get_project_tickets(
+    conn: &mut DbConnection,
+    project_id: i32,
+) -> QueryResult<Vec<TicketListItem>> {
     let raw_tickets: Vec<(Ticket, i32)> = project_tickets::table
         .filter(project_tickets::project_id.eq(project_id))
         .inner_join(tickets::table)
@@ -276,8 +303,12 @@ pub fn get_project_tickets(conn: &mut DbConnection, project_id: i32) -> QueryRes
     // project fired 2000+ user lookups serially.
     let mut needed: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
     for (ticket, _) in &raw_tickets {
-        if let Some(u) = ticket.requester_uuid { needed.insert(u); }
-        if let Some(u) = ticket.assignee_uuid { needed.insert(u); }
+        if let Some(u) = ticket.requester_uuid {
+            needed.insert(u);
+        }
+        if let Some(u) = ticket.assignee_uuid {
+            needed.insert(u);
+        }
     }
 
     let user_map: HashMap<Uuid, UserInfoWithAvatar> = if needed.is_empty() {
@@ -295,15 +326,24 @@ pub fn get_project_tickets(conn: &mut DbConnection, project_id: i32) -> QueryRes
     Ok(raw_tickets
         .into_iter()
         .map(|(ticket, _display_order)| {
-            let requester_user = ticket.requester_uuid.and_then(|u| user_map.get(&u).cloned());
+            let requester_user = ticket
+                .requester_uuid
+                .and_then(|u| user_map.get(&u).cloned());
             let assignee_user = ticket.assignee_uuid.and_then(|u| user_map.get(&u).cloned());
-            TicketListItem { ticket, requester_user, assignee_user }
+            TicketListItem {
+                ticket,
+                requester_user,
+                assignee_user,
+            }
         })
         .collect())
 }
 
 // Get projects for a ticket
-pub fn get_projects_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Project>> {
+pub fn get_projects_for_ticket(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<Vec<Project>> {
     debug!(ticket_id, "Getting projects for ticket");
 
     project_tickets::table
@@ -325,7 +365,11 @@ pub fn update_project_ticket_orders(
     project_id: i32,
     orders: Vec<(i32, i32)>,
 ) -> QueryResult<()> {
-    debug!(project_id, count = orders.len(), "Updating project ticket orders");
+    debug!(
+        project_id,
+        count = orders.len(),
+        "Updating project ticket orders"
+    );
 
     conn.transaction(|conn| {
         for (ticket_id, new_order) in &orders {
@@ -360,8 +404,8 @@ pub fn update_project_ticket_orders(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn create_and_get_project_with_ticket_count() {

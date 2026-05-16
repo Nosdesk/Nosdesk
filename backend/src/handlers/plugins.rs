@@ -11,11 +11,10 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::models::{
-    Claims, PluginActivityResponse,
-    PluginResponse, PluginSettingResponse, PluginStorageResponse,
+    Claims, PluginActivityResponse, PluginResponse, PluginSettingResponse, PluginStorageResponse,
     SetPluginDataRequest, UpdatePluginRequest,
 };
 use crate::repository::plugins as plugin_repo;
@@ -199,12 +198,8 @@ pub async fn update_plugin(
         } else {
             crate::services::plugins::lifecycle::PluginAction::Disable
         };
-        match crate::services::plugins::lifecycle::apply(
-            &mut conn,
-            plugin_uuid,
-            action,
-            user_uuid,
-        ) {
+        match crate::services::plugins::lifecycle::apply(&mut conn, plugin_uuid, action, user_uuid)
+        {
             Ok(_) => {}
             Err(crate::services::plugins::lifecycle::ActionError::NoSuchPlugin) => {
                 return errors::not_found_msg("Plugin not found");
@@ -213,9 +208,7 @@ pub async fn update_plugin(
                 from,
                 action,
             }) => {
-                return errors::conflict(format!(
-                    "Cannot {action} a plugin in state {from}"
-                ));
+                return errors::conflict(format!("Cannot {action} a plugin in state {from}"));
             }
             Err(e) => {
                 error!("Failed to toggle plugin state: {}", e);
@@ -332,9 +325,7 @@ pub async fn uninstall_plugin(
         Err(crate::services::plugins::lifecycle::ActionError::InvalidTransition {
             from,
             action,
-        }) => errors::conflict(format!(
-            "Cannot {action} a plugin in state {from}"
-        )),
+        }) => errors::conflict(format!("Cannot {action} a plugin in state {from}")),
         Err(e) => {
             error!("Failed to uninstall plugin: {}", e);
             errors::internal("Failed to uninstall plugin")
@@ -419,15 +410,15 @@ pub async fn set_plugin_setting(
     // Encrypt secret values before storing
     let value_to_store = if is_secret {
         match body.value.as_str() {
-            Some(plaintext) => {
-                match encryption::encrypt(plaintext) {
-                    Ok(encrypted) => serde_json::Value::String(encrypted),
-                    Err(e) => {
-                        error!("Failed to encrypt plugin secret: {}", e);
-                        return errors::internal("Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.");
-                    }
+            Some(plaintext) => match encryption::encrypt(plaintext) {
+                Ok(encrypted) => serde_json::Value::String(encrypted),
+                Err(e) => {
+                    error!("Failed to encrypt plugin secret: {}", e);
+                    return errors::internal(
+                        "Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.",
+                    );
                 }
-            }
+            },
             None => {
                 return errors::bad_request("Secret settings must be string values");
             }
@@ -722,7 +713,10 @@ pub async fn proxy_plugin_request(
     }
 
     // Execute the proxied request with secrets for auth injection
-    match proxy_service.proxy_request(&plugin.name, &manifest, body.into_inner(), &secrets).await {
+    match proxy_service
+        .proxy_request(&plugin.name, &manifest, body.into_inner(), &secrets)
+        .await
+    {
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => {
             error!("Proxy request failed: {}", e);
@@ -742,10 +736,7 @@ pub async fn proxy_plugin_request(
 /// `ETag` derived from the plugin's `updated_at` via the route's
 /// `Last-Modified` semantics. For simplicity we just cache for 5
 /// minutes and let the next install bust it via row update.
-pub async fn serve_plugin_icon(
-    pool: web::Data<Pool>,
-    path: web::Path<Uuid>,
-) -> impl Responder {
+pub async fn serve_plugin_icon(pool: web::Data<Pool>, path: web::Path<Uuid>) -> impl Responder {
     let plugin_uuid = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -806,10 +797,7 @@ pub async fn serve_plugin_bundle(
     HttpResponse::Ok()
         .content_type("application/javascript")
         .insert_header(("Cache-Control", "private, max-age=3600"))
-        .insert_header((
-            "ETag",
-            plugin.bundle_hash.as_deref().unwrap_or("unknown"),
-        ))
+        .insert_header(("ETag", plugin.bundle_hash.as_deref().unwrap_or("unknown")))
         .body(bytes)
 }
 
@@ -835,11 +823,11 @@ pub async fn install_plugin_from_zip(
         return e;
     }
     if !web_sideload_enabled() {
-        warn!(
-            "Web sideload attempt while disabled; set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable"
+        warn!("Web sideload attempt while disabled; set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable");
+        return errors::forbidden(
+            "Web sideload is disabled on this instance. Use the CLI \
+             (`nosdesk-cli plugin install`) or set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable.",
         );
-        return errors::forbidden("Web sideload is disabled on this instance. Use the CLI \
-             (`nosdesk-cli plugin install`) or set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable.");
     }
 
     let claims = match req.extensions().get::<Claims>().cloned() {
@@ -865,7 +853,10 @@ pub async fn install_plugin_from_zip(
         };
 
         // Check content type
-        let content_type = field.content_type().map(|m| m.to_string()).unwrap_or_default();
+        let content_type = field
+            .content_type()
+            .map(|m| m.to_string())
+            .unwrap_or_default();
         if !content_type.contains("zip") && !content_type.contains("octet-stream") {
             continue;
         }
@@ -931,16 +922,12 @@ pub async fn install_plugin_from_zip(
         skip_if_unchanged: false,
     };
 
-    let outcome = match install::install_verified(
-        &mut conn,
-        &verified.files,
-        signer,
-        resolved_tier,
-        options,
-    ) {
-        Ok(o) => o,
-        Err(e) => return install_error_to_response(e),
-    };
+    let outcome =
+        match install::install_verified(&mut conn, &verified.files, signer, resolved_tier, options)
+        {
+            Ok(o) => o,
+            Err(e) => return install_error_to_response(e),
+        };
 
     let was_create = matches!(outcome, install::InstallOutcome::Created(_));
     let plugin = match outcome {
@@ -974,9 +961,7 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
         | install::InstallError::InvalidManifest(_)
         | install::InstallError::BundleTooLarge(_)
         | install::InstallError::InvalidIcon(_)
-        | install::InstallError::InvalidManifestSchema(_) => {
-            errors::bad_request(err.to_string())
-        }
+        | install::InstallError::InvalidManifestSchema(_) => errors::bad_request(err.to_string()),
         install::InstallError::ReinstallSignerMismatch { .. }
         | install::InstallError::RefusedQuarantined => {
             // Conflict, not BadRequest: the request is structurally
@@ -1143,13 +1128,18 @@ pub async fn install_from_registry(
         let snapshot = match guard.snapshot.as_ref() {
             Some(s) => s,
             None => {
-                return errors::service_unavailable("Registry snapshot not available yet; wait for background sync");
+                return errors::service_unavailable(
+                    "Registry snapshot not available yet; wait for background sync",
+                );
             }
         };
         let entry = match snapshot.find_plugin(&body.plugin_name) {
             Some(e) => e,
             None => {
-                return errors::not_found_msg(format!("plugin {:?} not in registry", body.plugin_name));
+                return errors::not_found_msg(format!(
+                    "plugin {:?} not in registry",
+                    body.plugin_name
+                ));
             }
         };
         let version = match entry.resolve_version(body.version.as_deref()) {
@@ -1194,9 +1184,8 @@ pub async fn install_from_registry(
             actual = %actual_sha,
             "Registry SHA-256 mismatch",
         );
-        return HttpResponse::BadGateway().json(
-            "downloaded bundle does not match registry-published sha256",
-        );
+        return HttpResponse::BadGateway()
+            .json("downloaded bundle does not match registry-published sha256");
     }
 
     let verified = match signing::verify_archive(&bytes) {
@@ -1221,7 +1210,9 @@ pub async fn install_from_registry(
             actual_pubkey = %verified.envelope.signer_pubkey,
             "Registry / zip publisher mismatch",
         );
-        return errors::bad_request("zip signer does not match the publisher the registry advertised");
+        return errors::bad_request(
+            "zip signer does not match the publisher the registry advertised",
+        );
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -1241,7 +1232,9 @@ pub async fn install_from_registry(
             resolved_tier = tier.trust_level(),
             "Registry / resolved-tier mismatch",
         );
-        return errors::bad_request("zip's resolved trust tier does not match the tier the registry advertised");
+        return errors::bad_request(
+            "zip's resolved trust tier does not match the tier the registry advertised",
+        );
     }
 
     // Verify the zip's manifest.name matches the registry key
@@ -1259,7 +1252,9 @@ pub async fn install_from_registry(
                     zip_name,
                     "Registry / manifest name mismatch",
                 );
-                return errors::bad_request("zip manifest name does not match the plugin the registry advertised");
+                return errors::bad_request(
+                    "zip manifest name does not match the plugin the registry advertised",
+                );
             }
         }
     }
@@ -1273,13 +1268,8 @@ pub async fn install_from_registry(
         provision_settings: false,
         skip_if_unchanged: false,
     };
-    let outcome = match install::install_verified(
-        &mut conn,
-        &verified.files,
-        signer,
-        tier,
-        options,
-    ) {
+    let outcome = match install::install_verified(&mut conn, &verified.files, signer, tier, options)
+    {
         Ok(o) => o,
         Err(e) => return install_error_to_response(e),
     };
@@ -1335,15 +1325,18 @@ async fn download_bundle(http: &reqwest::Client, url: &str) -> Result<Vec<u8>, S
     }
     if let Some(len) = resp.content_length() {
         if len as usize > signing::MAX_ARCHIVE_SIZE {
-            return Err(format!("bundle exceeds {} bytes", signing::MAX_ARCHIVE_SIZE));
+            return Err(format!(
+                "bundle exceeds {} bytes",
+                signing::MAX_ARCHIVE_SIZE
+            ));
         }
     }
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("read {url}: {e}"))?;
+    let bytes = resp.bytes().await.map_err(|e| format!("read {url}: {e}"))?;
     if bytes.len() > signing::MAX_ARCHIVE_SIZE {
-        return Err(format!("bundle exceeds {} bytes", signing::MAX_ARCHIVE_SIZE));
+        return Err(format!(
+            "bundle exceeds {} bytes",
+            signing::MAX_ARCHIVE_SIZE
+        ));
     }
     Ok(bytes.to_vec())
 }
@@ -1365,7 +1358,9 @@ mod tests {
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),

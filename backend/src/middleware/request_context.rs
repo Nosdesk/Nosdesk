@@ -38,7 +38,10 @@ pub struct RequestContext {
 
 impl RequestContext {
     pub fn new(correlation_id: Uuid, actor: ActorContext) -> Self {
-        Self { correlation_id, actor }
+        Self {
+            correlation_id,
+            actor,
+        }
     }
 }
 

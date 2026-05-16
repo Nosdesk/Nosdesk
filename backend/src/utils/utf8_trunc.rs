@@ -28,7 +28,9 @@ pub fn byte_prefix_with_ellipsis(s: &str, max_bytes: usize) -> String {
 /// Replace CRLF so single-line tracing fields resist log-structure injection from user input.
 #[inline]
 pub fn strip_line_breaks_for_log_field(s: &str) -> String {
-    s.chars().map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c }).collect()
+    s.chars()
+        .map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
+        .collect()
 }
 
 #[cfg(test)]

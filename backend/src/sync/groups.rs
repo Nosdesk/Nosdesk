@@ -29,10 +29,7 @@ const WORKSPACE_GROUP: &str = "workspace:1";
 
 /// Groups attached to a ticket-scoped event.
 pub fn for_ticket(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<Vec<String>> {
-    let mut out = vec![
-        WORKSPACE_GROUP.to_string(),
-        format!("ticket:{}", ticket.id),
-    ];
+    let mut out = vec![WORKSPACE_GROUP.to_string(), format!("ticket:{}", ticket.id)];
     let project_ids: Vec<i32> = project_tickets::table
         .filter(project_tickets::ticket_id.eq(ticket.id))
         .select(project_tickets::project_id)
@@ -76,10 +73,7 @@ pub fn for_user(user_uuid: Uuid) -> Vec<String> {
 /// handler computes this once per request and folds it into the
 /// `groups && $allowed` filter.
 pub fn allowed_for_user(conn: &mut DbConnection, user: &User) -> QueryResult<Vec<String>> {
-    let mut allowed = vec![
-        WORKSPACE_GROUP.to_string(),
-        format!("user:{}", user.uuid),
-    ];
+    let mut allowed = vec![WORKSPACE_GROUP.to_string(), format!("user:{}", user.uuid)];
 
     let group_ids: Vec<i32> = user_groups::table
         .filter(user_groups::user_uuid.eq(user.uuid))

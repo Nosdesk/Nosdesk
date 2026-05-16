@@ -8,8 +8,8 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::models::{Claims, CreateApiTokenRequest};
 use crate::repository::api_tokens;
 use crate::utils::rbac::require_admin;
@@ -188,10 +188,7 @@ pub async fn revoke_api_token(
 
     match api_tokens::revoke_api_token(&mut conn, token_uuid) {
         Ok(count) if count > 0 => {
-            info!(
-                "API token {} revoked by admin {:?}",
-                token_uuid, admin_uuid
-            );
+            info!("API token {} revoked by admin {:?}", token_uuid, admin_uuid);
             HttpResponse::NoContent().finish()
         }
         Ok(_) => errors::not_found_msg("Token not found"),
@@ -216,7 +213,9 @@ mod tests {
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App};
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),

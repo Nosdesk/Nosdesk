@@ -16,7 +16,9 @@ use crate::sync::groups as sync_groups;
 // ============================================================================
 
 /// Get all groups with member and device counts (batch-loaded, no N+1)
-pub fn get_groups_with_member_counts(conn: &mut DbConnection) -> Result<Vec<GroupWithMemberCount>, Error> {
+pub fn get_groups_with_member_counts(
+    conn: &mut DbConnection,
+) -> Result<Vec<GroupWithMemberCount>, Error> {
     let all_groups = groups::table
         .order(groups::name.asc())
         .load::<Group>(conn)?;
@@ -28,7 +30,10 @@ pub fn get_groups_with_member_counts(conn: &mut DbConnection) -> Result<Vec<Grou
 
     // Batch: all group-include relationships (parent → child)
     let all_includes: Vec<(i32, i32)> = group_includes::table
-        .select((group_includes::parent_group_id, group_includes::child_group_id))
+        .select((
+            group_includes::parent_group_id,
+            group_includes::child_group_id,
+        ))
         .load(conn)?;
 
     // Batch: all device counts per group
@@ -38,45 +43,60 @@ pub fn get_groups_with_member_counts(conn: &mut DbConnection) -> Result<Vec<Grou
         .load(conn)?;
 
     // Build lookup maps
-    let mut members_by_group: std::collections::HashMap<i32, Vec<Uuid>> = std::collections::HashMap::new();
+    let mut members_by_group: std::collections::HashMap<i32, Vec<Uuid>> =
+        std::collections::HashMap::new();
     for (group_id, user_uuid) in &all_memberships {
-        members_by_group.entry(*group_id).or_default().push(*user_uuid);
+        members_by_group
+            .entry(*group_id)
+            .or_default()
+            .push(*user_uuid);
     }
 
-    let mut children_by_parent: std::collections::HashMap<i32, Vec<i32>> = std::collections::HashMap::new();
+    let mut children_by_parent: std::collections::HashMap<i32, Vec<i32>> =
+        std::collections::HashMap::new();
     for (parent_id, child_id) in &all_includes {
-        children_by_parent.entry(*parent_id).or_default().push(*child_id);
+        children_by_parent
+            .entry(*parent_id)
+            .or_default()
+            .push(*child_id);
     }
 
     let device_count_map: std::collections::HashMap<i32, i64> = device_counts.into_iter().collect();
 
     // Compute counts in memory
-    let groups_with_count = all_groups.into_iter().map(|group| {
-        let direct_uuids = members_by_group.get(&group.id).cloned().unwrap_or_default();
-        let child_ids = children_by_parent.get(&group.id).cloned().unwrap_or_default();
+    let groups_with_count = all_groups
+        .into_iter()
+        .map(|group| {
+            let direct_uuids = members_by_group.get(&group.id).cloned().unwrap_or_default();
+            let child_ids = children_by_parent
+                .get(&group.id)
+                .cloned()
+                .unwrap_or_default();
 
-        let member_count = if child_ids.is_empty() {
-            direct_uuids.len() as i64
-        } else {
-            let mut all_uuids: std::collections::HashSet<Uuid> = direct_uuids.into_iter().collect();
-            for child_id in &child_ids {
-                if let Some(child_members) = members_by_group.get(child_id) {
-                    all_uuids.extend(child_members);
+            let member_count = if child_ids.is_empty() {
+                direct_uuids.len() as i64
+            } else {
+                let mut all_uuids: std::collections::HashSet<Uuid> =
+                    direct_uuids.into_iter().collect();
+                for child_id in &child_ids {
+                    if let Some(child_members) = members_by_group.get(child_id) {
+                        all_uuids.extend(child_members);
+                    }
                 }
+                all_uuids.len() as i64
+            };
+
+            let device_count = device_count_map.get(&group.id).copied().unwrap_or(0);
+            let included_group_count = child_ids.len() as i64;
+
+            GroupWithMemberCount {
+                group,
+                member_count,
+                device_count,
+                included_group_count,
             }
-            all_uuids.len() as i64
-        };
-
-        let device_count = device_count_map.get(&group.id).copied().unwrap_or(0);
-        let included_group_count = child_ids.len() as i64;
-
-        GroupWithMemberCount {
-            group,
-            member_count,
-            device_count,
-            included_group_count,
-        }
-    }).collect();
+        })
+        .collect();
 
     Ok(groups_with_count)
 }
@@ -87,7 +107,10 @@ pub fn get_group_by_id(conn: &mut DbConnection, group_id: i32) -> QueryResult<Gr
 }
 
 /// Get a group with its members (batch-loaded)
-pub fn get_group_with_members(conn: &mut DbConnection, group_id: i32) -> Result<GroupWithMembers, Error> {
+pub fn get_group_with_members(
+    conn: &mut DbConnection,
+    group_id: i32,
+) -> Result<GroupWithMembers, Error> {
     let group = groups::table.find(group_id).first::<Group>(conn)?;
 
     let member_uuids: Vec<Uuid> = user_groups::table
@@ -96,7 +119,8 @@ pub fn get_group_with_members(conn: &mut DbConnection, group_id: i32) -> Result<
         .load::<Uuid>(conn)?;
 
     let users = crate::repository::users::get_users_by_uuids(&member_uuids, conn)?;
-    let members: Vec<UserInfoWithAvatar> = users.into_iter().map(UserInfoWithAvatar::from).collect();
+    let members: Vec<UserInfoWithAvatar> =
+        users.into_iter().map(UserInfoWithAvatar::from).collect();
 
     Ok(GroupWithMembers { group, members })
 }
@@ -109,7 +133,8 @@ fn build_group_summary(conn: &mut DbConnection, group: &Group) -> Result<GroupSu
         .load::<Uuid>(conn)?;
 
     let users = crate::repository::users::get_users_by_uuids(&member_uuids, conn)?;
-    let members: Vec<UserInfoWithAvatar> = users.into_iter().map(UserInfoWithAvatar::from).collect();
+    let members: Vec<UserInfoWithAvatar> =
+        users.into_iter().map(UserInfoWithAvatar::from).collect();
     let member_count = members.len() as i64;
 
     Ok(GroupSummary {
@@ -124,7 +149,10 @@ fn build_group_summary(conn: &mut DbConnection, group: &Group) -> Result<GroupSu
 }
 
 /// Get a group with its members and devices (for detail view)
-pub fn get_group_details(conn: &mut DbConnection, group_uuid: &Uuid) -> Result<GroupDetails, Error> {
+pub fn get_group_details(
+    conn: &mut DbConnection,
+    group_uuid: &Uuid,
+) -> Result<GroupDetails, Error> {
     let group = groups::table
         .filter(groups::uuid.eq(group_uuid))
         .first::<Group>(conn)?;
@@ -135,7 +163,8 @@ pub fn get_group_details(conn: &mut DbConnection, group_uuid: &Uuid) -> Result<G
         .load::<Uuid>(conn)?;
 
     let users = crate::repository::users::get_users_by_uuids(&member_uuids, conn)?;
-    let members: Vec<UserInfoWithAvatar> = users.into_iter().map(UserInfoWithAvatar::from).collect();
+    let members: Vec<UserInfoWithAvatar> =
+        users.into_iter().map(UserInfoWithAvatar::from).collect();
 
     let devices: Vec<Device> = get_devices_in_group(conn, group.id)?;
 
@@ -165,7 +194,13 @@ pub fn get_group_details(conn: &mut DbConnection, group_uuid: &Uuid) -> Result<G
         .filter_map(|g| build_group_summary(conn, g).ok())
         .collect();
 
-    Ok(GroupDetails { group, members, devices, included_groups, included_in })
+    Ok(GroupDetails {
+        group,
+        members,
+        devices,
+        included_groups,
+        included_in,
+    })
 }
 
 /// Create a new group
@@ -197,7 +232,11 @@ pub fn create_group(conn: &mut DbConnection, new_group: NewGroup) -> QueryResult
 }
 
 /// Update a group
-pub fn update_group(conn: &mut DbConnection, group_id: i32, mut group_update: GroupUpdate) -> QueryResult<Group> {
+pub fn update_group(
+    conn: &mut DbConnection,
+    group_id: i32,
+    mut group_update: GroupUpdate,
+) -> QueryResult<Group> {
     // Set updated_at to current time if not provided
     if group_update.updated_at.is_none() {
         group_update.updated_at = Some(chrono::Utc::now().naive_utc());
@@ -309,7 +348,8 @@ pub fn get_users_in_group(conn: &mut DbConnection, group_id: i32) -> QueryResult
             .load(conn)?;
 
         // Deduplicate by UUID
-        let existing_uuids: std::collections::HashSet<Uuid> = members.iter().map(|u| u.uuid).collect();
+        let existing_uuids: std::collections::HashSet<Uuid> =
+            members.iter().map(|u| u.uuid).collect();
         for user in child_members {
             if !existing_uuids.contains(&user.uuid) {
                 members.push(user);
@@ -387,8 +427,9 @@ pub fn remove_user_from_group(
         let result = diesel::delete(
             user_groups::table
                 .filter(user_groups::user_uuid.eq(user_uuid))
-                .filter(user_groups::group_id.eq(group_id))
-        ).execute(conn)?;
+                .filter(user_groups::group_id.eq(group_id)),
+        )
+        .execute(conn)?;
         if result > 0 {
             emit::record(
                 conn,
@@ -419,9 +460,8 @@ pub fn set_group_members(
 ) -> QueryResult<Vec<UserGroup>> {
     conn.transaction(|conn| {
         // Delete all existing members
-        diesel::delete(
-            user_groups::table.filter(user_groups::group_id.eq(group_id))
-        ).execute(conn)?;
+        diesel::delete(user_groups::table.filter(user_groups::group_id.eq(group_id)))
+            .execute(conn)?;
 
         // Add new members
         let new_memberships: Vec<NewUserGroup> = member_uuids
@@ -469,9 +509,8 @@ pub fn set_user_groups(
 ) -> QueryResult<Vec<UserGroup>> {
     conn.transaction(|conn| {
         // Delete all existing memberships for this user
-        diesel::delete(
-            user_groups::table.filter(user_groups::user_uuid.eq(user_uuid))
-        ).execute(conn)?;
+        diesel::delete(user_groups::table.filter(user_groups::user_uuid.eq(user_uuid)))
+            .execute(conn)?;
 
         // Add new memberships
         let new_memberships: Vec<NewUserGroup> = group_ids
@@ -537,7 +576,6 @@ pub fn get_group_ids_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> Quer
 
     Ok(all_ids)
 }
-
 
 /// Upsert a group from external source - returns (group, was_created)
 pub fn upsert_external_group(
@@ -620,7 +658,10 @@ pub fn upsert_external_group(
 }
 
 /// Get member UUIDs for a group (simple list)
-pub fn get_member_uuids_for_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Vec<Uuid>> {
+pub fn get_member_uuids_for_group(
+    conn: &mut DbConnection,
+    group_id: i32,
+) -> QueryResult<Vec<Uuid>> {
     user_groups::table
         .filter(user_groups::group_id.eq(group_id))
         .select(user_groups::user_uuid)
@@ -644,12 +685,11 @@ pub fn mark_groups_not_synced(
             groups::table
                 .filter(groups::external_source.eq(external_source))
                 .filter(groups::external_id.is_not_null())
-                .filter(diesel::dsl::not(groups::external_id.eq_any(except_external_ids)))
+                .filter(diesel::dsl::not(
+                    groups::external_id.eq_any(except_external_ids),
+                )),
         )
-        .set((
-            groups::sync_enabled.eq(false),
-            groups::updated_at.eq(now),
-        ))
+        .set((groups::sync_enabled.eq(false), groups::updated_at.eq(now)))
         .execute(conn)?;
 
         if result > 0 {
@@ -679,7 +719,10 @@ pub fn mark_groups_not_synced(
 // ============================================================================
 
 /// Get the child groups included in a parent group
-pub fn get_included_groups(conn: &mut DbConnection, parent_group_id: i32) -> QueryResult<Vec<Group>> {
+pub fn get_included_groups(
+    conn: &mut DbConnection,
+    parent_group_id: i32,
+) -> QueryResult<Vec<Group>> {
     group_includes::table
         .filter(group_includes::parent_group_id.eq(parent_group_id))
         .inner_join(groups::table.on(groups::id.eq(group_includes::child_group_id)))
@@ -745,7 +788,10 @@ pub fn add_group_include(
 
         diesel::insert_into(group_includes::table)
             .values(&new_include)
-            .on_conflict((group_includes::parent_group_id, group_includes::child_group_id))
+            .on_conflict((
+                group_includes::parent_group_id,
+                group_includes::child_group_id,
+            ))
             .do_nothing()
             .execute(conn)?;
 
@@ -825,7 +871,10 @@ pub fn set_group_includes(
         }
 
         // Filter out self-inclusion
-        let child_ids: Vec<i32> = child_ids.into_iter().filter(|&id| id != parent_id).collect();
+        let child_ids: Vec<i32> = child_ids
+            .into_iter()
+            .filter(|&id| id != parent_id)
+            .collect();
 
         // Circular reference check: none of the children should already include parent
         if !child_ids.is_empty() {
@@ -838,16 +887,17 @@ pub fn set_group_includes(
             if circular_count > 0 {
                 return Err(Error::DatabaseError(
                     diesel::result::DatabaseErrorKind::CheckViolation,
-                    Box::new("Circular reference: one or more child groups already include the parent".to_string()),
+                    Box::new(
+                        "Circular reference: one or more child groups already include the parent"
+                            .to_string(),
+                    ),
                 ));
             }
         }
 
         // Delete existing includes
-        diesel::delete(
-            group_includes::table.filter(group_includes::parent_group_id.eq(parent_id)),
-        )
-        .execute(conn)?;
+        diesel::delete(group_includes::table.filter(group_includes::parent_group_id.eq(parent_id)))
+            .execute(conn)?;
 
         let inserted: Vec<GroupInclude> = if child_ids.is_empty() {
             Vec::new()
@@ -969,8 +1019,9 @@ pub fn remove_device_from_group(
         let result = diesel::delete(
             device_groups::table
                 .filter(device_groups::device_id.eq(device_id))
-                .filter(device_groups::group_id.eq(group_id))
-        ).execute(conn)?;
+                .filter(device_groups::group_id.eq(group_id)),
+        )
+        .execute(conn)?;
         if result > 0 {
             emit::record(
                 conn,
@@ -1027,8 +1078,9 @@ pub fn set_group_devices(
         diesel::delete(
             device_groups::table
                 .filter(device_groups::group_id.eq(group_id))
-                .filter(device_groups::external_source.is_null())
-        ).execute(conn)?;
+                .filter(device_groups::external_source.is_null()),
+        )
+        .execute(conn)?;
 
         // Add new devices (manually added, so no external_source)
         let new_memberships: Vec<NewDeviceGroup> = device_ids
@@ -1077,8 +1129,8 @@ pub fn set_group_devices(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn create_and_get_group() {

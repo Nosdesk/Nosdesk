@@ -18,9 +18,7 @@ use tracing::error;
 use crate::db::Pool;
 use crate::extractors::AuthContext;
 use crate::handlers::{errors, helpers};
-use crate::repository::sla_admin::{
-    self, SlaPolicyBody, WorkingCalendarBody,
-};
+use crate::repository::sla_admin::{self, SlaPolicyBody, WorkingCalendarBody};
 
 fn require_admin(auth: &AuthContext) -> Option<HttpResponse> {
     if auth.is_admin() {
@@ -207,7 +205,9 @@ mod tests {
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),

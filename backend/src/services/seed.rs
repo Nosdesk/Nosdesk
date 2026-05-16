@@ -1,19 +1,19 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
-use yrs::{Any, Doc, ReadTxn, Transact, WriteTxn, XmlFragment, XmlElementPrelim};
-use yrs::types::Delta;
 use yrs::types::xml::{XmlDeltaPrelim, XmlIn};
+use yrs::types::Delta;
+use yrs::{Any, Doc, ReadTxn, Transact, WriteTxn, XmlElementPrelim, XmlFragment};
 
 use crate::db::DbConnection;
-use crate::models::{NewDocumentationPage, NewDocumentationCollectionPage, DocumentationStatus};
+use crate::models::{DocumentationStatus, NewDocumentationCollectionPage, NewDocumentationPage};
 use crate::repository;
 use crate::repository::documentation_collections;
 use crate::utils::i18n;
 use crate::utils::locale::DEFAULT_LOCALE;
-use unic_langid::LanguageIdentifier;
 use std::str::FromStr;
+use unic_langid::LanguageIdentifier;
 
 /// Run all seed checks on startup.
 /// Each seed is idempotent - it only creates content if it doesn't already exist.
@@ -24,18 +24,22 @@ pub fn run_seeds(conn: &mut DbConnection) {
 /// Seed the "Getting Started" collection with a welcome page if it's empty.
 fn seed_getting_started(conn: &mut DbConnection) {
     // Find the "Getting Started" system collection
-    let collection = match documentation_collections::get_collection_by_slug(conn, "getting-started") {
-        Ok(c) => c,
-        Err(_) => {
-            debug!("Getting Started collection not found, skipping seed");
-            return;
-        }
-    };
+    let collection =
+        match documentation_collections::get_collection_by_slug(conn, "getting-started") {
+            Ok(c) => c,
+            Err(_) => {
+                debug!("Getting Started collection not found, skipping seed");
+                return;
+            }
+        };
 
     // Check if it already has pages
     match documentation_collections::get_pages_in_collection(conn, collection.id) {
         Ok(pages) if !pages.is_empty() => {
-            debug!("Getting Started collection already has {} pages, skipping seed", pages.len());
+            debug!(
+                "Getting Started collection already has {} pages, skipping seed",
+                pages.len()
+            );
             return;
         }
         Err(e) => {
@@ -67,15 +71,18 @@ fn seed_getting_started(conn: &mut DbConnection) {
     // We need a system user UUID for created_by. Use the first admin, or a nil UUID.
     let created_by = repository::users::get_users(conn)
         .ok()
-        .and_then(|users| users.into_iter().find(|u| u.role == crate::models::UserRole::Admin))
+        .and_then(|users| {
+            users
+                .into_iter()
+                .find(|u| u.role == crate::models::UserRole::Admin)
+        })
         .map(|u| u.uuid)
         .unwrap_or_else(Uuid::nil);
 
     // Create the welcome page. The seed runs once at install with no
     // user context, so resolve the title against DEFAULT_LOCALE; admin
     // can rename it afterwards via the documentation editor.
-    let seed_locale = LanguageIdentifier::from_str(DEFAULT_LOCALE)
-        .expect("DEFAULT_LOCALE parses");
+    let seed_locale = LanguageIdentifier::from_str(DEFAULT_LOCALE).expect("DEFAULT_LOCALE parses");
     let new_page = NewDocumentationPage {
         uuid: Uuid::new_v4(),
         title: i18n::tr(&seed_locale, "seed-welcome-page-title"),
@@ -143,7 +150,8 @@ fn markdown_to_yjs(markdown: &str) -> Option<Vec<u8>> {
         if let Some(heading) = parse_heading(line) {
             let delta = parse_inline_to_delta(heading.text);
             let mut elem = XmlElementPrelim::new("heading", vec![delta.into()]);
-            elem.attributes.insert("level".into(), heading.level.to_string());
+            elem.attributes
+                .insert("level".into(), heading.level.to_string());
             fragment.push_back(&mut txn, elem);
             i += 1;
             continue;
@@ -168,14 +176,24 @@ fn markdown_to_yjs(markdown: &str) -> Option<Vec<u8>> {
         }
 
         // Ordered list
-        if line.trim_start().chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+        if line
+            .trim_start()
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
             && line.trim_start().contains(". ")
         {
             let mut list_items: Vec<XmlIn> = Vec::new();
 
             while i < lines.len() {
                 let l = lines[i].trim_start();
-                if l.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) && l.contains(". ") {
+                if l.chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+                    && l.contains(". ")
+                {
                     let item_text = l.splitn(2, ". ").nth(1).unwrap_or("");
                     let delta = parse_inline_to_delta(item_text);
                     let para = XmlElementPrelim::new("paragraph", vec![delta.into()]);

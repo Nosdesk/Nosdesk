@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::handlers::helpers;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{KnowledgeGap, KnowledgeGapSignal, UserInfoWithAvatar};
 use crate::repository::{self, knowledge_gaps};
@@ -60,14 +60,19 @@ pub struct KnowledgeGapSignalResponse {
     pub detected_by_user: Option<UserInfoWithAvatar>,
 }
 
-fn hydrate_signal(conn: &mut DbConnection, signal: KnowledgeGapSignal) -> KnowledgeGapSignalResponse {
+fn hydrate_signal(
+    conn: &mut DbConnection,
+    signal: KnowledgeGapSignal,
+) -> KnowledgeGapSignalResponse {
     let detected_by_user = signal.detected_by.and_then(|uuid| {
-        repository::get_user_by_uuid(&uuid, conn).ok().map(|u| UserInfoWithAvatar {
-            uuid: u.uuid,
-            name: u.name,
-            avatar_url: u.avatar_url,
-            avatar_thumb: u.avatar_thumb,
-        })
+        repository::get_user_by_uuid(&uuid, conn)
+            .ok()
+            .map(|u| UserInfoWithAvatar {
+                uuid: u.uuid,
+                name: u.name,
+                avatar_url: u.avatar_url,
+                avatar_thumb: u.avatar_thumb,
+            })
     });
 
     if signal.source_kind == knowledge_gaps::SOURCE_TICKET {
@@ -155,10 +160,7 @@ pub async fn flag_ticket_as_gap(
                     })
                     .await;
             }
-            HttpResponse::Ok().json(KnowledgeGapResponse {
-                gap,
-                signals: None,
-            })
+            HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None })
         }
         Err(e) => {
             error!(error = ?e, ticket_id, "Failed to flag ticket as gap");
@@ -182,10 +184,7 @@ pub async fn unflag_ticket_as_gap(
     let ticket_id = path.into_inner();
 
     match knowledge_gaps::unflag_ticket(&mut conn, ticket_id, user_uuid) {
-        Ok(Some(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse {
-            gap,
-            signals: None,
-        }),
+        Ok(Some(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None }),
         Ok(None) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = ?e, ticket_id, "Failed to unflag ticket");
@@ -274,9 +273,7 @@ pub async fn get_knowledge_gap(
 
     let gap = match knowledge_gaps::get_gap(&mut conn, gap_id) {
         Ok(g) => g,
-        Err(diesel::result::Error::NotFound) => {
-            return errors::not_found("Gap")
-        }
+        Err(diesel::result::Error::NotFound) => return errors::not_found("Gap"),
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to load gap");
             return errors::db_error(&e);
@@ -553,4 +550,3 @@ pub async fn resolve_knowledge_gap(
         }
     }
 }
-

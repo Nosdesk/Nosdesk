@@ -41,8 +41,7 @@ pub enum LocaleError {
 /// supported list. Useful when storing a user-preferred locale
 /// for a tag we may add catalogues for later.
 pub fn parse_bcp47(tag: &str) -> Result<LanguageIdentifier, LocaleError> {
-    LanguageIdentifier::from_str(tag.trim())
-        .map_err(|_| LocaleError::InvalidTag(tag.to_string()))
+    LanguageIdentifier::from_str(tag.trim()).map_err(|_| LocaleError::InvalidTag(tag.to_string()))
 }
 
 /// Parse + validate that the tag is one we actually have a
@@ -51,7 +50,10 @@ pub fn parse_bcp47(tag: &str) -> Result<LanguageIdentifier, LocaleError> {
 pub fn parse_supported(tag: &str) -> Result<LanguageIdentifier, LocaleError> {
     let parsed = parse_bcp47(tag)?;
     let canonical = parsed.to_string();
-    if SUPPORTED_LOCALES.iter().any(|s| s.eq_ignore_ascii_case(&canonical)) {
+    if SUPPORTED_LOCALES
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case(&canonical))
+    {
         Ok(parsed)
     } else {
         Err(LocaleError::Unsupported(tag.to_string()))

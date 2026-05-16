@@ -54,8 +54,7 @@ pub struct SecurityEventInput<'a> {
 /// reverse proxy) when `TRUSTED_PROXIES` is configured, and the
 /// peer address when it isn't.
 fn request_ip(req: &HttpRequest) -> Option<IpNetwork> {
-    crate::utils::client_ip::from_http_request(req)
-        .and_then(|ip| ip.to_string().parse().ok())
+    crate::utils::client_ip::from_http_request(req).and_then(|ip| ip.to_string().parse().ok())
 }
 
 fn request_user_agent(req: &HttpRequest) -> Option<String> {

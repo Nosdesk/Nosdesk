@@ -1,8 +1,8 @@
 //! Tantivy index schema definition
 
 use tantivy::schema::{
-    Field, Schema, SchemaBuilder, STORED, STRING, TextFieldIndexing, TextOptions,
-    IndexRecordOption, NumericOptions,
+    Field, IndexRecordOption, NumericOptions, Schema, SchemaBuilder, TextFieldIndexing,
+    TextOptions, STORED, STRING,
 };
 use tantivy::Index;
 
@@ -80,12 +80,10 @@ impl SearchSchema {
             .set_stored();
         let title = builder.add_text_field(fields::TITLE, title_options);
 
-        let content_options = TextOptions::default()
-            .set_indexing_options(text_indexing.clone());
+        let content_options = TextOptions::default().set_indexing_options(text_indexing.clone());
         let content = builder.add_text_field(fields::CONTENT, content_options);
 
-        let metadata_options = TextOptions::default()
-            .set_indexing_options(text_indexing);
+        let metadata_options = TextOptions::default().set_indexing_options(text_indexing);
         let metadata = builder.add_text_field(fields::METADATA, metadata_options);
 
         let schema = builder.build();
@@ -107,9 +105,15 @@ impl SearchSchema {
 
     /// All field names in schema order, for validation and lookup
     const FIELD_NAMES: &'static [&'static str] = &[
-        fields::ID, fields::ENTITY_TYPE, fields::ENTITY_ID,
-        fields::TITLE, fields::CONTENT, fields::METADATA,
-        fields::URL, fields::PREVIEW, fields::UPDATED_AT,
+        fields::ID,
+        fields::ENTITY_TYPE,
+        fields::ENTITY_ID,
+        fields::TITLE,
+        fields::CONTENT,
+        fields::METADATA,
+        fields::URL,
+        fields::PREVIEW,
+        fields::UPDATED_AT,
         fields::IS_INTERNAL,
     ];
 
@@ -118,7 +122,9 @@ impl SearchSchema {
         let schema = index.schema();
 
         let get = |name: &str| -> Result<Field, Box<dyn std::error::Error + Send + Sync>> {
-            schema.get_field(name).map_err(|_| format!("Missing field: {name}").into())
+            schema
+                .get_field(name)
+                .map_err(|_| format!("Missing field: {name}").into())
         };
 
         Ok(Self {
@@ -153,7 +159,9 @@ impl SearchSchema {
         }
 
         let uses_tokenizer = |name: &str, expected: &str| -> bool {
-            let Ok(field) = schema.get_field(name) else { return false };
+            let Ok(field) = schema.get_field(name) else {
+                return false;
+            };
             let entry = schema.get_field_entry(field);
             match entry.field_type() {
                 FieldType::Str(opts) => opts

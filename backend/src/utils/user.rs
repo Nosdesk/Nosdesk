@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use crate::models::{NewUser, UserRole};
+use uuid::Uuid;
 
 /// Builder for creating NewUser instances with sensible defaults
 /// Email is stored separately and returned in build_with_email()
@@ -108,7 +108,12 @@ impl NewUserBuilder {
         Self::new(name, email, role)
     }
 
-    pub fn microsoft_user(name: String, email: String, role: UserRole, microsoft_uuid: Option<Uuid>) -> Self {
+    pub fn microsoft_user(
+        name: String,
+        email: String,
+        role: UserRole,
+        microsoft_uuid: Option<Uuid>,
+    ) -> Self {
         Self::new(name, email, role).with_microsoft_uuid(microsoft_uuid)
     }
 
@@ -122,10 +127,7 @@ pub mod normalization {
     use crate::utils;
 
     pub fn normalize_user_data(name: &str, email: &str) -> (String, String) {
-        (
-            utils::normalize_string(name),
-            utils::normalize_email(email),
-        )
+        (utils::normalize_string(name), utils::normalize_email(email))
     }
 
     pub fn normalize_optional_string(value: Option<&str>) -> Option<String> {
@@ -139,7 +141,8 @@ mod tests {
 
     #[test]
     fn builder_sets_role() {
-        let user = NewUserBuilder::new("Alice".into(), "alice@example.com".into(), UserRole::Admin).build();
+        let user = NewUserBuilder::new("Alice".into(), "alice@example.com".into(), UserRole::Admin)
+            .build();
         assert_eq!(user.role, UserRole::Admin);
         assert_eq!(user.name, "Alice");
     }
@@ -154,8 +157,9 @@ mod tests {
 
     #[test]
     fn build_with_email_returns_email_separately() {
-        let (user, email) = NewUserBuilder::new("Carol".into(), "carol@x.com".into(), UserRole::Technician)
-            .build_with_email();
+        let (user, email) =
+            NewUserBuilder::new("Carol".into(), "carol@x.com".into(), UserRole::Technician)
+                .build_with_email();
         assert_eq!(email, "carol@x.com");
         assert_eq!(user.name, "Carol");
     }
@@ -169,7 +173,13 @@ mod tests {
     #[test]
     fn microsoft_factory_sets_microsoft_uuid() {
         let ms_uuid = Uuid::new_v4();
-        let user = NewUserBuilder::microsoft_user("MS".into(), "ms@x.com".into(), UserRole::User, Some(ms_uuid)).build();
+        let user = NewUserBuilder::microsoft_user(
+            "MS".into(),
+            "ms@x.com".into(),
+            UserRole::User,
+            Some(ms_uuid),
+        )
+        .build();
         assert_eq!(user.microsoft_uuid, Some(ms_uuid));
     }
 
@@ -188,7 +198,8 @@ mod tests {
 
     #[test]
     fn normalize_user_data_trims_and_lowercases_email() {
-        let (name, email) = normalization::normalize_user_data("  Alice  ", "  Alice@Example.COM  ");
+        let (name, email) =
+            normalization::normalize_user_data("  Alice  ", "  Alice@Example.COM  ");
         assert_eq!(name, "Alice");
         assert_eq!(email, "alice@example.com");
     }
@@ -200,6 +211,9 @@ mod tests {
 
     #[test]
     fn normalize_optional_string_trims() {
-        assert_eq!(normalization::normalize_optional_string(Some("  hello  ")), Some("hello".to_string()));
+        assert_eq!(
+            normalization::normalize_optional_string(Some("  hello  ")),
+            Some("hello".to_string())
+        );
     }
 }

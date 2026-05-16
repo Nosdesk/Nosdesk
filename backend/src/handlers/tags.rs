@@ -10,8 +10,8 @@ use serde::Deserialize;
 use tracing::error;
 
 use crate::extractors::{AuthContext, TicketAccess};
-use crate::handlers::{errors, helpers};
 use crate::handlers::helpers::with_actor;
+use crate::handlers::{errors, helpers};
 use crate::models::{NewTag, TagUpdate};
 use crate::repository::tags as repo;
 use crate::sync::actor::ActorContext;
@@ -57,7 +57,9 @@ pub async fn create_tag(
         Err(e) => return e,
     };
     let actor_ctx = ActorContext::user(auth.user_uuid, None);
-    match with_actor(&mut conn, &actor_ctx, |conn| repo::create_tag(conn, body.into_inner())) {
+    match with_actor(&mut conn, &actor_ctx, |conn| {
+        repo::create_tag(conn, body.into_inner())
+    }) {
         Ok(tag) => HttpResponse::Ok().json(tag),
         Err(e) => {
             error!(error = %e, "create_tag failed");
@@ -81,7 +83,9 @@ pub async fn update_tag(
         Err(e) => return e,
     };
     let actor_ctx = ActorContext::user(auth.user_uuid, None);
-    match with_actor(&mut conn, &actor_ctx, |conn| repo::update_tag(conn, id, body.into_inner())) {
+    match with_actor(&mut conn, &actor_ctx, |conn| {
+        repo::update_tag(conn, id, body.into_inner())
+    }) {
         Ok(tag) => HttpResponse::Ok().json(tag),
         Err(e) => {
             error!(error = %e, "update_tag failed");

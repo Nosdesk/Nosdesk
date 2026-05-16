@@ -1,24 +1,24 @@
-use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
+use crate::handlers::errors;
+use crate::handlers::helpers;
+use crate::utils;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
+use crate::utils::rbac::{is_admin, is_technician_or_admin};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use diesel::result::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use diesel::result::Error;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error};
 use uuid::Uuid;
-use crate::utils;
-use crate::utils::rbac::{is_admin, is_technician_or_admin};
-use crate::handlers::helpers;
-use crate::handlers::errors;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
 
 use crate::db::Pool;
-use crate::models::{Claims, NewDevice, DeviceUpdate, Device, User, Group};
+use crate::models::{Claims, Device, DeviceUpdate, Group, NewDevice, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
-use crate::services::search::SearchService;
 use crate::services::search::indexing_tasks;
+use crate::services::search::SearchService;
 
 /// Extract the SSE client ID from the request header (for echo suppression).
 fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
@@ -111,7 +111,12 @@ impl From<Group> for GroupInfo {
 }
 
 impl DeviceResponse {
-    pub fn from_device_and_user(device: Device, user: Option<User>, groups: Vec<Group>, conn: &mut crate::db::DbConnection) -> Self {
+    pub fn from_device_and_user(
+        device: Device,
+        user: Option<User>,
+        groups: Vec<Group>,
+        conn: &mut crate::db::DbConnection,
+    ) -> Self {
         // Device is editable only if it's NOT synced from Microsoft Graph
         // (i.e., it has neither intune_device_id nor entra_device_id)
         let is_editable = device.intune_device_id.is_none() && device.entra_device_id.is_none();
@@ -124,15 +129,31 @@ impl DeviceResponse {
             model: device.model.unwrap_or_default(),
             warranty_status: device.warranty_status.unwrap_or_default(),
             manufacturer: device.manufacturer,
-            primary_user_uuid: device.primary_user_uuid.map(|uuid| utils::uuid_to_string(&uuid)),
+            primary_user_uuid: device
+                .primary_user_uuid
+                .map(|uuid| utils::uuid_to_string(&uuid)),
             intune_device_id: device.intune_device_id.clone(),
             entra_device_id: device.entra_device_id.clone(),
-            created_at: device.created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            updated_at: device.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            last_sync_time: device.last_sync_time.map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
-            warranty_start_date: device.warranty_start_date.map(|d| d.format("%Y-%m-%d").to_string()),
-            warranty_end_date: device.warranty_end_date.map(|d| d.format("%Y-%m-%d").to_string()),
-            purchase_date: device.purchase_date.map(|d| d.format("%Y-%m-%d").to_string()),
+            created_at: device
+                .created_at
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
+            updated_at: device
+                .updated_at
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
+            last_sync_time: device
+                .last_sync_time
+                .map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            warranty_start_date: device
+                .warranty_start_date
+                .map(|d| d.format("%Y-%m-%d").to_string()),
+            warranty_end_date: device
+                .warranty_end_date
+                .map(|d| d.format("%Y-%m-%d").to_string()),
+            purchase_date: device
+                .purchase_date
+                .map(|d| d.format("%Y-%m-%d").to_string()),
             asset_tag: device.asset_tag,
             is_editable,
             primary_user: user.map(|u| {
@@ -141,7 +162,8 @@ impl DeviceResponse {
                     crate::models::UserRole::Admin => "admin",
                     crate::models::UserRole::Technician => "technician",
                     crate::models::UserRole::User => "user",
-                }.to_string();
+                }
+                .to_string();
 
                 // Fetch primary email from user_emails table
                 let email = repository::user_helpers::get_primary_email(&u.uuid, conn)
@@ -168,13 +190,21 @@ fn get_user_by_uuid(conn: &mut crate::db::DbConnection, uuid: &Uuid) -> Option<U
 }
 
 // Helper function to convert devices to device responses with user data
-fn devices_to_responses(conn: &mut crate::db::DbConnection, devices: Vec<Device>) -> Vec<DeviceResponse> {
-    devices.into_iter().map(|device| {
-        let user = device.primary_user_uuid.as_ref()
-            .and_then(|uuid| get_user_by_uuid(conn, uuid));
-        let groups = groups_repo::get_groups_for_device(conn, device.id).unwrap_or_default();
-        DeviceResponse::from_device_and_user(device, user, groups, conn)
-    }).collect()
+fn devices_to_responses(
+    conn: &mut crate::db::DbConnection,
+    devices: Vec<Device>,
+) -> Vec<DeviceResponse> {
+    devices
+        .into_iter()
+        .map(|device| {
+            let user = device
+                .primary_user_uuid
+                .as_ref()
+                .and_then(|uuid| get_user_by_uuid(conn, uuid));
+            let groups = groups_repo::get_groups_for_device(conn, device.id).unwrap_or_default();
+            DeviceResponse::from_device_and_user(device, user, groups, conn)
+        })
+        .collect()
 }
 
 /// Calendar overlay query: a date window the caller is rendering.
@@ -297,29 +327,47 @@ pub struct AssetPlannerRow {
 
 fn classify_os(raw: Option<&str>) -> &'static str {
     let s = raw.unwrap_or("").to_lowercase();
-    if s.contains("windows") { return "windows"; }
-    if s.contains("mac") || s.contains("os x") || s.contains("darwin") { return "macos"; }
+    if s.contains("windows") {
+        return "windows";
+    }
+    if s.contains("mac") || s.contains("os x") || s.contains("darwin") {
+        return "macos";
+    }
     if s.contains("linux") || s.contains("ubuntu") || s.contains("fedora") || s.contains("debian") {
         return "linux";
     }
-    if s.contains("ios") || s.contains("iphone") || s.contains("ipad") { return "ios"; }
-    if s.contains("android") { return "android"; }
+    if s.contains("ios") || s.contains("iphone") || s.contains("ipad") {
+        return "ios";
+    }
+    if s.contains("android") {
+        return "android";
+    }
     "other"
 }
 
 fn classify_warranty(end: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> &'static str {
-    let Some(end) = end else { return "unknown"; };
+    let Some(end) = end else {
+        return "unknown";
+    };
     let days = (end - today).num_days();
-    if days < 0 { "expired" }
-    else if days <= 30 { "expiring_30d" }
-    else if days <= 90 { "expiring_90d" }
-    else { "active" }
+    if days < 0 {
+        "expired"
+    } else if days <= 30 {
+        "expiring_30d"
+    } else if days <= 90 {
+        "expiring_90d"
+    } else {
+        "active"
+    }
 }
 
 /// `GET /api/assets/planner` — returns every device shaped for the
 /// asset rollout planner view. Bucketing happens server-side so
 /// the renderer doesn't repeat the OS-string heuristics.
-pub async fn asset_planner(pool: web::Data<Pool>, _auth: crate::extractors::AuthContext) -> impl Responder {
+pub async fn asset_planner(
+    pool: web::Data<Pool>,
+    _auth: crate::extractors::AuthContext,
+) -> impl Responder {
     use crate::schema::devices;
     use diesel::prelude::*;
 
@@ -328,9 +376,8 @@ pub async fn asset_planner(pool: web::Data<Pool>, _auth: crate::extractors::Auth
         Err(e) => return e,
     };
 
-    let rows: Result<Vec<Device>, Error> = devices::table
-        .order(devices::name.asc())
-        .load(&mut conn);
+    let rows: Result<Vec<Device>, Error> =
+        devices::table.order(devices::name.asc()).load(&mut conn);
 
     match rows {
         Ok(devices) => {
@@ -347,7 +394,9 @@ pub async fn asset_planner(pool: web::Data<Pool>, _auth: crate::extractors::Auth
                     warranty_bucket: classify_warranty(d.warranty_end_date, today),
                     operating_system: d.operating_system,
                     os_version: d.os_version,
-                    warranty_end_date: d.warranty_end_date.map(|dt| dt.format("%Y-%m-%d").to_string()),
+                    warranty_end_date: d
+                        .warranty_end_date
+                        .map(|dt| dt.format("%Y-%m-%d").to_string()),
                     compliance_state: d.compliance_state,
                     primary_user_uuid: d.primary_user_uuid,
                     asset_tag: d.asset_tag,
@@ -374,7 +423,7 @@ pub async fn get_all_devices(pool: web::Data<Pool>) -> impl Responder {
             // Convert devices to enhanced responses with user data
             let device_responses = devices_to_responses(&mut conn, devices);
             HttpResponse::Ok().json(device_responses)
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Database error getting all devices");
             errors::internal("Failed to get devices")
@@ -407,10 +456,10 @@ pub async fn get_paginated_devices(
     ) {
         Ok((devices, total)) => {
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;
-            
+
             // Convert devices to enhanced responses with user data
             let device_responses = devices_to_responses(&mut conn, devices);
-            
+
             let response = PaginatedResponse {
                 data: device_responses,
                 total,
@@ -418,7 +467,7 @@ pub async fn get_paginated_devices(
                 page_size,
                 total_pages,
             };
-            
+
             HttpResponse::Ok().json(response)
         }
         Err(e) => {
@@ -429,10 +478,7 @@ pub async fn get_paginated_devices(
 }
 
 /// Get a single device by ID
-pub async fn get_device_by_id(
-    pool: web::Data<Pool>,
-    path: web::Path<i32>,
-) -> impl Responder {
+pub async fn get_device_by_id(pool: web::Data<Pool>, path: web::Path<i32>) -> impl Responder {
     let device_id = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -442,33 +488,36 @@ pub async fn get_device_by_id(
     match repository::get_device_by_id(&mut conn, device_id) {
         Ok(device) => {
             // Get user data if device has a primary user
-            let user = device.primary_user_uuid.as_ref()
+            let user = device
+                .primary_user_uuid
+                .as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
 
             // Get groups for the device
-            let groups = groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
-            debug!(device_id, group_count = groups.len(), "Fetched groups for device");
+            let groups =
+                groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
+            debug!(
+                device_id,
+                group_count = groups.len(),
+                "Fetched groups for device"
+            );
 
-            let device_response = DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
+            let device_response =
+                DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
-        },
-        Err(e) => {
-            match e {
-                Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
-                _ => {
-                    error!(device_id, error = ?e, "Database error getting device");
-                    errors::internal(format!("Failed to get device {device_id}"))
-                }
-            }
         }
+        Err(e) => match e {
+            Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
+            _ => {
+                error!(device_id, error = ?e, "Database error getting device");
+                errors::internal(format!("Failed to get device {device_id}"))
+            }
+        },
     }
 }
 
 /// Get devices for a specific user
-pub async fn get_user_devices(
-    pool: web::Data<Pool>,
-    path: web::Path<String>,
-) -> impl Responder {
+pub async fn get_user_devices(pool: web::Data<Pool>, path: web::Path<String>) -> impl Responder {
     let user_uuid_str = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -480,12 +529,12 @@ pub async fn get_user_devices(
         Ok(uuid) => uuid,
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
-    
+
     match crate::repository::devices::get_devices_for_user(&mut conn, &user_uuid) {
         Ok(devices) => {
             let device_responses = devices_to_responses(&mut conn, devices);
             HttpResponse::Ok().json(device_responses)
-        },
+        }
         Err(e) => {
             error!(user_uuid = %user_uuid_str, error = ?e, "Error getting devices for user");
             errors::internal(format!("Failed to get devices for user {user_uuid_str}"))
@@ -508,7 +557,9 @@ pub async fn create_device(
     };
 
     if !is_technician_or_admin(&claims) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can create devices");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can create devices",
+        );
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -524,25 +575,30 @@ pub async fn create_device(
             indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device.clone());
 
             // Get user data if device has a primary user
-            let user = device.primary_user_uuid.as_ref()
+            let user = device
+                .primary_user_uuid
+                .as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
 
             // Newly created device has no groups yet
-            let device_response = DeviceResponse::from_device_and_user(device, user, vec![], &mut conn);
+            let device_response =
+                DeviceResponse::from_device_and_user(device, user, vec![], &mut conn);
 
             // Broadcast SSE event for device creation (with echo suppression)
             let source_client_id = extract_sse_client_id(&req);
-            sse_state.broadcast_event_from(
-                crate::handlers::sse::SseEvent::DeviceCreated {
-                    device_id,
-                    device: serde_json::to_value(&device_response).unwrap_or_default(),
-                    timestamp: chrono::Utc::now(),
-                },
-                source_client_id,
-            ).await;
+            sse_state
+                .broadcast_event_from(
+                    crate::handlers::sse::SseEvent::DeviceCreated {
+                        device_id,
+                        device: serde_json::to_value(&device_response).unwrap_or_default(),
+                        timestamp: chrono::Utc::now(),
+                    },
+                    source_client_id,
+                )
+                .await;
 
             HttpResponse::Created().json(device_response)
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Database error creating device");
             errors::internal("Failed to create device")
@@ -573,7 +629,9 @@ pub async fn update_device(
 
     // Check role - only technicians and admins can update devices
     if !is_technician_or_admin(&user_info) {
-        return errors::forbidden("Forbidden: Only technicians and administrators can update devices");
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can update devices",
+        );
     }
 
     // Check if device is editable (not synced from Microsoft Graph)
@@ -591,16 +649,17 @@ pub async fn update_device(
     };
 
     // Prevent editing devices synced from Microsoft Graph
-    let is_synced = existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
+    let is_synced =
+        existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
     if is_synced {
         return errors::forbidden("Cannot edit device synced from Microsoft Graph: This device is managed by Microsoft Intune/Entra and cannot be edited manually. Changes must be made in Microsoft Entra Admin Center or Intune.");
     }
 
     let update_data = device_update.into_inner();
-    
+
     // Convert to JSON before the move for SSE broadcasting
     let update_json = serde_json::to_value(&update_data).unwrap_or_default();
-    
+
     match repository::update_device(&mut conn, device_id, update_data) {
         Ok(device) => {
             // Re-index the updated device in search
@@ -612,40 +671,43 @@ pub async fn update_device(
                 for (key, value) in update_obj {
                     if !value.is_null() {
                         debug!(device_id, field = %key, value = ?value, "Broadcasting SSE event for device update");
-                        sse_state.broadcast_event_from(
-                            crate::handlers::sse::SseEvent::DeviceUpdated {
-                                device_id,
-                                field: key.to_string(),
-                                value: value.clone(),
-                                updated_by: user_info.sub.clone(),
-                                timestamp: chrono::Utc::now(),
-                            },
-                            source_client_id.clone(),
-                        ).await;
+                        sse_state
+                            .broadcast_event_from(
+                                crate::handlers::sse::SseEvent::DeviceUpdated {
+                                    device_id,
+                                    field: key.to_string(),
+                                    value: value.clone(),
+                                    updated_by: user_info.sub.clone(),
+                                    timestamp: chrono::Utc::now(),
+                                },
+                                source_client_id.clone(),
+                            )
+                            .await;
                     }
                 }
             }
 
-
             // Get user data if device has a primary user
-            let user = device.primary_user_uuid.as_ref()
+            let user = device
+                .primary_user_uuid
+                .as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
 
             // Get groups for the device
-            let groups = groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
+            let groups =
+                groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
 
-            let device_response = DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
+            let device_response =
+                DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
-        },
-        Err(e) => {
-            match e {
-                Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
-                _ => {
-                    error!(device_id, error = ?e, "Database error updating device");
-                    errors::internal(format!("Failed to update device {device_id}"))
-                }
-            }
         }
+        Err(e) => match e {
+            Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
+            _ => {
+                error!(device_id, error = ?e, "Database error updating device");
+                errors::internal(format!("Failed to update device {device_id}"))
+            }
+        },
     }
 }
 
@@ -681,13 +743,15 @@ pub async fn delete_device(
 
                 // Broadcast SSE event for device deletion (with echo suppression)
                 let source_client_id = extract_sse_client_id(&req);
-                sse_state.broadcast_event_from(
-                    crate::handlers::sse::SseEvent::DeviceDeleted {
-                        device_id,
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id,
-                ).await;
+                sse_state
+                    .broadcast_event_from(
+                        crate::handlers::sse::SseEvent::DeviceDeleted {
+                            device_id,
+                            timestamp: chrono::Utc::now(),
+                        },
+                        source_client_id,
+                    )
+                    .await;
 
                 HttpResponse::Ok().json(json!({
                     "message": format!("Device {} deleted successfully", device_id)
@@ -741,7 +805,8 @@ pub async fn unmanage_device(
     };
 
     // Check if device is synced from Microsoft Graph
-    let is_synced = existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
+    let is_synced =
+        existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
     if !is_synced {
         return errors::bad_request("Device is not managed by Microsoft Graph: This device is already manually managed and doesn't need to be unmanaged.");
     }
@@ -778,15 +843,19 @@ pub async fn unmanage_device(
     match repository::update_device(&mut conn, device_id, update_data) {
         Ok(device) => {
             // Get user data if device has a primary user
-            let user = device.primary_user_uuid.as_ref()
+            let user = device
+                .primary_user_uuid
+                .as_ref()
                 .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
 
             // Get groups for the device
-            let groups = groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
+            let groups =
+                groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
 
-            let device_response = DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
+            let device_response =
+                DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
-        },
+        }
         Err(e) => {
             error!(device_id, error = ?e, "Database error unmanaging device");
             errors::internal(format!("Failed to unmanage device {device_id}"))
@@ -809,25 +878,27 @@ pub async fn get_paginated_devices_excluding(
     let page_size = query.page_size.unwrap_or(20).clamp(1, 100);
 
     // Parse exclude_ids from comma-separated string
-    let exclude_ids: Vec<i32> = exclude_query.get("excludeIds")
+    let exclude_ids: Vec<i32> = exclude_query
+        .get("excludeIds")
         .map(|ids_str| {
-            ids_str.split(',')
+            ids_str
+                .split(',')
                 .filter_map(|id| id.trim().parse::<i32>().ok())
                 .collect()
         })
         .unwrap_or_default();
 
     match crate::repository::devices::get_paginated_devices_excluding_ids(
-        &mut conn, 
-        page, 
-        page_size, 
+        &mut conn,
+        page,
+        page_size,
         query.search.as_deref(),
-        &exclude_ids
+        &exclude_ids,
     ) {
         Ok((devices, total_count)) => {
             let total_pages = ((total_count as f64) / (page_size as f64)).ceil() as i64;
             let device_responses = devices_to_responses(&mut conn, devices);
-            
+
             let response = PaginatedResponse {
                 data: device_responses,
                 page,
@@ -835,9 +906,9 @@ pub async fn get_paginated_devices_excluding(
                 total: total_count,
                 total_pages,
             };
-            
+
             HttpResponse::Ok().json(response)
-        },
+        }
         Err(e) => {
             error!(error = ?e, "Error getting paginated devices");
             errors::internal("Failed to get devices")
@@ -868,7 +939,9 @@ pub async fn bulk_devices(
 
     // Only admins can perform bulk operations
     if !is_admin(&claims) {
-        return errors::forbidden("Forbidden: Only administrators can perform bulk device operations");
+        return errors::forbidden(
+            "Forbidden: Only administrators can perform bulk device operations",
+        );
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -895,13 +968,15 @@ pub async fn bulk_devices(
                         // DeviceDeletedObserver inside `delete_device`.
 
                         // Broadcast SSE event for each deleted device
-                        sse_state.broadcast_event_from(
-                            crate::handlers::sse::SseEvent::DeviceDeleted {
-                                device_id: *id,
-                                timestamp: chrono::Utc::now(),
-                            },
-                            source_client_id.clone(),
-                        ).await;
+                        sse_state
+                            .broadcast_event_from(
+                                crate::handlers::sse::SseEvent::DeviceDeleted {
+                                    device_id: *id,
+                                    timestamp: chrono::Utc::now(),
+                                },
+                                source_client_id.clone(),
+                            )
+                            .await;
                     }
                     Err(e) => {
                         error!(device_id = *id, error = ?e, "Error deleting device in bulk operation");
@@ -918,4 +993,4 @@ pub async fn bulk_devices(
             "message": format!("Unknown action: {}", action)
         })),
     }
-} 
+}

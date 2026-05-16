@@ -1,18 +1,18 @@
 use anyhow::{anyhow, Result};
 use base32;
-use bcrypt::{verify as bcrypt_verify, hash as bcrypt_hash, DEFAULT_COST};
-use qrcode::{QrCode, render::svg};
-use base64::{Engine as _, engine::general_purpose};
-use totp_rs::{Algorithm as TotpAlgorithm, TOTP, Secret};
+use base64::{engine::general_purpose, Engine as _};
+use bcrypt::{hash as bcrypt_hash, verify as bcrypt_verify, DEFAULT_COST};
+use qrcode::{render::svg, QrCode};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng, RngCore};
-use zeroize::ZeroizeOnDrop;
+use totp_rs::{Algorithm as TotpAlgorithm, Secret, TOTP};
 use uuid::Uuid;
+use zeroize::ZeroizeOnDrop;
 
-use crate::models::{User, UserRole};
-use crate::db::DbConnection;
-use crate::repository;
 use super::encryption;
+use crate::db::DbConnection;
+use crate::models::{User, UserRole};
+use crate::repository;
 
 /// Parse a boolean environment variable in a robust, user-friendly way
 /// Accepts: true/false, 1/0, yes/no, on/off (case-insensitive)
@@ -38,7 +38,7 @@ impl SecretString {
     pub fn new(s: String) -> Self {
         Self(s)
     }
-    
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -77,10 +77,10 @@ pub fn generate_totp_secret() -> SecretString {
 /// Generate backup codes for MFA recovery - async version for performance
 pub async fn generate_backup_codes_async() -> (Vec<String>, Vec<String>) {
     use tokio::task;
-    
+
     let mut plaintext_codes = Vec::new();
     let mut hash_futures = Vec::new();
-    
+
     // Generate all codes first
     for _ in 0..8 {
         let code: String = thread_rng()
@@ -89,25 +89,24 @@ pub async fn generate_backup_codes_async() -> (Vec<String>, Vec<String>) {
             .map(char::from)
             .collect::<String>()
             .to_uppercase();
-        
+
         let code_clone = code.clone();
         plaintext_codes.push(code);
-        
+
         // Create async hash task to avoid blocking
         let hash_future = task::spawn_blocking(move || {
-            bcrypt_hash(&code_clone, DEFAULT_COST)
-                .expect("Failed to hash backup code")
+            bcrypt_hash(&code_clone, DEFAULT_COST).expect("Failed to hash backup code")
         });
         hash_futures.push(hash_future);
     }
-    
+
     // Wait for all hashing to complete
     let mut hashed_codes = Vec::new();
     for future in hash_futures {
         let hash = future.await.expect("Hash task failed");
         hashed_codes.push(hash);
     }
-    
+
     (plaintext_codes, hashed_codes)
 }
 
@@ -120,37 +119,45 @@ pub struct QrCodeResult {
 }
 
 /// Generate QR code as SVG string and return matrix data for animated rendering
-pub fn generate_qr_code(secret: &str, user_email: &str, service_name: &str) -> Result<QrCodeResult> {
+pub fn generate_qr_code(
+    secret: &str,
+    user_email: &str,
+    service_name: &str,
+) -> Result<QrCodeResult> {
     // Create TOTP URL for authenticator apps
-    let totp_url = format!(
-        "otpauth://totp/{service_name}:{user_email}?secret={secret}&issuer={service_name}"
-    );
+    let totp_url =
+        format!("otpauth://totp/{service_name}:{user_email}?secret={secret}&issuer={service_name}");
 
-    let code = QrCode::new(&totp_url)
-        .map_err(|e| anyhow!("Failed to generate QR code: {}", e))?;
+    let code = QrCode::new(&totp_url).map_err(|e| anyhow!("Failed to generate QR code: {}", e))?;
 
     // Extract matrix data for frontend (row-major order)
     let size = code.width();
-    let data: Vec<bool> = code.to_colors()
+    let data: Vec<bool> = code
+        .to_colors()
         .iter()
         .map(|c| *c == qrcode::Color::Dark)
         .collect();
 
-    tracing::info!("QR code generated: size={}x{}, total_modules={}, data_len={}",
-        size, size, size * size, data.len());
+    tracing::info!(
+        "QR code generated: size={}x{}, total_modules={}, data_len={}",
+        size,
+        size,
+        size * size,
+        data.len()
+    );
 
     let matrix = crate::models::QrMatrix { size, data };
 
-    let svg = code
-        .render::<svg::Color>()
-        .min_dimensions(200, 200)
-        .build();
+    let svg = code.render::<svg::Color>().min_dimensions(200, 200).build();
 
     // Convert SVG to base64 data URL for frontend
     let base64_svg = general_purpose::STANDARD.encode(svg);
     let svg_data_url = format!("data:image/svg+xml;base64,{base64_svg}");
 
-    Ok(QrCodeResult { svg_data_url, matrix })
+    Ok(QrCodeResult {
+        svg_data_url,
+        matrix,
+    })
 }
 
 /// Verify TOTP token with timing-attack protection and clock drift tolerance
@@ -160,22 +167,22 @@ pub fn verify_totp_token(secret: &str, token: &str) -> bool {
         Ok(bytes) => bytes,
         Err(_) => return false,
     };
-    
+
     let totp = match TOTP::new(
-        TotpAlgorithm::SHA1,  // SHA1 for compatibility with most authenticator apps
-        6,                    // 6-digit codes (industry standard)
-        1,                    // 1 step = 30 seconds
-        30,                   // 30-second window (industry standard)
+        TotpAlgorithm::SHA1, // SHA1 for compatibility with most authenticator apps
+        6,                   // 6-digit codes (industry standard)
+        1,                   // 1 step = 30 seconds
+        30,                  // 30-second window (industry standard)
         secret_bytes,
     ) {
         Ok(totp) => totp,
         Err(_) => return false,
     };
-    
+
     // TOTP verification with ±30 second tolerance for clock drift
-    totp.check_current(token).unwrap_or(false) ||
-    totp.check(token, chrono::Utc::now().timestamp() as u64 - 30) ||
-    totp.check(token, chrono::Utc::now().timestamp() as u64 + 30)
+    totp.check_current(token).unwrap_or(false)
+        || totp.check(token, chrono::Utc::now().timestamp() as u64 - 30)
+        || totp.check(token, chrono::Utc::now().timestamp() as u64 + 30)
 }
 
 /// Verify backup code and mark it as used
@@ -184,11 +191,12 @@ pub async fn verify_backup_code(
     provided_code: &str,
     conn: &mut DbConnection,
 ) -> Result<MfaVerificationResult> {
-    let user = repository::get_user_by_uuid(user_uuid, conn)
-        .map_err(|_| anyhow!("User not found"))?;
+    let user =
+        repository::get_user_by_uuid(user_uuid, conn).map_err(|_| anyhow!("User not found"))?;
 
     // Get backup codes
-    let backup_codes = user.mfa_backup_codes
+    let backup_codes = user
+        .mfa_backup_codes
         .as_ref()
         .and_then(|codes| codes.as_array())
         .ok_or_else(|| anyhow!("No backup codes found"))?;
@@ -246,8 +254,8 @@ pub async fn verify_mfa_token(
     token: &str,
     conn: &mut DbConnection,
 ) -> Result<MfaVerificationResult> {
-    let user = repository::get_user_by_uuid(user_uuid, conn)
-        .map_err(|_| anyhow!("User not found"))?;
+    let user =
+        repository::get_user_by_uuid(user_uuid, conn).map_err(|_| anyhow!("User not found"))?;
 
     if !user.mfa_enabled {
         return Err(anyhow!("MFA is not enabled for this user"));
@@ -260,7 +268,9 @@ pub async fn verify_mfa_token(
             // TOTP replay prevention: check if this code was already used
             if check_totp_replay(user_uuid, token).await {
                 tracing::warn!(user_uuid = %user_uuid, "TOTP replay attack detected");
-                return Err(anyhow!("This code has already been used. Please wait for a new code."));
+                return Err(anyhow!(
+                    "This code has already been used. Please wait for a new code."
+                ));
             }
             // Mark code as used
             mark_totp_used(user_uuid, token).await;
@@ -371,14 +381,8 @@ pub fn should_require_mfa(user_role: &UserRole) -> bool {
 
 /// Check if user has MFA enabled and enforce policy
 /// Considers both TOTP and passkeys as valid MFA methods
-pub async fn validate_mfa_policy(
-    user: &User,
-    conn: &mut crate::db::DbConnection,
-) -> Result<()> {
-    if should_require_mfa(&user.role)
-        && !user.mfa_enabled
-        && !user_has_passkeys(conn, &user.uuid)
-    {
+pub async fn validate_mfa_policy(user: &User, conn: &mut crate::db::DbConnection) -> Result<()> {
+    if should_require_mfa(&user.role) && !user.mfa_enabled && !user_has_passkeys(conn, &user.uuid) {
         return Err(anyhow!(
             "MFA is required for {} users. Please enable MFA on your account.",
             match user.role {
@@ -410,24 +414,31 @@ pub async fn log_mfa_attempt(
     attempt_type: &str,
     request: &actix_web::HttpRequest,
 ) {
-    let user_agent = request.headers()
+    let user_agent = request
+        .headers()
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("Unknown");
-    
+
     let ip_address = crate::utils::client_ip::from_http_request(request)
         .map(|ip| ip.to_string())
         .unwrap_or_else(|| "Unknown".to_string());
-    
+
     if success {
         tracing::info!(
             "Successful MFA {} for user {} from IP {} using {}",
-            attempt_type, user_uuid, ip_address, user_agent
+            attempt_type,
+            user_uuid,
+            ip_address,
+            user_agent
         );
     } else {
         tracing::warn!(
             "Failed MFA {} for user {} from IP {} using {}",
-            attempt_type, user_uuid, ip_address, user_agent
+            attempt_type,
+            user_uuid,
+            ip_address,
+            user_agent
         );
     }
 }
@@ -595,7 +606,9 @@ pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
                 .map(|v| v.to_lowercase() == "production")
                 .unwrap_or(false);
             if is_production {
-                tracing::warn!("Denying MFA attempt due to rate limit check failure (fail-closed mode)");
+                tracing::warn!(
+                    "Denying MFA attempt due to rate limit check failure (fail-closed mode)"
+                );
                 false
             } else {
                 tracing::warn!("Allowing MFA attempt due to rate limit check failure (fail-open mode in non-production)");
@@ -603,4 +616,4 @@ pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
             }
         }
     }
-} 
+}

@@ -52,10 +52,12 @@ impl actix_web::ResponseError for SyncContextError {
         match self {
             Self::Unauthorized => HttpResponse::Unauthorized()
                 .json(serde_json::json!({"error": "Authentication required"})),
-            Self::InvalidUuid => HttpResponse::BadRequest()
-                .json(serde_json::json!({"error": "Invalid user UUID"})),
-            Self::UserNotFound => HttpResponse::NotFound()
-                .json(serde_json::json!({"error": "User not found"})),
+            Self::InvalidUuid => {
+                HttpResponse::BadRequest().json(serde_json::json!({"error": "Invalid user UUID"}))
+            }
+            Self::UserNotFound => {
+                HttpResponse::NotFound().json(serde_json::json!({"error": "User not found"}))
+            }
             Self::DatabaseError(_) => HttpResponse::InternalServerError()
                 .json(serde_json::json!({"error": "Internal server error"})),
         }
@@ -76,8 +78,8 @@ impl FromRequest for SyncContext {
                 .cloned()
                 .ok_or(SyncContextError::Unauthorized)?;
 
-            let user_uuid = Uuid::parse_str(&claims.sub)
-                .map_err(|_| SyncContextError::InvalidUuid)?;
+            let user_uuid =
+                Uuid::parse_str(&claims.sub).map_err(|_| SyncContextError::InvalidUuid)?;
 
             let pool = req
                 .app_data::<web::Data<Pool>>()

@@ -46,10 +46,7 @@ pub fn upsert(
 /// match via lower-case fold (mirrors `upsert`). The caller uses
 /// this on the outbound enqueue hot path, so it's a single keyed
 /// lookup rather than a list scan.
-pub fn is_suppressed(
-    conn: &mut DbConnection,
-    email: &str,
-) -> Result<bool, diesel::result::Error> {
+pub fn is_suppressed(conn: &mut DbConnection, email: &str) -> Result<bool, diesel::result::Error> {
     use diesel::dsl::exists;
     use diesel::select;
     let normalized = email.trim().to_ascii_lowercase();
@@ -83,13 +80,8 @@ pub fn count(conn: &mut DbConnection) -> Result<i64, diesel::result::Error> {
 /// Remove a suppression. Returns the number of rows deleted so the
 /// admin handler can disambiguate "address not on the list" from
 /// "removed successfully" without a separate existence check.
-pub fn remove(
-    conn: &mut DbConnection,
-    email: &str,
-) -> Result<usize, diesel::result::Error> {
+pub fn remove(conn: &mut DbConnection, email: &str) -> Result<usize, diesel::result::Error> {
     let normalized = email.trim().to_ascii_lowercase();
-    diesel::delete(
-        email_suppressions::table.filter(email_suppressions::email.eq(&normalized)),
-    )
-    .execute(conn)
+    diesel::delete(email_suppressions::table.filter(email_suppressions::email.eq(&normalized)))
+        .execute(conn)
 }

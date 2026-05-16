@@ -31,13 +31,13 @@ pub fn subscribe_user(
     user_uuid: Uuid,
     page_id: i32,
 ) -> Result<DocumentationSubscription, diesel::result::Error> {
-    let new_sub = NewDocumentationSubscription {
-        user_uuid,
-        page_id,
-    };
+    let new_sub = NewDocumentationSubscription { user_uuid, page_id };
     diesel::insert_into(documentation_subscriptions::table)
         .values(&new_sub)
-        .on_conflict((documentation_subscriptions::user_uuid, documentation_subscriptions::page_id))
+        .on_conflict((
+            documentation_subscriptions::user_uuid,
+            documentation_subscriptions::page_id,
+        ))
         .do_nothing()
         .execute(conn)?;
 

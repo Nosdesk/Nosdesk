@@ -115,7 +115,11 @@ where
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     tokio::spawn(async move {
-        info!(task = name, every_secs = every.as_secs(), "scheduler: job registered");
+        info!(
+            task = name,
+            every_secs = every.as_secs(),
+            "scheduler: job registered"
+        );
         loop {
             tokio::select! {
                 _ = shutdown.cancelled() => {
@@ -151,7 +155,9 @@ where
 
     match &result {
         Ok(()) => debug!(task = name, elapsed_ms = %elapsed.as_millis(), "scheduler: ok"),
-        Err(e) => error!(task = name, error = ?e, elapsed_ms = %elapsed.as_millis(), "scheduler: failed; retrying next tick"),
+        Err(e) => {
+            error!(task = name, error = ?e, elapsed_ms = %elapsed.as_millis(), "scheduler: failed; retrying next tick")
+        }
     }
     record(statuses, name, elapsed, result.as_ref().err());
 }
@@ -270,7 +276,10 @@ mod tests {
         handle.await.unwrap();
 
         let final_count = counter.load(std::sync::atomic::Ordering::Relaxed);
-        assert!(final_count >= 1, "expected at least one run, got {final_count}");
+        assert!(
+            final_count >= 1,
+            "expected at least one run, got {final_count}"
+        );
         // Registry should carry the final state too.
         let map = statuses.read().unwrap();
         assert!(map.contains_key("counter"));

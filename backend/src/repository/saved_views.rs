@@ -37,9 +37,7 @@ pub fn list_for_scope(
     } else {
         query = query.filter(saved_views::scope_id.is_null());
     }
-    query
-        .order(saved_views::name.asc())
-        .load(conn)
+    query.order(saved_views::name.asc()).load(conn)
 }
 
 pub fn find_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<SavedView>> {
@@ -69,8 +67,7 @@ pub fn update(
 /// URL will fall through the resolution chain to the workspace
 /// default or the built-in `MY_OPEN_VIEW`.
 pub fn delete(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<usize> {
-    diesel::delete(saved_views::table.filter(saved_views::uuid.eq(uuid)))
-        .execute(conn)
+    diesel::delete(saved_views::table.filter(saved_views::uuid.eq(uuid))).execute(conn)
 }
 
 #[cfg(test)]
@@ -99,8 +96,7 @@ mod tests {
         let one = create(&mut conn, private_view_for(user.uuid, "alpha")).unwrap();
         let two = create(&mut conn, private_view_for(user.uuid, "beta")).unwrap();
 
-        let listed =
-            list_for_scope(&mut conn, "private", Some(&user.uuid.to_string())).unwrap();
+        let listed = list_for_scope(&mut conn, "private", Some(&user.uuid.to_string())).unwrap();
         assert_eq!(listed.len(), 2);
         // Alphabetical order per the repo's ORDER BY name ASC.
         assert_eq!(listed[0].id, one.id);
@@ -117,8 +113,7 @@ mod tests {
         let removed = delete(&mut conn, dead.uuid).unwrap();
         assert_eq!(removed, 1);
 
-        let listed =
-            list_for_scope(&mut conn, "private", Some(&user.uuid.to_string())).unwrap();
+        let listed = list_for_scope(&mut conn, "private", Some(&user.uuid.to_string())).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, live.id);
     }

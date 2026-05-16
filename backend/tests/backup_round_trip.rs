@@ -126,8 +126,8 @@ fn backup_round_trip_preserves_seeded_rows() {
     // Create the backup. The zip lands under UPLOAD_DIR/backups/ (default
     // /app/uploads/backups in the dev container); we reach back in to
     // delete it during cleanup so a re-run starts clean.
-    let backup_path = backup_service::create_backup(&mut conn, job.id, None)
-        .expect("create_backup succeeded");
+    let backup_path =
+        backup_service::create_backup(&mut conn, job.id, None).expect("create_backup succeeded");
     assert!(backup_path.exists(), "backup zip exists on disk");
 
     // Wipe the seeded rows. Restore should reinsert them.
@@ -144,11 +144,9 @@ fn backup_round_trip_preserves_seeded_rows() {
     // brings those back too. `force_non_empty: true` is required
     // because the test DB still has other tables (settings,
     // workflow_states, etc.) populated by migrations.
-    diesel::sql_query(
-        "TRUNCATE TABLE users RESTART IDENTITY CASCADE",
-    )
-    .execute(&mut conn)
-    .expect("truncate users cascade");
+    diesel::sql_query("TRUNCATE TABLE users RESTART IDENTITY CASCADE")
+        .execute(&mut conn)
+        .expect("truncate users cascade");
 
     let stats = backup_service::restore_database(
         &mut conn,
@@ -161,7 +159,10 @@ fn backup_round_trip_preserves_seeded_rows() {
     )
     .expect("restore_database succeeded");
     assert!(stats.tables_restored > 0, "at least one table restored");
-    assert!(stats.records_restored >= 5, "at least our 5 seeded users restored");
+    assert!(
+        stats.records_restored >= 5,
+        "at least our 5 seeded users restored"
+    );
 
     let users_after_restore = count_table(&mut conn, "users");
     assert_eq!(
@@ -189,8 +190,8 @@ fn backup_round_trip_preserves_seeded_rows() {
     assert_eq!(users_final, users_pre, "cleanup restored pre-test count");
 
     use backend::schema::backup_jobs;
-    let _ = diesel::delete(backup_jobs::table.filter(backup_jobs::id.eq(job.id)))
-        .execute(&mut conn);
+    let _ =
+        diesel::delete(backup_jobs::table.filter(backup_jobs::id.eq(job.id))).execute(&mut conn);
 
     let _ = std::fs::remove_file(&backup_path);
 }

@@ -48,9 +48,7 @@ impl PreferenceService {
         }
 
         // Query database
-        let channels = self
-            .load_preferences_from_db(user_uuid, &type_code)
-            .await?;
+        let channels = self.load_preferences_from_db(user_uuid, &type_code).await?;
 
         // Update cache
         {
@@ -73,7 +71,10 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let mut conn = self.pool.get().map_err(|e| format!("Database error: {e}"))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("Database error: {e}"))?;
 
         // Get notification type ID and defaults
         let type_info: (i32, serde_json::Value) = notification_types::table
@@ -127,7 +128,10 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let mut conn = self.pool.get().map_err(|e| format!("Database error: {e}"))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("Database error: {e}"))?;
 
         // Get notification type ID
         let type_id: i32 = notification_types::table
@@ -172,7 +176,10 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let mut conn = self.pool.get().map_err(|e| format!("Database error: {e}"))?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("Database error: {e}"))?;
 
         // Get all notification types
         let types: Vec<NotificationTypeModel> = notification_types::table
@@ -218,5 +225,4 @@ impl PreferenceService {
 
         Ok(responses)
     }
-
 }

@@ -37,7 +37,13 @@ fn slugify(title: &str) -> String {
     let slug: String = title
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
 
     // Collapse consecutive hyphens and trim

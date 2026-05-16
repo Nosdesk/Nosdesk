@@ -117,7 +117,10 @@ impl fmt::Display for QuarantineReason {
 #[derive(Debug)]
 pub enum ActionOutcome {
     /// The plugin row remains in the DB at a new state.
-    StateChanged { plugin: Plugin, prior_state: PluginState },
+    StateChanged {
+        plugin: Plugin,
+        prior_state: PluginState,
+    },
     /// The plugin row was deleted (cascade uninstall).
     Deleted { uuid: Uuid, name: String },
 }
@@ -186,12 +189,18 @@ pub fn apply(
             (PluginState::Installed, PluginAction::Disable) => {
                 let updated = set_state(tx, plugin_uuid, PluginState::Disabled)?;
                 log_lifecycle(tx, &updated, &action, prior, actor)?;
-                Ok(ActionOutcome::StateChanged { plugin: updated, prior_state: prior })
+                Ok(ActionOutcome::StateChanged {
+                    plugin: updated,
+                    prior_state: prior,
+                })
             }
             (PluginState::Disabled, PluginAction::Enable) => {
                 let updated = set_state(tx, plugin_uuid, PluginState::Installed)?;
                 log_lifecycle(tx, &updated, &action, prior, actor)?;
-                Ok(ActionOutcome::StateChanged { plugin: updated, prior_state: prior })
+                Ok(ActionOutcome::StateChanged {
+                    plugin: updated,
+                    prior_state: prior,
+                })
             }
 
             // ----- Quarantine -----
@@ -199,12 +208,18 @@ pub fn apply(
             | (PluginState::Disabled, PluginAction::Quarantine { .. }) => {
                 let updated = set_state(tx, plugin_uuid, PluginState::Quarantined)?;
                 log_lifecycle(tx, &updated, &action, prior, actor)?;
-                Ok(ActionOutcome::StateChanged { plugin: updated, prior_state: prior })
+                Ok(ActionOutcome::StateChanged {
+                    plugin: updated,
+                    prior_state: prior,
+                })
             }
             (PluginState::Quarantined, PluginAction::RestoreFromQuarantine) => {
                 let updated = set_state(tx, plugin_uuid, PluginState::Installed)?;
                 log_lifecycle(tx, &updated, &action, prior, actor)?;
-                Ok(ActionOutcome::StateChanged { plugin: updated, prior_state: prior })
+                Ok(ActionOutcome::StateChanged {
+                    plugin: updated,
+                    prior_state: prior,
+                })
             }
 
             // ----- Uninstall (preserve) -----
@@ -213,7 +228,10 @@ pub fn apply(
             | (PluginState::Quarantined, PluginAction::UninstallPreserve) => {
                 let updated = set_state(tx, plugin_uuid, PluginState::Uninstalled)?;
                 log_lifecycle(tx, &updated, &action, prior, actor)?;
-                Ok(ActionOutcome::StateChanged { plugin: updated, prior_state: prior })
+                Ok(ActionOutcome::StateChanged {
+                    plugin: updated,
+                    prior_state: prior,
+                })
             }
 
             // ----- Uninstall (cascade) -----
@@ -248,7 +266,10 @@ pub fn apply(
                     "plugin hard-deleted; in-DB audit trail removed by FK cascade"
                 );
                 plugin_repo::delete_plugin_by_uuid(tx, plugin_uuid)?;
-                Ok(ActionOutcome::Deleted { uuid: plugin_uuid, name })
+                Ok(ActionOutcome::Deleted {
+                    uuid: plugin_uuid,
+                    name,
+                })
             }
 
             // ----- Reinstall (signer continuity) -----
@@ -264,7 +285,10 @@ pub fn apply(
                 }
                 let updated = set_state(tx, plugin_uuid, PluginState::Installed)?;
                 log_lifecycle(tx, &updated, &action, prior, actor)?;
-                Ok(ActionOutcome::StateChanged { plugin: updated, prior_state: prior })
+                Ok(ActionOutcome::StateChanged {
+                    plugin: updated,
+                    prior_state: prior,
+                })
             }
 
             // ----- Everything else is a refused transition -----
@@ -285,7 +309,11 @@ fn set_state(
         state: Some(new_state),
         ..Default::default()
     };
-    Ok(plugin_repo::update_plugin_by_uuid(conn, plugin_uuid, update)?)
+    Ok(plugin_repo::update_plugin_by_uuid(
+        conn,
+        plugin_uuid,
+        update,
+    )?)
 }
 
 fn log_lifecycle(
@@ -298,7 +326,12 @@ fn log_lifecycle(
     // A compact `lifecycle:<Action>` audit verb keeps the activity
     // table greppable. Detail goes in the `details` JSON for
     // structured tooling later.
-    let summary = format!("lifecycle:{} ({} -> {})", action.name(), prior, plugin.state);
+    let summary = format!(
+        "lifecycle:{} ({} -> {})",
+        action.name(),
+        prior,
+        plugin.state
+    );
     let details = serde_json::json!({
         "action": action.name(),
         "from": prior,
@@ -372,11 +405,15 @@ mod tests {
         vec![
             PluginAction::Disable,
             PluginAction::Enable,
-            PluginAction::Quarantine { reason: QuarantineReason::PolicyViolation },
+            PluginAction::Quarantine {
+                reason: QuarantineReason::PolicyViolation,
+            },
             PluginAction::RestoreFromQuarantine,
             PluginAction::UninstallPreserve,
             PluginAction::UninstallCascade,
-            PluginAction::Reinstall { signer_pubkey: Some("pk".into()) },
+            PluginAction::Reinstall {
+                signer_pubkey: Some("pk".into()),
+            },
         ]
     }
 
@@ -526,7 +563,10 @@ mod integration_tests {
         )
         .expect("Installed -> Quarantined must succeed");
         match outcome {
-            ActionOutcome::StateChanged { plugin, prior_state } => {
+            ActionOutcome::StateChanged {
+                plugin,
+                prior_state,
+            } => {
                 assert_eq!(prior_state, PluginState::Installed);
                 assert_eq!(plugin.state, PluginState::Quarantined);
             }
@@ -553,7 +593,10 @@ mod integration_tests {
         )
         .expect("Quarantined -> UninstallPreserve must succeed");
         match outcome {
-            ActionOutcome::StateChanged { plugin, prior_state } => {
+            ActionOutcome::StateChanged {
+                plugin,
+                prior_state,
+            } => {
                 assert_eq!(prior_state, PluginState::Quarantined);
                 assert_eq!(plugin.state, PluginState::Uninstalled);
             }
@@ -589,13 +632,8 @@ mod integration_tests {
         )
         .expect("Installed -> UninstallPreserve must succeed");
 
-        let outcome = apply(
-            &mut conn,
-            plugin.uuid,
-            PluginAction::UninstallCascade,
-            None,
-        )
-        .expect("Uninstalled -> UninstallCascade must succeed");
+        let outcome = apply(&mut conn, plugin.uuid, PluginAction::UninstallCascade, None)
+            .expect("Uninstalled -> UninstallCascade must succeed");
 
         match outcome {
             ActionOutcome::Deleted { name, .. } => {

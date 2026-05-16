@@ -188,8 +188,13 @@ impl ChannelRegistry {
             }
         });
 
-        self.workers
-            .insert(channel_id, WorkerHandle { task, stop: stop_tx });
+        self.workers.insert(
+            channel_id,
+            WorkerHandle {
+                task,
+                stop: stop_tx,
+            },
+        );
         info!(channel = channel_id, "channel worker started");
         Ok(())
     }
@@ -234,10 +239,7 @@ pub fn build_pull_adapter(
 ) -> Result<Box<dyn PullAdapter>, StartError> {
     match channel.provider.as_str() {
         "email_imap" => {
-            let email = deps
-                .email
-                .clone()
-                .ok_or(StartError::MissingEmailService)?;
+            let email = deps.email.clone().ok_or(StartError::MissingEmailService)?;
             let adapter = build_email_imap_adapter(channel, email, deps.pool.clone())
                 .map_err(StartError::BadConfig)?;
             Ok(Box::new(adapter))
@@ -692,9 +694,12 @@ mod tests {
             serde_json::from_value(refreshed.runtime_state).unwrap_or_default();
         assert!(state.last_error.is_none(), "expected last_error cleared");
         // And the pipeline actually wrote the message.
-        let recorded = channels_repo::find_by_external_id(&mut conn, channel.id, "<evt-1@x>")
-            .unwrap();
-        assert!(recorded.is_some(), "pipeline should have persisted the event");
+        let recorded =
+            channels_repo::find_by_external_id(&mut conn, channel.id, "<evt-1@x>").unwrap();
+        assert!(
+            recorded.is_some(),
+            "pipeline should have persisted the event"
+        );
     }
 
     #[tokio::test]
@@ -845,12 +850,16 @@ mod tests {
             PollOutcome::Ok
         );
         let mut conn = pool.get().unwrap();
-        assert!(channels_repo::find_by_external_id(&mut conn, channel.id, "<evt-2@x>")
-            .unwrap()
-            .is_some());
-        assert!(channels_repo::find_by_external_id(&mut conn, channel.id, "<evt-3@x>")
-            .unwrap()
-            .is_some());
+        assert!(
+            channels_repo::find_by_external_id(&mut conn, channel.id, "<evt-2@x>")
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            channels_repo::find_by_external_id(&mut conn, channel.id, "<evt-3@x>")
+                .unwrap()
+                .is_some()
+        );
     }
 
     // Assertion helper to keep UserRole imported — prevents unused-import

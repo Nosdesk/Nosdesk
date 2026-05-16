@@ -59,9 +59,17 @@ pub fn set_actor(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<(
 
     set_config(conn, "app.actor_uuid", &actor_uuid)?;
     set_config(conn, "app.actor_kind", actor.kind.as_str())?;
-    set_config(conn, "app.actor_ref", actor.reference.as_deref().unwrap_or(""))?;
+    set_config(
+        conn,
+        "app.actor_ref",
+        actor.reference.as_deref().unwrap_or(""),
+    )?;
     set_config(conn, "app.correlation_id", &correlation_id)?;
-    set_config(conn, "app.client_tx_id", actor.client_tx_id.as_deref().unwrap_or(""))?;
+    set_config(
+        conn,
+        "app.client_tx_id",
+        actor.client_tx_id.as_deref().unwrap_or(""),
+    )?;
     Ok(())
 }
 
@@ -133,7 +141,10 @@ mod tests {
         let actor = ActorContext::user(user_uuid, Some(correlation_id));
 
         with_actor_context(&mut conn, &actor, |conn| {
-            assert_eq!(read_guc(conn, "app.actor_uuid"), Some(user_uuid.to_string()));
+            assert_eq!(
+                read_guc(conn, "app.actor_uuid"),
+                Some(user_uuid.to_string())
+            );
             assert_eq!(read_guc(conn, "app.actor_kind"), Some("user".to_string()));
             assert_eq!(
                 read_guc(conn, "app.correlation_id"),
@@ -153,7 +164,10 @@ mod tests {
             // Empty string -> treated as NULL by NULLIF in the trigger
             assert_eq!(read_guc(conn, "app.actor_uuid"), None);
             assert_eq!(read_guc(conn, "app.actor_kind"), Some("system".to_string()));
-            assert_eq!(read_guc(conn, "app.actor_ref"), Some("scheduler.test".to_string()));
+            assert_eq!(
+                read_guc(conn, "app.actor_ref"),
+                Some("scheduler.test".to_string())
+            );
             Ok::<(), diesel::result::Error>(())
         })
         .expect("with_actor_context succeeded");

@@ -265,7 +265,10 @@ fn check_expectation(expected: &ExpectedReport, got: &BounceReport) -> Result<()
         if got.is_hard() != want_hard {
             return Err(format!(
                 "is_hard mismatch: expected {}, got {} (status={:?}, diag={:?})",
-                want_hard, got.is_hard(), got.status_code, got.diagnostic,
+                want_hard,
+                got.is_hard(),
+                got.status_code,
+                got.diagnostic,
             ));
         }
     }

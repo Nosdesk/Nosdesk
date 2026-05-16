@@ -96,11 +96,15 @@ pub async fn list_workspace(
         Ok(c) => c,
         Err(e) => return e,
     };
-    let states_owned: Option<Vec<String>> = query
-        .state
-        .as_deref()
-        .map(|s| s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect());
-    let states_ref: Option<Vec<&str>> = states_owned.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
+    let states_owned: Option<Vec<String>> = query.state.as_deref().map(|s| {
+        s.split(',')
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+            .collect()
+    });
+    let states_ref: Option<Vec<&str>> = states_owned
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect());
     let states_slice: Option<&[&str]> = states_ref.as_deref();
     let filter = if states_slice.is_some() {
         states_slice

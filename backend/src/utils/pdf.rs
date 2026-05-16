@@ -1,5 +1,5 @@
 use image::ImageFormat;
-use pdfium_render::prelude::{Pdfium, PdfRenderConfig, PdfPageRenderRotation};
+use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
 use std::sync::OnceLock;
 use tokio::fs;
 use tracing::{debug, error, info, warn};

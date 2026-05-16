@@ -32,10 +32,10 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::db::Pool;
-use crate::models::{
-    Channel, NewChannelMessage, SiteSettings, Ticket, CHANNEL_DIRECTION_OUTBOUND,
+use crate::models::{Channel, NewChannelMessage, SiteSettings, Ticket, CHANNEL_DIRECTION_OUTBOUND};
+use crate::repository::{
+    channels as channels_repo, site_settings as site_settings_repo, user_helpers,
 };
-use crate::repository::{channels as channels_repo, site_settings as site_settings_repo, user_helpers};
 use crate::services::channels::threading::{format_outbound_message_id, format_outbound_subject};
 use crate::utils::email::{EmailService, OutboundEmailMessage};
 
@@ -98,7 +98,10 @@ async fn send_auto_ack(
     let settings = site_settings_repo::get_site_settings(&mut conn)
         .map_err(|e| format!("load site_settings: {e}"))?;
     if !settings.channel_auto_ack_enabled {
-        debug!(ticket_id = ticket.id, "auto-ack disabled in site_settings; skipping");
+        debug!(
+            ticket_id = ticket.id,
+            "auto-ack disabled in site_settings; skipping"
+        );
         return Ok(());
     }
     if channel.provider != "email_imap" {
@@ -128,10 +131,8 @@ async fn send_auto_ack(
     let body = match settings.channel_auto_ack_template.as_deref() {
         Some(custom) => render_template(custom, &settings, ticket, &customer_name),
         None => {
-            let locale = crate::utils::locale::effective_locale(
-                inbound_locale,
-                &settings.default_locale,
-            );
+            let locale =
+                crate::utils::locale::effective_locale(inbound_locale, &settings.default_locale);
             let default_localised = crate::utils::i18n::tr_with(
                 &locale,
                 "auto-ack-default-template",
@@ -157,8 +158,7 @@ async fn send_auto_ack(
     let config: crate::services::channels::email_imap::ImapChannelConfig =
         serde_json::from_value(channel.config.clone())
             .map_err(|e| format!("parse channel.config: {e}"))?;
-    let message_id =
-        format_outbound_message_id(ticket.id, 0, &config.reply_domain);
+    let message_id = format_outbound_message_id(ticket.id, 0, &config.reply_domain);
     let subject = format_outbound_subject(ticket.id, &ticket.title);
     let references = vec![in_reply_to.to_string()];
 

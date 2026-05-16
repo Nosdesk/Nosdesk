@@ -22,9 +22,7 @@ use tracing::{info, warn};
 use crate::db::DbConnection;
 use crate::models::{Channel, NewChannelMessage, CHANNEL_DIRECTION_OUTBOUND};
 use crate::repository::channels as channels_repo;
-use crate::services::channels::email_imap::{
-    build_email_imap_adapter, ImapChannelConfig,
-};
+use crate::services::channels::email_imap::{build_email_imap_adapter, ImapChannelConfig};
 use crate::services::channels::threading::format_outbound_message_id;
 use crate::services::channels::{
     ChannelAdapter, ChannelError, OutboundContent, OutboundMessage, ThreadContext,
@@ -212,17 +210,8 @@ pub fn enqueue_for_comment(
         //   <signature>
         //   <quoted prior message>
         let body = super::reply_body::ReplyBody::from_comment(&comment);
-        let body = super::signature::append_signature_for_user(
-            &mut conn,
-            comment.user_uuid,
-            body,
-        );
-        let body = super::quote_previous::maybe_prepend_quote(
-            &mut conn,
-            &channel,
-            &ticket,
-            body,
-        );
+        let body = super::signature::append_signature_for_user(&mut conn, comment.user_uuid, body);
+        let body = super::quote_previous::maybe_prepend_quote(&mut conn, &channel, &ticket, body);
 
         // Stamp the Message-ID *once*, here, and persist it on the
         // queue row. Retries reuse the same ID; receiving MTAs and
@@ -301,9 +290,7 @@ pub fn enqueue_for_comment(
 /// escape hatch in case the queue rollout (Pass 1) needs to be
 /// reverted. New code paths must call [`enqueue_for_comment`] instead.
 /// Will be removed in Pass 2 once the queue has soaked.
-#[deprecated(
-    note = "use enqueue_for_comment; the queue is the durable replacement"
-)]
+#[deprecated(note = "use enqueue_for_comment; the queue is the durable replacement")]
 #[allow(dead_code)]
 pub fn spawn_relay_for_comment_direct_legacy(
     ticket: crate::models::Ticket,
@@ -334,17 +321,8 @@ pub fn spawn_relay_for_comment_direct_legacy(
             }
         };
         let body = super::reply_body::ReplyBody::from_comment(&comment);
-        let body = super::signature::append_signature_for_user(
-            &mut conn,
-            comment.user_uuid,
-            body,
-        );
-        let body = super::quote_previous::maybe_prepend_quote(
-            &mut conn,
-            &channel,
-            &ticket,
-            body,
-        );
+        let body = super::signature::append_signature_for_user(&mut conn, comment.user_uuid, body);
+        let body = super::quote_previous::maybe_prepend_quote(&mut conn, &channel, &ticket, body);
         let content = OutboundContent {
             body_markdown: body.text,
             body_html: Some(body.html),
@@ -377,8 +355,8 @@ mod tests {
     //! typos in channel rows and keeps the dispatch function honest.
 
     use super::*;
-    use crate::test_helpers::setup_test_connection;
     use crate::services::channels::{ExternalIdentity, OutboundContent};
+    use crate::test_helpers::setup_test_connection;
 
     fn email_service_stub() -> Arc<EmailService> {
         Arc::new(EmailService::new(crate::utils::email::EmailConfig {

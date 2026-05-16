@@ -4,9 +4,8 @@ use diesel::sql_types::{Integer, Nullable};
 
 use crate::db::DbConnection;
 use crate::models::{
-    DocumentationPage, DocumentationPageWithChildren,
-    NewDocumentationPage, DocumentationPageUpdate, PageOrder,
-    DocumentationStatus,
+    DocumentationPage, DocumentationPageUpdate, DocumentationPageWithChildren, DocumentationStatus,
+    NewDocumentationPage, PageOrder,
 };
 use crate::schema::documentation_pages;
 
@@ -29,30 +28,39 @@ pub trait DocumentationDeletedObserver: Send + Sync {
 // Get all documentation pages (excludes archived and deleted)
 pub fn get_documentation_pages(conn: &mut DbConnection) -> Result<Vec<DocumentationPage>, Error> {
     documentation_pages::table
-        .filter(documentation_pages::status.eq_any([
-            DocumentationStatus::Draft,
-            DocumentationStatus::Published,
-        ]))
+        .filter(
+            documentation_pages::status
+                .eq_any([DocumentationStatus::Draft, DocumentationStatus::Published]),
+        )
         .order_by(documentation_pages::title.asc())
         .load::<DocumentationPage>(conn)
 }
 
 // Get a specific documentation page by ID
-pub fn get_documentation_page(id: i32, conn: &mut DbConnection) -> Result<DocumentationPage, Error> {
+pub fn get_documentation_page(
+    id: i32,
+    conn: &mut DbConnection,
+) -> Result<DocumentationPage, Error> {
     documentation_pages::table
         .find(id)
         .first::<DocumentationPage>(conn)
 }
 
 // Get a documentation page by its UUID
-pub fn get_documentation_page_by_uuid(uuid: &uuid::Uuid, conn: &mut DbConnection) -> Result<DocumentationPage, Error> {
+pub fn get_documentation_page_by_uuid(
+    uuid: &uuid::Uuid,
+    conn: &mut DbConnection,
+) -> Result<DocumentationPage, Error> {
     documentation_pages::table
         .filter(documentation_pages::uuid.eq(uuid))
         .first::<DocumentationPage>(conn)
 }
 
 // Get a documentation page by its slug
-pub fn get_documentation_page_by_slug(slug: &str, conn: &mut DbConnection) -> Result<DocumentationPage, Error> {
+pub fn get_documentation_page_by_slug(
+    slug: &str,
+    conn: &mut DbConnection,
+) -> Result<DocumentationPage, Error> {
     documentation_pages::table
         .filter(documentation_pages::slug.eq(slug))
         .first::<DocumentationPage>(conn)
@@ -98,22 +106,25 @@ pub fn delete_documentation_page(
 pub fn get_top_level_pages(conn: &mut DbConnection) -> Result<Vec<DocumentationPage>, Error> {
     documentation_pages::table
         .filter(documentation_pages::parent_id.is_null())
-        .filter(documentation_pages::status.eq_any([
-            DocumentationStatus::Draft,
-            DocumentationStatus::Published,
-        ]))
+        .filter(
+            documentation_pages::status
+                .eq_any([DocumentationStatus::Draft, DocumentationStatus::Published]),
+        )
         .order_by(documentation_pages::title.asc())
         .load::<DocumentationPage>(conn)
 }
 
 // Get documentation pages by parent ID (excludes archived and deleted)
-pub fn get_pages_by_parent_id(parent_id: i32, conn: &mut DbConnection) -> Result<Vec<DocumentationPage>, Error> {
+pub fn get_pages_by_parent_id(
+    parent_id: i32,
+    conn: &mut DbConnection,
+) -> Result<Vec<DocumentationPage>, Error> {
     documentation_pages::table
         .filter(documentation_pages::parent_id.eq(parent_id))
-        .filter(documentation_pages::status.eq_any([
-            DocumentationStatus::Draft,
-            DocumentationStatus::Published,
-        ]))
+        .filter(
+            documentation_pages::status
+                .eq_any([DocumentationStatus::Draft, DocumentationStatus::Published]),
+        )
         .order_by(documentation_pages::title.asc())
         .load::<DocumentationPage>(conn)
 }
@@ -121,7 +132,10 @@ pub fn get_pages_by_parent_id(parent_id: i32, conn: &mut DbConnection) -> Result
 // Get documentation pages linked to a ticket via the page<->ticket
 // join. Both 'resolves' and 'references' link types are returned;
 // the caller can filter further if needed.
-pub fn get_documentation_pages_by_ticket_id(conn: &mut DbConnection, ticket_id_arg: i32) -> Result<Vec<DocumentationPage>, Error> {
+pub fn get_documentation_pages_by_ticket_id(
+    conn: &mut DbConnection,
+    ticket_id_arg: i32,
+) -> Result<Vec<DocumentationPage>, Error> {
     use crate::schema::documentation_page_tickets;
 
     documentation_pages::table
@@ -171,7 +185,7 @@ pub fn reorder_pages(
     // Begin transaction
     conn.transaction(|conn| {
         let mut updated_pages = Vec::new();
-        
+
         for order in page_orders {
             // Update the page's display_order and ensure it has the correct parent_id
             let updated_page = diesel::update(documentation_pages::table.find(order.page_id))
@@ -180,10 +194,10 @@ pub fn reorder_pages(
                     documentation_pages::parent_id.eq(parent_id),
                 ))
                 .get_result::<DocumentationPage>(conn)?;
-                
+
             updated_pages.push(updated_page);
         }
-        
+
         Ok(updated_pages)
     })
 }
@@ -200,10 +214,7 @@ fn is_descendant_of(
 }
 
 // Get all descendant IDs of a page recursively
-fn get_all_descendant_ids(
-    conn: &mut DbConnection,
-    page_id: i32,
-) -> Result<Vec<i32>, Error> {
+fn get_all_descendant_ids(conn: &mut DbConnection, page_id: i32) -> Result<Vec<i32>, Error> {
     let mut all_descendants = Vec::new();
     let mut pages_to_check = vec![page_id];
 
@@ -261,10 +272,7 @@ pub fn move_page_to_parent(
         // root (`new_parent_id == None`) are no-ops.
         if let Some(parent_id) = new_parent_id {
             crate::repository::documentation_collections::cascade_collection_membership(
-                conn,
-                parent_id,
-                page_id,
-                None,
+                conn, parent_id, page_id, None,
             )?;
         }
 
@@ -280,10 +288,7 @@ pub fn get_page_with_ordered_children(
     let page = get_documentation_page(page_id, conn)?;
     let children = get_ordered_pages_by_parent_id(conn, page_id)?;
 
-    Ok(DocumentationPageWithChildren {
-        page,
-        children,
-    })
+    Ok(DocumentationPageWithChildren { page, children })
 }
 
 // ============= Yjs Collaboration Methods =============
@@ -326,9 +331,7 @@ pub fn create_documentation_revision(
 
     conn.transaction(|conn| {
         // Get current revision number from the page and created_by user
-        let page: DocumentationPage = doc_dsl::documentation_pages
-            .find(page_id)
-            .first(conn)?;
+        let page: DocumentationPage = doc_dsl::documentation_pages.find(page_id).first(conn)?;
 
         // Get the latest revision number for this page
         let latest_revision: i32 = documentation_revisions::table
@@ -340,7 +343,8 @@ pub fn create_documentation_revision(
         let new_revision_number = latest_revision + 1;
 
         // Use the first contributor or the created_by from the page
-        let created_by = contributed_by.first()
+        let created_by = contributed_by
+            .first()
             .and_then(|opt_uuid| *opt_uuid)
             .unwrap_or(page.created_by);
 
@@ -409,14 +413,15 @@ pub fn sync_page_embeddings(
     source_page_id: i32,
     target_page_ids: &[i32],
 ) -> Result<(), Error> {
-    use crate::schema::documentation_page_embeddings;
     use crate::models::NewDocumentationPageEmbedding;
+    use crate::schema::documentation_page_embeddings;
 
     // Delete all existing embeddings for this source page
     diesel::delete(
         documentation_page_embeddings::table
-            .filter(documentation_page_embeddings::source_page_id.eq(source_page_id))
-    ).execute(conn)?;
+            .filter(documentation_page_embeddings::source_page_id.eq(source_page_id)),
+    )
+    .execute(conn)?;
 
     if target_page_ids.is_empty() {
         return Ok(());
@@ -452,9 +457,11 @@ pub fn get_page_visibility_overrides_batch(
     documentation_page_visibility::table
         .filter(documentation_page_visibility::page_id.eq_any(page_ids))
         .filter(documentation_page_visibility::group_id.is_not_null())
-        .inner_join(groups::table.on(
-            groups::id.nullable().eq(documentation_page_visibility::group_id),
-        ))
+        .inner_join(
+            groups::table.on(groups::id
+                .nullable()
+                .eq(documentation_page_visibility::group_id)),
+        )
         .select((
             documentation_page_visibility::page_id,
             groups::id,
@@ -478,9 +485,11 @@ pub fn get_page_user_visibility_overrides_batch(
     documentation_page_visibility::table
         .filter(documentation_page_visibility::page_id.eq_any(page_ids))
         .filter(documentation_page_visibility::user_uuid.is_not_null())
-        .inner_join(users::table.on(
-            users::uuid.nullable().eq(documentation_page_visibility::user_uuid),
-        ))
+        .inner_join(
+            users::table.on(users::uuid
+                .nullable()
+                .eq(documentation_page_visibility::user_uuid)),
+        )
         .select((
             documentation_page_visibility::page_id,
             users::uuid,
@@ -503,10 +512,7 @@ pub fn get_pages_embedding(
 }
 
 /// Get all pages that a source page embeds
-pub fn get_embedded_pages(
-    conn: &mut DbConnection,
-    source_page_id: i32,
-) -> Result<Vec<i32>, Error> {
+pub fn get_embedded_pages(conn: &mut DbConnection, source_page_id: i32) -> Result<Vec<i32>, Error> {
     use crate::schema::documentation_page_embeddings;
 
     documentation_page_embeddings::table
@@ -534,10 +540,12 @@ pub fn permanently_delete_page(id: i32, conn: &mut DbConnection) -> Result<usize
 // ===== Page Visibility (Access Control) =====
 
 use crate::models::{
-    DocumentationPageVisibility, NewDocumentationPageVisibility, Group, UserInfoWithAvatar,
+    DocumentationPageVisibility, Group, NewDocumentationPageVisibility, UserInfoWithAvatar,
 };
-use crate::schema::{documentation_page_visibility, documentation_collection_pages,
-    documentation_collection_visibility, groups};
+use crate::schema::{
+    documentation_collection_pages, documentation_collection_visibility,
+    documentation_page_visibility, groups,
+};
 
 /// Get the groups that have explicit page-level visibility for a page.
 pub fn get_visible_groups_for_page(
@@ -547,9 +555,11 @@ pub fn get_visible_groups_for_page(
     documentation_page_visibility::table
         .filter(documentation_page_visibility::page_id.eq(page_id))
         .filter(documentation_page_visibility::group_id.is_not_null())
-        .inner_join(groups::table.on(
-            groups::id.nullable().eq(documentation_page_visibility::group_id),
-        ))
+        .inner_join(
+            groups::table.on(groups::id
+                .nullable()
+                .eq(documentation_page_visibility::group_id)),
+        )
         .select(groups::all_columns)
         .load(conn)
 }
@@ -564,19 +574,28 @@ pub fn get_visible_users_for_page(
     documentation_page_visibility::table
         .filter(documentation_page_visibility::page_id.eq(page_id))
         .filter(documentation_page_visibility::user_uuid.is_not_null())
-        .inner_join(users::table.on(
-            users::uuid.nullable().eq(documentation_page_visibility::user_uuid),
+        .inner_join(
+            users::table.on(users::uuid
+                .nullable()
+                .eq(documentation_page_visibility::user_uuid)),
+        )
+        .select((
+            users::uuid,
+            users::name,
+            users::avatar_url,
+            users::avatar_thumb,
         ))
-        .select((users::uuid, users::name, users::avatar_url, users::avatar_thumb))
         .load::<(uuid::Uuid, String, Option<String>, Option<String>)>(conn)
         .map(|rows| {
             rows.into_iter()
-                .map(|(uuid, name, avatar_url, avatar_thumb)| UserInfoWithAvatar {
-                    uuid,
-                    name,
-                    avatar_url,
-                    avatar_thumb,
-                })
+                .map(
+                    |(uuid, name, avatar_url, avatar_thumb)| UserInfoWithAvatar {
+                        uuid,
+                        name,
+                        avatar_url,
+                        avatar_thumb,
+                    },
+                )
                 .collect()
         })
 }
@@ -668,7 +687,9 @@ pub fn can_user_access_page(
             .load(conn)?;
 
         let page_group_ids: Vec<i32> = page_group_ids.into_iter().flatten().collect();
-        return Ok(user_group_ids.iter().any(|uid| page_group_ids.contains(uid)));
+        return Ok(user_group_ids
+            .iter()
+            .any(|uid| page_group_ids.contains(uid)));
     }
 
     // Inherit from collections
@@ -713,7 +734,10 @@ pub fn can_user_access_page(
             .load(conn)?;
 
         let coll_group_ids: Vec<i32> = coll_group_ids.into_iter().flatten().collect();
-        if user_group_ids.iter().any(|uid| coll_group_ids.contains(uid)) {
+        if user_group_ids
+            .iter()
+            .any(|uid| coll_group_ids.contains(uid))
+        {
             return Ok(true);
         }
     }
@@ -775,7 +799,12 @@ pub fn filter_pages_for_user(
         .load(conn)?;
 
     // Collect all unique collection IDs
-    let coll_ids: Vec<i32> = page_colls.iter().map(|(_, cid)| *cid).collect::<std::collections::HashSet<_>>().into_iter().collect();
+    let coll_ids: Vec<i32> = page_colls
+        .iter()
+        .map(|(_, cid)| *cid)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
 
     // 4. All collection-level visibility for those collections (groups)
     let coll_vis_groups: Vec<(i32, Option<i32>)> = if !coll_ids.is_empty() {
@@ -863,53 +892,56 @@ pub fn filter_pages_for_user(
     let user_groups_set: HashSet<i32> = user_group_ids.into_iter().collect();
 
     // Filter
-    let filtered = pages.into_iter().filter(|page| {
-        // Page-level override?
-        if pages_with_override_set.contains(&page.id) {
-            // Check direct user grant
-            if let Some(pg_users) = page_override_users.get(&page.id) {
-                if pg_users.contains(user_uuid) {
+    let filtered = pages
+        .into_iter()
+        .filter(|page| {
+            // Page-level override?
+            if pages_with_override_set.contains(&page.id) {
+                // Check direct user grant
+                if let Some(pg_users) = page_override_users.get(&page.id) {
+                    if pg_users.contains(user_uuid) {
+                        return true;
+                    }
+                }
+                // Check group grant
+                if let Some(pg_groups) = page_override_groups.get(&page.id) {
+                    if pg_groups.iter().any(|g| user_groups_set.contains(g)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // Inherit from collections
+            let colls = match page_to_colls.get(&page.id) {
+                Some(c) => c,
+                None => return true, // no collections → public
+            };
+
+            for cid in colls {
+                if !colls_with_vis_set.contains(cid) {
+                    // Collection has no visibility entries → public
                     return true;
                 }
-            }
-            // Check group grant
-            if let Some(pg_groups) = page_override_groups.get(&page.id) {
-                if pg_groups.iter().any(|g| user_groups_set.contains(g)) {
-                    return true;
+
+                // Check direct user grant on collection
+                if let Some(cu) = coll_to_users.get(cid) {
+                    if cu.contains(user_uuid) {
+                        return true;
+                    }
                 }
-            }
-            return false;
-        }
 
-        // Inherit from collections
-        let colls = match page_to_colls.get(&page.id) {
-            Some(c) => c,
-            None => return true, // no collections → public
-        };
-
-        for cid in colls {
-            if !colls_with_vis_set.contains(cid) {
-                // Collection has no visibility entries → public
-                return true;
-            }
-
-            // Check direct user grant on collection
-            if let Some(cu) = coll_to_users.get(cid) {
-                if cu.contains(user_uuid) {
-                    return true;
+                // Check group grant on collection
+                if let Some(cg) = coll_to_groups.get(cid) {
+                    if cg.iter().any(|g| user_groups_set.contains(g)) {
+                        return true;
+                    }
                 }
             }
 
-            // Check group grant on collection
-            if let Some(cg) = coll_to_groups.get(cid) {
-                if cg.iter().any(|g| user_groups_set.contains(g)) {
-                    return true;
-                }
-            }
-        }
-
-        false
-    }).collect();
+            false
+        })
+        .collect();
 
     Ok(filtered)
 }

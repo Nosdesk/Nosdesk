@@ -71,9 +71,7 @@ pub async fn push(
 ) -> impl Responder {
     let body = body.into_inner();
     if body.len() > MAX_BATCH {
-        return errors::bad_request(&format!(
-            "Batch exceeds the {MAX_BATCH}-transaction limit"
-        ));
+        return errors::bad_request(&format!("Batch exceeds the {MAX_BATCH}-transaction limit"));
     }
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -195,10 +193,12 @@ fn apply_ticket(
     tx: &PushTransaction,
     actor: &ActorContext,
 ) -> Result<i64, TxReject> {
-    let ticket_id: i32 = tx
-        .model_id
-        .parse()
-        .map_err(|_| TxReject("invalid_model_id", format!("expected i32, got {}", tx.model_id)))?;
+    let ticket_id: i32 = tx.model_id.parse().map_err(|_| {
+        TxReject(
+            "invalid_model_id",
+            format!("expected i32, got {}", tx.model_id),
+        )
+    })?;
 
     match tx.op {
         SyncOp::Update => {
@@ -250,10 +250,12 @@ fn apply_project(
     tx: &PushTransaction,
     actor: &ActorContext,
 ) -> Result<i64, TxReject> {
-    let project_id: i32 = tx
-        .model_id
-        .parse()
-        .map_err(|_| TxReject("invalid_model_id", format!("expected i32, got {}", tx.model_id)))?;
+    let project_id: i32 = tx.model_id.parse().map_err(|_| {
+        TxReject(
+            "invalid_model_id",
+            format!("expected i32, got {}", tx.model_id),
+        )
+    })?;
 
     match tx.op {
         SyncOp::Update => {

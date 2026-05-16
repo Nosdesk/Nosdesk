@@ -1,10 +1,10 @@
 use lettre::{
-    Message, SmtpTransport, Transport,
     message::{
         header::{ContentType, Header, HeaderName, HeaderValue, InReplyTo, MessageId, References},
         Mailbox, MultiPart,
     },
     transport::smtp::authentication::Credentials,
+    Message, SmtpTransport, Transport,
 };
 
 /// `Auto-Submitted` header (RFC 3834 §5). Set on any system-authored
@@ -52,10 +52,10 @@ use std::str::FromStr;
 /// Simple HTML escaping for email content to prevent XSS
 fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
-     .replace('\'', "&#x27;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }
 
 /// Branding configuration for email templates
@@ -73,14 +73,20 @@ impl Default for EmailBranding {
             app_name: "Nosdesk".to_string(),
             logo_url: None,
             primary_color: "#2563eb".to_string(),
-            base_url: env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            base_url: env::var("FRONTEND_URL")
+                .unwrap_or_else(|_| "http://localhost:3000".to_string()),
         }
     }
 }
 
 impl EmailBranding {
     /// Create branding config from site settings
-    pub fn new(app_name: String, logo_url: Option<String>, primary_color: Option<String>, base_url: String) -> Self {
+    pub fn new(
+        app_name: String,
+        logo_url: Option<String>,
+        primary_color: Option<String>,
+        base_url: String,
+    ) -> Self {
         Self {
             app_name,
             logo_url,
@@ -420,22 +426,21 @@ impl EmailConfig {
             });
         }
 
-        let smtp_host = env::var("SMTP_HOST")
-            .map_err(|_| "SMTP_HOST not configured".to_string())?;
+        let smtp_host =
+            env::var("SMTP_HOST").map_err(|_| "SMTP_HOST not configured".to_string())?;
 
         let smtp_port = env::var("SMTP_PORT")
             .unwrap_or_else(|_| "587".to_string())
             .parse::<u16>()
             .map_err(|_| "Invalid SMTP_PORT".to_string())?;
 
-        let smtp_username = env::var("SMTP_USERNAME")
-            .map_err(|_| "SMTP_USERNAME not configured".to_string())?;
+        let smtp_username =
+            env::var("SMTP_USERNAME").map_err(|_| "SMTP_USERNAME not configured".to_string())?;
 
-        let smtp_password = env::var("SMTP_PASSWORD")
-            .map_err(|_| "SMTP_PASSWORD not configured".to_string())?;
+        let smtp_password =
+            env::var("SMTP_PASSWORD").map_err(|_| "SMTP_PASSWORD not configured".to_string())?;
 
-        let from_name = env::var("SMTP_FROM_NAME")
-            .unwrap_or_else(|_| "Nosdesk".to_string());
+        let from_name = env::var("SMTP_FROM_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
 
         let from_email = env::var("SMTP_FROM_EMAIL")
             .or_else(|_| env::var("SMTP_USERNAME"))
@@ -534,17 +539,13 @@ impl EmailService {
     }
 
     /// Send a simple text email
-    pub async fn send_text_email(
-        &self,
-        to: &str,
-        subject: &str,
-        body: &str,
-    ) -> Result<(), String> {
+    pub async fn send_text_email(&self, to: &str, subject: &str, body: &str) -> Result<(), String> {
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
         }
 
-        let to_mailbox: Mailbox = to.parse()
+        let to_mailbox: Mailbox = to
+            .parse()
             .map_err(|e| format!("Invalid recipient email: {e}"))?;
 
         let email = Message::builder()
@@ -557,7 +558,8 @@ impl EmailService {
 
         let mailer = self.build_transport()?;
 
-        mailer.send(&email)
+        mailer
+            .send(&email)
             .map_err(|e| format!("Failed to send email: {e}"))?;
 
         Ok(())
@@ -574,7 +576,8 @@ impl EmailService {
             return Err("Email is not configured".to_string());
         }
 
-        let to_mailbox: Mailbox = to.parse()
+        let to_mailbox: Mailbox = to
+            .parse()
             .map_err(|e| format!("Invalid recipient email: {e}"))?;
 
         let email = Message::builder()
@@ -587,7 +590,8 @@ impl EmailService {
 
         let mailer = self.build_transport()?;
 
-        mailer.send(&email)
+        mailer
+            .send(&email)
             .map_err(|e| format!("Failed to send email: {e}"))?;
 
         Ok(())
@@ -649,10 +653,7 @@ impl EmailService {
             "password-reset-greeting",
             &[("name", name_html.clone().into())],
         );
-        let intro = tr(
-            "password-reset-intro",
-            &[("app", app_html.clone().into())],
-        );
+        let intro = tr("password-reset-intro", &[("app", app_html.clone().into())]);
         let action_prompt = tr("password-reset-action-prompt", &[]);
         let title = tr("password-reset-title", &[]);
         let cta_label = tr("password-reset-cta-label", &[]);
@@ -726,9 +727,8 @@ impl EmailService {
             return Err("Email is not configured".to_string());
         }
 
-        let (subject, html_body, _text_body) = self.compose_password_reset(
-            user_name, reset_token, branding, locale,
-        );
+        let (subject, html_body, _text_body) =
+            self.compose_password_reset(user_name, reset_token, branding, locale);
         self.send_html_email(to, &subject, &html_body).await
     }
 
@@ -746,9 +746,8 @@ impl EmailService {
             return Err("Email is not configured".to_string());
         }
 
-        let (subject, html_body, _text_body) = self.compose_invitation(
-            user_name, invitation_token, branding, invited_by, locale,
-        );
+        let (subject, html_body, _text_body) =
+            self.compose_invitation(user_name, invitation_token, branding, invited_by, locale);
         self.send_html_email(to, &subject, &html_body).await
     }
 
@@ -762,7 +761,10 @@ impl EmailService {
         invited_by: &str,
         locale: &unic_langid::LanguageIdentifier,
     ) -> (String, String, String) {
-        let setup_link = format!("{}/accept-invitation?token={}", branding.base_url, invitation_token);
+        let setup_link = format!(
+            "{}/accept-invitation?token={}",
+            branding.base_url, invitation_token
+        );
         let template = EmailTemplate::new(branding);
         let tr = |key: &str, args: &[(&str, fluent_bundle::FluentValue<'static>)]| {
             crate::utils::i18n::tr_with(locale, key, args)
@@ -861,9 +863,9 @@ impl EmailService {
         // Guest confirmation predates the inbound-locale plumbing.
         // Fall back to DEFAULT_LOCALE; once guest channels carry an
         // Accept-Language hint we can thread it through.
-        let locale = unic_langid::LanguageIdentifier::from_str(
-            crate::utils::locale::DEFAULT_LOCALE,
-        ).expect("DEFAULT_LOCALE parses");
+        let locale =
+            unic_langid::LanguageIdentifier::from_str(crate::utils::locale::DEFAULT_LOCALE)
+                .expect("DEFAULT_LOCALE parses");
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
         }
@@ -1012,9 +1014,8 @@ impl EmailService {
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
         }
-        let (html_body, _text_body) = self.compose_notification(
-            title, body, actor_name, cta_url, branding, locale,
-        );
+        let (html_body, _text_body) =
+            self.compose_notification(title, body, actor_name, cta_url, branding, locale);
         self.send_html_email(to, subject, &html_body).await
     }
 
@@ -1263,10 +1264,12 @@ mod tests {
             message_id: "ticket-1.comment-1.aa@host",
             in_reply_to: None,
             references: &[],
-                auto_submitted: false,
+            auto_submitted: false,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let err = rt.block_on(disabled.send_ticket_reply(outbound)).unwrap_err();
+        let err = rt
+            .block_on(disabled.send_ticket_reply(outbound))
+            .unwrap_err();
         assert!(err.contains("not configured"), "unexpected error: {err}");
     }
 }

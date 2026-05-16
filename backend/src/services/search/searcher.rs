@@ -12,7 +12,7 @@ use tracing::{debug, warn};
 const MIN_PREFIX_QUERY_LEN: usize = 2;
 
 use super::schema::SearchSchema;
-use super::types::{EntityType, SearchResult, SearchResponse};
+use super::types::{EntityType, SearchResponse, SearchResult};
 
 /// Execute a search query against the index
 ///
@@ -46,15 +46,15 @@ pub fn execute_search(
     // Convert results
     let results: Vec<SearchResult> = top_docs
         .into_iter()
-        .filter_map(|(score, doc_address)| {
-            match searcher.doc::<TantivyDocument>(doc_address) {
+        .filter_map(
+            |(score, doc_address)| match searcher.doc::<TantivyDocument>(doc_address) {
                 Ok(doc) => Some(document_to_result(&doc, schema, score)),
                 Err(e) => {
                     warn!(error = ?e, "Failed to retrieve document");
                     None
                 }
-            }
-        })
+            },
+        )
         .collect();
 
     let took_ms = start_time.elapsed().as_millis() as u64;
@@ -113,7 +113,8 @@ fn build_search_query(
                 .iter()
                 .map(|t| {
                     let term = tantivy::Term::from_field_text(schema.entity_type, t.as_str());
-                    let q: Box<dyn Query> = Box::new(TermQuery::new(term, IndexRecordOption::Basic));
+                    let q: Box<dyn Query> =
+                        Box::new(TermQuery::new(term, IndexRecordOption::Basic));
                     (Occur::Should, q)
                 })
                 .collect();
@@ -228,8 +229,7 @@ fn document_to_result(doc: &TantivyDocument, schema: &SearchSchema, score: f32) 
     let is_internal_raw = get_i64(schema.is_internal);
 
     let updated_at_str = if updated_at > 0 {
-        chrono::DateTime::from_timestamp(updated_at, 0)
-            .map(|dt| dt.to_rfc3339())
+        chrono::DateTime::from_timestamp(updated_at, 0).map(|dt| dt.to_rfc3339())
     } else {
         None
     };

@@ -1,8 +1,8 @@
-use diesel::prelude::*;
-use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::{SiteSettings, UpdateSiteSettings};
 use crate::schema::site_settings;
+use diesel::prelude::*;
+use uuid::Uuid;
 
 /// Get site settings (always returns the single row, id=1)
 pub fn get_site_settings(conn: &mut DbConnection) -> QueryResult<SiteSettings> {
@@ -64,8 +64,8 @@ pub fn update_favicon_url(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::setup_test_connection;
     use crate::models::UpdateSiteSettings;
+    use crate::test_helpers::setup_test_connection;
 
     #[test]
     fn get_site_settings_returns_row() {

@@ -8,10 +8,8 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
+use crate::handlers::helpers;
 use crate::models::{
     Claims, CollectionListResponse, CollectionQueryParams, CollectionRowResponse,
     CollectionSchemaResponse, CreateCollectionRowRequest, NewPluginCollectionRow,
@@ -20,6 +18,8 @@ use crate::models::{
 use crate::repository::plugin_collections as collection_repo;
 use crate::repository::plugins as plugin_repo;
 use crate::services::plugins::validation;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 
 /// Path params: /plugins/{uuid}/collections/{name}
 #[derive(serde::Deserialize)]
@@ -88,8 +88,7 @@ pub async fn list_collections(
     let responses: Vec<CollectionSchemaResponse> = schemas
         .into_iter()
         .map(|s| {
-            let row_count =
-                collection_repo::count_rows_by_schema(&mut conn, s.id).unwrap_or(0);
+            let row_count = collection_repo::count_rows_by_schema(&mut conn, s.id).unwrap_or(0);
             CollectionSchemaResponse {
                 uuid: s.uuid,
                 collection_name: s.collection_name,
@@ -131,9 +130,7 @@ pub async fn get_collection_schema(
 
     let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
         Ok(s) => s,
-        Err(DieselError::NotFound) => {
-            return errors::not_found_msg("Collection not found")
-        }
+        Err(DieselError::NotFound) => return errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
             return errors::internal("Failed to get collection");
@@ -184,9 +181,7 @@ pub async fn list_collection_rows(
 
     let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
         Ok(s) => s,
-        Err(DieselError::NotFound) => {
-            return errors::not_found_msg("Collection not found")
-        }
+        Err(DieselError::NotFound) => return errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
             return errors::internal("Failed to get collection");
@@ -197,9 +192,10 @@ pub async fn list_collection_rows(
     let offset = helpers::clamp_offset(query.offset);
 
     // Parse filter JSON if provided
-    let filter_json = query.filter.as_ref().and_then(|f| {
-        serde_json::from_str(f).ok()
-    });
+    let filter_json = query
+        .filter
+        .as_ref()
+        .and_then(|f| serde_json::from_str(f).ok());
 
     let (rows, total) = match collection_repo::list_rows(
         &mut conn,
@@ -252,9 +248,7 @@ pub async fn create_collection_row(
 
     let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
         Ok(s) => s,
-        Err(DieselError::NotFound) => {
-            return errors::not_found_msg("Collection not found")
-        }
+        Err(DieselError::NotFound) => return errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
             return errors::internal("Failed to get collection");
@@ -262,7 +256,9 @@ pub async fn create_collection_row(
     };
 
     // Parse the collection definition from the schema for validation
-    if let Ok(definition) = serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone()) {
+    if let Ok(definition) =
+        serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone())
+    {
         if let Err(e) = validation::validate_row_data(&body.data, &definition) {
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "error": i18n::tr(&request_locale(&req), "backend-error-validation"),
@@ -351,9 +347,7 @@ pub async fn update_collection_row(
 
     let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
         Ok(s) => s,
-        Err(DieselError::NotFound) => {
-            return errors::not_found_msg("Collection not found")
-        }
+        Err(DieselError::NotFound) => return errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
             return errors::internal("Failed to get collection");
@@ -361,7 +355,9 @@ pub async fn update_collection_row(
     };
 
     // Validate updated data
-    if let Ok(definition) = serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone()) {
+    if let Ok(definition) =
+        serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone())
+    {
         if let Err(e) = validation::validate_row_data(&body.data, &definition) {
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "error": i18n::tr(&request_locale(&req), "backend-error-validation"),

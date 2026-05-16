@@ -38,19 +38,14 @@ use crate::schema::user_auth_identities;
 static DUMMY_HASH: LazyLock<String> = LazyLock::new(|| {
     let mut secret = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut secret);
-    hash(&secret[..], DEFAULT_COST)
-        .expect("dummy bcrypt hash generation must succeed at startup")
+    hash(&secret[..], DEFAULT_COST).expect("dummy bcrypt hash generation must succeed at startup")
 });
 
 /// Returns the authenticated `User` when the email exists, has a
 /// local password hash, and the supplied password verifies. Runs
 /// `bcrypt::verify` against a dummy hash on every other path so
 /// the wall-clock cost is the same.
-pub fn verify_credentials(
-    conn: &mut DbConnection,
-    email: &str,
-    password: &str,
-) -> Option<User> {
+pub fn verify_credentials(conn: &mut DbConnection, email: &str, password: &str) -> Option<User> {
     let (hash_to_check, candidate_user) = match lookup_user_and_hash(conn, email) {
         Some((user, hash)) => (hash, Some(user)),
         None => ((*DUMMY_HASH).clone(), None),
@@ -108,7 +103,13 @@ mod tests {
         let h = LazyLock::force(&DUMMY_HASH);
         // The dummy plaintext is 32 random bytes generated at
         // process start; no attacker-supplied string verifies.
-        for candidate in ["", "password", "hunter2", "admin", "correct horse battery staple"] {
+        for candidate in [
+            "",
+            "password",
+            "hunter2",
+            "admin",
+            "correct horse battery staple",
+        ] {
             assert!(
                 !verify(candidate, h).unwrap_or(false),
                 "dummy hash should reject {candidate:?}"

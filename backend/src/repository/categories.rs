@@ -20,7 +20,9 @@ pub fn get_all_categories(conn: &mut DbConnection) -> QueryResult<Vec<TicketCate
 }
 
 /// Get all categories with visibility information (for admin)
-pub fn get_all_categories_with_visibility(conn: &mut DbConnection) -> Result<Vec<CategoryWithVisibility>, Error> {
+pub fn get_all_categories_with_visibility(
+    conn: &mut DbConnection,
+) -> Result<Vec<CategoryWithVisibility>, Error> {
     let all_categories = ticket_categories::table
         .order(ticket_categories::display_order.asc())
         .load::<TicketCategory>(conn)?;
@@ -42,12 +44,18 @@ pub fn get_all_categories_with_visibility(conn: &mut DbConnection) -> Result<Vec
 }
 
 /// Get a category by ID
-pub fn get_category_by_id(conn: &mut DbConnection, category_id: i32) -> QueryResult<TicketCategory> {
+pub fn get_category_by_id(
+    conn: &mut DbConnection,
+    category_id: i32,
+) -> QueryResult<TicketCategory> {
     ticket_categories::table.find(category_id).first(conn)
 }
 
 /// Get a category with visibility information
-pub fn get_category_with_visibility(conn: &mut DbConnection, category_id: i32) -> Result<CategoryWithVisibility, Error> {
+pub fn get_category_with_visibility(
+    conn: &mut DbConnection,
+    category_id: i32,
+) -> Result<CategoryWithVisibility, Error> {
     let category = ticket_categories::table
         .find(category_id)
         .first::<TicketCategory>(conn)?;
@@ -63,7 +71,10 @@ pub fn get_category_with_visibility(conn: &mut DbConnection, category_id: i32) -
 }
 
 /// Create a new category
-pub fn create_category(conn: &mut DbConnection, new_category: NewTicketCategory) -> QueryResult<TicketCategory> {
+pub fn create_category(
+    conn: &mut DbConnection,
+    new_category: NewTicketCategory,
+) -> QueryResult<TicketCategory> {
     diesel::insert_into(ticket_categories::table)
         .values(&new_category)
         .get_result(conn)
@@ -113,30 +124,48 @@ pub fn seed_defaults_if_empty(
 ) -> QueryResult<usize> {
     use diesel::dsl::count_star;
 
-    let existing: i64 = ticket_categories::table
-        .select(count_star())
-        .first(conn)?;
+    let existing: i64 = ticket_categories::table.select(count_star()).first(conn)?;
     if existing > 0 {
         return Ok(0);
     }
 
     let defaults = [
-        ("Support", Some("General help requests"), Some("#3b82f6"), Some("question"), 0),
-        ("Bug", Some("Defect reports"), Some("#ef4444"), Some("bug"), 1),
-        ("Feature request", Some("Enhancement ideas"), Some("#8b5cf6"), Some("lightbulb"), 2),
+        (
+            "Support",
+            Some("General help requests"),
+            Some("#3b82f6"),
+            Some("question"),
+            0,
+        ),
+        (
+            "Bug",
+            Some("Defect reports"),
+            Some("#ef4444"),
+            Some("bug"),
+            1,
+        ),
+        (
+            "Feature request",
+            Some("Enhancement ideas"),
+            Some("#8b5cf6"),
+            Some("lightbulb"),
+            2,
+        ),
     ];
 
     let rows: Vec<NewTicketCategory> = defaults
         .into_iter()
-        .map(|(name, description, color, icon, display_order)| NewTicketCategory {
-            name: name.to_string(),
-            description: description.map(|s| s.to_string()),
-            color: color.map(|s| s.to_string()),
-            icon: icon.map(|s| s.to_string()),
-            display_order,
-            is_active: true,
-            created_by,
-        })
+        .map(
+            |(name, description, color, icon, display_order)| NewTicketCategory {
+                name: name.to_string(),
+                description: description.map(|s| s.to_string()),
+                color: color.map(|s| s.to_string()),
+                icon: icon.map(|s| s.to_string()),
+                display_order,
+                is_active: true,
+                created_by,
+            },
+        )
         .collect();
 
     diesel::insert_into(ticket_categories::table)
@@ -173,7 +202,10 @@ pub fn update_category_orders(
 // ============================================================================
 
 /// Get groups that can see a category
-pub fn get_visible_groups_for_category(conn: &mut DbConnection, category_id: i32) -> QueryResult<Vec<Group>> {
+pub fn get_visible_groups_for_category(
+    conn: &mut DbConnection,
+    category_id: i32,
+) -> QueryResult<Vec<Group>> {
     category_group_visibility::table
         .filter(category_group_visibility::category_id.eq(category_id))
         .inner_join(groups::table)
@@ -192,8 +224,9 @@ pub fn set_category_visibility(
     // Delete all existing visibility entries
     diesel::delete(
         category_group_visibility::table
-            .filter(category_group_visibility::category_id.eq(category_id))
-    ).execute(conn)?;
+            .filter(category_group_visibility::category_id.eq(category_id)),
+    )
+    .execute(conn)?;
 
     // If no groups specified, the category becomes public (visible to all)
     if group_ids.is_empty() {
@@ -235,7 +268,8 @@ pub fn get_categories_for_user(
     }
 
     // Get user's group IDs
-    let user_group_ids: Vec<i32> = crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
+    let user_group_ids: Vec<i32> =
+        crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
 
     // Get all active categories
     let all_categories = ticket_categories::table
@@ -260,7 +294,9 @@ pub fn get_categories_for_user(
         }
 
         // Check if user is in any of the allowed groups
-        let has_access = user_group_ids.iter().any(|id| category_group_ids.contains(id));
+        let has_access = user_group_ids
+            .iter()
+            .any(|id| category_group_ids.contains(id));
         if has_access {
             visible_categories.push(category);
         }
@@ -292,17 +328,20 @@ pub fn can_user_see_category(
     }
 
     // Get user's group IDs
-    let user_group_ids: Vec<i32> = crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
+    let user_group_ids: Vec<i32> =
+        crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
 
     // Check if user is in any of the allowed groups
-    Ok(user_group_ids.iter().any(|id| category_group_ids.contains(id)))
+    Ok(user_group_ids
+        .iter()
+        .any(|id| category_group_ids.contains(id)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn public_category_visible_to_any_user() {

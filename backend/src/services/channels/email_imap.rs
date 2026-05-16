@@ -35,11 +35,11 @@ use futures::TryStreamExt;
 
 use crate::models::CRED_TYPE_IMAP_PASSWORD;
 use crate::repository::channels as channels_repo;
+use crate::services::channels::threading::format_outbound_message_id;
 use crate::services::channels::{
     ChannelAdapter, ChannelError, ExternalIdentity, InboundAttachment, InboundEvent,
     InboundMessage, LoopMarkers, OutboundContent, OutboundMessage, PullAdapter, ThreadContext,
 };
-use crate::services::channels::threading::format_outbound_message_id;
 use crate::utils::email::{EmailService, OutboundEmailMessage};
 
 // ---------- Persistence shapes ----------
@@ -211,14 +211,15 @@ pub fn build_email_imap_adapter(
     config.validate()?;
     let state: ImapRuntimeState =
         serde_json::from_value(channel.runtime_state.clone()).unwrap_or_default();
-    Ok(EmailImapAdapter::new(channel.id, config, email, pool, state))
+    Ok(EmailImapAdapter::new(
+        channel.id, config, email, pool, state,
+    ))
 }
 
 /// Authenticated IMAP session type used by both the test-connection
 /// probe and the real poll loop. Hoisted here as a type alias so the
 /// signature is one place to update when lettre/tokio-native-tls rev.
-type ImapSession =
-    async_imap::Session<tokio_native_tls::TlsStream<tokio::net::TcpStream>>;
+type ImapSession = async_imap::Session<tokio_native_tls::TlsStream<tokio::net::TcpStream>>;
 
 /// Open a fresh TLS-wrapped IMAP session and authenticate. Errors are
 /// wrapped into [`ChannelError`] so both call sites can propagate them
@@ -374,20 +375,16 @@ impl ChannelAdapter for EmailImapAdapter {
         // outbound dispatcher stamps the correct comment id into the
         // Message-ID. Fall back to generating one — useful for ad-hoc
         // sends (e.g. admin test-connection) where there's no comment.
-        let message_id = content
-            .external_id_hint
-            .clone()
-            .unwrap_or_else(|| format_outbound_message_id(thread.ticket_id, 0, &self.config.reply_domain));
+        let message_id = content.external_id_hint.clone().unwrap_or_else(|| {
+            format_outbound_message_id(thread.ticket_id, 0, &self.config.reply_domain)
+        });
 
         let recipient = thread
             .recipient
             .known_email
             .as_deref()
             .ok_or_else(|| ChannelError::Configuration("recipient has no email".into()))?;
-        let subject = thread
-            .subject
-            .as_deref()
-            .unwrap_or("(no subject)");
+        let subject = thread.subject.as_deref().unwrap_or("(no subject)");
         let in_reply_to = thread.external_thread_id.as_deref();
 
         let outbound = OutboundEmailMessage {
@@ -689,8 +686,8 @@ impl EmailImapAdapter {
     }
 
     async fn persist_state(&self) -> Result<(), ChannelError> {
-        let blob = serde_json::to_value(&self.state)
-            .map_err(ChannelError::other("runtime_state json"))?;
+        let blob =
+            serde_json::to_value(&self.state).map_err(ChannelError::other("runtime_state json"))?;
         let mut conn = self
             .pool
             .get_timeout(POOL_ACQUIRE_TIMEOUT)
@@ -905,10 +902,7 @@ pub fn parse_rfc822_into_inbound_message(
 ///    `mailer-daemon@*` or `postmaster@*` (case-insensitive). Falls
 ///    in last because spam can spoof these; combined with the
 ///    other signals it's directional, alone it's just a hint.
-fn detect_bounce(
-    parsed: &mailparse::ParsedMail,
-    headers: &[mailparse::MailHeader],
-) -> bool {
+fn detect_bounce(parsed: &mailparse::ParsedMail, headers: &[mailparse::MailHeader]) -> bool {
     let ctype = parsed.ctype.mimetype.to_ascii_lowercase();
     if ctype == "multipart/report" {
         if let Some(rt) = parsed.ctype.params.get("report-type") {
@@ -960,11 +954,7 @@ fn parse_mailbox(raw: &str) -> (String, String) {
     if let (Some(lt), Some(gt)) = (trimmed.rfind('<'), trimmed.rfind('>')) {
         if lt < gt {
             let email = trimmed[lt + 1..gt].trim().to_string();
-            let name = trimmed[..lt]
-                .trim()
-                .trim_matches('"')
-                .trim()
-                .to_string();
+            let name = trimmed[..lt].trim().trim_matches('"').trim().to_string();
             let display = if name.is_empty() { email.clone() } else { name };
             return (display, email);
         }
@@ -1093,7 +1083,10 @@ fn is_attachment(part: &mailparse::ParsedMail) -> bool {
     !mt.starts_with("text/") && !mt.starts_with("multipart/")
 }
 
-fn walk<'a, F: FnMut(&'a mailparse::ParsedMail<'a>)>(mail: &'a mailparse::ParsedMail<'a>, f: &mut F) {
+fn walk<'a, F: FnMut(&'a mailparse::ParsedMail<'a>)>(
+    mail: &'a mailparse::ParsedMail<'a>,
+    f: &mut F,
+) {
     f(mail);
     for sub in &mail.subparts {
         walk(sub, f);
@@ -1151,7 +1144,14 @@ fn tokenize_message_ids(raw: &str) -> Vec<String> {
 
 fn collect_recipients(headers: &[mailparse::MailHeader]) -> Vec<String> {
     let mut out = Vec::new();
-    for name in ["To", "Cc", "Bcc", "Delivered-To", "Envelope-To", "X-Original-To"] {
+    for name in [
+        "To",
+        "Cc",
+        "Bcc",
+        "Delivered-To",
+        "Envelope-To",
+        "X-Original-To",
+    ] {
         for raw in header_all(headers, name) {
             for (_, email) in split_address_list(&raw) {
                 if !out.iter().any(|e: &String| e.eq_ignore_ascii_case(&email)) {
@@ -1426,7 +1426,11 @@ mod tests {
     fn tokenize_message_ids_multiple_space_separated() {
         assert_eq!(
             tokenize_message_ids("<a@h> <b@h> <c@h>"),
-            vec!["<a@h>".to_string(), "<b@h>".to_string(), "<c@h>".to_string()]
+            vec![
+                "<a@h>".to_string(),
+                "<b@h>".to_string(),
+                "<c@h>".to_string()
+            ]
         );
     }
 
@@ -1555,7 +1559,7 @@ hi\r\n";
         assert_eq!(
             msg.references,
             vec![
-                "<out-1@host>".to_string(),   // In-Reply-To comes first.
+                "<out-1@host>".to_string(), // In-Reply-To comes first.
                 "<thread-start@host>".to_string(),
             ]
         );

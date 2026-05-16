@@ -4,14 +4,14 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
-use crate::handlers::errors;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
-use crate::models::{Claims, NewGroup, GroupUpdate};
+use crate::models::{Claims, GroupUpdate, NewGroup};
 use crate::repository;
 use crate::sync::actor::ActorContext;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 use crate::utils::rbac::require_admin;
 
 #[inline]
@@ -59,10 +59,7 @@ pub async fn get_group_details(
 // ============================================================================
 
 /// Get all groups with member counts
-pub async fn get_all_groups(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_all_groups(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
@@ -504,12 +501,10 @@ pub async fn set_group_devices(
         Ok(_) => {
             // Return the updated group details
             match repository::groups::get_group_by_id(&mut conn, group_id) {
-                Ok(group) => {
-                    match repository::groups::get_group_details(&mut conn, &group.uuid) {
-                        Ok(details) => HttpResponse::Ok().json(details),
-                        Err(_) => errors::internal("Failed to get updated group details"),
-                    }
-                }
+                Ok(group) => match repository::groups::get_group_details(&mut conn, &group.uuid) {
+                    Ok(details) => HttpResponse::Ok().json(details),
+                    Err(_) => errors::internal("Failed to get updated group details"),
+                },
                 Err(_) => errors::internal("Failed to get group"),
             }
         }
@@ -528,7 +523,9 @@ mod tests {
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),

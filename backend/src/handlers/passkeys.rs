@@ -10,18 +10,16 @@ use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
+use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::repository;
-use crate::utils::webauthn::{
-    self, credential_id_to_string, StoredPasskeyCredential, WEBAUTHN,
-};
+use crate::utils::i18n;
 use crate::utils::jwt::helpers as jwt_helpers;
-use crate::utils::rate_limit::{get_redis_url, RateLimiter};
+use crate::utils::locale::request_locale;
 use crate::utils::mfa;
+use crate::utils::rate_limit::{get_redis_url, RateLimiter};
+use crate::utils::webauthn::{self, credential_id_to_string, StoredPasskeyCredential, WEBAUTHN};
 
 // =============================================================================
 // Request/Response Types
@@ -274,7 +272,10 @@ pub async fn finish_passkey_registration(
     let reg_state = match webauthn::get_registration_state(&user_uuid).await {
         Ok(state) => state,
         Err(e) => {
-            warn!("Registration state not found for user {}: {:?}", user_uuid, e);
+            warn!(
+                "Registration state not found for user {}: {:?}",
+                user_uuid, e
+            );
             return errors::bad_request("Registration challenge expired or not found");
         }
     };
@@ -336,7 +337,10 @@ pub async fn finish_passkey_registration(
         return errors::internal("Failed to save passkey");
     }
 
-    info!("Passkey registered for user {}: {}", user_uuid, passkey_name);
+    info!(
+        "Passkey registered for user {}: {}",
+        user_uuid, passkey_name
+    );
 
     HttpResponse::Ok().json(json!({
         "success": true,
@@ -363,7 +367,9 @@ pub async fn start_passkey_login(
     let redis_url = get_redis_url();
 
     // Check if this is a discoverable (usernameless) login
-    let email = body.email.as_ref()
+    let email = body
+        .email
+        .as_ref()
         .map(|e| e.trim())
         .filter(|e| !e.is_empty())
         .map(|e| e.to_lowercase());
@@ -436,10 +442,7 @@ pub async fn start_passkey_login(
     debug!(?email, %session_id, "started passkey authentication");
 
     let rcr_json = serde_json::to_value(&rcr).unwrap_or(json!({}));
-    let mut response = rcr_json
-        .get("publicKey")
-        .cloned()
-        .unwrap_or(rcr_json);
+    let mut response = rcr_json.get("publicKey").cloned().unwrap_or(rcr_json);
     if let Some(obj) = response.as_object_mut() {
         obj.insert("sessionId".to_string(), json!(session_id));
     }
@@ -521,10 +524,16 @@ pub async fn finish_passkey_login(
         let creds = vec![discoverable_key];
         match webauthn.finish_discoverable_authentication(&auth_response, auth_state, &creds) {
             Ok(_result) => {
-                debug!("Discoverable passkey authentication successful for user {}", user.uuid);
+                debug!(
+                    "Discoverable passkey authentication successful for user {}",
+                    user.uuid
+                );
             }
             Err(e) => {
-                error!("Failed to complete discoverable passkey authentication: {:?}", e);
+                error!(
+                    "Failed to complete discoverable passkey authentication: {:?}",
+                    e
+                );
                 return errors::unauthorized("Authentication failed");
             }
         };
@@ -566,10 +575,12 @@ pub async fn finish_passkey_login(
 
     // Create session + tokens, return response with auth cookies
     let user_uuid = user.uuid;
-    let session = super::auth::create_session_record(&user_uuid, &req, &mut conn)
-        .map_err(|e| {
-            error!("Failed to create session for passkey login {}: {:?}", user_uuid, e);
-        });
+    let session = super::auth::create_session_record(&user_uuid, &req, &mut conn).map_err(|e| {
+        error!(
+            "Failed to create session for passkey login {}: {:?}",
+            user_uuid, e
+        );
+    });
     let session = match session {
         Ok(s) => s,
         Err(_) => return errors::internal("Failed to create authentication session"),
@@ -579,11 +590,14 @@ pub async fn finish_passkey_login(
     match jwt_helpers::create_login_response(user, &session.session_id, &family_id, &mut conn) {
         Ok((response, tokens)) => {
             info!("Passkey login successful for user {}", user_uuid);
-            super::auth::build_auth_cookie_response(json!({
-                "success": true,
-                "csrf_token": response.csrf_token,
-                "user": response.user
-            }), &tokens)
+            super::auth::build_auth_cookie_response(
+                json!({
+                    "success": true,
+                    "csrf_token": response.csrf_token,
+                    "user": response.user
+                }),
+                &tokens,
+            )
         }
         Err(error_response) => error_response,
     }
@@ -774,9 +788,12 @@ pub async fn delete_passkey(
 }
 
 /// Helper function to get password hash from user_auth_identities for local auth
-fn get_local_password_hash(user_uuid: &Uuid, conn: &mut crate::db::DbConnection) -> Result<String, String> {
-    use diesel::prelude::*;
+fn get_local_password_hash(
+    user_uuid: &Uuid,
+    conn: &mut crate::db::DbConnection,
+) -> Result<String, String> {
     use crate::schema::user_auth_identities;
+    use diesel::prelude::*;
 
     let password_hash: Option<String> = user_auth_identities::table
         .filter(user_auth_identities::user_uuid.eq(user_uuid))
@@ -839,7 +856,10 @@ pub async fn start_passkey_setup_login(
         Ok(Some(remaining_seconds)) => {
             warn!(email = %email_lower, remaining_seconds, "Passkey setup attempt on locked account");
             return errors::too_many_requests(
-                format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds),
+                format!(
+                    "Account temporarily locked. Try again in {} seconds.",
+                    remaining_seconds
+                ),
                 remaining_seconds as u64,
             );
         }
@@ -860,7 +880,12 @@ pub async fn start_passkey_setup_login(
         Ok(user) => user,
         Err(_) => {
             // Record failed attempt even for non-existent users (prevents enumeration)
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            let _ = RateLimiter::record_failed_attempt(
+                &redis_url,
+                &lockout_key,
+                LOCKOUT_DURATION_SECONDS,
+            )
+            .await;
             return errors::unauthorized("Invalid email or password");
         }
     };
@@ -869,7 +894,12 @@ pub async fn start_passkey_setup_login(
     let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
         Err(_) => {
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            let _ = RateLimiter::record_failed_attempt(
+                &redis_url,
+                &lockout_key,
+                LOCKOUT_DURATION_SECONDS,
+            )
+            .await;
             return errors::unauthorized("Invalid email or password");
         }
     };
@@ -877,7 +907,9 @@ pub async fn start_passkey_setup_login(
     let password_valid = bcrypt::verify(&body.password, &password_hash).unwrap_or(false);
     if !password_valid {
         // Record failed attempt
-        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS)
+            .await
+        {
             Ok(attempts) => {
                 let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
                 if remaining == 0 {
@@ -1002,7 +1034,10 @@ pub async fn finish_passkey_setup_login(
         Ok(Some(remaining_seconds)) => {
             warn!(email = %email_lower, remaining_seconds, "Passkey setup finish attempt on locked account");
             return errors::too_many_requests(
-                format!("Account temporarily locked. Try again in {} seconds.", remaining_seconds),
+                format!(
+                    "Account temporarily locked. Try again in {} seconds.",
+                    remaining_seconds
+                ),
                 remaining_seconds as u64,
             );
         }
@@ -1021,7 +1056,12 @@ pub async fn finish_passkey_setup_login(
     let user = match repository::user_helpers::get_user_by_email(&email_lower, &mut conn) {
         Ok(user) => user,
         Err(_) => {
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            let _ = RateLimiter::record_failed_attempt(
+                &redis_url,
+                &lockout_key,
+                LOCKOUT_DURATION_SECONDS,
+            )
+            .await;
             return errors::unauthorized("Invalid email or password");
         }
     };
@@ -1029,14 +1069,21 @@ pub async fn finish_passkey_setup_login(
     let password_hash = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
         Err(_) => {
-            let _ = RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await;
+            let _ = RateLimiter::record_failed_attempt(
+                &redis_url,
+                &lockout_key,
+                LOCKOUT_DURATION_SECONDS,
+            )
+            .await;
             return errors::unauthorized("Invalid email or password");
         }
     };
 
     let password_valid = bcrypt::verify(&body.password, &password_hash).unwrap_or(false);
     if !password_valid {
-        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS).await {
+        match RateLimiter::record_failed_attempt(&redis_url, &lockout_key, LOCKOUT_DURATION_SECONDS)
+            .await
+        {
             Ok(attempts) => {
                 let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
                 if remaining == 0 {
@@ -1066,7 +1113,10 @@ pub async fn finish_passkey_setup_login(
     let reg_state = match webauthn::get_registration_state(&user.uuid).await {
         Ok(state) => state,
         Err(e) => {
-            warn!("Registration state not found for user {}: {:?}", user.uuid, e);
+            warn!(
+                "Registration state not found for user {}: {:?}",
+                user.uuid, e
+            );
             return errors::bad_request("Registration challenge expired or not found");
         }
     };
@@ -1131,7 +1181,10 @@ pub async fn finish_passkey_setup_login(
     // Generate backup codes for recovery (passkey users need these too)
     let (plaintext_codes, hashed_codes) = mfa::generate_backup_codes_async().await;
     let hashed_json = serde_json::Value::Array(
-        hashed_codes.into_iter().map(serde_json::Value::String).collect()
+        hashed_codes
+            .into_iter()
+            .map(serde_json::Value::String)
+            .collect(),
     );
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: None,
@@ -1142,19 +1195,27 @@ pub async fn finish_passkey_setup_login(
     let backup_codes_saved = match repository::update_user_mfa(&user.uuid, mfa_update, &mut conn) {
         Ok(_) => true,
         Err(e) => {
-            warn!("Failed to save backup codes for passkey user {}: {:?}", user.uuid, e);
+            warn!(
+                "Failed to save backup codes for passkey user {}: {:?}",
+                user.uuid, e
+            );
             false // Don't fail the registration - passkey is already saved
         }
     };
 
-    info!("Passkey registered during MFA setup for user {}: {}", user.uuid, passkey_name);
+    info!(
+        "Passkey registered during MFA setup for user {}: {}",
+        user.uuid, passkey_name
+    );
 
     // Create session + tokens, return response with auth cookies
     let user_uuid = user.uuid;
-    let session = super::auth::create_session_record(&user_uuid, &req, &mut conn)
-        .map_err(|e| {
-            error!("Failed to create session for passkey setup login {}: {:?}", user_uuid, e);
-        });
+    let session = super::auth::create_session_record(&user_uuid, &req, &mut conn).map_err(|e| {
+        error!(
+            "Failed to create session for passkey setup login {}: {:?}",
+            user_uuid, e
+        );
+    });
     let session = match session {
         Ok(s) => s,
         Err(_) => return errors::internal("Failed to create authentication session"),

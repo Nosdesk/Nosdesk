@@ -4,9 +4,9 @@ use serde::Deserialize;
 use tracing::debug;
 
 use crate::db::Pool;
+use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
-use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{NewProject, ProjectUpdate};
 use crate::repository;
@@ -35,9 +35,7 @@ fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
 }
 
 // Get all projects with ticket counts
-pub async fn get_all_projects(
-    pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_all_projects(pool: web::Data<Pool>) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -130,12 +128,10 @@ pub async fn update_project(
         repository::update_project(conn, project_id, project_update.into_inner())
     }) {
         Ok(project) => HttpResponse::Ok().json(project),
-        Err(e) => {
-            match e {
-                Error::NotFound => errors::not_found_msg("Project not found"),
-                _ => errors::internal("Failed to update project"),
-            }
-        }
+        Err(e) => match e {
+            Error::NotFound => errors::not_found_msg("Project not found"),
+            _ => errors::internal("Failed to update project"),
+        },
     }
 }
 
@@ -166,10 +162,7 @@ pub async fn delete_project(
 }
 
 // Get all tickets in a project
-pub async fn get_project_tickets(
-    pool: web::Data<Pool>,
-    path: web::Path<i32>,
-) -> impl Responder {
+pub async fn get_project_tickets(pool: web::Data<Pool>, path: web::Path<i32>) -> impl Responder {
     let project_id = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -237,18 +230,24 @@ pub async fn add_ticket_to_project(
         repository::add_ticket_to_project(conn, project_id, ticket_id)
     }) {
         Ok(association) => {
-            debug!(ticket_id = ticket_id, project_id = project_id, "Broadcasting SSE event: Ticket assigned to project");
-            sse_state.broadcast_event_from(
-                SseEvent::ProjectAssigned {
-                    ticket_id,
-                    project_id,
-                    timestamp: chrono::Utc::now(),
-                },
-                source_client_id,
-            ).await;
+            debug!(
+                ticket_id = ticket_id,
+                project_id = project_id,
+                "Broadcasting SSE event: Ticket assigned to project"
+            );
+            sse_state
+                .broadcast_event_from(
+                    SseEvent::ProjectAssigned {
+                        ticket_id,
+                        project_id,
+                        timestamp: chrono::Utc::now(),
+                    },
+                    source_client_id,
+                )
+                .await;
 
             HttpResponse::Created().json(association)
-        },
+        }
         Err(_) => errors::internal("Failed to add ticket to project"),
     }
 }
@@ -277,18 +276,24 @@ pub async fn remove_ticket_from_project(
     }) {
         Ok(0) => errors::not_found_msg("Association not found"),
         Ok(_) => {
-            debug!(ticket_id = ticket_id, project_id = project_id, "Broadcasting SSE event: Ticket unassigned from project");
-            sse_state.broadcast_event_from(
-                SseEvent::ProjectUnassigned {
-                    ticket_id,
-                    project_id,
-                    timestamp: chrono::Utc::now(),
-                },
-                source_client_id,
-            ).await;
+            debug!(
+                ticket_id = ticket_id,
+                project_id = project_id,
+                "Broadcasting SSE event: Ticket unassigned from project"
+            );
+            sse_state
+                .broadcast_event_from(
+                    SseEvent::ProjectUnassigned {
+                        ticket_id,
+                        project_id,
+                        timestamp: chrono::Utc::now(),
+                    },
+                    source_client_id,
+                )
+                .await;
 
             HttpResponse::NoContent().finish()
-        },
+        }
         Err(_) => errors::internal("Failed to remove ticket from project"),
     }
 }
@@ -348,7 +353,9 @@ mod tests {
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
 
-    fn test_app(pool: crate::db::Pool) -> App<
+    fn test_app(
+        pool: crate::db::Pool,
+    ) -> App<
         impl actix_web::dev::ServiceFactory<
             actix_web::dev::ServiceRequest,
             Config = (),
@@ -401,4 +408,4 @@ mod tests {
         let resp = actix_test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
-} 
+}

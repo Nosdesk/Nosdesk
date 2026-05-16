@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, HttpMessage};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use diesel::Connection;
 use uuid::Uuid;
 
@@ -46,11 +46,14 @@ pub fn auth_conn(
     req: &HttpRequest,
     pool: &web::Data<Pool>,
 ) -> Result<(Claims, Uuid, DbConnection), HttpResponse> {
-    let claims = req.extensions().get::<Claims>().cloned()
+    let claims = req
+        .extensions()
+        .get::<Claims>()
+        .cloned()
         .ok_or_else(|| errors::unauthorized("Authentication required"))?;
     let conn = db_conn(pool)?;
-    let user_uuid = Uuid::parse_str(&claims.sub)
-        .map_err(|_| errors::internal("Invalid user UUID"))?;
+    let user_uuid =
+        Uuid::parse_str(&claims.sub).map_err(|_| errors::internal("Invalid user UUID"))?;
     Ok((claims, user_uuid, conn))
 }
 
@@ -59,11 +62,11 @@ pub fn auth_conn(
 /// act on *singletons* (site_settings, channels, etc.) rather than a
 /// specific target user — the target-user variant [`admin_user_conn`]
 /// is for endpoints like "admin updates user X's role."
-pub fn admin_conn(
-    req: &HttpRequest,
-    pool: &web::Data<Pool>,
-) -> Result<DbConnection, HttpResponse> {
-    let claims = req.extensions().get::<Claims>().cloned()
+pub fn admin_conn(req: &HttpRequest, pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
+    let claims = req
+        .extensions()
+        .get::<Claims>()
+        .cloned()
         .ok_or_else(|| errors::unauthorized("Authentication required"))?;
     if !crate::utils::rbac::is_admin(&claims) {
         return Err(errors::forbidden("Admin required"));

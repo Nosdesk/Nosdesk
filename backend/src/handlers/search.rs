@@ -6,13 +6,13 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
-use crate::handlers::helpers;
 use crate::handlers::errors;
-use crate::utils::i18n;
-use crate::utils::locale::request_locale;
+use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::repository::search_query_log;
 use crate::services::search::{EntityType, SearchQuery, SearchService};
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 
 /// Search across all indexed entities
 ///
@@ -94,11 +94,7 @@ pub async fn search(
                         Ok(c) => c,
                         Err(e) => return e,
                     };
-                    match ticket_visibility::visible_ticket_ids(
-                        &mut conn,
-                        &vis,
-                        &candidate_ids,
-                    ) {
+                    match ticket_visibility::visible_ticket_ids(&mut conn, &vis, &candidate_ids) {
                         Ok(visible) => {
                             response.results.retain(|r| match r.entity_type.as_str() {
                                 "ticket" => i32::try_from(r.entity_id)
@@ -148,7 +144,8 @@ pub async fn search(
                             return;
                         }
                     };
-                    if let Err(e) = search_query_log::log_query(&mut conn, &logged_query, doc_hits) {
+                    if let Err(e) = search_query_log::log_query(&mut conn, &logged_query, doc_hits)
+                    {
                         warn!(error = ?e, "Search log write failed");
                     }
                 });

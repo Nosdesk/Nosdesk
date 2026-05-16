@@ -294,12 +294,7 @@ fn development_policy(plugin_sandbox_origin: Option<&str>) -> Csp {
         .add(Directive::FontSrc, vec![Source::SelfOrigin, Source::Data])
         .add(
             Directive::ConnectSrc,
-            vec![
-                Source::SelfOrigin,
-                Source::Ws,
-                Source::Wss,
-                Source::Blob,
-            ],
+            vec![Source::SelfOrigin, Source::Ws, Source::Wss, Source::Blob],
         )
         .add(Directive::MediaSrc, vec![Source::SelfOrigin, Source::Blob])
         .add(Directive::ManifestSrc, vec![Source::SelfOrigin])
@@ -455,10 +450,7 @@ where
 
             // X-Content-Type-Options: nosniff. Always.
             if !headers.contains_key(header::X_CONTENT_TYPE_OPTIONS) {
-                headers.insert(
-                    header::X_CONTENT_TYPE_OPTIONS,
-                    "nosniff".parse().unwrap(),
-                );
+                headers.insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
             }
 
             // Referrer-Policy. Same-origin gets the full referrer,
@@ -637,11 +629,10 @@ mod tests {
     fn production_includes_plugin_sandbox_origin_when_provided() {
         let csp = production_policy(Some("https://sandbox.example.com")).render();
         let dirs = parse_directives(&csp);
-        assert!(
-            dirs.get("frame-src")
-                .unwrap()
-                .contains(&"https://sandbox.example.com".to_string()),
-        );
+        assert!(dirs
+            .get("frame-src")
+            .unwrap()
+            .contains(&"https://sandbox.example.com".to_string()),);
     }
 
     // ── Development policy ──────────────────────────────────────

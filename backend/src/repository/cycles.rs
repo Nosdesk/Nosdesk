@@ -62,7 +62,8 @@ pub fn list_for_workspace(
         .filter(cycles::archived_at.is_null())
         .into_boxed();
     if let Some(states) = states {
-        query = query.filter(cycles::state.eq_any(states.iter().map(|s| s.to_string()).collect::<Vec<_>>()));
+        query = query
+            .filter(cycles::state.eq_any(states.iter().map(|s| s.to_string()).collect::<Vec<_>>()));
     }
     query
         .order((cycles::state.asc(), cycles::start_at.asc().nulls_last()))
@@ -101,11 +102,7 @@ pub fn create(conn: &mut DbConnection, new: NewCycle) -> QueryResult<Cycle> {
     })
 }
 
-pub fn update(
-    conn: &mut DbConnection,
-    uuid: Uuid,
-    patch: CycleUpdate,
-) -> QueryResult<Cycle> {
+pub fn update(conn: &mut DbConnection, uuid: Uuid, patch: CycleUpdate) -> QueryResult<Cycle> {
     conn.transaction(|conn| {
         let cycle: Cycle = diesel::update(cycles::table.filter(cycles::uuid.eq(uuid)))
             .set(&patch)
@@ -214,7 +211,14 @@ pub fn add_ticket(
         if let Some(prev_cycle_id) = previous {
             diesel::delete(cycle_tickets::table.filter(cycle_tickets::ticket_id.eq(ticket_id)))
                 .execute(conn)?;
-            emit_cycle_ticket_event(conn, prev_cycle_id, ticket_id, SyncOp::Delete, "cycle_ticket.removed", None)?;
+            emit_cycle_ticket_event(
+                conn,
+                prev_cycle_id,
+                ticket_id,
+                SyncOp::Delete,
+                "cycle_ticket.removed",
+                None,
+            )?;
         }
         let row: CycleTicket = diesel::insert_into(cycle_tickets::table)
             .values(&NewCycleTicket {
@@ -223,7 +227,14 @@ pub fn add_ticket(
                 added_by: actor,
             })
             .get_result(conn)?;
-        emit_cycle_ticket_event(conn, cycle_id, ticket_id, SyncOp::Insert, "cycle_ticket.added", actor)?;
+        emit_cycle_ticket_event(
+            conn,
+            cycle_id,
+            ticket_id,
+            SyncOp::Insert,
+            "cycle_ticket.added",
+            actor,
+        )?;
         Ok(row)
     })
 }
@@ -238,7 +249,14 @@ pub fn remove_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usi
         let n = diesel::delete(cycle_tickets::table.filter(cycle_tickets::ticket_id.eq(ticket_id)))
             .execute(conn)?;
         if let Some(cycle_id) = previous {
-            emit_cycle_ticket_event(conn, cycle_id, ticket_id, SyncOp::Delete, "cycle_ticket.removed", None)?;
+            emit_cycle_ticket_event(
+                conn,
+                cycle_id,
+                ticket_id,
+                SyncOp::Delete,
+                "cycle_ticket.removed",
+                None,
+            )?;
         }
         Ok(n)
     })
@@ -332,9 +350,7 @@ pub fn build_completion_snapshot(
 ) -> QueryResult<serde_json::Value> {
     let rows: Vec<(i32, WorkflowStateCategory)> = cycle_tickets::table
         .inner_join(tickets::table.on(tickets::id.eq(cycle_tickets::ticket_id)))
-        .inner_join(
-            workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)),
-        )
+        .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
         .filter(cycle_tickets::cycle_id.eq(cycle_id))
         .select((tickets::id, workflow_states::category))
         .load(conn)?;
@@ -405,10 +421,16 @@ mod tests {
         let ticket = TestFixtures::create_ticket(&mut conn, "test ticket", Some(user), None);
 
         add_ticket(&mut conn, cycle_a.id, ticket.id, Some(user)).unwrap();
-        assert_eq!(cycle_id_for_ticket(&mut conn, ticket.id).unwrap(), Some(cycle_a.id));
+        assert_eq!(
+            cycle_id_for_ticket(&mut conn, ticket.id).unwrap(),
+            Some(cycle_a.id)
+        );
 
         add_ticket(&mut conn, cycle_b.id, ticket.id, Some(user)).unwrap();
         // The second add removes the first membership.
-        assert_eq!(cycle_id_for_ticket(&mut conn, ticket.id).unwrap(), Some(cycle_b.id));
+        assert_eq!(
+            cycle_id_for_ticket(&mut conn, ticket.id).unwrap(),
+            Some(cycle_b.id)
+        );
     }
 }

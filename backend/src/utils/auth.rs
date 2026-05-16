@@ -1,5 +1,5 @@
-use bcrypt::{hash, DEFAULT_COST};
 use crate::utils::{ValidationError, ValidationResult};
+use bcrypt::{hash, DEFAULT_COST};
 
 /// Hash a password securely using bcrypt
 pub fn hash_password(password: &str) -> ValidationResult<String> {

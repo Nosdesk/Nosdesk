@@ -1,9 +1,10 @@
-use rand::Rng;
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error, http::Method,
+    http::Method,
+    Error,
 };
 use futures::future::LocalBoxFuture;
+use rand::Rng;
 use std::future::{ready, Ready};
 
 /// Generate a cryptographically secure CSRF token (32 bytes = 64 hex chars)
@@ -123,7 +124,10 @@ where
             .unwrap_or(false);
 
         if has_bearer_token {
-            tracing::debug!("🔒 CSRF: Skipping validation for Bearer token request to {}", req.path());
+            tracing::debug!(
+                "🔒 CSRF: Skipping validation for Bearer token request to {}",
+                req.path()
+            );
             let fut = self.service.call(req);
             return Box::pin(async move {
                 let res = fut.await?;
@@ -187,7 +191,8 @@ where
             .cookie(crate::utils::cookies::CSRF_TOKEN_COOKIE)
             .map(|c| c.value().to_string());
 
-        tracing::debug!("🔒 CSRF Check for {}: header={:?}, cookie={:?}",
+        tracing::debug!(
+            "🔒 CSRF Check for {}: header={:?}, cookie={:?}",
             path,
             header_token.as_ref().map(|t| &t[..10]),
             cookie_token.as_ref().map(|t| &t[..10])
@@ -207,17 +212,24 @@ where
             (None, Some(_)) => {
                 tracing::warn!("🔒 CSRF failed for {}: Missing X-CSRF-Token header", path);
                 return Box::pin(async move {
-                    Err(actix_web::error::ErrorForbidden("CSRF token required in header"))
+                    Err(actix_web::error::ErrorForbidden(
+                        "CSRF token required in header",
+                    ))
                 });
             }
             (Some(_), None) => {
                 tracing::warn!("🔒 CSRF failed for {}: Missing csrf_token cookie", path);
                 return Box::pin(async move {
-                    Err(actix_web::error::ErrorForbidden("CSRF token required in cookie"))
+                    Err(actix_web::error::ErrorForbidden(
+                        "CSRF token required in cookie",
+                    ))
                 });
             }
             (None, None) => {
-                tracing::warn!("🔒 CSRF failed for {}: Both header and cookie missing", path);
+                tracing::warn!(
+                    "🔒 CSRF failed for {}: Both header and cookie missing",
+                    path
+                );
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorForbidden("CSRF token required"))
                 });

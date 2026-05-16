@@ -30,11 +30,7 @@ fn fixtures_root() -> PathBuf {
 #[test]
 fn corpus_split_matches_expected() {
     let root = fixtures_root();
-    assert!(
-        root.is_dir(),
-        "fixture root missing: {}",
-        root.display()
-    );
+    assert!(root.is_dir(), "fixture root missing: {}", root.display());
 
     let mut failures: Vec<String> = Vec::new();
     let mut checked = 0usize;
@@ -68,11 +64,10 @@ fn corpus_split_matches_expected() {
 /// Run a single fixture directory. Returns `Err(message)` when
 /// the case mismatched so the caller can collect failures.
 fn run_case(case_dir: &Path) -> Result<(), String> {
-    let (input_path, ext) = find_input(case_dir)
-        .ok_or_else(|| "missing input.{txt,html}".to_string())?;
+    let (input_path, ext) =
+        find_input(case_dir).ok_or_else(|| "missing input.{txt,html}".to_string())?;
 
-    let input = fs::read_to_string(&input_path)
-        .map_err(|e| format!("read input: {e}"))?;
+    let input = fs::read_to_string(&input_path).map_err(|e| format!("read input: {e}"))?;
 
     let expected_new_path = case_dir.join(format!("expected_new.{ext}"));
     let expected_quoted_path = case_dir.join(format!("expected_quoted.{ext}"));
@@ -91,8 +86,8 @@ fn run_case(case_dir: &Path) -> Result<(), String> {
     };
 
     let expected_new_norm = expected_new.trim_end_matches(['\n', '\r']).to_string();
-    let expected_quoted_norm = expected_quoted
-        .map(|s| s.trim_end_matches(['\n', '\r']).to_string());
+    let expected_quoted_norm =
+        expected_quoted.map(|s| s.trim_end_matches(['\n', '\r']).to_string());
 
     let mut diffs: Vec<String> = Vec::new();
 

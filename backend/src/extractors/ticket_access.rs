@@ -136,9 +136,7 @@ impl FromRequest for TicketAccess {
                 .get("id")
                 .or_else(|| req.match_info().get("ticket_id"))
                 .ok_or(TicketAccessError::NoTicketIdInRoute)?;
-            let ticket_id: i32 = raw
-                .parse()
-                .map_err(|_| TicketAccessError::BadTicketId)?;
+            let ticket_id: i32 = raw.parse().map_err(|_| TicketAccessError::BadTicketId)?;
 
             // Visibility gate. Reuses the same primitive as
             // list / search filtering so single-record and list
@@ -150,8 +148,8 @@ impl FromRequest for TicketAccess {
                 .get()
                 .map_err(|e| TicketAccessError::Database(e.to_string()))?;
             let vis = VisibilityContext::from_auth(&auth);
-            let allowed = ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id)
-                .map_err(|e| {
+            let allowed =
+                ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id).map_err(|e| {
                     error!(error = ?e, ticket_id, "ticket visibility check failed");
                     TicketAccessError::Database(e.to_string())
                 })?;

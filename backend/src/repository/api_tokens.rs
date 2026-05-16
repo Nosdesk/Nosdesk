@@ -55,7 +55,13 @@ pub fn create_api_token(
 
     // Convert scopes to the database format (Option<Vec<Option<String>>>)
     let db_scopes: Option<Vec<Option<String>>> = scopes
-        .map(|s| if s.is_empty() { vec!["full".to_string()] } else { s })
+        .map(|s| {
+            if s.is_empty() {
+                vec!["full".to_string()]
+            } else {
+                s
+            }
+        })
         .or(Some(vec!["full".to_string()]))
         .map(|v| v.into_iter().map(Some).collect());
 
@@ -116,7 +122,9 @@ pub fn update_token_last_used(
 }
 
 /// List all API tokens (for admin view)
-pub fn list_all_api_tokens(conn: &mut DbConnection) -> Result<Vec<ApiToken>, diesel::result::Error> {
+pub fn list_all_api_tokens(
+    conn: &mut DbConnection,
+) -> Result<Vec<ApiToken>, diesel::result::Error> {
     api_tokens::table
         .order(api_tokens::created_at.desc())
         .load::<ApiToken>(conn)
@@ -148,45 +156,52 @@ pub fn enrich_tokens_with_users(
     tokens: Vec<ApiToken>,
 ) -> Result<Vec<ApiTokenInfo>, diesel::result::Error> {
     // Collect all unique UUIDs needed
-    let all_uuids: Vec<Uuid> = tokens.iter()
+    let all_uuids: Vec<Uuid> = tokens
+        .iter()
         .flat_map(|t| [t.user_uuid, t.created_by])
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
 
     let users = crate::repository::users::get_users_by_uuids(&all_uuids, conn)?;
-    let user_map: std::collections::HashMap<Uuid, String> = users.into_iter()
-        .map(|u| (u.uuid, u.name))
+    let user_map: std::collections::HashMap<Uuid, String> =
+        users.into_iter().map(|u| (u.uuid, u.name)).collect();
+
+    let enriched = tokens
+        .into_iter()
+        .map(|token| {
+            let user_name = user_map
+                .get(&token.user_uuid)
+                .cloned()
+                .unwrap_or_else(|| "Unknown".to_string());
+            let created_by_name = user_map
+                .get(&token.created_by)
+                .cloned()
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            // Convert scopes from Option<Vec<Option<String>>> to Vec<String>
+            let scopes: Vec<String> = token
+                .scopes
+                .unwrap_or_default()
+                .into_iter()
+                .flatten()
+                .collect();
+
+            ApiTokenInfo {
+                uuid: token.uuid,
+                token_prefix: token.token_prefix,
+                name: token.name,
+                user_uuid: token.user_uuid,
+                user_name,
+                scopes,
+                created_at: token.created_at,
+                created_by_name,
+                expires_at: token.expires_at,
+                revoked_at: token.revoked_at,
+                last_used_at: token.last_used_at,
+            }
+        })
         .collect();
-
-    let enriched = tokens.into_iter().map(|token| {
-        let user_name = user_map.get(&token.user_uuid).cloned()
-            .unwrap_or_else(|| "Unknown".to_string());
-        let created_by_name = user_map.get(&token.created_by).cloned()
-            .unwrap_or_else(|| "Unknown".to_string());
-
-        // Convert scopes from Option<Vec<Option<String>>> to Vec<String>
-        let scopes: Vec<String> = token
-            .scopes
-            .unwrap_or_default()
-            .into_iter()
-            .flatten()
-            .collect();
-
-        ApiTokenInfo {
-            uuid: token.uuid,
-            token_prefix: token.token_prefix,
-            name: token.name,
-            user_uuid: token.user_uuid,
-            user_name,
-            scopes,
-            created_at: token.created_at,
-            created_by_name,
-            expires_at: token.expires_at,
-            revoked_at: token.revoked_at,
-            last_used_at: token.last_used_at,
-        }
-    }).collect();
 
     Ok(enriched)
 }
@@ -194,8 +209,8 @@ pub fn enrich_tokens_with_users(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     // ── Pure logic tests ─────────────────────────────────────────
 
@@ -231,8 +246,14 @@ mod tests {
         let user = TestFixtures::create_user(&mut conn, "tokuser", UserRole::Admin);
 
         let response = create_api_token(
-            &mut conn, user.uuid, "My Token".into(), user.uuid, Some(30), None,
-        ).unwrap();
+            &mut conn,
+            user.uuid,
+            "My Token".into(),
+            user.uuid,
+            Some(30),
+            None,
+        )
+        .unwrap();
 
         assert!(response.token.starts_with("nsk_"));
         assert_eq!(response.name, "My Token");
@@ -249,8 +270,14 @@ mod tests {
         let user = TestFixtures::create_user(&mut conn, "revuser", UserRole::Admin);
 
         let response = create_api_token(
-            &mut conn, user.uuid, "Revoke Me".into(), user.uuid, None, None,
-        ).unwrap();
+            &mut conn,
+            user.uuid,
+            "Revoke Me".into(),
+            user.uuid,
+            None,
+            None,
+        )
+        .unwrap();
 
         revoke_api_token(&mut conn, response.uuid).unwrap();
 
@@ -265,8 +292,14 @@ mod tests {
 
         // Create a token that expires in 0 days (already expired)
         let response = create_api_token(
-            &mut conn, user.uuid, "Expired".into(), user.uuid, Some(0), None,
-        ).unwrap();
+            &mut conn,
+            user.uuid,
+            "Expired".into(),
+            user.uuid,
+            Some(0),
+            None,
+        )
+        .unwrap();
 
         let hash = hash_token(&response.token);
         // Token with 0-day expiry should already be expired
@@ -279,12 +312,23 @@ mod tests {
         let user = TestFixtures::create_user(&mut conn, "scopeuser", UserRole::Admin);
 
         let response = create_api_token(
-            &mut conn, user.uuid, "Default Scope".into(), user.uuid, None, None,
-        ).unwrap();
+            &mut conn,
+            user.uuid,
+            "Default Scope".into(),
+            user.uuid,
+            None,
+            None,
+        )
+        .unwrap();
 
         let hash = hash_token(&response.token);
         let fetched = get_valid_api_token(&mut conn, &hash).unwrap();
-        let scopes: Vec<String> = fetched.scopes.unwrap_or_default().into_iter().flatten().collect();
+        let scopes: Vec<String> = fetched
+            .scopes
+            .unwrap_or_default()
+            .into_iter()
+            .flatten()
+            .collect();
         assert!(scopes.contains(&"full".to_string()));
     }
 }

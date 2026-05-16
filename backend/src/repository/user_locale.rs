@@ -19,10 +19,7 @@ use crate::db::DbConnection;
 use crate::utils::locale::effective_locale;
 
 /// Look up the effective locale for `user_uuid`. See module doc.
-pub fn resolve_effective_locale(
-    conn: &mut DbConnection,
-    user_uuid: Uuid,
-) -> LanguageIdentifier {
+pub fn resolve_effective_locale(conn: &mut DbConnection, user_uuid: Uuid) -> LanguageIdentifier {
     use crate::schema::{site_settings, user_preferences};
 
     let user_pref: Option<String> = user_preferences::table

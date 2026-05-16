@@ -31,9 +31,7 @@ pub fn get(
     conn: &mut DbConnection,
     user_uuid: uuid::Uuid,
 ) -> Result<UserPreferences, diesel::result::Error> {
-    user_preferences::table
-        .find(user_uuid)
-        .first(conn)
+    user_preferences::table.find(user_uuid).first(conn)
 }
 
 /// Batch-fetch preferences for many users. Used by list endpoints

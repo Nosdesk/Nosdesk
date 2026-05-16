@@ -55,18 +55,18 @@ pub fn try_bearer_auth(
     // Validate token format (should start with nsk_)
     if !token.starts_with("nsk_") {
         warn!(path = %req.path(), "Invalid API token format");
-        return Err(actix_web::error::ErrorUnauthorized("Invalid API token format"));
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Invalid API token format",
+        ));
     }
 
     debug!(path = %req.path(), "Attempting Bearer token authentication");
 
     // Get database connection
-    let mut conn = pool
-        .get()
-        .map_err(|e| {
-            error!("Database connection failed: {}", e);
-            actix_web::error::ErrorInternalServerError("Database connection failed")
-        })?;
+    let mut conn = pool.get().map_err(|e| {
+        error!("Database connection failed: {}", e);
+        actix_web::error::ErrorInternalServerError("Database connection failed")
+    })?;
 
     // Hash token and look up
     let token_hash = hash_token(&token);
@@ -74,11 +74,15 @@ pub fn try_bearer_auth(
         Ok(t) => t,
         Err(diesel::result::Error::NotFound) => {
             warn!(path = %req.path(), "API token not found or expired");
-            return Err(actix_web::error::ErrorUnauthorized("Invalid or expired API token"));
+            return Err(actix_web::error::ErrorUnauthorized(
+                "Invalid or expired API token",
+            ));
         }
         Err(e) => {
             error!("Error looking up API token: {}", e);
-            return Err(actix_web::error::ErrorInternalServerError("Authentication error"));
+            return Err(actix_web::error::ErrorInternalServerError(
+                "Authentication error",
+            ));
         }
     };
 
@@ -87,15 +91,18 @@ pub fn try_bearer_auth(
         Ok(u) => u,
         Err(e) => {
             error!("Failed to get user for API token: {}", e);
-            return Err(actix_web::error::ErrorInternalServerError("Authentication error"));
+            return Err(actix_web::error::ErrorInternalServerError(
+                "Authentication error",
+            ));
         }
     };
 
     // Get user's primary email
-    let email = crate::repository::user_emails::get_user_emails_by_uuid(&mut conn, &api_token.user_uuid)
-        .ok()
-        .and_then(|emails| emails.into_iter().find(|e| e.is_primary).map(|e| e.email))
-        .unwrap_or_else(|| "unknown@example.com".to_string());
+    let email =
+        crate::repository::user_emails::get_user_emails_by_uuid(&mut conn, &api_token.user_uuid)
+            .ok()
+            .and_then(|emails| emails.into_iter().find(|e| e.is_primary).map(|e| e.email))
+            .unwrap_or_else(|| "unknown@example.com".to_string());
 
     // Update last_used_at
     let client_ip = extract_client_ip(req);

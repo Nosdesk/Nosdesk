@@ -108,7 +108,10 @@ async fn run(database_url: String, pool: Pool, sse: Arc<SseState>) {
             0
         }
     };
-    info!(initial_watermark = watermark, "sync outbox listener starting");
+    info!(
+        initial_watermark = watermark,
+        "sync outbox listener starting"
+    );
 
     let mut backoff_ms = RECONNECT_BACKOFF_MS;
     loop {
@@ -160,8 +163,7 @@ async fn listen_loop(
     let driver = tokio::spawn(async move {
         use futures::StreamExt;
         let mut connection = Box::pin(connection);
-        let mut stream =
-            futures::stream::poll_fn(move |cx| connection.as_mut().poll_message(cx));
+        let mut stream = futures::stream::poll_fn(move |cx| connection.as_mut().poll_message(cx));
         while let Some(msg) = stream.next().await {
             match msg {
                 Ok(AsyncMessage::Notification(_)) => {

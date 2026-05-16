@@ -1,17 +1,17 @@
-use actix_web::{web, HttpResponse, Responder, HttpRequest};
-use serde_json::json;
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use chrono::{Duration, Utc};
-use tracing::{info, warn, error};
+use serde_json::json;
+use tracing::{error, info, warn};
 
 use crate::db::DbConnection;
-use crate::handlers::helpers;
 use crate::handlers::errors;
-use crate::models::{PasswordResetRequest, PasswordResetResponse, PasswordResetCompleteRequest};
+use crate::handlers::helpers;
+use crate::models::{PasswordResetCompleteRequest, PasswordResetRequest, PasswordResetResponse};
 use crate::repository;
 use crate::utils::auth::hash_password;
-use crate::utils::reset_tokens::{TokenType, ResetTokenUtils};
 use crate::utils::email::EmailService;
 use crate::utils::email_branding::get_email_branding;
+use crate::utils::reset_tokens::{ResetTokenUtils, TokenType};
 
 /// Rate limiting: Maximum password reset requests per user within time window
 const MAX_RESET_REQUESTS_PER_HOUR: i64 = 3;
@@ -34,8 +34,8 @@ pub async fn request_password_reset(
         return errors::bad_request("Invalid email address");
     }
 
-    let ip_address = crate::utils::client_ip::from_http_request(&http_request)
-        .map(|ip| ip.to_string());
+    let ip_address =
+        crate::utils::client_ip::from_http_request(&http_request).map(|ip| ip.to_string());
     let user_agent = http_request
         .headers()
         .get("user-agent")
@@ -46,7 +46,9 @@ pub async fn request_password_reset(
 
     let pool = db_pool.clone();
     tokio::spawn(async move {
-        if let Err(e) = issue_password_reset(pool, email, ip_address, user_agent, scheme, host).await {
+        if let Err(e) =
+            issue_password_reset(pool, email, ip_address, user_agent, scheme, host).await
+        {
             // Errors are logged inside; this branch is only hit on
             // unrecoverable failures. Never re-throw to the caller.
             error!(error = %e, "password reset background task failed");
@@ -68,9 +70,7 @@ async fn issue_password_reset(
     scheme: String,
     host: String,
 ) -> Result<(), String> {
-    let mut conn = pool
-        .get()
-        .map_err(|e| format!("db pool: {e}"))?;
+    let mut conn = pool.get().map_err(|e| format!("db pool: {e}"))?;
 
     let user = match repository::get_user_by_email(&email, &mut conn) {
         Ok(u) => u,
@@ -200,7 +200,10 @@ pub async fn reset_password_with_token(
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(e) => {
-            error!("User not found for password reset: user_uuid={}, error={}", user_uuid, e);
+            error!(
+                "User not found for password reset: user_uuid={}, error={}",
+                user_uuid, e
+            );
             return errors::bad_request("Invalid or expired token");
         }
     };
@@ -223,10 +226,11 @@ pub async fn reset_password_with_token(
     if let Err(e) = diesel::update(
         user_auth_identities::table
             .filter(user_auth_identities::user_uuid.eq(&user.uuid))
-            .filter(user_auth_identities::provider_type.eq("local"))
+            .filter(user_auth_identities::provider_type.eq("local")),
     )
     .set(user_auth_identities::password_hash.eq(Some(new_password_hash)))
-    .execute(&mut conn) {
+    .execute(&mut conn)
+    {
         error!("Failed to update password hash: {:?}", e);
         return errors::internal("Error updating password");
     }
@@ -234,9 +238,13 @@ pub async fn reset_password_with_token(
     // Update password_changed_at timestamp in users table
     match diesel::update(crate::schema::users::table.find(&user.uuid))
         .set(crate::schema::users::password_changed_at.eq(now))
-        .execute(&mut conn) {
+        .execute(&mut conn)
+    {
         Ok(_) => {
-            info!("Password reset successfully for user: {} (uuid={})", user.name, user.uuid);
+            info!(
+                "Password reset successfully for user: {} (uuid={})",
+                user.name, user.uuid
+            );
 
             // Log security event for password reset
             if let Err(e) = log_password_reset_event(&user.uuid, &http_request, &mut conn).await {
@@ -246,19 +254,22 @@ pub async fn reset_password_with_token(
 
             // Revoke all sessions for security (user must log in again)
             match crate::repository::active_sessions::revoke_other_sessions(
-                &mut conn,
-                &user.uuid,
+                &mut conn, &user.uuid,
                 None, // Revoke ALL sessions including current (user must re-login)
             ) {
                 Ok(revoked_count) => {
                     if revoked_count > 0 {
-                        info!("Revoked {} session(s) after password reset for user: {}",
-                              revoked_count, user.name);
+                        info!(
+                            "Revoked {} session(s) after password reset for user: {}",
+                            revoked_count, user.name
+                        );
                     }
-                },
+                }
                 Err(e) => {
-                    warn!("Failed to revoke sessions after password reset for user {}: {}",
-                          user.uuid, e);
+                    warn!(
+                        "Failed to revoke sessions after password reset for user {}: {}",
+                        user.uuid, e
+                    );
                     // Don't fail the password reset if session revocation fails
                 }
             }
@@ -267,7 +278,7 @@ pub async fn reset_password_with_token(
                 "status": "success",
                 "message": "Password reset successfully. Please log in with your new password."
             }))
-        },
+        }
         Err(e) => {
             error!("Failed to update password: {:?}", e);
             errors::internal("Error updating password")

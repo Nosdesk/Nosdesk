@@ -1,12 +1,12 @@
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use diesel::RunQueryDsl;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use dotenvy::dotenv;
 use std::env;
-use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::{info, warn, error};
+use std::time::Duration;
+use tracing::{error, info, warn};
 
 pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
@@ -19,7 +19,9 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the database by running migrations
 /// This function is designed to be called only once
-pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn initialize_database(
+    pool: &Pool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if INITIALIZED.load(Ordering::Acquire) {
         return Ok(());
     }
@@ -47,7 +49,8 @@ pub async fn initialize_database(pool: &Pool) -> Result<(), Box<dyn std::error::
     }
 
     // Run migrations
-    let mut conn = pool.get()
+    let mut conn = pool
+        .get()
         .map_err(|e| format!("Failed to get database connection: {e}"))?;
 
     match conn.run_pending_migrations(MIGRATIONS) {
@@ -103,7 +106,7 @@ pub fn establish_connection_pool() -> Pool {
         Ok(url) => {
             info!(url_prefix = %url.chars().take(30).collect::<String>(), "DATABASE_URL found");
             url
-        },
+        }
         Err(e) => {
             error!(error = %e, "DATABASE_URL environment variable must be set");
             std::process::exit(1);
@@ -117,7 +120,7 @@ pub fn establish_connection_pool() -> Pool {
         Ok(pool) => {
             info!("Database connection pool created successfully");
             pool
-        },
+        }
         Err(e) => {
             error!(
                 error = %e,
@@ -126,4 +129,4 @@ pub fn establish_connection_pool() -> Pool {
             std::process::exit(1);
         }
     }
-} 
+}

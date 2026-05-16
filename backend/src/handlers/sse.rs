@@ -510,9 +510,8 @@ impl SseStream {
         let mut heartbeat_interval = interval(Duration::from_secs(15));
         heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        let event_streams = futures::stream::select_all(
-            receivers.into_iter().map(BroadcastStream::new),
-        );
+        let event_streams =
+            futures::stream::select_all(receivers.into_iter().map(BroadcastStream::new));
 
         let replay_max_id = replay.iter().map(|e| e.id).max().unwrap_or(0);
 

@@ -1,7 +1,7 @@
-use diesel::prelude::*;
-use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::{User, UserEmail, UserRole};
+use diesel::prelude::*;
+use uuid::Uuid;
 
 /// Observer fired after a user record is successfully committed to the
 /// database. Implementors react to user creation (e.g. the search
@@ -33,8 +33,11 @@ pub fn get_primary_email(user_uuid: &Uuid, conn: &mut DbConnection) -> Option<St
 /// SECURITY: Only matches PRIMARY emails - secondary emails cannot be used for login
 /// This follows industry best practices (Google, Microsoft, GitHub, etc.)
 /// NOTE: Email comparison is case-insensitive per RFC 5321
-pub fn get_user_by_email(email: &str, conn: &mut DbConnection) -> Result<User, diesel::result::Error> {
-    use crate::schema::{users, user_emails};
+pub fn get_user_by_email(
+    email: &str,
+    conn: &mut DbConnection,
+) -> Result<User, diesel::result::Error> {
+    use crate::schema::{user_emails, users};
 
     users::table
         .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
@@ -54,9 +57,9 @@ pub fn create_user_with_email(
     conn: &mut DbConnection,
     observer: Option<&dyn UserCreatedObserver>,
 ) -> Result<(User, UserEmail), diesel::result::Error> {
+    use crate::models::{SyncAggregate, SyncOp};
     use crate::sync::emit::{self, SyncEmit};
     use crate::sync::groups;
-    use crate::models::{SyncAggregate, SyncOp};
     use serde_json::json;
 
     let result = conn.transaction::<_, diesel::result::Error, _>(|conn| {
@@ -404,8 +407,8 @@ pub fn get_users_with_primary_emails(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn get_primary_email_returns_primary() {
@@ -465,8 +468,14 @@ mod tests {
         };
 
         let (user, email_record) = create_user_with_email(
-            new_user, "atomic@test.com".into(), true, None, &mut conn, None,
-        ).unwrap();
+            new_user,
+            "atomic@test.com".into(),
+            true,
+            None,
+            &mut conn,
+            None,
+        )
+        .unwrap();
 
         assert_eq!(user.name, "Atomic");
         assert_eq!(email_record.email, "atomic@test.com");
@@ -625,7 +634,8 @@ mod tests {
         };
 
         // Second call with different casing hits the same account.
-        let r2 = find_or_create_guest_user("ALICE@example.COM", "Alice Again", &mut conn, None).unwrap();
+        let r2 =
+            find_or_create_guest_user("ALICE@example.COM", "Alice Again", &mut conn, None).unwrap();
         match r2 {
             GuestUserResult::Existing(u) => assert_eq!(u.uuid, created_uuid),
             _ => panic!("expected Existing on repeat submission"),

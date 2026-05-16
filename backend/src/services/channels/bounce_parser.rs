@@ -247,7 +247,12 @@ fn extract_message_id(raw: &str) -> Option<String> {
             // same offset so we keep the value's exact bytes.
             let offset = trimmed.len() - rest.len();
             let value = trimmed[offset..].trim();
-            return Some(value.trim_start_matches('<').trim_end_matches('>').to_string());
+            return Some(
+                value
+                    .trim_start_matches('<')
+                    .trim_end_matches('>')
+                    .to_string(),
+            );
         }
     }
     None
@@ -473,10 +478,7 @@ mod tests {
         assert_eq!(report.original_message_id, "out-42@yourco.com");
         assert_eq!(report.recipient.as_deref(), Some("bouncer@example.org"));
         assert_eq!(report.status_code.as_deref(), Some("5.1.1"));
-        assert_eq!(
-            report.diagnostic.as_deref(),
-            Some("550 5.1.1 User unknown")
-        );
+        assert_eq!(report.diagnostic.as_deref(), Some("550 5.1.1 User unknown"));
         // Hard bounce per the structured status, suppressable.
         assert!(report.is_hard());
     }
@@ -586,7 +588,11 @@ mod tests {
             \r\n\
             --M--\r\n";
         let reports = parse_bounce(&parsed(raw));
-        assert_eq!(reports.len(), 2, "expected one report per per-recipient block");
+        assert_eq!(
+            reports.len(),
+            2,
+            "expected one report per per-recipient block"
+        );
         // Both reports share the same original Message-ID since
         // they describe failures of the same outbound row.
         assert_eq!(reports[0].original_message_id, "out-multi@yourco.com");

@@ -55,7 +55,12 @@ impl RateLimiter {
             Ok(true)
         } else {
             // Rate limit exceeded
-            tracing::warn!("Rate limit exceeded for key: {} ({}/{})", key, current_count, max_attempts);
+            tracing::warn!(
+                "Rate limit exceeded for key: {} ({}/{})",
+                key,
+                current_count,
+                max_attempts
+            );
             Ok(false)
         }
     }
@@ -98,8 +103,6 @@ impl RateLimiter {
         key: &str,
         ttl_seconds: u64,
     ) -> Result<(), RateLimitError> {
-        
-
         let client = redis::Client::open(redis_url)
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
 
@@ -127,7 +130,6 @@ impl RateLimiter {
 
         Ok(())
     }
-
 
     /// Generate a standardized rate limit key for MFA attempts
     ///
@@ -222,8 +224,6 @@ impl RateLimiter {
         key: &str,
         lockout_seconds: u64,
     ) -> Result<u32, RateLimitError> {
-        
-
         let client = redis::Client::open(redis_url)
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
 

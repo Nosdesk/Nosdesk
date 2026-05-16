@@ -140,7 +140,10 @@ pub fn extract(msg: &InboundMessage) -> Option<ExtractedForward> {
     if !is_plausible_email(&email) {
         return None;
     }
-    Some(ExtractedForward { email, display_name })
+    Some(ExtractedForward {
+        email,
+        display_name,
+    })
 }
 
 /// Cheap sanity check — matches what lettre's address parser enforces

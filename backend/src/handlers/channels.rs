@@ -19,9 +19,7 @@ use tracing::{error, info, warn};
 use crate::db::{DbConnection, Pool};
 use crate::handlers::errors;
 use crate::handlers::helpers;
-use crate::models::{
-    Channel, ChannelUpdate, NewChannel, CRED_TYPE_IMAP_PASSWORD,
-};
+use crate::models::{Channel, ChannelUpdate, NewChannel, CRED_TYPE_IMAP_PASSWORD};
 use crate::repository::channels as channels_repo;
 use crate::services::channels::email_imap::{test_imap_connection, ImapChannelConfig};
 use crate::services::channels::supervisor::ChannelControl;
@@ -368,11 +366,12 @@ async fn clear_credential_impl(
 ) -> Result<HttpResponse, HttpResponse> {
     let mut conn = helpers::admin_conn(&req, &pool)?;
     let channel_id = path.into_inner();
-    channels_repo::delete_credential(&mut conn, channel_id, CRED_TYPE_IMAP_PASSWORD)
-        .map_err(|e| {
+    channels_repo::delete_credential(&mut conn, channel_id, CRED_TYPE_IMAP_PASSWORD).map_err(
+        |e| {
             error!(error = %e, "failed to clear channel credential");
             server_error("Failed to clear credential")
-        })?;
+        },
+    )?;
     // Reconcile so the running worker (if any) observes the missing
     // credential on its next start attempt; it'll fail with a
     // Configuration error and settle into a stopped state rather than
@@ -406,7 +405,9 @@ async fn test_connection_impl(
     let channel = load_channel(&mut conn, channel_id)?;
 
     if channel.provider != "email_imap" {
-        return Err(bad_request("test-connection is only supported for email_imap"));
+        return Err(bad_request(
+            "test-connection is only supported for email_imap",
+        ));
     }
 
     let config: ImapChannelConfig = serde_json::from_value(channel.config.clone())
@@ -423,9 +424,7 @@ async fn test_connection_impl(
                 error!(error = %e, "failed to read channel credential");
                 server_error("Failed to read stored credential")
             })?
-            .ok_or_else(|| {
-                bad_request("No stored password — provide one in the request body")
-            })?,
+            .ok_or_else(|| bad_request("No stored password — provide one in the request body"))?,
     };
 
     match test_imap_connection(&config, &password).await {

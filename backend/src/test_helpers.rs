@@ -4,8 +4,8 @@
 //! via `r2d2::CustomizeConnection`, so tests are fully isolated and leave no
 //! residue in the database.
 
-use diesel::prelude::*;
 use diesel::pg::PgConnection;
+use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
 use diesel::Connection;
 use diesel_migrations::MigrationHarness;
@@ -45,8 +45,9 @@ fn ensure_test_db_migrated() {
     if INIT
         .get_or_try_init(|| -> Result<(), Box<dyn std::error::Error>> {
             let url = test_database_url();
-            let mut conn = PgConnection::establish(&url)
-                .map_err(|e| format!("Failed to connect to test DB for migration bootstrap: {e}"))?;
+            let mut conn = PgConnection::establish(&url).map_err(|e| {
+                format!("Failed to connect to test DB for migration bootstrap: {e}")
+            })?;
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(|e| format!("Failed to apply migrations to test DB: {e}"))?;
             Ok(())
@@ -223,9 +224,8 @@ impl TestFixtures {
         // Resolve the legacy "open" bucket to a concrete workflow state.
         // Using the legacy helper so the fixture continues to mean "the
         // open-equivalent state" regardless of workspace customisation.
-        let open_state =
-            crate::repository::workflow_states::state_for_legacy_status(conn, "open")
-                .expect("workflow_states must be seeded for tests");
+        let open_state = crate::repository::workflow_states::state_for_legacy_status(conn, "open")
+            .expect("workflow_states must be seeded for tests");
         let new_ticket = NewTicket {
             title: title.to_string(),
             workflow_state_id: open_state.id,
@@ -241,7 +241,12 @@ impl TestFixtures {
     }
 
     /// Insert a comment on a ticket and return it.
-    pub fn create_comment(conn: &mut DbConnection, ticket_id: i32, user_uuid: Uuid, content: &str) -> Comment {
+    pub fn create_comment(
+        conn: &mut DbConnection,
+        ticket_id: i32,
+        user_uuid: Uuid,
+        content: &str,
+    ) -> Comment {
         let new_comment = NewComment {
             content: content.to_string(),
             ticket_id,
@@ -275,7 +280,12 @@ impl TestFixtures {
     }
 
     /// Insert a user email and return it.
-    pub fn create_user_email(conn: &mut DbConnection, user_uuid: Uuid, email: &str, is_primary: bool) -> UserEmail {
+    pub fn create_user_email(
+        conn: &mut DbConnection,
+        user_uuid: Uuid,
+        email: &str,
+        is_primary: bool,
+    ) -> UserEmail {
         let new_email = NewUserEmail {
             user_uuid,
             email: email.to_string(),
@@ -306,7 +316,6 @@ impl TestFixtures {
             .get_result(conn)
             .expect("Failed to create test project")
     }
-
 }
 
 // ============================================================================
@@ -340,7 +349,8 @@ pub fn create_test_token(user: &User, session_id: &uuid::Uuid) -> String {
     if std::env::var("JWT_SECRET").is_err() {
         std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only-32chars");
     }
-    crate::utils::jwt::JwtUtils::create_token(user, session_id).expect("Failed to create test token")
+    crate::utils::jwt::JwtUtils::create_token(user, session_id)
+        .expect("Failed to create test token")
 }
 
 /// Create test Claims for injecting into request extensions.

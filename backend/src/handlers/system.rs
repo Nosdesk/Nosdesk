@@ -118,9 +118,7 @@ async fn check_for_updates() -> Option<(String, String)> {
 }
 
 // GET /api/admin/system/info
-pub async fn get_system_info(
-    system_state: web::Data<SystemState>,
-) -> impl Responder {
+pub async fn get_system_info(system_state: web::Data<SystemState>) -> impl Responder {
     let current_version = get_current_version();
     let uptime = system_state.start_time.elapsed();
 

@@ -12,7 +12,9 @@ use ring::rand::{SecureRandom, SystemRandom};
 fn get_encryption_key() -> Result<[u8; 32]> {
     let key_hex = std::env::var("ENCRYPTION_KEY")
         .or_else(|_| std::env::var("MFA_ENCRYPTION_KEY"))
-        .map_err(|_| anyhow!("ENCRYPTION_KEY or MFA_ENCRYPTION_KEY environment variable not set"))?;
+        .map_err(|_| {
+            anyhow!("ENCRYPTION_KEY or MFA_ENCRYPTION_KEY environment variable not set")
+        })?;
 
     if key_hex.len() != 64 {
         return Err(anyhow!(
@@ -44,8 +46,8 @@ pub fn validate_at_startup() -> Result<()> {
 /// Format: <12-byte nonce><ciphertext><16-byte auth tag>
 pub fn encrypt(plaintext: &str) -> Result<String> {
     let key_bytes = get_encryption_key()?;
-    let unbound_key =
-        UnboundKey::new(&AES_256_GCM, &key_bytes).map_err(|_| anyhow!("Failed to create encryption key"))?;
+    let unbound_key = UnboundKey::new(&AES_256_GCM, &key_bytes)
+        .map_err(|_| anyhow!("Failed to create encryption key"))?;
     let sealing_key = LessSafeKey::new(unbound_key);
 
     // Generate random 12-byte nonce
@@ -106,7 +108,10 @@ pub fn encrypt_bytes_with_aad(plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
 /// Returns `Zeroizing<Vec<u8>>` so the plaintext is zeroed when
 /// dropped. Callers who need to hold the bytes longer should keep
 /// the `Zeroizing` wrapper; dereferencing to `&[u8]` is cheap.
-pub fn decrypt_bytes_with_aad(ciphertext: &[u8], aad: &[u8]) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+pub fn decrypt_bytes_with_aad(
+    ciphertext: &[u8],
+    aad: &[u8],
+) -> Result<zeroize::Zeroizing<Vec<u8>>> {
     use zeroize::Zeroizing;
 
     let key_bytes = get_encryption_key()?;
@@ -140,8 +145,8 @@ pub fn decrypt_bytes_with_aad(ciphertext: &[u8], aad: &[u8]) -> Result<zeroize::
 /// Expects format: <12-byte nonce><ciphertext><16-byte auth tag>
 pub fn decrypt(encrypted_hex: &str) -> Result<String> {
     let key_bytes = get_encryption_key()?;
-    let unbound_key =
-        UnboundKey::new(&AES_256_GCM, &key_bytes).map_err(|_| anyhow!("Failed to create decryption key"))?;
+    let unbound_key = UnboundKey::new(&AES_256_GCM, &key_bytes)
+        .map_err(|_| anyhow!("Failed to create decryption key"))?;
     let opening_key = LessSafeKey::new(unbound_key);
 
     // Decode from hex
@@ -229,9 +234,6 @@ mod tests {
         assert_ne!(encrypted1, encrypted2);
 
         // But both should decrypt to the same value
-        assert_eq!(
-            decrypt(&encrypted1).unwrap(),
-            decrypt(&encrypted2).unwrap()
-        );
+        assert_eq!(decrypt(&encrypted1).unwrap(), decrypt(&encrypted2).unwrap());
     }
 }

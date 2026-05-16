@@ -1,27 +1,24 @@
-use actix_web::{web, HttpResponse, HttpRequest, HttpMessage, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 // Removed unused import: use diesel::prelude::*;
+use querystring;
+use reqwest;
+use serde::Deserialize;
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
-use urlencoding;
-use querystring;
-use serde::Deserialize;
-use reqwest;
 use tracing::{error, info, warn};
+use urlencoding;
 
-use crate::db::{Pool, DbConnection};
-use crate::handlers::helpers;
+use crate::db::{DbConnection, Pool};
 use crate::handlers::errors;
+use crate::handlers::helpers;
+use crate::models::{AuthProvider, OAuthExchangeRequest, OAuthRequest, OAuthState};
 use crate::utils::jwt::JWT_SECRET;
-use crate::models::{
-    OAuthRequest, OAuthExchangeRequest,
-    OAuthState, AuthProvider
-};
 use diesel::prelude::*;
 // Auth providers are now configured via environment variables
-use crate::repository::user_auth_identities;
 use crate::config_utils;
-use crate::utils;
 use crate::oidc;
+use crate::repository::user_auth_identities;
+use crate::utils;
 
 // Structure for OAuth logout requests
 #[derive(Deserialize, Debug)]
@@ -43,7 +40,8 @@ fn get_provider_by_type(provider_type: &str) -> Result<AuthProvider, diesel::res
         "microsoft" => {
             if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
                 && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
-                && std::env::var("MICROSOFT_TENANT_ID").is_ok() {
+                && std::env::var("MICROSOFT_TENANT_ID").is_ok()
+            {
                 Ok(AuthProvider::new(
                     2,
                     "Microsoft".to_string(),
@@ -54,7 +52,7 @@ fn get_provider_by_type(provider_type: &str) -> Result<AuthProvider, diesel::res
             } else {
                 Err(diesel::result::Error::NotFound)
             }
-        },
+        }
         "oidc" => {
             if config_utils::is_oidc_enabled() {
                 Ok(AuthProvider::new(
@@ -67,16 +65,13 @@ fn get_provider_by_type(provider_type: &str) -> Result<AuthProvider, diesel::res
             } else {
                 Err(diesel::result::Error::NotFound)
             }
-        },
+        }
         _ => Err(diesel::result::Error::NotFound),
     }
 }
 
 // Get all authentication providers (admin only) - now returns environment-based config
-pub async fn get_auth_providers(
-    db_pool: web::Data<Pool>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn get_auth_providers(db_pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
     // Get database connection
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
@@ -95,18 +90,18 @@ pub async fn get_auth_providers(
     }
 
     // Return hardcoded providers based on environment configuration
-    let mut providers = vec![
-        json!({
-            "id": 1,
-            "name": "Local",
-            "provider_type": "local",
-            "enabled": true,
-            "is_default": true
-        })
-    ];
+    let mut providers = vec![json!({
+        "id": 1,
+        "name": "Local",
+        "provider_type": "local",
+        "enabled": true,
+        "is_default": true
+    })];
 
     // Check if Microsoft is configured
-    if std::env::var("MICROSOFT_CLIENT_ID").is_ok() && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok() {
+    if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
+        && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
+    {
         providers.push(json!({
             "id": 2,
             "name": "Microsoft",
@@ -131,21 +126,19 @@ pub async fn get_auth_providers(
 }
 
 // Get enabled authentication providers (for login page) - now environment-based
-pub async fn get_enabled_auth_providers(
-    _db_pool: web::Data<Pool>,
-) -> impl Responder {
+pub async fn get_enabled_auth_providers(_db_pool: web::Data<Pool>) -> impl Responder {
     // Return enabled providers based on environment configuration
-    let mut providers = vec![
-        json!({
-            "id": 1,
-            "provider_type": "local",
-            "name": "Local",
-            "is_default": true
-        })
-    ];
+    let mut providers = vec![json!({
+        "id": 1,
+        "provider_type": "local",
+        "name": "Local",
+        "is_default": true
+    })];
 
     // Check if Microsoft is configured
-    if std::env::var("MICROSOFT_CLIENT_ID").is_ok() && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok() {
+    if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
+        && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
+    {
         providers.push(json!({
             "id": 2,
             "provider_type": "microsoft",
@@ -166,10 +159,6 @@ pub async fn get_enabled_auth_providers(
 
     HttpResponse::Ok().json(providers)
 }
-
-
-
-
 
 // Generate OAuth authorization URL
 pub async fn oauth_authorize(
@@ -207,10 +196,13 @@ pub async fn oauth_authorize(
                 return errors::bad_request(format!("{} authentication is not enabled", p.name));
             }
             p
-        },
+        }
         Err(e) => {
             if let diesel::result::Error::NotFound = e {
-                return errors::not_found_msg(format!("{} authentication provider not found", provider_type));
+                return errors::not_found_msg(format!(
+                    "{} authentication provider not found",
+                    provider_type
+                ));
             } else {
                 error!(provider = %provider_type, error = ?e, "Failed to get auth provider");
                 return errors::internal("Failed to retrieve authentication provider");
@@ -225,7 +217,10 @@ pub async fn oauth_authorize(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_id for Microsoft provider");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
@@ -233,7 +228,10 @@ pub async fn oauth_authorize(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get tenant_id for Microsoft provider");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
@@ -241,19 +239,26 @@ pub async fn oauth_authorize(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get redirect_uri for Microsoft provider");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
         // Generate a JWT state token
-        let state = match create_oauth_state("microsoft", oauth_request.redirect_uri.clone(), oauth_request.user_connection) {
+        let state = match create_oauth_state(
+            "microsoft",
+            oauth_request.redirect_uri.clone(),
+            oauth_request.user_connection,
+        ) {
             Ok(token) => token,
             Err(e) => {
                 error!(error = %e, "Failed to create OAuth state token");
                 return errors::internal("Failed to initiate authentication flow");
             }
         };
-        
+
         // Create the authorization URL
         let auth_url = format!(
             "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
@@ -265,7 +270,12 @@ pub async fn oauth_authorize(
         }))
     } else if provider.provider_type == "oidc" {
         // Generate OIDC authorization URL with PKCE
-        match oidc::generate_auth_url(oauth_request.redirect_uri.clone(), oauth_request.user_connection).await {
+        match oidc::generate_auth_url(
+            oauth_request.redirect_uri.clone(),
+            oauth_request.user_connection,
+        )
+        .await
+        {
             Ok((auth_url, auth_data)) => {
                 // Create state JWT with PKCE verifier and nonce
                 let state = match create_oauth_state_with_oidc(
@@ -290,14 +300,17 @@ pub async fn oauth_authorize(
                     "auth_url": auth_url_with_state,
                     "state": state
                 }))
-            },
+            }
             Err(e) => {
                 error!(error = %e, "Failed to generate OIDC authorization URL");
                 errors::internal(format!("Failed to initiate OIDC authentication: {}", e))
             }
         }
     } else {
-        errors::bad_request(format!("{} authentication is not implemented", provider.name))
+        errors::bad_request(format!(
+            "{} authentication is not implemented",
+            provider.name
+        ))
     }
 }
 
@@ -369,7 +382,7 @@ pub async fn oauth_callback(
                 return errors::bad_request(format!("{} authentication is not enabled", p.name));
             }
             p
-        },
+        }
         Err(e) => {
             error!(provider = %provider_type, error = ?e, "Failed to get provider in callback");
             return errors::internal("Authentication provider error");
@@ -386,7 +399,10 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_id for Microsoft provider in callback");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
@@ -394,7 +410,10 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get tenant_id for Microsoft provider in callback");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
@@ -402,7 +421,10 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_secret for Microsoft provider in callback");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
@@ -410,7 +432,10 @@ pub async fn oauth_callback(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get redirect_uri for Microsoft provider in callback");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
@@ -438,27 +463,38 @@ pub async fn oauth_callback(
                 };
 
                 // Extract email from user info
-                let _email = match user_info.get("mail")
+                let _email = match user_info
+                    .get("mail")
                     .or_else(|| user_info.get("userPrincipalName"))
-                    .and_then(|e| e.as_str()) {
+                    .and_then(|e| e.as_str())
+                {
                     Some(email) => email.to_string(),
                     None => {
                         error!("No email found in Microsoft user info");
-                        return errors::internal("Invalid user information from Microsoft (no email)");
+                        return errors::internal(
+                            "Invalid user information from Microsoft (no email)",
+                        );
                     }
                 };
 
                 // Handle account connection vs normal login
                 if is_connection {
                     // This is a connection request - check if this identity is already linked to another account
-                    match user_auth_identities::find_user_by_identity(&provider.provider_type, &provider_user_id, &mut conn) {
+                    match user_auth_identities::find_user_by_identity(
+                        &provider.provider_type,
+                        &provider_user_id,
+                        &mut conn,
+                    ) {
                         Ok(Some(existing_user_uuid)) => {
                             // Found an existing identity - verify the user still exists
-                            match crate::repository::users::get_user_by_uuid(&existing_user_uuid, &mut conn) {
+                            match crate::repository::users::get_user_by_uuid(
+                                &existing_user_uuid,
+                                &mut conn,
+                            ) {
                                 Ok(_user) => {
                                     // User exists, can't reconnect
                                     return errors::bad_request("This Microsoft account is already connected to another user account");
-                                },
+                                }
                                 Err(_) => {
                                     // User doesn't exist (orphaned record) - clean it up and proceed
                                     warn!(
@@ -470,39 +506,48 @@ pub async fn oauth_callback(
                                     // Delete the orphaned identity
                                     if let Err(e) = diesel::delete(
                                         crate::schema::user_auth_identities::table
-                                            .filter(crate::schema::user_auth_identities::provider_type.eq(&provider.provider_type))
-                                            .filter(crate::schema::user_auth_identities::external_id.eq(&provider_user_id))
-                                    ).execute(&mut conn) {
+                                            .filter(
+                                                crate::schema::user_auth_identities::provider_type
+                                                    .eq(&provider.provider_type),
+                                            )
+                                            .filter(
+                                                crate::schema::user_auth_identities::external_id
+                                                    .eq(&provider_user_id),
+                                            ),
+                                    )
+                                    .execute(&mut conn)
+                                    {
                                         error!(error = ?e, "Failed to clean up orphaned auth identity");
                                     }
                                     // Allow connection to proceed
                                 }
                             }
-                        },
+                        }
                         Ok(None) => {
                             // Identity not yet linked - proceed
-                        },
+                        }
                         Err(e) => {
                             error!(error = ?e, "Failed to check existing identity");
                             return errors::internal("Failed to verify Microsoft account status");
                         }
                     }
-                    
+
                     // Extract user UUID from the redirect URL params if present
                     // For added security, we get the UUID from the query string in redirect_uri if provided
                     let user_uuid_param = if state_data.redirect_uri.contains('?') {
                         let query_params = state_data.redirect_uri.split('?').nth(1).unwrap_or("");
                         let params = querystring::querify(query_params);
-                        params.iter()
+                        params
+                            .iter()
                             .find(|(k, _)| *k == "user_uuid")
                             .map(|(_, v)| v.to_string())
                     } else {
                         None
                     };
-                    
+
                     // Get user UUID from SessionStorage on client side if not in URL
                     // SessionStorage on the frontend should contain the authRedirect with the user's path
-                    
+
                     // Add the identity to the user - for now we use a hardcoded false value
                     // but in a real implementation you'd get the UUID from auth token
                     let user_uuid = match user_uuid_param {
@@ -510,25 +555,30 @@ pub async fn oauth_callback(
                         None => {
                             // If not explicit in URL params, the user should be authenticated
                             // Get from request headers (auth token)
-                            let redirect_parts: Vec<&str> = state_data.redirect_uri.split('?').collect();
+                            let redirect_parts: Vec<&str> =
+                                state_data.redirect_uri.split('?').collect();
                             let redirect_path = redirect_parts[0];
-                            
+
                             // Error case - can't determine user
-                            let error_url = format!("{}?auth_error={}", 
-                                redirect_path,
-                                "Could not determine user account for connection");
-                            
+                            let error_url = format!(
+                                "{}?auth_error={}",
+                                redirect_path, "Could not determine user account for connection"
+                            );
+
                             return HttpResponse::Found()
                                 .append_header(("Location", error_url))
                                 .finish();
                         }
                     };
-                    
+
                     // Add the identity to the user account
-                    match add_oauth_identity_to_user(&user_uuid, &user_info, &provider, &mut conn).await {
+                    match add_oauth_identity_to_user(&user_uuid, &user_info, &provider, &mut conn)
+                        .await
+                    {
                         Ok(_) => {
                             // Successful connection
-                            let redirect_parts: Vec<&str> = state_data.redirect_uri.split('?').collect();
+                            let redirect_parts: Vec<&str> =
+                                state_data.redirect_uri.split('?').collect();
                             let redirect_path = redirect_parts[0];
                             let success_url = format!("{redirect_path}?auth_success=true");
 
@@ -536,16 +586,19 @@ pub async fn oauth_callback(
                             HttpResponse::Found()
                                 .append_header(("Location", success_url))
                                 .finish()
-                        },
+                        }
                         Err(e) => {
                             error!(error = %e, "Failed to connect account");
 
                             // Error connecting
-                            let redirect_parts: Vec<&str> = state_data.redirect_uri.split('?').collect();
+                            let redirect_parts: Vec<&str> =
+                                state_data.redirect_uri.split('?').collect();
                             let redirect_path = redirect_parts[0];
-                            let error_url = format!("{}?auth_error={}",
+                            let error_url = format!(
+                                "{}?auth_error={}",
                                 redirect_path,
-                                urlencoding::encode(&format!("Failed to connect account: {e}")));
+                                urlencoding::encode(&format!("Failed to connect account: {e}"))
+                            );
 
                             HttpResponse::Found()
                                 .append_header(("Location", error_url))
@@ -555,20 +608,21 @@ pub async fn oauth_callback(
                 } else {
                     // Regular login/signup flow
                     // Find or create user based on OAuth identity
-                    let user_result = find_or_create_oauth_user(&user_info, &provider, &mut conn).await;
+                    let user_result =
+                        find_or_create_oauth_user(&user_info, &provider, &mut conn).await;
 
                     match user_result {
                         Ok(user) => {
                             info!(user_uuid = %user.uuid, "OAuth: Completing login");
                             crate::handlers::auth::complete_login(user, &request, &mut conn)
-                        },
+                        }
                         Err(e) => {
                             error!(error = ?e, "Failed to find or create user");
                             errors::internal("Failed to authenticate user")
                         }
                     }
                 }
-            },
+            }
             Err(e) => {
                 error!(error = ?e, "Failed to exchange code for token");
                 errors::internal("Failed to authenticate with Microsoft")
@@ -604,13 +658,20 @@ pub async fn oauth_callback(
                 // Check if this is a user connection request (vs. a standard login)
                 if is_connection {
                     // Connection request - check if this identity is already linked
-                    match user_auth_identities::find_user_by_identity("oidc", &user_info.sub, &mut conn) {
+                    match user_auth_identities::find_user_by_identity(
+                        "oidc",
+                        &user_info.sub,
+                        &mut conn,
+                    ) {
                         Ok(Some(existing_user_uuid)) => {
                             // Found an existing identity - verify the user still exists
-                            match crate::repository::users::get_user_by_uuid(&existing_user_uuid, &mut conn) {
+                            match crate::repository::users::get_user_by_uuid(
+                                &existing_user_uuid,
+                                &mut conn,
+                            ) {
                                 Ok(_user) => {
                                     return errors::bad_request("This OIDC account is already connected to another user account");
-                                },
+                                }
                                 Err(_) => {
                                     // User doesn't exist (orphaned record) - clean it up
                                     warn!(
@@ -621,17 +682,25 @@ pub async fn oauth_callback(
                                     );
                                     if let Err(e) = diesel::delete(
                                         crate::schema::user_auth_identities::table
-                                            .filter(crate::schema::user_auth_identities::provider_type.eq("oidc"))
-                                            .filter(crate::schema::user_auth_identities::external_id.eq(&user_info.sub))
-                                    ).execute(&mut conn) {
+                                            .filter(
+                                                crate::schema::user_auth_identities::provider_type
+                                                    .eq("oidc"),
+                                            )
+                                            .filter(
+                                                crate::schema::user_auth_identities::external_id
+                                                    .eq(&user_info.sub),
+                                            ),
+                                    )
+                                    .execute(&mut conn)
+                                    {
                                         error!(error = ?e, "Failed to clean up orphaned auth identity");
                                     }
                                 }
                             }
-                        },
+                        }
                         Ok(None) => {
                             // Identity not yet linked - proceed
-                        },
+                        }
                         Err(e) => {
                             error!(error = ?e, "Failed to check existing OIDC identity");
                             return errors::internal("Failed to verify OIDC account status");
@@ -642,7 +711,8 @@ pub async fn oauth_callback(
                     let user_uuid_param = if state_data.redirect_uri.contains('?') {
                         let query_params = state_data.redirect_uri.split('?').nth(1).unwrap_or("");
                         let params = querystring::querify(query_params);
-                        params.iter()
+                        params
+                            .iter()
                             .find(|(key, _)| *key == "user_uuid")
                             .map(|(_, value)| value.to_string())
                     } else {
@@ -650,12 +720,10 @@ pub async fn oauth_callback(
                     };
 
                     let user_uuid = match user_uuid_param {
-                        Some(uuid_str) => {
-                            match uuid::Uuid::parse_str(&uuid_str) {
-                                Ok(uuid) => uuid,
-                                Err(_) => {
-                                    return errors::bad_request("Invalid user UUID in redirect URI");
-                                }
+                        Some(uuid_str) => match uuid::Uuid::parse_str(&uuid_str) {
+                            Ok(uuid) => uuid,
+                            Err(_) => {
+                                return errors::bad_request("Invalid user UUID in redirect URI");
                             }
                         },
                         None => {
@@ -685,21 +753,25 @@ pub async fn oauth_callback(
                     };
                     match user_auth_identities::create_identity(new_identity, &mut conn) {
                         Ok(_) => {
-                            let redirect_parts: Vec<&str> = state_data.redirect_uri.split('?').collect();
+                            let redirect_parts: Vec<&str> =
+                                state_data.redirect_uri.split('?').collect();
                             let redirect_path = redirect_parts[0];
                             let success_url = format!("{redirect_path}?auth_success=true");
 
                             HttpResponse::Found()
                                 .append_header(("Location", success_url))
                                 .finish()
-                        },
+                        }
                         Err(e) => {
                             error!(error = %e, "Failed to connect OIDC account");
-                            let redirect_parts: Vec<&str> = state_data.redirect_uri.split('?').collect();
+                            let redirect_parts: Vec<&str> =
+                                state_data.redirect_uri.split('?').collect();
                             let redirect_path = redirect_parts[0];
-                            let error_url = format!("{}?auth_error={}",
+                            let error_url = format!(
+                                "{}?auth_error={}",
                                 redirect_path,
-                                urlencoding::encode(&format!("Failed to connect account: {e}")));
+                                urlencoding::encode(&format!("Failed to connect account: {e}"))
+                            );
 
                             HttpResponse::Found()
                                 .append_header(("Location", error_url))
@@ -716,27 +788,31 @@ pub async fn oauth_callback(
                         "surname": user_info.family_name,
                     });
 
-                    let user_result = find_or_create_oauth_user(&oidc_user_info, &provider, &mut conn).await;
+                    let user_result =
+                        find_or_create_oauth_user(&oidc_user_info, &provider, &mut conn).await;
 
                     match user_result {
                         Ok(user) => {
                             info!(user_uuid = %user.uuid, "OIDC: Completing login");
                             crate::handlers::auth::complete_login(user, &request, &mut conn)
-                        },
+                        }
                         Err(e) => {
                             error!(error = ?e, "Failed to find or create user from OIDC");
                             errors::internal("Failed to authenticate user")
                         }
                     }
                 }
-            },
+            }
             Err(e) => {
                 error!(error = %e, "Failed to exchange OIDC code for token");
                 errors::internal(format!("Failed to authenticate with OIDC provider: {}", e))
             }
         }
     } else {
-        errors::bad_request(format!("{} authentication callback is not implemented", provider.name))
+        errors::bad_request(format!(
+            "{} authentication callback is not implemented",
+            provider.name
+        ))
     }
 }
 
@@ -760,10 +836,13 @@ pub async fn oauth_logout(
                 return errors::bad_request(format!("{} authentication is not enabled", p.name));
             }
             p
-        },
+        }
         Err(e) => {
             if let diesel::result::Error::NotFound = e {
-                return errors::not_found_msg(format!("{} authentication provider not found", provider_type));
+                return errors::not_found_msg(format!(
+                    "{} authentication provider not found",
+                    provider_type
+                ));
             } else {
                 error!(provider = %provider_type, error = ?e, "Failed to get auth provider for logout");
                 return errors::internal("Failed to retrieve authentication provider");
@@ -779,7 +858,10 @@ pub async fn oauth_logout(
                 Ok(val) => val,
                 Err(e) => {
                     error!(error = ?e, "Failed to get tenant_id for Microsoft provider logout");
-                    return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                    return errors::internal(format!(
+                        "Microsoft authentication is not properly configured: {}",
+                        e
+                    ));
                 }
             };
 
@@ -794,7 +876,7 @@ pub async fn oauth_logout(
             HttpResponse::Ok().json(json!({
                 "logout_url": logout_url
             }))
-        },
+        }
         "oidc" => {
             // For OIDC providers, use the RP-initiated logout flow
             // Generate the logout URL with the redirect URI
@@ -802,12 +884,12 @@ pub async fn oauth_logout(
                 &logout_request.redirect_uri,
                 None, // id_token_hint - could be passed from frontend if available
                 None, // state - could be used for CSRF protection
-            ).await {
-                Some(logout_url) => {
-                    HttpResponse::Ok().json(json!({
-                        "logout_url": logout_url
-                    }))
-                },
+            )
+            .await
+            {
+                Some(logout_url) => HttpResponse::Ok().json(json!({
+                    "logout_url": logout_url
+                })),
                 None => {
                     // OIDC provider doesn't support logout or isn't configured
                     HttpResponse::Ok().json(json!({
@@ -816,17 +898,19 @@ pub async fn oauth_logout(
                     }))
                 }
             }
-        },
-        _ => {
-            errors::bad_request(format!("{} logout is not implemented", provider.name))
         }
+        _ => errors::bad_request(format!("{} logout is not implemented", provider.name)),
     }
 }
 
 // JWT State Management
 
 // Create a signed state JWT for OAuth flow
-fn create_oauth_state(provider_type: &str, redirect_uri: Option<String>, user_connection: Option<bool>) -> Result<String, String> {
+fn create_oauth_state(
+    provider_type: &str,
+    redirect_uri: Option<String>,
+    user_connection: Option<bool>,
+) -> Result<String, String> {
     create_oauth_state_with_oidc(provider_type, redirect_uri, user_connection, None, None)
 }
 
@@ -842,7 +926,10 @@ fn create_oauth_state_with_oidc(
     let secret = JWT_SECRET.clone();
 
     // Create expiration timestamp (10 minutes from now)
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as usize;
     let exp = now + (10 * 60); // 10 minutes
 
     // Create claims
@@ -872,7 +959,7 @@ fn create_oauth_state_with_oidc(
 fn verify_oauth_state(token: &str) -> Result<OAuthState, String> {
     // Get the JWT secret from environment or configuration
     let secret = JWT_SECRET.clone();
-    
+
     // Verify the token
     match jsonwebtoken::decode::<OAuthState>(
         token,
@@ -968,18 +1055,16 @@ async fn exchange_microsoft_code_for_token(
     // than to silently consume a code twice.
     let client = reqwest::Client::new();
     let token_url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
-    let res = retry_transport(&client, 3, || {
-        client.post(&token_url).form(&params)
-    })
-    .await
-    .map_err(|e| format!("Failed to send token request: {e}"))?;
+    let res = retry_transport(&client, 3, || client.post(&token_url).form(&params))
+        .await
+        .map_err(|e| format!("Failed to send token request: {e}"))?;
 
     // Parse the response
     let token_response = match res.json::<serde_json::Value>().await {
         Ok(json) => json,
         Err(e) => return Err(format!("Failed to parse token response: {e}")),
     };
-    
+
     // Extract tokens
     let access_token = match token_response.get("access_token") {
         Some(token) => match token.as_str() {
@@ -988,9 +1073,12 @@ async fn exchange_microsoft_code_for_token(
         },
         None => return Err("No access token in response".to_string()),
     };
-    
-    let refresh_token = token_response.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string());
-    
+
+    let refresh_token = token_response
+        .get("refresh_token")
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string());
+
     Ok((access_token, refresh_token))
 }
 
@@ -1006,7 +1094,7 @@ async fn get_microsoft_user_info(access_token: &str) -> Result<serde_json::Value
     })
     .await
     .map_err(|e| format!("Failed to get user info: {e}"))?;
-    
+
     match res.json::<serde_json::Value>().await {
         Ok(json) => Ok(json),
         Err(e) => Err(format!("Failed to parse user info response: {e}")),
@@ -1020,14 +1108,17 @@ async fn find_or_create_oauth_user(
     conn: &mut DbConnection,
 ) -> Result<crate::models::User, String> {
     // Extract email from user info
-    let email = match user_info.get("mail").or_else(|| user_info.get("userPrincipalName")) {
+    let email = match user_info
+        .get("mail")
+        .or_else(|| user_info.get("userPrincipalName"))
+    {
         Some(email) => match email.as_str() {
             Some(e) => e.to_string(),
             None => return Err("Invalid email format".to_string()),
         },
         None => return Err("No email in user info".to_string()),
     };
-    
+
     // Extract name from user info
     let name = match user_info.get("displayName") {
         Some(name) => match name.as_str() {
@@ -1036,7 +1127,7 @@ async fn find_or_create_oauth_user(
         },
         None => return Err("No name in user info".to_string()),
     };
-    
+
     // Extract unique identifier for Microsoft (object ID)
     let provider_user_id = match user_info.get("id") {
         Some(id) => match id.as_str() {
@@ -1045,18 +1136,22 @@ async fn find_or_create_oauth_user(
         },
         None => return Err("No id in user info".to_string()),
     };
-    
+
     use crate::models::NewUserAuthIdentity;
 
     // First try to find the user by their external identity
-    match user_auth_identities::find_user_by_identity(&provider.provider_type, &provider_user_id, conn) {
+    match user_auth_identities::find_user_by_identity(
+        &provider.provider_type,
+        &provider_user_id,
+        conn,
+    ) {
         Ok(Some(user_uuid)) => {
             // User found by identity, return the user
             match crate::repository::users::get_user_by_uuid(&user_uuid, conn) {
                 Ok(user) => return Ok(user),
                 Err(e) => return Err(format!("Error retrieving user: {e:?}")),
             }
-        },
+        }
         Ok(None) => {
             // No identity found, look for the user by email as a fallback
             match crate::repository::get_user_by_email(&email, conn) {
@@ -1071,7 +1166,10 @@ async fn find_or_create_oauth_user(
                         password_hash: None, // No password for OAuth identities
                     };
 
-                    match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
+                    match crate::repository::user_auth_identities::create_identity(
+                        new_identity,
+                        conn,
+                    ) {
                         Ok(_) => {
                             // Identity created. Now mirror the OAuth-provided
                             // email into user_emails so MFA, recovery, and
@@ -1082,7 +1180,9 @@ async fn find_or_create_oauth_user(
                             // every error as "not found" would either
                             // duplicate rows (on transient errors) or
                             // mask a real DB problem.
-                            match crate::repository::user_emails::find_user_by_any_email(conn, &email) {
+                            match crate::repository::user_emails::find_user_by_any_email(
+                                conn, &email,
+                            ) {
                                 Err(diesel::result::Error::NotFound) => {
                                     let new_email = crate::models::NewUserEmail {
                                         user_uuid: user.uuid,
@@ -1092,9 +1192,10 @@ async fn find_or_create_oauth_user(
                                         is_verified: true,
                                         source: Some(provider.provider_type.clone()),
                                     };
-                                    if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
-                                        .values(&new_email)
-                                        .execute(conn)
+                                    if let Err(e) =
+                                        diesel::insert_into(crate::schema::user_emails::table)
+                                            .values(&new_email)
+                                            .execute(conn)
                                     {
                                         // Surface to ERROR (not WARN) — the
                                         // user can still log in but their
@@ -1109,10 +1210,10 @@ async fn find_or_create_oauth_user(
                                             "Failed to insert OAuth email into user_emails; user can log in but email-based flows will not find them",
                                         );
                                     }
-                                },
+                                }
                                 Ok(_) => {
                                     // Email already linked to a user; no insert needed.
-                                },
+                                }
                                 Err(e) => {
                                     error!(
                                         provider = %provider.provider_type,
@@ -1120,42 +1221,42 @@ async fn find_or_create_oauth_user(
                                         error = ?e,
                                         "Failed to look up OAuth email in user_emails; skipping insert",
                                     );
-                                },
+                                }
                             }
 
                             return Ok(user);
-                        },
+                        }
                         Err(e) => {
                             warn!(error = ?e, "Failed to create user identity, will create new user");
                             // Continue to create a new user
                         }
                     }
-                },
+                }
                 Err(_) => {
                     // User not found by email, create a new one
                 }
             }
-        },
+        }
         Err(e) => {
             warn!(error = ?e, "Failed to find user by identity, will create new user");
             // Continue to create a new user
         }
     }
-    
+
     // Create a new user
     use crate::models::UserRole;
     // Removed unused import: use uuid::Uuid;
-    
+
     // Generate a secure random password for the user
     let random_password = format!("{:x}", rand::random::<u128>());
     let password_hash = match crate::utils::auth::hash_password(&random_password) {
         Ok(hash) => hash,
         Err(e) => return Err(format!("Failed to hash password: {e}")),
     };
-    
+
     // Create local user (password will be stored in user_auth_identities)
     let new_user = utils::NewUserBuilder::local_user(name, email.clone(), UserRole::User).build();
-    
+
     match crate::repository::create_user(new_user, conn) {
         Ok(user) => {
             // Create an identity for the new user
@@ -1167,12 +1268,12 @@ async fn find_or_create_oauth_user(
                 metadata: Some(user_info.clone()),
                 password_hash: Some(password_hash), // Add the password hash to the identity
             };
-            
+
             match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
                 Ok(_) => Ok(user),
                 Err(e) => Err(format!("User created but failed to create identity: {e:?}")),
             }
-        },
+        }
         Err(e) => Err(format!("Failed to create user: {e:?}")),
     }
 }
@@ -1182,7 +1283,7 @@ async fn add_oauth_identity_to_user(
     user_uuid: &str,
     user_info: &serde_json::Value,
     provider: &AuthProvider,
-    conn: &mut DbConnection
+    conn: &mut DbConnection,
 ) -> Result<(), String> {
     // Parse UUID from string
     let parsed_uuid = match crate::utils::parse_uuid(user_uuid) {
@@ -1206,7 +1307,8 @@ async fn add_oauth_identity_to_user(
     };
 
     // Extract email from user info (optional)
-    let email = user_info.get("mail")
+    let email = user_info
+        .get("mail")
         .or_else(|| user_info.get("userPrincipalName"))
         .and_then(|e| e.as_str())
         .map(|e| e.to_string());
@@ -1223,7 +1325,7 @@ async fn add_oauth_identity_to_user(
 
     // Save the identity to the database
     match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => return Err(format!("Failed to create auth identity: {e:?}")),
     }
 
@@ -1254,8 +1356,8 @@ async fn add_oauth_identity_to_user(
                         "Failed to insert OAuth email into user_emails; user can log in but email-based flows will not find them",
                     );
                 }
-            },
-            Ok(_) => {},
+            }
+            Ok(_) => {}
             Err(e) => {
                 error!(
                     provider = %provider.provider_type,
@@ -1263,7 +1365,7 @@ async fn add_oauth_identity_to_user(
                     error = ?e,
                     "Failed to look up OAuth email in user_emails; skipping insert",
                 );
-            },
+            }
         }
     }
 
@@ -1293,7 +1395,7 @@ pub async fn oauth_connect(
         Ok(uuid) => uuid,
         Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
-    
+
     let user = match crate::repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(e) => {
@@ -1311,10 +1413,13 @@ pub async fn oauth_connect(
                 return errors::bad_request(format!("{} authentication is not enabled", p.name));
             }
             p
-        },
+        }
         Err(e) => {
             if let diesel::result::Error::NotFound = e {
-                return errors::not_found_msg(format!("{} authentication provider not found", provider_type));
+                return errors::not_found_msg(format!(
+                    "{} authentication provider not found",
+                    provider_type
+                ));
             } else {
                 error!(provider = %provider_type, error = ?e, "Failed to get auth provider for connect");
                 return errors::internal("Failed to retrieve authentication provider");
@@ -1329,7 +1434,10 @@ pub async fn oauth_connect(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_id for Microsoft provider connect");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
@@ -1337,7 +1445,10 @@ pub async fn oauth_connect(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get tenant_id for Microsoft provider connect");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
@@ -1345,37 +1456,56 @@ pub async fn oauth_connect(
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get redirect_uri for Microsoft provider connect");
-                return errors::internal(format!("Microsoft authentication is not properly configured: {}", e));
+                return errors::internal(format!(
+                    "Microsoft authentication is not properly configured: {}",
+                    e
+                ));
             }
         };
 
         // Prepare redirect URI with user UUID
-        let mut actual_redirect_uri = oauth_request.redirect_uri.clone().unwrap_or_else(|| "/profile/settings".to_string());
+        let mut actual_redirect_uri = oauth_request
+            .redirect_uri
+            .clone()
+            .unwrap_or_else(|| "/profile/settings".to_string());
         if !actual_redirect_uri.contains("user_uuid=") {
-            let separator = if actual_redirect_uri.contains('?') { "&" } else { "?" };
-            actual_redirect_uri = format!("{}{}user_uuid={}", actual_redirect_uri, separator, user.uuid);
+            let separator = if actual_redirect_uri.contains('?') {
+                "&"
+            } else {
+                "?"
+            };
+            actual_redirect_uri = format!(
+                "{}{}user_uuid={}",
+                actual_redirect_uri, separator, user.uuid
+            );
         }
 
         // Generate a JWT state token with user_connection=true
-        let state = match create_oauth_state(&provider.provider_type, Some(actual_redirect_uri), Some(true)) {
+        let state = match create_oauth_state(
+            &provider.provider_type,
+            Some(actual_redirect_uri),
+            Some(true),
+        ) {
             Ok(token) => token,
             Err(e) => {
                 error!(error = %e, "Failed to create OAuth state token for connect");
                 return errors::internal("Failed to initiate authentication flow");
             }
         };
-        
+
         // Create the authorization URL
         let auth_url = format!(
             "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
         );
-        
+
         HttpResponse::Ok().json(json!({
             "auth_url": auth_url,
             "state": state
         }))
     } else {
-        errors::bad_request(format!("{} authentication is not implemented", provider.name))
+        errors::bad_request(format!(
+            "{} authentication is not implemented",
+            provider.name
+        ))
     }
 }
-

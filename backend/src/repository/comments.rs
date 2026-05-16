@@ -23,7 +23,10 @@ pub trait CommentDeletedObserver: Send + Sync {
 }
 
 // Comment operations
-pub fn get_comments_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Comment>> {
+pub fn get_comments_by_ticket_id(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<Vec<Comment>> {
     comments::table
         .filter(comments::ticket_id.eq(ticket_id))
         .order(comments::created_at.desc())
@@ -78,7 +81,12 @@ pub fn create_comment(
     new_comment: NewComment,
     observer: Option<&dyn CommentCreatedObserver>,
 ) -> QueryResult<Comment> {
-    create_comment_with_annotation(conn, new_comment, CommentCreationAnnotation::default(), observer)
+    create_comment_with_annotation(
+        conn,
+        new_comment,
+        CommentCreationAnnotation::default(),
+        observer,
+    )
 }
 
 /// Create with explicit origin annotation. The inbound channel
@@ -161,13 +169,19 @@ pub fn create_comment_with_annotation(
 }
 
 // Attachment operations
-pub fn get_attachments_by_comment_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Vec<Attachment>> {
+pub fn get_attachments_by_comment_id(
+    conn: &mut DbConnection,
+    comment_id: i32,
+) -> QueryResult<Vec<Attachment>> {
     attachments::table
         .filter(attachments::comment_id.eq(comment_id))
         .load(conn)
 }
 
-pub fn create_attachment(conn: &mut DbConnection, new_attachment: NewAttachment) -> QueryResult<Attachment> {
+pub fn create_attachment(
+    conn: &mut DbConnection,
+    new_attachment: NewAttachment,
+) -> QueryResult<Attachment> {
     conn.transaction(|conn| {
         let attachment: Attachment = diesel::insert_into(attachments::table)
             .values(&new_attachment)
@@ -214,7 +228,10 @@ pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResul
     comments::table.find(comment_id).first(conn)
 }
 
-pub fn get_comments_with_attachments_by_ticket_id(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<CommentWithAttachments>> {
+pub fn get_comments_with_attachments_by_ticket_id(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<Vec<CommentWithAttachments>> {
     let comments = get_comments_by_ticket_id(conn, ticket_id)?;
 
     // Batch-fetch `from_address` for every comment up front so the
@@ -224,11 +241,9 @@ pub fn get_comments_with_attachments_by_ticket_id(conn: &mut DbConnection, ticke
     // Comments authored through the helpdesk UI have no row there
     // and just see `None`.
     let comment_ids: Vec<i32> = comments.iter().map(|c| c.id).collect();
-    let mut from_addresses = crate::repository::channels::from_addresses_for_comments(
-        conn,
-        &comment_ids,
-    )
-    .unwrap_or_default();
+    let mut from_addresses =
+        crate::repository::channels::from_addresses_for_comments(conn, &comment_ids)
+            .unwrap_or_default();
 
     comments
         .into_iter()
@@ -299,10 +314,11 @@ pub fn delete_comment(
     Ok(count)
 }
 
-pub fn get_attachment_by_id(conn: &mut DbConnection, attachment_id: i32) -> QueryResult<Attachment> {
-    attachments::table
-        .find(attachment_id)
-        .first(conn)
+pub fn get_attachment_by_id(
+    conn: &mut DbConnection,
+    attachment_id: i32,
+) -> QueryResult<Attachment> {
+    attachments::table.find(attachment_id).first(conn)
 }
 
 pub fn delete_attachment(conn: &mut DbConnection, attachment_id: i32) -> QueryResult<usize> {
@@ -348,8 +364,8 @@ pub fn delete_attachment(conn: &mut DbConnection, attachment_id: i32) -> QueryRe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::models::UserRole;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn create_and_retrieve_comment() {
@@ -391,11 +407,13 @@ mod tests {
         let ticket = TestFixtures::create_ticket(&mut conn, "V", Some(user.uuid), None);
 
         // Public.
-        let public = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "requester can see this");
+        let public =
+            TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "requester can see this");
 
         // Internal: set the flag post-insert since the fixture hardcodes
         // is_internal=false.
-        let internal = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "tech-only note");
+        let internal =
+            TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "tech-only note");
         diesel::update(comments::table.find(internal.id))
             .set(comments::is_internal.eq(true))
             .execute(&mut conn)
@@ -431,7 +449,8 @@ mod tests {
         };
         create_comment(&mut conn, new_comment, None).unwrap();
 
-        let updated_ticket = crate::repository::tickets::get_ticket_by_id(&mut conn, ticket.id).unwrap();
+        let updated_ticket =
+            crate::repository::tickets::get_ticket_by_id(&mut conn, ticket.id).unwrap();
         assert!(updated_ticket.updated_at >= original_updated);
     }
 
