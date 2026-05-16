@@ -51,7 +51,7 @@ export function useDateFormat(
   const formatted = computed(() => {
     // Touch reactivity triggers.
     tick.value
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+     
     dateStore.locale
 
     const dateValue = dateRef.value

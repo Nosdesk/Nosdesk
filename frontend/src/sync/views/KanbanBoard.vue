@@ -384,10 +384,6 @@ const { defaultState: _defaultState } = storeToRefs(workflowStatesStore)
 // some Pinia configurations.
 void _defaultState
 
-function priorityLabel(p: CardData['priority']): string {
-  return p
-}
-
 function ticketRow(cardId: number): SyncTicket | null {
   return ticketsStore.byId(cardId).value
 }

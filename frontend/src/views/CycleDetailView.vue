@@ -58,7 +58,9 @@ async function load(): Promise<void> {
 onMounted(load)
 watch(() => props.uuid, load)
 
-const ticketIdSet = computed<Set<number>>(() => new Set(ticketIds.value))
+// Reserved for an upcoming "drag from outside cycle" affordance.
+// The underscore prefix marks it as intentionally-unused for now.
+const _ticketIdSet = computed<Set<number>>(() => new Set(ticketIds.value))
 
 const cards = computed<CardData[]>(() => {
   const out: CardData[] = []
@@ -105,11 +107,6 @@ const groupByOptions = computed(() => [
   { value: 'priority', label: t('cycle-detail-group-by-priority') },
 ])
 
-// Suppress an "unused" warning while still letting Vue Router
-// type-check the prop. ticketIdSet is reserved for an upcoming
-// "drag from outside cycle" affordance, keeping it here flags
-// that intent rather than reintroducing it later.
-void ticketIdSet
 </script>
 
 <template>

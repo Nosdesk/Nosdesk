@@ -15,7 +15,7 @@
  * whole tree if the backend ever fans out a "links changed somewhere"
  * SSE event.
  */
-import { computed, type ComputedRef, type MaybeRefOrGetter, toValue } from 'vue'
+import { computed, type MaybeRefOrGetter, toValue } from 'vue'
 import { useQuery, useMutation, useQueryCache } from '@pinia/colada'
 import documentationService, {
   type PageTicketLink,

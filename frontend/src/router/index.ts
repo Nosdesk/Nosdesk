@@ -923,7 +923,7 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
         await hydrate(authStore.user.uuid, schemaHash);
         attachSseBridge();
       } catch (e) {
-        // eslint-disable-next-line no-console
+         
         console.warn('Failed to hydrate sync runtime', e);
       }
     }

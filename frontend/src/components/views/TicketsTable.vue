@@ -47,6 +47,7 @@ import { computed } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import TicketRow from '@/components/views/TicketRow.vue'
+import BucketRows from '@/components/views/BucketRows.vue'
 import { rowMemoKey, type ListColumn } from '@/sync/views/ticketColumns'
 import type { useColumnLayout } from '@/composables/useColumnLayout'
 import type { CardData } from '@/sync/views/types'
@@ -315,31 +316,19 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
                 </div>
               </td>
             </tr>
-            <template v-if="!isCollapsed(bucket.key)">
-              <TicketRow
-                v-for="card in bucket.cards"
-                :key="`${bucket.key}:${card.id}`"
-                v-memo="[
-                  ...rowMemoKey(card),
-                  visibleColumns,
-                  cellPadding,
-                  rowClass,
-                  selectedId === card.id,
-                  bulkActive,
-                  bulkSelection?.isSelected(String(card.id)) ?? false,
-                ]"
-                :card="card"
-                :visible-columns="visibleColumns"
-                :row-class="rowClass"
-                :cell-padding="cellPadding"
-                :col-style="colStyle"
-                :selected="selectedId === card.id"
-                :bulk-active="bulkActive"
-                :bulk-selected="bulkSelection?.isSelected(String(card.id)) ?? false"
-                @click="onRowClick"
-                @toggle-bulk="onRowToggleBulk"
-              />
-            </template>
+            <BucketRows
+              v-if="!isCollapsed(bucket.key)"
+              :cards="bucket.cards"
+              :visible-columns="visibleColumns"
+              :row-class="rowClass"
+              :cell-padding="cellPadding"
+              :col-style="colStyle"
+              :selected-id="selectedId"
+              :bulk-active="bulkActive"
+              :bulk-selection="bulkSelection"
+              @click="onRowClick"
+              @toggle-bulk="onRowToggleBulk"
+            />
           </template>
         </template>
       </tbody>

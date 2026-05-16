@@ -26,9 +26,9 @@ const formattedDate = computed(() => {
   // The helpers below read the same values from globalConfig at
   // call time, but the computed needs a dependency on the store
   // refs themselves to know it should re-evaluate.
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+   
   dateStore.locale
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+   
   dateStore.effectiveTimezone
 
   switch (props.format) {

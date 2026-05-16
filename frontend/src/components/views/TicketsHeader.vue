@@ -46,7 +46,6 @@ import TicketsViewTabs, {
 import DisplayMenu from '@/components/views/DisplayMenu.vue'
 import FilterPill from '@/components/views/FilterPill.vue'
 import AddFilterMenu from '@/components/views/AddFilterMenu.vue'
-import Icon from '@/components/common/Icon.vue'
 import {
   FACET_META,
   getOptionsFor,
@@ -169,13 +168,6 @@ function selectedFor(facet: FilterFacet): Set<string> {
 
 function textValueFor(facet: FilterFacet): string {
   return facet === 'title' ? props.filterTitle : ''
-}
-
-function pillValueSummary(facet: FilterFacet): string {
-  if (facet === 'title') {
-    return summariseSelected(facet, props.filterTitle, [])
-  }
-  return summariseSelected(facet, selectedFor(facet), optionsFor(facet))
 }
 
 /**

@@ -9,7 +9,6 @@ import SectionCard from "@/components/common/SectionCard.vue";
 import SimpleEditor from "@/components/common/SimpleEditor.vue";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
 import CommentContent from "@/components/ticketComponents/CommentContent.vue";
-import type { CommentContentFormat } from "@/types/comment";
 import { sanitiseHtml } from "@/composables/useSanitise";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
@@ -19,7 +18,6 @@ import { useTicketUiStore } from "@/stores/ticketUi";
 
 // Local re-export of the canonical types so this component can use
 // them without churn through every consumer.
-import type { UserInfo } from '@/types/user';
 import type { CommentWithAttachments } from '@/types/comment';
 
 const fluent = useFluent();

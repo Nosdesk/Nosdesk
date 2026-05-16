@@ -1,7 +1,6 @@
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
 import type { User, LoginCredentials } from '@/types/user';
-import type { RestorePreview } from '@/types/backup';
 
 export interface OnboardingStatus {
   requires_setup: boolean;
