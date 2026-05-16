@@ -4418,3 +4418,19 @@ sse-connection-failed = Échec de la connexion.
 sse-no-auth-token = Non authentifié.
 auth-microsoft-logout-failed = Impossible de se déconnecter de Microsoft.
 editor-ticket-link-not-found = Ticket #{ $id } introuvable
+
+# W batch: pluralization fixes
+notifications-inbox-unread-count = { $count -> [one] { $count } notification non lue *[other] { $count } notifications non lues }
+gantt-tickets-in-view = { $count -> [one] { $count } ticket affiché *[other] { $count } tickets affichés }
+bulk-bar-select-all-matching = Tout sélectionner ({ $count })
+bulk-bar-clear = Effacer
+bulk-bar-selected-generic = { $count -> [one] { $count } sélectionné *[other] { $count } sélectionnés }
+bulk-bar-all-selected-generic = Les { $count } sont sélectionnés
+bulk-bar-tickets-selected = { $count -> [one] { $count } ticket sélectionné *[other] { $count } tickets sélectionnés }
+bulk-bar-tickets-all-selected = Les { $count } tickets sont sélectionnés
+bulk-bar-users-selected = { $count -> [one] { $count } utilisateur sélectionné *[other] { $count } utilisateurs sélectionnés }
+bulk-bar-users-all-selected = Les { $count } utilisateurs sont sélectionnés
+bulk-bar-devices-selected = { $count -> [one] { $count } appareil sélectionné *[other] { $count } appareils sélectionnés }
+bulk-bar-devices-all-selected = Les { $count } appareils sont sélectionnés
+inbox-no-unread = Vous n'avez aucune notification non lue.
+gantt-tickets-of-total-in-view = { $count -> [one] { $visible } sur { $count } ticket affiché *[other] { $visible } sur { $count } tickets affichés }

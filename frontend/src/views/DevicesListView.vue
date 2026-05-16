@@ -153,6 +153,8 @@ async function confirmDelete() {
     :search-query="controls.searchQuery.value"
     :search-placeholder="$t('devices-list-search-placeholder')"
     :item-label="$t('devices-list-item-label')"
+    bulk-selection-copy-key="bulk-bar-devices-selected"
+    bulk-all-selected-copy-key="bulk-bar-devices-all-selected"
     :bulk-selection="selection"
     @update:search-query="controls.handleSearchUpdate"
     @retry="page.handleRetry"

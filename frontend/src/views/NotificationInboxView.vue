@@ -346,8 +346,8 @@ onBeforeUnmount(() => {
             <p class="mt-0.5 text-sm text-tertiary">
               {{
                 unreadCount > 0
-                  ? `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}`
-                  : 'You have no unread notifications'
+                  ? t('notifications-inbox-unread-count', { count: unreadCount })
+                  : t('inbox-no-unread')
               }}
             </p>
           </div>

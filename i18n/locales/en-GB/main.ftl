@@ -4395,3 +4395,19 @@ sse-connection-failed = Connection failed.
 sse-no-auth-token = Not signed in.
 auth-microsoft-logout-failed = Couldn't sign out of Microsoft.
 editor-ticket-link-not-found = Ticket #{ $id } not found
+
+# W batch: pluralization fixes
+notifications-inbox-unread-count = { $count -> [one] { $count } unread notification *[other] { $count } unread notifications }
+gantt-tickets-in-view = { $count -> [one] { $count } ticket in view *[other] { $count } tickets in view }
+bulk-bar-select-all-matching = Select all { $count }
+bulk-bar-clear = Clear
+bulk-bar-selected-generic = { $count -> [one] { $count } selected *[other] { $count } selected }
+bulk-bar-all-selected-generic = All { $count } selected
+bulk-bar-tickets-selected = { $count -> [one] { $count } ticket selected *[other] { $count } tickets selected }
+bulk-bar-tickets-all-selected = All { $count } tickets selected
+bulk-bar-users-selected = { $count -> [one] { $count } user selected *[other] { $count } users selected }
+bulk-bar-users-all-selected = All { $count } users selected
+bulk-bar-devices-selected = { $count -> [one] { $count } device selected *[other] { $count } devices selected }
+bulk-bar-devices-all-selected = All { $count } devices selected
+inbox-no-unread = You have no unread notifications.
+gantt-tickets-of-total-in-view = { $count -> [one] { $visible } of { $count } ticket in view *[other] { $visible } of { $count } tickets in view }

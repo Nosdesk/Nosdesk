@@ -237,7 +237,7 @@ const monthHeaders = computed<{ label: string; col: number; span: number }[]>(()
         <h2 class="text-sm font-semibold text-primary ml-2">{{ t('gantt-title') }}</h2>
       </div>
       <p class="text-[11px] text-tertiary">
-        {{ visibleRows.length }} of {{ cards.length }} ticket{{ cards.length === 1 ? '' : 's' }} in view
+        {{ t('gantt-tickets-of-total-in-view', { count: cards.length, visible: visibleRows.length }) }}
       </p>
     </header>
 

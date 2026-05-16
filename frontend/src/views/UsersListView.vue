@@ -159,6 +159,8 @@ async function applyRoleChange(role: string) {
       :search-query="controls.searchQuery.value"
       :search-placeholder="$t('user-mgmt-search-placeholder')"
       :item-label="$t('user-mgmt-item-label')"
+      bulk-selection-copy-key="bulk-bar-users-selected"
+      bulk-all-selected-copy-key="bulk-bar-users-all-selected"
       :bulk-selection="selection"
       @update:search-query="controls.handleSearchUpdate"
       @retry="page.handleRetry"

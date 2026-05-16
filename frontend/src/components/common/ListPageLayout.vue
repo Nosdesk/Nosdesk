@@ -72,8 +72,14 @@ const props = withDefaults(
     /** Search box placeholder. */
     searchPlaceholder?: string
     /** Per-domain item label (singular), e.g. `"ticket"`. Used for
-     *  the bulk bar's "X tickets selected" copy. */
+     *  the bulk bar's "X tickets selected" copy when no
+     *  `bulkSelectionCopyKey` is provided. Locale-naive; prefer
+     *  passing `bulkSelectionCopyKey` / `bulkAllSelectedCopyKey`. */
     itemLabel?: string
+    /** FTL plural key for the bulk bar's "N selected" copy. */
+    bulkSelectionCopyKey?: string
+    /** FTL plural key for the bulk bar's "All N selected" copy. */
+    bulkAllSelectedCopyKey?: string
     /** Empty-state card props (used when no `#empty-state` slot). */
     emptyIcon?: 'key' | 'inbox' | 'search' | 'link' | 'folder' | 'document' | 'users' | 'device' | 'ticket' | 'calendar' | 'trash' | 'plugin'
     emptyTitle?: string
@@ -88,6 +94,8 @@ const props = withDefaults(
     searchQuery: '',
     searchPlaceholder: undefined,
     itemLabel: 'item',
+    bulkSelectionCopyKey: undefined,
+    bulkAllSelectedCopyKey: undefined,
     emptyIcon: 'inbox',
     emptyTitle: 'Nothing here yet',
     emptyDescription: '',
@@ -261,7 +269,8 @@ function onClearSelection() {
       :selected-count="bulkSelection.selectedCount.value"
       :total-count="totalItems"
       :is-all-matching-selected="bulkSelection.isAllMatchingSelected.value"
-      :item-label="itemLabel"
+      :selection-copy-key="bulkSelectionCopyKey"
+      :all-selected-copy-key="bulkAllSelectedCopyKey"
       @select-all-matching="onSelectAllMatching"
       @clear="onClearSelection"
     >

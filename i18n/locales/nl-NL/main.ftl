@@ -4409,3 +4409,19 @@ sse-connection-failed = Verbinding mislukt.
 sse-no-auth-token = Niet aangemeld.
 auth-microsoft-logout-failed = Microsoft afmelden is mislukt.
 editor-ticket-link-not-found = Ticket #{ $id } niet gevonden
+
+# W batch: pluralization fixes
+notifications-inbox-unread-count = { $count -> [one] { $count } ongelezen melding *[other] { $count } ongelezen meldingen }
+gantt-tickets-in-view = { $count -> [one] { $count } ticket zichtbaar *[other] { $count } tickets zichtbaar }
+bulk-bar-select-all-matching = Alle { $count } selecteren
+bulk-bar-clear = Wissen
+bulk-bar-selected-generic = { $count -> [one] { $count } geselecteerd *[other] { $count } geselecteerd }
+bulk-bar-all-selected-generic = Alle { $count } geselecteerd
+bulk-bar-tickets-selected = { $count -> [one] { $count } ticket geselecteerd *[other] { $count } tickets geselecteerd }
+bulk-bar-tickets-all-selected = Alle { $count } tickets geselecteerd
+bulk-bar-users-selected = { $count -> [one] { $count } gebruiker geselecteerd *[other] { $count } gebruikers geselecteerd }
+bulk-bar-users-all-selected = Alle { $count } gebruikers geselecteerd
+bulk-bar-devices-selected = { $count -> [one] { $count } apparaat geselecteerd *[other] { $count } apparaten geselecteerd }
+bulk-bar-devices-all-selected = Alle { $count } apparaten geselecteerd
+inbox-no-unread = U hebt geen ongelezen meldingen.
+gantt-tickets-of-total-in-view = { $count -> [one] { $visible } van { $count } ticket zichtbaar *[other] { $visible } van { $count } tickets zichtbaar }

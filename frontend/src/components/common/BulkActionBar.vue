@@ -42,13 +42,20 @@ const props = withDefaults(
      *  Bar copy switches to "All N selected" + a "Deselect all"
      *  affordance instead of "Select all matching". */
     isAllMatchingSelected?: boolean
-    /** Singular item label, e.g. `"ticket"`. Pluralised for counts. */
-    itemLabel?: string
+    /** FTL key for the "N selected" copy. Should use a Fluent plural
+     *  selector on `$count` so non-English locales pluralise the
+     *  noun correctly. Defaults to a generic "N selected" key. */
+    selectionCopyKey?: string
+    /** FTL key for the "All N selected" copy (different key because
+     *  some locales reorder the count vs the noun). Defaults to
+     *  a generic "All N selected" key. */
+    allSelectedCopyKey?: string
   }>(),
   {
     totalCount: 0,
     isAllMatchingSelected: false,
-    itemLabel: 'item',
+    selectionCopyKey: 'bulk-bar-selected-generic',
+    allSelectedCopyKey: 'bulk-bar-all-selected-generic',
   },
 )
 
@@ -56,10 +63,6 @@ const emit = defineEmits<{
   'select-all-matching': []
   'clear': []
 }>()
-
-const pluralLabel = computed(() =>
-  props.selectedCount === 1 ? props.itemLabel : `${props.itemLabel}s`,
-)
 
 // Show "Select all N" only when there's more matching the filter
 // than the user has selected and they haven't already opted in.
@@ -71,9 +74,9 @@ const showSelectAllMatching = computed(() =>
 
 const countCopy = computed(() => {
   if (props.isAllMatchingSelected && props.totalCount > 0) {
-    return `All ${props.totalCount} ${pluralLabel.value} selected`
+    return t(props.allSelectedCopyKey, { count: props.totalCount })
   }
-  return `${props.selectedCount} ${pluralLabel.value} selected`
+  return t(props.selectionCopyKey, { count: props.selectedCount })
 })
 </script>
 
@@ -118,14 +121,14 @@ const countCopy = computed(() => {
               @click="emit('select-all-matching')"
               class="text-accent hover:underline whitespace-nowrap"
             >
-              Select all {{ totalCount }}
+              {{ t('bulk-bar-select-all-matching', { count: totalCount }) }}
             </button>
             <button
               type="button"
               @click="emit('clear')"
               class="text-tertiary hover:text-secondary whitespace-nowrap"
             >
-              Clear
+              {{ t('bulk-bar-clear') }}
             </button>
           </div>
         </div>
