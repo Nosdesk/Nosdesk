@@ -3876,7 +3876,11 @@ ui-status-badge-priority-high = hoog
 ui-status-badge-priority-low-full = lage prioriteit
 ui-status-badge-priority-medium-full = gemiddelde prioriteit
 ui-status-badge-priority-high-full = hoge prioriteit
-ui-heatmap-tooltip-more = ...en nog { $count -> [one] { $count } meer *[other] { $count } meer }
+ui-heatmap-tooltip-more =
+    ...en nog { $count ->
+        [one] { $count } meer
+       *[other] { $count } meer
+    }
 ui-device-groups-title = Groepen
 ui-header-title-placeholder = Titel invoeren...
 
