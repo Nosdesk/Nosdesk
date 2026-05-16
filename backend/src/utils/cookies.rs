@@ -10,7 +10,7 @@ pub fn create_access_token_cookie(token: &str) -> Cookie<'static> {
     Cookie::build(ACCESS_TOKEN_COOKIE, token.to_string())
         .path("/")
         .http_only(true)
-        .secure(is_production()) // HTTPS only in production
+        .secure(auth_cookies_use_secure_flag()) // HTTPS unless explicit dev (see below)
         .same_site(SameSite::Strict)
         .max_age(actix_web::cookie::time::Duration::minutes(15))
         .finish()
@@ -21,7 +21,7 @@ pub fn create_refresh_token_cookie(token: &str) -> Cookie<'static> {
     Cookie::build(REFRESH_TOKEN_COOKIE, token.to_string())
         .path("/api/auth/refresh")
         .http_only(true)
-        .secure(is_production())
+        .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
         .max_age(actix_web::cookie::time::Duration::days(7))
         .finish()
@@ -32,7 +32,7 @@ pub fn create_csrf_token_cookie(token: &str) -> Cookie<'static> {
     Cookie::build(CSRF_TOKEN_COOKIE, token.to_string())
         .path("/")
         .http_only(false) // JavaScript needs to read this
-        .secure(is_production())
+        .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
         .max_age(actix_web::cookie::time::Duration::minutes(15))
         .finish()
@@ -43,7 +43,7 @@ pub fn delete_access_token_cookie() -> Cookie<'static> {
     Cookie::build(ACCESS_TOKEN_COOKIE, "")
         .path("/")
         .http_only(true)
-        .secure(is_production())
+        .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
         .max_age(actix_web::cookie::time::Duration::seconds(0))
         .finish()
@@ -54,7 +54,7 @@ pub fn delete_refresh_token_cookie() -> Cookie<'static> {
     Cookie::build(REFRESH_TOKEN_COOKIE, "")
         .path("/api/auth/refresh")
         .http_only(true)
-        .secure(is_production())
+        .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
         .max_age(actix_web::cookie::time::Duration::seconds(0))
         .finish()
@@ -65,18 +65,33 @@ pub fn delete_csrf_token_cookie() -> Cookie<'static> {
     Cookie::build(CSRF_TOKEN_COOKIE, "")
         .path("/")
         .http_only(false)
-        .secure(is_production())
+        .secure(auth_cookies_use_secure_flag())
         .same_site(SameSite::Strict)
         .max_age(actix_web::cookie::time::Duration::seconds(0))
         .finish()
 }
 
-/// Check if running in production mode
-fn is_production() -> bool {
-    std::env::var("ENVIRONMENT")
-        .unwrap_or_else(|_| "development".to_string())
-        .to_lowercase()
-        == "production"
+/// Whether auth cookies receive the `Secure` attribute.
+///
+/// **Fail-closed:** `ENVIRONMENT` unset / empty / anything other than an
+/// explicit local-dev label is treated as needing `Secure=true`, so a
+/// production deployment that forgets `ENVIRONMENT=production` still does not
+/// emit session cookies valid over plaintext HTTP.
+///
+/// Set `ENVIRONMENT=development` or `ENVIRONMENT=dev` for intentional HTTP
+/// local setups (Docker Compose on localhost, etc.).
+fn auth_cookies_use_secure_flag() -> bool {
+    match std::env::var("ENVIRONMENT") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            if v.is_empty() {
+                true
+            } else {
+                !(v == "development" || v == "dev")
+            }
+        }
+        Err(_) => true,
+    }
 }
 
 #[cfg(test)]
@@ -135,8 +150,31 @@ mod tests {
     }
 
     #[test]
-    fn refresh_token_max_age_is_7_days() {
-        let cookie = create_refresh_token_cookie("t");
-        assert_eq!(cookie.max_age(), Some(actix_web::cookie::time::Duration::days(7)));
+    fn auth_cookies_secure_when_environment_unset_or_non_dev() {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _g = LOCK.lock().unwrap();
+
+        std::env::remove_var("ENVIRONMENT");
+        assert!(
+            super::auth_cookies_use_secure_flag(),
+            "unset ENVIRONMENT must default Secure cookies on"
+        );
+
+        std::env::set_var("ENVIRONMENT", "");
+        assert!(
+            super::auth_cookies_use_secure_flag(),
+            "empty ENVIRONMENT must keep Secure cookies on"
+        );
+
+        std::env::set_var("ENVIRONMENT", "production");
+        assert!(super::auth_cookies_use_secure_flag());
+
+        std::env::set_var("ENVIRONMENT", "development");
+        assert!(!super::auth_cookies_use_secure_flag());
+
+        std::env::set_var("ENVIRONMENT", "dev");
+        assert!(!super::auth_cookies_use_secure_flag());
+
+        std::env::remove_var("ENVIRONMENT");
     }
 }

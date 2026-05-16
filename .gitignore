@@ -75,6 +75,7 @@ Thumbs.db
 .cache/
 
 # Local dev scratch
+.tmp_gh_issues/
 .playwright-mcp/
 nosdesk_backup_*.sql
 nosdesk_pre_*.sql

@@ -48,8 +48,12 @@ COPY --from=cacher /usr/local/cargo /usr/local/cargo
 
 # Copy source code
 COPY backend/Cargo.toml backend/Cargo.lock ./
+# build.rs hashes migrations → NOSDESK_SCHEMA_HASH (compile-time env for db/bootstrap/backup).
+COPY backend/build.rs ./build.rs
 COPY backend/src ./src
 COPY backend/migrations ./migrations
+# seed.rs uses include_str!("../../seeds/...") — must exist at compile time.
+COPY backend/seeds ./seeds
 # Shared Fluent catalogues. include_str! in src/utils/i18n.rs
 # resolves them via ../../../i18n/locales/... so mirror the host
 # workspace layout at /i18n inside the container.

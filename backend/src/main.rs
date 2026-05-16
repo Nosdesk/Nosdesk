@@ -294,6 +294,38 @@ async fn main() -> std::io::Result<()> {
         error!("(Forks running their own registry should override with their own root key.)");
         std::process::exit(1);
     }
+
+    // --- docker.env.example default credentials must never ship to production ---
+    if environment.eq_ignore_ascii_case("production") {
+        const EX_POSTGRES_PASSWORD: &str = "nosdesk_password";
+        const EX_REDIS_PASSWORD: &str = "nosdesk_redis_password";
+
+        let insecure_defaults_allowed = matches!(
+            env::var("ALLOW_INSECURE_DEFAULT_SECRETS").as_deref(),
+            Ok("1" | "true" | "yes")
+        );
+
+        if !insecure_defaults_allowed {
+            if env::var("POSTGRES_PASSWORD").as_deref() == Ok(EX_POSTGRES_PASSWORD) {
+                error!(
+                    "POSTGRES_PASSWORD matches docker.env.example default ({EX_POSTGRES_PASSWORD})"
+                );
+                error!("Refusing to start in production with documented sample credentials");
+                error!("Change POSTGRES_PASSWORD or set ALLOW_INSECURE_DEFAULT_SECRETS=1 only for isolated labs");
+                std::process::exit(1);
+            }
+            if env::var("REDIS_PASSWORD").as_deref() == Ok(EX_REDIS_PASSWORD) {
+                error!(
+                    "REDIS_PASSWORD matches docker.env.example default ({EX_REDIS_PASSWORD})"
+                );
+                error!("Refusing to start in production with documented sample credentials");
+                error!("Change REDIS_PASSWORD or set ALLOW_INSECURE_DEFAULT_SECRETS=1 only for isolated labs");
+                std::process::exit(1);
+            }
+        } else {
+            warn!("ALLOW_INSECURE_DEFAULT_SECRETS enabled — example Postgres/Redis passwords accepted (labs only)");
+        }
+    }
     
     // Security: Validate environment (already declared above)
     if environment == "production" {
