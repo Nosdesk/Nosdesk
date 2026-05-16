@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import apiClient from '@/services/apiConfig';
+import { translate } from '@/i18n';
 
 export function useMicrosoftAuth() {
   const isLoading = ref(false);
@@ -57,7 +58,7 @@ export function useMicrosoftAuth() {
     } catch (err) {
       console.error('Error logging out of Microsoft:', err);
       const axiosError = err as { response?: { data?: { message?: string } } };
-      error.value = axiosError.response?.data?.message || 'Failed to initiate Microsoft logout';
+      error.value = axiosError.response?.data?.message || translate('auth-microsoft-logout-failed', undefined, 'Failed to initiate Microsoft logout');
       isLoading.value = false;
     }
   };

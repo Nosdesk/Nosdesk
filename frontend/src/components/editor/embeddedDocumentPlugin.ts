@@ -27,7 +27,7 @@ async function fetchDocumentContent(uuid: string): Promise<{ html: string; title
     return cached
   }
 
-  contentCache.set(uuid, { html: '', title: 'Loading...', icon: '📄', loading: true, error: false })
+  contentCache.set(uuid, { html: '', title: translate('editor-loading', undefined, 'Loading...'), icon: '📄', loading: true, error: false })
 
   try {
     const response = await apiClient.get(`/documentation/pages/uuid/${uuid}/content`)
@@ -47,7 +47,7 @@ async function fetchDocumentContent(uuid: string): Promise<{ html: string; title
     }
 
     if (!html) {
-      html = '<p class="text-tertiary text-sm italic">Empty document</p>'
+      html = `<p class="text-tertiary text-sm italic">${translate('editor-embed-empty-document', undefined, 'Empty document')}</p>`
     }
 
     const result = {
@@ -61,9 +61,10 @@ async function fetchDocumentContent(uuid: string): Promise<{ html: string; title
     return result
   } catch (err) {
     console.error(`Failed to fetch embedded document ${uuid}:`, err)
+    const loadFailedMsg = translate('editor-embed-load-failed', undefined, "Couldn't load document")
     const errorResult = {
-      html: '<p class="text-tertiary text-sm italic">Could not load document</p>',
-      title: 'Error loading document',
+      html: `<p class="text-tertiary text-sm italic">${loadFailedMsg}</p>`,
+      title: loadFailedMsg,
       icon: '⚠️',
       loading: false,
       error: true,
@@ -198,7 +199,7 @@ class EmbeddedDocumentView implements NodeView {
     if (showOpen) {
       const openEl = document.createElement('a')
       openEl.className = 'embedded-doc-open'
-      openEl.title = 'Open document'
+      openEl.title = translate('editor-embed-open-document', undefined, 'Open document')
       openEl.innerHTML =
         '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
           '<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />' +

@@ -1,5 +1,6 @@
 import { ref, computed } from "vue";
 import { logger } from '@/utils/logger';
+import { translate } from '@/i18n';
 import { useAuthStore } from "@/stores/auth";
 import apiClient from "./apiConfig";
 
@@ -208,7 +209,7 @@ class SSEService {
   private handleConnectionError() {
     this.isConnected.value = false;
     this.isConnecting.value = false;
-    this.lastError.value = "Connection failed";
+    this.lastError.value = translate('sse-connection-failed', undefined, 'Connection failed');
 
     this.cleanup(false); // Don't clear listeners
 
@@ -269,7 +270,7 @@ class SSEService {
     // Check authentication
     const authStore = useAuthStore();
     if (!authStore.isAuthenticated) {
-      this.lastError.value = "No authentication token";
+      this.lastError.value = translate('sse-no-auth-token', undefined, 'Not signed in');
       return;
     }
 

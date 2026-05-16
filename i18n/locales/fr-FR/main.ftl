@@ -4408,3 +4408,13 @@ markdown-embed-depth-limit = [Limite de profondeur d'intégration atteinte]
 markdown-embed-circular = [Intégration circulaire détectée]
 markdown-embed-reference = Intégré : { $title }
 markdown-embed-reference-fallback = [Intégré : { $title }]
+
+# V batch: editor plugins + SSE
+editor-embed-empty-document = Document vide
+editor-embed-load-failed = Impossible de charger le document
+editor-embed-open-document = Ouvrir le document
+editor-loading = Chargement…
+sse-connection-failed = Échec de la connexion.
+sse-no-auth-token = Non authentifié.
+auth-microsoft-logout-failed = Impossible de se déconnecter de Microsoft.
+editor-ticket-link-not-found = Ticket #{ $id } introuvable

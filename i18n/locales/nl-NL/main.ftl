@@ -4399,3 +4399,13 @@ markdown-embed-depth-limit = [Limiet voor insluitdiepte bereikt]
 markdown-embed-circular = [Circulaire insluiting gedetecteerd]
 markdown-embed-reference = Ingesloten: { $title }
 markdown-embed-reference-fallback = [Ingesloten: { $title }]
+
+# V batch: editor plugins + SSE
+editor-embed-empty-document = Leeg document
+editor-embed-load-failed = Document laden is mislukt
+editor-embed-open-document = Document openen
+editor-loading = Laden…
+sse-connection-failed = Verbinding mislukt.
+sse-no-auth-token = Niet aangemeld.
+auth-microsoft-logout-failed = Microsoft afmelden is mislukt.
+editor-ticket-link-not-found = Ticket #{ $id } niet gevonden

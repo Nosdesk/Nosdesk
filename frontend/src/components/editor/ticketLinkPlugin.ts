@@ -4,6 +4,7 @@ import type { NodeView } from 'prosemirror-view'
 import { Node as ProseMirrorNode } from 'prosemirror-model'
 import { InputRule } from 'prosemirror-inputrules'
 import { getTicketById } from '@/services/ticketService'
+import { translate } from '@/i18n'
 import {
   type TicketCardData,
   renderTicketCardHtml
@@ -31,7 +32,7 @@ async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
   // Set loading state
   const loadingData: TicketCardData = {
     id: ticketId,
-    title: 'Loading...',
+    title: translate('editor-loading', undefined, 'Loading...'),
     status: '',
     priority: '',
     loading: true
@@ -55,7 +56,7 @@ async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
     console.error(`Failed to fetch ticket ${ticketId}:`, err)
     const errorData: TicketCardData = {
       id: ticketId,
-      title: `Ticket #${ticketId} not found`,
+      title: translate('editor-ticket-link-not-found', { id: ticketId }, `Ticket #${ticketId} not found`),
       status: '',
       priority: '',
       error: true
@@ -83,7 +84,7 @@ class TicketLinkView implements NodeView {
     this.dom.setAttribute('data-ticket-id', String(this.ticketId))
 
     // Initial loading state
-    this.render({ id: this.ticketId, title: 'Loading...', status: '', priority: '', loading: true })
+    this.render({ id: this.ticketId, title: translate('editor-loading', undefined, 'Loading...'), status: '', priority: '', loading: true })
 
     // Fetch ticket data and update
     this.loadTicketData()
@@ -285,7 +286,7 @@ export function enhanceTicketLinks(container: HTMLElement): void {
     // Show loading state
     element.innerHTML = renderTicketCardHtml({
       id: ticketId,
-      title: 'Loading...',
+      title: translate('editor-loading', undefined, 'Loading...'),
       loading: true
     })
 

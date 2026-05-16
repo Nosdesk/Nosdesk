@@ -4487,3 +4487,13 @@ markdown-embed-depth-limit = [Embed depth limit reached]
 markdown-embed-circular = [Circular embed detected]
 markdown-embed-reference = Embedded: { $title }
 markdown-embed-reference-fallback = [Embedded: { $title }]
+
+# V batch: editor plugins + SSE
+editor-embed-empty-document = Empty document
+editor-embed-load-failed = Couldn't load document
+editor-embed-open-document = Open document
+editor-loading = Loading...
+sse-connection-failed = Connection failed.
+sse-no-auth-token = Not signed in.
+auth-microsoft-logout-failed = Couldn't sign out of Microsoft.
+editor-ticket-link-not-found = Ticket #{ $id } not found
