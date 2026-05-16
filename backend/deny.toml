@@ -9,8 +9,7 @@
 # `ignore` list mirrors a row in SECURITY.md's "Acknowledged advisories"
 # table — keep them in sync when one moves.
 #
-# Not yet wired into CI per the v1 plan; intent is to add it after
-# initial customer rollout.
+# Wired into CI: `.github/workflows/ci.yml` runs `cargo deny check`.
 
 [advisories]
 # Strict on vulnerabilities; warn on the rest. Unmaintained advisories

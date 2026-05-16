@@ -332,7 +332,7 @@ impl FileValidator {
     /// - Remove parent directory references (..)
     /// - Keep only alphanumeric, dash, underscore, and dot
     /// - Trim leading/trailing dots (prevent hidden files)
-    /// - Limit length to 255 characters
+    /// - Limit length to 255 Unicode scalar values for stable display names
     ///
     /// # Arguments
     /// * `filename` - Original filename from client
@@ -369,12 +369,10 @@ impl FileValidator {
             ));
         }
 
-        // Limit length to 255 characters (filesystem limit)
-        let sanitized = if sanitized.len() > 255 {
-            &sanitized[..255]
-        } else {
-            sanitized
-        };
+        // Limit length to 255 Unicode scalar values (POSIX names are typically
+        // byte-boundary aware; guarding by char avoids panics mid-codepoint.)
+        let mut chars = sanitized.chars();
+        let sanitized: String = (&mut chars).take(255).collect();
 
         // Final check for parent directory references
         if sanitized.contains("..") {
@@ -383,7 +381,7 @@ impl FileValidator {
             ));
         }
 
-        Ok(sanitized.to_string())
+        Ok(sanitized)
     }
 
 }
@@ -416,6 +414,13 @@ mod tests {
         assert!(FileValidator::sanitize_filename("").is_err());
         assert!(FileValidator::sanitize_filename("...").is_err());
         assert!(FileValidator::sanitize_filename("<<<>>>").is_err());
+    }
+
+    #[test]
+    fn test_sanitize_filename_unicode_length_boundary() {
+        let long_unicode = std::iter::repeat('あ').take(260).collect::<String>();
+        let got = FileValidator::sanitize_filename(&long_unicode).unwrap();
+        assert_eq!(got.chars().count(), 255);
     }
 
     #[test]

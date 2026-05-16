@@ -345,10 +345,10 @@ pub async fn delete_branding_image(
 
 // Helper function to validate hex color
 fn is_valid_hex_color(color: &str) -> bool {
-    if !color.starts_with('#') {
-        return false;
-    }
-    let hex = &color[1..];
+    let hex = match color.strip_prefix('#') {
+        Some(h) => h,
+        None => return false,
+    };
     if hex.len() != 6 && hex.len() != 3 {
         return false;
     }

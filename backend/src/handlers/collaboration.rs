@@ -1453,8 +1453,8 @@ impl YjsWebSocket {
 
                     let content_changed = content_before != content_after;
                     if content_changed {
-                        debug!(before = %if content_before.len() > 50 { &content_before[..50] } else { &content_before },
-                            after = %if content_after.len() > 50 { &content_after[..50] } else { &content_after },
+                        debug!(before = %crate::utils::utf8_trunc::char_prefix(&content_before, 50),
+                            after = %crate::utils::utf8_trunc::char_prefix(&content_after, 50),
                             "Content changed");
                     } else if msg_type == 0 && msg_vec.len() > 1 && msg_vec[1] == 2 {
                         // SYNC_UPDATE didn't apply - request full state from client

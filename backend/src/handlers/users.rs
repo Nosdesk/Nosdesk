@@ -325,10 +325,11 @@ pub async fn get_paginated_users(
         }
     });
 
-    // Limit search string length to prevent DoS
-    let search = query.search.as_ref().map(|s| {
-        if s.len() > 100 { s[..100].to_string() } else { s.clone() }
-    });
+    // Limit search string length to prevent DoS (char-safe; len() alone is UTF-8 bytes)
+    let search = query
+        .search
+        .as_ref()
+        .map(|s| crate::utils::utf8_trunc::char_prefix(s, 100));
 
     // Validate role filter
     let allowed_roles = ["admin", "agent", "user"];

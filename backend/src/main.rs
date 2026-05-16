@@ -1025,8 +1025,15 @@ async fn main() -> std::io::Result<()> {
             .route("/health", web::get().to(handlers::health::liveness))
             .route("/readiness", web::get().to(handlers::health::readiness))
 
-            // Debug endpoint for frontend log forwarding (dev mode only)
-            .route("/api/debug/frontend-logs", web::post().to(handlers::debug::receive_frontend_logs))
+            // Forwarded frontend console logs: gated inside the handler unless
+            // debug build or `NOSDESK_ALLOW_FRONTEND_DEBUG_LOGS=1`. Rate limited
+            // and JSON-capped separately from global config.
+            .service(
+                web::resource("/api/debug/frontend-logs")
+                    .app_data(web::JsonConfig::default().limit(512 * 1024))
+                    .wrap(RateLimiter::default())
+                    .route(web::post().to(handlers::debug::receive_frontend_logs)),
+            )
 
             // Public file serving - ONLY user avatars, banners, thumbs, and branding (no sensitive data)
             .route("/uploads/users/avatars/{filename:.*}", web::get().to(handlers::serve_public_file))

@@ -27,6 +27,7 @@ pub mod locale;
 pub mod markdown_export;
 pub mod safe_http;
 pub mod slug;
+pub mod utf8_trunc;
 
 use uuid::Uuid;
 use crate::models::UserRole;

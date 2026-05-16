@@ -55,6 +55,8 @@ docker.env
 *.sqlite
 *.sqlite3
 *.db
+# Redis snapshots (often contain transient cache/session payloads)
+*.rdb
 # Keep migrations in version control
 # !**/migrations/**
 
