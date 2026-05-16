@@ -12,6 +12,8 @@ use webauthn_rs::prelude::*;
 use crate::db::Pool;
 use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 use crate::models::Claims;
 use crate::repository;
 use crate::utils::webauthn::{
@@ -149,7 +151,8 @@ pub async fn start_passkey_registration(
     match webauthn::can_add_passkey(&mut conn, &user_uuid) {
         Ok(false) => {
             return HttpResponse::BadRequest().json(json!({
-                "error": "Maximum number of passkeys reached",
+                "error": i18n::tr(&request_locale(&req), "backend-error-passkey-max-reached"),
+                "code": "backend-error-passkey-max-reached",
                 "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER
             }));
         }
@@ -905,7 +908,8 @@ pub async fn start_passkey_setup_login(
     match webauthn::can_add_passkey(&mut conn, &user.uuid) {
         Ok(false) => {
             return HttpResponse::BadRequest().json(json!({
-                "error": "Maximum number of passkeys reached",
+                "error": i18n::tr(&request_locale(&req), "backend-error-passkey-max-reached"),
+                "code": "backend-error-passkey-max-reached",
                 "max_passkeys": webauthn::MAX_PASSKEYS_PER_USER
             }));
         }

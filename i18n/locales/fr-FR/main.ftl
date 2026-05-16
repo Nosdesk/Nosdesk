@@ -4346,3 +4346,45 @@ backend-error-comment-create-failed = Impossible de créer le commentaire.
 backend-error-comment-not-found = Commentaire introuvable.
 backend-error-attachment-not-found = Pièce jointe introuvable.
 backend-error-attachment-delete-failed = Impossible de supprimer la pièce jointe.
+
+# S2 backend handler error sweep
+backend-error-validation = Erreur de validation.
+backend-error-passkey-max-reached = Nombre maximal de clés d'accès atteint.
+backend-error-bad-request = Requête incorrecte.
+backend-error-search-failed = Échec de la recherche.
+backend-error-search-rebuild-failed = Échec de la reconstruction de l'index.
+
+# S1 frontend registries + defaults
+builtin-view-my-open-name = Mes tickets ouverts
+builtin-view-my-open-description = Tickets ouverts qui vous sont attribués
+builtin-view-all-active-name = Tous actifs
+builtin-view-all-active-description = Tous les tickets non résolus ni annulés
+builtin-view-triage-name = Tri initial
+builtin-view-triage-description = Tickets en attente de première catégorisation
+builtin-view-calendar-name = Calendrier
+builtin-view-calendar-description = Tickets placés à leur date d'échéance
+workflow-category-triage = Tri
+workflow-category-backlog = File d'attente
+workflow-category-active = Actif
+workflow-category-in-review = En relecture
+workflow-category-done = Terminé
+workflow-category-cancelled = Annulé
+assignment-method-direct-user-name = Utilisateur direct
+assignment-method-direct-user-description = Attribuer directement à un utilisateur précis
+assignment-method-group-round-robin-name = Rotation (groupe)
+assignment-method-group-round-robin-description = Répartir équitablement entre les membres du groupe
+assignment-method-group-random-name = Aléatoire (groupe)
+assignment-method-group-random-description = Choisir un membre du groupe au hasard pour chaque ticket
+assignment-method-group-queue-name = File de groupe
+assignment-method-group-queue-description = Placer dans la file du groupe (les utilisateurs prennent les tickets)
+tickets-category-none = Aucune catégorie
+tickets-menu-flag-for-docs = Signaler pour documentation
+tickets-menu-delete = Supprimer le ticket
+docs-author-system = Système
+docs-untitled-page = Sans titre
+profile-role-user-label = Utilisateur
+profile-role-user-description = Peut créer des tickets et consulter les ressources qui lui sont attribuées
+profile-role-technician-label = Technicien
+profile-role-technician-description = Peut gérer les tickets, les appareils et aider les autres utilisateurs
+profile-role-admin-label = Administrateur
+profile-role-admin-description = Accès complet à toutes les fonctionnalités et à la gestion des utilisateurs

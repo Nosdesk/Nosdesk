@@ -4336,3 +4336,45 @@ backend-error-comment-create-failed = Couldn't create the comment.
 backend-error-comment-not-found = Comment's not there.
 backend-error-attachment-not-found = Attachment's not there.
 backend-error-attachment-delete-failed = Couldn't delete the attachment.
+
+# S2 backend handler error sweep
+backend-error-validation = Validation error.
+backend-error-passkey-max-reached = You've hit the passkey limit.
+backend-error-bad-request = Bad request.
+backend-error-search-failed = Search didn't work.
+backend-error-search-rebuild-failed = Couldn't rebuild the index.
+
+# S1 frontend registries + defaults
+builtin-view-my-open-name = My open
+builtin-view-my-open-description = Tickets you're on
+builtin-view-all-active-name = All active
+builtin-view-all-active-description = Every ticket still on the go
+builtin-view-triage-name = Triage
+builtin-view-triage-description = Reckon these still need a quick sort
+builtin-view-calendar-name = Calendar
+builtin-view-calendar-description = Tickets sitting on their due date
+workflow-category-triage = Triage
+workflow-category-backlog = Backlog
+workflow-category-active = Active
+workflow-category-in-review = In review
+workflow-category-done = Done
+workflow-category-cancelled = Cancelled
+assignment-method-direct-user-name = Direct user
+assignment-method-direct-user-description = Hand it straight to a specific user
+assignment-method-group-round-robin-name = Round-robin (group)
+assignment-method-group-round-robin-description = Share the load around the group evenly
+assignment-method-group-random-name = Random (group)
+assignment-method-group-random-description = Pick a random group member for each ticket
+assignment-method-group-queue-name = Group queue
+assignment-method-group-queue-description = Drop it in the group queue (users grab tickets)
+tickets-category-none = No category
+tickets-menu-flag-for-docs = Flag for documentation
+tickets-menu-delete = Delete ticket
+docs-author-system = System
+docs-untitled-page = Untitled
+profile-role-user-label = User
+profile-role-user-description = Can lodge tickets and see their own gear
+profile-role-technician-label = Technician
+profile-role-technician-description = Can sort tickets, devices and lend other users a hand
+profile-role-admin-label = Administrator
+profile-role-admin-description = Full run of the system and user management

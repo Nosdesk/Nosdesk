@@ -4323,3 +4323,45 @@ backend-error-comment-create-failed = Couldn't create the comment.
 backend-error-comment-not-found = Comment not found.
 backend-error-attachment-not-found = Attachment not found.
 backend-error-attachment-delete-failed = Couldn't delete the attachment.
+
+# S2 backend handler error sweep
+backend-error-validation = Validation error.
+backend-error-passkey-max-reached = Maximum number of passkeys reached.
+backend-error-bad-request = Bad request.
+backend-error-search-failed = Search failed.
+backend-error-search-rebuild-failed = Index rebuild failed.
+
+# S1 frontend registries + defaults
+builtin-view-my-open-name = My Open
+builtin-view-my-open-description = Open tickets assigned to you
+builtin-view-all-active-name = All Active
+builtin-view-all-active-description = Every ticket that hasn't been resolved or cancelled
+builtin-view-triage-name = Triage
+builtin-view-triage-description = Tickets awaiting initial categorisation
+builtin-view-calendar-name = Calendar
+builtin-view-calendar-description = Tickets placed on the day they are due
+workflow-category-triage = Triage
+workflow-category-backlog = Backlog
+workflow-category-active = Active
+workflow-category-in-review = In Review
+workflow-category-done = Done
+workflow-category-cancelled = Cancelled
+assignment-method-direct-user-name = Direct User
+assignment-method-direct-user-description = Assign directly to a specific user
+assignment-method-group-round-robin-name = Round-Robin (Group)
+assignment-method-group-round-robin-description = Rotate assignment among group members evenly
+assignment-method-group-random-name = Random (Group)
+assignment-method-group-random-description = Randomly select a group member for each ticket
+assignment-method-group-queue-name = Group Queue
+assignment-method-group-queue-description = Assign to group queue (users claim tickets)
+tickets-category-none = No category
+tickets-menu-flag-for-docs = Flag for documentation
+tickets-menu-delete = Delete ticket
+docs-author-system = System
+docs-untitled-page = Untitled
+profile-role-user-label = User
+profile-role-user-description = Can create tickets and view assigned resources
+profile-role-technician-label = Technician
+profile-role-technician-description = Can manage tickets, devices, and assist other users
+profile-role-admin-label = Administrator
+profile-role-admin-description = Full access to all system features and user management

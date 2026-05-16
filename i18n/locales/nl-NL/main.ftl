@@ -4337,3 +4337,45 @@ backend-error-comment-create-failed = Reactie maken mislukt.
 backend-error-comment-not-found = Reactie niet gevonden.
 backend-error-attachment-not-found = Bijlage niet gevonden.
 backend-error-attachment-delete-failed = Bijlage verwijderen mislukt.
+
+# S2 backend handler error sweep
+backend-error-validation = Validatiefout.
+backend-error-passkey-max-reached = Maximaal aantal passkeys bereikt.
+backend-error-bad-request = Ongeldig verzoek.
+backend-error-search-failed = Zoeken is mislukt.
+backend-error-search-rebuild-failed = Index opnieuw opbouwen is mislukt.
+
+# S1 frontend registries + defaults
+builtin-view-my-open-name = Mijn openstaande
+builtin-view-my-open-description = Aan jou toegewezen openstaande tickets
+builtin-view-all-active-name = Alle actieve
+builtin-view-all-active-description = Elk ticket dat niet is opgelost of geannuleerd
+builtin-view-triage-name = Triage
+builtin-view-triage-description = Tickets die nog ingedeeld moeten worden
+builtin-view-calendar-name = Agenda
+builtin-view-calendar-description = Tickets op hun vervaldatum geplaatst
+workflow-category-triage = Triage
+workflow-category-backlog = Wachtrij
+workflow-category-active = Actief
+workflow-category-in-review = In review
+workflow-category-done = Klaar
+workflow-category-cancelled = Geannuleerd
+assignment-method-direct-user-name = Directe gebruiker
+assignment-method-direct-user-description = Direct toewijzen aan een specifieke gebruiker
+assignment-method-group-round-robin-name = Rondgang (groep)
+assignment-method-group-round-robin-description = Verdeel de toewijzing gelijkmatig over de groepsleden
+assignment-method-group-random-name = Willekeurig (groep)
+assignment-method-group-random-description = Kies willekeurig een groepslid voor elk ticket
+assignment-method-group-queue-name = Groepswachtrij
+assignment-method-group-queue-description = Toewijzen aan groepswachtrij (gebruikers claimen tickets)
+tickets-category-none = Geen categorie
+tickets-menu-flag-for-docs = Markeren voor documentatie
+tickets-menu-delete = Ticket verwijderen
+docs-author-system = Systeem
+docs-untitled-page = Zonder titel
+profile-role-user-label = Gebruiker
+profile-role-user-description = Kan tickets aanmaken en toegewezen middelen bekijken
+profile-role-technician-label = Technicus
+profile-role-technician-description = Kan tickets en apparaten beheren en andere gebruikers helpen
+profile-role-admin-label = Beheerder
+profile-role-admin-description = Volledige toegang tot alle systeemfuncties en gebruikersbeheer

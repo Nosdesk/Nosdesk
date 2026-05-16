@@ -8,6 +8,8 @@ use tracing::{debug, error, info, warn};
 use crate::db::Pool;
 use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 use crate::models::Claims;
 use crate::repository::search_query_log;
 use crate::services::search::{EntityType, SearchQuery, SearchService};
@@ -157,7 +159,8 @@ pub async fn search(
         Err(e) => {
             error!(error = ?e, "Search failed");
             HttpResponse::InternalServerError().json(json!({
-                "error": "Search failed",
+                "error": i18n::tr(&request_locale(&req), "backend-error-search-failed"),
+                "code": "backend-error-search-failed",
                 "details": e.to_string()
             }))
         }
@@ -233,7 +236,8 @@ pub async fn rebuild_index(
         Err(e) => {
             error!(error = ?e, "Index rebuild failed");
             HttpResponse::InternalServerError().json(json!({
-                "error": "Index rebuild failed",
+                "error": i18n::tr(&request_locale(&req), "backend-error-search-rebuild-failed"),
+                "code": "backend-error-search-rebuild-failed",
                 "details": e.to_string()
             }))
         }

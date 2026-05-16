@@ -10,6 +10,8 @@ use crate::utils;
 use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 
 use crate::db::Pool;
 use crate::models::{Claims, NewDevice, DeviceUpdate, Device, User, Group};
@@ -911,7 +913,8 @@ pub async fn bulk_devices(
         }
 
         _ => HttpResponse::BadRequest().json(json!({
-            "error": "Bad Request",
+            "error": i18n::tr(&request_locale(&req), "backend-error-bad-request"),
+            "code": "backend-error-bad-request",
             "message": format!("Unknown action: {}", action)
         })),
     }

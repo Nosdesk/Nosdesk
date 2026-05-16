@@ -12,6 +12,8 @@ use tracing::{debug, info, warn, error};
 
 use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword};
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
@@ -2388,7 +2390,8 @@ pub async fn bulk_users(
         }
 
         _ => HttpResponse::BadRequest().json(json!({
-            "error": "Bad Request",
+            "error": i18n::tr(&request_locale(&req), "backend-error-bad-request"),
+            "code": "backend-error-bad-request",
             "message": format!("Unknown action: {}", action)
         })),
     }

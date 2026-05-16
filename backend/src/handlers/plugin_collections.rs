@@ -10,6 +10,8 @@ use uuid::Uuid;
 use crate::db::Pool;
 use crate::handlers::helpers;
 use crate::handlers::errors;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 use crate::models::{
     Claims, CollectionListResponse, CollectionQueryParams, CollectionRowResponse,
     CollectionSchemaResponse, CreateCollectionRowRequest, NewPluginCollectionRow,
@@ -263,7 +265,8 @@ pub async fn create_collection_row(
     if let Ok(definition) = serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone()) {
         if let Err(e) = validation::validate_row_data(&body.data, &definition) {
             return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "Validation error",
+                "error": i18n::tr(&request_locale(&req), "backend-error-validation"),
+                "code": "backend-error-validation",
                 "message": e
             }));
         }
@@ -361,7 +364,8 @@ pub async fn update_collection_row(
     if let Ok(definition) = serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone()) {
         if let Err(e) = validation::validate_row_data(&body.data, &definition) {
             return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "Validation error",
+                "error": i18n::tr(&request_locale(&req), "backend-error-validation"),
+                "code": "backend-error-validation",
                 "message": e
             }));
         }

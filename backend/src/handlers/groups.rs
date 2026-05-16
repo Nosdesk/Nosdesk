@@ -7,6 +7,8 @@ use crate::db::Pool;
 use crate::handlers::helpers;
 use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
 use crate::handlers::errors;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 use crate::models::{Claims, NewGroup, GroupUpdate};
 use crate::repository;
 use crate::sync::actor::ActorContext;
@@ -444,7 +446,8 @@ pub async fn set_group_includes(
         }
         Err(Error::DatabaseError(diesel::result::DatabaseErrorKind::CheckViolation, info)) => {
             HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "Validation error",
+                "error": i18n::tr(&request_locale(&req), "backend-error-validation"),
+                "code": "backend-error-validation",
                 "message": info.message().to_string()
             }))
         }

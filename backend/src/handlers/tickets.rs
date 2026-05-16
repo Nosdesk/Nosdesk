@@ -24,6 +24,8 @@ use crate::utils::rbac::{is_admin, is_technician_or_admin};
 use crate::handlers::helpers;
 use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
 use crate::handlers::errors;
+use crate::utils::i18n;
+use crate::utils::locale::request_locale;
 
 /// Local convenience: bind the system-actor reference for this
 /// handler module so call sites stay terse.
@@ -1981,7 +1983,8 @@ pub async fn bulk_tickets(
         }
 
         _ => HttpResponse::BadRequest().json(json!({
-            "error": "Bad Request",
+            "error": i18n::tr(&request_locale(&req), "backend-error-bad-request"),
+            "code": "backend-error-bad-request",
             "message": format!("Unknown action: {}", action)
         })),
     }
