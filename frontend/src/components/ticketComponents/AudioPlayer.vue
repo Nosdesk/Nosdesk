@@ -358,7 +358,9 @@ const loadAudioData = async () => {
     }, 100);
   } catch (err) {
     console.error('Error loading audio:', err);
-    error.value = err instanceof Error ? err.message : "Failed to load audio";
+    // Browser audio decode errors come back as English DOMException
+    // messages, so prefer the localised fallback over err.message.
+    error.value = $t('ticket-audio-play-failed');
     isLoading.value = false;
     audioData.value = null;
   }

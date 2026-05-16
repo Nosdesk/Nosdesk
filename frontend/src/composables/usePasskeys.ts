@@ -113,7 +113,9 @@ export function usePasskeys() {
         } else if (err.message.includes('Not implemented')) {
           error.value = translate('auth-passkey-not-supported-device', undefined, 'Passkeys are not supported on this device');
         } else {
-          error.value = err.message || translate('auth-passkey-register-failed', undefined, 'Failed to register passkey');
+          // Don't echo raw err.message: WebAuthn errors come back in
+          // English regardless of the user's locale.
+          error.value = translate('auth-passkey-register-failed', undefined, 'Failed to register passkey');
         }
       } else {
         error.value = translate('auth-passkey-register-failed', undefined, 'Failed to register passkey');
@@ -165,7 +167,8 @@ export function usePasskeys() {
         } else if (err.message.includes('Not implemented')) {
           error.value = translate('auth-passkey-not-supported-device', undefined, 'Passkeys are not supported on this device');
         } else {
-          error.value = err.message || translate('auth-passkey-login-failed', undefined, 'Failed to login with passkey');
+          // WebAuthn err.message is English; prefer the localised key.
+          error.value = translate('auth-passkey-login-failed', undefined, 'Failed to login with passkey');
         }
       } else {
         error.value = translate('auth-passkey-login-failed', undefined, 'Failed to login with passkey');

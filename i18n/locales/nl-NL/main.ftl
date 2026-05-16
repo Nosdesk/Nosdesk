@@ -4425,3 +4425,5 @@ bulk-bar-devices-selected = { $count -> [one] { $count } apparaat geselecteerd *
 bulk-bar-devices-all-selected = Alle { $count } apparaten geselecteerd
 inbox-no-unread = U hebt geen ongelezen meldingen.
 gantt-tickets-of-total-in-view = { $count -> [one] { $visible } van { $count } ticket zichtbaar *[other] { $visible } van { $count } tickets zichtbaar }
+saved-view-name-this = Geef deze weergave een naam
+saved-view-copy-suffix = Kopie van { $name }

@@ -25,6 +25,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
@@ -68,6 +69,8 @@ import { FACET_ORDER } from '@/components/views/filterFacets'
 import { TICKET_COLUMNS } from '@/sync/views/ticketColumns'
 
 const router = useRouter()
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 const ticketsStore = useSyncTicketsStore()
 const authStore = useAuthStore()
 const savedViewsStore = useSavedViewsStore()
@@ -443,9 +446,9 @@ async function saveAsView(): Promise<void> {
   const userUuid = authStore.user?.uuid
   if (!userUuid) return
   const fallbackName = activeView.value.source === 'saved'
-    ? `${activeView.value.name} copy`
+    ? t('saved-view-copy-suffix', { name: activeView.value.name })
     : activeView.value.name
-  const name = window.prompt('Name this view', fallbackName)
+  const name = window.prompt(t('saved-view-name-this'), fallbackName)
   if (!name) return
   isSaving.value = true
   try {

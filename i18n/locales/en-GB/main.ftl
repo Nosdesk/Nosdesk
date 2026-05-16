@@ -4411,3 +4411,5 @@ bulk-bar-devices-selected = { $count -> [one] { $count } device selected *[other
 bulk-bar-devices-all-selected = All { $count } devices selected
 inbox-no-unread = You have no unread notifications.
 gantt-tickets-of-total-in-view = { $count -> [one] { $visible } of { $count } ticket in view *[other] { $visible } of { $count } tickets in view }
+saved-view-name-this = Name this view
+saved-view-copy-suffix = { $name } copy
