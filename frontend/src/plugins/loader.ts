@@ -8,6 +8,7 @@
 import { ref, shallowRef, reactive, type ShallowRef } from 'vue';
 import pluginService from '@/services/pluginService';
 import { logger } from '@/utils/logger';
+import { translate } from '@/i18n';
 import { preloadPluginBundle } from './componentLoader';
 import type { Plugin, PluginSlot, PluginManifest } from '@/types/plugin';
 import { PLUGIN_SLOTS } from '@/types/plugin';
@@ -96,7 +97,7 @@ export async function loadPlugins(): Promise<void> {
     });
   } catch (error) {
     logger.error('Failed to load plugins', { error });
-    loadError.value = 'Failed to load plugins';
+    loadError.value = translate('plugin-loader-error', undefined, 'Failed to load plugins');
   } finally {
     isLoading.value = false;
   }

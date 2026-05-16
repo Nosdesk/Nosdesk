@@ -4378,3 +4378,26 @@ profile-role-technician-label = Technician
 profile-role-technician-description = Can sort tickets, devices and lend other users a hand
 profile-role-admin-label = Administrator
 profile-role-admin-description = Full run of the system and user management
+tickets-grouping-no-cycle = No cycle
+tickets-grouping-all = All
+
+# T batch: final sweep
+error-api-server = Something broke on our end. Have another crack in a sec.
+error-api-validation = That data didn't pass validation.
+error-api-generic = Something went wrong handling your request.
+plugin-loader-error = Couldn't load plugins.
+seed-welcome-page-title = Welcome to Nosdesk
+auto-ack-no-requester = Ticket has no requester.
+auto-ack-no-email = Requester has no primary email.
+email-notice-security = Security notice
+email-notice-security-critical = Critical security notice
+email-notice-getting-started = Getting started
+email-notice-success = Success
+email-link-fallback-prompt = Or copy and paste this link into your browser:
+email-footer-rights = All rights reserved.
+email-footer-automated = This is an automated message. Please don't reply directly.
+markdown-embed-depth-limit = [Embed depth limit reached]
+markdown-embed-circular = [Circular embed detected]
+markdown-embed-reference = Embedded: { $title }
+markdown-embed-reference-fallback = [Embedded: { $title }]
+common-unknown = Unknown

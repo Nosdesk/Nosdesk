@@ -47,6 +47,7 @@ impl Header for XAutoResponseSuppress {
     }
 }
 use std::env;
+use std::str::FromStr;
 
 /// Simple HTML escaping for email content to prevent XSS
 fn escape_html(s: &str) -> String {
@@ -134,10 +135,14 @@ impl<'a> EmailTemplate<'a> {
         notice_type: NoticeType,
         notice_items: &[&str],
         footer_text: &str,
-        lang: &str,
+        locale: &unic_langid::LanguageIdentifier,
     ) -> String {
         let logo_html = self.build_logo_section();
-        let notice_html = self.build_notice_section(notice_type, notice_items);
+        let notice_html = self.build_notice_section(notice_type, notice_items, locale);
+        let lang = locale.to_string();
+        let fallback_link_prompt = crate::utils::i18n::tr(locale, "email-link-fallback-prompt");
+        let rights_reserved = crate::utils::i18n::tr(locale, "email-footer-rights");
+        let automated_notice = crate::utils::i18n::tr(locale, "email-footer-automated");
 
         format!(
             r#"<!DOCTYPE html>
@@ -212,7 +217,7 @@ impl<'a> EmailTemplate<'a> {
 
                             <!-- Fallback link -->
                             <p style="margin: 0 0 24px 0; color: #6b7280; font-size: 13px; line-height: 1.5; text-align: center;">
-                                Or copy and paste this link into your browser:
+                                {fallback_link_prompt}
                             </p>
                             <p style="margin: 0 0 32px 0; padding: 12px 16px; background-color: #f9fafb; border-radius: 6px; word-break: break-all; font-size: 12px; color: {primary_color}; font-family: 'SF Mono', Monaco, 'Courier New', monospace;">
                                 <a href="{button_url}" style="color: {primary_color}; text-decoration: none;">{button_url}</a>
@@ -230,7 +235,7 @@ impl<'a> EmailTemplate<'a> {
                                 {footer_text}
                             </p>
                             <p style="margin: 0; color: #9ca3af; font-size: 12px; text-align: center;">
-                                &copy; {year} {app_name}. All rights reserved.
+                                &copy; {year} {app_name}. {rights_reserved}
                             </p>
                         </td>
                     </tr>
@@ -242,7 +247,7 @@ impl<'a> EmailTemplate<'a> {
                     <tr>
                         <td style="text-align: center;">
                             <p style="margin: 0; color: #9ca3af; font-size: 12px;">
-                                This is an automated message. Please do not reply directly to this email.
+                                {automated_notice}
                             </p>
                         </td>
                     </tr>
@@ -296,7 +301,12 @@ impl<'a> EmailTemplate<'a> {
     }
 
     /// Build the notice section HTML
-    fn build_notice_section(&self, notice_type: NoticeType, items: &[&str]) -> String {
+    fn build_notice_section(
+        &self,
+        notice_type: NoticeType,
+        items: &[&str],
+        locale: &unic_langid::LanguageIdentifier,
+    ) -> String {
         if items.is_empty() {
             return String::new();
         }
@@ -310,12 +320,13 @@ impl<'a> EmailTemplate<'a> {
             NoticeType::Success => ("#ecfdf5", "#059669"),
         };
 
-        let title = match notice_type {
-            NoticeType::Warning => "Security Notice",
-            NoticeType::Critical => "Critical Security Notice",
-            NoticeType::Info => "Getting Started",
-            NoticeType::Success => "Success",
+        let title_key = match notice_type {
+            NoticeType::Warning => "email-notice-security",
+            NoticeType::Critical => "email-notice-security-critical",
+            NoticeType::Info => "email-notice-getting-started",
+            NoticeType::Success => "email-notice-success",
         };
+        let title = crate::utils::i18n::tr(locale, title_key);
 
         let items_html: String = items
             .iter()
@@ -679,7 +690,7 @@ impl EmailService {
             NoticeType::Warning,
             &notice_items,
             &footer,
-            &locale.to_string(),
+            locale,
         );
 
         let subject = tr(
@@ -814,7 +825,7 @@ impl EmailService {
             NoticeType::Info,
             &notice_items,
             &footer,
-            &locale.to_string(),
+            locale,
         );
 
         let subject = tr(
@@ -847,6 +858,12 @@ impl EmailService {
         invitation_token: &str,
         branding: &EmailBranding,
     ) -> Result<(), String> {
+        // Guest confirmation predates the inbound-locale plumbing.
+        // Fall back to DEFAULT_LOCALE; once guest channels carry an
+        // Accept-Language hint we can thread it through.
+        let locale = unic_langid::LanguageIdentifier::from_str(
+            crate::utils::locale::DEFAULT_LOCALE,
+        ).expect("DEFAULT_LOCALE parses");
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
         }
@@ -889,8 +906,8 @@ impl EmailService {
                 "Link expires in <strong>7 days</strong>",
                 "Confirming also gives you access to your ticket portal to track progress and reply",
             ],
-            "If you didn't submit a ticket, you can safely ignore this email — no account will be created.",
-            "en",
+            "If you didn't submit a ticket, you can safely ignore this email, no account will be created.",
+            &locale,
         );
 
         let subject = format!("Confirm your ticket submission to {}", branding.app_name);
@@ -1049,7 +1066,7 @@ impl EmailService {
             NoticeType::Info,
             &[],
             &footer,
-            &locale.to_string(),
+            locale,
         );
 
         let body_text = tr(

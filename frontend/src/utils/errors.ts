@@ -52,12 +52,12 @@ export class ApiError extends AppError {
       return translate('error-resource-not-found', undefined, 'The requested resource was not found.')
     }
     if (this.statusCode >= 500) {
-      return 'A server error occurred. Please try again later.'
+      return translate('error-api-server', undefined, 'A server error occurred. Please try again later.')
     }
     if (this.statusCode === 422) {
-      return this.message || 'The provided data is invalid.'
+      return this.message || translate('error-api-validation', undefined, 'The provided data is invalid.')
     }
-    return this.message || 'An error occurred while processing your request.'
+    return this.message || translate('error-api-generic', undefined, 'An error occurred while processing your request.')
   }
 
   getLogLevel(): LogLevel {

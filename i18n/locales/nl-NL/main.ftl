@@ -4379,3 +4379,26 @@ profile-role-technician-label = Technicus
 profile-role-technician-description = Kan tickets en apparaten beheren en andere gebruikers helpen
 profile-role-admin-label = Beheerder
 profile-role-admin-description = Volledige toegang tot alle systeemfuncties en gebruikersbeheer
+tickets-grouping-no-cycle = Geen cyclus
+tickets-grouping-all = Alle
+
+# T batch: final sweep
+error-api-server = Er is een serverfout opgetreden. Probeer het later opnieuw.
+error-api-validation = De opgegeven gegevens zijn ongeldig.
+error-api-generic = Er is een fout opgetreden bij het verwerken van uw verzoek.
+plugin-loader-error = Plugins laden is mislukt.
+seed-welcome-page-title = Welkom bij Nosdesk
+auto-ack-no-requester = Ticket heeft geen aanvrager.
+auto-ack-no-email = Aanvrager heeft geen primair e-mailadres.
+email-notice-security = Beveiligingsmelding
+email-notice-security-critical = Kritieke beveiligingsmelding
+email-notice-getting-started = Aan de slag
+email-notice-success = Geslaagd
+email-link-fallback-prompt = Of kopieer en plak deze link in uw browser:
+email-footer-rights = Alle rechten voorbehouden.
+email-footer-automated = Dit is een geautomatiseerd bericht. Reageer hier niet rechtstreeks op.
+markdown-embed-depth-limit = [Limiet voor insluitdiepte bereikt]
+markdown-embed-circular = [Circulaire insluiting gedetecteerd]
+markdown-embed-reference = Ingesloten: { $title }
+markdown-embed-reference-fallback = [Ingesloten: { $title }]
+common-unknown = Onbekend

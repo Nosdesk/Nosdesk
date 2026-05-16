@@ -4388,3 +4388,26 @@ profile-role-technician-label = Technicien
 profile-role-technician-description = Peut gérer les tickets, les appareils et aider les autres utilisateurs
 profile-role-admin-label = Administrateur
 profile-role-admin-description = Accès complet à toutes les fonctionnalités et à la gestion des utilisateurs
+tickets-grouping-no-cycle = Aucun cycle
+tickets-grouping-all = Tous
+
+# T batch: final sweep
+error-api-server = Une erreur serveur s'est produite. Veuillez réessayer plus tard.
+error-api-validation = Les données fournies ne sont pas valides.
+error-api-generic = Une erreur s'est produite lors du traitement de votre demande.
+plugin-loader-error = Impossible de charger les plugins.
+seed-welcome-page-title = Bienvenue dans Nosdesk
+auto-ack-no-requester = Le ticket n'a pas de demandeur.
+auto-ack-no-email = Le demandeur n'a pas d'adresse e-mail principale.
+email-notice-security = Avis de sécurité
+email-notice-security-critical = Avis de sécurité critique
+email-notice-getting-started = Pour commencer
+email-notice-success = Succès
+email-link-fallback-prompt = Ou copiez et collez ce lien dans votre navigateur :
+email-footer-rights = Tous droits réservés.
+email-footer-automated = Ceci est un message automatique. Veuillez ne pas y répondre directement.
+markdown-embed-depth-limit = [Limite de profondeur d'intégration atteinte]
+markdown-embed-circular = [Intégration circulaire détectée]
+markdown-embed-reference = Intégré : { $title }
+markdown-embed-reference-fallback = [Intégré : { $title }]
+common-unknown = Inconnu

@@ -10,6 +10,10 @@ use crate::db::DbConnection;
 use crate::models::{NewDocumentationPage, NewDocumentationCollectionPage, DocumentationStatus};
 use crate::repository;
 use crate::repository::documentation_collections;
+use crate::utils::i18n;
+use crate::utils::locale::DEFAULT_LOCALE;
+use unic_langid::LanguageIdentifier;
+use std::str::FromStr;
 
 /// Run all seed checks on startup.
 /// Each seed is idempotent - it only creates content if it doesn't already exist.
@@ -67,10 +71,14 @@ fn seed_getting_started(conn: &mut DbConnection) {
         .map(|u| u.uuid)
         .unwrap_or_else(Uuid::nil);
 
-    // Create the welcome page
+    // Create the welcome page. The seed runs once at install with no
+    // user context, so resolve the title against DEFAULT_LOCALE; admin
+    // can rename it afterwards via the documentation editor.
+    let seed_locale = LanguageIdentifier::from_str(DEFAULT_LOCALE)
+        .expect("DEFAULT_LOCALE parses");
     let new_page = NewDocumentationPage {
         uuid: Uuid::new_v4(),
-        title: "Welcome to Nosdesk".to_string(),
+        title: i18n::tr(&seed_locale, "seed-welcome-page-title"),
         slug: "welcome".to_string(),
         icon: Some("\u{1F44B}".to_string()),
         cover_image: None,
