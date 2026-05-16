@@ -57,6 +57,10 @@ jobs:
           # (54329 is the compose.dev.yaml publish, irrelevant in
           # CI where the postgres service is on the standard port).
           TEST_DATABASE_URL: postgres://nosdesk:nosdesk_password@127.0.0.1:5432/helpdesk_test
+          # Channels + MFA tests round-trip through utils::encryption
+          # which needs a 32-byte (64-hex) key. Deterministic test
+          # value; never write real plaintext under this key.
+          MFA_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
         run: cargo test
 
       - name: Install cargo-deny
