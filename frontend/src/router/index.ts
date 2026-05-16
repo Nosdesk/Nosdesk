@@ -26,6 +26,7 @@ import { useInboxLoader } from '@/loaders/inboxLoader'
 import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
 import { useTicketDetailLoader } from '@/loaders/ticketDetailLoader'
 import { translate } from '@/i18n'
+import { useBrandingStore } from '@/stores/branding'
 import type { Page, Article } from '@/services/documentationService'
 
 declare module 'vue-router' {
@@ -771,7 +772,14 @@ router.beforeResolve((to) => {
     return;
   }
 
-  let title: string;
+  // Pull the workspace-configured product name out of the branding
+  // store. Pinia stores work outside `setup()` once Pinia is installed,
+  // so this is safe inside a router guard. Falls back to "Nosdesk"
+  // when the store hasn't initialised (the computed inside the store
+  // already handles its own fallback).
+  const branding = useBrandingStore();
+
+  let title: string | undefined;
 
   // Prefer `titleKey` so locale-aware tab titles update on navigation;
   // fall back to `title` for any route that hasn't been migrated. The
@@ -788,11 +796,14 @@ router.beforeResolve((to) => {
       .split('-')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  } else {
-    title = 'Nosdesk';
   }
 
-  document.title = `${title} | Nosdesk`;
+  // `getPageTitle(undefined)` returns the bare app name, matching the
+  // previous behaviour when no segment was derived; with a segment it
+  // appends `| <app name>`. Branding store is the single source of
+  // truth for the product label so workspace-renamed installs no
+  // longer show "Nosdesk" in the browser tab.
+  document.title = branding.getPageTitle(title);
 });
 
 // ===== NAVIGATION GUARD MIDDLEWARE =====

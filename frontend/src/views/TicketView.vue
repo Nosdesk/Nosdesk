@@ -2,6 +2,7 @@
 /// <reference types="node" />
 import { computed, onMounted, onUnmounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
 import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import ticketService from "@/services/ticketService";
@@ -53,6 +54,18 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const titleManager = useTitleManager();
+const fluent = useFluent();
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
+
+// Resolve the registry's `{ value, labelKey }` shape into the
+// `{ value, label }` shape TicketDetails expects. Computed so a
+// locale flip re-renders the dropdowns without remounting.
+const localizedStatusOptions = computed(() =>
+    STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) })),
+);
+const localizedPriorityOptions = computed(() =>
+    PRIORITY_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) })),
+);
 
 // Ticket data management
 const {
@@ -94,7 +107,7 @@ function handleToggleWatch() {
 // Categories
 const categories = ref<TicketCategory[]>([]);
 const categoryOptions = computed(() => [
-    { value: '', label: 'No category' },
+    { value: '', label: t('tickets-category-none') },
     ...categories.value.map(cat => ({
         value: String(cat.id),
         label: cat.name,
@@ -182,7 +195,7 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
     const items: MenuItem[] = [
         {
             id: 'flag-for-docs',
-            label: 'Flag for documentation',
+            label: t('tickets-menu-flag-for-docs'),
             icon: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9',
         },
     ];
@@ -202,7 +215,7 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
 
     items.push({
         id: 'delete',
-        label: 'Delete ticket',
+        label: t('tickets-menu-delete'),
         icon: 'M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z',
         danger: true,
         divider: true,
@@ -636,8 +649,8 @@ useCreateTicketAction();
                                 :selected-priority="selectedPriority"
                                 :selected-category="selectedCategory"
                                 :selected-workflow-state-id="selectedWorkflowStateId"
-                                :status-options="STATUS_OPTIONS"
-                                :priority-options="PRIORITY_OPTIONS"
+                                :status-options="localizedStatusOptions"
+                                :priority-options="localizedPriorityOptions"
                                 :category-options="categoryOptions"
                                 :devices="devices"
                                 :show-link-drop-affordance="showDropAffordance"

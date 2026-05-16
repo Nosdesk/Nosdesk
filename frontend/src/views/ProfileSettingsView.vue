@@ -3,6 +3,7 @@ import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
+import { useBrandingStore } from '@/stores/branding';
 import BackButton from '@/components/common/BackButton.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
@@ -34,6 +35,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
+const brandingStore = useBrandingStore();
 const { colorFilterStyle } = useColorFilter();
 
 // Groups state
@@ -95,7 +97,7 @@ const updateURL = (section: string) => {
   const title = section in { profile: 1, appearance: 1, language: 1, notifications: 1, security: 1 }
     ? `${tabLabel} ${suffix}`
     : fluent.$t('settings-sidebar-heading');
-  document.title = `${title} | Nosdesk`;
+  document.title = brandingStore.getPageTitle(title);
 };
 
 // Watch for tab changes to update URL
@@ -118,27 +120,30 @@ const settingsTabs = [
   { id: 'security', labelKey: 'settings-tab-security', icon: 'shield' },
 ];
 
-// Available roles for admin management
-const availableRoles: { value: UserRole; label: string; colorClass: string; description: string }[] = [
+// Available roles for admin management. Labels / descriptions are
+// `computed` so a locale flip re-renders the role grid without
+// re-mounting the section. The `colorClass` stays static because it
+// belongs to the design system, not the content layer.
+const availableRoles = computed<{ value: UserRole; label: string; colorClass: string; description: string }[]>(() => [
   {
     value: 'user',
-    label: 'User',
+    label: t('profile-role-user-label'),
     colorClass: 'bg-surface-hover',
-    description: 'Can create tickets and view assigned resources'
+    description: t('profile-role-user-description'),
   },
   {
     value: 'technician',
-    label: 'Technician',
+    label: t('profile-role-technician-label'),
     colorClass: 'bg-accent',
-    description: 'Can manage tickets, devices, and assist other users'
+    description: t('profile-role-technician-description'),
   },
   {
     value: 'admin',
-    label: 'Administrator',
+    label: t('profile-role-admin-label'),
     colorClass: 'bg-status-error',
-    description: 'Full access to all system features and user management'
-  }
-];
+    description: t('profile-role-admin-description'),
+  },
+]);
 
 // Load target user if in admin mode
 const loadTargetUser = async () => {

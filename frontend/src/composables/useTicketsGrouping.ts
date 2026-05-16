@@ -134,7 +134,9 @@ export function useTicketsGrouping(getViewId: () => string): UseTicketsGrouping 
       const u = card.assignee_uuid ? getUser(card.assignee_uuid).value : null
       return {
         key: `assignee:${uuid}`,
-        label: u?.name ?? (card.assignee_uuid ? 'Loading…' : 'Unassigned'),
+        label: u?.name ?? (card.assignee_uuid
+          ? translate('filter-assignee-loading', undefined, 'Loading…')
+          : translate('filter-assignee-unassigned', undefined, 'Unassigned')),
       }
     }
     if (by === 'sla') {
@@ -154,10 +156,12 @@ export function useTicketsGrouping(getViewId: () => string): UseTicketsGrouping 
       const cid = card.cycle_id ?? '__no_cycle'
       return {
         key: `cycle:${cid}`,
-        label: card.cycle_id ? `Cycle #${card.cycle_id}` : 'No cycle',
+        label: card.cycle_id
+          ? translate('filter-cycle-option', { id: card.cycle_id }, `Cycle #${card.cycle_id}`)
+          : translate('tickets-grouping-no-cycle', undefined, 'No cycle'),
       }
     }
-    return { key: 'all', label: 'All' }
+    return { key: 'all', label: translate('tickets-grouping-all', undefined, 'All') }
   }
 
   function priorityLabel(p: CardData['priority']): string {

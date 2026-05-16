@@ -32,7 +32,7 @@ import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import {
   WORKFLOW_CATEGORIES,
-  CATEGORY_LABELS,
+  getCategoryLabel,
   type WorkflowStateCategory,
   type WorkflowState,
 } from '@/types/workflow'
@@ -144,7 +144,7 @@ const lanes = computed<Lane[]>(() => {
         }]
     out.push({
       id: cat,
-      label: CATEGORY_LABELS[cat],
+      label: getCategoryLabel(cat),
       defaultState: states[0],
       sublanes,
       totalCards: cards.length,
@@ -192,7 +192,9 @@ function secondaryKey(card: CardData, axis: SecondaryAxis): string {
 
 function secondaryLabel(key: string, axis: SecondaryAxis): string {
   if (key === SECONDARY_NONE) {
-    return axis === 'assignee_uuid' ? 'Unassigned' : 'No priority'
+    return axis === 'assignee_uuid'
+      ? t('filter-assignee-unassigned')
+      : t('priority-none')
   }
   if (axis === 'assignee_uuid') return key.slice(0, 8)
   return key

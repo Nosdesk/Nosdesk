@@ -21,6 +21,7 @@
  */
 import { computed, onMounted, type ComputedRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { useSavedViewsStore } from '@/stores/savedViews'
 import {
   BUILTIN_VIEWS,
@@ -64,39 +65,42 @@ export interface UseTicketsViewResolution {
   selectViewById: (id: string) => void
 }
 
-function fromBuiltin(view: BuiltInView): ResolvedView {
-  return {
-    id: view.id,
-    name: view.name,
-    description: view.description,
-    shape: view.shape,
-    filter: view.filter,
-    source: 'builtin',
-  }
-}
-
-function fromSaved(view: SavedView): ResolvedView {
-  return {
-    id: view.uuid,
-    name: view.name,
-    description: view.scope === 'private' ? 'Private view' : 'Workspace view',
-    shape: view.shape as ListViewShape | CalendarViewShape,
-    filter: view.filter,
-    source: 'saved',
-    uuid: view.uuid,
-  }
-}
-
 export function useTicketsViewResolution(): UseTicketsViewResolution {
   const route = useRoute()
   const router = useRouter()
+  const fluent = useFluent()
+  const t = (k: string, fallback: string): string => fluent.$t(k) || fallback
+
+  function fromBuiltin(view: BuiltInView): ResolvedView {
+    return {
+      id: view.id,
+      name: t(view.nameKey, view.name),
+      description: t(view.descriptionKey, view.description),
+      shape: view.shape,
+      filter: view.filter,
+      source: 'builtin',
+    }
+  }
+
+  function fromSaved(view: SavedView): ResolvedView {
+    return {
+      id: view.uuid,
+      name: view.name,
+      description: view.scope === 'private' ? 'Private view' : 'Workspace view',
+      shape: view.shape as ListViewShape | CalendarViewShape,
+      filter: view.filter,
+      source: 'saved',
+      uuid: view.uuid,
+    }
+  }
+
   const savedViewsStore = useSavedViewsStore()
   const savedViewsRef = savedViewsStore.viewsForProject(null)
 
   const savedViews = computed<SavedView[]>(() =>
     savedViewsRef.value.filter((v) => {
-      const t = (v.shape as ViewShape | null)?.type
-      return t === 'list' || t === 'calendar'
+      const shapeType = (v.shape as ViewShape | null)?.type
+      return shapeType === 'list' || shapeType === 'calendar'
     }),
   )
 
@@ -129,7 +133,7 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
   const tabItems = computed<ViewTabItem[]>(() =>
     BUILTIN_VIEWS.map((v) => ({
       id: v.id,
-      name: v.name,
+      name: t(v.nameKey, v.name),
       // Fallback to a shape hint for any future built-in that
       // ships before we pick a bespoke icon for it.
       icon: TAB_ICON[v.id] ?? (v.shape.type === 'calendar' ? 'calendar' : 'list'),

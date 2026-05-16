@@ -25,7 +25,7 @@ import UserSelectionModal from '@/components/UserSelectionModal.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { PRIORITY_OPTIONS } from '@/constants/ticketOptions'
-import { WORKFLOW_CATEGORIES, CATEGORY_LABELS } from '@/types/workflow'
+import { WORKFLOW_CATEGORIES, getCategoryLabel } from '@/types/workflow'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 
 const props = defineProps<{
@@ -99,7 +99,7 @@ const statusGroups = computed(() => {
     const states = grouped[cat]
     if (!states || states.length === 0) continue
     out.push({
-      label: CATEGORY_LABELS[cat],
+      label: getCategoryLabel(cat),
       states: states.map((s) => ({ id: s.id, name: s.name, color: s.color })),
     })
   }
@@ -239,7 +239,7 @@ function onAssignSelect(user: { uuid: string }): void {
           :class="sharedPriority === opt.value ? 'text-accent' : 'text-primary'"
           @click="pickPriority(opt.value)"
         >
-          <span class="flex-1">{{ opt.label }}</span>
+          <span class="flex-1">{{ $t(opt.labelKey) }}</span>
           <Icon
             v-if="sharedPriority === opt.value"
             name="check"

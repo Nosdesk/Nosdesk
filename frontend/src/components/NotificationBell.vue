@@ -115,9 +115,9 @@ const groupedNotifications = computed<NotificationGroup[]>(() => {
     else earlier.push(n)
   }
   return [
-    { label: 'Today', items: today },
-    { label: 'Yesterday', items: yesterday },
-    { label: 'Earlier', items: earlier },
+    { label: fluent.$t('inbox-group-today'), items: today },
+    { label: fluent.$t('inbox-group-yesterday'), items: yesterday },
+    { label: fluent.$t('inbox-group-earlier'), items: earlier },
   ].filter((g) => g.items.length > 0)
 })
 

@@ -7,6 +7,7 @@
  * timers, dashboard rollups, kanban columns — and renders state names
  * for the user-facing labels.
  */
+import { translate } from '@/i18n'
 
 export type WorkflowStateCategory =
   | 'triage'
@@ -43,13 +44,43 @@ export interface WorkflowState {
   created_by: string | null
 }
 
-export const CATEGORY_LABELS: Record<WorkflowStateCategory, string> = {
+/**
+ * Fluent keys for each workflow category. Wrapped by `getCategoryLabel`
+ * for the common "give me a localized string" path; exposed directly so
+ * components that already have a Fluent context (e.g. `useFluent().$t`)
+ * can resolve without going through the module-level translate helper.
+ */
+export const CATEGORY_LABEL_KEYS: Record<WorkflowStateCategory, string> = {
+  triage: 'workflow-category-triage',
+  backlog: 'workflow-category-backlog',
+  active: 'workflow-category-active',
+  in_review: 'workflow-category-in-review',
+  done: 'workflow-category-done',
+  cancelled: 'workflow-category-cancelled',
+}
+
+const CATEGORY_LABEL_FALLBACKS: Record<WorkflowStateCategory, string> = {
   triage: 'Triage',
   backlog: 'Backlog',
   active: 'Active',
   in_review: 'In Review',
   done: 'Done',
   cancelled: 'Cancelled',
+}
+
+/**
+ * Localized display label for a workflow category. Resolves through
+ * the module-level `translate()` helper so it works outside Vue
+ * setup contexts (e.g. pure TS callers). Falls back to the English
+ * canonical name if the Fluent bundle hasn't initialised yet, which
+ * keeps tests and bootstrap call sites from rendering raw keys.
+ */
+export function getCategoryLabel(category: WorkflowStateCategory): string {
+  return translate(
+    CATEGORY_LABEL_KEYS[category],
+    undefined,
+    CATEGORY_LABEL_FALLBACKS[category],
+  )
 }
 
 /**

@@ -11,7 +11,7 @@ import {
 } from '@/services/workflowStatesService'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import {
-  CATEGORY_LABELS,
+  getCategoryLabel,
   WORKFLOW_CATEGORIES,
   type WorkflowState,
   type WorkflowStateCategory,
@@ -134,7 +134,7 @@ async function createInCategory(category: WorkflowStateCategory) {
     await workflowStatesService.create(body)
     draft.name = ''
     await reload()
-    flash(t('admin-workflow-states-added-flash', { name: trimmed, category: CATEGORY_LABELS[category] }))
+    flash(t('admin-workflow-states-added-flash', { name: trimmed, category: getCategoryLabel(category) }))
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : t('admin-workflow-states-error-create')
   }
@@ -167,7 +167,7 @@ onMounted(() => {
       >
         <header class="flex items-center justify-between px-4 py-3 bg-surface-alt border-b border-subtle">
           <h2 class="text-sm font-semibold text-primary uppercase tracking-wide">
-            {{ CATEGORY_LABELS[cat] }}
+            {{ getCategoryLabel(cat) }}
           </h2>
           <span class="text-xs text-tertiary">
             {{ grouped[cat]?.length || 0 }} {{ (grouped[cat]?.length || 0) === 1 ? $t('admin-workflow-states-count-singular') : $t('admin-workflow-states-count-plural') }}

@@ -113,18 +113,22 @@ export interface AssignmentLog {
   assigned_at: string
 }
 
-// Helper for method display names
-export const methodDisplayNames: Record<AssignmentMethod, string> = {
-  direct_user: 'Direct User',
-  group_round_robin: 'Round-Robin (Group)',
-  group_random: 'Random (Group)',
-  group_queue: 'Group Queue'
+// Helper maps for method display names + descriptions. The values are
+// Fluent keys; consumers resolve them at render time via
+// `useFluent().$t()` (in components) or `translate()` (in pure TS).
+// Kept as plain string maps because both consumer kinds want a flat
+// `record[method]` lookup; centralising the keys lets a translator
+// touch one map when wording changes.
+export const methodNameKeys: Record<AssignmentMethod, string> = {
+  direct_user: 'assignment-method-direct-user-name',
+  group_round_robin: 'assignment-method-group-round-robin-name',
+  group_random: 'assignment-method-group-random-name',
+  group_queue: 'assignment-method-group-queue-name',
 }
 
-// Helper for method descriptions
-export const methodDescriptions: Record<AssignmentMethod, string> = {
-  direct_user: 'Assign directly to a specific user',
-  group_round_robin: 'Rotate assignment among group members evenly',
-  group_random: 'Randomly select a group member for each ticket',
-  group_queue: 'Assign to group queue (users claim tickets)'
+export const methodDescriptionKeys: Record<AssignmentMethod, string> = {
+  direct_user: 'assignment-method-direct-user-description',
+  group_round_robin: 'assignment-method-group-round-robin-description',
+  group_random: 'assignment-method-group-random-description',
+  group_queue: 'assignment-method-group-queue-description',
 }

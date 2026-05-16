@@ -5,6 +5,7 @@ import { Node as ProseMirrorNode, DOMSerializer } from 'prosemirror-model'
 import { schema } from './schema'
 import { sanitiseHtml } from '@/composables/useSanitise'
 import apiClient from '@/services/apiConfig'
+import { translate } from '@/i18n'
 import * as Y from 'yjs'
 
 export const embeddedDocumentPluginKey = new PluginKey('embeddedDocument')
@@ -51,7 +52,7 @@ async function fetchDocumentContent(uuid: string): Promise<{ html: string; title
 
     const result = {
       html,
-      title: data.title || 'Untitled',
+      title: data.title || translate('docs-untitled-page', undefined, 'Untitled'),
       icon: data.icon || '📄',
       loading: false,
       error: false,
@@ -141,7 +142,7 @@ class EmbeddedDocumentView implements NodeView {
 
   constructor(node: ProseMirrorNode, _view: EditorView, _getPos: () => number | undefined) {
     this.uuid = node.attrs.documentUuid
-    this.title = node.attrs.documentTitle || 'Untitled'
+    this.title = node.attrs.documentTitle || translate('docs-untitled-page', undefined, 'Untitled')
 
     this.dom = document.createElement('div')
     this.dom.className = 'embedded-document-block'
@@ -240,7 +241,7 @@ class EmbeddedDocumentView implements NodeView {
     const newUuid = node.attrs.documentUuid
     if (newUuid !== this.uuid) {
       this.uuid = newUuid
-      this.title = node.attrs.documentTitle || 'Untitled'
+      this.title = node.attrs.documentTitle || translate('docs-untitled-page', undefined, 'Untitled')
       // Clear cache for re-fetch
       contentCache.delete(newUuid)
       this.renderLoading()

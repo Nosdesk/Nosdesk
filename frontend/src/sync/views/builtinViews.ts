@@ -13,8 +13,15 @@ import type { CalendarViewShape, FilterState, ListViewShape } from './types'
 export interface BuiltInView {
   /** Stable id used in the URL (`?view=my-open`). */
   id: 'my-open' | 'all-active' | 'triage' | 'calendar'
+  /** English fallback labels, kept for pre-i18n call sites and as
+   * the `fallback` argument to `translate()` so the UI never blanks
+   * if the Fluent bundle hasn't initialised yet. */
   name: string
   description: string
+  /** Fluent keys resolved at render time so locale switches reflect
+   * without re-creating the constants module. */
+  nameKey: string
+  descriptionKey: string
   /** Built-ins ship list and calendar shapes today. The TicketsList
    * view branches on `shape.type` to pick the renderer. */
   shape: ListViewShape | CalendarViewShape
@@ -78,6 +85,8 @@ export const MY_OPEN_VIEW: BuiltInView = {
   id: 'my-open',
   name: 'My Open',
   description: 'Open tickets assigned to you',
+  nameKey: 'builtin-view-my-open-name',
+  descriptionKey: 'builtin-view-my-open-description',
   shape: { ...baseListShape, columns: defaultColumns },
   filter: {
     ...baseFilter,
@@ -99,6 +108,8 @@ export const ALL_ACTIVE_VIEW: BuiltInView = {
   id: 'all-active',
   name: 'All Active',
   description: 'Every ticket that hasn\'t been resolved or cancelled',
+  nameKey: 'builtin-view-all-active-name',
+  descriptionKey: 'builtin-view-all-active-description',
   shape: { ...baseListShape, columns: defaultColumns },
   filter: {
     ...baseFilter,
@@ -116,6 +127,8 @@ export const TRIAGE_VIEW: BuiltInView = {
   id: 'triage',
   name: 'Triage',
   description: 'Tickets awaiting initial categorisation',
+  nameKey: 'builtin-view-triage-name',
+  descriptionKey: 'builtin-view-triage-description',
   shape: { ...baseListShape, columns: defaultColumns },
   filter: {
     ...baseFilter,
@@ -159,6 +172,8 @@ export const CALENDAR_VIEW: BuiltInView = {
   id: 'calendar',
   name: 'Calendar',
   description: 'Tickets placed on the day they are due',
+  nameKey: 'builtin-view-calendar-name',
+  descriptionKey: 'builtin-view-calendar-description',
   shape: baseCalendarShape,
   filter: {
     ...baseFilter,

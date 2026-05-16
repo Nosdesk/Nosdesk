@@ -28,16 +28,17 @@ Usage:
     role="status"
     aria-live="polite"
     :aria-busy="true"
-    :aria-label="label"
+    :aria-label="ariaLabel"
     :class="$attrs.class"
   >
-    <span class="sr-only">{{ label }}</span>
+    <span class="sr-only">{{ ariaLabel }}</span>
     <slot />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 
 const props = withDefaults(
   defineProps<{
@@ -49,11 +50,17 @@ const props = withDefaults(
     minDurationMs?: number;
   }>(),
   {
-    label: 'Loading',
     delayMs: 150,
     minDurationMs: 300,
   },
 );
+
+// Default "Loading" string resolved from the Fluent catalogue at
+// render time so locale switches re-announce in the active locale;
+// the prop still wins so callers can pass a task-specific message
+// ("Loading archived pages").
+const fluent = useFluent();
+const ariaLabel = computed(() => props.label ?? fluent.$t('common-loading-generic'));
 
 const mounted = ref(false);
 let showTimer: ReturnType<typeof setTimeout> | null = null;

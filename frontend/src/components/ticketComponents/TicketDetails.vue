@@ -6,7 +6,7 @@ import { stripHtml } from '@/composables/useSanitise';
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
 import { useWorkflowStatesStore } from '@/stores/workflowStates';
 import {
-  CATEGORY_LABELS,
+  getCategoryLabel,
   WORKFLOW_CATEGORIES,
   categoryHeaderValue,
   isCategoryHeaderValue,
@@ -220,7 +220,7 @@ const workflowDropdownOptions = computed<
   for (const cat of WORKFLOW_CATEGORIES) {
     const states = workflowStatesStore.byCategory[cat];
     if (!states || states.length === 0) continue;
-    out.push({ value: categoryHeaderValue(cat), label: CATEGORY_LABELS[cat], disabled: true });
+    out.push({ value: categoryHeaderValue(cat), label: getCategoryLabel(cat), disabled: true });
     for (const s of states) {
       out.push({ value: String(s.id), label: s.name, color: s.color });
     }

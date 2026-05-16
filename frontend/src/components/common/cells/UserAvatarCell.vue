@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UserAvatar from '@/components/UserAvatar.vue'
+import { useFluent } from 'fluent-vue'
 
 interface Props {
   userId?: string
@@ -10,11 +11,18 @@ interface Props {
   emptyText?: string
 }
 
-withDefaults(defineProps<Props>(), {
+// `withDefaults` evaluates the default once at module load, which
+// would freeze the empty-text translation in whatever locale was
+// active at bootstrap. Resolving inside the component (via a
+// computed) lets the fallback re-render on locale switches and
+// lets callers still override with their own literal.
+const props = withDefaults(defineProps<Props>(), {
   size: 'sm',
   showName: false,
-  emptyText: 'Unassigned'
 })
+
+const fluent = useFluent()
+const displayEmpty = () => props.emptyText ?? fluent.$t('filter-assignee-unassigned')
 </script>
 
 <template>
@@ -29,6 +37,6 @@ withDefaults(defineProps<Props>(), {
     />
   </div>
   <span v-else class="text-xs text-tertiary">
-    {{ emptyText }}
+    {{ displayEmpty() }}
   </span>
 </template> 

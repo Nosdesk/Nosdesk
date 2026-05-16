@@ -1,6 +1,9 @@
 <!-- TicketDragPreview.vue - Shared floating drag preview for tickets -->
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
+
+const fluent = useFluent()
 
 const props = defineProps<{
   ticket: {
@@ -109,7 +112,7 @@ const getPriorityBorderClass = (priority?: string) => {
         </h4>
         <div v-if="ticket.assignee || ticket.priority" class="flex items-center justify-between mt-3">
           <span class="text-xs text-tertiary">
-            {{ ticket.assignee || 'Unassigned' }}
+            {{ ticket.assignee || fluent.$t('filter-assignee-unassigned') }}
           </span>
           <span v-if="ticket.priority" class="text-xs text-tertiary capitalize">
             {{ ticket.priority }}

@@ -1,5 +1,6 @@
 import { logger } from '@/utils/logger';
 import apiClient from './apiConfig';
+import { translate } from '@/i18n';
 import type { UserInfo } from '@/types/user';
 
 // Note: apiClient already has baseURL set to '/api', so routes need no prefix
@@ -105,7 +106,7 @@ function createFallbackPage(idPrefix: string, titlePrefix: string, icon = '❓')
     description: null,
     content: '',
     parent_id: null,
-    author: 'System',
+    author: translate('docs-author-system', undefined, 'System'),
     status: 'draft',
     icon,
     children: [],
@@ -128,7 +129,9 @@ export const convertToPage = (data: unknown): Page => {
     // Clean up all properties before assigning
     const cleanId = (pageData.id ?? `unknown-${Date.now()}`) as string | number;
     const cleanSlug = typeof pageData.slug === 'string' ? pageData.slug : '';
-    const cleanTitle = typeof pageData.title === 'string' ? pageData.title : 'Untitled';
+    const cleanTitle = typeof pageData.title === 'string'
+      ? pageData.title
+      : translate('docs-untitled-page', undefined, 'Untitled');
     const cleanDescription = pageData.description !== undefined ? pageData.description : null;
 
     // Handle content conversion from binary (Vec<u8>) to string
@@ -154,7 +157,9 @@ export const convertToPage = (data: unknown): Page => {
     const cleanParentId = pageData.parent_id !== undefined ? pageData.parent_id : null;
     // For backwards compatibility, fallback to created_by.name if author doesn't exist
     const createdBy = pageData.created_by as { name?: string } | undefined;
-    const cleanAuthor = typeof pageData.author === 'string' ? pageData.author : (createdBy?.name || 'System');
+    const cleanAuthor = typeof pageData.author === 'string'
+      ? pageData.author
+      : (createdBy?.name || translate('docs-author-system', undefined, 'System'));
     const cleanStatus = typeof pageData.status === 'string' ? pageData.status : 'published';
     const cleanIcon = typeof pageData.icon === 'string' ? pageData.icon : '📄';
 
@@ -550,7 +555,7 @@ export const createArticle = async (article: Partial<Page>): Promise<Page | null
     // automatically).
     const collectionId = (article as Partial<Page> & { collection_id?: number }).collection_id;
     const payload = {
-      title: article.title || 'Untitled',
+      title: article.title || translate('docs-untitled-page', undefined, 'Untitled'),
       icon: article.icon || '📄',
       cover_image: null,
       status: statusValue,
