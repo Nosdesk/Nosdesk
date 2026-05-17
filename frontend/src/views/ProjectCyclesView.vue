@@ -20,6 +20,7 @@ import { useCyclesStore } from '@/stores/cycles'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 
 const props = defineProps<{ id: string }>()
 
@@ -63,14 +64,34 @@ async function promoteToActive(uuid: string): Promise<void> {
   await cyclesStore.update(uuid, { state: 'active' })
 }
 
-async function completeCycle(uuid: string): Promise<void> {
-  if (!window.confirm(t('project-cycles-confirm-complete'))) return
-  await cyclesStore.complete(uuid)
+// Single pending-action state covers both complete + archive so
+// the template renders one ConfirmModal instance.
+const pendingAction = ref<
+  | { kind: 'complete'; uuid: string }
+  | { kind: 'archive'; uuid: string }
+  | null
+>(null)
+const confirmActionMessage = computed<string>(() => {
+  if (!pendingAction.value) return ''
+  return pendingAction.value.kind === 'complete'
+    ? t('project-cycles-confirm-complete')
+    : t('project-cycles-confirm-archive')
+})
+
+function requestCompleteCycle(uuid: string): void {
+  pendingAction.value = { kind: 'complete', uuid }
 }
 
-async function archiveCycle(uuid: string): Promise<void> {
-  if (!window.confirm(t('project-cycles-confirm-archive'))) return
-  await cyclesStore.archive(uuid)
+function requestArchiveCycle(uuid: string): void {
+  pendingAction.value = { kind: 'archive', uuid }
+}
+
+async function confirmCycleAction(): Promise<void> {
+  const action = pendingAction.value
+  if (!action) return
+  pendingAction.value = null
+  if (action.kind === 'complete') await cyclesStore.complete(action.uuid)
+  else await cyclesStore.archive(action.uuid)
 }
 
 function formatCycleDate(iso: string | null): string {
@@ -193,18 +214,36 @@ function stateLabel(state: string): string {
                 v-if="cycle.state === 'active'"
                 type="button"
                 class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover"
-                @click="completeCycle(cycle.uuid)"
+                @click="requestCompleteCycle(cycle.uuid)"
               >{{ $t('project-cycles-action-complete') }}</button>
               <button
                 v-if="cycle.state !== 'completed'"
                 type="button"
                 class="text-[11px] text-tertiary hover:text-status-error px-2 py-1 rounded hover:bg-surface-hover"
-                @click="archiveCycle(cycle.uuid)"
+                @click="requestArchiveCycle(cycle.uuid)"
               >{{ $t('project-cycles-action-archive') }}</button>
             </div>
           </li>
         </ul>
       </SectionCard>
     </div>
+
+    <ConfirmModal
+      :show="pendingAction !== null"
+      variant="warning"
+      :title="
+        pendingAction?.kind === 'complete'
+          ? $t('project-cycles-confirm-complete-title')
+          : $t('project-cycles-confirm-archive-title')
+      "
+      :message="confirmActionMessage"
+      :confirm-label="
+        pendingAction?.kind === 'complete'
+          ? $t('project-cycles-action-complete')
+          : $t('project-cycles-action-archive')
+      "
+      @confirm="confirmCycleAction"
+      @close="pendingAction = null"
+    />
   </div>
 </template>

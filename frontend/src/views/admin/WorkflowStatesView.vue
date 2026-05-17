@@ -4,6 +4,7 @@ import { useFluent } from 'fluent-vue'
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Icon from '@/components/common/Icon.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import {
   workflowStatesService,
   type CreateWorkflowStateBody,
@@ -103,12 +104,20 @@ async function promoteDefault(state: WorkflowState) {
   }
 }
 
-async function archive(state: WorkflowState) {
+const pendingArchive = ref<WorkflowState | null>(null)
+
+function requestArchive(state: WorkflowState): void {
   if (state.is_default) {
     errorMessage.value = t('admin-workflow-states-error-promote-first')
     return
   }
-  if (!confirm(t('admin-workflow-states-archive-confirm', { name: state.name }))) return
+  pendingArchive.value = state
+}
+
+async function confirmArchive(): Promise<void> {
+  const state = pendingArchive.value
+  if (!state) return
+  pendingArchive.value = null
   try {
     await workflowStatesService.archive(state.id)
     await reload()
@@ -220,7 +229,7 @@ onMounted(() => {
               class="text-tertiary hover:text-status-error transition-colors p-1"
               :disabled="state.is_default"
               :title="state.is_default ? $t('admin-workflow-states-archive-disabled-title') : $t('admin-workflow-states-archive-title')"
-              @click="archive(state)"
+              @click="requestArchive(state)"
             >
               <Icon name="trash" />
             </button>
@@ -255,5 +264,19 @@ onMounted(() => {
         </div>
       </section>
     </div>
+
+    <ConfirmModal
+      :show="pendingArchive !== null"
+      variant="warning"
+      :title="$t('admin-workflow-states-archive-confirm-title')"
+      :message="
+        pendingArchive
+          ? $t('admin-workflow-states-archive-confirm', { name: pendingArchive.name })
+          : ''
+      "
+      :confirm-label="$t('admin-workflow-states-archive-confirm-label')"
+      @confirm="confirmArchive"
+      @close="pendingArchive = null"
+    />
   </div>
 </template>

@@ -22,6 +22,7 @@ import {
   type SlaPolicyBody,
 } from '@/services/slaService'
 import Checkbox from '@/components/common/Checkbox.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
@@ -30,6 +31,20 @@ const policies = ref<SlaPolicy[]>([])
 const calendars = ref<WorkingCalendar[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+
+// Single pending-confirm state covers both calendar + policy
+// deletes so the template renders one ConfirmModal instance.
+const pendingDelete = ref<
+  | { kind: 'calendar'; id: number; name: string }
+  | { kind: 'policy'; id: number; name: string }
+  | null
+>(null)
+const confirmDeleteMessage = computed<string>(() => {
+  if (!pendingDelete.value) return ''
+  return pendingDelete.value.kind === 'calendar'
+    ? t('admin-sla-calendar-delete-confirm')
+    : t('admin-sla-policy-delete-confirm')
+})
 
 async function load(): Promise<void> {
   loading.value = true
@@ -82,8 +97,11 @@ async function createCalendar(): Promise<void> {
   }
 }
 
+function requestDeleteCalendar(cal: WorkingCalendar): void {
+  pendingDelete.value = { kind: 'calendar', id: cal.id, name: cal.name }
+}
+
 async function deleteCalendar(id: number): Promise<void> {
-  if (!window.confirm(t('admin-sla-calendar-delete-confirm'))) return
   try {
     await slaService.deleteCalendar(id)
     calendars.value = calendars.value.filter((c) => c.id !== id)
@@ -141,19 +159,30 @@ async function createPolicy(): Promise<void> {
   }
 }
 
+// Confirm wording for policy delete calls out the side effect: any
+// tickets the policy currently covers stop having an SLA. Without
+// this the operator might delete "Standard SLA" thinking they can
+// recreate it later and not realise tickets in flight lose their
+// pill until the new policy lands. (Wording lives in the FTL key.)
+function requestDeletePolicy(p: SlaPolicy): void {
+  pendingDelete.value = { kind: 'policy', id: p.id, name: p.name }
+}
+
 async function deletePolicy(id: number): Promise<void> {
-  // Confirm wording calls out the side effect: any tickets the
-  // policy currently covers stop having an SLA. Without this the
-  // operator might delete "Standard SLA" thinking they can recreate
-  // it later and not realise tickets in flight lose their pill
-  // until the new policy lands.
-  if (!window.confirm(t('admin-sla-policy-delete-confirm'))) return
   try {
     await slaService.deletePolicy(id)
     policies.value = policies.value.filter((p) => p.id !== id)
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('admin-sla-error-delete')
   }
+}
+
+async function confirmDelete(): Promise<void> {
+  const target = pendingDelete.value
+  if (!target) return
+  pendingDelete.value = null
+  if (target.kind === 'calendar') await deleteCalendar(target.id)
+  else await deletePolicy(target.id)
 }
 
 async function patchPolicy(p: SlaPolicy, patch: Partial<SlaPolicyBody>): Promise<void> {
@@ -235,7 +264,7 @@ function fmtMinutes(m: number | null): string {
                 <button
                   type="button"
                   class="text-[11px] text-tertiary hover:text-primary"
-                  @click="deleteCalendar(cal.id)"
+                  @click="requestDeleteCalendar(cal)"
                 >{{ $t('admin-sla-delete') }}</button>
               </td>
             </tr>
@@ -313,7 +342,7 @@ function fmtMinutes(m: number | null): string {
                 <button
                   type="button"
                   class="text-[11px] text-tertiary hover:text-primary"
-                  @click="deletePolicy(p.id)"
+                  @click="requestDeletePolicy(p)"
                 >{{ $t('admin-sla-delete') }}</button>
               </td>
             </tr>
@@ -394,5 +423,15 @@ function fmtMinutes(m: number | null): string {
         </form>
       </section>
     </div>
+
+    <ConfirmModal
+      :show="pendingDelete !== null"
+      variant="danger"
+      :title="$t('admin-sla-delete-confirm-title')"
+      :message="confirmDeleteMessage"
+      :confirm-label="$t('admin-sla-delete')"
+      @confirm="confirmDelete"
+      @close="pendingDelete = null"
+    />
   </div>
 </template>
