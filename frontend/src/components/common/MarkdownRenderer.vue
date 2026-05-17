@@ -32,11 +32,10 @@ const preprocessMentions = (text: string): string => {
   });
 };
 
-// Configure marked for safe rendering
-marked.setOptions({
-  gfm: true,
-  breaks: true,
-});
+// Configure marked. gfm is the default in v18; setting `breaks` flips
+// single newlines into <br> so chat-style content reads correctly.
+// marked.setOptions() was removed in v18, use marked.use() instead.
+marked.use({ breaks: true });
 
 // Render content
 const renderedHtml = computed(() => {

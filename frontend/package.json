@@ -32,7 +32,7 @@
     "highlight.js": "^11.9.0",
     "jszip": "^3.10.1",
     "lowlight": "^3.3.0",
-    "marked": "^9.1.5",
+    "marked": "^18.0.0",
     "pdfjs-dist": "^5.0.375",
     "pinia": "^3.0.4",
     "prosemirror-example-setup": "^1.2.3",
