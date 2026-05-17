@@ -109,7 +109,7 @@ function selectUser(user: PickerUser) {
 
 function navigateToProfile() {
   if (!props.modelValue) return
-  router.push(`/admin/users/${props.modelValue}`)
+  router.push(`/users/${props.modelValue}`)
 }
 
 // ---- Section flattening for keyboard navigation ----

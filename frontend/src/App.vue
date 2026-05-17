@@ -58,7 +58,7 @@ router.afterEach((to) => {
 
 // Set up global mention click navigation
 setMentionNavigationHandler((uuid: string) => {
-  router.push(`/admin/users/${uuid}`)
+  router.push(`/users/${uuid}`)
 })
 
 // State for navbar collapse
