@@ -17,6 +17,7 @@ use crate::db::DbConnection;
 use crate::models::{EmailSuppression, NewEmailSuppression};
 use crate::schema::email_suppressions;
 
+// sync-audit-only: suppression list mutation; operational table for email deliverability
 /// Insert a suppression for `email` (case-folded). If a row already
 /// exists, bump `bounce_count` and refresh `last_seen_at` /
 /// `bounce_diagnostic`. The lower-case fold means we treat email
@@ -77,6 +78,7 @@ pub fn count(conn: &mut DbConnection) -> Result<i64, diesel::result::Error> {
     email_suppressions::table.count().get_result(conn)
 }
 
+// sync-audit-only: suppression list mutation; operational table for email deliverability
 /// Remove a suppression. Returns the number of rows deleted so the
 /// admin handler can disambiguate "address not on the list" from
 /// "removed successfully" without a separate existence check.

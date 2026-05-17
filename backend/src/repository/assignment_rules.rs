@@ -85,6 +85,7 @@ pub fn get_all_rules_with_details(
     Ok(result)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Create a new assignment rule
 pub fn create_rule(
     conn: &mut DbConnection,
@@ -95,6 +96,7 @@ pub fn create_rule(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Update an assignment rule
 pub fn update_rule(
     conn: &mut DbConnection,
@@ -111,11 +113,13 @@ pub fn update_rule(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Delete an assignment rule
 pub fn delete_rule(conn: &mut DbConnection, rule_id: i32) -> QueryResult<usize> {
     diesel::delete(assignment_rules::table.find(rule_id)).execute(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Reorder rules by setting their priorities
 pub fn reorder_rules(conn: &mut DbConnection, orders: Vec<(i32, i32)>) -> Result<(), Error> {
     for (rule_id, new_priority) in orders {

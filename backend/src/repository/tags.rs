@@ -36,18 +36,21 @@ pub fn get_tag(conn: &mut DbConnection, id: i32) -> QueryResult<Tag> {
     tags::table.find(id).first(conn)
 }
 
+// sync-audit-only: Tag CRUD — tags are NOT a sync aggregate (workspace config changes infrequently, picker re-fetches on demand). Ticket↔ tag assignment IS sync-wired via the `ticket.tags_changed` event in `tags::set_tags_for_ticket`
 pub fn create_tag(conn: &mut DbConnection, new_tag: NewTag) -> QueryResult<Tag> {
     diesel::insert_into(tags::table)
         .values(&new_tag)
         .get_result(conn)
 }
 
+// sync-audit-only: Tag CRUD — tags are NOT a sync aggregate (workspace config changes infrequently, picker re-fetches on demand). Ticket↔ tag assignment IS sync-wired via the `ticket.tags_changed` event in `tags::set_tags_for_ticket`
 pub fn update_tag(conn: &mut DbConnection, id: i32, update: TagUpdate) -> QueryResult<Tag> {
     diesel::update(tags::table.find(id))
         .set(&update)
         .get_result(conn)
 }
 
+// sync-audit-only: Tag CRUD — tags are NOT a sync aggregate (workspace config changes infrequently, picker re-fetches on demand). Ticket↔ tag assignment IS sync-wired via the `ticket.tags_changed` event in `tags::set_tags_for_ticket`
 /// Soft-archive a tag (sets `archived_at`). The row stays so any
 /// historical ticket→tag references keep their join target;
 /// archived tags drop out of the picker.

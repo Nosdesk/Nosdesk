@@ -25,6 +25,7 @@ pub fn is_user_subscribed(conn: &mut DbConnection, user_uuid: Uuid, page_id: i32
         > 0
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Subscribe a user to a page
 pub fn subscribe_user(
     conn: &mut DbConnection,
@@ -48,6 +49,7 @@ pub fn subscribe_user(
         .first(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Unsubscribe a user from a page
 pub fn unsubscribe_user(
     conn: &mut DbConnection,

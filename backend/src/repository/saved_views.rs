@@ -47,12 +47,14 @@ pub fn find_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<S
         .optional()
 }
 
+// sync-audit-only: Operational / bespoke tables
 pub fn create(conn: &mut DbConnection, new: NewSavedView) -> QueryResult<SavedView> {
     diesel::insert_into(saved_views::table)
         .values(&new)
         .get_result(conn)
 }
 
+// sync-audit-only: Operational / bespoke tables
 pub fn update(
     conn: &mut DbConnection,
     uuid: Uuid,
@@ -63,6 +65,7 @@ pub fn update(
         .get_result(conn)
 }
 
+// sync-audit-only: companion to saved_views::create / update; not a sync aggregate
 /// Hard delete. The view's row is removed; any in-flight `?view=<uuid>`
 /// URL will fall through the resolution chain to the workspace
 /// default or the built-in `MY_OPEN_VIEW`.

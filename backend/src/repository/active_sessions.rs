@@ -6,6 +6,7 @@ use crate::db::DbConnection;
 use crate::models::{ActiveSession, NewActiveSession};
 use crate::schema::active_sessions;
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Delete sessions whose `expires_at` is in the past. Intended to be
 /// called on a periodic schedule (see `services::scheduler`) so the
 /// `active_sessions` table doesn't accrete dead rows indefinitely.
@@ -17,6 +18,7 @@ pub fn cleanup_expired(conn: &mut DbConnection) -> Result<usize, diesel::result:
     .execute(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Create a new active session
 pub fn create_session(
     conn: &mut DbConnection,
@@ -57,6 +59,7 @@ pub fn get_session_by_id(
     active_sessions::table.find(id).first::<ActiveSession>(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Revoke a specific session by integer ID
 pub fn revoke_session(
     conn: &mut DbConnection,
@@ -65,6 +68,7 @@ pub fn revoke_session(
     diesel::delete(active_sessions::table.find(session_id)).execute(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Revoke a session by its stable UUID (CASCADE deletes linked refresh_tokens)
 pub fn revoke_session_by_uuid(
     conn: &mut DbConnection,
@@ -73,6 +77,7 @@ pub fn revoke_session_by_uuid(
     diesel::delete(active_sessions::table.filter(active_sessions::session_id.eq(sid))).execute(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Update session activity timestamp and expiry
 pub fn update_session_activity(
     conn: &mut DbConnection,
@@ -87,6 +92,7 @@ pub fn update_session_activity(
         .execute(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Revoke all sessions for a user except the current one
 pub fn revoke_other_sessions(
     conn: &mut DbConnection,
@@ -107,6 +113,7 @@ pub fn revoke_other_sessions(
     }
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Revoke all sessions for a user except the one with the given UUID
 pub fn revoke_other_sessions_by_uuid(
     conn: &mut DbConnection,

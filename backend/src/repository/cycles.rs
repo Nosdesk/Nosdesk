@@ -190,6 +190,7 @@ pub fn complete(
 
 // ---- cycle_tickets ----
 
+// sync-pending-wire: cycle membership change; needs a ticket.cycle_changed event
 pub fn add_ticket(
     conn: &mut DbConnection,
     cycle_id: i32,
@@ -239,6 +240,7 @@ pub fn add_ticket(
     })
 }
 
+// sync-pending-wire: cycle membership change; needs a ticket.cycle_changed event
 pub fn remove_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
     conn.transaction(|conn| {
         let previous: Option<i32> = cycle_tickets::table

@@ -70,6 +70,7 @@ pub fn get_category_with_visibility(
     })
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Create a new category
 pub fn create_category(
     conn: &mut DbConnection,
@@ -80,6 +81,7 @@ pub fn create_category(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Update a category
 pub fn update_category(
     conn: &mut DbConnection,
@@ -96,6 +98,7 @@ pub fn update_category(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Soft delete a category (set is_active to false)
 pub fn delete_category(conn: &mut DbConnection, category_id: i32) -> QueryResult<TicketCategory> {
     diesel::update(ticket_categories::table.find(category_id))
@@ -106,6 +109,7 @@ pub fn delete_category(conn: &mut DbConnection, category_id: i32) -> QueryResult
         .get_result(conn)
 }
 
+// sync-audit-only: first-boot bootstrap, not a user-driven write
 /// First-run seeder: insert a small starter set of categories so a
 /// fresh install isn't faced with an empty category dropdown when
 /// creating the first ticket. No-ops if any rows exist (regardless
@@ -184,6 +188,7 @@ pub fn get_next_display_order(conn: &mut DbConnection) -> QueryResult<i32> {
     Ok(max_order.unwrap_or(0) + 1)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Update display orders for categories
 pub fn update_category_orders(
     conn: &mut DbConnection,
@@ -214,6 +219,7 @@ pub fn get_visible_groups_for_category(
         .load(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Set which groups can see a category (replaces existing visibility)
 pub fn set_category_visibility(
     conn: &mut DbConnection,

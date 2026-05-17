@@ -9,6 +9,7 @@ pub fn get_site_settings(conn: &mut DbConnection) -> QueryResult<SiteSettings> {
     site_settings::table.find(1).first(conn)
 }
 
+// sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
 /// Update site settings
 pub fn update_site_settings(
     conn: &mut DbConnection,
@@ -19,6 +20,7 @@ pub fn update_site_settings(
         .get_result(conn)
 }
 
+// sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
 /// Update logo URL
 pub fn update_logo_url(
     conn: &mut DbConnection,
@@ -33,6 +35,7 @@ pub fn update_logo_url(
         .get_result(conn)
 }
 
+// sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
 /// Update light theme logo URL
 pub fn update_logo_light_url(
     conn: &mut DbConnection,
@@ -47,6 +50,7 @@ pub fn update_logo_light_url(
         .get_result(conn)
 }
 
+// sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
 /// Update favicon URL
 pub fn update_favicon_url(
     conn: &mut DbConnection,

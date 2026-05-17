@@ -4,6 +4,7 @@ use crate::schema::backup_jobs;
 use diesel::prelude::*;
 use uuid::Uuid;
 
+// sync-audit-only: Operational / bespoke tables
 /// Create a new backup job record
 pub fn create_backup_job(conn: &mut DbConnection, new_job: NewBackupJob) -> QueryResult<BackupJob> {
     diesel::insert_into(backup_jobs::table)
@@ -23,6 +24,7 @@ pub fn get_all_backup_jobs(conn: &mut DbConnection) -> QueryResult<Vec<BackupJob
         .load(conn)
 }
 
+// sync-audit-only: Operational / bespoke tables
 /// Update a backup job
 pub fn update_backup_job(
     conn: &mut DbConnection,
@@ -34,6 +36,7 @@ pub fn update_backup_job(
         .get_result(conn)
 }
 
+// sync-audit-only: Operational / bespoke tables
 /// Delete a backup job
 pub fn delete_backup_job(conn: &mut DbConnection, job_id: Uuid) -> QueryResult<usize> {
     diesel::delete(backup_jobs::table.find(job_id)).execute(conn)

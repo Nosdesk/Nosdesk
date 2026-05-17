@@ -21,6 +21,7 @@ pub fn normalise_query(raw: &str) -> String {
         .to_lowercase()
 }
 
+// sync-audit-only: Operational / bespoke tables
 /// Insert one log row. Errors are non-fatal at the call site —
 /// search must succeed even if logging fails.
 pub fn log_query(conn: &mut DbConnection, query_raw: &str, result_count: i32) -> Result<(), Error> {
@@ -119,6 +120,7 @@ pub fn aggregate_failed_searches(
         .collect())
 }
 
+// sync-audit-only: Operational / bespoke tables
 /// Drop log rows older than `retention_days`. Run periodically by
 /// the scheduler. Returns the number of rows deleted.
 pub fn prune_old_rows(conn: &mut DbConnection, retention_days: i32) -> Result<usize, Error> {

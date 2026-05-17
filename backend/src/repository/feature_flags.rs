@@ -36,6 +36,7 @@ pub fn resolve_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResul
     Ok(merge_flags(&workspace, &user_overrides))
 }
 
+// sync-audit-only: Feature flags — workspace config, no sync subscriber
 /// Set the workspace-level value for a single flag. Setting `null`
 /// removes the flag from the workspace defaults (clients fall back
 /// to the application's code default).
@@ -58,6 +59,7 @@ pub fn set_workspace_flag(
     Ok(current)
 }
 
+// sync-audit-only: Feature flags — workspace config, no sync subscriber
 /// Set or clear a per-user override for a single flag.
 pub fn set_user_override(
     conn: &mut DbConnection,
@@ -79,6 +81,7 @@ pub fn set_user_override(
     Ok(current)
 }
 
+// sync-audit-only: Feature flags — workspace config, no sync subscriber
 /// Replace the entire workspace flag map. Used by the admin UI's
 /// bulk-edit path; setters above are the per-flag path.
 pub fn set_all_workspace_flags(conn: &mut DbConnection, flags: Value) -> QueryResult<Value> {

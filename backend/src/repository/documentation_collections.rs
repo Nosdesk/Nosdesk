@@ -12,6 +12,7 @@ use crate::schema::*;
 // Collection CRUD Operations
 // ============================================================================
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn create_collection(
     conn: &mut DbConnection,
     new_collection: NewDocumentationCollection,
@@ -48,6 +49,7 @@ pub fn get_all_collections(conn: &mut DbConnection) -> QueryResult<Vec<Documenta
         .load(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn reorder_collections(
     conn: &mut DbConnection,
     orders: &[CollectionOrder],
@@ -62,6 +64,7 @@ pub fn reorder_collections(
     })
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn update_collection(
     conn: &mut DbConnection,
     collection_id: i32,
@@ -72,10 +75,12 @@ pub fn update_collection(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn delete_collection(conn: &mut DbConnection, collection_id: i32) -> QueryResult<usize> {
     diesel::delete(documentation_collections::table.find(collection_id)).execute(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Soft-delete every page that lives in this collection. Called
 /// before `delete_collection` so the page rows survive (preserving
 /// authorship + revision history) but vanish from every tree
@@ -106,6 +111,7 @@ pub fn soft_delete_pages_in_collection(
     .execute(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Update the Yjs binary state for a collection's rich
 /// description. Called from the collaboration handler when the
 /// `collection-${id}` editor saves.
@@ -128,6 +134,7 @@ pub fn update_collection_description_yjs(
 // Collection-Page Operations
 // ============================================================================
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn add_page_to_collection(
     conn: &mut DbConnection,
     new_entry: NewDocumentationCollectionPage,
@@ -138,6 +145,7 @@ pub fn add_page_to_collection(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Add a page to a collection AND null its parent_id so it lands
 /// at the collection's root. The pre-redesign `add_page_to_collection`
 /// only wrote the junction row; pages whose parent_id pointed at
@@ -174,6 +182,7 @@ pub fn add_page_to_collection_at_root(
     })
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Ensure a child page belongs to the same collection as its
 /// new parent. Called from `move_page_to_parent` so re-parenting
 /// across collection boundaries automatically pulls the child
@@ -217,6 +226,7 @@ pub fn cascade_collection_membership(
     Ok(())
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn remove_page_from_collection(
     conn: &mut DbConnection,
     collection_id: i32,
@@ -340,6 +350,7 @@ pub fn get_visible_users_for_collection(
         })
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn set_collection_visibility(
     conn: &mut DbConnection,
     collection_id: i32,

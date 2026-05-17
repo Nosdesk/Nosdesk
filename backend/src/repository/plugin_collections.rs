@@ -40,6 +40,7 @@ pub fn get_schema_by_name(
         .first::<PluginCollectionSchema>(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Create a new collection schema
 pub fn create_schema(
     conn: &mut DbConnection,
@@ -50,6 +51,7 @@ pub fn create_schema(
         .get_result(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Update a collection schema
 pub fn update_schema(
     conn: &mut DbConnection,
@@ -61,6 +63,7 @@ pub fn update_schema(
         .get_result(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Delete a collection schema (cascades to rows)
 pub fn delete_schema(
     conn: &mut DbConnection,
@@ -73,6 +76,7 @@ pub fn delete_schema(
 // Row CRUD
 // =============================================================================
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Create a new collection row
 pub fn create_row(
     conn: &mut DbConnection,
@@ -93,6 +97,7 @@ pub fn get_row_by_uuid(
         .first::<PluginCollectionRow>(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Update a row
 pub fn update_row(
     conn: &mut DbConnection,
@@ -104,12 +109,14 @@ pub fn update_row(
         .get_result(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Delete a row
 pub fn delete_row(conn: &mut DbConnection, row_uuid: Uuid) -> Result<usize, diesel::result::Error> {
     diesel::delete(plugin_collection_rows::table.filter(plugin_collection_rows::uuid.eq(row_uuid)))
         .execute(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// List rows for a schema with pagination, optional JSONB filter and sort
 pub fn list_rows(
     conn: &mut DbConnection,

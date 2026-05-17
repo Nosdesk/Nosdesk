@@ -31,6 +31,7 @@ use diesel::sql_types::{BigInt, Integer, Nullable, Text, Timestamptz};
 /// 5-minute lease.
 pub const DEFAULT_BATCH_SIZE: i64 = 10;
 
+// sync-audit-only: internal worker queue; delivery state surfaced via admin queue view
 /// Insert a new row in the queue. The trigger fires `pg_notify` so the
 /// listener wakes immediately.
 pub fn enqueue(
@@ -42,6 +43,7 @@ pub fn enqueue(
         .get_result(conn)
 }
 
+// sync-audit-only: internal worker queue; delivery state surfaced via admin queue view
 /// Enqueue a row keyed by an idempotency token. Two enqueues that
 /// share the same `idempotency_key` collapse to a single queue row:
 /// the first wins, the second returns the existing row without
@@ -92,6 +94,7 @@ pub fn enqueue_idempotent(
     }
 }
 
+// sync-audit-only: internal worker queue; delivery state surfaced via admin queue view
 /// Enqueue a row, but if the recipient is on the suppression list,
 /// short-circuit to `suppressed` status without ever entering the
 /// worker's claim set. Wrapped in a transaction so the INSERT and
@@ -128,6 +131,7 @@ pub fn get(conn: &mut DbConnection, id: i64) -> Result<OutboundEmail, DieselErro
     outbound_emails::table.find(id).first(conn)
 }
 
+// sync-audit-only: worker lease acquisition on the outbound queue
 /// Atomically claim up to `limit` due rows. Returns the claimed rows
 /// in `sending` state with leases set; the worker dispatches each then
 /// calls one of the `mark_*` functions to terminate.
@@ -175,6 +179,7 @@ pub fn claim_batch(
     .load::<OutboundEmail>(conn)
 }
 
+// sync-audit-only: worker terminal state transition on the outbound queue
 /// Mark a successful send. Terminal state.
 pub fn mark_sent(conn: &mut DbConnection, id: i64) -> Result<usize, DieselError> {
     diesel::sql_query(
@@ -193,6 +198,7 @@ pub fn mark_sent(conn: &mut DbConnection, id: i64) -> Result<usize, DieselError>
     .execute(conn)
 }
 
+// sync-audit-only: worker terminal state transition on the outbound queue
 /// Mark a transient failure. Schedules the next retry. Caller computes
 /// `next_attempt_at` per the retry policy (backoff + jitter).
 pub fn mark_failed(
@@ -221,6 +227,7 @@ pub fn mark_failed(
     .execute(conn)
 }
 
+// sync-audit-only: worker terminal state transition on the outbound queue
 /// Mark a permanent failure. Terminal state — no further retries.
 pub fn mark_dead(
     conn: &mut DbConnection,
@@ -246,6 +253,7 @@ pub fn mark_dead(
     .execute(conn)
 }
 
+// sync-audit-only: worker terminal state transition on the outbound queue
 /// Mark a row as suppressed (recipient on suppression list). Worker
 /// sets this at claim time before any SMTP traffic. Terminal state.
 pub fn mark_suppressed(
@@ -269,6 +277,7 @@ pub fn mark_suppressed(
     .execute(conn)
 }
 
+// sync-audit-only: worker terminal state transition on the outbound queue
 /// Stamp bounce metadata onto an outbound row matched by its
 /// deterministic Message-ID. Does NOT change `status` — a bounce
 /// is delivery-result detail recorded alongside the SMTP outcome
@@ -301,6 +310,7 @@ pub fn mark_bounced(
     .execute(conn)
 }
 
+// sync-audit-only: worker lease release on the outbound queue
 /// Release a claim without recording a failure — used by the circuit
 /// breaker when SMTP is down and the worker shouldn't burn an attempt.
 /// Sets status back to `pending` and clears the lease so another worker
@@ -320,6 +330,7 @@ pub fn release_claim(conn: &mut DbConnection, id: i64) -> Result<usize, DieselEr
     .execute(conn)
 }
 
+// sync-audit-only: worker recovery sweep on stalled leases
 /// Periodic sweeper: rows whose lease expired (worker crashed mid-send)
 /// move back to `failed` so the next claim cycle picks them up. Returns
 /// the count of swept rows for the scheduler to log.
@@ -342,6 +353,7 @@ pub fn sweep_expired_leases(conn: &mut DbConnection) -> Result<usize, DieselErro
     .execute(conn)
 }
 
+// sync-audit-only: admin-triggered retry on the outbound queue
 /// Operator action: bump `next_attempt_at` to now and reset attempts on
 /// dead rows so the worker re-tries immediately.
 pub fn retry_now(conn: &mut DbConnection, id: i64) -> Result<usize, DieselError> {
@@ -477,6 +489,7 @@ pub fn count_by_status(conn: &mut DbConnection) -> Result<Vec<(String, i64)>, Di
         .load::<(String, i64)>(conn)
 }
 
+// sync-audit-only: read-side health probe; counts pending rows on the outbound queue
 /// Pending-row gauge: count + age of the oldest. Drives the SLA alert
 /// "outbound queue is backed up." Returns `(count, oldest_age_seconds)`.
 pub fn pending_health(conn: &mut DbConnection) -> Result<(i64, Option<i64>), DieselError> {

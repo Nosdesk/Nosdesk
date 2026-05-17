@@ -25,6 +25,7 @@ pub fn get_article_content_by_ticket_id(
         .first(conn)
 }
 
+// sync-audit-only: Yjs document persistence (CRDT substrate, not a sync aggregate)
 pub fn create_article_content(
     conn: &mut DbConnection,
     new_article_content: NewArticleContent,
@@ -35,6 +36,7 @@ pub fn create_article_content(
 }
 
 // Increment the revision number for an article content
+// sync-audit-only: Yjs document persistence (CRDT substrate, not a sync aggregate)
 pub fn increment_article_content_revision(
     conn: &mut DbConnection,
     article_content_id: i32,
@@ -48,6 +50,7 @@ pub fn increment_article_content_revision(
 }
 
 // Article content revision operations
+// sync-audit-only: Yjs document persistence (CRDT substrate, not a sync aggregate)
 pub fn create_article_content_revision(
     conn: &mut DbConnection,
     new_revision: NewArticleContentRevision,
@@ -91,6 +94,7 @@ pub fn get_latest_article_content_revision(
 // Update Yjs state fields for ticket article content (snapshot-based persistence)
 // Note: Does NOT update the parent ticket's updated_at - that should only happen
 // when there are actual content changes, not on every sync/save
+// sync-audit-only: Yjs document persistence (CRDT substrate, not a sync aggregate)
 pub fn update_article_yjs_state(
     conn: &mut DbConnection,
     ticket_id: i32,
@@ -140,6 +144,7 @@ pub fn update_article_yjs_state(
 }
 
 // Update parent ticket's updated_at timestamp (call only when content actually changes)
+// sync-audit-only: Yjs document persistence (CRDT substrate, not a sync aggregate)
 pub fn update_ticket_modified_timestamp(
     conn: &mut DbConnection,
     ticket_id: i32,

@@ -41,6 +41,7 @@ pub fn find_publisher_by_pubkey(
         .optional()
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Insert a new publisher, or update the existing row matching on
 /// `pubkey`. Used by the registry sync job to reconcile the keylist.
 pub fn upsert_publisher(
@@ -55,6 +56,7 @@ pub fn upsert_publisher(
         .get_result::<TrustedPublisher>(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Mark a publisher as revoked. Existing plugins signed by this key
 /// stay installed but new installs against the key fail.
 pub fn revoke_publisher(
@@ -79,6 +81,7 @@ pub fn get_local_signing_key(
         .optional()
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Insert the local signing key. The caller is responsible for
 /// checking absence first; the CHECK(id = 1) on the table guarantees
 /// a second insert fails.
@@ -101,6 +104,7 @@ pub fn get_registry_state(
         .first::<PluginRegistryState>(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 pub fn update_registry_state(
     conn: &mut DbConnection,
     mut update: PluginRegistryStateUpdate,

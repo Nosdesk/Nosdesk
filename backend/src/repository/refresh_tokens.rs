@@ -6,6 +6,7 @@ use crate::db::DbConnection;
 use crate::models::{NewRefreshToken, RefreshToken};
 use crate::schema::refresh_tokens;
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Create a new refresh token
 pub fn create_refresh_token(
     conn: &mut DbConnection,
@@ -27,6 +28,7 @@ pub fn get_refresh_token_by_hash(
         .first::<RefreshToken>(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Mark a token as used (token rotation with grace period)
 pub fn mark_token_used(
     conn: &mut DbConnection,
@@ -44,6 +46,7 @@ pub fn mark_token_used(
         .execute(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Revoke all tokens in a family (reuse detection)
 pub fn revoke_token_family(
     conn: &mut DbConnection,
@@ -54,6 +57,7 @@ pub fn revoke_token_family(
         .execute(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Delete refresh tokens whose `expires_at` is in the past. Intended
 /// for periodic invocation via `services::scheduler`. Revoked-but-not-
 /// expired tokens are kept so audit trails survive — only naturally
@@ -65,6 +69,7 @@ pub fn cleanup_expired(conn: &mut DbConnection) -> Result<usize, diesel::result:
     .execute(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Revoke a refresh token by hash
 pub fn revoke_refresh_token(
     conn: &mut DbConnection,

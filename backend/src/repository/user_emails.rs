@@ -32,6 +32,7 @@ pub fn find_user_by_any_email(
         .first::<crate::models::User>(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Add multiple emails for a user (used during Microsoft Graph sync)
 pub fn add_multiple_emails(
     conn: &mut DbConnection,
@@ -66,6 +67,7 @@ pub fn add_multiple_emails(
         .get_results(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Remove emails for a user that are no longer present in the source system
 pub fn cleanup_obsolete_emails(
     conn: &mut DbConnection,

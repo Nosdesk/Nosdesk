@@ -5,6 +5,7 @@ use crate::models::{
 use crate::schema::{sync_delta_tokens, sync_history};
 use diesel::prelude::*;
 
+// sync-audit-only: Operational / bespoke tables
 /// Create a new sync history record
 pub fn create_sync_history(
     conn: &mut DbConnection,
@@ -15,6 +16,7 @@ pub fn create_sync_history(
         .get_result(conn)
 }
 
+// sync-audit-only: Operational / bespoke tables
 /// Update an existing sync history record
 pub fn update_sync_history(
     conn: &mut DbConnection,
@@ -55,6 +57,7 @@ pub fn get_delta_token(
         .first(conn)
 }
 
+// sync-audit-only: Operational / bespoke tables
 /// Save or update a delta token (upsert)
 pub fn upsert_delta_token(
     conn: &mut DbConnection,
@@ -96,6 +99,7 @@ pub fn upsert_delta_token(
     }
 }
 
+// sync-audit-only: Operational / bespoke tables
 /// Delete a delta token (forces full sync next time)
 pub fn delete_delta_token(
     conn: &mut DbConnection,

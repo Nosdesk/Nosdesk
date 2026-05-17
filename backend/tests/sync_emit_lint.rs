@@ -1,211 +1,36 @@
 //! Lint: every repository write either calls `sync::emit::record` or
-//! is on the audit-only allowlist. Runs as a `cargo test` integration
-//! test so CI catches a missed emit on new repository writes.
+//! carries an inline marker comment declaring why it doesn't.
 //!
-//! The allowlist is the set of currently-unwired writes — Phase 2
-//! ships with most of the existing surface area on the list and
-//! shrinks it as each aggregate gets wired through `emit::record`.
-//! Adding a NEW unwired write should be intentional: either wire the
-//! emit, or update the allowlist with a comment explaining why the
-//! write is audit-only (e.g. operational tables that no sync client
-//! consumes).
+//! The marker lives directly above the `pub fn`, on the line preceding
+//! any doc comments or attributes:
+//!
+//! ```ignore
+//! // sync-audit-only: covered by security_events
+//! /// Delete the session row.
+//! pub fn revoke_session(...) -> QueryResult<usize> { ... }
+//! ```
+//!
+//! Two marker forms:
+//!
+//! - `// sync-audit-only: <reason>` — the write intentionally does not
+//!   emit a sync_action. Operational tables (queues, retention logs),
+//!   security-only writes covered by `security_events`, or aggregates
+//!   no sync client subscribes to.
+//! - `// sync-pending-wire: <todo>` — the write *should* emit, but the
+//!   sync aggregate variant + registry manifest haven't landed yet.
+//!   Removing the marker is part of the commit that wires the emit.
+//!
+//! Why per-function markers instead of a central allowlist: a central
+//! list silently drifts when new repo writes appear (the lint never
+//! ran until the friend's CI workflow landed; the list had ~30
+//! missing entries). Inline markers force the audit decision to be
+//! visible in the PR that adds the fn, and the rationale lives next
+//! to the code instead of in a file no one reads.
 
 use regex::Regex;
-use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use walkdir::WalkDir;
-
-/// Repository writes that intentionally do NOT emit `sync_actions`
-/// rows. Two reasons something lands here:
-///
-/// 1. The underlying table is operational, security, or Yjs-bespoke
-///    (covered by `security_events`, `audit_log`, or its own log).
-/// 2. The aggregate isn't in the sync registry today, OR the fn is a
-///    helper that doesn't represent a meaningful business event.
-///
-/// Adding to this list should be a deliberate choice with a comment
-/// in the diff explaining why the write isn't sync-relevant. If the
-/// answer is "it should be, we just haven't wired it yet", put it in
-/// [`PENDING_WIRE`] instead so the TODO is visible.
-const AUDIT_ONLY: &[&str] = &[
-    // Sessions / auth tokens (covered by security_events).
-    "repository/active_sessions.rs::cleanup_expired",
-    "repository/active_sessions.rs::create_session",
-    "repository/active_sessions.rs::revoke_other_sessions",
-    "repository/active_sessions.rs::revoke_other_sessions_by_uuid",
-    "repository/active_sessions.rs::revoke_session",
-    "repository/active_sessions.rs::revoke_session_by_uuid",
-    "repository/active_sessions.rs::update_session_activity",
-    "repository/api_tokens.rs::create_api_token",
-    "repository/api_tokens.rs::revoke_api_token",
-    "repository/api_tokens.rs::update_token_last_used",
-    "repository/passkey_credentials.rs::create",
-    "repository/passkey_credentials.rs::delete_for_user",
-    "repository/passkey_credentials.rs::update_for_user",
-    "repository/refresh_tokens.rs::cleanup_expired",
-    "repository/refresh_tokens.rs::create_refresh_token",
-    "repository/refresh_tokens.rs::mark_token_used",
-    "repository/refresh_tokens.rs::revoke_refresh_token",
-    "repository/refresh_tokens.rs::revoke_token_family",
-    "repository/reset_tokens.rs::create_reset_token",
-    "repository/reset_tokens.rs::invalidate_tokens_by_type",
-    "repository/reset_tokens.rs::mark_token_as_used",
-    // Yjs document persistence (CRDT substrate, not a sync aggregate).
-    "repository/article_content.rs::create_article_content",
-    "repository/article_content.rs::create_article_content_revision",
-    "repository/article_content.rs::increment_article_content_revision",
-    "repository/article_content.rs::update_article_yjs_state",
-    "repository/article_content.rs::update_ticket_modified_timestamp",
-    // Operational / bespoke tables.
-    "repository/backup.rs::create_backup_job",
-    "repository/backup.rs::delete_backup_job",
-    "repository/backup.rs::update_backup_job",
-    "repository/saved_views.rs::create",
-    "repository/saved_views.rs::update",
-    "repository/saved_views.rs::archive",
-    "repository/search_query_log.rs::log_query",
-    "repository/search_query_log.rs::prune_old_rows",
-    "repository/sync_history.rs::create_sync_history",
-    "repository/sync_history.rs::delete_delta_token",
-    "repository/sync_history.rs::update_sync_history",
-    "repository/sync_history.rs::upsert_delta_token",
-    "repository/user_ticket_views.rs::delete_view",
-    "repository/user_ticket_views.rs::record_view",
-    // Workspace settings — covered by the audit_log trigger on
-    // site_settings; sync clients don't subscribe.
-    "repository/site_settings.rs::update_favicon_url",
-    "repository/site_settings.rs::update_logo_light_url",
-    "repository/site_settings.rs::update_logo_url",
-    "repository/site_settings.rs::update_site_settings",
-    // Feature flags — workspace config, no sync subscriber.
-    "repository/feature_flags.rs::set_all_workspace_flags",
-    "repository/feature_flags.rs::set_user_override",
-    "repository/feature_flags.rs::set_workspace_flag",
-    // User MFA mutations — sensitive fields, not in the sync user
-    // projection. Coverage lives in security_events / audit_log.
-    "repository/users.rs::clear_user_mfa",
-    "repository/users.rs::update_user_mfa",
-    // Vestigial low-level helper: handlers all use
-    // `user_helpers::create_user_with_email` (which IS sync-wired).
-    // Kept here so a future stray caller still passes the lint, but
-    // new code should reach for the wired helper.
-    "repository/users.rs::create_user",
-    // Tag CRUD — tags are NOT a sync aggregate (workspace config
-    // changes infrequently, picker re-fetches on demand). Ticket↔
-    // tag assignment IS sync-wired via the `ticket.tags_changed`
-    // event in `tags::set_tags_for_ticket`.
-    "repository/tags.rs::archive_tag",
-    "repository/tags.rs::create_tag",
-    "repository/tags.rs::update_tag",
-    // Plugin local storage / activity log — covered by the audit_log
-    // trigger on plugin_data and plugin_collection_rows.
-    "repository/plugin_collections.rs::create_row",
-    "repository/plugin_collections.rs::create_schema",
-    "repository/plugin_collections.rs::delete_row",
-    "repository/plugin_collections.rs::delete_schema",
-    "repository/plugin_collections.rs::list_rows",
-    "repository/plugin_collections.rs::update_row",
-    "repository/plugin_collections.rs::update_schema",
-    "repository/plugin_publishers.rs::insert_local_signing_key",
-    "repository/plugin_publishers.rs::revoke_publisher",
-    "repository/plugin_publishers.rs::update_registry_state",
-    "repository/plugin_publishers.rs::upsert_publisher",
-    "repository/plugins.rs::delete_plugin_data_entry",
-    "repository/plugins.rs::delete_plugin_setting",
-    "repository/plugins.rs::delete_plugin_storage_entry",
-    "repository/plugins.rs::log_plugin_activity",
-    "repository/plugins.rs::set_plugin_data",
-    "repository/plugins.rs::set_plugin_setting",
-    "repository/plugins.rs::set_plugin_storage",
-];
-
-/// Repository writes that *should* emit a sync_action, but don't yet.
-/// Each entry is a TODO — removing one is part of the commit that
-/// wires the corresponding emit. The architecture doc's first-cut
-/// registry covers the eight aggregates already wired (workflow_state,
-/// ticket, project, project_ticket, comment, attachment,
-/// group_membership, plugin); the entries below would need new
-/// `SyncAggregate` variants and registry manifests before they can
-/// move to wired status.
-const PENDING_WIRE: &[&str] = &[
-    "repository/assignment_rules.rs::create_rule",
-    "repository/assignment_rules.rs::delete_rule",
-    "repository/assignment_rules.rs::reorder_rules",
-    "repository/assignment_rules.rs::update_rule",
-    "repository/canned_responses.rs::create",
-    "repository/canned_responses.rs::delete",
-    "repository/canned_responses.rs::update",
-    "repository/categories.rs::create_category",
-    "repository/categories.rs::delete_category",
-    "repository/categories.rs::set_category_visibility",
-    "repository/categories.rs::update_category",
-    "repository/categories.rs::update_category_orders",
-    "repository/channels.rs::create",
-    "repository/channels.rs::delete",
-    "repository/channels.rs::delete_credential",
-    "repository/channels.rs::put_credential",
-    "repository/channels.rs::record_message",
-    "repository/channels.rs::update",
-    "repository/channels.rs::update_runtime_state",
-    "repository/devices.rs::create_device",
-    "repository/devices.rs::delete_device",
-    "repository/devices.rs::update_device",
-    "repository/documentation_collections.rs::add_page_to_collection",
-    "repository/documentation_collections.rs::add_page_to_collection_at_root",
-    "repository/documentation_collections.rs::cascade_collection_membership",
-    "repository/documentation_collections.rs::create_collection",
-    "repository/documentation_collections.rs::delete_collection",
-    "repository/documentation_collections.rs::remove_page_from_collection",
-    "repository/documentation_collections.rs::reorder_collections",
-    "repository/documentation_collections.rs::set_collection_visibility",
-    "repository/documentation_collections.rs::soft_delete_pages_in_collection",
-    "repository/documentation_collections.rs::update_collection",
-    "repository/documentation_collections.rs::update_collection_description_yjs",
-    "repository/documentation_page_tickets.rs::delete_link",
-    "repository/documentation_page_tickets.rs::upsert_link",
-    "repository/documentation_starred_pages.rs::star_page",
-    "repository/documentation_starred_pages.rs::unstar_page",
-    "repository/documentation_subscriptions.rs::subscribe_user",
-    "repository/documentation_subscriptions.rs::unsubscribe_user",
-    "repository/documentation.rs::create_documentation_page",
-    "repository/documentation.rs::create_documentation_revision",
-    "repository/documentation.rs::delete_documentation_page",
-    "repository/documentation.rs::move_page_to_parent",
-    "repository/documentation.rs::permanently_delete_page",
-    "repository/documentation.rs::reorder_pages",
-    "repository/documentation.rs::set_page_visibility",
-    "repository/documentation.rs::sync_page_embeddings",
-    "repository/documentation.rs::update_documentation_page",
-    "repository/documentation.rs::update_documentation_yjs_state",
-    "repository/knowledge_gaps.rs::attach_signal",
-    "repository/knowledge_gaps.rs::create_gap",
-    "repository/knowledge_gaps.rs::dismiss_signal",
-    "repository/knowledge_gaps.rs::update_gap",
-    "repository/linked_tickets.rs::link_tickets",
-    "repository/linked_tickets.rs::unlink_tickets",
-    "repository/tickets.rs::add_device_to_ticket",
-    "repository/tickets.rs::remove_device_from_ticket",
-    "repository/tickets.rs::verify_pending_tickets_for_user",
-    "repository/user_auth_identities.rs::create_identity",
-    "repository/user_auth_identities.rs::delete_identity",
-    "repository/user_auth_identities.rs::update_local_password_hash",
-    "repository/user_emails.rs::add_multiple_emails",
-    "repository/user_emails.rs::cleanup_obsolete_emails",
-    // MFA-only writes don't touch the user projection (uuid / name /
-    // email / role / avatar / pronouns), so the sync stream stays
-    // quiet. Recorded under audit_log instead. See AUDIT_ONLY.
-    // The bare `users::create_user` helper is unused — handlers all
-    // use `user_helpers::create_user_with_email` (sync-wired).
-    // Listed here so the lint test stays green if a future caller
-    // appears, but the answer is "use the wired helper".
-    "repository/webhooks.rs::create_delivery",
-    "repository/webhooks.rs::create_webhook",
-    "repository/webhooks.rs::delete_webhook_by_uuid",
-    "repository/webhooks.rs::update_delivery",
-    "repository/webhooks.rs::update_webhook",
-    "repository/webhooks.rs::update_webhook_by_uuid",
-];
 
 #[derive(Debug)]
 struct ReportEntry {
@@ -214,7 +39,7 @@ struct ReportEntry {
 }
 
 #[test]
-fn every_repository_write_calls_sync_emit_or_is_allowlisted() {
+fn every_repository_write_calls_sync_emit_or_carries_marker() {
     let repo_root: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/repository");
     assert!(
         repo_root.exists(),
@@ -222,14 +47,9 @@ fn every_repository_write_calls_sync_emit_or_is_allowlisted() {
         repo_root.display()
     );
 
-    let allowlist: HashSet<String> = AUDIT_ONLY
-        .iter()
-        .chain(PENDING_WIRE.iter())
-        .map(|s| s.to_string())
-        .collect();
     let mut violations: Vec<ReportEntry> = Vec::new();
 
-    let fn_re = Regex::new(r"(?m)^\s*pub(?:\s*\([^)]*\))?\s+fn\s+(\w+)\s*[<(]").unwrap();
+    let fn_re = Regex::new(r"(?m)^(?P<indent>[ \t]*)pub(?:\s*\([^)]*\))?\s+fn\s+(?P<name>\w+)\s*[<(]").unwrap();
     let write_re = Regex::new(
         r"diesel::insert_into\s*\(|diesel::update\s*\(|diesel::delete\s*\(|diesel::sql_query\s*\(",
     )
@@ -248,9 +68,7 @@ fn every_repository_write_calls_sync_emit_or_is_allowlisted() {
                 .to_string_lossy()
                 .replace('\\', "/")
         );
-        // Skip the module root and the workflow_states module — workflow_states
-        // is fully wired and the test should fail loudly if it ever regresses.
-        // The mod.rs has no `pub fn` of its own.
+        // The mod root has no `pub fn` of its own.
         if relpath == "repository/mod.rs" {
             continue;
         }
@@ -273,8 +91,7 @@ fn every_repository_write_calls_sync_emit_or_is_allowlisted() {
             if wired {
                 continue;
             }
-            let key = format!("{}::{}", relpath, func.name);
-            if allowlist.contains(&key) {
+            if func.has_marker {
                 continue;
             }
             violations.push(ReportEntry {
@@ -287,8 +104,11 @@ fn every_repository_write_calls_sync_emit_or_is_allowlisted() {
     if !violations.is_empty() {
         let mut msg = String::from(
             "\nUnwired repository writes found. Either call sync::emit::record\n\
-             in the same transaction, or add the function to the audit-only\n\
-             allowlist in tests/sync_emit_lint.rs:\n\n",
+             in the same transaction, or declare why the write is audit-only\n\
+             by adding an inline marker directly above the pub fn:\n\n  \
+             // sync-audit-only: <reason>\n  \
+             // sync-pending-wire: <todo>\n\n\
+             Functions missing both an emit call and a marker:\n\n",
         );
         for v in &violations {
             msg.push_str(&format!("  {}::{}\n", v.relpath, v.fn_name));
@@ -300,17 +120,31 @@ fn every_repository_write_calls_sync_emit_or_is_allowlisted() {
 struct PubFn {
     name: String,
     body: String,
+    has_marker: bool,
 }
 
-/// Find every `pub fn` in the source and capture its body between
-/// the matching `{` and `}`. Brace counting is a string scan; good
-/// enough because Rust's grammar bans unbalanced braces inside
-/// strings/chars after the syntax parser approves the file.
+/// Find every `pub fn` in the source, capture its body, and note
+/// whether the line above (skipping doc comments and attributes)
+/// carries a `// sync-audit-only:` or `// sync-pending-wire:` marker.
 fn iter_pub_fns(src: &str, fn_re: &Regex) -> Vec<PubFn> {
     let mut out = Vec::new();
+    let lines: Vec<&str> = src.lines().collect();
+    // Pre-compute byte offset of each line start so we can map a
+    // regex match position back to a 0-indexed line number.
+    let mut line_starts = Vec::with_capacity(lines.len() + 1);
+    let mut off = 0usize;
+    for line in &lines {
+        line_starts.push(off);
+        off += line.len() + 1; // +1 for the '\n'
+    }
+    line_starts.push(off);
+
     for caps in fn_re.captures_iter(src) {
-        let name = caps.get(1).unwrap().as_str().to_string();
+        let name = caps.name("name").unwrap().as_str().to_string();
+        let match_start = caps.get(0).unwrap().start();
         let header_end = caps.get(0).unwrap().end();
+
+        // Body extraction (matching the original brace counter).
         let Some(open_brace) = src[header_end..].find('{') else {
             continue;
         };
@@ -327,7 +161,34 @@ fn iter_pub_fns(src: &str, fn_re: &Regex) -> Vec<PubFn> {
             i += 1;
         }
         let body = src[body_start..i.saturating_sub(1)].to_string();
-        out.push(PubFn { name, body });
+
+        // Find the line number where the `pub fn` lives, then walk
+        // backwards skipping doc comments / attribute lines / blank
+        // lines, and check whether the resulting line is a marker.
+        let pub_line = line_starts.partition_point(|&start| start <= match_start) - 1;
+        let mut cursor = pub_line;
+        while cursor > 0 {
+            let prev = lines[cursor - 1].trim_start();
+            if prev.starts_with("///")
+                || prev.starts_with("//!")
+                || prev.starts_with("#[")
+                || prev.is_empty()
+            {
+                cursor -= 1;
+                continue;
+            }
+            break;
+        }
+        let has_marker = cursor > 0 && {
+            let prev = lines[cursor - 1].trim_start();
+            prev.starts_with("// sync-audit-only:") || prev.starts_with("// sync-pending-wire:")
+        };
+
+        out.push(PubFn {
+            name,
+            body,
+            has_marker,
+        });
     }
     out
 }
@@ -350,17 +211,12 @@ fn strip_test_modules(src: &str) -> String {
     while i < lines.len() {
         let trimmed = lines[i].trim_start();
         if trimmed.starts_with("#[cfg(test)]") {
-            // Peek the next non-blank line: only strip if it's a
-            // mod declaration. Anything else (a fn, a struct, etc.)
-            // is left alone.
             let mut j = i + 1;
             while j < lines.len() && lines[j].trim().is_empty() {
                 j += 1;
             }
             let next = lines.get(j).map(|l| l.trim_start()).unwrap_or("");
             if next.starts_with("mod ") || next.starts_with("pub mod ") {
-                // Skip the attribute, the mod declaration, and every
-                // line up to and including the matching close brace.
                 let mut depth = 0i32;
                 let mut started = false;
                 let mut k = j;
@@ -392,20 +248,27 @@ fn strip_test_modules(src: &str) -> String {
 }
 
 /// Strip /* ... */ block comments so a sample `diesel::update(` in a
-/// docstring example doesn't trip the write detector. Doc comments
-/// are line-style (`///`) so leaving those alone is safe.
+/// docstring example doesn't trip the write detector. Line-style doc
+/// comments (`///`) are left alone — they're needed for marker lookup
+/// when walking backwards from a `pub fn`.
 fn strip_block_comments(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut i = 0usize;
     let bytes = src.as_bytes();
     while i < bytes.len() {
         if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-            // Find matching */, skip past it.
             if let Some(end) = src[i + 2..].find("*/") {
+                // Replace with same number of newlines so line numbers
+                // outside the comment stay stable for marker lookup.
+                let span = &src[i..i + 2 + end + 2];
+                for c in span.chars() {
+                    if c == '\n' {
+                        out.push('\n');
+                    }
+                }
                 i = i + 2 + end + 2;
                 continue;
             }
-            // Unterminated; bail and copy the rest verbatim.
             out.push_str(&src[i..]);
             break;
         }

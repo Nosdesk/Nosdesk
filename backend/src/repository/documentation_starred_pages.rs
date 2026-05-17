@@ -52,6 +52,7 @@ pub fn is_page_starred(conn: &mut DbConnection, user_uuid: Uuid, page_id: i32) -
         > 0
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Star a page for a user
 pub fn star_page(
     conn: &mut DbConnection,
@@ -75,6 +76,7 @@ pub fn star_page(
         .first(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Unstar a page for a user
 pub fn unstar_page(
     conn: &mut DbConnection,

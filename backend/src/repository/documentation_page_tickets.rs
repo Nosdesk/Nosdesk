@@ -25,6 +25,7 @@ pub fn validate_link_type(value: &str) -> Result<(), &'static str> {
     }
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Insert (or upsert) a doc<->ticket link. If the pair already
 /// exists we update the link_type to whatever was just supplied,
 /// since the latest action expresses the latest intent.
@@ -52,6 +53,7 @@ pub fn upsert_link(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn delete_link(
     conn: &mut DbConnection,
     page_id_arg: i32,

@@ -178,6 +178,7 @@ pub fn list_gaps(
 // Mutations
 // -----------------------------------------------------------------
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Insert a new gap. Caller is responsible for attaching at least
 /// one signal afterwards via `attach_signal_to_gap`.
 pub fn create_gap(
@@ -189,6 +190,7 @@ pub fn create_gap(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn update_gap(
     conn: &mut DbConnection,
     gap_id: i64,
@@ -199,6 +201,7 @@ pub fn update_gap(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn attach_signal(
     conn: &mut DbConnection,
     new_signal: NewKnowledgeGapSignal,
@@ -220,6 +223,7 @@ pub fn attach_signal(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Dismiss a single signal (e.g. user unflags one ticket). Returns
 /// the count of *live* signals remaining on the gap so callers can
 /// decide whether to dismiss the whole gap.

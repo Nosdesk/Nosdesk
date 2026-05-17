@@ -18,6 +18,7 @@ pub fn find(conn: &mut DbConnection, row_id: i32) -> QueryResult<CannedResponse>
     canned_responses.find(row_id).first(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn create(conn: &mut DbConnection, new: NewCannedResponse) -> QueryResult<CannedResponse> {
     use crate::schema::canned_responses::dsl::*;
     diesel::insert_into(canned_responses)
@@ -25,6 +26,7 @@ pub fn create(conn: &mut DbConnection, new: NewCannedResponse) -> QueryResult<Ca
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn update(
     conn: &mut DbConnection,
     row_id: i32,
@@ -37,6 +39,7 @@ pub fn update(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn delete(conn: &mut DbConnection, row_id: i32) -> QueryResult<usize> {
     use crate::schema::canned_responses::dsl::*;
     diesel::delete(canned_responses.find(row_id)).execute(conn)

@@ -7,6 +7,7 @@ use crate::models::{NewUserAuthIdentity, UserAuthIdentity, UserAuthIdentityDispl
 use crate::schema::user_auth_identities;
 
 // Create a new user auth identity
+// sync-pending-wire: needs sync aggregate wiring
 pub fn create_identity(
     new_identity: NewUserAuthIdentity,
     conn: &mut DbConnection,
@@ -75,6 +76,7 @@ pub fn find_user_by_identity(
 }
 
 // Delete an auth identity by user UUID
+// sync-pending-wire: needs sync aggregate wiring
 pub fn delete_identity(
     identity_id: i32,
     user_uuid: &Uuid, // For security, ensure the identity belongs to this user
@@ -88,6 +90,7 @@ pub fn delete_identity(
     .execute(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Replace the password hash on a user's `local` auth identity.
 /// Used by the CLI admin password-reset path. Returns the number of
 /// rows updated, which the caller can use to confirm the user

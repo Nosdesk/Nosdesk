@@ -37,6 +37,7 @@ pub fn get_token_prefix(token: &str) -> String {
     token.chars().take(8).collect()
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Create a new API token
 /// Returns the created token with the raw token value (only returned once!)
 pub fn create_api_token(
@@ -107,6 +108,7 @@ pub fn get_valid_api_token(
         .first::<ApiToken>(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Update last_used_at and last_used_ip for a token
 pub fn update_token_last_used(
     conn: &mut DbConnection,
@@ -140,6 +142,7 @@ pub fn get_api_token_by_uuid(
         .first::<ApiToken>(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Revoke an API token by UUID (soft delete)
 pub fn revoke_api_token(
     conn: &mut DbConnection,

@@ -31,6 +31,7 @@ pub fn get_webhooks_for_event(
         .map_err(|e| format!("Database error: {e}"))
 }
 
+// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Create a new webhook
 pub fn create_webhook(
     conn: &mut DbConnection,
@@ -74,6 +75,7 @@ pub fn get_webhook_by_uuid(
         .first::<Webhook>(conn)
 }
 
+// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Update a webhook by ID
 pub fn update_webhook(
     conn: &mut DbConnection,
@@ -86,6 +88,7 @@ pub fn update_webhook(
         .map_err(|e| format!("Database error: {e}"))
 }
 
+// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Update a webhook by UUID
 pub fn update_webhook_by_uuid(
     conn: &mut DbConnection,
@@ -97,6 +100,7 @@ pub fn update_webhook_by_uuid(
         .get_result(conn)
 }
 
+// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Delete a webhook by UUID
 pub fn delete_webhook_by_uuid(
     conn: &mut DbConnection,
@@ -107,6 +111,7 @@ pub fn delete_webhook_by_uuid(
 
 // ===== WEBHOOK DELIVERIES =====
 
+// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Create a new webhook delivery record
 pub fn create_delivery(
     conn: &mut DbConnection,
@@ -118,6 +123,7 @@ pub fn create_delivery(
         .map_err(|e| format!("Database error: {e}"))
 }
 
+// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Update a webhook delivery
 pub fn update_delivery(
     conn: &mut DbConnection,
@@ -159,6 +165,7 @@ pub fn get_pending_retries(conn: &mut DbConnection) -> Result<Vec<WebhookDeliver
         .map_err(|e| format!("Database error: {e}"))
 }
 
+// sync-audit-only: delivery log retention sweep
 /// Delete webhook_deliveries rows older than `older_than_days`. Operators
 /// only ever look at recent deliveries when debugging "why didn't my webhook
 /// fire?" — month-old delivery rows have no diagnostic value, and the table

@@ -35,6 +35,7 @@ pub fn find_by_credential_id(
         .optional()
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 pub fn create(
     conn: &mut DbConnection,
     new: NewPasskeyCredential,
@@ -44,6 +45,7 @@ pub fn create(
         .get_result(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Update mutable fields (rename, last_used_at touch). Returns the
 /// updated row, or `Error::NotFound` if no such credential exists
 /// for that user.
@@ -62,6 +64,7 @@ pub fn update_for_user(
     .get_result(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Delete a single credential owned by a user. Scoped to user_uuid
 /// so an admin can't accidentally delete another user's credential
 /// by ID alone. Returns the number of rows deleted (0 or 1).

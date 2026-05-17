@@ -237,6 +237,7 @@ pub fn get_plugin_data_entry(
         .first::<PluginData>(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Set a plugin data entry (upsert).
 ///
 /// Uses Postgres `ON CONFLICT (plugin_id, data_type, key) DO UPDATE`
@@ -277,6 +278,7 @@ pub fn set_plugin_data(
         .get_result(conn)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Delete a plugin data entry
 pub fn delete_plugin_data_entry(
     conn: &mut DbConnection,
@@ -305,6 +307,7 @@ pub fn get_plugin_settings(
     get_plugin_data(conn, plugin_id, "setting")
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Set a plugin setting (upsert)
 pub fn set_plugin_setting(
     conn: &mut DbConnection,
@@ -316,6 +319,7 @@ pub fn set_plugin_setting(
     set_plugin_data(conn, plugin_id, "setting", key, value, is_secret)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Delete a plugin setting
 pub fn delete_plugin_setting(
     conn: &mut DbConnection,
@@ -338,6 +342,7 @@ pub fn get_plugin_storage_entry(
     get_plugin_data_entry(conn, plugin_id, "storage", key)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Set a plugin storage entry (upsert)
 pub fn set_plugin_storage(
     conn: &mut DbConnection,
@@ -348,6 +353,7 @@ pub fn set_plugin_storage(
     set_plugin_data(conn, plugin_id, "storage", key, value, false)
 }
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Delete a plugin storage entry
 pub fn delete_plugin_storage_entry(
     conn: &mut DbConnection,
@@ -361,6 +367,7 @@ pub fn delete_plugin_storage_entry(
 // Plugin Activity
 // =============================================================================
 
+// sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Log a plugin activity
 pub fn log_plugin_activity(
     conn: &mut DbConnection,

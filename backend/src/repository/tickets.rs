@@ -148,6 +148,7 @@ pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult
         .first(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Flip every `verification_state = 'pending'` ticket requested by the given
 /// user over to `'verified'` and return the newly-released tickets.
 ///
@@ -671,6 +672,7 @@ pub fn import_ticket_from_json(
 }
 
 // Ticket-Device relationship functions
+// sync-pending-wire: needs sync aggregate wiring
 pub fn add_device_to_ticket(
     conn: &mut DbConnection,
     ticket_id: i32,
@@ -686,6 +688,7 @@ pub fn add_device_to_ticket(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn remove_device_from_ticket(
     conn: &mut DbConnection,
     ticket_id: i32,

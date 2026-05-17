@@ -46,6 +46,7 @@ pub fn get_many(
         .load(conn)
 }
 
+// sync-audit-only: per-user UI preferences; not observed by other clients
 /// Patch one user's preferences. The `Option<Option<T>>` shape
 /// of `UpdateUserPreferences` means:
 ///   - outer `None`        → leave the column alone

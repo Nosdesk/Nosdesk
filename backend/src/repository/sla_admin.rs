@@ -51,6 +51,7 @@ pub fn list_calendars(conn: &mut DbConnection) -> QueryResult<Vec<WorkingCalenda
         .load(conn)
 }
 
+// sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn create_calendar(
     conn: &mut DbConnection,
     body: WorkingCalendarBody,
@@ -67,6 +68,7 @@ pub fn create_calendar(
         .get_result(conn)
 }
 
+// sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn update_calendar(
     conn: &mut DbConnection,
     id: i32,
@@ -84,6 +86,7 @@ pub fn update_calendar(
         .get_result(conn)
 }
 
+// sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn delete_calendar(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
     diesel::delete(working_calendars::table.find(id)).execute(conn)
 }
@@ -133,6 +136,7 @@ pub fn list_policies(conn: &mut DbConnection) -> QueryResult<Vec<SlaPolicy>> {
         .load(conn)
 }
 
+// sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn create_policy(
     conn: &mut DbConnection,
     body: SlaPolicyBody,
@@ -152,6 +156,7 @@ pub fn create_policy(
         .get_result(conn)
 }
 
+// sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn update_policy(
     conn: &mut DbConnection,
     id: i32,
@@ -172,6 +177,7 @@ pub fn update_policy(
         .get_result(conn)
 }
 
+// sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn delete_policy(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
     diesel::delete(sla_policies::table.find(id)).execute(conn)
 }

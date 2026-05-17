@@ -51,11 +51,13 @@ pub fn find_by_provider(
         .optional()
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn create(conn: &mut DbConnection, new: NewChannel) -> QueryResult<Channel> {
     use crate::schema::channels::dsl::*;
     diesel::insert_into(channels).values(&new).get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn update(
     conn: &mut DbConnection,
     channel_id: i32,
@@ -67,11 +69,13 @@ pub fn update(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn delete(conn: &mut DbConnection, channel_id: i32) -> QueryResult<usize> {
     use crate::schema::channels::dsl::*;
     diesel::delete(channels.find(channel_id)).execute(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Persist the adapter's runtime state (e.g. last IMAP UID). Narrower than
 /// `update()` so adapters don't accidentally touch the user-editable
 /// config on every poll tick.
@@ -116,6 +120,7 @@ impl From<diesel::result::Error> for CredentialError {
     }
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Store (or replace) an encrypted credential for a channel. Upserts on
 /// the `(channel_id, credential_type)` unique index so rotating a password
 /// is a single call.
@@ -178,6 +183,7 @@ pub fn get_credential(
     }
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn delete_credential(
     conn: &mut DbConnection,
     channel_id: i32,
@@ -194,6 +200,7 @@ pub fn delete_credential(
 
 // ---------- channel_messages table ----------
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Record a message we processed (inbound or outbound). Idempotent on the
 /// `(channel_id, external_id, direction)` unique index — if we somehow
 /// process the same message twice we get the existing row back.

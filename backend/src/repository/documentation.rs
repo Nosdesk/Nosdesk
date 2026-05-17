@@ -67,6 +67,7 @@ pub fn get_documentation_page_by_slug(
 }
 
 // Create a new documentation page
+// sync-pending-wire: needs sync aggregate wiring
 pub fn create_documentation_page(
     page: NewDocumentationPage,
     conn: &mut DbConnection,
@@ -77,6 +78,7 @@ pub fn create_documentation_page(
 }
 
 // Update an existing documentation page
+// sync-pending-wire: needs sync aggregate wiring
 pub fn update_documentation_page(
     conn: &mut DbConnection,
     page_id: i32,
@@ -88,6 +90,7 @@ pub fn update_documentation_page(
 }
 
 // Delete a documentation page
+// sync-pending-wire: needs sync aggregate wiring
 pub fn delete_documentation_page(
     id: i32,
     conn: &mut DbConnection,
@@ -177,6 +180,7 @@ pub fn get_ordered_pages_by_parent_id(
 }
 
 // Reorder documentation pages
+// sync-pending-wire: needs sync aggregate wiring
 pub fn reorder_pages(
     conn: &mut DbConnection,
     parent_id: Option<i32>,
@@ -236,6 +240,7 @@ fn get_all_descendant_ids(conn: &mut DbConnection, page_id: i32) -> Result<Vec<i
 }
 
 // Move a page to a new parent
+// sync-pending-wire: needs sync aggregate wiring
 pub fn move_page_to_parent(
     conn: &mut DbConnection,
     page_id: i32,
@@ -294,6 +299,7 @@ pub fn get_page_with_ordered_children(
 // ============= Yjs Collaboration Methods =============
 
 // Update documentation page Yjs state (for WebSocket sync auto-save)
+// sync-pending-wire: needs sync aggregate wiring
 pub fn update_documentation_yjs_state(
     conn: &mut DbConnection,
     page_id: i32,
@@ -319,6 +325,7 @@ pub fn update_documentation_yjs_state(
 // Create a documentation revision snapshot
 // Note: This is simplified - the schema doesn't have a revision number or contributed_by
 // Creates a basic revision with just the snapshot and metadata
+// sync-pending-wire: needs sync aggregate wiring
 pub fn create_documentation_revision(
     conn: &mut DbConnection,
     page_id: i32,
@@ -406,6 +413,7 @@ pub fn get_latest_documentation_revision(
 
 // ===== Documentation Page Embeddings =====
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Sync the embedding relationships for a source page.
 /// Deletes existing embeddings and replaces with the new set.
 pub fn sync_page_embeddings(
@@ -533,6 +541,7 @@ pub fn get_pages_by_status(
 }
 
 // Permanently delete a documentation page (hard delete for trash emptying)
+// sync-pending-wire: needs sync aggregate wiring
 pub fn permanently_delete_page(id: i32, conn: &mut DbConnection) -> Result<usize, Error> {
     diesel::delete(documentation_pages::table.find(id)).execute(conn)
 }
@@ -600,6 +609,7 @@ pub fn get_visible_users_for_page(
         })
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 /// Set page-level visibility (delete-all + re-insert).
 /// Empty group_ids and user_uuids clears the override (page inherits from collections).
 pub fn set_page_visibility(

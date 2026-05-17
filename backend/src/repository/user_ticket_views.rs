@@ -19,6 +19,7 @@ impl UserTicketViewsRepository {
         UserTicketViewsRepository { pool }
     }
 
+    // sync-audit-only: Operational / bespoke tables
     /// Record a ticket view - either insert new or update existing
     pub fn record_view(
         &self,
@@ -58,6 +59,7 @@ impl UserTicketViewsRepository {
         }
     }
 
+    // sync-audit-only: Operational / bespoke tables
     /// Delete a ticket view record for a user
     pub fn delete_view(
         &self,

@@ -145,12 +145,14 @@ pub fn get_device_by_microsoft_id(
         .first(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn create_device(conn: &mut DbConnection, new_device: NewDevice) -> QueryResult<Device> {
     diesel::insert_into(devices::table)
         .values(&new_device)
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn update_device(
     conn: &mut DbConnection,
     device_id: i32,
@@ -164,6 +166,7 @@ pub fn update_device(
         .get_result(conn)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn delete_device(
     conn: &mut DbConnection,
     device_id: i32,

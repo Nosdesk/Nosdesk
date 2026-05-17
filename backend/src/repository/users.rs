@@ -161,12 +161,14 @@ pub fn get_user_by_name(name: &str, conn: &mut DbConnection) -> Result<User, Err
         .first::<User>(conn)
 }
 
+// sync-audit-only: Vestigial low-level helper: handlers all use `user_helpers::create_user_with_email` (which IS sync-wired). Kept here so a future stray caller still passes the lint, but new code should reach for the wired helper
 pub fn create_user(user: NewUser, conn: &mut DbConnection) -> Result<User, Error> {
     diesel::insert_into(users::table)
         .values(user)
         .get_result(conn)
 }
 
+// sync-audit-only: vestigial low-level helper; handlers use sync-wired user_helpers
 pub fn update_user(
     user_uuid: &Uuid,
     user: UserUpdate,
@@ -194,6 +196,7 @@ pub fn update_user(
     Ok(result)
 }
 
+// sync-audit-only: vestigial low-level helper; handlers use sync-wired user_helpers
 pub fn delete_user(
     user_uuid: &Uuid,
     conn: &mut DbConnection,
@@ -376,6 +379,7 @@ pub fn count_users(conn: &mut DbConnection) -> Result<i64, Error> {
     users::table.count().get_result(conn)
 }
 
+// sync-audit-only: User MFA mutations — sensitive fields, not in the sync user projection. Coverage lives in security_events / audit_log
 /// Update user MFA fields by UUID
 pub fn update_user_mfa(
     uuid: &Uuid,
@@ -387,6 +391,7 @@ pub fn update_user_mfa(
         .get_result(conn)
 }
 
+// sync-audit-only: User MFA mutations — sensitive fields, not in the sync user projection. Coverage lives in security_events / audit_log
 /// Wipe MFA enrolment for a user: clear the TOTP secret and backup
 /// codes, flip `mfa_enabled` off, and bump `updated_at`. Used by
 /// the CLI admin lockout-recovery path — the user re-enrols on

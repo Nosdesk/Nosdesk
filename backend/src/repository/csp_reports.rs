@@ -38,6 +38,7 @@ pub fn dedup_hash(
     digest.as_ref().iter().map(|b| format!("{b:02x}")).collect()
 }
 
+// sync-audit-only: CSP violation ingest; operational security log, no sync subscriber
 /// Insert a report, or if its dedup hash collides with an existing
 /// row, increment occurrence_count and bump last_seen_at on the
 /// existing row. ON CONFLICT keeps this single-roundtrip; a
@@ -79,6 +80,7 @@ pub fn list_recent(conn: &mut DbConnection, limit: i64) -> Result<Vec<CspReport>
         .load::<CspReport>(conn)
 }
 
+// sync-audit-only: retention sweep on the CSP report table
 /// Drop reports whose last_seen_at is older than `older_than_days`.
 /// Called from the scheduler. Returns the row count deleted so the
 /// caller can log meaningful "pruned 312 reports" output instead of

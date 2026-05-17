@@ -55,6 +55,7 @@ pub fn get_linked_tickets(conn: &mut DbConnection, ticket_id: i32) -> QueryResul
     Ok(linked_ids)
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn link_tickets(conn: &mut DbConnection, ticket1_id: i32, ticket2_id: i32) -> QueryResult<()> {
     use crate::schema::linked_tickets;
 
@@ -133,6 +134,7 @@ pub fn link_tickets(conn: &mut DbConnection, ticket1_id: i32, ticket2_id: i32) -
     })
 }
 
+// sync-pending-wire: needs sync aggregate wiring
 pub fn unlink_tickets(
     conn: &mut DbConnection,
     ticket1_id: i32,

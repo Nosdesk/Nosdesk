@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use uuid::Uuid;
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Create a new reset token in the database
 pub fn create_reset_token(
     conn: &mut DbConnection,
@@ -45,6 +46,7 @@ pub fn find_token_by_hash(
         .first(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Mark a token as used
 pub fn mark_token_as_used(
     conn: &mut DbConnection,
@@ -73,6 +75,7 @@ pub fn count_recent_tokens(
         .get_result(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Invalidate all tokens of a specific type for a user
 /// Used when resending invitations to invalidate old tokens
 pub fn invalidate_tokens_by_type(
@@ -93,6 +96,7 @@ pub fn invalidate_tokens_by_type(
     .execute(conn)
 }
 
+// sync-audit-only: auth flow mirror of mark_token_as_used; covered by security_events
 /// Validate and consume a reset token atomically.
 ///
 /// AUD-012: replaces a non-atomic check-then-update with one
