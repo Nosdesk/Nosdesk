@@ -47,8 +47,10 @@ export default defineConfig({
     // Ensure assets are referenced correctly when served by backend
     assetsDir: "assets",
     sourcemap: false,
-    // Skip minification in watch mode for faster rebuilds
-    minify: process.env.NODE_ENV === 'production' ? 'esbuild' : false,
+    // Skip minification in watch mode for faster rebuilds. `true`
+    // lets Vite pick its current default minifier (esbuild on v7,
+    // oxc on v8) so we don't have to track which one is the default.
+    minify: process.env.NODE_ENV === 'production' ? true : false,
     // Rollup `watch.include` extends what the watcher tracks
     // when `vite build --watch` is running (our `dev:unified`
     // script + the frontend-watch container). Without listing
@@ -64,7 +66,7 @@ export default defineConfig({
     watch: isWatchBuild
       ? { include: ['src/**', '../i18n/locales/**'] }
       : null,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return;

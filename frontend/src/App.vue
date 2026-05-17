@@ -334,8 +334,13 @@ onMounted(async () => {
   transition: background-color 120ms ease;
 }
 
-:hover > ::-webkit-scrollbar-thumb,
-::-webkit-scrollbar:hover > ::-webkit-scrollbar-thumb {
+/* Highlight the thumb when the scrollable host is hovered.
+ * Pseudo-elements are terminal in the CSS spec, so the original
+ * `:hover > ::-webkit-scrollbar-thumb` form was invalid (Lightning
+ * CSS rejects it; esbuild + browsers used to silently no-op it).
+ * The :hover::-webkit-scrollbar-thumb form expresses the same intent
+ * correctly. Direct thumb hover is handled by the rule just below. */
+:hover::-webkit-scrollbar-thumb {
   background-color: var(--color-text-tertiary);
 }
 
