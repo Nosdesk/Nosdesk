@@ -68,16 +68,37 @@ export default defineConfig({
       : null,
     rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return;
-          // Vue core framework
-          if (/[\\/](vue|vue-router|pinia)[\\/]/.test(id)) return 'vendor-vue';
-          // ProseMirror + Yjs editor stack
-          if (/[\\/](prosemirror-|y-prosemirror|yjs|y-protocols|y-websocket|y-indexeddb|lib0)[\\/]/.test(id)) return 'vendor-editor';
-          // Utility libraries
-          if (/[\\/](axios|date-fns|@date-fns|dompurify|marked)[\\/]/.test(id)) return 'vendor-utils';
-          // Heavy optional/media libraries
-          if (/[\\/](heic2any|jszip|qrcode|highlight\.js|lowlight)[\\/]/.test(id)) return 'vendor-media';
+        // Rolldown's group-based vendor splitting. Replaces the
+        // deprecated `output.manualChunks` function form. Each
+        // group's `test` regex must match a node_modules path;
+        // higher `priority` wins when a module could match
+        // multiple groups. Without these groups, Rolldown's
+        // default code-splitting bundles everything into one
+        // ~5MB eager entry chunk; explicit vendor groups bring
+        // the eager bootstrap back down to ~120KB.
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor-vue',
+              test: /node_modules[\\/](vue|vue-router|pinia)[\\/]/,
+              priority: 40,
+            },
+            {
+              name: 'vendor-editor',
+              test: /node_modules[\\/](prosemirror-|y-prosemirror|yjs|y-protocols|y-websocket|y-indexeddb|lib0)[\\/]/,
+              priority: 30,
+            },
+            {
+              name: 'vendor-utils',
+              test: /node_modules[\\/](axios|date-fns|@date-fns|dompurify|marked)[\\/]/,
+              priority: 20,
+            },
+            {
+              name: 'vendor-media',
+              test: /node_modules[\\/](heic2any|jszip|qrcode|highlight\.js|lowlight)[\\/]/,
+              priority: 10,
+            },
+          ],
         },
       },
     },
