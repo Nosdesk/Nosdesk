@@ -3,8 +3,10 @@
 //! When a new ticket opens via an inbound channel message, send a
 //! single system-authored reply back to the customer:
 //!
-//!     Thanks — we got your message. Reference: #123. Reply to this
-//!     email if you have more to add; we'll get back to you soon.
+//! ```text
+//! Thanks, we got your message. Reference: #123. Reply to this
+//! email if you have more to add; we'll get back to you soon.
+//! ```
 //!
 //! Standard helpdesk behaviour (Zendesk, Freshdesk, Help Scout all
 //! ship it on by default). It sets the customer's expectation that
