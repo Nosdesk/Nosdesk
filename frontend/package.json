@@ -67,7 +67,7 @@
     "eslint": "^10.2.1",
     "eslint-plugin-unused-imports": "^4.4.1",
     "eslint-plugin-vue": "^10.9.0",
-    "npm-run-all2": "^7.0.2",
+    "npm-run-all2": "^8.0.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.0.15",
     "ts-node": "^10.9.2",
