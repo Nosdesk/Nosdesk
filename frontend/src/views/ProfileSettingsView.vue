@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import { useBrandingStore } from '@/stores/branding';
+import { useToastStore } from '@/stores/toast';
 import BackButton from '@/components/common/BackButton.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
@@ -35,6 +36,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
+const toast = useToastStore();
 const brandingStore = useBrandingStore();
 const { colorFilterStyle } = useColorFilter();
 
@@ -42,8 +44,9 @@ const { colorFilterStyle } = useColorFilter();
 const userGroups = ref<Group[]>([]);
 const loadingGroups = ref(false);
 
-// Global state for notifications
-const successMessage = ref<string | null>(null);
+// Global state for notifications. Success messages route through
+// the toast store now (see `handleSuccess`); only errors still
+// surface inline at the page level.
 const error = ref<string | null>(null);
 
 // Check if in admin user management mode (derived synchronously from route)
@@ -175,25 +178,26 @@ const loadTargetUser = async () => {
   }
 };
 
-// Clear messages after a delay
+// Clear the inline error banner after a delay (success messages
+// auto-dismiss via the toast store's own timer).
 const clearMessages = () => {
   setTimeout(() => {
-  successMessage.value = null;
-  error.value = null;
+    error.value = null;
   }, 5000);
 };
 
-// Handle success messages (silently - no banner)
-const handleSuccess = (_message: string) => {
-  // Clear any existing errors
+// Surface child-card success messages as toasts. The earlier silent
+// behaviour ("communicated through UI state changes") was the
+// "save button appears to do nothing" V1-polish complaint; toasts
+// give a brief, brand-correct confirmation without blocking flow.
+const handleSuccess = (message: string) => {
   error.value = null;
-  // Success is communicated through UI state changes, not banners
+  if (message) toast.success(message);
 };
 
-// Handle error messages  
+// Handle error messages (inline banner; see G's error UX rule).
 const handleError = (message: string) => {
   error.value = message;
-  successMessage.value = null;
   clearMessages();
 };
 
