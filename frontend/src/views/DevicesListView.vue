@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useMutation, useQueryCache } from '@pinia/colada'
 import { extractErrorMessage } from '@/utils/errors'
+import { useToastStore } from '@/stores/toast'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -30,6 +31,7 @@ const queryCache = useQueryCache()
 const { isMobile } = useMobileDetection()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+const toast = useToastStore()
 
 // `useTemplateRef` (Vue 3.5+) typed against the layout's exported
 // expose interface. TypeScript can't `InstanceType<>` a generic
@@ -118,7 +120,7 @@ const bulkDelete = useMutation({
   onSettled: () => queryCache.invalidateQueries({ key: devicesKeys.root }),
   onError: (err) => {
     console.error('Bulk delete failed:', err)
-    alert(extractErrorMessage(err, t('devices-list-bulk-action-error')))
+    toast.error(extractErrorMessage(err, t('devices-list-bulk-action-error')))
   },
 })
 

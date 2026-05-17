@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useMutation, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
+import { useToastStore } from '@/stores/toast'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -32,6 +33,7 @@ const queryCache = useQueryCache()
 const { isMobile } = useMobileDetection()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+const toast = useToastStore()
 
 const layoutRef = useTemplateRef<ListPageLayoutExpose>('layout')
 const scrollContainerRef = computed<HTMLElement | null>(
@@ -124,7 +126,7 @@ const bulkActionMutation = useMutation({
   onSettled: () => queryCache.invalidateQueries({ key: usersKeys.root }),
   onError: (err) => {
     console.error('Bulk action failed:', err)
-    alert(extractErrorMessage(err, t('user-mgmt-bulk-action-error')))
+    toast.error(extractErrorMessage(err, t('user-mgmt-bulk-action-error')))
   },
 })
 

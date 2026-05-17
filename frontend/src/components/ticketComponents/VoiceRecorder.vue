@@ -2,7 +2,10 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useSpeechRecognition } from '@/composables/useSpeechRecognition';
+import { useToastStore } from '@/stores/toast';
 import Icon from '@/components/common/Icon.vue';
+
+const toast = useToastStore();
 
 const { $t } = useFluent();
 
@@ -379,7 +382,7 @@ const startRecording = async () => {
     }
   } catch (error) {
     console.error("Error accessing microphone:", error);
-    alert($t('ticket-media-voice-mic-error'));
+    toast.error($t('ticket-media-voice-mic-error'));
     emit('cancel');
   }
 };

@@ -336,6 +336,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import backupService from '@/services/backupService';
+import { useToastStore } from '@/stores/toast';
 import { formatDateTime } from '@/utils/dateUtils';
 import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
 import type { BackupJob, RestorePreview } from '@/types/backup';
@@ -343,6 +344,7 @@ import { formatFileSize } from '@/utils/formatFileSize';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+const toast = useToastStore();
 
 // Export state
 const includeSensitive = ref(false);
@@ -444,7 +446,7 @@ const exportDocumentation = async () => {
     });
   } catch (error) {
     console.error('Failed to export documentation:', error);
-    alert(t('admin-backup-docs-error'));
+    toast.error(t('admin-backup-docs-error'));
   } finally {
     isExportingDocs.value = false;
     docsExportProgress.value = null;
@@ -467,7 +469,7 @@ const handleDrop = async (event: DragEvent) => {
 
 const uploadFile = async (file: File) => {
   if (!file.name.endsWith('.zip')) {
-    alert(t('admin-backup-restore-not-zip'));
+    toast.warning(t('admin-backup-restore-not-zip'));
     return;
   }
 
@@ -477,7 +479,7 @@ const uploadFile = async (file: File) => {
     restorePreview.value = await backupService.getRestorePreview(job.id);
   } catch (error) {
     console.error('Failed to upload backup:', error);
-    alert(t('admin-backup-upload-error'));
+    toast.error(t('admin-backup-upload-error'));
   }
 };
 
@@ -490,12 +492,12 @@ const executeRestore = async () => {
       password: restorePreview.value?.has_encrypted_sensitive ? restorePassword.value : undefined,
     });
 
-    alert(t('admin-backup-restore-success', { files: result.files_restored, message: result.message }));
+    toast.success(t('admin-backup-restore-success', { files: result.files_restored, message: result.message }));
     cancelRestore();
     await loadJobs();
   } catch (error) {
     console.error('Failed to restore backup:', error);
-    alert(t('admin-backup-restore-error'));
+    toast.error(t('admin-backup-restore-error'));
   } finally {
     isRestoring.value = false;
   }
