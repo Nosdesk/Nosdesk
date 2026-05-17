@@ -1,6 +1,6 @@
 <!-- Modal.vue -->
 <script setup lang="ts">
-import { computed, toRef, onMounted, onUnmounted } from 'vue'
+import { computed, toRef, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useScrollLock } from '@/composables/useScrollLock'
 
@@ -39,13 +39,86 @@ const sizeClasses = computed(() => {
 // Lock body scroll when modal is open
 useScrollLock(toRef(props, 'show'))
 
-// Handle escape key globally
+// Handle escape key globally. Lives on document (not on the modal
+// root) so Esc closes the modal no matter which descendant has
+// focus, including inputs that would normally swallow the event.
 const onEscape = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && props.show) emit('close')
 }
 
 onMounted(() => document.addEventListener('keydown', onEscape))
 onUnmounted(() => document.removeEventListener('keydown', onEscape))
+
+// --- Focus trap + restore ---
+//
+// On open: snapshot whatever had focus, then move focus into the
+// modal so screen readers and keyboard users land inside the
+// dialog. On close: restore focus to the snapshot so the user
+// continues from where they left off.
+//
+// Tab/Shift+Tab cycles within the modal's focusable children
+// rather than escaping to the page behind it.
+const dialogRef = ref<HTMLElement | null>(null)
+let previouslyFocused: HTMLElement | null = null
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'textarea:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
+function focusableInDialog(): HTMLElement[] {
+  const root = dialogRef.value
+  if (!root) return []
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) => !el.hasAttribute('disabled') && el.offsetParent !== null,
+  )
+}
+
+function onTrapKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Tab') return
+  const elements = focusableInDialog()
+  if (elements.length === 0) {
+    // No focusable children: keep focus on the dialog container.
+    e.preventDefault()
+    dialogRef.value?.focus()
+    return
+  }
+  const first = elements[0]
+  const last = elements[elements.length - 1]
+  const active = document.activeElement as HTMLElement | null
+  if (e.shiftKey) {
+    if (active === first || !dialogRef.value?.contains(active)) {
+      e.preventDefault()
+      last.focus()
+    }
+  } else {
+    if (active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+}
+
+watch(
+  () => props.show,
+  async (open) => {
+    if (open) {
+      previouslyFocused = (document.activeElement as HTMLElement | null) ?? null
+      await nextTick()
+      const elements = focusableInDialog()
+      ;(elements[0] ?? dialogRef.value)?.focus()
+    } else if (previouslyFocused) {
+      // Defer to let any teleported-element cleanup finish first.
+      const target = previouslyFocused
+      previouslyFocused = null
+      nextTick(() => target.focus())
+    }
+  },
+)
 </script>
 
 <template>
@@ -63,9 +136,11 @@ onUnmounted(() => document.removeEventListener('keydown', onEscape))
 
         <!-- Modal -->
         <div
+          ref="dialogRef"
           role="dialog"
           aria-modal="true"
           :aria-labelledby="titleId"
+          tabindex="-1"
           :class="[
             'modal-content relative w-full bg-surface shadow-xl flex flex-col pointer-events-auto',
             'max-h-[90vh] sm:max-h-[85vh]',
@@ -74,6 +149,7 @@ onUnmounted(() => document.removeEventListener('keydown', onEscape))
             sizeClasses,
             contentClass
           ]"
+          @keydown="onTrapKeydown"
         >
           <!-- Header -->
           <div :class="['flex items-center justify-between p-4 bg-surface-alt border-b border-default flex-shrink-0 rounded-t-2xl sm:rounded-t-xl', headerClass]">
