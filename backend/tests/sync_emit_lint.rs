@@ -49,7 +49,9 @@ fn every_repository_write_calls_sync_emit_or_carries_marker() {
 
     let mut violations: Vec<ReportEntry> = Vec::new();
 
-    let fn_re = Regex::new(r"(?m)^(?P<indent>[ \t]*)pub(?:\s*\([^)]*\))?\s+fn\s+(?P<name>\w+)\s*[<(]").unwrap();
+    let fn_re =
+        Regex::new(r"(?m)^(?P<indent>[ \t]*)pub(?:\s*\([^)]*\))?\s+fn\s+(?P<name>\w+)\s*[<(]")
+            .unwrap();
     let write_re = Regex::new(
         r"diesel::insert_into\s*\(|diesel::update\s*\(|diesel::delete\s*\(|diesel::sql_query\s*\(",
     )
