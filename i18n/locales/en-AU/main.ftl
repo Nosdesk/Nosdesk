@@ -645,6 +645,7 @@ admin-search-mgmt-title = Search Index Management
 admin-search-mgmt-description = Manage the full-text search index for tickets, documentation, devices, and users.
 admin-search-mgmt-stats-title = Index Statistics
 admin-search-mgmt-refresh = Refresh
+admin-search-mgmt-stats-loading = Loading search index stats
 admin-search-mgmt-total-documents = Total Documents
 admin-search-mgmt-index-size = Index Size
 admin-search-mgmt-status = Status

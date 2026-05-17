@@ -57,10 +57,22 @@
             </div>
           </div>
 
-          <!-- Loading state -->
-          <div v-else-if="isLoadingStats" class="flex items-center justify-center py-8">
-            <Spinner size="lg" class="text-accent" />
-          </div>
+          <!-- Loading state. Mirrors the four-card stats grid above
+               so the cutover doesn't reflow when data arrives. -->
+          <Skeleton
+            v-else-if="isLoadingStats"
+            :label="$t('admin-search-mgmt-stats-loading')"
+            class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2"
+          >
+            <div
+              v-for="i in 4"
+              :key="i"
+              class="bg-surface-alt rounded-lg p-3 flex flex-col gap-2"
+            >
+              <SkeletonBar class="h-7 w-3/4" />
+              <SkeletonBar class="h-3 w-1/2" />
+            </div>
+          </Skeleton>
 
           <!-- Error state -->
           <div v-else-if="statsError" class="text-status-error text-sm py-4">
@@ -147,6 +159,8 @@ import { searchService } from '@/services/searchService'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
+import Skeleton from '@/components/common/Skeleton.vue'
+import SkeletonBar from '@/components/common/SkeletonBar.vue'
 import type { IndexStats, RebuildResponse } from '@/types/search'
 
 const authStore = useAuthStore()

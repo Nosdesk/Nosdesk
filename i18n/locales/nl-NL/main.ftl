@@ -648,6 +648,7 @@ admin-search-mgmt-title = Beheer zoekindex
 admin-search-mgmt-description = Beheer de full-text zoekindex voor tickets, documentatie, apparaten en gebruikers.
 admin-search-mgmt-stats-title = Indexstatistieken
 admin-search-mgmt-refresh = Vernieuwen
+admin-search-mgmt-stats-loading = Zoekindexstatistieken laden
 admin-search-mgmt-total-documents = Totaal documenten
 admin-search-mgmt-index-size = Indexgrootte
 admin-search-mgmt-status = Status

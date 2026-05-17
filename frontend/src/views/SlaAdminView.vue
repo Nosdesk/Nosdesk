@@ -23,6 +23,8 @@ import {
 } from '@/services/slaService'
 import Checkbox from '@/components/common/Checkbox.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import Skeleton from '@/components/common/Skeleton.vue'
+import SkeletonBar from '@/components/common/SkeletonBar.vue'
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
@@ -228,9 +230,30 @@ function fmtMinutes(m: number | null): string {
       </div>
     </header>
 
-    <div v-if="loading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
-      {{ $t('admin-sla-loading') }}
-    </div>
+    <Skeleton
+      v-if="loading"
+      :label="$t('admin-sla-loading')"
+      class="flex-1 min-h-0 overflow-hidden p-6 grid gap-6"
+      style="grid-template-columns: 1fr 1fr"
+    >
+      <!-- Calendars + policies mirror the live two-section layout
+           below so the cutover doesn't reflow when data arrives. -->
+      <section v-for="col in 2" :key="col" class="flex flex-col gap-3">
+        <SkeletonBar class="h-4 w-32" />
+        <div class="border border-subtle rounded-md overflow-hidden">
+          <SkeletonBar class="h-7 w-full" />
+          <div
+            v-for="row in 4"
+            :key="row"
+            class="flex items-center gap-3 px-3 h-9 border-t border-subtle"
+          >
+            <SkeletonBar class="h-2.5 flex-1" />
+            <SkeletonBar class="h-2.5 w-16" />
+            <SkeletonBar class="h-2.5 w-12" />
+          </div>
+        </div>
+      </section>
+    </Skeleton>
     <div v-else class="flex-1 min-h-0 overflow-y-auto p-6 grid gap-6" style="grid-template-columns: 1fr 1fr">
       <p v-if="error" class="col-span-2 text-sm text-status-error">{{ error }}</p>
 
