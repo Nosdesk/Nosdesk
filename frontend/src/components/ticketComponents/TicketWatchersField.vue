@@ -19,7 +19,6 @@
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
-import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { watcherService } from '@/services/watcherService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Icon from '@/components/common/Icon.vue'
@@ -37,7 +36,6 @@ const emit = defineEmits<{
 }>()
 
 const authStore = useAuthStore()
-const { getUserHandle } = useUsersDirectory()
 
 const currentUserUuid = computed<string | null>(() => authStore.user?.uuid ?? null)
 
@@ -190,9 +188,7 @@ async function toggleInternalNotify() {
       <UserAvatar
         v-for="uuid in visibleAvatars"
         :key="uuid"
-        :name="uuid"
-        :user-name="getUserHandle(uuid).user.value?.name ?? undefined"
-        :avatar="getUserHandle(uuid).user.value?.avatar_thumb || getUserHandle(uuid).user.value?.avatar_url || null"
+        :uuid="uuid"
         size="xs"
         :show-name="false"
         :clickable="true"

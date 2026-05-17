@@ -639,7 +639,7 @@ onMounted(() => {
             </template>
             <div v-if="consolidatedMembers.length > 0" class="divide-y divide-default max-h-80 overflow-y-auto">
               <div v-for="member in consolidatedMembers" :key="member.uuid" class="flex items-center gap-3 px-4 py-2.5">
-                <UserAvatar :name="member.uuid" :userName="member.name" :avatar="member.avatar_thumb || member.avatar_url" size="sm" :clickable="true" :show-name="false" />
+                <UserAvatar :uuid="member.uuid" :fallbackName="member.name" :fallbackAvatar="member.avatar_thumb || member.avatar_url" size="sm" :clickable="true" :show-name="false" />
                 <div class="flex-1 min-w-0">
                   <div class="text-sm text-primary truncate">{{ member.name }}</div>
                   <div class="flex items-center gap-1.5 mt-0.5">
@@ -781,7 +781,7 @@ onMounted(() => {
                         <div @click.stop>
                           <Checkbox :model-value="true" @update:model-value="toggleMember(user.uuid)" />
                         </div>
-                        <UserAvatar :name="user.uuid" :userName="user.name" :avatar="user.avatar_thumb || user.avatar_url" size="sm" :clickable="false" :show-name="false" />
+                        <UserAvatar :uuid="user.uuid" :fallbackName="user.name" :fallbackAvatar="user.avatar_thumb || user.avatar_url" size="sm" :clickable="false" :show-name="false" />
                         <div class="flex-1 min-w-0">
                           <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
                           <div v-if="user.email" class="text-xs text-tertiary truncate">{{ user.email }}</div>
@@ -810,7 +810,7 @@ onMounted(() => {
                         <div @click.stop>
                           <Checkbox :model-value="false" @update:model-value="toggleMember(user.uuid)" />
                         </div>
-                        <UserAvatar :name="user.uuid" :userName="user.name" :avatar="user.avatar_thumb || user.avatar_url" size="sm" :clickable="false" :show-name="false" />
+                        <UserAvatar :uuid="user.uuid" :fallbackName="user.name" :fallbackAvatar="user.avatar_thumb || user.avatar_url" size="sm" :clickable="false" :show-name="false" />
                         <div class="flex-1 min-w-0">
                           <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
                           <div v-if="user.email" class="text-xs text-tertiary truncate">{{ user.email }}</div>
@@ -839,7 +839,7 @@ onMounted(() => {
                         <div @click.stop>
                           <Checkbox :model-value="false" @update:model-value="toggleMember(user.uuid)" />
                         </div>
-                        <UserAvatar :name="user.uuid" :userName="user.name" :avatar="user.avatar_thumb || user.avatar_url" size="sm" :clickable="false" :show-name="false" />
+                        <UserAvatar :uuid="user.uuid" :fallbackName="user.name" :fallbackAvatar="user.avatar_thumb || user.avatar_url" size="sm" :clickable="false" :show-name="false" />
                         <div class="flex-1 min-w-0">
                           <div class="text-sm font-medium text-primary truncate">{{ user.name }}</div>
                           <div v-if="user.email" class="text-xs text-tertiary truncate">{{ user.email }}</div>

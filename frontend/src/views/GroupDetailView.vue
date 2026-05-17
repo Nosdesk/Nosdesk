@@ -268,9 +268,9 @@ onMounted(() => {
               >
                 <div class="flex items-center gap-2.5 sm:gap-3">
                   <UserAvatar
-                    :name="member.uuid"
-                    :userName="member.name"
-                    :avatar="member.avatar_thumb || member.avatar_url"
+                    :uuid="member.uuid"
+                    :fallbackName="member.name"
+                    :fallbackAvatar="member.avatar_thumb || member.avatar_url"
                     size="sm"
                     :clickable="false"
                     :show-name="false"

@@ -13,13 +13,8 @@ import type { User } from "@/types/user";
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
-interface UserAvatarComponentType {
-    refreshUser: (uuid?: string) => Promise<void>;
-}
-
 const authStore = useAuthStore();
 const loading = ref(false);
-const userAvatarComponent = ref<UserAvatarComponentType | null>(null);
 
 // File inputs
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -263,10 +258,9 @@ const uploadImage = async (file: File, type: "avatar" | "banner") => {
                 [type === "avatar" ? "avatar_url" : "banner_url"]:
                     cacheBustedUrl,
             };
-
-            if (userAvatarComponent.value?.refreshUser) {
-                userAvatarComponent.value.refreshUser(targetUserUuid);
-            }
+            // Sync pool repaints every mounted UserAvatar reactively
+            // on the `user.updated` SSE frame the upload triggers, so
+            // no manual refresh handle is needed here.
         }
     } catch (err) {
         emit(
@@ -538,9 +532,10 @@ const getRoleDisplayName = (role: string) => {
                 ]"
             >
                 <UserAvatar
-                    :name="displayUser?.name || ''"
+                    :uuid="displayUser?.uuid"
+                    :fallbackName="displayUser?.name || ''"
                     size="full"
-                    :avatar="formData.avatar_url || null"
+                    :fallbackAvatar="formData.avatar_url || null"
                     :showName="false"
                     :clickable="false"
                     class="w-full h-full"
@@ -558,13 +553,13 @@ const getRoleDisplayName = (role: string) => {
                 @click="isEditable ? handleAvatarClick() : undefined"
             >
                 <UserAvatar
-                    :name="displayUser?.name || ''"
+                    :uuid="displayUser?.uuid"
+                    :fallbackName="displayUser?.name || ''"
                     size="full"
-                    :avatar="formData.avatar_url || null"
+                    :fallbackAvatar="formData.avatar_url || null"
                     :showName="false"
                     :clickable="false"
                     class="w-full h-full"
-                    ref="userAvatarComponent"
                 />
                 <!-- Avatar upload loading overlay with progress -->
                 <div

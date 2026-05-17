@@ -2377,12 +2377,9 @@ defineExpose({
                         "
                     >
                         <UserAvatar
-                            :name="
-                                connectedUser.user.uuid ||
-                                connectedUser.user.name
-                            "
-                            :userName="connectedUser.user.name"
-                            :avatar="connectedUser.user.avatar"
+                            :uuid="connectedUser.user.uuid || null"
+                            :fallbackName="connectedUser.user.name"
+                            :fallbackAvatar="connectedUser.user.avatar"
                             :showName="false"
                             size="xs"
                             :clickable="!!connectedUser.user.uuid"
@@ -2449,8 +2446,9 @@ defineExpose({
                             :class="{ 'bg-surface-alt selected': index === mentionSelectedIndex }"
                         >
                             <UserAvatar
-                                :name="user.name"
-                                :avatar="user.avatar_thumb || user.avatar_url"
+                                :uuid="user.uuid"
+                                :fallbackName="user.name"
+                                :fallbackAvatar="user.avatar_thumb || user.avatar_url"
                                 size="sm"
                                 :showName="false"
                             />

@@ -109,8 +109,9 @@ function handleSelect(id: string) {
       @click="handleProfileClick"
     >
       <UserAvatar
-        :name="user.name"
-        :avatar="user.avatar"
+        :uuid="authStore.user?.uuid"
+        :fallbackName="user.name"
+        :fallbackAvatar="user.avatar"
         size="xl"
         :show-name="false"
         :clickable="false"

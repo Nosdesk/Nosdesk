@@ -281,8 +281,8 @@ onMounted(() => {
           <div v-if="revision.contributed_by.length === 1" class="flex items-center gap-1">
             <span class="text-xs text-tertiary">{{ t('editor-revisions-by') }}</span>
             <UserAvatar
-              :name="revision.contributed_by[0] || t('editor-revisions-unknown-user')"
-              :user-name="getUserName(revision.contributed_by[0] || '')"
+              :uuid="revision.contributed_by[0] || null"
+              :fallbackName="getUserName(revision.contributed_by[0] || '') || t('editor-revisions-unknown-user')"
               :show-name="false"
               size="xs"
               :clickable="true"
@@ -295,8 +295,8 @@ onMounted(() => {
               <UserAvatar
                 v-for="(userId, index) in revision.contributed_by.slice(0, 3)"
                 :key="userId || index"
-                :name="userId || t('editor-revisions-unknown-user')"
-                :user-name="getUserName(userId || '')"
+                :uuid="userId || null"
+                :fallbackName="getUserName(userId || '') || t('editor-revisions-unknown-user')"
                 :show-name="false"
                 size="xs"
                 :clickable="true"

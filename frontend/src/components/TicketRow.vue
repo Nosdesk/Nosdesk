@@ -135,9 +135,9 @@ const ariaLabel = computed(() => {
 
       <UserAvatar
         v-if="requester"
-        :name="requester.name"
-        :avatar="requester.avatar_thumb"
-        :userUuid="requester.uuid"
+        :uuid="requester.uuid"
+        :fallbackName="requester.name"
+        :fallbackAvatar="requester.avatar_thumb"
         size="xxs"
         :showName="false"
         :title="`From ${requester.name}`"

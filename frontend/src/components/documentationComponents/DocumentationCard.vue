@@ -104,9 +104,9 @@ const formatRelativeDate = (dateStr: string | undefined) => {
         <!-- Author Avatar -->
         <UserAvatar
           v-if="authorInfo"
-          :name="authorInfo.uuid"
-          :user-name="authorInfo.name"
-          :avatar="authorInfo.avatar_thumb || authorInfo.avatar_url"
+          :uuid="authorInfo.uuid"
+          :fallbackName="authorInfo.name"
+          :fallbackAvatar="authorInfo.avatar_thumb || authorInfo.avatar_url"
           size="xxs"
           :show-name="false"
           :clickable="false"

@@ -319,8 +319,9 @@ defineExpose({
             :class="{ 'bg-surface-alt selected': index === selectedIndex }"
           >
             <UserAvatar
-              :name="user.name"
-              :avatar="user.avatar_thumb || user.avatar_url"
+              :uuid="user.uuid"
+              :fallbackName="user.name"
+              :fallbackAvatar="user.avatar_thumb || user.avatar_url"
               size="sm"
               :showName="false"
             />

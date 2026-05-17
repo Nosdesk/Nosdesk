@@ -28,9 +28,9 @@ const displayEmpty = () => props.emptyText ?? fluent.$t('filter-assignee-unassig
 <template>
   <div v-if="userId" class="flex items-center gap-2">
     <UserAvatar
-      :name="userId"
-      :user-name="userName"
-      :avatar="avatar"
+      :uuid="userId"
+      :fallbackName="userName"
+      :fallbackAvatar="avatar"
       :size="size"
       :clickable="false"
       :show-name="showName"

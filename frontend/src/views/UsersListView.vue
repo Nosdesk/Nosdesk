@@ -234,9 +234,9 @@ async function applyRoleChange(role: string) {
           @click="navigateToUser(item)"
         >
           <UserAvatar
-            :name="item.uuid"
-            :user-name="item.name"
-            :avatar="item.avatar_thumb || item.avatar_url"
+            :uuid="item.uuid"
+            :fallbackName="item.name"
+            :fallbackAvatar="item.avatar_thumb || item.avatar_url"
             size="sm"
             :clickable="false"
             :show-name="false"

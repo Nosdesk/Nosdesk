@@ -334,7 +334,7 @@ interface ActorDisplay {
   /** Tooltip text — full name + email for senders, kind label otherwise. */
   title: string | null
   kind: 'user' | 'email' | 'portal' | 'system'
-  /** Set when `kind === 'user'`; drives `<UserAvatar :name="...">`. */
+  /** Set when `kind === 'user'`; drives `<UserAvatar :uuid="...">`. */
   userUuid: string | null
 }
 
@@ -430,9 +430,7 @@ function actorFor(ev: TicketActivityEvent): ActorDisplay {
              directory composable. -->
         <template v-if="actorFor(ev).kind === 'user' && actorFor(ev).userUuid">
           <UserAvatar
-            :name="actorFor(ev).userUuid!"
-            :user-name="getUserHandle(actorFor(ev).userUuid!).user.value?.name ?? undefined"
-            :avatar="getUserHandle(actorFor(ev).userUuid!).user.value?.avatar_thumb || getUserHandle(actorFor(ev).userUuid!).user.value?.avatar_url || null"
+            :uuid="actorFor(ev).userUuid!"
             size="xs"
             :show-name="false"
             :clickable="true"

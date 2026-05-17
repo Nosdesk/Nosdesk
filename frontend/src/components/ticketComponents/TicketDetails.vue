@@ -546,9 +546,9 @@ watchEffect(async () => {
             <span class="print-meta-label">{{ t('ticket-detail-print-requester') }}</span>
             <div v-if="ticket.requester_user" class="print-user">
               <UserAvatar
-                :name="ticket.requester_user.uuid"
-                :userName="ticket.requester_user.name"
-                :avatar="ticket.requester_user.avatar_thumb || ticket.requester_user.avatar_url"
+                :uuid="ticket.requester_user.uuid"
+                :fallbackName="ticket.requester_user.name"
+                :fallbackAvatar="ticket.requester_user.avatar_thumb || ticket.requester_user.avatar_url"
                 size="sm"
                 :showName="false"
                 :clickable="false"
@@ -561,9 +561,9 @@ watchEffect(async () => {
             <span class="print-meta-label">{{ t('ticket-detail-print-assignee') }}</span>
             <div v-if="ticket.assignee_user" class="print-user">
               <UserAvatar
-                :name="ticket.assignee_user.uuid"
-                :userName="ticket.assignee_user.name"
-                :avatar="ticket.assignee_user.avatar_thumb || ticket.assignee_user.avatar_url"
+                :uuid="ticket.assignee_user.uuid"
+                :fallbackName="ticket.assignee_user.name"
+                :fallbackAvatar="ticket.assignee_user.avatar_thumb || ticket.assignee_user.avatar_url"
                 size="sm"
                 :showName="false"
                 :clickable="false"

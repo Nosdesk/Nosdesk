@@ -61,9 +61,9 @@ const avatarSizeMap = {
     >
       <div class="rounded-full ring-2 ring-surface-alt group-hover:ring-accent transition-all">
         <UserAvatar
-          :name="user.uuid"
-          :userName="user.name"
-          :avatar="user.avatar_thumb || user.avatar_url"
+          :uuid="user.uuid"
+          :fallbackName="user.name"
+          :fallbackAvatar="user.avatar_thumb || user.avatar_url"
           :size="avatarSizeMap[avatarSize]"
           :clickable="false"
           :show-name="false"

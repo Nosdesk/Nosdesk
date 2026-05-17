@@ -761,9 +761,9 @@ const handlePastedFiles = async (files: File[]) => {
                             <!-- Header row: avatar, name/date, actions -->
                             <div class="flex items-center gap-2 sm:hidden">
                                 <UserAvatar
-                                    :name="comment.user?.uuid || comment.user_uuid"
-                                    :userName="comment.user?.name"
-                                    :avatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
+                                    :uuid="comment.user?.uuid || comment.user_uuid"
+                                    :fallbackName="comment.user?.name"
+                                    :fallbackAvatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
                                     :showName="false"
                                     size="sm"
                                     class="flex-shrink-0"
@@ -847,9 +847,9 @@ const handlePastedFiles = async (files: File[]) => {
                             <div class="hidden sm:flex sm:flex-col gap-2 flex-1 min-w-0">
                                 <div class="flex items-start gap-2 min-w-0">
                                     <UserAvatar
-                                        :name="comment.user?.uuid || comment.user_uuid"
-                                        :userName="comment.user?.name"
-                                        :avatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
+                                        :uuid="comment.user?.uuid || comment.user_uuid"
+                                        :fallbackName="comment.user?.name"
+                                        :fallbackAvatar="comment.user?.avatar_thumb || comment.user?.avatar_url"
                                         :showName="false"
                                         size="sm"
                                         class="flex-shrink-0 mt-0.5"

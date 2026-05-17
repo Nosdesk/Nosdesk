@@ -151,24 +151,10 @@ const handleCreateClick = () => {
   emit('create');
 };
 
-// Add a ref for the header avatar component
-interface AvatarComponentType {
-  refreshUser: (uuid?: string) => Promise<void>;
-}
-
-const headerAvatarRef = ref<AvatarComponentType | null>(null);
-
-// Method to refresh avatar data - can be called from outside
-const refreshAvatar = () => {
-  if (headerAvatarRef.value && headerAvatarRef.value.refreshUser && authStore.user) {
-    headerAvatarRef.value.refreshUser(authStore.user.uuid);
-  }
-};
-
-// Expose the refresh method
-defineExpose({
-  refreshAvatar
-});
+// Avatar refresh is no longer manual: UserAvatar binds to the sync
+// pool by uuid, so any `user.updated` SSE frame (which fires when
+// the profile screen uploads a new avatar) reactively repaints
+// every mounted instance without a side-channel ping.
 </script>
 
 <template>
@@ -277,11 +263,11 @@ defineExpose({
           >
             <UserAvatar
               :showName="false"
-              :name="user.name"
-              :avatar="user.avatar"
+              :uuid="authStore.user?.uuid"
+              :fallbackName="user.name"
+              :fallbackAvatar="user.avatar"
               :size="avatarSize"
               :clickable="false"
-              ref="headerAvatarRef"
             />
           </button>
 

@@ -156,9 +156,9 @@ const clearUser = () => {
         >
           <!-- Avatar -->
           <UserAvatar
-            :name="user.uuid"
-            :userName="user.name"
-            :avatar="user.avatar_thumb || user.avatar_url"
+            :uuid="user.uuid"
+            :fallbackName="user.name"
+            :fallbackAvatar="user.avatar_thumb || user.avatar_url"
             :showName="false"
             size="md"
           />

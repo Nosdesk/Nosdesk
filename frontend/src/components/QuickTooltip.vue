@@ -44,8 +44,14 @@ function resolveDisplayName(value: string | undefined): string {
   return getUserHandle(value).user.value?.name || value
 }
 
+function uuidOf(value: string | undefined): string | null {
+  return value && uuidPattern.test(value) ? value : null
+}
+
 const requesterName = computed(() => resolveDisplayName(props.details?.requester))
 const assigneeName = computed(() => resolveDisplayName(props.details?.assignee))
+const requesterUuid = computed(() => uuidOf(props.details?.requester))
+const assigneeUuid = computed(() => uuidOf(props.details?.assignee))
 
 watch(isHovering, (newValue) => {
   if (newValue) {
@@ -147,14 +153,14 @@ watch(tooltipVisible, (newValue) => {
           </div>
           <div v-if="details.requester || details.assignee" class="flex flex-col gap-1.5">
             <div v-if="details.requester" class="flex items-center gap-2">
-              <UserAvatar :name="details.requester" :avatar="details.requester_avatar" :showName="false" size="xs" />
+              <UserAvatar :uuid="requesterUuid" :fallbackName="requesterName" :fallbackAvatar="details.requester_avatar" :showName="false" size="xs" />
               <span class="flex flex-row gap-1 truncate">
                 <span class="text-tertiary">{{ t('ui-quick-tooltip-requester-label') }}</span>
                 <span>{{ requesterName }}</span>
               </span>
             </div>
             <div v-if="details.assignee" class="flex items-center gap-2">
-              <UserAvatar :name="details.assignee" :avatar="details.assignee_avatar" :showName="false" size="xs" />
+              <UserAvatar :uuid="assigneeUuid" :fallbackName="assigneeName" :fallbackAvatar="details.assignee_avatar" :showName="false" size="xs" />
               <span class="flex flex-row gap-1 truncate">
                 <span class="text-tertiary">{{ t('ui-quick-tooltip-assignee-label') }}</span>
                 <span>{{ assigneeName }}</span>

@@ -186,9 +186,9 @@ watch(() => props.pageId, loadContributors)
             class="flex items-center gap-2"
           >
             <UserAvatar
-              :name="c.uuid"
-              :user-name="c.name"
-              :avatar="c.avatar"
+              :uuid="c.uuid"
+              :fallbackName="c.name"
+              :fallbackAvatar="c.avatar"
               :show-name="false"
               size="sm"
               :clickable="false"

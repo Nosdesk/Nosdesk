@@ -391,9 +391,9 @@ const sectionStarts = computed(() => {
           :title="$t('ticket-picker-user-view-profile', { name: picker.selectedDisplayName.value })"
         >
           <UserAvatar
-            :name="modelValue"
-            :userName="picker.selected.value?.name"
-            :avatar="picker.selected.value?.avatar_thumb || picker.selected.value?.avatar_url || null"
+            :uuid="modelValue"
+            :fallbackName="picker.selected.value?.name"
+            :fallbackAvatar="picker.selected.value?.avatar_thumb || picker.selected.value?.avatar_url || null"
             :showName="false"
             size="sm"
             :clickable="false"
@@ -489,9 +489,9 @@ const sectionStarts = computed(() => {
                   @click="selectUser(row.user)"
                 >
                   <UserAvatar
-                    :name="row.user.uuid"
-                    :userName="row.user.name"
-                    :avatar="row.user.avatar_thumb || row.user.avatar_url || null"
+                    :uuid="row.user.uuid"
+                    :fallbackName="row.user.name"
+                    :fallbackAvatar="row.user.avatar_thumb || row.user.avatar_url || null"
                     :showName="false"
                     size="xs"
                     :clickable="false"
@@ -578,9 +578,9 @@ const sectionStarts = computed(() => {
             @click="selectUser(row.user)"
           >
             <UserAvatar
-              :name="row.user.uuid"
-              :userName="row.user.name"
-              :avatar="row.user.avatar_thumb || row.user.avatar_url || null"
+              :uuid="row.user.uuid"
+              :fallbackName="row.user.name"
+              :fallbackAvatar="row.user.avatar_thumb || row.user.avatar_url || null"
               :showName="false"
               size="sm"
               :clickable="false"

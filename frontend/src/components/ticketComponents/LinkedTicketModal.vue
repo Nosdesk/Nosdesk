@@ -213,9 +213,9 @@ const getPriorityClass = (priority: TicketPriority) => {
             <div class="flex items-center justify-between text-xs text-tertiary">
               <UserAvatar
                 v-if="ticket.requester_user"
-                :name="ticket.requester_user.uuid"
-                :userName="ticket.requester_user.name"
-                :avatar="ticket.requester_user.avatar_thumb || ticket.requester_user.avatar_url"
+                :uuid="ticket.requester_user.uuid"
+                :fallbackName="ticket.requester_user.name"
+                :fallbackAvatar="ticket.requester_user.avatar_thumb || ticket.requester_user.avatar_url"
                 size="xs"
                 :showName="true"
                 :clickable="false"
@@ -270,9 +270,9 @@ const getPriorityClass = (priority: TicketPriority) => {
               <td class="px-3 py-2.5">
                 <UserAvatar
                   v-if="ticket.requester_user"
-                  :name="ticket.requester_user.uuid"
-                  :userName="ticket.requester_user.name"
-                  :avatar="ticket.requester_user.avatar_thumb || ticket.requester_user.avatar_url"
+                  :uuid="ticket.requester_user.uuid"
+                  :fallbackName="ticket.requester_user.name"
+                  :fallbackAvatar="ticket.requester_user.avatar_thumb || ticket.requester_user.avatar_url"
                   size="xs"
                   :showName="true"
                   :clickable="false"

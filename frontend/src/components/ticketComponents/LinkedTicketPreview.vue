@@ -118,9 +118,9 @@ const formattedDate = (dateString: string) => formatDate(dateString, "MMM d, yyy
           class="cursor-pointer hover:opacity-80 transition-opacity"
         >
           <UserAvatar
-            :name="linkedTicket.requester_user?.uuid || linkedTicket.requester"
-            :userName="linkedTicket.requester_user?.name"
-            :avatar="linkedTicket.requester_user?.avatar_thumb"
+            :uuid="linkedTicket.requester_user?.uuid || linkedTicket.requester"
+            :fallbackName="linkedTicket.requester_user?.name"
+            :fallbackAvatar="linkedTicket.requester_user?.avatar_thumb"
             size="xs"
             :showName="true"
           />
@@ -135,9 +135,9 @@ const formattedDate = (dateString: string) => formatDate(dateString, "MMM d, yyy
           class="cursor-pointer hover:opacity-80 transition-opacity"
         >
           <UserAvatar
-            :name="linkedTicket.assignee_user?.uuid || linkedTicket.assignee"
-            :userName="linkedTicket.assignee_user?.name"
-            :avatar="linkedTicket.assignee_user?.avatar_thumb"
+            :uuid="linkedTicket.assignee_user?.uuid || linkedTicket.assignee"
+            :fallbackName="linkedTicket.assignee_user?.name"
+            :fallbackAvatar="linkedTicket.assignee_user?.avatar_thumb"
             size="xs"
             :showName="true"
           />

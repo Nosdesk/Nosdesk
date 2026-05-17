@@ -568,8 +568,7 @@ function affectedDevicesTooltip(card: CardData): string {
                   <span class="font-mono">#{{ card.id }}</span>
                   <UserAvatar
                     v-if="card.assignee_uuid"
-                    :name="card.assignee_uuid"
-                    :avatar="null"
+                    :uuid="card.assignee_uuid"
                     size="xxs"
                     :showName="false"
                     :clickable="false"

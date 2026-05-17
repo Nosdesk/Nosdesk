@@ -480,9 +480,9 @@ const formatLastUpdated = (dateString: string): string => {
             <div class="flex items-center justify-between mt-3 pt-3 border-t border-subtle">
               <div v-if="device.primary_user" class="flex items-center gap-2">
                 <UserAvatar
-                  :name="device.primary_user.uuid"
-                  :userName="device.primary_user.name"
-                  :avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                  :uuid="device.primary_user.uuid"
+                  :fallbackName="device.primary_user.name"
+                  :fallbackAvatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
                   size="xs"
                   :showName="true"
                   :clickable="false"
@@ -541,9 +541,9 @@ const formatLastUpdated = (dateString: string): string => {
                 <td class="px-4 py-3">
                   <UserAvatar
                     v-if="device.primary_user"
-                    :name="device.primary_user.uuid"
-                    :userName="device.primary_user.name"
-                    :avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                    :uuid="device.primary_user.uuid"
+                    :fallbackName="device.primary_user.name"
+                    :fallbackAvatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
                     size="sm"
                     :showName="true"
                     :clickable="false"

@@ -20,9 +20,9 @@ withDefaults(defineProps<Props>(), {
   <div class="flex items-center gap-2 min-w-0">
     <UserAvatar
       v-if="showAvatar"
-      :name="userId"
-      :userName="userName"
-      :avatar="avatar"
+      :uuid="userId"
+      :fallbackName="userName"
+      :fallbackAvatar="avatar"
       :size="avatarSize"
       :clickable="false"
       :show-name="false"

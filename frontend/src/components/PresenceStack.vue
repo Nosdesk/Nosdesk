@@ -92,8 +92,8 @@ const overflowTitle = computed(() =>
       class="ring-2 ring-surface rounded-full"
     >
       <UserAvatar
-        :name="card.uuid"
-        :user-name="card.name"
+        :uuid="card.uuid"
+        :fallbackName="card.name"
         :show-name="false"
         :clickable="false"
         :size="size"

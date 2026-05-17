@@ -58,9 +58,9 @@ const avatarSrc = computed<string | null>(
 <template>
   <div v-if="uuid" class="flex items-center gap-2 min-w-0">
     <UserAvatar
-      :name="uuid"
-      :user-name="userName"
-      :avatar="avatarSrc"
+      :uuid="uuid"
+      :fallbackName="userName"
+      :fallbackAvatar="avatarSrc"
       :size="size"
       :show-name="false"
       :clickable="clickable"
