@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineProps, computed } from "vue";
+import { computed } from "vue";
 import { useFluent } from "fluent-vue";
 import type { Page } from "@/services/documentationService";
 
