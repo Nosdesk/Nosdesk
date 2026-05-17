@@ -813,7 +813,9 @@ admin-api-tokens-revoking = Revoking...
 
 # Admin: SLA.
 admin-sla-title = SLA
-admin-sla-description = Working calendars and SLA policies feed the per-ticket SLA pill.
+admin-sla-no-calendars-hint = No calendars. Add one below — every SLA policy needs a calendar to compute its targets.
+admin-sla-no-policies-hint = No SLA policies. Add one below — without a policy tickets have no SLA pill.
+admin-sla-description = Working calendars and SLA policies feed the per-ticket SLA pill. Nosdesk ships with a default Mon–Fri 9–5 UTC calendar and a 4 h response / 24 h resolution policy. Edit them below, or add new entries for specific categories or priorities.
 admin-sla-loading = Loading…
 admin-sla-error-load = Failed to load SLA config
 admin-sla-error-create = Create failed

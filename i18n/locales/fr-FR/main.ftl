@@ -832,7 +832,9 @@ admin-api-tokens-revoking = Révocation...
 
 # Admin : SLA.
 admin-sla-title = SLA
-admin-sla-description = Les calendriers ouvrés et les politiques SLA alimentent la pastille SLA de chaque ticket.
+admin-sla-no-calendars-hint = Aucun calendrier. Ajoutez-en un ci-dessous : chaque politique SLA a besoin d’un calendrier pour calculer ses objectifs.
+admin-sla-no-policies-hint = Aucune politique SLA. Ajoutez-en une ci-dessous : sans politique, les tickets n’ont pas de pastille SLA.
+admin-sla-description = Les calendriers de travail et les politiques SLA alimentent la pastille SLA par ticket. Nosdesk inclut un calendrier par défaut Lun.–Ven. 9 h–17 h UTC et une politique de 4 h de réponse / 24 h de résolution. Modifiez-les ci-dessous ou ajoutez des entrées pour des catégories ou priorités spécifiques.
 admin-sla-loading = Chargement…
 admin-sla-error-load = Échec du chargement de la configuration SLA
 admin-sla-error-create = Échec de la création

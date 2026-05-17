@@ -829,7 +829,9 @@ admin-api-tokens-revoking = Intrekken...
 
 # Beheer: SLA.
 admin-sla-title = SLA
-admin-sla-description = Werkkalenders en SLA-beleid voeden de SLA-indicator per ticket.
+admin-sla-no-calendars-hint = Geen kalenders. Voeg er hieronder een toe — elk SLA-beleid heeft een kalender nodig om doelen te berekenen.
+admin-sla-no-policies-hint = Geen SLA-beleid. Voeg er hieronder een toe — zonder beleid hebben tickets geen SLA-pil.
+admin-sla-description = Werkkalenders en SLA-beleid voeden de SLA-pil per ticket. Nosdesk levert standaard een kalender ma–vr 9–17 UTC en een beleid van 4 u reactie / 24 u oplossing. Bewerk ze hieronder of voeg nieuwe items toe voor specifieke categorieën of prioriteiten.
 admin-sla-loading = Laden…
 admin-sla-error-load = Kon SLA-configuratie niet laden
 admin-sla-error-create = Aanmaken mislukt

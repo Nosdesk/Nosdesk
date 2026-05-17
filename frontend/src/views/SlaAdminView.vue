@@ -224,7 +224,7 @@ function fmtMinutes(m: number | null): string {
     <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
       <div>
         <h1 class="text-xl font-semibold text-primary">{{ $t('admin-sla-title') }}</h1>
-        <p class="text-xs text-tertiary mt-0.5">
+        <p class="text-xs text-tertiary mt-0.5 max-w-2xl">
           {{ $t('admin-sla-description') }}
         </p>
       </div>
@@ -272,6 +272,11 @@ function fmtMinutes(m: number | null): string {
             </tr>
           </thead>
           <tbody class="divide-y divide-subtle">
+            <tr v-if="!calendars.length" class="bg-app">
+              <td colspan="4" class="px-3 py-4 text-tertiary text-center">
+                {{ $t('admin-sla-no-calendars-hint') }}
+              </td>
+            </tr>
             <tr v-for="cal in calendars" :key="cal.id" class="bg-app">
               <td class="px-3 py-2 text-primary">{{ cal.name }}</td>
               <td class="px-3 py-2 text-secondary">{{ cal.timezone }}</td>
@@ -348,6 +353,11 @@ function fmtMinutes(m: number | null): string {
             </tr>
           </thead>
           <tbody class="divide-y divide-subtle">
+            <tr v-if="!policies.length" class="bg-app">
+              <td colspan="6" class="px-3 py-4 text-tertiary text-center">
+                {{ $t('admin-sla-no-policies-hint') }}
+              </td>
+            </tr>
             <tr v-for="p in policies" :key="p.id" class="bg-app">
               <td class="px-3 py-2 text-primary">{{ p.name }}</td>
               <td class="px-3 py-2 text-secondary">{{ fmtMinutes(p.target_response_minutes) }}</td>
