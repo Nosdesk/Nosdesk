@@ -70,7 +70,7 @@ jobs:
 
       - name: cargo deny check
         working-directory: backend
-        run: cargo deny check --log-level warn
+        run: cargo deny check
 
   frontend:
     name: Frontend (Vue)
