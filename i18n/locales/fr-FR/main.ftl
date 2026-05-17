@@ -3885,8 +3885,7 @@ ui-status-badge-priority-high = haute
 ui-status-badge-priority-low-full = priorité basse
 ui-status-badge-priority-medium-full = priorité moyenne
 ui-status-badge-priority-high-full = priorité haute
-ui-heatmap-tooltip-more =
-    ...et { $count ->
+ui-heatmap-tooltip-more = ...et { $count ->
         [one] { $count } de plus
        *[other] { $count } de plus
     }
