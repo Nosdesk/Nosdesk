@@ -75,7 +75,7 @@ url = "2.5"                 # URL parsing and manipulation
 querystring = "1.1.0"       # Query string parsing
 
 # Add yrs for Yjs/CRDT support in Rust
-yrs = { version = "0.25", features = ["sync"] }
+yrs = { version = "0.26", features = ["sync"] }
 lib0 = "0.16.10"
 bytes = "1.5.0"
 

@@ -539,9 +539,11 @@ impl YjsAppState {
             use std::hash::{Hash, Hasher};
             let mut hasher = DefaultHasher::new();
             doc_id.hash(&mut hasher);
-            let client_id = hasher.finish() | 1; // Ensure it's non-zero
+            // yrs 0.26 ClientID is 53-bit (matches yjs JS). Mask the
+            // 64-bit hash down to fit, OR with 1 to stay non-zero.
+            let client_id = (hasher.finish() & ((1u64 << 53) - 1)) | 1;
 
-            options.client_id = client_id;
+            options.client_id = yrs::ClientID::new(client_id);
             debug!(doc_id = %doc_id, client_id, "Creating document with consistent client ID");
 
             let doc = Doc::with_options(options);
@@ -1714,10 +1716,11 @@ impl Actor for YjsWebSocket {
             // so the server must do it.
             if let Some(client_id) = yjs_client_id {
                 let awareness = app_state.get_or_create_awareness(&doc_id).await;
-                awareness.remove_state(client_id);
+                let yrs_client_id = yrs::ClientID::new(client_id);
+                awareness.remove_state(yrs_client_id);
 
                 // Encode and broadcast the removal (state=null) to remaining clients
-                if let Ok(update) = awareness.update_with_clients([client_id]) {
+                if let Ok(update) = awareness.update_with_clients([yrs_client_id]) {
                     use yrs::sync::Message;
                     let msg = Message::Awareness(update).encode_v1();
                     app_state.broadcast(&doc_id, &session_id, &msg).await;
@@ -1777,8 +1780,13 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for YjsWebSocket {
                         AwarenessUpdate::decode(&mut ADecV1::new(Cursor::new(&bin[1..])))
                     {
                         if let Some(&client_id) = update.clients.keys().next() {
-                            self.yjs_client_id = Some(client_id);
-                            debug!(session_id = %self.id, yjs_client_id = client_id,
+                            // yrs 0.26 ClientID is a 53-bit newtype; store the
+                            // underlying u64 so the rest of the file (and
+                            // disconnect handler) can pass it back into
+                            // ClientID::new() without churn.
+                            let client_id_u64 = client_id.get();
+                            self.yjs_client_id = Some(client_id_u64);
+                            debug!(session_id = %self.id, yjs_client_id = client_id_u64,
                                 "Captured yjs clientID from awareness");
                         }
                     }
@@ -2021,7 +2029,8 @@ pub async fn restore_ticket_revision(
         use yrs::{Doc, Options};
 
         let options = Options {
-            client_id: rand::random(),
+            // yrs 0.26 ClientID is 53-bit; mask the random u64 to fit.
+            client_id: yrs::ClientID::new(rand::random::<u64>() & ((1u64 << 53) - 1)),
             skip_gc: false,
             ..Options::default()
         };
@@ -2173,7 +2182,8 @@ pub async fn restore_doc_revision(
         use yrs::{Doc, Options};
 
         let options = Options {
-            client_id: rand::random(),
+            // yrs 0.26 ClientID is 53-bit; mask the random u64 to fit.
+            client_id: yrs::ClientID::new(rand::random::<u64>() & ((1u64 << 53) - 1)),
             skip_gc: false,
             ..Options::default()
         };
