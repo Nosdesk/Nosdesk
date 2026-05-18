@@ -1003,6 +1003,33 @@ pub async fn get_admin_config(req: HttpRequest) -> impl Responder {
     }))
 }
 
+/// Aggregate trust-state inventory of installed plugins for the
+/// admin panel. Surfaces tier distribution, dev-mode installs (a
+/// production red flag), legacy unsigned rows (migration straggler
+/// detector), and the top-5 publishers by install count for
+/// revocation-blast-radius visibility.
+pub async fn get_signing_overview(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+) -> impl Responder {
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
+
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    match plugin_repo::signing_overview(&mut conn) {
+        Ok(overview) => HttpResponse::Ok().json(overview),
+        Err(e) => {
+            error!("Failed to compute plugin signing overview: {}", e);
+            errors::internal("Failed to compute signing overview")
+        }
+    }
+}
+
 // =============================================================================
 // Registry handlers
 // =============================================================================

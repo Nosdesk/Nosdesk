@@ -31,6 +31,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Modal from '@/components/Modal.vue';
 import PluginCard from '@/components/plugins/PluginCard.vue';
+import PluginSigningOverview from '@/components/plugins/PluginSigningOverview.vue';
 import { usePlugins } from '@/composables/usePlugins';
 import { usePluginAdminConfig } from '@/composables/usePluginAdminConfig';
 import type { Plugin, PluginState } from '@/types/plugin';
@@ -192,8 +193,9 @@ const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined
     />
 
     <div v-else class="lg:grid lg:grid-cols-[16rem_1fr] lg:gap-6">
-      <!-- Sidebar: search + state filters -->
-      <aside class="mb-6 lg:sticky lg:top-4 lg:mb-0 lg:self-start" :aria-label="t('admin-plugins-list-aria-filter')">
+      <!-- Sidebar: search + state filters + signing inventory -->
+      <aside class="mb-6 flex flex-col gap-4 lg:sticky lg:top-4 lg:mb-0 lg:self-start" :aria-label="t('admin-plugins-list-aria-filter')">
+        <PluginSigningOverview />
         <div class="flex flex-col gap-4 rounded-xl border border-default bg-surface p-4">
           <div class="relative">
             <label for="plugin-search" class="sr-only">Search plugins</label>

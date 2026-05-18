@@ -1553,6 +1553,7 @@ async fn main() -> std::io::Result<()> {
                     // falling through to the literal handlers.
                     .route("/admin/plugins", web::get().to(handlers::plugins::list_plugins))
                     .route("/admin/plugins/config", web::get().to(handlers::plugins::get_admin_config))
+                    .route("/admin/plugins/signing-overview", web::get().to(handlers::plugins::get_signing_overview))
                     .route("/admin/plugins/install", web::post().to(handlers::plugins::install_plugin_from_zip))
                     .route("/admin/plugins/registry", web::get().to(handlers::plugins::get_registry))
                     .route("/admin/plugins/registry/refresh", web::post().to(handlers::plugins::refresh_registry))

@@ -14,6 +14,7 @@ import type {
   CollectionListResponse,
   RegistryState,
   InstallFromRegistryRequest,
+  SigningOverview,
 } from '@/types/plugin';
 
 /**
@@ -34,6 +35,20 @@ const pluginService = {
       return response.data || [];
     } catch (error) {
       logger.error('Failed to list plugins', { error });
+      throw error;
+    }
+  },
+
+  /**
+   * Aggregate signing inventory across installed plugins. Drives
+   * the trust-tier summary card on the admin list view.
+   */
+  async getSigningOverview(): Promise<SigningOverview> {
+    try {
+      const response = await apiClient.get('/admin/plugins/signing-overview');
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to load plugin signing overview', { error });
       throw error;
     }
   },

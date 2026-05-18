@@ -207,6 +207,159 @@ pub fn get_plugin_icon(
 }
 
 // =============================================================================
+// Signing inventory telemetry
+// =============================================================================
+
+/// One bucket of the trust-tier breakdown returned by
+/// [`signing_overview`]. `trust_level` mirrors the column value
+/// (`official` / `verified` / `community` / `local`).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TrustLevelCount {
+    pub trust_level: String,
+    pub count: i64,
+}
+
+/// Top-N publishers by installed-plugin count. Lets an operator
+/// see at a glance which third-party key has the largest blast
+/// radius if a revocation lands. `display_name` is resolved against
+/// `plugin_trusted_publishers`; rows signed by the Nosdesk root or
+/// the local instance key have no matching publisher row and report
+/// `None`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PublisherInstallCount {
+    pub pubkey: String,
+    pub display_name: Option<String>,
+    pub count: i64,
+}
+
+/// Aggregate view of plugin trust-state for the admin panel and
+/// boot-time structured log. Counts exclude `uninstalled` rows
+/// (those are tombstones for preserved plugin data, not active
+/// surface).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SigningOverview {
+    /// Total non-uninstalled plugin rows.
+    pub total: i64,
+    /// Breakdown by `trust_level`. Tiers that aren't present return
+    /// no row; callers fill in zeros if they need a dense view.
+    pub by_trust_level: Vec<TrustLevelCount>,
+    /// Rows installed in debug-build dev mode
+    /// (`signer_source = 'dev'`). Should always be zero on a
+    /// release deployment; non-zero is a configuration smell worth
+    /// surfacing.
+    pub dev_mode_count: i64,
+    /// Rows that predate the signing rollout: both `signer_pubkey`
+    /// and `signer_source` are NULL. Expected to be zero on a
+    /// clean install. Non-zero means a migration straggler.
+    pub legacy_unsigned_count: i64,
+    /// Top publishers by installed-plugin count. Capped at 5 to
+    /// keep the response small; the full distribution can be
+    /// derived from `list_all_plugins` if anyone needs it.
+    pub top_publishers: Vec<PublisherInstallCount>,
+}
+
+/// Read-only aggregate over `plugins`. Used by the admin signing
+/// overview endpoint and the boot-time provisioning log so the
+/// distribution of trust tiers is visible without scrolling the
+/// plugin list. Excludes `uninstalled` rows.
+pub fn signing_overview(
+    conn: &mut DbConnection,
+) -> Result<SigningOverview, diesel::result::Error> {
+    use diesel::sql_types::{BigInt, Nullable, Text};
+
+    #[derive(diesel::QueryableByName)]
+    struct TotalsRow {
+        #[diesel(sql_type = BigInt)]
+        total: i64,
+        #[diesel(sql_type = BigInt)]
+        dev_mode_count: i64,
+        #[diesel(sql_type = BigInt)]
+        legacy_unsigned_count: i64,
+    }
+
+    #[derive(diesel::QueryableByName)]
+    struct TierRow {
+        #[diesel(sql_type = Text)]
+        trust_level: String,
+        #[diesel(sql_type = BigInt)]
+        count: i64,
+    }
+
+    #[derive(diesel::QueryableByName)]
+    struct PublisherRow {
+        #[diesel(sql_type = Text)]
+        pubkey: String,
+        #[diesel(sql_type = Nullable<Text>)]
+        display_name: Option<String>,
+        #[diesel(sql_type = BigInt)]
+        count: i64,
+    }
+
+    // One round-trip for the three scalar counts. Using
+    // FILTER (...) over a single scan beats three separate queries.
+    let totals: TotalsRow = diesel::sql_query(
+        "SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE signer_source = 'dev') AS dev_mode_count,
+            COUNT(*) FILTER (
+                WHERE signer_pubkey IS NULL AND signer_source IS NULL
+            ) AS legacy_unsigned_count
+         FROM plugins
+         WHERE state <> 'uninstalled'",
+    )
+    .get_result(conn)?;
+
+    let by_trust_level: Vec<TrustLevelCount> = diesel::sql_query(
+        "SELECT trust_level, COUNT(*) AS count
+         FROM plugins
+         WHERE state <> 'uninstalled'
+         GROUP BY trust_level
+         ORDER BY trust_level",
+    )
+    .load::<TierRow>(conn)?
+    .into_iter()
+    .map(|r| TrustLevelCount {
+        trust_level: r.trust_level,
+        count: r.count,
+    })
+    .collect();
+
+    // Top-N publishers with their display name joined when the
+    // signer_pubkey lines up with a known publisher row. Rows
+    // signed by the baked-in root or the local key won't match
+    // and surface as a null display_name.
+    let top_publishers: Vec<PublisherInstallCount> = diesel::sql_query(
+        "SELECT p.signer_pubkey AS pubkey,
+                pub.display_name AS display_name,
+                COUNT(*) AS count
+         FROM plugins p
+         LEFT JOIN plugin_trusted_publishers pub
+           ON pub.pubkey = p.signer_pubkey
+         WHERE p.state <> 'uninstalled'
+           AND p.signer_pubkey IS NOT NULL
+         GROUP BY p.signer_pubkey, pub.display_name
+         ORDER BY count DESC, p.signer_pubkey ASC
+         LIMIT 5",
+    )
+    .load::<PublisherRow>(conn)?
+    .into_iter()
+    .map(|r| PublisherInstallCount {
+        pubkey: r.pubkey,
+        display_name: r.display_name,
+        count: r.count,
+    })
+    .collect();
+
+    Ok(SigningOverview {
+        total: totals.total,
+        by_trust_level,
+        dev_mode_count: totals.dev_mode_count,
+        legacy_unsigned_count: totals.legacy_unsigned_count,
+        top_publishers,
+    })
+}
+
+// =============================================================================
 // Plugin Data (Settings + Storage consolidated)
 // =============================================================================
 

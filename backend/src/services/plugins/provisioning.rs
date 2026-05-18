@@ -204,6 +204,44 @@ fn provision_plugins_locked(conn: &mut DbConnection) -> Vec<ProvisionResult> {
         "Plugin provisioning complete: {} created, {} updated, {} unchanged, {} failed",
         created, updated, unchanged, failed
     );
+
+    // Trust-tier inventory after the sweep settles. Logged as a
+    // structured record so an operator can grep one line per boot
+    // and see the distribution without scrolling the admin UI.
+    // `dev_mode_count > 0` on a release build is a config smell;
+    // `legacy_unsigned_count > 0` flags a migration straggler.
+    // Failures here are non-fatal — the sweep itself already
+    // succeeded, telemetry shouldn't gate startup.
+    match crate::repository::plugins::signing_overview(conn) {
+        Ok(o) => {
+            let tiers: Vec<String> = o
+                .by_trust_level
+                .iter()
+                .map(|t| format!("{}={}", t.trust_level, t.count))
+                .collect();
+            info!(
+                total = o.total,
+                dev_mode = o.dev_mode_count,
+                legacy_unsigned = o.legacy_unsigned_count,
+                tiers = %tiers.join(","),
+                "Plugin trust-tier inventory"
+            );
+            if o.dev_mode_count > 0 && !cfg!(debug_assertions) {
+                warn!(
+                    count = o.dev_mode_count,
+                    "Release build has dev-mode plugins installed; verify NOSDESK_DEV_MODE history"
+                );
+            }
+            if o.legacy_unsigned_count > 0 {
+                warn!(
+                    count = o.legacy_unsigned_count,
+                    "Plugins with no signer metadata detected; reinstall via signed path to clear"
+                );
+            }
+        }
+        Err(e) => warn!("Failed to compute trust-tier inventory: {e}"),
+    }
+
     results
 }
 

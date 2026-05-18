@@ -220,6 +220,31 @@ export interface InstallFromRegistryRequest {
   version?: string;
 }
 
+export interface TrustLevelCount {
+  trust_level: PluginTrustLevel | string;
+  count: number;
+}
+
+export interface PublisherInstallCount {
+  pubkey: string;
+  display_name: string | null;
+  count: number;
+}
+
+/** Aggregate response from GET /admin/plugins/signing-overview.
+ *  Excludes plugins in the `uninstalled` lifecycle state. */
+export interface SigningOverview {
+  total: number;
+  by_trust_level: TrustLevelCount[];
+  /** Plugins installed in debug-build dev mode. Should be zero on
+   *  any production instance; non-zero is a config smell. */
+  dev_mode_count: number;
+  /** Plugins predating signing rollout (no signer metadata at all).
+   *  Should be zero on a clean install. */
+  legacy_unsigned_count: number;
+  top_publishers: PublisherInstallCount[];
+}
+
 export interface Plugin {
   uuid: string;
   name: string;
