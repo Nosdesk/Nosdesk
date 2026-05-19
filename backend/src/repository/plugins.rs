@@ -258,6 +258,7 @@ pub struct SigningOverview {
     pub top_publishers: Vec<PublisherInstallCount>,
 }
 
+// sync-audit-only: read-only SELECT aggregate; sql_query used for FILTER + LEFT JOIN
 /// Read-only aggregate over `plugins`. Used by the admin signing
 /// overview endpoint and the boot-time provisioning log so the
 /// distribution of trust tiers is visible without scrolling the
