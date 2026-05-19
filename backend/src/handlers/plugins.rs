@@ -17,6 +17,7 @@ use crate::models::{
     Claims, PluginActivityResponse, PluginResponse, PluginSettingResponse, PluginStorageResponse,
     SetPluginDataRequest, UpdatePluginRequest,
 };
+use crate::repository::plugin_publishers;
 use crate::repository::plugins as plugin_repo;
 use crate::services::plugins::{install, registry, signing, trust};
 use crate::sync::session as actor_session;
@@ -87,9 +88,29 @@ pub async fn list_plugins(req: HttpRequest, pool: web::Data<Pool>) -> impl Respo
 
     match plugin_repo::list_all_plugins(&mut conn) {
         Ok(plugins) => {
+            // Single round-trip to learn which signing pubkeys are
+            // revoked; the map lookup per plugin is O(1). On error
+            // we degrade to "no revocation info" rather than 500ing
+            // the list, since the list is more important than the
+            // badge.
+            let revocations =
+                plugin_publishers::revoked_publisher_map(&mut conn).unwrap_or_else(|e| {
+                    warn!(
+                        "Failed to load publisher revocation map; list will omit badges: {}",
+                        e
+                    );
+                    Default::default()
+                });
             let response: Vec<_> = plugins
                 .into_iter()
-                .filter_map(|p| PluginResponse::try_from(p).ok())
+                .filter_map(|p| {
+                    let pubkey = p.signer_pubkey.clone();
+                    PluginResponse::try_from(p).ok().map(|mut r| {
+                        r.signer_revoked_at =
+                            pubkey.as_deref().and_then(|k| revocations.get(k).copied());
+                        r
+                    })
+                })
                 .collect();
             HttpResponse::Ok().json(response)
         }
@@ -149,8 +170,18 @@ pub async fn get_plugin(
         Err(e) => return e,
     };
 
+    let revoked_at = plugin.signer_pubkey.as_deref().and_then(|pk| {
+        match plugin_publishers::find_publisher_by_pubkey(&mut conn, pk) {
+            Ok(Some(pub_row)) => pub_row.revoked_at,
+            _ => None,
+        }
+    });
+
     match PluginResponse::try_from(plugin) {
-        Ok(response) => HttpResponse::Ok().json(response),
+        Ok(mut response) => {
+            response.signer_revoked_at = revoked_at;
+            HttpResponse::Ok().json(response)
+        }
         Err(e) => {
             error!("Failed to parse plugin manifest: {}", e);
             errors::internal("Invalid plugin manifest")

@@ -5174,6 +5174,15 @@ pub struct PluginResponse {
     pub bundle_size: Option<i32>,
     pub bundle_uploaded_at: Option<NaiveDateTime>,
     pub source: String,
+    /// When non-null, the publisher that signed this plugin has been
+    /// revoked from `plugin_trusted_publishers`. The plugin keeps
+    /// running (we don't tear down installed rows on revocation),
+    /// but the admin UI surfaces the state so operators can decide
+    /// whether to uninstall or keep with the trust caveat. NULL for
+    /// official-tier plugins (signed by the Nosdesk root) and
+    /// local-tier plugins (signed by the instance key), since
+    /// neither resolves through plugin_trusted_publishers.
+    pub signer_revoked_at: Option<NaiveDateTime>,
 }
 
 impl Plugin {
@@ -5204,6 +5213,11 @@ impl TryFrom<Plugin> for PluginResponse {
             bundle_size: p.bundle_size,
             bundle_uploaded_at: p.bundle_uploaded_at,
             source: p.source,
+            // Default to None; handlers enrich via a separate
+            // revocation map lookup so the conversion stays
+            // dependency-free and the bulk list endpoint can resolve
+            // every plugin's revocation in a single round-trip.
+            signer_revoked_at: None,
         })
     }
 }

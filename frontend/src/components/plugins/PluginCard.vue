@@ -74,6 +74,18 @@ const srPermissionCount = computed(() => t('plugin-card-sr-permission-count'));
               v-if="showStateAlways || plugin.state !== 'installed'"
               :state="plugin.state"
             />
+            <!-- Revocation badge sits next to the trust pill so an
+                 operator scanning the list spots compromised
+                 signers at a glance. Doesn't replace the trust
+                 level; the original tier stays informative for
+                 deciding whether to remove or trust through. -->
+            <span
+              v-if="plugin.signer_revoked_at"
+              class="inline-flex items-center rounded bg-status-error/10 px-1.5 py-0.5 text-xs font-medium text-status-error"
+              :title="`Publisher key revoked ${plugin.signer_revoked_at}`"
+            >
+              Signer revoked
+            </span>
           </header>
 
           <p v-if="plugin.description" class="mt-1.5 line-clamp-2 text-sm text-secondary">

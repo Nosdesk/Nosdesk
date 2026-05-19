@@ -252,6 +252,11 @@ pub struct SigningOverview {
     /// and `signer_source` are NULL. Expected to be zero on a
     /// clean install. Non-zero means a migration straggler.
     pub legacy_unsigned_count: i64,
+    /// Installed plugins whose signing publisher is currently
+    /// revoked. Plugins keep running through a revocation event
+    /// (we don't auto-uninstall on trust loss), so this surfaces
+    /// the count so operators can decide whether to keep them.
+    pub revoked_signer_count: i64,
     /// Top publishers by installed-plugin count. Capped at 5 to
     /// keep the response small; the full distribution can be
     /// derived from `list_all_plugins` if anyone needs it.
@@ -265,16 +270,6 @@ pub struct SigningOverview {
 /// plugin list. Excludes `uninstalled` rows.
 pub fn signing_overview(conn: &mut DbConnection) -> Result<SigningOverview, diesel::result::Error> {
     use diesel::sql_types::{BigInt, Nullable, Text};
-
-    #[derive(diesel::QueryableByName)]
-    struct TotalsRow {
-        #[diesel(sql_type = BigInt)]
-        total: i64,
-        #[diesel(sql_type = BigInt)]
-        dev_mode_count: i64,
-        #[diesel(sql_type = BigInt)]
-        legacy_unsigned_count: i64,
-    }
 
     #[derive(diesel::QueryableByName)]
     struct TierRow {
@@ -294,15 +289,36 @@ pub fn signing_overview(conn: &mut DbConnection) -> Result<SigningOverview, dies
         count: i64,
     }
 
-    // One round-trip for the three scalar counts. Using
-    // FILTER (...) over a single scan beats three separate queries.
+    #[derive(diesel::QueryableByName)]
+    struct TotalsRow {
+        #[diesel(sql_type = BigInt)]
+        total: i64,
+        #[diesel(sql_type = BigInt)]
+        dev_mode_count: i64,
+        #[diesel(sql_type = BigInt)]
+        legacy_unsigned_count: i64,
+        #[diesel(sql_type = BigInt)]
+        revoked_signer_count: i64,
+    }
+
+    // One round-trip for the scalar counts. Using FILTER (...) over
+    // a single scan beats N separate queries; the revocation count
+    // joins plugin_trusted_publishers via EXISTS so unsigned and
+    // root-signed rows naturally evaluate to false.
     let totals: TotalsRow = diesel::sql_query(
         "SELECT
             COUNT(*) AS total,
             COUNT(*) FILTER (WHERE signer_source = 'dev') AS dev_mode_count,
             COUNT(*) FILTER (
                 WHERE signer_pubkey IS NULL AND signer_source IS NULL
-            ) AS legacy_unsigned_count
+            ) AS legacy_unsigned_count,
+            COUNT(*) FILTER (
+                WHERE EXISTS (
+                    SELECT 1 FROM plugin_trusted_publishers pub
+                    WHERE pub.pubkey = plugins.signer_pubkey
+                      AND pub.revoked_at IS NOT NULL
+                )
+            ) AS revoked_signer_count
          FROM plugins
          WHERE state <> 'uninstalled'",
     )
@@ -354,6 +370,7 @@ pub fn signing_overview(conn: &mut DbConnection) -> Result<SigningOverview, dies
         by_trust_level,
         dev_mode_count: totals.dev_mode_count,
         legacy_unsigned_count: totals.legacy_unsigned_count,
+        revoked_signer_count: totals.revoked_signer_count,
         top_publishers,
     })
 }

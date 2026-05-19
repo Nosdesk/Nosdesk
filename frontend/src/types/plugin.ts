@@ -242,6 +242,10 @@ export interface SigningOverview {
   /** Plugins predating signing rollout (no signer metadata at all).
    *  Should be zero on a clean install. */
   legacy_unsigned_count: number;
+  /** Installed plugins whose signing publisher is currently revoked.
+   *  Plugins keep running through revocation; the count surfaces
+   *  the state so operators can decide whether to uninstall. */
+  revoked_signer_count: number;
   top_publishers: PublisherInstallCount[];
 }
 
@@ -267,6 +271,11 @@ export interface Plugin {
   bundle_hash: string | null;
   bundle_size: number | null;
   bundle_uploaded_at: string | null;
+  /** When non-null, the publisher that signed this plugin is
+   *  currently revoked from the trusted-publishers table. The
+   *  plugin keeps running (revocation does not auto-uninstall);
+   *  the admin UI surfaces the state so operators can decide. */
+  signer_revoked_at?: string | null;
 }
 
 export interface PluginSetting {

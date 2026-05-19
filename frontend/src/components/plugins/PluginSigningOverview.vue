@@ -43,7 +43,9 @@ const denseTiers = computed<TrustLevelCount[]>(() => {
 const hasWarnings = computed(
   () =>
     !!overview.value &&
-    (overview.value.dev_mode_count > 0 || overview.value.legacy_unsigned_count > 0),
+    (overview.value.dev_mode_count > 0 ||
+      overview.value.legacy_unsigned_count > 0 ||
+      overview.value.revoked_signer_count > 0),
 );
 
 function fingerprint(pubkey: string): string {
@@ -116,6 +118,13 @@ defineExpose({ refresh: load });
         >
           {{ overview.legacy_unsigned_count }} plugin{{ overview.legacy_unsigned_count === 1 ? '' : 's' }}
           predate signing rollout and have no signer metadata. Reinstall to re-anchor.
+        </p>
+        <p
+          v-if="overview.revoked_signer_count > 0"
+          class="rounded-md bg-status-error/10 px-2 py-1 text-xs text-status-error"
+        >
+          {{ overview.revoked_signer_count }} plugin{{ overview.revoked_signer_count === 1 ? '' : 's' }}
+          signed by a publisher whose key is now revoked. Review the affected rows below and uninstall if you no longer trust the publisher.
         </p>
       </div>
 

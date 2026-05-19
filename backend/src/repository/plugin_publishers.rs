@@ -41,6 +41,28 @@ pub fn find_publisher_by_pubkey(
         .optional()
 }
 
+/// Pubkey -> revoked_at map for every currently-revoked publisher.
+/// Used by the plugin list handler to enrich each row with its
+/// signer's revocation status in a single query. Returns only the
+/// revoked rows; absence means "not in plugin_trusted_publishers"
+/// OR "in the table with revoked_at IS NULL" — both interpreted by
+/// the caller as "no revocation flag to show".
+pub fn revoked_publisher_map(
+    conn: &mut DbConnection,
+) -> Result<std::collections::HashMap<String, chrono::NaiveDateTime>, diesel::result::Error> {
+    let rows: Vec<(String, Option<chrono::NaiveDateTime>)> = plugin_trusted_publishers::table
+        .filter(plugin_trusted_publishers::revoked_at.is_not_null())
+        .select((
+            plugin_trusted_publishers::pubkey,
+            plugin_trusted_publishers::revoked_at,
+        ))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(p, r)| r.map(|r| (p, r)))
+        .collect())
+}
+
 // sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Insert a new publisher, or update the existing row matching on
 /// `pubkey`. Used by the registry sync job to reconcile the keylist.
