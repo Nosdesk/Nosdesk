@@ -286,11 +286,10 @@ fn provision_zip(conn: &mut DbConnection, zip_path: &Path, label: &str) -> Provi
     // install_verified transaction becomes a savepoint that
     // inherits the GUCs set by with_actor_context.
     let actor = ActorContext::system("plugin_provisioner");
-    let result = actor_session::with_actor_context::<_, install::InstallError>(
-        conn,
-        &actor,
-        |conn| install::install_verified(conn, &files, signer, tier, options),
-    );
+    let result =
+        actor_session::with_actor_context::<_, install::InstallError>(conn, &actor, |conn| {
+            install::install_verified(conn, &files, signer, tier, options)
+        });
     match result {
         Ok(install::InstallOutcome::Created(p)) => ProvisionResult::Created(p.name),
         Ok(install::InstallOutcome::Updated(p)) => ProvisionResult::Updated(p.name),

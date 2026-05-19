@@ -262,9 +262,7 @@ pub struct SigningOverview {
 /// overview endpoint and the boot-time provisioning log so the
 /// distribution of trust tiers is visible without scrolling the
 /// plugin list. Excludes `uninstalled` rows.
-pub fn signing_overview(
-    conn: &mut DbConnection,
-) -> Result<SigningOverview, diesel::result::Error> {
+pub fn signing_overview(conn: &mut DbConnection) -> Result<SigningOverview, diesel::result::Error> {
     use diesel::sql_types::{BigInt, Nullable, Text};
 
     #[derive(diesel::QueryableByName)]
