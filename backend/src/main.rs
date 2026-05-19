@@ -1606,6 +1606,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/{uuid}", web::get().to(handlers::get_user_by_uuid))
                     .route("/users/{uuid}", web::put().to(handlers::update_user_by_uuid))
                     .route("/users/{uuid}", web::delete().to(handlers::delete_user))
+                    .route("/users/{uuid}/restore", web::post().to(handlers::restore_user))
+                    .route("/users/{uuid}/purge", web::delete().to(handlers::purge_user_now))
                     .route("/users/{uuid}/image", web::post().to(handlers::upload_user_image))
                     .route("/users/{uuid}/emails", web::get().to(handlers::get_user_emails))
                     .route("/users/{uuid}/emails", web::post().to(handlers::add_user_email))

@@ -9,6 +9,30 @@ use crate::schema::*;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
+/// Default grace window between soft-delete and permanent purge.
+/// Salesforce never hard-deletes; Google releases after 20 days;
+/// Atlassian steers admins to "deactivate". Thirty days is a
+/// middle ground that gives an admin a forgiving recovery window
+/// without keeping personal data around indefinitely (GDPR-style
+/// concerns when a user has explicitly asked for erasure are
+/// handled by the "Permanently delete" admin action that bypasses
+/// the window).
+const DEFAULT_PURGE_GRACE_DAYS: i64 = 30;
+
+/// Configurable grace window via `NOSDESK_USER_PURGE_GRACE_DAYS`.
+/// Returns the [`Duration`](chrono::Duration) the retention worker
+/// uses to decide which soft-deleted users to purge. Out-of-range
+/// values (zero, negative, over a year) fall back to the default
+/// rather than masking a config typo.
+pub fn purge_grace_window() -> chrono::Duration {
+    let days = std::env::var("NOSDESK_USER_PURGE_GRACE_DAYS")
+        .ok()
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .filter(|n| *n > 0 && *n <= 365)
+        .unwrap_or(DEFAULT_PURGE_GRACE_DAYS);
+    chrono::Duration::days(days)
+}
+
 /// Emit a `user.updated` sync_action carrying the projection the
 /// frontend's `useReference('user', uuid)` consumes. Called from
 /// inside the same transaction as the SQL write so the event row
@@ -68,6 +92,32 @@ pub fn get_users(conn: &mut DbConnection) -> Result<Vec<User>, Error> {
 }
 
 // Get paginated users with filtering and sorting
+/// Filter on the soft-delete state when paginating users. Default
+/// is `Active` so every existing call site naturally hides
+/// soft-deleted rows from active surfaces (mention search,
+/// assignee pickers, the default admin list). The admin "Deleted
+/// users" view passes [`DeletedFilter::Only`] to flip the
+/// condition; debugging surfaces can pass [`DeletedFilter::All`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeletedFilter {
+    Active,
+    Only,
+    All,
+}
+
+impl DeletedFilter {
+    /// Parse the `deleted=` query string value. Unrecognised input
+    /// falls back to `Active` so a typo doesn't accidentally
+    /// expose soft-deleted rows.
+    pub fn from_query(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_lowercase).as_deref() {
+            Some("deleted") | Some("only") => DeletedFilter::Only,
+            Some("all") => DeletedFilter::All,
+            _ => DeletedFilter::Active,
+        }
+    }
+}
+
 pub fn get_paginated_users(
     conn: &mut DbConnection,
     page: i64,
@@ -76,6 +126,7 @@ pub fn get_paginated_users(
     sort_direction: Option<String>,
     search: Option<String>,
     role: Option<String>,
+    deleted: DeletedFilter,
 ) -> Result<(Vec<User>, i64), Error> {
     use crate::schema::user_emails;
 
@@ -122,6 +173,11 @@ pub fn get_paginated_users(
     if !parsed_roles.is_empty() {
         count_query = count_query.filter(users::role.eq_any(parsed_roles.clone()));
     }
+    count_query = match deleted {
+        DeletedFilter::Active => count_query.filter(users::deleted_at.is_null()),
+        DeletedFilter::Only => count_query.filter(users::deleted_at.is_not_null()),
+        DeletedFilter::All => count_query,
+    };
     let total: i64 = count_query.count().get_result(conn)?;
 
     // Data query with same filters + sort + pagination
@@ -132,6 +188,11 @@ pub fn get_paginated_users(
     if !parsed_roles.is_empty() {
         query = query.filter(users::role.eq_any(parsed_roles.clone()));
     }
+    query = match deleted {
+        DeletedFilter::Active => query.filter(users::deleted_at.is_null()),
+        DeletedFilter::Only => query.filter(users::deleted_at.is_not_null()),
+        DeletedFilter::All => query,
+    };
     query = match (sort_field.as_deref(), sort_direction.as_deref()) {
         (Some("name"), Some("asc")) => query.order(users::name.asc()),
         (Some("name"), _) => query.order(users::name.desc()),
