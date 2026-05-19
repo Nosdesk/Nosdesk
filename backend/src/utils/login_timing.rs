@@ -60,12 +60,19 @@ pub fn verify_credentials(conn: &mut DbConnection, email: &str, password: &str) 
 
 /// Looks up the user + local password hash atomically. Returns
 /// `None` when (a) no user exists for the email, (b) the user
-/// has no `local` auth identity (SSO-only), or (c) the local
-/// row exists but has a null password_hash. All three are
-/// indistinguishable from the caller's perspective so they get
-/// the same timing profile via the dummy hash.
+/// has no `local` auth identity (SSO-only), (c) the local row
+/// exists but has a null password_hash, or (d) the user is
+/// soft-deleted (deleted_at set). All four are indistinguishable
+/// from the caller's perspective so they get the same timing
+/// profile via the dummy hash. The soft-delete case in
+/// particular MUST go through the dummy path — returning a
+/// distinct "account deleted" error would let an attacker probe
+/// the pending-purge queue by trying every email.
 fn lookup_user_and_hash(conn: &mut DbConnection, email: &str) -> Option<(User, String)> {
     let user = repository::users::get_user_by_email(email, conn).ok()?;
+    if user.deleted_at.is_some() {
+        return None;
+    }
     let hash: Option<String> = user_auth_identities::table
         .filter(user_auth_identities::user_uuid.eq(user.uuid))
         .filter(user_auth_identities::provider_type.eq("local"))

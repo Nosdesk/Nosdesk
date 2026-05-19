@@ -23,6 +23,14 @@ pub struct JwtUtils;
 impl JwtUtils {
     /// Create a JWT token for a user with full scope (15 min expiry)
     pub fn create_token(user: &User, session_id: &uuid::Uuid) -> Result<String, JwtError> {
+        // Belt-and-suspenders: refuse to mint a token for a
+        // soft-deleted user even if a caller is holding a stale
+        // User reference. login_timing already filters these at
+        // verify; OAuth callbacks and other token-issuing paths
+        // route through here so the guard covers all surfaces.
+        if user.deleted_at.is_some() {
+            return Err(JwtError::UserNotFound);
+        }
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| JwtError::SystemTime)?
@@ -103,6 +111,14 @@ impl JwtUtils {
         // Get user from database to ensure they still exist and are active
         let user =
             repository::get_user_by_uuid(&user_uuid, conn).map_err(|_| JwtError::UserNotFound)?;
+
+        // Soft-deleted users keep their row (audit / history) but
+        // are not allowed to act with cached tokens. Existing
+        // sessions stop working immediately on soft-delete, which
+        // is the property the admin "delete user" flow promises.
+        if user.deleted_at.is_some() {
+            return Err(JwtError::UserNotFound);
+        }
 
         // Verify role hasn't changed since token was issued
         let current_role = role_to_string(&user.role);
