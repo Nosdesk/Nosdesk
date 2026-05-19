@@ -627,6 +627,43 @@ mod tests {
     }
 
     #[test]
+    fn create_token_refuses_soft_deleted_user() {
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");
+        }
+        let _ = &*JWT_SECRET;
+
+        // Same fixture as the round-trip test, but with deleted_at
+        // stamped. create_token's defence-in-depth guard should
+        // refuse to mint a fresh token for the soft-deleted row
+        // even though every other field is valid.
+        let user = crate::models::User {
+            uuid: uuid::Uuid::new_v4(),
+            name: "Soft Deleted".to_string(),
+            role: crate::models::UserRole::Admin,
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_enabled: false,
+            mfa_backup_codes: None,
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
+            password_changed_at: None,
+            feature_flag_overrides: serde_json::json!({}),
+            deleted_at: Some(chrono::Utc::now().naive_utc()),
+        };
+
+        let sid = uuid::Uuid::new_v4();
+        match JwtUtils::create_token(&user, &sid) {
+            Err(JwtError::UserNotFound) => {}
+            other => panic!("expected UserNotFound for soft-deleted user, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn create_sse_token_has_sse_scope() {
         unsafe {
             std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");

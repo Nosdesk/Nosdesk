@@ -625,4 +625,109 @@ mod tests {
         let results = get_users_by_uuids(&[u1.uuid, u2.uuid], &mut conn).unwrap();
         assert_eq!(results.len(), 2);
     }
+
+    #[test]
+    fn soft_delete_then_restore_round_trip() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "SoftRoundTrip", UserRole::User);
+        assert!(user.deleted_at.is_none());
+
+        let deleted = soft_delete_user(&user.uuid, &mut conn).unwrap();
+        assert!(deleted.deleted_at.is_some());
+        // Row stays in the table.
+        let fetched = get_user_by_uuid(&user.uuid, &mut conn).unwrap();
+        assert!(fetched.deleted_at.is_some());
+
+        let restored = restore_user(&user.uuid, &mut conn).unwrap();
+        assert!(restored.deleted_at.is_none());
+        let fetched_after = get_user_by_uuid(&user.uuid, &mut conn).unwrap();
+        assert!(fetched_after.deleted_at.is_none());
+    }
+
+    #[test]
+    fn deleted_filter_active_excludes_soft_deleted() {
+        let mut conn = setup_test_connection();
+        let active = TestFixtures::create_user(&mut conn, "FilterActive", UserRole::User);
+        let removed = TestFixtures::create_user(&mut conn, "FilterRemoved", UserRole::User);
+        soft_delete_user(&removed.uuid, &mut conn).unwrap();
+
+        let (rows, _total) = get_paginated_users(
+            &mut conn,
+            1,
+            100,
+            None,
+            None,
+            None,
+            None,
+            DeletedFilter::Active,
+        )
+        .unwrap();
+        let uuids: Vec<Uuid> = rows.iter().map(|u| u.uuid).collect();
+        assert!(uuids.contains(&active.uuid));
+        assert!(!uuids.contains(&removed.uuid));
+    }
+
+    #[test]
+    fn deleted_filter_only_returns_soft_deleted() {
+        let mut conn = setup_test_connection();
+        let active = TestFixtures::create_user(&mut conn, "OnlyActive", UserRole::User);
+        let removed = TestFixtures::create_user(&mut conn, "OnlyRemoved", UserRole::User);
+        soft_delete_user(&removed.uuid, &mut conn).unwrap();
+
+        let (rows, _total) = get_paginated_users(
+            &mut conn,
+            1,
+            100,
+            None,
+            None,
+            None,
+            None,
+            DeletedFilter::Only,
+        )
+        .unwrap();
+        let uuids: Vec<Uuid> = rows.iter().map(|u| u.uuid).collect();
+        assert!(!uuids.contains(&active.uuid));
+        assert!(uuids.contains(&removed.uuid));
+    }
+
+    #[test]
+    fn list_users_pending_purge_respects_cutoff() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "PurgeCandidate", UserRole::User);
+        soft_delete_user(&user.uuid, &mut conn).unwrap();
+
+        // Cutoff in the past: nothing eligible yet.
+        let cutoff_before = chrono::Utc::now().naive_utc() - chrono::Duration::days(1);
+        let none = list_users_pending_purge(&mut conn, cutoff_before).unwrap();
+        assert!(!none.iter().any(|u| u.uuid == user.uuid));
+
+        // Cutoff in the future: the row qualifies (deleted_at < cutoff).
+        let cutoff_after = chrono::Utc::now().naive_utc() + chrono::Duration::days(1);
+        let pending = list_users_pending_purge(&mut conn, cutoff_after).unwrap();
+        assert!(pending.iter().any(|u| u.uuid == user.uuid));
+    }
+
+    #[test]
+    fn purge_after_soft_delete_removes_row() {
+        let mut conn = setup_test_connection();
+        // Second admin so purge_user can reassign docs if the test
+        // fixture ever adds any. Mirrors the existing delete test.
+        TestFixtures::create_user(&mut conn, "PurgeWitness", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "PurgeMe", UserRole::User);
+
+        soft_delete_user(&user.uuid, &mut conn).unwrap();
+        let removed = purge_user(&user.uuid, &mut conn, None).unwrap();
+        assert_eq!(removed, 1);
+        assert!(get_user_by_uuid(&user.uuid, &mut conn).is_err());
+    }
+
+    #[test]
+    fn purge_grace_window_defaults_to_thirty_days() {
+        // The default is sticky: tests run with no NOSDESK_USER_PURGE_GRACE_DAYS
+        // set, so the worker uses 30 days. If this drifts, the
+        // helpdesk-industry-default story we wrote into the plan breaks.
+        // Set explicitly in case some other test polluted the env.
+        std::env::remove_var("NOSDESK_USER_PURGE_GRACE_DAYS");
+        assert_eq!(purge_grace_window().num_days(), 30);
+    }
 }
