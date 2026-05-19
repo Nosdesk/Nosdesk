@@ -201,6 +201,16 @@ nav-search = Rechercher
 nav-more = Plus
 nav-toggle-sidebar = Basculer la barre latérale
 nav-secondary = Navigation secondaire
+# TODO native-review fr-FR for the bottom-bar pin keys below.
+nav-pins-edit = Modifier
+nav-pins-done = Terminé
+nav-pins-reset = Réinitialiser
+nav-pins-edit-hint = { $remaining ->
+    [one] Touchez les étoiles pour choisir jusqu'à { $max } tuiles ({ $remaining } emplacement restant)
+   *[other] Touchez les étoiles pour choisir jusqu'à { $max } tuiles ({ $remaining } emplacements restants)
+  }
+nav-pins-pin = Épingler { $name } à la barre du bas
+nav-pins-unpin = Désépingler { $name } de la barre du bas
 user-menu-aria = Menu utilisateur
 user-menu-view-profile = Voir le profil
 user-menu-account = Compte

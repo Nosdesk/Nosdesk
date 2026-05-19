@@ -198,6 +198,16 @@ nav-search = Zoeken
 nav-more = Meer
 nav-toggle-sidebar = Zijbalk wisselen
 nav-secondary = Secundaire navigatie
+# TODO native-review nl-NL for the bottom-bar pin keys below.
+nav-pins-edit = Bewerken
+nav-pins-done = Klaar
+nav-pins-reset = Opnieuw instellen
+nav-pins-edit-hint = { $remaining ->
+    [one] Tik op sterren om tot { $max } tegels te kiezen ({ $remaining } plek over)
+   *[other] Tik op sterren om tot { $max } tegels te kiezen ({ $remaining } plekken over)
+  }
+nav-pins-pin = { $name } vastpinnen aan de onderbalk
+nav-pins-unpin = { $name } losmaken van de onderbalk
 user-menu-aria = Gebruikersmenu
 user-menu-view-profile = Profiel bekijken
 user-menu-account = Account

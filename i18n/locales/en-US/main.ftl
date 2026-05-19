@@ -257,6 +257,15 @@ nav-search = Search
 nav-more = More
 nav-toggle-sidebar = Toggle sidebar
 nav-secondary = Secondary navigation
+nav-pins-edit = Edit
+nav-pins-done = Done
+nav-pins-reset = Reset
+nav-pins-edit-hint = { $remaining ->
+    [one] Tap stars to choose up to { $max } tiles ({ $remaining } slot left)
+   *[other] Tap stars to choose up to { $max } tiles ({ $remaining } slots left)
+  }
+nav-pins-pin = Pin { $name } to the bottom bar
+nav-pins-unpin = Unpin { $name } from the bottom bar
 user-menu-aria = User menu
 user-menu-view-profile = View Profile
 user-menu-account = Account

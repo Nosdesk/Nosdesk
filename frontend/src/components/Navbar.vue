@@ -10,6 +10,11 @@ import { useResizableSidebar } from "@/composables/useResizableSidebar";
 import { useNavbarState } from "@/composables/useNavbarState";
 import { useGlobalSearch } from "@/composables/useGlobalSearch";
 import { useNotificationFeed } from "@/composables/useNotificationFeed";
+import {
+    useMobileNavPins,
+    DEFAULT_MOBILE_PINS,
+    MAX_MOBILE_PINS,
+} from "@/composables/useMobileNavPins";
 import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
 import Icon from "@/components/common/Icon.vue";
@@ -210,27 +215,47 @@ const INBOX_MOBILE_LINK: NavLink = {
     text: 'nav-inbox',
 };
 
-/** Routes that get a permanent slot in the mobile bottom bar.
- *  Everything else lives behind the "More" overflow sheet so each
- *  primary tap target stays comfortably above the 44px floor on a
- *  360px-wide phone. Order here is the rendered order. Inbox earns
- *  a primary slot per the same logic that drives the bell-routes-
- *  to-inbox behaviour on mobile: notifications are thumb-reach
- *  high-traffic in productivity workflows. Search moves into the
- *  overflow sheet (still one tap away, just no longer competing
- *  with Inbox for the same bar real estate). */
-const PRIMARY_MOBILE_PATHS = ['/', '/tickets', '/inbox'] as const;
+/** All routes a user can pin to the mobile bar. The full set is
+ *  the sidebar's navLinks plus the synthetic Inbox entry; Search
+ *  stays a fixed cell on the bar (it's a button, not a route)
+ *  and "More" is the overflow opener, also fixed. */
+const pinnableLinks = computed<NavLink[]>(() => [INBOX_MOBILE_LINK, ...navLinks]);
 
-const primaryMobileLinks = computed<NavLink[]>(() =>
-    PRIMARY_MOBILE_PATHS.map((p) =>
-        navLinks.find((l) => l.to === p) ??
-        (p === '/inbox' ? INBOX_MOBILE_LINK : undefined),
-    ).filter((l): l is NavLink => !!l),
-);
+const { pinnedPaths, isPinned, togglePin, resetToDefaults, remainingSlots } =
+    useMobileNavPins();
 
+/** Materialise the pinned-path list into NavLink rows for the bar.
+ *  Falls back to the shipped defaults when a user's saved list
+ *  resolves to nothing renderable (every path was removed from the
+ *  product, etc.) so the bar never collapses to just Search +
+ *  More. Order matches the user's pin order. */
+const primaryMobileLinks = computed<NavLink[]>(() => {
+    const lookup = new Map(pinnableLinks.value.map((l) => [l.to, l]));
+    const resolved = pinnedPaths.value
+        .map((p) => lookup.get(p))
+        .filter((l): l is NavLink => !!l);
+    if (resolved.length > 0) return resolved;
+    return DEFAULT_MOBILE_PINS.map((p) => lookup.get(p)).filter(
+        (l): l is NavLink => !!l,
+    );
+});
+
+/** Everything pinnable that ISN'T currently pinned shows up in the
+ *  overflow sheet. Order follows the natural navLinks order so an
+ *  admin's pinning choice doesn't reshuffle the sheet too. */
 const overflowMobileLinks = computed<NavLink[]>(() =>
-    navLinks.filter((l) => !PRIMARY_MOBILE_PATHS.includes(l.to as typeof PRIMARY_MOBILE_PATHS[number])),
+    pinnableLinks.value.filter((l) => !pinnedPaths.value.includes(l.to)),
 );
+
+// Edit mode on the More sheet: while on, each row in the sheet
+// renders a star toggle and a hint banner describes the cap. The
+// state is local to this component instance — closing the sheet
+// resets to false so a user who panics out doesn't reopen the
+// sheet still in edit mode.
+const isPinEditMode = ref(false);
+function togglePinEditMode() {
+    isPinEditMode.value = !isPinEditMode.value;
+}
 
 // Overflow sheet driven by the native <dialog> element via
 // .showModal() / .close(). The native API gives us focus trap, Esc-
@@ -256,6 +281,11 @@ watch(isMobileMoreOpen, async (open) => {
     } else if (!open && dialog.open) {
         dialog.close();
     }
+    // Edit mode never carries across an open/close cycle. If the
+    // user dismissed the sheet via Esc or backdrop tap we'd
+    // otherwise reopen still showing star toggles, which
+    // disorients more than it helps.
+    if (!open) isPinEditMode.value = false;
 });
 
 // Close the overflow sheet when the route changes (so following any
@@ -264,6 +294,27 @@ watch(isMobileMoreOpen, async (open) => {
 watch(() => route.path, () => {
     isMobileMoreOpen.value = false;
 });
+
+/** What rows render inside the sheet. Edit mode shows every
+ *  pinnable destination (so the user can unpin pinned items too);
+ *  read-only mode shows only items NOT already pinned (the
+ *  classic "show me everything not in the bar" behaviour). */
+const sheetRows = computed<NavLink[]>(() =>
+    isPinEditMode.value ? pinnableLinks.value : overflowMobileLinks.value,
+);
+
+/** Intercept row taps so edit mode toggles the pin instead of
+ *  navigating; without preventDefault the RouterLink would still
+ *  fire its internal handler. Outside edit mode we fall through
+ *  to the original close-the-sheet-after-nav behaviour. */
+function onSheetRowClick(event: MouseEvent, link: NavLink) {
+    if (isPinEditMode.value) {
+        event.preventDefault();
+        togglePin(link.to);
+        return;
+    }
+    closeMobileMore();
+}
 
 // Backdrop tap on a native <dialog>: any click whose target is the
 // dialog element itself (not its children) is on the backdrop.
@@ -660,18 +711,46 @@ const isOverflowRouteActive = computed(() =>
             class="mobile-nav-sheet-panel bg-surface border-t border-default rounded-t-2xl shadow-xl"
         >
             <h2 id="mobile-nav-more-heading" class="sr-only">{{ $t('nav-more-heading') }}</h2>
+            <!-- Header row: title, edit-mode toggle, reset link (only
+                 visible while editing so the chrome stays minimal on
+                 the common read-only path). -->
+            <div class="flex items-center justify-between px-3 pt-3">
+                <span class="text-sm font-medium text-secondary">
+                    {{ isPinEditMode
+                        ? $t('nav-pins-edit-hint', { max: MAX_MOBILE_PINS, remaining: remainingSlots })
+                        : $t('nav-more-heading') }}
+                </span>
+                <div class="flex items-center gap-2">
+                    <button
+                        v-if="isPinEditMode"
+                        type="button"
+                        class="text-xs text-secondary hover:text-primary px-2 py-1 rounded transition-colors"
+                        @click="resetToDefaults"
+                    >
+                        {{ $t('nav-pins-reset') }}
+                    </button>
+                    <button
+                        type="button"
+                        class="text-xs font-medium px-2 py-1 rounded transition-colors"
+                        :class="isPinEditMode ? 'text-accent' : 'text-secondary hover:text-primary'"
+                        @click="togglePinEditMode"
+                    >
+                        {{ isPinEditMode ? $t('nav-pins-done') : $t('nav-pins-edit') }}
+                    </button>
+                </div>
+            </div>
             <nav :aria-label="$t('nav-secondary')">
                 <ul class="grid grid-cols-2 gap-2 p-3">
-                    <li v-for="link in overflowMobileLinks" :key="link.to">
+                    <li v-for="link in sheetRows" :key="link.to" class="flex items-center gap-1">
                         <RouterLink
                             :to="link.to"
-                            class="flex items-center gap-3 px-3 py-3 rounded-lg min-h-[44px] transition-colors motion-safe:active:scale-[0.98]"
+                            class="flex flex-1 items-center gap-3 px-3 py-3 rounded-lg min-h-[44px] transition-colors motion-safe:active:scale-[0.98]"
                             :class="
                                 isRouteActive(link.to, link.exact)
                                     ? 'bg-accent/10 text-accent'
                                     : 'text-primary hover:bg-surface-hover'
                             "
-                            @click="closeMobileMore"
+                            @click="onSheetRowClick($event, link)"
                         >
                             <svg
                                 class="w-5 h-5 flex-shrink-0"
@@ -689,6 +768,44 @@ const isOverflowRouteActive = computed(() =>
                             </svg>
                             <span class="text-sm font-medium truncate">{{ $t(link.text) }}</span>
                         </RouterLink>
+                        <!-- Star toggle: only in edit mode. Disabled
+                             when the cap is full AND this row isn't
+                             already pinned (so the user can still
+                             tap a filled star to unpin and free a
+                             slot). aria-pressed conveys state. -->
+                        <button
+                            v-if="isPinEditMode"
+                            type="button"
+                            class="flex items-center justify-center w-10 h-10 rounded-lg transition-colors"
+                            :class="
+                                isPinned(link.to)
+                                    ? 'text-accent hover:bg-accent/10'
+                                    : remainingSlots === 0
+                                        ? 'text-tertiary opacity-50 cursor-not-allowed'
+                                        : 'text-secondary hover:bg-surface-hover'
+                            "
+                            :aria-pressed="isPinned(link.to)"
+                            :aria-label="isPinned(link.to)
+                                ? $t('nav-pins-unpin', { name: $t(link.text) })
+                                : $t('nav-pins-pin', { name: $t(link.text) })"
+                            :disabled="!isPinned(link.to) && remainingSlots === 0"
+                            @click="togglePin(link.to)"
+                        >
+                            <svg
+                                class="w-5 h-5"
+                                viewBox="0 0 24 24"
+                                :fill="isPinned(link.to) ? 'currentColor' : 'none'"
+                                stroke="currentColor"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+                                />
+                            </svg>
+                        </button>
                     </li>
                 </ul>
             </nav>
