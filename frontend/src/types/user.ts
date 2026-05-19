@@ -63,6 +63,12 @@ export interface User {
   updated_at: string;
   open_ticket_count?: number;
   device_count?: number;
+  /** When set, the user is soft-deleted: hidden from active
+   * surfaces (mention search, assignee pickers, the default
+   * admin list) but the row stays in the table for the
+   * configured grace window. The retention worker hard-deletes
+   * after that. Null on every active row. */
+  deleted_at?: string | null;
 }
 
 /**

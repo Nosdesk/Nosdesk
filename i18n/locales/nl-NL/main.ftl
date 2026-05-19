@@ -1467,10 +1467,24 @@ user-mgmt-bulk-delete-title = { $count ->
    *[other] { $count } gebruikers verwijderen?
 }
 user-mgmt-bulk-delete-message = { $count ->
-    [one] Hiermee wordt één gebruiker permanent verwijderd. Deze actie kan niet ongedaan worden gemaakt.
-   *[other] Hiermee worden { $count } gebruikers permanent verwijderd. Deze actie kan niet ongedaan worden gemaakt.
+    [one] Eén gebruiker verwijderen? Deze kan 30 dagen worden hersteld voordat de gebruiker permanent wordt verwijderd.
+   *[other] { $count } gebruikers verwijderen? Deze kunnen 30 dagen worden hersteld voordat ze permanent worden verwijderd.
 }
 user-mgmt-bulk-action-error = Bulkactie mislukt. Probeer het opnieuw.
+# TODO native-review nl-NL for the soft-delete keys below.
+user-mgmt-deleted-off = Verwijderde tonen
+user-mgmt-deleted-on = Verwijderde verbergen
+user-mgmt-deleted-badge = Verwijderd
+user-mgmt-deleted-purges-on = Definitief verwijderd op { $date }
+user-mgmt-restore = Gebruiker herstellen
+user-mgmt-restored = { $name } hersteld
+user-mgmt-restore-error = Kon die gebruiker niet herstellen.
+user-mgmt-purge-now = Permanent verwijderen
+user-mgmt-purged = { $name } permanent verwijderd
+user-mgmt-purge-error = Kon die gebruiker niet permanent verwijderen.
+user-mgmt-purge-title = Gebruiker permanent verwijderen?
+user-mgmt-purge-message = { $name } permanent verwijderen? Dit slaat het herstelvenster van 30 dagen over en kan niet ongedaan gemaakt worden.
+user-mgmt-purge-confirm = Permanent verwijderen
 user-mgmt-role-modal-title = Rol instellen
 user-mgmt-role-modal-body = { $count ->
     [one] Rol bijwerken voor { $count } gebruiker

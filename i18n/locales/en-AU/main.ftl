@@ -1464,10 +1464,23 @@ user-mgmt-bulk-delete-title = { $count ->
    *[other] Delete { $count } users?
 }
 user-mgmt-bulk-delete-message = { $count ->
-    [one] This will permanently delete one user. This can't be undone.
-   *[other] This will permanently delete { $count } users. This can't be undone.
+    [one] Delete one user? They'll be restorable for 30 days, then permanently removed.
+   *[other] Delete { $count } users? They'll be restorable for 30 days, then permanently removed.
 }
 user-mgmt-bulk-action-error = Couldn't do that bulk action. Give it another go.
+user-mgmt-deleted-off = Show deleted
+user-mgmt-deleted-on = Hide deleted
+user-mgmt-deleted-badge = Deleted
+user-mgmt-deleted-purges-on = Purges on { $date }
+user-mgmt-restore = Restore user
+user-mgmt-restored = { $name } restored
+user-mgmt-restore-error = Couldn't restore that user.
+user-mgmt-purge-now = Permanently delete
+user-mgmt-purged = { $name } permanently deleted
+user-mgmt-purge-error = Couldn't permanently delete that user.
+user-mgmt-purge-title = Permanently delete user?
+user-mgmt-purge-message = Permanently delete { $name }? This skips the 30-day restore window and can't be undone.
+user-mgmt-purge-confirm = Permanently delete
 user-mgmt-role-modal-title = Set role
 user-mgmt-role-modal-body = { $count ->
     [one] Update role for { $count } user

@@ -13,6 +13,11 @@ export type { User };
 // Extended pagination params for users
 export interface UserPaginationParams extends PaginationParams {
   role?: string;
+  /** Filter on soft-delete state. `"active"` (default) hides
+   * soft-deleted rows; `"deleted"` shows only them; `"all"`
+   * returns both. The admin "Deleted users" view flips this to
+   * `"deleted"`. */
+  deleted?: 'active' | 'deleted' | 'all';
 }
 
 // Re-export for backwards compatibility
@@ -238,13 +243,49 @@ const userService = {
     }
   },
 
-  // Delete a user
-  async deleteUser(uuid: string): Promise<boolean> {
+  /**
+   * Soft-delete a user. Backend stamps `deleted_at` and emits
+   * `user-soft-deleted`; the retention worker hard-deletes after
+   * the configured grace window. Returns the new deleted_at +
+   * purge_at so the caller can show "delete in N days".
+   */
+  async deleteUser(uuid: string): Promise<
+    { deleted_at: string; purge_at: string } | null
+  > {
     try {
-      await apiClient.delete(`/users/${uuid}`);
-      return true;
+      const { data } = await apiClient.delete<{
+        uuid: string;
+        deleted_at: string;
+        purge_at: string;
+      }>(`/users/${uuid}`);
+      return { deleted_at: data.deleted_at, purge_at: data.purge_at };
     } catch (error) {
       logger.error('Failed to delete user', { error, uuid });
+      return null;
+    }
+  },
+
+  /** Restore a soft-deleted user. Idempotent on the FE side; the
+   *  backend 409s if the user wasn't soft-deleted. */
+  async restoreUser(uuid: string): Promise<boolean> {
+    try {
+      await apiClient.post(`/users/${uuid}/restore`);
+      return true;
+    } catch (error) {
+      logger.error('Failed to restore user', { error, uuid });
+      return false;
+    }
+  },
+
+  /** Permanently delete a soft-deleted user (GDPR erasure). The
+   *  backend refuses unless `deleted_at` is already set; route the
+   *  user through `deleteUser` first if they're still active. */
+  async purgeUserNow(uuid: string): Promise<boolean> {
+    try {
+      await apiClient.delete(`/users/${uuid}/purge`);
+      return true;
+    } catch (error) {
+      logger.error('Failed to permanently delete user', { error, uuid });
       return false;
     }
   },

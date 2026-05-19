@@ -59,12 +59,34 @@ const controls = useListControls<User>({
 // list view doesn't need to warm a separate by-uuid cache. The
 // list-only Pinia Colada cache is still useful for pagination /
 // search state independent of the pool.
+// Tracks whether the "Show deleted" filter chip is active. The
+// param flows through to UserPaginationParams.deleted so the
+// backend swaps the WHERE clause; we don't filter client-side
+// because the deleted-set might span many pages.
+const showDeleted = ref(false)
+
 const page = useListPage({
   controls,
   keys: usersKeys,
-  fetchPage: (params) => userService.getPaginatedUsers(params),
+  fetchPage: (params) =>
+    userService.getPaginatedUsers({
+      ...params,
+      deleted: showDeleted.value ? 'deleted' : 'active',
+    }),
   scrollContainerRef,
-  sseEvents: ['user-updated', 'user-created', 'user-deleted'],
+  // Subscribe to the new soft-delete lifecycle events alongside
+  // the legacy user-deleted. user-soft-deleted refreshes the
+  // active view (row drops out); user-restored refreshes both
+  // active and deleted views (row appears/disappears); user-purged
+  // refreshes the deleted view (row finally gone).
+  sseEvents: [
+    'user-updated',
+    'user-created',
+    'user-deleted',
+    'user-soft-deleted',
+    'user-restored',
+    'user-purged',
+  ],
   mobileSearch: {
     placeholder: t('user-mgmt-search-placeholder'),
     createIcon: 'user',
@@ -72,6 +94,11 @@ const page = useListPage({
   },
   urlSync: { paramKeys: ['role'] },
 })
+
+function toggleShowDeleted() {
+  showDeleted.value = !showDeleted.value
+  void queryCache.invalidateQueries({ key: usersKeys.root })
+}
 
 usePageCreateAction(navigateToCreateUser)
 
@@ -145,6 +172,44 @@ async function applyRoleChange(role: string) {
   selection.clear()
   showRoleModal.value = false
 }
+
+// Per-row controls in the "Show deleted" view. Restore is one
+// click; permanent delete needs a confirm modal since it skips
+// the retention worker and there's no undo. Both invalidate the
+// user list cache so the row re-renders or disappears immediately.
+const purgeTarget = ref<User | null>(null)
+
+async function restoreUser(user: User) {
+  const ok = await userService.restoreUser(user.uuid)
+  if (ok) {
+    toast.success(t('user-mgmt-restored', { name: user.name }))
+    void queryCache.invalidateQueries({ key: usersKeys.root })
+  } else {
+    toast.error(t('user-mgmt-restore-error'))
+  }
+}
+
+async function confirmPurge() {
+  const target = purgeTarget.value
+  purgeTarget.value = null
+  if (!target) return
+  const ok = await userService.purgeUserNow(target.uuid)
+  if (ok) {
+    toast.success(t('user-mgmt-purged', { name: target.name }))
+    void queryCache.invalidateQueries({ key: usersKeys.root })
+  } else {
+    toast.error(t('user-mgmt-purge-error'))
+  }
+}
+
+function formatPurgeAt(deletedAt: string): string {
+  const dt = new Date(deletedAt)
+  // 30-day grace matches NOSDESK_USER_PURGE_GRACE_DAYS default;
+  // close enough for the chip — the real countdown lives on the
+  // detail view.
+  dt.setDate(dt.getDate() + 30)
+  return dt.toLocaleDateString(undefined, { dateStyle: 'medium' })
+}
 </script>
 
 <template>
@@ -168,11 +233,25 @@ async function applyRoleChange(role: string) {
       @retry="page.handleRetry"
     >
       <template #filters>
-        <FilterRow
-          :options="filterOptions"
-          @update="controls.handleFilterUpdate"
-          @reset="controls.resetFilters"
-        />
+        <div class="flex flex-wrap items-center gap-2">
+          <FilterRow
+            :options="filterOptions"
+            @update="controls.handleFilterUpdate"
+            @reset="controls.resetFilters"
+          />
+          <button
+            type="button"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border transition-colors whitespace-nowrap"
+            :class="
+              showDeleted
+                ? 'border-status-error/40 bg-status-error/10 text-status-error'
+                : 'border-default text-secondary hover:bg-surface-hover'
+            "
+            @click="toggleShowDeleted"
+          >
+            {{ showDeleted ? $t('user-mgmt-deleted-on') : $t('user-mgmt-deleted-off') }}
+          </button>
+        </div>
       </template>
 
       <template #empty-state>
@@ -201,13 +280,44 @@ async function applyRoleChange(role: string) {
           @row-click="navigateToUser"
         >
           <template #cell-user="{ item }">
-            <UserInfoCell
-              :user-id="item.uuid"
-              :user-name="item.name"
-              :email="item.email"
-              :avatar="item.avatar_thumb || item.avatar_url"
-              :show-avatar="true"
-            />
+            <div class="flex items-center gap-2">
+              <UserInfoCell
+                :user-id="item.uuid"
+                :user-name="item.name"
+                :email="item.email"
+                :avatar="item.avatar_thumb || item.avatar_url"
+                :show-avatar="true"
+              />
+              <span
+                v-if="item.deleted_at"
+                class="inline-flex items-center rounded bg-status-error/10 px-1.5 py-0.5 text-xs font-medium text-status-error whitespace-nowrap"
+                :title="$t('user-mgmt-deleted-purges-on', { date: formatPurgeAt(item.deleted_at) })"
+              >
+                {{ $t('user-mgmt-deleted-badge') }}
+              </span>
+              <template v-if="item.deleted_at">
+                <button
+                  type="button"
+                  class="ml-1 rounded p-1 text-secondary hover:bg-surface-hover hover:text-primary"
+                  :title="$t('user-mgmt-restore')"
+                  @click.stop="restoreUser(item)"
+                >
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 010 16v-3M3 10l4-4M3 10l4 4" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="rounded p-1 text-secondary hover:bg-status-error/10 hover:text-status-error"
+                  :title="$t('user-mgmt-purge-now')"
+                  @click.stop="purgeTarget = item"
+                >
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </template>
+            </div>
           </template>
 
           <template #cell-role="{ item }">
@@ -319,6 +429,15 @@ async function applyRoleChange(role: string) {
       :confirm-label="$t('user-mgmt-bulk-delete-count', { count: selection.selectedCount.value })"
       @confirm="confirmDelete"
       @close="showDeleteConfirm = false"
+    />
+
+    <BulkConfirmDialog
+      :show="purgeTarget !== null"
+      :title="$t('user-mgmt-purge-title')"
+      :message="$t('user-mgmt-purge-message', { name: purgeTarget?.name ?? '' })"
+      :confirm-label="$t('user-mgmt-purge-confirm')"
+      @confirm="confirmPurge"
+      @close="purgeTarget = null"
     />
 
     <Modal

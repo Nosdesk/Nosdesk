@@ -1470,10 +1470,24 @@ user-mgmt-bulk-delete-title = { $count ->
    *[other] Supprimer { $count } utilisateurs ?
 }
 user-mgmt-bulk-delete-message = { $count ->
-    [one] Cela supprimera définitivement un utilisateur. Cette action est irréversible.
-   *[other] Cela supprimera définitivement { $count } utilisateurs. Cette action est irréversible.
+    [one] Supprimer un utilisateur ? Il sera restaurable pendant 30 jours, puis définitivement supprimé.
+   *[other] Supprimer { $count } utilisateurs ? Ils seront restaurables pendant 30 jours, puis définitivement supprimés.
 }
 user-mgmt-bulk-action-error = Échec de l'action groupée. Veuillez réessayer.
+# TODO native-review fr-FR for the soft-delete keys below.
+user-mgmt-deleted-off = Afficher les supprimés
+user-mgmt-deleted-on = Masquer les supprimés
+user-mgmt-deleted-badge = Supprimé
+user-mgmt-deleted-purges-on = Suppression définitive le { $date }
+user-mgmt-restore = Restaurer l'utilisateur
+user-mgmt-restored = { $name } restauré
+user-mgmt-restore-error = Impossible de restaurer cet utilisateur.
+user-mgmt-purge-now = Supprimer définitivement
+user-mgmt-purged = { $name } supprimé définitivement
+user-mgmt-purge-error = Impossible de supprimer définitivement cet utilisateur.
+user-mgmt-purge-title = Supprimer définitivement l'utilisateur ?
+user-mgmt-purge-message = Supprimer définitivement { $name } ? Cela ignore la fenêtre de restauration de 30 jours et est irréversible.
+user-mgmt-purge-confirm = Supprimer définitivement
 user-mgmt-role-modal-title = Définir le rôle
 user-mgmt-role-modal-body = { $count ->
     [one] Modifier le rôle de { $count } utilisateur
