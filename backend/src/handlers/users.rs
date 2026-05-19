@@ -944,7 +944,11 @@ pub async fn delete_user(
     }
 
     // Delete the user
-    match repository::delete_user(&target_user.uuid, &mut conn, Some(search_service.get_ref())) {
+    match repository::users::purge_user(
+        &target_user.uuid,
+        &mut conn,
+        Some(search_service.get_ref()),
+    ) {
         Ok(count) if count > 0 => {
             info!(
                 "User deleted successfully: {} (uuid={})",
@@ -2506,7 +2510,7 @@ pub async fn bulk_users(
                     Err(_) => continue,
                 };
 
-                match repository::users::delete_user(
+                match repository::users::purge_user(
                     &uuid,
                     &mut conn,
                     Some(search_service.get_ref()),

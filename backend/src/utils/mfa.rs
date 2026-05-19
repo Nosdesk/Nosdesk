@@ -506,6 +506,7 @@ mod tests {
             mfa_enabled: false,
             mfa_backup_codes: None,
             feature_flag_overrides: serde_json::json!({}),
+            deleted_at: None,
         };
 
         assert!(!user_has_mfa_enabled(&base_user));

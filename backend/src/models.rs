@@ -1414,6 +1414,15 @@ pub struct User {
     /// Stays on `users` (not in `user_preferences`) because it's
     /// an admin-set override, not a user-chosen preference.
     pub feature_flag_overrides: serde_json::Value,
+    /// Set when an admin soft-deletes the user. Non-null rows are
+    /// hidden from "find an active user" code paths (login, mention
+    /// search, assignee pickers, the default paginated list) and
+    /// scheduled for purge by the retention worker once
+    /// `deleted_at + NOSDESK_USER_PURGE_GRACE_DAYS` has elapsed.
+    /// Historical references (audit log, ticket history) keep
+    /// rendering the user so the record stays coherent during the
+    /// window.
+    pub deleted_at: Option<NaiveDateTime>,
 }
 
 // New user for creation

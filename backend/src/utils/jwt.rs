@@ -597,6 +597,7 @@ mod tests {
             updated_at: chrono::Utc::now().naive_utc(),
             password_changed_at: None,
             feature_flag_overrides: serde_json::json!({}),
+            deleted_at: None,
         };
 
         let sid = uuid::Uuid::new_v4();

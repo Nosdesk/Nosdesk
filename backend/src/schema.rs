@@ -1368,6 +1368,7 @@ diesel::table! {
         mfa_enabled -> Bool,
         mfa_backup_codes -> Nullable<Jsonb>,
         feature_flag_overrides -> Jsonb,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 

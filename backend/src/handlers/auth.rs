@@ -696,7 +696,7 @@ pub async fn register(
             {
                 error!(error = ?e, "Error creating auth identity");
                 // Rollback by deleting the user
-                let _ = repository::users::delete_user(
+                let _ = repository::users::purge_user(
                     &created_user.uuid,
                     &mut conn,
                     Some(search_service.get_ref()),

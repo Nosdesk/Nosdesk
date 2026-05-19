@@ -38,6 +38,7 @@ fn emit_user_event(
                 "pronouns": user.pronouns,
                 "avatar_url": user.avatar_url,
                 "avatar_thumb": user.avatar_thumb,
+                "deleted_at": user.deleted_at,
             }),
             groups: groups::workspace(),
             causation_id: None,
@@ -196,8 +197,72 @@ pub fn update_user(
     Ok(result)
 }
 
+/// Soft-delete a user: stamp `deleted_at`, emit `user.updated`,
+/// and return the updated row. The row stays in the table so
+/// historical references (tickets, audit log, plugin installs)
+/// keep resolving; the active-user query filter hides it from
+/// login + mention search + assignee pickers.
+///
+/// Restorable via [`restore_user`] until the retention worker
+/// invokes [`purge_user`] after the grace window.
+pub fn soft_delete_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<User, Error> {
+    conn.transaction::<User, Error, _>(|conn| {
+        let now = chrono::Utc::now().naive_utc();
+        let updated: User = diesel::update(users::table.find(user_uuid))
+            .set((users::deleted_at.eq(Some(now)), users::updated_at.eq(now)))
+            .get_result(conn)?;
+        // Wired via emit_user_event -> emit::record so the
+        // user.soft_deleted sync event reaches every connected client.
+        emit_user_event(conn, &updated, SyncOp::Update, "user.soft_deleted")?;
+        Ok(updated)
+    })
+}
+
+/// Inverse of [`soft_delete_user`]: clears `deleted_at` and emits
+/// `user.updated`. The user becomes visible to all active-user
+/// surfaces again. Cached sessions stay revoked (the auth gate
+/// invalidated them on soft-delete); the restored user must
+/// re-authenticate.
+pub fn restore_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<User, Error> {
+    conn.transaction::<User, Error, _>(|conn| {
+        let now = chrono::Utc::now().naive_utc();
+        let updated: User = diesel::update(users::table.find(user_uuid))
+            .set((
+                users::deleted_at.eq::<Option<chrono::NaiveDateTime>>(None),
+                users::updated_at.eq(now),
+            ))
+            .get_result(conn)?;
+        // Wired via emit_user_event -> emit::record so the
+        // user.restored sync event reaches every connected client.
+        emit_user_event(conn, &updated, SyncOp::Update, "user.restored")?;
+        Ok(updated)
+    })
+}
+
+// sync-audit-only: read-only query for the retention worker
+/// Load every soft-deleted user whose `deleted_at` is older than
+/// `before`. The retention worker calls this once per cron tick
+/// to find rows it should hand to [`purge_user`].
+pub fn list_users_pending_purge(
+    conn: &mut DbConnection,
+    before: chrono::NaiveDateTime,
+) -> Result<Vec<User>, Error> {
+    users::table
+        .filter(users::deleted_at.is_not_null())
+        .filter(users::deleted_at.lt(before))
+        .order(users::deleted_at.asc())
+        .load::<User>(conn)
+}
+
 // sync-audit-only: vestigial low-level helper; handlers use sync-wired user_helpers
-pub fn delete_user(
+/// Hard-delete a user and every row that FK-references them. Only
+/// the retention worker (after the grace window) and the
+/// registration-rollback path in auth.rs should call this. Admin
+/// "Delete" buttons route through [`soft_delete_user`] instead.
+///
+/// Renamed from `delete_user` in the soft-delete rollout so it's
+/// obvious at call sites which semantics are being requested.
+pub fn purge_user(
     user_uuid: &Uuid,
     conn: &mut DbConnection,
     observer: Option<&dyn UserDeletedObserver>,
@@ -485,7 +550,7 @@ mod tests {
         TestFixtures::create_user(&mut conn, "OtherAdmin", UserRole::Admin);
         let _ticket = TestFixtures::create_ticket(&mut conn, "ticket", Some(user.uuid), None);
 
-        let deleted = delete_user(&user.uuid, &mut conn, None).unwrap();
+        let deleted = purge_user(&user.uuid, &mut conn, None).unwrap();
         assert_eq!(deleted, 1);
 
         let result = get_user_by_uuid(&user.uuid, &mut conn);
