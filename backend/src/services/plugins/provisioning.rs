@@ -17,6 +17,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::db::DbConnection;
 use crate::services::plugins::{install, signing, trust};
+use crate::sync::actor::ActorContext;
+use crate::sync::session as actor_session;
 
 /// Directory scanned for signed plugin zips on startup.
 /// Default plugins directory. The container image's compose mount
@@ -279,7 +281,17 @@ fn provision_zip(conn: &mut DbConnection, zip_path: &Path, label: &str) -> Provi
         skip_if_unchanged: true,
     };
 
-    match install::install_verified(conn, &files, signer, tier, options) {
+    // System actor so the audit_log row carries an attribution
+    // ("plugin_provisioner") rather than a NULL actor_uuid. The
+    // install_verified transaction becomes a savepoint that
+    // inherits the GUCs set by with_actor_context.
+    let actor = ActorContext::system("plugin_provisioner");
+    let result = actor_session::with_actor_context::<_, install::InstallError>(
+        conn,
+        &actor,
+        |conn| install::install_verified(conn, &files, signer, tier, options),
+    );
+    match result {
         Ok(install::InstallOutcome::Created(p)) => ProvisionResult::Created(p.name),
         Ok(install::InstallOutcome::Updated(p)) => ProvisionResult::Updated(p.name),
         Ok(install::InstallOutcome::Unchanged(p)) => ProvisionResult::Unchanged(p.name),

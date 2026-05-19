@@ -19,6 +19,7 @@ use crate::models::{
 };
 use crate::repository::plugins as plugin_repo;
 use crate::services::plugins::{install, registry, signing, trust};
+use crate::sync::session as actor_session;
 use crate::utils::encryption;
 use crate::utils::rbac::require_admin;
 
@@ -192,14 +193,26 @@ pub async fn update_plugin(
     // transition + activity log are atomic, the (state, action)
     // pair is exhaustively legality-checked, and a quarantined
     // plugin can't be silently un-quarantined via this endpoint.
+    //
+    // Wrap the call in `with_actor_context` so the audit_log_trigger
+    // on the `plugins` table captures *who* flipped the state, not
+    // just that the row changed. lifecycle::apply already runs its
+    // own transaction; the actor GUCs set here propagate through
+    // the nested savepoint via SET LOCAL semantics.
     if let Some(enabled) = body.enabled {
         let action = if enabled {
             crate::services::plugins::lifecycle::PluginAction::Enable
         } else {
             crate::services::plugins::lifecycle::PluginAction::Disable
         };
-        match crate::services::plugins::lifecycle::apply(&mut conn, plugin_uuid, action, user_uuid)
-        {
+        let actor = helpers::actor_for(&req, "plugins_admin");
+        let result = actor_session::with_actor_context::<
+            _,
+            crate::services::plugins::lifecycle::ActionError,
+        >(&mut conn, &actor, |conn| {
+            crate::services::plugins::lifecycle::apply(conn, plugin_uuid, action, user_uuid)
+        });
+        match result {
             Ok(_) => {}
             Err(crate::services::plugins::lifecycle::ActionError::NoSuchPlugin) => {
                 return errors::not_found_msg("Plugin not found");
@@ -300,7 +313,17 @@ pub async fn uninstall_plugin(
         }
     };
 
-    match crate::services::plugins::lifecycle::apply(&mut conn, plugin_uuid, action, actor) {
+    // Same actor-context pattern as update_plugin: the audit
+    // trigger on `plugins` records *who* uninstalled, not just
+    // that the row changed (or was deleted, for cascade).
+    let actor_ctx = helpers::actor_for(&req, "plugins_admin");
+    let outcome_result = actor_session::with_actor_context::<
+        _,
+        crate::services::plugins::lifecycle::ActionError,
+    >(&mut conn, &actor_ctx, |conn| {
+        crate::services::plugins::lifecycle::apply(conn, plugin_uuid, action, actor)
+    });
+    match outcome_result {
         Ok(outcome) => {
             // Bundle bytes live inline on the plugin row, so cascade
             // uninstall removes them via FK cascade and preserve
@@ -922,12 +945,18 @@ pub async fn install_plugin_from_zip(
         skip_if_unchanged: false,
     };
 
-    let outcome =
-        match install::install_verified(&mut conn, &verified.files, signer, resolved_tier, options)
-        {
-            Ok(o) => o,
-            Err(e) => return install_error_to_response(e),
-        };
+    // Attribute the install in audit_log via the actor GUCs.
+    // install_verified runs its own transaction; the GUCs set
+    // here propagate down through SET LOCAL.
+    let actor = helpers::actor_for(&req, "plugins_admin");
+    let outcome = match actor_session::with_actor_context::<_, install::InstallError>(
+        &mut conn,
+        &actor,
+        |conn| install::install_verified(conn, &verified.files, signer, resolved_tier, options),
+    ) {
+        Ok(o) => o,
+        Err(e) => return install_error_to_response(e),
+    };
 
     let was_create = matches!(outcome, install::InstallOutcome::Created(_));
     let plugin = match outcome {
@@ -1295,8 +1324,14 @@ pub async fn install_from_registry(
         provision_settings: false,
         skip_if_unchanged: false,
     };
-    let outcome = match install::install_verified(&mut conn, &verified.files, signer, tier, options)
-    {
+    // Same actor-context wrap as the zip-upload path: pin the
+    // installer to the admin who clicked through the registry UI.
+    let actor = helpers::actor_for(&req, "plugins_admin");
+    let outcome = match actor_session::with_actor_context::<_, install::InstallError>(
+        &mut conn,
+        &actor,
+        |conn| install::install_verified(conn, &verified.files, signer, tier, options),
+    ) {
         Ok(o) => o,
         Err(e) => return install_error_to_response(e),
     };

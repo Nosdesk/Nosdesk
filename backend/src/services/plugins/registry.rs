@@ -33,7 +33,6 @@ use std::time::Duration;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use diesel::Connection;
 use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -42,6 +41,8 @@ use tracing::{debug, error, info, warn};
 use crate::db::{DbConnection, Pool};
 use crate::models::{NewTrustedPublisher, PluginRegistryStateUpdate};
 use crate::repository::plugin_publishers;
+use crate::sync::actor::ActorContext;
+use crate::sync::session as actor_session;
 
 /// Default registry URL. Set `NOSDESK_REGISTRY_URL=""` to disable
 /// registry sync entirely (air-gapped deployments).
@@ -348,7 +349,13 @@ pub async fn sync_once(
         // reconcile + state bump must commit together so a crash
         // between them can't leave the version counter regressed
         // relative to the publisher set we just applied.
-        conn.transaction::<_, RegistryError, _>(|tx| {
+        //
+        // Open the transaction via with_actor_context so the
+        // audit_log_trigger on plugin_trusted_publishers attributes
+        // every publisher INSERT/UPDATE/DELETE to a named system
+        // actor instead of NULL.
+        let actor = ActorContext::system("plugin_registry_sync");
+        actor_session::with_actor_context::<_, RegistryError>(&mut conn, &actor, |tx| {
             reconcile(tx, &publishers, &index)?;
             plugin_publishers::update_registry_state(
                 tx,
