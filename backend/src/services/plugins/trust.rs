@@ -7,7 +7,7 @@
 //! on purpose, since this layer touches the database and the
 //! compiled-in root key whereas signing stays pure.
 
-use tracing::error;
+use tracing::{error, info, warn};
 
 use crate::db::DbConnection;
 use crate::repository::plugin_publishers;
@@ -160,7 +160,20 @@ impl From<diesel::result::Error> for TrustError {
 /// is authoritative), but rejecting mismatches catches misconfigured
 /// signers early and denies attackers a confusing state where the
 /// envelope advertises one tier while the row stores another.
+///
+/// Emits one tracing event per call with a stable `outcome` label
+/// so log pipelines can build per-outcome counters / alerts (the
+/// review's day-1 observability requirement for the verifier).
 pub fn resolve(
+    conn: &mut DbConnection,
+    envelope: &SignatureEnvelope,
+) -> Result<ResolvedTier, TrustError> {
+    let result = resolve_logged(conn, envelope);
+    log_resolve_outcome(envelope, &result);
+    result
+}
+
+fn resolve_logged(
     conn: &mut DbConnection,
     envelope: &SignatureEnvelope,
 ) -> Result<ResolvedTier, TrustError> {
@@ -174,6 +187,47 @@ pub fn resolve(
     }
     enforce_tier_policy(&tier)?;
     Ok(tier)
+}
+
+/// Stable `outcome=` label per resolution outcome. Success cases
+/// carry the resolved tier; error cases carry the rejection reason.
+/// Kept as `&'static str` so log queries match exact strings.
+fn outcome_label(result: &Result<ResolvedTier, TrustError>) -> &'static str {
+    match result {
+        Ok(ResolvedTier::Official) => "resolved_official",
+        Ok(ResolvedTier::Verified) => "resolved_verified",
+        Ok(ResolvedTier::Community) => "resolved_community",
+        Ok(ResolvedTier::Local) => "resolved_local",
+        Err(TrustError::UntrustedSigner) => "untrusted_signer",
+        Err(TrustError::RevokedPublisher) => "revoked_publisher",
+        Err(TrustError::SourceMismatch { .. }) => "source_mismatch",
+        Err(TrustError::DisallowedTier { .. }) => "disallowed_tier",
+        Err(TrustError::Db(_)) => "db_error",
+    }
+}
+
+fn log_resolve_outcome(envelope: &SignatureEnvelope, result: &Result<ResolvedTier, TrustError>) {
+    // Fingerprint the claimed pubkey for the log only. Decoding can
+    // fail if the envelope is malformed, but at this point the
+    // signing verifier has already accepted the bytes so it should
+    // be well-formed; fall back to a stable placeholder otherwise.
+    let fp = signing::decode_pubkey_fingerprint(&envelope.signer_pubkey)
+        .unwrap_or_else(|| "(unparsed)".to_string());
+    let outcome = outcome_label(result);
+    match result {
+        Ok(_) => info!(
+            outcome,
+            fingerprint = %fp,
+            claimed_source = %envelope.signer_source,
+            "Plugin trust resolved"
+        ),
+        Err(_) => warn!(
+            outcome,
+            fingerprint = %fp,
+            claimed_source = %envelope.signer_source,
+            "Plugin trust rejected"
+        ),
+    }
 }
 
 /// Reject tiers that the instance has disabled.

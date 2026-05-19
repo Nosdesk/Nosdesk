@@ -314,9 +314,63 @@ pub fn find_entry<'a>(files: &'a [ArchiveEntry], name: &str) -> Option<&'a [u8]>
 /// verified archive for the caller to resolve against an authority
 /// chain. Returns `VerifiedArchive` with the pubkey still in the
 /// envelope — trust resolution is NOT this module's job.
+///
+/// Every call emits exactly one tracing event with a stable
+/// `outcome` field so log aggregation can build per-outcome
+/// counters without parsing the human-readable message.
 pub fn verify_archive(bytes: &[u8]) -> Result<VerifiedArchive, SigningError> {
-    let entries = read_archive(bytes)?;
-    verify_entries(entries)
+    let result = (|| -> Result<VerifiedArchive, SigningError> {
+        let entries = read_archive(bytes)?;
+        verify_entries(entries)
+    })();
+    log_verify_outcome(&result);
+    result
+}
+
+/// Stable `outcome=` label per `SigningError` variant. Kept as a
+/// `&'static str` so log queries can match exact strings without
+/// worrying about Display drift; the human-facing message lives in
+/// [`SigningError::fmt`].
+fn outcome_label(err: &SigningError) -> &'static str {
+    match err {
+        SigningError::ArchiveFormat(_) => "archive_format",
+        SigningError::DuplicateEntry(_) => "duplicate_entry",
+        SigningError::DecompressedTooLarge => "decompressed_too_large",
+        SigningError::EnvelopeTooLarge => "envelope_too_large",
+        SigningError::MissingSignature => "missing_signature",
+        SigningError::MalformedEnvelope(_) => "malformed_envelope",
+        SigningError::UnsupportedVersion(_) => "unsupported_version",
+        SigningError::UnsupportedAlgorithm(_) => "unsupported_algorithm",
+        SigningError::TamperedArchive => "tampered_archive",
+        SigningError::BadSignature => "bad_signature",
+        SigningError::InvalidPubkey => "invalid_pubkey",
+        SigningError::InvalidSignatureField => "invalid_signature_field",
+        SigningError::KeyGen(_) => "key_gen",
+    }
+}
+
+fn log_verify_outcome(result: &Result<VerifiedArchive, SigningError>) {
+    match result {
+        Ok(v) => {
+            // Decode + fingerprint for the log only; if the pubkey
+            // string is malformed the verifier would have errored
+            // before reaching here, so default is safe.
+            let fp = decode_pubkey_fingerprint(&v.envelope.signer_pubkey).unwrap_or_default();
+            tracing::info!(
+                outcome = "verified",
+                signer_source = %v.envelope.signer_source,
+                fingerprint = %fp,
+                "Plugin signature verified"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                outcome = outcome_label(e),
+                error = %e,
+                "Plugin signature rejected"
+            );
+        }
+    }
 }
 
 /// Verify a pre-materialised set of archive entries. Used when the
@@ -397,6 +451,14 @@ pub fn sign_entries(
         signed_digest: digest_hex,
         signature: base64_encode(signature.as_ref()),
     }
+}
+
+/// Decode a base64 pubkey from an envelope and return its
+/// fingerprint, or `None` if decoding fails. Used by the trust
+/// resolver and verify outcome logging; centralised here so
+/// `base64_decode` can stay module-private.
+pub fn decode_pubkey_fingerprint(b64_pubkey: &str) -> Option<String> {
+    base64_decode(b64_pubkey).ok().map(|b| fingerprint(&b))
 }
 
 /// Compute the fingerprint shown in admin UIs for a pubkey. First 8
