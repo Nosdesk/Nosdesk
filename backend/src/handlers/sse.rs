@@ -173,6 +173,27 @@ pub enum SseEvent {
         user_uuid: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// User row stamped with `deleted_at`. Active surfaces drop
+    /// them; the row stays in the table for the retention window.
+    UserSoftDeleted {
+        user_uuid: String,
+        deleted_at: chrono::NaiveDateTime,
+        purge_at: chrono::NaiveDateTime,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    /// Admin restored a soft-deleted user. Active surfaces start
+    /// rendering them again on the next sync delta.
+    UserRestored {
+        user_uuid: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    /// Retention worker (or admin permanent-delete) hard-deleted
+    /// the row. Frontends drop the row from caches; this is the
+    /// "really gone" signal, distinct from soft-delete.
+    UserPurged {
+        user_uuid: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     Heartbeat {
         timestamp: chrono::DateTime<chrono::Utc>,
     },
@@ -224,6 +245,9 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::UserUpdated { .. } => "user-updated",
         SseEvent::UserCreated { .. } => "user-created",
         SseEvent::UserDeleted { .. } => "user-deleted",
+        SseEvent::UserSoftDeleted { .. } => "user-soft-deleted",
+        SseEvent::UserRestored { .. } => "user-restored",
+        SseEvent::UserPurged { .. } => "user-purged",
         SseEvent::Heartbeat { .. } => "heartbeat",
         SseEvent::NotificationReceived { .. } => "notification-received",
         SseEvent::SyncActions { .. } => "sync-actions",

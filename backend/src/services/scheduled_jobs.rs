@@ -14,11 +14,14 @@
 //! normally. These jobs are maintenance — transient failures are
 //! expected and not fatal.
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::db::Pool;
 use crate::repository::{active_sessions, refresh_tokens};
+use crate::services::search::SearchService;
 
 /// Delete rows from `active_sessions` whose `expires_at` is in the
 /// past. One-liner today; kept here (rather than being a closure in
@@ -205,5 +208,78 @@ pub async fn sweep_outbound_email_leases(pool: Pool) -> Result<()> {
             "scheduler: outbound_emails leases swept (worker crash recovery)"
         );
     }
+    Ok(())
+}
+
+/// Hard-delete soft-deleted users whose grace window has elapsed.
+/// The single + bulk delete handlers stamp `users.deleted_at`; this
+/// worker is the only path that runs the destructive cascade for
+/// those rows after the configurable retention window
+/// (`NOSDESK_USER_PURGE_GRACE_DAYS`, default 30).
+///
+/// Each purge gets its own savepoint via `with_actor_context` so an
+/// FK violation on one user doesn't abort the whole sweep. The
+/// "user_purge_worker" system actor lands in the audit_log for
+/// every purged row so the eventual hard-delete is traceable.
+///
+/// Search-index removal flows through the same
+/// `UserDeletedObserver` the admin-initiated purge uses, so a row
+/// purged by the worker disappears from search at the same moment
+/// it disappears from the table.
+pub async fn purge_soft_deleted_users(
+    pool: Pool,
+    search: Arc<SearchService>,
+    sse_state: Arc<crate::handlers::sse::SseState>,
+) -> Result<()> {
+    let mut conn = pool.get().context("db pool")?;
+    let grace = crate::repository::users::purge_grace_window();
+    let cutoff = chrono::Utc::now().naive_utc() - grace;
+    let pending = crate::repository::users::list_users_pending_purge(&mut conn, cutoff)
+        .context("list pending purges")?;
+    if pending.is_empty() {
+        return Ok(());
+    }
+
+    let actor = crate::sync::actor::ActorContext::system("user_purge_worker");
+    let mut purged = 0usize;
+    let mut failed = 0usize;
+    for user in pending {
+        let result = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |conn| crate::repository::users::purge_user(&user.uuid, conn, Some(&search)),
+        );
+        match result {
+            Ok(_) => {
+                purged += 1;
+                info!(
+                    user_uuid = %user.uuid,
+                    name = %user.name,
+                    deleted_at = ?user.deleted_at,
+                    "user_purge_worker: purged"
+                );
+                sse_state
+                    .broadcast_event(crate::handlers::sse::SseEvent::UserPurged {
+                        user_uuid: user.uuid.to_string(),
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await;
+            }
+            Err(e) => {
+                failed += 1;
+                warn!(
+                    user_uuid = %user.uuid,
+                    error = ?e,
+                    "user_purge_worker: purge failed (will retry next tick)"
+                );
+            }
+        }
+    }
+    info!(
+        purged,
+        failed,
+        grace_days = grace.num_days(),
+        "scheduler: soft-deleted users sweep complete"
+    );
     Ok(())
 }

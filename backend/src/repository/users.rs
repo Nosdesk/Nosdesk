@@ -272,8 +272,7 @@ pub fn soft_delete_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<Use
         let updated: User = diesel::update(users::table.find(user_uuid))
             .set((users::deleted_at.eq(Some(now)), users::updated_at.eq(now)))
             .get_result(conn)?;
-        // Wired via emit_user_event -> emit::record so the
-        // user.soft_deleted sync event reaches every connected client.
+        // emit::record fires inside emit_user_event.
         emit_user_event(conn, &updated, SyncOp::Update, "user.soft_deleted")?;
         Ok(updated)
     })
@@ -293,8 +292,7 @@ pub fn restore_user(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<User, E
                 users::updated_at.eq(now),
             ))
             .get_result(conn)?;
-        // Wired via emit_user_event -> emit::record so the
-        // user.restored sync event reaches every connected client.
+        // emit::record fires inside emit_user_event.
         emit_user_event(conn, &updated, SyncOp::Update, "user.restored")?;
         Ok(updated)
     })

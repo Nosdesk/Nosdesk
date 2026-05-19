@@ -156,6 +156,14 @@ impl WebhookEventType {
             SseEvent::UserCreated { .. } => Some(Self::UserCreated),
             SseEvent::UserUpdated { .. } => Some(Self::UserUpdated),
             SseEvent::UserDeleted { .. } => Some(Self::UserDeleted),
+            // Soft-delete is the customer-facing "user is gone"
+            // signal subscribers should react to. Purge fires
+            // ~30 days later as a no-op for webhook consumers
+            // (the user is already gone from their perspective).
+            // Restore is rare and has no webhook contract yet.
+            SseEvent::UserSoftDeleted { .. } => Some(Self::UserDeleted),
+            SseEvent::UserPurged { .. } => None,
+            SseEvent::UserRestored { .. } => None,
             // Internal events not exposed to webhooks
             SseEvent::CollectionUpdated { .. } => None,
             SseEvent::Heartbeat { .. } => None,

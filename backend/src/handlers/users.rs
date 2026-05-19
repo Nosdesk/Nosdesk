@@ -825,54 +825,58 @@ pub async fn create_user(
     }
 }
 
-/// Soft-delete a user. Sets `users.deleted_at` and emits the
-/// sync event so the frontend strikes the row from its active
-/// lists. The destructive hard-delete runs after the retention
-/// window via the `user_purge_worker`; until then an admin can
-/// restore via `POST /admin/users/{uuid}/restore`.
-///
-/// No password / MFA prompt: the survey of major helpdesks
-/// (Zendesk, Freshdesk, JSM, ServiceNow, HubSpot) found zero
-/// products gate user deletion per-action. Defense here is
-/// role + audit log + restore window, the same pattern Google
-/// and Salesforce ship. Pairs with the equivalent change to
-/// bulk delete so single and batch flows share one primitive.
+/// Common prelude for the three single-target admin endpoints
+/// (`delete_user`, `restore_user`, `purge_user_now`): pull
+/// claims, require admin role, parse the path UUID, and fetch
+/// the target row. Returns `(claims, uuid, target_user)` on the
+/// happy path or the formed `HttpResponse` to short-circuit on.
+fn require_admin_target(
+    req: &HttpRequest,
+    conn: &mut DbConnection,
+    raw_uuid: &str,
+) -> Result<(crate::models::Claims, Uuid, crate::models::User), HttpResponse> {
+    let claims = req
+        .extensions()
+        .get::<crate::models::Claims>()
+        .cloned()
+        .ok_or_else(|| errors::unauthorized("Authentication required"))?;
+    if claims.role != "admin" {
+        return Err(errors::forbidden(
+            "Only administrators can perform this action",
+        ));
+    }
+    let user_uuid =
+        utils::parse_uuid(raw_uuid).map_err(|_| errors::bad_request("Invalid UUID format"))?;
+    let target = repository::get_user_by_uuid(&user_uuid, conn)
+        .map_err(|_| errors::not_found_msg("User not found"))?;
+    Ok((claims, user_uuid, target))
+}
+
+/// Soft-delete a user. Stamps `users.deleted_at`, emits a sync
+/// event so frontends drop the row from active surfaces, and
+/// schedules the destructive cascade via the
+/// `user_purge_worker` after the configured retention window.
+/// Restorable via `POST /admin/users/{uuid}/restore` until purge.
 pub async fn delete_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     req: HttpRequest,
 ) -> impl Responder {
-    let user_uuid = uuid.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-    if claims.role != "admin" {
-        return errors::forbidden("Only administrators can delete users");
-    }
+    let (claims, user_uuid_parsed, target_user) =
+        match require_admin_target(&req, &mut conn, uuid.as_str()) {
+            Ok(t) => t,
+            Err(resp) => return resp,
+        };
 
-    let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
-        Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
-    };
-
-    let target_user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
-        Ok(user) => user,
-        Err(_) => return errors::not_found_msg("User not found"),
-    };
-
-    if claims.sub == user_uuid {
+    if claims.sub == uuid.as_str() {
         return errors::bad_request("You cannot delete your own account while logged in");
     }
-    // Admin accounts stay protected — soft-deleting an admin is
-    // still recoverable but should be a deliberate operator
-    // decision (and a hand-edited DB column is the escape hatch).
     if target_user.role == crate::models::UserRole::Admin {
         return errors::bad_request(
             "Administrator accounts cannot be deleted for security reasons",
@@ -886,7 +890,7 @@ pub async fn delete_user(
     let soft_deleted = match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
         &mut conn,
         &actor,
-        |conn| repository::users::soft_delete_user(&target_user.uuid, conn),
+        |conn| repository::users::soft_delete_user(&user_uuid_parsed, conn),
     ) {
         Ok(u) => u,
         Err(e) => {
@@ -911,17 +915,16 @@ pub async fn delete_user(
         "User soft-deleted"
     );
 
-    // Existing SSE consumers (search index reindex, list view
-    // refresh) already react to UserDeleted. The sync substrate
-    // also carries user.soft_deleted with the new deleted_at
-    // field so frontends rendering via useReference<User> flip
-    // to the "deleted" presentation automatically.
-    sse_state
-        .broadcast_event(crate::handlers::sse::SseEvent::UserDeleted {
-            user_uuid: user_uuid.clone(),
-            timestamp: chrono::Utc::now(),
-        })
-        .await;
+    if let (Some(deleted_at), Some(purge_at)) = (soft_deleted.deleted_at, purge_at) {
+        sse_state
+            .broadcast_event(crate::handlers::sse::SseEvent::UserSoftDeleted {
+                user_uuid: user_uuid_parsed.to_string(),
+                deleted_at,
+                purge_at,
+                timestamp: chrono::Utc::now(),
+            })
+            .await;
+    }
 
     HttpResponse::Ok().json(json!({
         "uuid": soft_deleted.uuid,
@@ -946,23 +949,11 @@ pub async fn restore_user(
         Err(e) => return e,
     };
 
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-    if claims.role != "admin" {
-        return errors::forbidden("Only administrators can restore users");
-    }
-
-    let user_uuid_parsed = match utils::parse_uuid(uuid.as_str()) {
-        Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
-    };
-
-    let target = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
-        Ok(u) => u,
-        Err(_) => return errors::not_found_msg("User not found"),
-    };
+    let (_claims, user_uuid_parsed, target) =
+        match require_admin_target(&req, &mut conn, uuid.as_str()) {
+            Ok(t) => t,
+            Err(resp) => return resp,
+        };
     if target.deleted_at.is_none() {
         return errors::conflict("User is not soft-deleted");
     }
@@ -982,7 +973,7 @@ pub async fn restore_user(
 
     info!(user_uuid = %restored.uuid, name = %restored.name, "User restored");
     sse_state
-        .broadcast_event(crate::handlers::sse::SseEvent::UserDeleted {
+        .broadcast_event(crate::handlers::sse::SseEvent::UserRestored {
             user_uuid: restored.uuid.to_string(),
             timestamp: chrono::Utc::now(),
         })
@@ -1015,23 +1006,11 @@ pub async fn purge_user_now(
         Err(e) => return e,
     };
 
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-    if claims.role != "admin" {
-        return errors::forbidden("Only administrators can permanently delete users");
-    }
-
-    let user_uuid_parsed = match utils::parse_uuid(uuid.as_str()) {
-        Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
-    };
-
-    let target = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
-        Ok(u) => u,
-        Err(_) => return errors::not_found_msg("User not found"),
-    };
+    let (claims, user_uuid_parsed, target) =
+        match require_admin_target(&req, &mut conn, uuid.as_str()) {
+            Ok(t) => t,
+            Err(resp) => return resp,
+        };
     if target.deleted_at.is_none() {
         return errors::conflict(
             "User must be soft-deleted before permanent deletion. Use DELETE /admin/users/{uuid} first.",
@@ -1062,7 +1041,7 @@ pub async fn purge_user_now(
                 "User permanently deleted by admin (skipped retention window)"
             );
             sse_state
-                .broadcast_event(crate::handlers::sse::SseEvent::UserDeleted {
+                .broadcast_event(crate::handlers::sse::SseEvent::UserPurged {
                     user_uuid: user_uuid_parsed.to_string(),
                     timestamp: chrono::Utc::now(),
                 })
@@ -2599,14 +2578,10 @@ pub async fn bulk_users(
 
     match action {
         "delete" => {
-            // Bulk soft-delete. Same primitive as the single
-            // delete handler so the two flows can't diverge: an
-            // admin who selects 50 rows in the list view gets
-            // the same 30-day restore window as someone clicking
-            // delete one at a time, and crucially neither path
-            // requires per-action MFA. See the helpdesk-industry
-            // survey notes on the single delete_user handler.
+            // Bulk soft-delete shares the same primitive as the
+            // single-delete handler so the two flows can't drift.
             let actor = helpers::actor_for(&req, "users_admin");
+            let grace = repository::users::purge_grace_window();
             let mut deleted = 0;
             let mut skipped_admin = 0;
             for id in ids {
@@ -2614,11 +2589,6 @@ pub async fn bulk_users(
                     Ok(u) => u,
                     Err(_) => continue,
                 };
-
-                // Admin-role protection per single-delete logic.
-                // Fetch the target row once so we can also skip
-                // anything already soft-deleted without surfacing
-                // it as an error.
                 let target = match repository::get_user_by_uuid(&uuid, &mut conn) {
                     Ok(u) => u,
                     Err(_) => continue,
@@ -2637,14 +2607,18 @@ pub async fn bulk_users(
                     |conn| repository::users::soft_delete_user(&uuid, conn),
                 );
                 match result {
-                    Ok(_) => {
+                    Ok(row) => {
                         deleted += 1;
-                        sse_state
-                            .broadcast_event(crate::handlers::sse::SseEvent::UserDeleted {
-                                user_uuid: id.to_string(),
-                                timestamp: chrono::Utc::now(),
-                            })
-                            .await;
+                        if let Some(deleted_at) = row.deleted_at {
+                            sse_state
+                                .broadcast_event(crate::handlers::sse::SseEvent::UserSoftDeleted {
+                                    user_uuid: id.to_string(),
+                                    deleted_at,
+                                    purge_at: deleted_at + grace,
+                                    timestamp: chrono::Utc::now(),
+                                })
+                                .await;
+                        }
                     }
                     Err(e) => {
                         error!(user_id = %id, error = ?e, "Error soft-deleting user");

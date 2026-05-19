@@ -1009,6 +1009,24 @@ async fn main() -> std::io::Result<()> {
             move || jobs::prune_sync_actions_partitions(p.clone()),
         );
 
+        // Daily: hard-delete soft-deleted users past the retention
+        // window. The cascade in repository::users::purge_user is
+        // destructive (comments / tickets get NULLed or reassigned)
+        // so the grace window (default 30 days, set via
+        // NOSDESK_USER_PURGE_GRACE_DAYS) is the operator-facing
+        // safety net. The worker re-tries failed rows on the next
+        // tick rather than aborting the sweep.
+        let p = pool.clone();
+        let s = search_service.get_ref().clone();
+        let sse = sse_state.clone().into_inner();
+        spawn_periodic(
+            "users.purge_soft_deleted",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::purge_soft_deleted_users(p.clone(), s.clone(), sse.clone()),
+        );
+
         info!("scheduler: 5 periodic jobs spawned");
     }
     let scheduler_status_data = web::Data::new(scheduler_status);
