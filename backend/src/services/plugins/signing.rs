@@ -24,9 +24,22 @@ use serde::{Deserialize, Serialize};
 /// must NOT contribute to the canonical digest.
 pub const SIGNATURE_FILE: &str = "nosdesk-signature.json";
 
-/// Current envelope schema version. Bump on breaking changes to the
-/// signed fields; verifiers should refuse unknown versions.
-pub const ENVELOPE_VERSION: u8 = 1;
+/// Current envelope schema version. Bump on breaking changes to
+/// the signed fields; verifiers refuse unknown versions but
+/// accept any version in [`SUPPORTED_ENVELOPE_VERSIONS`] so older
+/// signed plugins keep verifying through schema transitions.
+///
+/// v1 -> v2 (2026-05-19): added `not_before`/`not_after` to the
+/// envelope and the canonical signed bytes, so the signature
+/// binds the time window when present. Existing v1 envelopes
+/// continue to verify without expiry enforcement.
+pub const ENVELOPE_VERSION: u8 = 2;
+
+/// Versions a verifier will accept. Producers always emit
+/// [`ENVELOPE_VERSION`]; the verifier widens to the historical
+/// list so a customer's already-installed plugins don't break on
+/// upgrade.
+pub const SUPPORTED_ENVELOPE_VERSIONS: &[u8] = &[1, 2];
 
 /// Hard cap on any single decompressed archive entry. Plugin bundles
 /// are expected in the tens of KB; 1 MB is headroom for future minified
@@ -113,6 +126,22 @@ pub struct SignatureEnvelope {
     /// recomputes this from the zip's non-signature entries and
     /// refuses the archive if it doesn't match.
     pub signed_digest: String,
+    /// Optional RFC 3339 timestamp before which the signature is
+    /// not valid. v2 only; v1 envelopes omit. When set the verifier
+    /// refuses the archive if the current time is earlier than
+    /// `not_before`. Bound by the signature: removing or rewriting
+    /// the field invalidates the envelope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_before: Option<String>,
+    /// Optional RFC 3339 timestamp after which the signature is no
+    /// longer valid. v2 only; v1 envelopes omit. When set the
+    /// verifier refuses the archive if the current time is later
+    /// than `not_after`. Bound by the signature like `not_before`.
+    /// Lets publishers ship signatures with a known shelf life so
+    /// a stolen key can only abuse it within the window the key
+    /// owner intended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_after: Option<String>,
     /// Base64-encoded 64-byte Ed25519 signature.
     pub signature: String,
 }
@@ -158,6 +187,19 @@ pub enum SigningError {
     BadSignature,
     InvalidPubkey,
     InvalidSignatureField,
+    /// `not_before` / `not_after` malformed: must be RFC 3339.
+    MalformedValidity(String),
+    /// Current time is before the envelope's `not_before`. The
+    /// signature is real, it just isn't active yet.
+    SignatureNotYetValid {
+        not_before: String,
+    },
+    /// Current time is past the envelope's `not_after`. The
+    /// signature was valid at issue, the publisher's intent was a
+    /// shorter shelf life than now.
+    SignatureExpired {
+        not_after: String,
+    },
     KeyGen(String),
 }
 
@@ -189,6 +231,15 @@ impl std::fmt::Display for SigningError {
             Self::InvalidPubkey => write!(f, "signer_pubkey is not a valid base64 32-byte value"),
             Self::InvalidSignatureField => {
                 write!(f, "signature field is not a valid base64 64-byte value")
+            }
+            Self::MalformedValidity(m) => {
+                write!(f, "envelope not_before/not_after is not RFC 3339: {m}")
+            }
+            Self::SignatureNotYetValid { not_before } => {
+                write!(f, "signature not yet valid (not_before={not_before})")
+            }
+            Self::SignatureExpired { not_after } => {
+                write!(f, "signature expired (not_after={not_after})")
             }
             Self::KeyGen(m) => write!(f, "failed to generate signing key: {m}"),
         }
@@ -226,12 +277,44 @@ pub fn canonical_digest(entries: &[ArchiveEntry]) -> [u8; 32] {
 
 /// The exact byte sequence an Ed25519 signature covers. A
 /// domain-separator prefix keeps future uses of the same key (e.g.
-/// registry-index signing via `nosdesk-registry-v1:`) from accidentally
-/// producing cross-protocol signature confusion.
-pub fn canonical_sign_input(digest_hex: &str) -> Vec<u8> {
-    let mut out = Vec::with_capacity(64 + digest_hex.len());
-    out.extend_from_slice(b"nosdesk-plugin-v1:");
-    out.extend_from_slice(digest_hex.as_bytes());
+/// registry-index signing via `nosdesk-registry-v1:`) from
+/// accidentally producing cross-protocol signature confusion.
+///
+/// Shape per version:
+///
+/// - v1: `b"nosdesk-plugin-v1:" || digest_hex`
+/// - v2: `b"nosdesk-plugin-v2:" || digest_hex || b"|" || not_before
+///   || b"|" || not_after`, where missing expiry fields are
+///   represented as empty strings. Including them in the signed
+///   bytes binds the time window to the signature, so an attacker
+///   can't strip / forge expiry without invalidating the envelope.
+///
+/// Unknown versions are rejected by the caller before reaching
+/// here; this function is internal-only.
+fn canonical_sign_input(
+    version: u8,
+    digest_hex: &str,
+    not_before: Option<&str>,
+    not_after: Option<&str>,
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(96 + digest_hex.len());
+    match version {
+        1 => {
+            out.extend_from_slice(b"nosdesk-plugin-v1:");
+            out.extend_from_slice(digest_hex.as_bytes());
+        }
+        _ => {
+            // Defaults to v2 shape for any version we accept that
+            // isn't v1. SUPPORTED_ENVELOPE_VERSIONS is the gate;
+            // canonical_sign_input never runs on a rejected version.
+            out.extend_from_slice(b"nosdesk-plugin-v2:");
+            out.extend_from_slice(digest_hex.as_bytes());
+            out.push(b'|');
+            out.extend_from_slice(not_before.unwrap_or("").as_bytes());
+            out.push(b'|');
+            out.extend_from_slice(not_after.unwrap_or("").as_bytes());
+        }
+    }
     out
 }
 
@@ -345,6 +428,9 @@ fn outcome_label(err: &SigningError) -> &'static str {
         SigningError::BadSignature => "bad_signature",
         SigningError::InvalidPubkey => "invalid_pubkey",
         SigningError::InvalidSignatureField => "invalid_signature_field",
+        SigningError::MalformedValidity(_) => "malformed_validity",
+        SigningError::SignatureNotYetValid { .. } => "signature_not_yet_valid",
+        SigningError::SignatureExpired { .. } => "signature_expired",
         SigningError::KeyGen(_) => "key_gen",
     }
 }
@@ -395,11 +481,21 @@ pub fn verify_entries(entries: Vec<ArchiveEntry>) -> Result<VerifiedArchive, Sig
     let envelope: SignatureEnvelope = serde_json::from_slice(&envelope_bytes)
         .map_err(|e| SigningError::MalformedEnvelope(e.to_string()))?;
 
-    if envelope.version != ENVELOPE_VERSION {
+    if !SUPPORTED_ENVELOPE_VERSIONS.contains(&envelope.version) {
         return Err(SigningError::UnsupportedVersion(envelope.version));
     }
     if envelope.algorithm != "ed25519" {
         return Err(SigningError::UnsupportedAlgorithm(envelope.algorithm));
+    }
+    // v1 has no expiry concept; refuse v1 envelopes that smuggle
+    // the v2 fields. Otherwise a publisher could ship an envelope
+    // claiming version=1 (so the verifier uses v1 signed bytes
+    // shape, ignoring expiry) while UI tools render the expiry
+    // claim as if it were authoritative.
+    if envelope.version == 1 && (envelope.not_before.is_some() || envelope.not_after.is_some()) {
+        return Err(SigningError::MalformedEnvelope(
+            "v1 envelope must not contain not_before/not_after".into(),
+        ));
     }
 
     let digest = canonical_digest(&entries);
@@ -417,10 +513,23 @@ pub fn verify_entries(entries: Vec<ArchiveEntry>) -> Result<VerifiedArchive, Sig
         .filter(|v| v.len() == 64)
         .ok_or(SigningError::InvalidSignatureField)?;
 
+    let sign_bytes = canonical_sign_input(
+        envelope.version,
+        &digest_hex,
+        envelope.not_before.as_deref(),
+        envelope.not_after.as_deref(),
+    );
     let pubkey = UnparsedPublicKey::new(&ED25519, pubkey_bytes);
     pubkey
-        .verify(&canonical_sign_input(&digest_hex), &sig_bytes)
+        .verify(&sign_bytes, &sig_bytes)
         .map_err(|_| SigningError::BadSignature)?;
+
+    // Signature is valid; now enforce the time window. Parsing the
+    // RFC 3339 strings AFTER signature verification keeps the
+    // expensive expiry-checking cheap when the archive was bogus
+    // anyway, and the time window is a *policy* check rather than
+    // a cryptographic one.
+    enforce_validity_window(&envelope)?;
 
     Ok(VerifiedArchive {
         envelope,
@@ -429,19 +538,71 @@ pub fn verify_entries(entries: Vec<ArchiveEntry>) -> Result<VerifiedArchive, Sig
     })
 }
 
+/// Refuse the envelope if the current time is outside any expiry
+/// window the envelope advertises. Either bound being absent means
+/// "no constraint on that side"; both absent means "no window
+/// enforcement" (the default for v1 envelopes and for v2 envelopes
+/// whose publisher didn't opt into expiry).
+fn enforce_validity_window(envelope: &SignatureEnvelope) -> Result<(), SigningError> {
+    let now = chrono::Utc::now();
+    if let Some(s) = &envelope.not_before {
+        let nb = chrono::DateTime::parse_from_rfc3339(s)
+            .map_err(|e| SigningError::MalformedValidity(format!("not_before: {e}")))?;
+        if now < nb.with_timezone(&chrono::Utc) {
+            return Err(SigningError::SignatureNotYetValid {
+                not_before: s.clone(),
+            });
+        }
+    }
+    if let Some(s) = &envelope.not_after {
+        let na = chrono::DateTime::parse_from_rfc3339(s)
+            .map_err(|e| SigningError::MalformedValidity(format!("not_after: {e}")))?;
+        if now > na.with_timezone(&chrono::Utc) {
+            return Err(SigningError::SignatureExpired {
+                not_after: s.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Sign a set of archive entries, producing the envelope to embed.
 /// Callers typically pass the decoded archive without any prior
 /// signature entry (or with one, which `canonical_digest` ignores)
-/// and then write the returned envelope as `SIGNATURE_FILE` back into
-/// the zip.
+/// and then write the returned envelope as `SIGNATURE_FILE` back
+/// into the zip.
+///
+/// Produces an envelope at [`ENVELOPE_VERSION`] (currently v2) with
+/// no expiry constraint. Use [`sign_entries_with_validity`] to set
+/// `not_before` / `not_after`.
 pub fn sign_entries(
     entries: &[ArchiveEntry],
     signing_key: &Ed25519KeyPair,
     signer_source: &str,
 ) -> SignatureEnvelope {
+    sign_entries_with_validity(entries, signing_key, signer_source, None, None)
+}
+
+/// Sign with an explicit validity window. `not_before` and
+/// `not_after` are RFC 3339 strings; pass `None` for either bound
+/// to leave it open. Both fields are included in the canonical
+/// signed bytes so an attacker can't strip them after the fact.
+pub fn sign_entries_with_validity(
+    entries: &[ArchiveEntry],
+    signing_key: &Ed25519KeyPair,
+    signer_source: &str,
+    not_before: Option<String>,
+    not_after: Option<String>,
+) -> SignatureEnvelope {
     let digest = canonical_digest(entries);
     let digest_hex = hex::encode(digest);
-    let signature = signing_key.sign(&canonical_sign_input(&digest_hex));
+    let sign_bytes = canonical_sign_input(
+        ENVELOPE_VERSION,
+        &digest_hex,
+        not_before.as_deref(),
+        not_after.as_deref(),
+    );
+    let signature = signing_key.sign(&sign_bytes);
     SignatureEnvelope {
         version: ENVELOPE_VERSION,
         algorithm: "ed25519".into(),
@@ -449,6 +610,8 @@ pub fn sign_entries(
         signer_source: signer_source.into(),
         signed_at: chrono::Utc::now().to_rfc3339(),
         signed_digest: digest_hex,
+        not_before,
+        not_after,
         signature: base64_encode(signature.as_ref()),
     }
 }
@@ -775,6 +938,97 @@ mod tests {
         match read_archive(&zip) {
             Err(SigningError::DecompressedTooLarge) => {}
             other => panic!("expected DecompressedTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_accepts_signature_inside_validity_window() {
+        // not_before in the past, not_after in the future; the
+        // verifier should accept the archive without complaint.
+        let kp = rng_keypair();
+        let zip = make_zip(&[("manifest.json", b"{}")]);
+        let entries = read_archive(&zip).unwrap();
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let future = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let envelope =
+            sign_entries_with_validity(&entries, &kp, sources::LOCAL, Some(past), Some(future));
+        let signed = embed_envelope(&zip, &envelope);
+        let verified = verify_archive(&signed).unwrap();
+        assert!(verified.envelope.not_before.is_some());
+        assert!(verified.envelope.not_after.is_some());
+    }
+
+    #[test]
+    fn verify_rejects_expired_signature() {
+        let kp = rng_keypair();
+        let zip = make_zip(&[("manifest.json", b"{}")]);
+        let entries = read_archive(&zip).unwrap();
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let envelope =
+            sign_entries_with_validity(&entries, &kp, sources::LOCAL, None, Some(past.clone()));
+        let signed = embed_envelope(&zip, &envelope);
+        match verify_archive(&signed) {
+            Err(SigningError::SignatureExpired { not_after }) => {
+                assert_eq!(not_after, past);
+            }
+            other => panic!("expected SignatureExpired, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_rejects_signature_not_yet_valid() {
+        let kp = rng_keypair();
+        let zip = make_zip(&[("manifest.json", b"{}")]);
+        let entries = read_archive(&zip).unwrap();
+        let future = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let envelope =
+            sign_entries_with_validity(&entries, &kp, sources::LOCAL, Some(future.clone()), None);
+        let signed = embed_envelope(&zip, &envelope);
+        match verify_archive(&signed) {
+            Err(SigningError::SignatureNotYetValid { not_before }) => {
+                assert_eq!(not_before, future);
+            }
+            other => panic!("expected SignatureNotYetValid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_rejects_stripped_expiry_field() {
+        // Sign with not_after set, then remove the field from the
+        // envelope post-hoc. The canonical_sign_input for v2 binds
+        // not_after into the signed bytes, so removing it should
+        // produce BadSignature, not silently extend the lifetime.
+        let kp = rng_keypair();
+        let zip = make_zip(&[("manifest.json", b"{}")]);
+        let entries = read_archive(&zip).unwrap();
+        let future = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let mut envelope =
+            sign_entries_with_validity(&entries, &kp, sources::LOCAL, None, Some(future));
+        envelope.not_after = None;
+        let signed = embed_envelope(&zip, &envelope);
+        match verify_archive(&signed) {
+            Err(SigningError::BadSignature) => {}
+            other => panic!("expected BadSignature, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_rejects_v1_envelope_with_validity_fields() {
+        // A v1 envelope MUST NOT carry not_before/not_after, since
+        // v1 canonical_sign_input doesn't include them in the
+        // signed bytes. Without this gate a signer could ship a v1
+        // envelope with claimed expiry that the verifier silently
+        // ignored.
+        let kp = rng_keypair();
+        let zip = make_zip(&[("manifest.json", b"{}")]);
+        let entries = read_archive(&zip).unwrap();
+        let mut envelope = sign_entries(&entries, &kp, sources::LOCAL);
+        envelope.version = 1;
+        envelope.not_after = Some("2099-01-01T00:00:00Z".into());
+        let signed = embed_envelope(&zip, &envelope);
+        match verify_archive(&signed) {
+            Err(SigningError::MalformedEnvelope(_)) => {}
+            other => panic!("expected MalformedEnvelope, got {other:?}"),
         }
     }
 }
