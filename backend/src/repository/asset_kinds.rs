@@ -35,12 +35,14 @@ pub fn get_kind_by_slug(conn: &mut DbConnection, slug: &str) -> QueryResult<Asse
         .first(conn)
 }
 
+// sync-audit-only: kind registry is workspace config, not a sync aggregate. Admin pickers re-fetch on demand; coverage lives in the audit_log trigger attached in 2026-05-20-110000_attach_audit_assets
 pub fn create_kind(conn: &mut DbConnection, new_kind: NewAssetKind) -> QueryResult<AssetKind> {
     diesel::insert_into(asset_kinds::table)
         .values(&new_kind)
         .get_result(conn)
 }
 
+// sync-audit-only: kind registry is workspace config, see create_kind
 pub fn update_kind(
     conn: &mut DbConnection,
     id: i32,
@@ -52,6 +54,7 @@ pub fn update_kind(
         .get_result(conn)
 }
 
+// sync-audit-only: kind registry is workspace config, see create_kind
 /// Delete a custom (non-builtin) kind. Refuses to drop a builtin
 /// row so the seeded slugs that ship with the product stay
 /// stable across upgrades. Returns the count of rows affected

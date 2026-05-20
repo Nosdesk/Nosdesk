@@ -200,6 +200,7 @@ pub fn create_device(conn: &mut DbConnection, new_device: NewDevice) -> QueryRes
     // Wrap the INSERT + sync emit in a single transaction so a
     // crash between the two never leaves the row inserted
     // without a corresponding sync_actions event.
+    // emit::record fires inside emit_asset_event.
     conn.transaction::<Device, Error, _>(|conn| {
         let device: Device = diesel::insert_into(devices::table)
             .values(&new_device)
@@ -217,6 +218,7 @@ pub fn update_device(
     let mut update = device_update;
     update.updated_at = Some(Utc::now().naive_utc());
 
+    // emit::record fires inside emit_asset_event.
     conn.transaction::<Device, Error, _>(|conn| {
         let device: Device = diesel::update(devices::table.find(device_id))
             .set(&update)
@@ -231,6 +233,7 @@ pub fn delete_device(
     device_id: i32,
     observer: Option<&dyn DeviceDeletedObserver>,
 ) -> QueryResult<usize> {
+    // emit::record fires inside emit_asset_event.
     let count = conn.transaction::<usize, Error, _>(|conn| {
         // Capture the row before deletion so the sync payload can
         // carry the final state to subscribers that joined after
