@@ -4593,6 +4593,10 @@ async fn process_entra_device(
             purchase_date: None,
             asset_tag: None,
             updated_at: Some(chrono::Utc::now().naive_utc()),
+            kind: None,
+            attributes: None,
+            quantity: None,
+            unit: None,
         };
 
         device_repo::update_device(conn, existing.id, device_update)
@@ -4626,6 +4630,10 @@ async fn process_entra_device(
             warranty_end_date: None,
             purchase_date: None,
             asset_tag: None,
+            kind: "device".to_string(),
+            attributes: serde_json::json!({}),
+            quantity: None,
+            unit: None,
         };
 
         device_repo::create_device(conn, new_device)

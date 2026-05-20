@@ -260,6 +260,10 @@ mod tests {
             warranty_end_date: None,
             purchase_date: None,
             asset_tag: None,
+            kind: "device".to_string(),
+            attributes: serde_json::json!({}),
+            quantity: None,
+            unit: None,
         }
     }
 
@@ -314,6 +318,10 @@ mod tests {
             purchase_date: None,
             asset_tag: None,
             updated_at: None,
+            kind: None,
+            attributes: None,
+            quantity: None,
+            unit: None,
         };
 
         let updated = update_device(&mut conn, dev.id, upd).unwrap();

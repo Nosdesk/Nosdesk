@@ -17,8 +17,28 @@ use crate::db::Pool;
 use crate::models::{Claims, Device, DeviceUpdate, Group, NewDevice, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
+use crate::services::assets::{validate_for_kind, AssetValidationError};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
+
+/// Map an `AssetValidationError` to a JSON HTTP response. Bad
+/// kind slug or invalid attributes are 422 (the request was
+/// well-formed but failed semantic validation); database
+/// failures bubble up as 500.
+fn asset_validation_response(err: AssetValidationError) -> HttpResponse {
+    match err {
+        AssetValidationError::UnknownKind(slug) => {
+            errors::unprocessable_entity(format!("Unknown asset kind: {slug}"))
+        }
+        AssetValidationError::Attributes(inner) => {
+            errors::unprocessable_entity(format!("Invalid asset attributes: {inner}"))
+        }
+        AssetValidationError::Database(e) => {
+            error!(error = ?e, "Database error during asset kind validation");
+            errors::internal("Failed to validate asset attributes")
+        }
+    }
+}
 
 /// Extract the SSE client ID from the request header (for echo suppression).
 fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
@@ -567,7 +587,12 @@ pub async fn create_device(
         Err(e) => return e,
     };
 
-    match repository::create_device(&mut conn, device.into_inner()) {
+    let new_device = device.into_inner();
+    if let Err(e) = validate_for_kind(&mut conn, &new_device.kind, &new_device.attributes) {
+        return asset_validation_response(e);
+    }
+
+    match repository::create_device(&mut conn, new_device) {
         Ok(device) => {
             let device_id = device.id;
 
@@ -656,6 +681,23 @@ pub async fn update_device(
     }
 
     let update_data = device_update.into_inner();
+
+    // Validate kind/attributes coherence if either is being
+    // changed. Updates that only touch IT-desk columns don't
+    // hit the registry at all.
+    if update_data.kind.is_some() || update_data.attributes.is_some() {
+        let effective_kind = update_data
+            .kind
+            .clone()
+            .unwrap_or_else(|| existing_device.kind.clone());
+        let effective_attributes = update_data
+            .attributes
+            .clone()
+            .unwrap_or_else(|| existing_device.attributes.clone());
+        if let Err(e) = validate_for_kind(&mut conn, &effective_kind, &effective_attributes) {
+            return asset_validation_response(e);
+        }
+    }
 
     // Convert to JSON before the move for SSE broadcasting
     let update_json = serde_json::to_value(&update_data).unwrap_or_default();
@@ -838,6 +880,10 @@ pub async fn unmanage_device(
         purchase_date: None,
         asset_tag: None,
         updated_at: None,
+        kind: None,
+        attributes: None,
+        quantity: None,
+        unit: None,
     };
 
     match repository::update_device(&mut conn, device_id, update_data) {

@@ -176,24 +176,25 @@ fn validate_property_schema(name: &str, prop: &Value) -> Result<(), AttributeSch
                 }
             }
             "pattern" => {
-                let pat = value.as_str().ok_or_else(|| {
-                    AttributeSchemaError::UnsupportedKeyword {
-                        property: name.to_string(),
-                        keyword: keyword.clone(),
-                    }
-                })?;
+                let pat =
+                    value
+                        .as_str()
+                        .ok_or_else(|| AttributeSchemaError::UnsupportedKeyword {
+                            property: name.to_string(),
+                            keyword: keyword.clone(),
+                        })?;
                 Regex::new(pat).map_err(|err| AttributeSchemaError::InvalidPattern {
                     property: name.to_string(),
                     error: err.to_string(),
                 })?;
             }
             "format" => {
-                let f = value.as_str().ok_or_else(|| {
-                    AttributeSchemaError::UnsupportedKeyword {
+                let f = value
+                    .as_str()
+                    .ok_or_else(|| AttributeSchemaError::UnsupportedKeyword {
                         property: name.to_string(),
                         keyword: keyword.clone(),
-                    }
-                })?;
+                    })?;
                 if !matches!(f, "date" | "date-time" | "email" | "uri") {
                     return Err(AttributeSchemaError::UnsupportedFormat {
                         property: name.to_string(),
@@ -485,10 +486,7 @@ mod tests {
 
     #[test]
     fn enforces_enum() {
-        let s = schema_with(
-            json!({"x": {"type": "string", "enum": ["a", "b"]}}),
-            None,
-        );
+        let s = schema_with(json!({"x": {"type": "string", "enum": ["a", "b"]}}), None);
         assert!(matches!(
             validate_attributes(&s, &json!({"x": "c"})),
             Err(AttributeError::NotInEnum { .. })

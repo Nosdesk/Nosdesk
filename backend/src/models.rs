@@ -845,6 +845,21 @@ pub struct Device {
     pub unit: Option<String>,
 }
 
+/// Default kind for legacy device callers that omit `kind` from
+/// the JSON payload. Mirrors the DB-level default on
+/// `assets.kind` so existing IT-desk POST bodies keep working
+/// unchanged.
+fn default_asset_kind() -> String {
+    "device".to_string()
+}
+
+/// Default `attributes` blob for legacy callers. JSON Schema
+/// validation against the `device` builtin kind's empty
+/// attribute_schema accepts an empty object.
+fn default_asset_attributes() -> serde_json::Value {
+    serde_json::json!({})
+}
+
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
 #[diesel(table_name = crate::schema::devices)]
 pub struct NewDevice {
@@ -871,6 +886,14 @@ pub struct NewDevice {
     pub warranty_end_date: Option<NaiveDate>,
     pub purchase_date: Option<NaiveDate>,
     pub asset_tag: Option<String>,
+    #[serde(default = "default_asset_kind")]
+    pub kind: String,
+    #[serde(default = "default_asset_attributes")]
+    pub attributes: serde_json::Value,
+    #[serde(default)]
+    pub quantity: Option<bigdecimal::BigDecimal>,
+    #[serde(default)]
+    pub unit: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]
@@ -900,6 +923,10 @@ pub struct DeviceUpdate {
     pub purchase_date: Option<NaiveDate>,
     pub asset_tag: Option<String>,
     pub updated_at: Option<NaiveDateTime>,
+    pub kind: Option<String>,
+    pub attributes: Option<serde_json::Value>,
+    pub quantity: Option<Option<bigdecimal::BigDecimal>>,
+    pub unit: Option<Option<String>>,
 }
 
 /// Runtime-extensible asset-kind registry. `slug` is the value

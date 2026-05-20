@@ -617,6 +617,10 @@ pub fn import_ticket_from_json(
             warranty_end_date: None,
             purchase_date: None,
             asset_tag: None,
+            kind: "device".to_string(),
+            attributes: serde_json::json!({}),
+            quantity: None,
+            unit: None,
         };
 
         crate::repository::devices::create_device(conn, new_device)?;
