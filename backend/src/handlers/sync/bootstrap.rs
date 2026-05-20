@@ -26,8 +26,10 @@ use tracing::error;
 
 use crate::db::Pool;
 use crate::extractors::SyncContext;
-use crate::models::{Project, ProjectTicket, Ticket, User, WorkflowState};
-use crate::schema::{project_tickets, projects, tickets, user_emails, users, workflow_states};
+use crate::models::{Device, Project, ProjectTicket, Ticket, User, WorkflowState};
+use crate::schema::{
+    assets, project_tickets, projects, tickets, user_emails, users, workflow_states,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct BootstrapQuery {
@@ -193,6 +195,37 @@ fn stream_bootstrap(
                 "pronouns": user.pronouns,
                 "avatar_url": user.avatar_url,
                 "avatar_thumb": user.avatar_thumb,
+            }),
+        )?;
+    }
+
+    // Assets follow the same "ship every row up-front" pattern as
+    // users and workflow_states: every ticket linked-asset chip,
+    // device picker, and asset list view needs an id -> name
+    // lookup, and the count is bounded (~hundreds in the wild),
+    // not unbounded like tickets. Shape mirrors
+    // `repository::devices::asset_sync_payload` so frontend pool
+    // deserialisation handles bootstrap and incremental updates
+    // through one path.
+    let asset_rows: Vec<Device> = assets::table.order(assets::name.asc()).load(&mut conn)?;
+    for asset in asset_rows {
+        send(
+            tx,
+            json!({
+                "__model__": "asset",
+                "id": asset.id,
+                "name": asset.name,
+                "kind": asset.kind,
+                "hostname": asset.hostname,
+                "serial_number": asset.serial_number,
+                "manufacturer": asset.manufacturer,
+                "model": asset.model,
+                "asset_tag": asset.asset_tag,
+                "location": asset.location,
+                "primary_user_uuid": asset.primary_user_uuid,
+                "attributes": asset.attributes,
+                "quantity": asset.quantity,
+                "unit": asset.unit,
             }),
         )?;
     }

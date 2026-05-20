@@ -20,6 +20,7 @@ export type SyncAggregate =
   | 'group_membership'
   | 'plugin'
   | 'user'
+  | 'asset'
 
 export type SyncOp = 'I' | 'U' | 'D' | 'A'
 

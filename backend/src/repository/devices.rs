@@ -2,17 +2,68 @@ use chrono::Utc;
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 
 /// Observer fired after a device is deleted. Implementor removes
 /// the device from the search index so the row doesn't haunt
 /// search results after removal.
 pub trait DeviceDeletedObserver: Send + Sync {
     fn device_deleted(&self, device_id: i32);
+}
+
+/// Construct the sync-emit payload for an asset row. Shape
+/// must stay in lockstep with `sync-models/asset.json`; the
+/// frontend pool deserialises this directly into its Asset
+/// cache entry. The deviation from the wire device shape is
+/// intentional: the sync stream is the trimmed
+/// reference-cache projection (slug, name, kind, attributes),
+/// while the full REST device DTO carries Microsoft Graph and
+/// warranty columns that aren't needed for picker / chip
+/// rendering.
+fn asset_sync_payload(device: &Device) -> serde_json::Value {
+    json!({
+        "id": device.id,
+        "name": device.name,
+        "kind": device.kind,
+        "hostname": device.hostname,
+        "serial_number": device.serial_number,
+        "manufacturer": device.manufacturer,
+        "model": device.model,
+        "asset_tag": device.asset_tag,
+        "location": device.location,
+        "primary_user_uuid": device.primary_user_uuid,
+        "attributes": device.attributes,
+        "quantity": device.quantity,
+        "unit": device.unit,
+    })
+}
+
+fn emit_asset_event(
+    conn: &mut DbConnection,
+    device: &Device,
+    op: SyncOp,
+    event_type: &'static str,
+) -> QueryResult<()> {
+    emit::record(
+        conn,
+        SyncEmit {
+            aggregate: SyncAggregate::Asset,
+            aggregate_id: device.id.to_string(),
+            op,
+            event_type,
+            data: asset_sync_payload(device),
+            groups: groups::workspace(),
+            causation_id: None,
+        },
+    )?;
+    Ok(())
 }
 
 // Device operations
@@ -145,14 +196,19 @@ pub fn get_device_by_microsoft_id(
         .first(conn)
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn create_device(conn: &mut DbConnection, new_device: NewDevice) -> QueryResult<Device> {
-    diesel::insert_into(devices::table)
-        .values(&new_device)
-        .get_result(conn)
+    // Wrap the INSERT + sync emit in a single transaction so a
+    // crash between the two never leaves the row inserted
+    // without a corresponding sync_actions event.
+    conn.transaction::<Device, Error, _>(|conn| {
+        let device: Device = diesel::insert_into(devices::table)
+            .values(&new_device)
+            .get_result(conn)?;
+        emit_asset_event(conn, &device, SyncOp::Insert, "asset.created")?;
+        Ok(device)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn update_device(
     conn: &mut DbConnection,
     device_id: i32,
@@ -161,18 +217,33 @@ pub fn update_device(
     let mut update = device_update;
     update.updated_at = Some(Utc::now().naive_utc());
 
-    diesel::update(devices::table.find(device_id))
-        .set(&update)
-        .get_result(conn)
+    conn.transaction::<Device, Error, _>(|conn| {
+        let device: Device = diesel::update(devices::table.find(device_id))
+            .set(&update)
+            .get_result(conn)?;
+        emit_asset_event(conn, &device, SyncOp::Update, "asset.updated")?;
+        Ok(device)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn delete_device(
     conn: &mut DbConnection,
     device_id: i32,
     observer: Option<&dyn DeviceDeletedObserver>,
 ) -> QueryResult<usize> {
-    let count = diesel::delete(devices::table.find(device_id)).execute(conn)?;
+    let count = conn.transaction::<usize, Error, _>(|conn| {
+        // Capture the row before deletion so the sync payload can
+        // carry the final state to subscribers that joined after
+        // the row was already gone from `assets`.
+        let device: Option<Device> = devices::table.find(device_id).first(conn).optional()?;
+        let removed = diesel::delete(devices::table.find(device_id)).execute(conn)?;
+        if removed > 0 {
+            if let Some(device) = device.as_ref() {
+                emit_asset_event(conn, device, SyncOp::Delete, "asset.deleted")?;
+            }
+        }
+        Ok(removed)
+    })?;
     if count > 0 {
         if let Some(observer) = observer {
             observer.device_deleted(device_id);

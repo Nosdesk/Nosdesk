@@ -101,6 +101,98 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_groups (asset_id, group_id) {
+        asset_id -> Int4,
+        group_id -> Int4,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+        #[max_length = 50]
+        external_source -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    asset_kinds (id) {
+        id -> Int4,
+        #[max_length = 64]
+        slug -> Varchar,
+        #[max_length = 255]
+        label -> Varchar,
+        description -> Nullable<Text>,
+        #[max_length = 64]
+        icon -> Nullable<Varchar>,
+        attribute_schema -> Jsonb,
+        sort_order -> Int4,
+        is_builtin -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    assets (id) {
+        id -> Int4,
+        #[max_length = 255]
+        name -> Varchar,
+        #[max_length = 255]
+        hostname -> Nullable<Varchar>,
+        #[max_length = 100]
+        device_type -> Nullable<Varchar>,
+        #[max_length = 255]
+        serial_number -> Nullable<Varchar>,
+        #[max_length = 255]
+        manufacturer -> Nullable<Varchar>,
+        #[max_length = 255]
+        model -> Nullable<Varchar>,
+        #[max_length = 50]
+        warranty_status -> Nullable<Varchar>,
+        #[max_length = 255]
+        location -> Nullable<Varchar>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+        notes -> Nullable<Text>,
+        primary_user_uuid -> Nullable<Uuid>,
+        #[max_length = 255]
+        microsoft_device_id -> Nullable<Varchar>,
+        #[max_length = 255]
+        intune_device_id -> Nullable<Varchar>,
+        #[max_length = 255]
+        entra_device_id -> Nullable<Varchar>,
+        #[max_length = 50]
+        compliance_state -> Nullable<Varchar>,
+        last_sync_time -> Nullable<Timestamptz>,
+        #[max_length = 100]
+        operating_system -> Nullable<Varchar>,
+        #[max_length = 100]
+        os_version -> Nullable<Varchar>,
+        is_managed -> Nullable<Bool>,
+        enrollment_date -> Nullable<Timestamptz>,
+        warranty_start_date -> Nullable<Date>,
+        warranty_end_date -> Nullable<Date>,
+        purchase_date -> Nullable<Date>,
+        #[max_length = 255]
+        asset_tag -> Nullable<Varchar>,
+        #[max_length = 64]
+        kind -> Varchar,
+        attributes -> Jsonb,
+        quantity -> Nullable<Numeric>,
+        #[max_length = 32]
+        unit -> Nullable<Varchar>,
+    }
+}
+
+// Legacy aliases. Phase A renamed devices → assets in Postgres
+// but a lot of repository code still references `crate::schema::
+// devices`. These `pub use` re-exports keep those paths
+// resolving while the internal-naming sweep is deferred. Once
+// every caller switches to the canonical `assets` path these
+// can be deleted.
+pub use asset_groups as device_groups;
+pub use assets as devices;
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::AssignmentMethod;
 
@@ -367,99 +459,6 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
     }
 }
-
-diesel::table! {
-    asset_groups (asset_id, group_id) {
-        asset_id -> Int4,
-        group_id -> Int4,
-        created_at -> Timestamptz,
-        created_by -> Nullable<Uuid>,
-        #[max_length = 50]
-        external_source -> Nullable<Varchar>,
-    }
-}
-
-diesel::table! {
-    asset_kinds (id) {
-        id -> Int4,
-        #[max_length = 64]
-        slug -> Varchar,
-        #[max_length = 255]
-        label -> Varchar,
-        description -> Nullable<Text>,
-        #[max_length = 64]
-        icon -> Nullable<Varchar>,
-        attribute_schema -> Jsonb,
-        sort_order -> Int4,
-        is_builtin -> Bool,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        created_by -> Nullable<Uuid>,
-    }
-}
-
-diesel::table! {
-    assets (id) {
-        id -> Int4,
-        #[max_length = 255]
-        name -> Varchar,
-        #[max_length = 255]
-        hostname -> Nullable<Varchar>,
-        #[max_length = 100]
-        device_type -> Nullable<Varchar>,
-        #[max_length = 255]
-        serial_number -> Nullable<Varchar>,
-        #[max_length = 255]
-        manufacturer -> Nullable<Varchar>,
-        #[max_length = 255]
-        model -> Nullable<Varchar>,
-        #[max_length = 50]
-        warranty_status -> Nullable<Varchar>,
-        #[max_length = 255]
-        location -> Nullable<Varchar>,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        created_by -> Nullable<Uuid>,
-        notes -> Nullable<Text>,
-        primary_user_uuid -> Nullable<Uuid>,
-        #[max_length = 255]
-        microsoft_device_id -> Nullable<Varchar>,
-        #[max_length = 255]
-        intune_device_id -> Nullable<Varchar>,
-        #[max_length = 255]
-        entra_device_id -> Nullable<Varchar>,
-        #[max_length = 50]
-        compliance_state -> Nullable<Varchar>,
-        last_sync_time -> Nullable<Timestamptz>,
-        #[max_length = 100]
-        operating_system -> Nullable<Varchar>,
-        #[max_length = 100]
-        os_version -> Nullable<Varchar>,
-        is_managed -> Nullable<Bool>,
-        enrollment_date -> Nullable<Timestamptz>,
-        warranty_start_date -> Nullable<Date>,
-        warranty_end_date -> Nullable<Date>,
-        purchase_date -> Nullable<Date>,
-        #[max_length = 255]
-        asset_tag -> Nullable<Varchar>,
-        #[max_length = 64]
-        kind -> Varchar,
-        attributes -> Jsonb,
-        quantity -> Nullable<Numeric>,
-        #[max_length = 32]
-        unit -> Nullable<Varchar>,
-    }
-}
-
-// Backwards-compatibility aliases. The SQL rename in
-// 2026-05-20-100000_devices_to_assets replaced these table names
-// outright; the aliases let existing Rust paths
-// (crate::schema::devices, crate::schema::device_groups,
-// crate::schema::ticket_devices) keep compiling while the call
-// sites migrate over in follow-up commits. Remove once every
-// reference is on the new name.
-pub use asset_groups as device_groups;
-pub use assets as devices;
 
 diesel::table! {
     documentation_collection_pages (collection_id, page_id) {
@@ -1227,6 +1226,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    ticket_assets (ticket_id, asset_id) {
+        ticket_id -> Int4,
+        asset_id -> Int4,
+        created_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+pub use ticket_assets as ticket_devices;
+
+diesel::table! {
     ticket_categories (id) {
         id -> Int4,
         uuid -> Uuid,
@@ -1244,18 +1254,6 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
     }
 }
-
-diesel::table! {
-    ticket_assets (ticket_id, asset_id) {
-        ticket_id -> Int4,
-        asset_id -> Int4,
-        created_at -> Timestamptz,
-        created_by -> Nullable<Uuid>,
-    }
-}
-// See the alias note alongside `asset_groups` above. Drop when
-// every reference is on `ticket_assets`.
-pub use ticket_assets as ticket_devices;
 
 diesel::table! {
     ticket_tags (ticket_id, tag_id) {
@@ -1499,6 +1497,10 @@ diesel::table! {
 diesel::joinable!(active_sessions -> users (user_uuid));
 diesel::joinable!(article_content_revisions -> article_contents (article_content_id));
 diesel::joinable!(article_contents -> tickets (ticket_id));
+diesel::joinable!(asset_groups -> assets (asset_id));
+diesel::joinable!(asset_groups -> groups (group_id));
+diesel::joinable!(asset_groups -> users (created_by));
+diesel::joinable!(asset_kinds -> users (created_by));
 diesel::joinable!(assignment_log -> assignment_rules (rule_id));
 diesel::joinable!(assignment_log -> tickets (ticket_id));
 diesel::joinable!(assignment_rule_state -> assignment_rules (rule_id));
@@ -1525,10 +1527,6 @@ diesel::joinable!(cycle_tickets -> tickets (ticket_id));
 diesel::joinable!(cycle_tickets -> users (added_by));
 diesel::joinable!(cycles -> projects (project_id));
 diesel::joinable!(cycles -> users (created_by));
-diesel::joinable!(asset_groups -> assets (asset_id));
-diesel::joinable!(asset_groups -> groups (group_id));
-diesel::joinable!(asset_groups -> users (created_by));
-diesel::joinable!(asset_kinds -> users (created_by));
 diesel::joinable!(documentation_collection_pages -> documentation_collections (collection_id));
 diesel::joinable!(documentation_collection_pages -> documentation_pages (page_id));
 diesel::joinable!(documentation_collection_pages -> users (created_by));
@@ -1582,10 +1580,10 @@ diesel::joinable!(sla_policies -> ticket_categories (category_id_filter));
 diesel::joinable!(sla_policies -> users (created_by));
 diesel::joinable!(sla_policies -> working_calendars (working_calendar_id));
 diesel::joinable!(sync_history -> users (initiated_by));
-diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_assets -> assets (asset_id));
 diesel::joinable!(ticket_assets -> tickets (ticket_id));
 diesel::joinable!(ticket_assets -> users (created_by));
+diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_tags -> tags (tag_id));
 diesel::joinable!(ticket_tags -> tickets (ticket_id));
 diesel::joinable!(ticket_tags -> users (created_by));
@@ -1609,6 +1607,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     api_tokens,
     article_content_revisions,
     article_contents,
+    asset_groups,
+    asset_kinds,
+    assets,
     assignment_log,
     assignment_rule_state,
     assignment_rules,
@@ -1625,9 +1626,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     csp_reports,
     cycle_tickets,
     cycles,
-    asset_groups,
-    asset_kinds,
-    assets,
     documentation_collection_pages,
     documentation_collection_visibility,
     documentation_collections,

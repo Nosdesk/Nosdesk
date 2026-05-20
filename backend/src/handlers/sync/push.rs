@@ -178,7 +178,8 @@ fn apply_transaction(
         | SyncAggregate::Plugin
         | SyncAggregate::Cycle
         | SyncAggregate::CycleTicket
-        | SyncAggregate::User => Err(TxReject(
+        | SyncAggregate::User
+        | SyncAggregate::Asset => Err(TxReject(
             "unsupported_aggregate",
             format!(
                 "push for aggregate `{}` is not yet wired",

@@ -66,6 +66,7 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   group_membership: 1,
   plugin: 1,
   user: 1,
+  asset: 1,
 }
 
 /** Warm the engine for an authenticated user. Idempotent —
@@ -330,6 +331,10 @@ async function referenceFetcher(aggregate: SyncAggregate, ids: string[]): Promis
     await fetchMissingUsers(ids)
     return
   }
+  if (aggregate === 'asset') {
+    await fetchMissingAssets(ids)
+    return
+  }
   logger.debug('useReference fetch (stub)', { aggregate, ids })
 }
 
@@ -362,6 +367,43 @@ async function fetchMissingUsers(uuids: string[]): Promise<void> {
     }
   } catch (err) {
     logger.warn('Lazy user fetch failed', { ids: uuids, error: err })
+  }
+}
+
+/**
+ * Lazy reference fetcher for the `asset` aggregate. Bootstrap
+ * ships every workspace asset, so this only fires for entries
+ * created in the gap between bootstrap and the first SSE frame.
+ * Falls back to per-id `getDeviceById` because the REST surface
+ * doesn't expose a batch endpoint today; the rarity of the
+ * missing-lookup path makes the round-trip cost acceptable.
+ */
+async function fetchMissingAssets(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const { getDeviceById } = await import('@/services/deviceService')
+  for (const idStr of ids) {
+    const id = Number(idStr)
+    if (!Number.isFinite(id)) continue
+    try {
+      const asset = await getDeviceById(id)
+      pool.upsert('asset', asset.id, {
+        id: asset.id,
+        name: asset.name,
+        kind: asset.kind ?? 'device',
+        hostname: asset.hostname ?? null,
+        serial_number: asset.serial_number ?? null,
+        manufacturer: asset.manufacturer ?? null,
+        model: asset.model ?? null,
+        asset_tag: asset.asset_tag ?? null,
+        location: (asset as { location?: string | null }).location ?? null,
+        primary_user_uuid: asset.primary_user_uuid ?? null,
+        attributes: asset.attributes ?? {},
+        quantity: asset.quantity ?? null,
+        unit: asset.unit ?? null,
+      })
+    } catch (err) {
+      logger.warn('Lazy asset fetch failed', { id, error: err })
+    }
   }
 }
 

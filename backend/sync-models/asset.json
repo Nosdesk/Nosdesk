@@ -1,0 +1,27 @@
+{
+  "name": "asset",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "name": { "rust": "String", "ts": "string" },
+    "kind": { "rust": "String", "ts": "string" },
+    "hostname": { "rust": "Option<String>", "ts": "string | null" },
+    "serial_number": { "rust": "Option<String>", "ts": "string | null" },
+    "manufacturer": { "rust": "Option<String>", "ts": "string | null" },
+    "model": { "rust": "Option<String>", "ts": "string | null" },
+    "asset_tag": { "rust": "Option<String>", "ts": "string | null" },
+    "location": { "rust": "Option<String>", "ts": "string | null" },
+    "primary_user_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "attributes": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },
+    "quantity": { "rust": "Option<BigDecimal>", "ts": "string | null" },
+    "unit": { "rust": "Option<String>", "ts": "string | null" }
+  },
+  "events": [
+    { "type": "asset.created", "op": "I" },
+    { "type": "asset.updated", "op": "U" },
+    { "type": "asset.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}
