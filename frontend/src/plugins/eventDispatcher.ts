@@ -22,11 +22,8 @@ const SSE_TO_PLUGIN_EVENT: Partial<Record<SSEEventType, PluginEvent>> = {
   'ticket-created': 'ticket:created',
   'ticket-updated': 'ticket:updated',
   'comment-added': 'ticket:comment_added',
-  // Plugin event names stay as `device:*` for stable plugin
-  // API contract; only the upstream SSE channel name flipped to
-  // `asset-*` in Pass C2.
-  'asset-created': 'device:created',
-  'asset-updated': 'device:updated',
+  'asset-created': 'asset:created',
+  'asset-updated': 'asset:updated',
   'documentation-created': 'document:created',
   'documentation-updated': 'document:updated',
 };
@@ -45,8 +42,8 @@ const TICKET_FIELD_TO_EVENT: Record<string, PluginEvent> = {
  * Plugin events restricted from community plugins
  */
 const RESTRICTED_EVENTS: PluginEvent[] = [
-  'device:created',
-  'device:updated',
+  'asset:created',
+  'asset:updated',
 ];
 
 // =============================================================================

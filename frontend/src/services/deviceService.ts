@@ -31,7 +31,7 @@ const transformDeviceResponse = (backendDevice: Device): Device => backendDevice
  */
 export const getDevices = async (): Promise<Device[]> => {
   try {
-    const response = await apiClient.get(`/devices`);
+    const response = await apiClient.get(`/assets`);
     return response.data.map(transformDeviceResponse);
   } catch (error) {
     logger.error('Failed to fetch devices', { error });
@@ -45,7 +45,7 @@ export const getPaginatedDevices = async (params: PaginationParams, requestKey: 
     // Create cancellable request
     const controller = requestManager.createRequest(requestKey);
     
-    const response = await apiClient.get(`/devices/paginated`, { 
+    const response = await apiClient.get(`/assets/paginated`, { 
       params,
       signal: controller.signal 
     });
@@ -79,7 +79,7 @@ export const getPaginatedDevices = async (params: PaginationParams, requestKey: 
  */
 export const getDeviceById = async (id: number | string): Promise<Device> => {
   try {
-    const response = await apiClient.get(`/devices/${id}`);
+    const response = await apiClient.get(`/assets/${id}`);
     return transformDeviceResponse(response.data);
   } catch (error) {
     logger.error('Failed to fetch device by ID', { error, deviceId: id });
@@ -109,7 +109,7 @@ export const getDeviceByTicketId = async (ticketId: number): Promise<Device | nu
  */
 export const getDevicesByUser = async (userUuid: string): Promise<Device[]> => {
   try {
-    const response = await apiClient.get(`/users/${userUuid}/devices`);
+    const response = await apiClient.get(`/users/${userUuid}/assets`);
     return response.data.map(transformDeviceResponse);
   } catch (error) {
     logger.error('Failed to fetch devices for user', { error, userUuid });
@@ -124,7 +124,7 @@ export const getDevicesByUser = async (userUuid: string): Promise<Device[]> => {
  */
 export const createDevice = async (deviceData: DeviceFormData): Promise<Device> => {
   try {
-    const response = await apiClient.post(`/devices`, deviceData);
+    const response = await apiClient.post(`/assets`, deviceData);
     return transformDeviceResponse(response.data);
   } catch (error) {
     logger.error('Failed to create device', { error, deviceData });
@@ -146,7 +146,7 @@ export const updateDevice = async (id: number, device: Partial<Device>): Promise
     // hand-mapped column projection; the backend DeviceUpdate
     // accepts only the universal columns plus kind/attributes,
     // which is exactly the shape `Partial<Device>` carries.
-    const response = await apiClient.put(`/devices/${id}`, device);
+    const response = await apiClient.put(`/assets/${id}`, device);
     return transformDeviceResponse(response.data);
   } catch (error) {
     logger.error('Failed to update device', { error, deviceId: id });
@@ -161,7 +161,7 @@ export const updateDevice = async (id: number, device: Partial<Device>): Promise
  */
 export const deleteDevice = async (id: number): Promise<void> => {
   try {
-    await apiClient.delete(`/devices/${id}`);
+    await apiClient.delete(`/assets/${id}`);
   } catch (error) {
     logger.error('Failed to delete device', { error, deviceId: id });
     throw error;
@@ -175,7 +175,7 @@ export const deleteDevice = async (id: number): Promise<void> => {
  */
 export const unmanageDevice = async (id: number): Promise<Device> => {
   try {
-    const response = await apiClient.post(`/devices/${id}/unmanage`);
+    const response = await apiClient.post(`/assets/${id}/unmanage`);
     return transformDeviceResponse(response.data);
   } catch (error) {
     logger.error('Failed to unmanage device', { error, deviceId: id });
@@ -196,7 +196,7 @@ export const getPaginatedDevicesExcluding = async (params: {
   excludeIds?: number[];
 }): Promise<PaginatedResponse<Device>> => {
   try {
-    const response = await apiClient.get(`/devices/paginated/excluding`, {
+    const response = await apiClient.get(`/assets/paginated/excluding`, {
       params: {
         page: params.page,
         pageSize: params.pageSize,
@@ -220,6 +220,6 @@ export const getPaginatedDevicesExcluding = async (params: {
 
 // Bulk operations on devices (admin only)
 export const bulkAction = async (request: { action: 'delete'; ids: number[] }): Promise<{ affected: number }> => {
-  const response = await apiClient.post('/devices/bulk', request);
+  const response = await apiClient.post('/assets/bulk', request);
   return response.data;
 };

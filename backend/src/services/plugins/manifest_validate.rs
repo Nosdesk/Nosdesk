@@ -100,8 +100,8 @@ pub(crate) const KNOWN_EVENTS: &[&str] = &[
     "ticket:comment_added",
     "document:created",
     "document:updated",
-    "device:created",
-    "device:updated",
+    "asset:created",
+    "asset:updated",
 ];
 
 /// Setting types accepted on `settings[].type`. Each maps to a

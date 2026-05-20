@@ -167,7 +167,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
 
     devices: {
       async get(id: number): Promise<Device | null> {
-        if (!hasPermission('device:read')) {
+        if (!hasPermission('asset:read')) {
           logger.warn(`Plugin ${plugin.name} denied device:read permission`);
           return null;
         }
@@ -179,7 +179,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         }
       },
       async list(): Promise<Device[]> {
-        if (!hasPermission('device:read')) {
+        if (!hasPermission('asset:read')) {
           logger.warn(`Plugin ${plugin.name} denied device:read permission`);
           return [];
         }

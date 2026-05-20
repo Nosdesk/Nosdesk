@@ -426,8 +426,8 @@ export type PluginPermission =
   | 'ticket:write'
   | 'ticket:comment'
   | 'ticket:delete'
-  | 'device:read'
-  | 'device:write'
+  | 'asset:read'
+  | 'asset:write'
   | 'user:read'
   | 'storage:plugin'
   | 'collection:read'
@@ -443,8 +443,8 @@ export const PLUGIN_PERMISSIONS: { value: PluginPermission; labelKey: string; de
   { value: 'ticket:write',      labelKey: 'plugin-permission-ticket-write-label',      descriptionKey: 'plugin-permission-ticket-write-description' },
   { value: 'ticket:comment',    labelKey: 'plugin-permission-ticket-comment-label',    descriptionKey: 'plugin-permission-ticket-comment-description' },
   { value: 'ticket:delete',     labelKey: 'plugin-permission-ticket-delete-label',     descriptionKey: 'plugin-permission-ticket-delete-description' },
-  { value: 'device:read',       labelKey: 'plugin-permission-device-read-label',       descriptionKey: 'plugin-permission-device-read-description' },
-  { value: 'device:write',      labelKey: 'plugin-permission-device-write-label',      descriptionKey: 'plugin-permission-device-write-description' },
+  { value: 'asset:read',       labelKey: 'plugin-permission-device-read-label',       descriptionKey: 'plugin-permission-device-read-description' },
+  { value: 'asset:write',      labelKey: 'plugin-permission-device-write-label',      descriptionKey: 'plugin-permission-device-write-description' },
   { value: 'user:read',         labelKey: 'plugin-permission-user-read-label',         descriptionKey: 'plugin-permission-user-read-description' },
   { value: 'storage:plugin',    labelKey: 'plugin-permission-storage-plugin-label',    descriptionKey: 'plugin-permission-storage-plugin-description' },
   { value: 'collection:read',   labelKey: 'plugin-permission-collection-read-label',   descriptionKey: 'plugin-permission-collection-read-description' },
@@ -463,8 +463,8 @@ export const PLUGIN_EVENTS = [
   'ticket:comment_added',
   'document:created',
   'document:updated',
-  'device:created',
-  'device:updated',
+  'asset:created',
+  'asset:updated',
 ] as const;
 
 export type PluginEvent = (typeof PLUGIN_EVENTS)[number];

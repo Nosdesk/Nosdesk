@@ -242,7 +242,7 @@ export const getCommentsByTicketId = async (ticketId: number): Promise<CommentWi
 // Add device to ticket
 export const addDeviceToTicket = async (ticketId: number, deviceId: number): Promise<void> => {
   try {
-    await apiClient.post(`/tickets/${ticketId}/devices/${deviceId}`);
+    await apiClient.post(`/tickets/${ticketId}/assets/${deviceId}`);
   } catch (error) {
     logger.error('Failed to add device to ticket', { error, ticketId, deviceId });
     throw error;
@@ -252,7 +252,7 @@ export const addDeviceToTicket = async (ticketId: number, deviceId: number): Pro
 // Remove device from ticket
 export const removeDeviceFromTicket = async (ticketId: number, deviceId: number): Promise<void> => {
   try {
-    await apiClient.delete(`/tickets/${ticketId}/devices/${deviceId}`);
+    await apiClient.delete(`/tickets/${ticketId}/assets/${deviceId}`);
   } catch (error) {
     logger.error('Failed to remove device from ticket', { error, ticketId, deviceId });
     throw error;

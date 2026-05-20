@@ -42,8 +42,8 @@ export interface Device {
   groups?: DeviceGroup[];
 }
 
-/** Wire shape for POST /devices (create) and the wider parts
- *  of PUT /devices/:id. IT-flavoured fields go in `attributes`
+/** Wire shape for POST /assets (create) and the wider parts
+ *  of PUT /assets/:id. IT-flavoured fields go in `attributes`
  *  now; this DTO mirrors the universal columns plus the
  *  kind/attributes pair. */
 export interface DeviceFormData {

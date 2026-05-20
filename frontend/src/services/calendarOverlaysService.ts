@@ -16,7 +16,7 @@ export const calendarOverlaysService = {
    */
   async list(start: string, end: string): Promise<CalendarOverlayEntry[]> {
     const { data } = await apiClient.get<CalendarOverlayEntry[]>(
-      '/devices/calendar-overlay',
+      '/assets/calendar-overlay',
       { params: { start, end } },
     )
     return data

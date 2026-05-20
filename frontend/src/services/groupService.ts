@@ -82,7 +82,7 @@ export const groupService = {
   // Set group devices (admin only)
   async setGroupDevices(id: number, request: SetGroupDevicesRequest): Promise<GroupDetails> {
     try {
-      const response = await apiClient.put<GroupDetails>(`/groups/${id}/devices`, request);
+      const response = await apiClient.put<GroupDetails>(`/groups/${id}/assets`, request);
       return response.data;
     } catch (error) {
       logger.error(`Error setting devices for group ${id}:`, error);
