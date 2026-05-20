@@ -127,6 +127,8 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+        #[max_length = 16]
+        category -> Varchar,
     }
 }
 

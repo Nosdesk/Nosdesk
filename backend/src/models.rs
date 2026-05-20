@@ -849,12 +849,13 @@ pub struct Device {
     pub unit: Option<String>,
 }
 
-/// Default kind for legacy device callers that omit `kind` from
-/// the JSON payload. Mirrors the DB-level default on
-/// `assets.kind` so existing IT-desk POST bodies keep working
-/// unchanged.
+/// Default kind for callers that omit `kind` from the JSON
+/// payload. Mirrors the DB-level default on `assets.kind`
+/// (`'generic'` as of 2026-05-20-130000) so a workspace-neutral
+/// asset is the no-effort outcome. The IT-desk flow sets
+/// `kind = 'device'` explicitly through the picker.
 fn default_asset_kind() -> String {
-    "device".to_string()
+    "generic".to_string()
 }
 
 /// Default `attributes` blob for legacy callers. JSON Schema
@@ -950,6 +951,11 @@ pub struct AssetKind {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub created_by: Option<Uuid>,
+    /// One of `it`, `logical`, `physical`, `bulk`, `generic`.
+    /// The frontend toggles which IT-flavoured form fields and
+    /// planner UI to render off this; the DB CHECK constraint
+    /// enforces the closed set.
+    pub category: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -963,6 +969,7 @@ pub struct NewAssetKind {
     pub sort_order: i32,
     pub is_builtin: bool,
     pub created_by: Option<Uuid>,
+    pub category: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]
@@ -973,6 +980,7 @@ pub struct AssetKindUpdate {
     pub icon: Option<Option<String>>,
     pub attribute_schema: Option<serde_json::Value>,
     pub sort_order: Option<i32>,
+    pub category: Option<String>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 

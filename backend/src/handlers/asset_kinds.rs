@@ -29,6 +29,15 @@ use crate::services::assets::kinds as schema_validator;
 const SLUG_MAX_LEN: usize = 64;
 const LABEL_MAX_LEN: usize = 255;
 
+/// Closed set of categories, mirrored from the DB CHECK
+/// constraint on asset_kinds.category. The frontend uses these
+/// to decide which IT-flavoured surfaces to render.
+const VALID_CATEGORIES: &[&str] = &["it", "logical", "physical", "bulk", "generic"];
+
+fn is_valid_category(c: &str) -> bool {
+    VALID_CATEGORIES.contains(&c)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateBody {
     pub slug: String,
@@ -41,6 +50,8 @@ pub struct CreateBody {
     pub attribute_schema: Value,
     #[serde(default = "default_sort_order")]
     pub sort_order: i32,
+    #[serde(default = "default_category")]
+    pub category: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,6 +67,7 @@ pub struct UpdateBody {
     pub icon: Option<Option<String>>,
     pub attribute_schema: Option<Value>,
     pub sort_order: Option<i32>,
+    pub category: Option<String>,
 }
 
 fn default_schema() -> Value {
@@ -64,6 +76,10 @@ fn default_schema() -> Value {
 
 fn default_sort_order() -> i32 {
     100
+}
+
+fn default_category() -> String {
+    "generic".to_string()
 }
 
 pub async fn list(pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
@@ -125,6 +141,13 @@ pub async fn create(
         return errors::unprocessable_entity(format!("Invalid attribute_schema: {e}"));
     }
 
+    if !is_valid_category(&body.category) {
+        return errors::bad_request(format!(
+            "category must be one of: {}",
+            VALID_CATEGORIES.join(", ")
+        ));
+    }
+
     // Pull the admin's UUID for created_by. admin_conn already
     // verified the role; we just need the subject claim.
     let created_by = req
@@ -141,6 +164,7 @@ pub async fn create(
         sort_order: body.sort_order,
         is_builtin: false,
         created_by,
+        category: body.category,
     };
 
     match repo::create_kind(&mut conn, new_kind) {
@@ -180,6 +204,14 @@ pub async fn update(
             return errors::unprocessable_entity(format!("Invalid attribute_schema: {e}"));
         }
     }
+    if let Some(ref category) = body.category {
+        if !is_valid_category(category) {
+            return errors::bad_request(format!(
+                "category must be one of: {}",
+                VALID_CATEGORIES.join(", ")
+            ));
+        }
+    }
 
     let update = AssetKindUpdate {
         label: body.label.map(|s| s.trim().to_string()),
@@ -189,6 +221,7 @@ pub async fn update(
         icon: body.icon.map(|opt| opt.map(|s| s.trim().to_string())),
         attribute_schema: body.attribute_schema,
         sort_order: body.sort_order,
+        category: body.category,
         updated_at: None,
     };
 

@@ -1,5 +1,19 @@
 import apiClient from './apiConfig'
 
+/** Closed set, mirrored from the backend DB CHECK constraint
+ *  on asset_kinds.category. Drives which IT-flavoured form
+ *  fields and planner UI the frontend renders for a given
+ *  kind. */
+export type AssetKindCategory = 'it' | 'logical' | 'physical' | 'bulk' | 'generic'
+
+export const ASSET_KIND_CATEGORIES: AssetKindCategory[] = [
+  'it',
+  'logical',
+  'physical',
+  'bulk',
+  'generic',
+]
+
 /**
  * One row from the asset_kinds registry. The frontend uses this
  * directly as the picker option list and as the source-of-truth
@@ -18,6 +32,7 @@ export interface AssetKind {
   attribute_schema: Record<string, unknown>
   sort_order: number
   is_builtin: boolean
+  category: AssetKindCategory
   created_at: string
   updated_at: string
   created_by: string | null
@@ -30,6 +45,7 @@ export interface CreateAssetKindBody {
   icon?: string | null
   attribute_schema?: Record<string, unknown>
   sort_order?: number
+  category?: AssetKindCategory
 }
 
 export interface UpdateAssetKindBody {
@@ -39,6 +55,7 @@ export interface UpdateAssetKindBody {
   icon?: string | null
   attribute_schema?: Record<string, unknown>
   sort_order?: number
+  category?: AssetKindCategory
 }
 
 export const assetKindsService = {

@@ -7,7 +7,9 @@ import Icon from '@/components/common/Icon.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import {
   assetKindsService,
+  ASSET_KIND_CATEGORIES,
   type AssetKind,
+  type AssetKindCategory,
   type CreateAssetKindBody,
 } from '@/services/assetKindsService';
 
@@ -25,6 +27,7 @@ const editDraft = ref<{
   description: string;
   icon: string;
   sort_order: number;
+  category: AssetKindCategory;
   attribute_schema: string;
 } | null>(null);
 
@@ -34,6 +37,7 @@ const newKind = ref<{
   description: string;
   icon: string;
   sort_order: number;
+  category: AssetKindCategory;
   attribute_schema: string;
 }>({
   slug: '',
@@ -41,6 +45,7 @@ const newKind = ref<{
   description: '',
   icon: '',
   sort_order: 100,
+  category: 'generic',
   attribute_schema: '{\n  "type": "object",\n  "properties": {}\n}',
 });
 
@@ -88,6 +93,7 @@ function startEdit(kind: AssetKind) {
     description: kind.description ?? '',
     icon: kind.icon ?? '',
     sort_order: kind.sort_order,
+    category: kind.category,
     attribute_schema: JSON.stringify(kind.attribute_schema, null, 2),
   };
 }
@@ -122,6 +128,7 @@ async function saveEdit(kind: AssetKind) {
       description: draft.description.trim() === '' ? null : draft.description.trim(),
       icon: draft.icon.trim() === '' ? null : draft.icon.trim(),
       sort_order: draft.sort_order,
+      category: draft.category,
       attribute_schema: schema,
     });
     await reload();
@@ -158,6 +165,7 @@ async function createKind() {
     description: newKind.value.description.trim() || null,
     icon: newKind.value.icon.trim() || null,
     sort_order: newKind.value.sort_order,
+    category: newKind.value.category,
     attribute_schema: schema,
   };
   try {
@@ -169,6 +177,7 @@ async function createKind() {
       description: '',
       icon: '',
       sort_order: 100,
+      category: 'generic',
       attribute_schema: '{\n  "type": "object",\n  "properties": {}\n}',
     };
     flash(t('admin-asset-kinds-created'));
@@ -358,14 +367,27 @@ onMounted(reload);
                   class="mt-1 w-full bg-surface-alt text-primary rounded border border-default px-2 py-1 text-sm"
                 />
               </label>
-              <label class="text-xs font-medium text-secondary w-32">
-                {{ $t('admin-asset-kinds-field-sort-order') }}
-                <input
-                  v-model.number="editDraft.sort_order"
-                  type="number"
-                  class="mt-1 w-full bg-surface-alt text-primary rounded border border-default px-2 py-1 text-sm"
-                />
-              </label>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="text-xs font-medium text-secondary">
+                  {{ $t('admin-asset-kinds-field-sort-order') }}
+                  <input
+                    v-model.number="editDraft.sort_order"
+                    type="number"
+                    class="mt-1 w-full bg-surface-alt text-primary rounded border border-default px-2 py-1 text-sm"
+                  />
+                </label>
+                <label class="text-xs font-medium text-secondary">
+                  {{ $t('admin-asset-kinds-field-category') }}
+                  <select
+                    v-model="editDraft.category"
+                    class="mt-1 w-full bg-surface-alt text-primary rounded border border-default px-2 py-1 text-sm"
+                  >
+                    <option v-for="c in ASSET_KIND_CATEGORIES" :key="c" :value="c">
+                      {{ $t(`admin-asset-kinds-category-${c}`) }}
+                    </option>
+                  </select>
+                </label>
+              </div>
               <label class="text-xs font-medium text-secondary">
                 {{ $t('admin-asset-kinds-field-attribute-schema') }}
                 <textarea
@@ -414,7 +436,7 @@ onMounted(reload);
               />
             </label>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
             <label class="text-xs font-medium text-secondary">
               {{ $t('admin-asset-kinds-field-icon') }}
               <input
@@ -429,6 +451,17 @@ onMounted(reload);
                 type="number"
                 class="mt-1 w-full bg-surface-alt text-primary rounded border border-default px-2 py-1 text-sm"
               />
+            </label>
+            <label class="text-xs font-medium text-secondary">
+              {{ $t('admin-asset-kinds-field-category') }}
+              <select
+                v-model="newKind.category"
+                class="mt-1 w-full bg-surface-alt text-primary rounded border border-default px-2 py-1 text-sm"
+              >
+                <option v-for="c in ASSET_KIND_CATEGORIES" :key="c" :value="c">
+                  {{ $t(`admin-asset-kinds-category-${c}`) }}
+                </option>
+              </select>
             </label>
           </div>
           <label class="text-xs font-medium text-secondary block mb-3">
