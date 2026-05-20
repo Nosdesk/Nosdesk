@@ -1382,6 +1382,15 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/workflow-states/{id}", web::patch().to(handlers::workflow_states::patch))
                     .route("/admin/workflow-states/{id}", web::delete().to(handlers::workflow_states::archive))
 
+                    // Asset-kind registry. Admin-only CRUD over the
+                    // runtime discriminator table that drives
+                    // `assets.kind` validation.
+                    .route("/admin/asset-kinds", web::get().to(handlers::asset_kinds::list))
+                    .route("/admin/asset-kinds/{id}", web::get().to(handlers::asset_kinds::get))
+                    .route("/admin/asset-kinds", web::post().to(handlers::asset_kinds::create))
+                    .route("/admin/asset-kinds/{id}", web::put().to(handlers::asset_kinds::update))
+                    .route("/admin/asset-kinds/{id}", web::delete().to(handlers::asset_kinds::delete))
+
                     // Feature flags — staged rollout machinery (Phase 0 of the
                     // projects-v2 architecture). Read endpoint open to any
                     // authenticated user; write endpoints admin-only.
