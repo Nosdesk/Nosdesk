@@ -387,8 +387,8 @@ export type PluginSlot =
   | 'document-toolbar'
   | 'document-sidebar'
   // Asset context
-  | 'device-header-actions'
-  | 'device-info-panels';
+  | 'asset-header-actions'
+  | 'asset-info-panels';
 
 export const PLUGIN_SLOTS: Record<PluginSlot, { multiple: boolean; description: string }> = {
   // Global slots
@@ -403,8 +403,8 @@ export const PLUGIN_SLOTS: Record<PluginSlot, { multiple: boolean; description: 
   'document-toolbar': { multiple: true, description: 'Add actions to document toolbar' },
   'document-sidebar': { multiple: true, description: 'Add panels to document sidebar' },
   // Asset context
-  'device-header-actions': { multiple: true, description: 'Add buttons to device header' },
-  'device-info-panels': { multiple: true, description: 'Add info panels to device view' },
+  'asset-header-actions': { multiple: true, description: 'Add buttons to device header' },
+  'asset-info-panels': { multiple: true, description: 'Add info panels to device view' },
 };
 
 // =============================================================================
@@ -443,8 +443,8 @@ export const PLUGIN_PERMISSIONS: { value: PluginPermission; labelKey: string; de
   { value: 'ticket:write',      labelKey: 'plugin-permission-ticket-write-label',      descriptionKey: 'plugin-permission-ticket-write-description' },
   { value: 'ticket:comment',    labelKey: 'plugin-permission-ticket-comment-label',    descriptionKey: 'plugin-permission-ticket-comment-description' },
   { value: 'ticket:delete',     labelKey: 'plugin-permission-ticket-delete-label',     descriptionKey: 'plugin-permission-ticket-delete-description' },
-  { value: 'asset:read',       labelKey: 'plugin-permission-device-read-label',       descriptionKey: 'plugin-permission-device-read-description' },
-  { value: 'asset:write',      labelKey: 'plugin-permission-device-write-label',      descriptionKey: 'plugin-permission-device-write-description' },
+  { value: 'asset:read',       labelKey: 'plugin-permission-asset-read-label',       descriptionKey: 'plugin-permission-asset-read-description' },
+  { value: 'asset:write',      labelKey: 'plugin-permission-asset-write-label',      descriptionKey: 'plugin-permission-asset-write-description' },
   { value: 'user:read',         labelKey: 'plugin-permission-user-read-label',         descriptionKey: 'plugin-permission-user-read-description' },
   { value: 'storage:plugin',    labelKey: 'plugin-permission-storage-plugin-label',    descriptionKey: 'plugin-permission-storage-plugin-description' },
   { value: 'collection:read',   labelKey: 'plugin-permission-collection-read-label',   descriptionKey: 'plugin-permission-collection-read-description' },

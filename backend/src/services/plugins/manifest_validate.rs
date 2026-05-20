@@ -68,8 +68,8 @@ pub(crate) const KNOWN_SLOTS: &[&str] = &[
     "document-toolbar",
     "document-sidebar",
     // Asset context
-    "device-header-actions",
-    "device-info-panels",
+    "asset-header-actions",
+    "asset-info-panels",
 ];
 
 /// Context types a component can request. The runtime passes the

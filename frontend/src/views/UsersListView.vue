@@ -128,7 +128,7 @@ const columns = computed(() => [
   { field: 'user', label: t('user-mgmt-column-user'), width: '1fr', sortable: true, sortKey: 'name', responsive: 'always' as const },
   { field: 'role', label: t('user-mgmt-column-role'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
   { field: 'open_ticket_count', label: t('user-mgmt-column-tickets'), width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'device_count', label: t('user-mgmt-column-devices'), width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
+  { field: 'device_count', label: t('user-mgmt-column-assets'), width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
   { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(140px,auto)', sortable: false, responsive: 'lg' as const },
 ])
 
@@ -370,7 +370,7 @@ function formatPurgeAt(deletedAt: string): string {
                 {{ $t('user-mgmt-mobile-tickets', { count: item.open_ticket_count }) }}
               </span>
               <span v-if="item.device_count" class="text-secondary tabular-nums">
-                {{ $t('user-mgmt-mobile-devices', { count: item.device_count }) }}
+                {{ $t('user-mgmt-mobile-assets', { count: item.device_count }) }}
               </span>
             </div>
           </div>

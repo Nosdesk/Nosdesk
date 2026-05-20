@@ -63,7 +63,7 @@ const page = useListPage({
   scrollContainerRef,
   sseEvents: ['asset-updated', 'asset-created', 'asset-deleted'],
   mobileSearch: {
-    placeholder: t('devices-list-search-placeholder'),
+    placeholder: t('assets-list-search-placeholder'),
     createIcon: 'device',
     onCreate: navigateToCreateDevice,
   },
@@ -86,13 +86,13 @@ const filterOptions = computed(() =>
   controls.buildFilterOptions({
     warranty: {
       options: [
-        { value: 'active', label: t('devices-list-filter-warranty-active') },
-        { value: 'warning', label: t('devices-list-filter-warranty-warning') },
-        { value: 'expired', label: t('devices-list-filter-warranty-expired') },
-        { value: 'unknown', label: t('devices-list-filter-warranty-unknown') },
+        { value: 'active', label: t('assets-list-filter-warranty-active') },
+        { value: 'warning', label: t('assets-list-filter-warranty-warning') },
+        { value: 'expired', label: t('assets-list-filter-warranty-expired') },
+        { value: 'unknown', label: t('assets-list-filter-warranty-unknown') },
       ],
       width: 'w-[140px]',
-      allLabel: t('devices-list-filter-warranty-all'),
+      allLabel: t('assets-list-filter-warranty-all'),
     },
   }),
 )
@@ -101,12 +101,12 @@ const filterOptions = computed(() =>
 // model, warranty_status, manufacturer, created_at, updated_at,
 // last_sync_time.
 const columns = computed(() => [
-  { field: 'name', label: t('devices-list-column-device'), width: '1fr', sortable: true, responsive: 'always' as const },
-  { field: 'serial_number', label: t('devices-list-column-serial'), width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'hostname', label: t('devices-list-column-hostname'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
-  { field: 'model', label: t('devices-list-column-model'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
-  { field: 'primary_user', label: t('devices-list-column-user'), width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'warranty_status', label: t('devices-list-column-warranty'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
+  { field: 'name', label: t('assets-list-column-device'), width: '1fr', sortable: true, responsive: 'always' as const },
+  { field: 'serial_number', label: t('assets-list-column-serial'), width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
+  { field: 'hostname', label: t('assets-list-column-hostname'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
+  { field: 'model', label: t('assets-list-column-model'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
+  { field: 'primary_user', label: t('assets-list-column-user'), width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
+  { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
 ])
 
 const gridClass =
@@ -120,7 +120,7 @@ const bulkDelete = useMutation({
   onSettled: () => queryCache.invalidateQueries({ key: devicesKeys.root }),
   onError: (err) => {
     console.error('Bulk delete failed:', err)
-    toast.error(extractErrorMessage(err, t('devices-list-bulk-action-error')))
+    toast.error(extractErrorMessage(err, t('assets-list-bulk-action-error')))
   },
 })
 
@@ -153,8 +153,8 @@ async function confirmDelete() {
     :is-loading-more="page.isLoadingMore.value"
     :error="page.errorMessage.value"
     :search-query="controls.searchQuery.value"
-    :search-placeholder="$t('devices-list-search-placeholder')"
-    :item-label="$t('devices-list-item-label')"
+    :search-placeholder="$t('assets-list-search-placeholder')"
+    :item-label="$t('assets-list-item-label')"
     bulk-selection-copy-key="bulk-bar-devices-selected"
     bulk-all-selected-copy-key="bulk-bar-devices-all-selected"
     :bulk-selection="selection"
@@ -172,9 +172,9 @@ async function confirmDelete() {
     <template #empty-state>
       <EmptyState
         icon="device"
-        :title="controls.searchQuery.value ? $t('empty-devices-search-title') : $t('empty-devices-default-title')"
-        :description="controls.searchQuery.value ? $t('empty-devices-search-description') : $t('empty-devices-default-description')"
-        :action-label="!controls.searchQuery.value ? $t('devices-list-add-action') : undefined"
+        :title="controls.searchQuery.value ? $t('empty-assets-search-title') : $t('empty-assets-default-title')"
+        :description="controls.searchQuery.value ? $t('empty-assets-search-description') : $t('empty-assets-default-description')"
+        :action-label="!controls.searchQuery.value ? $t('assets-list-add-action') : undefined"
         @action="navigateToCreateDevice"
       />
     </template>
@@ -232,7 +232,7 @@ async function confirmDelete() {
             :avatar="item.primary_user.avatar_thumb || item.primary_user.avatar_url"
             :show-name="true"
           />
-          <span v-else class="text-xs text-tertiary">{{ $t('devices-list-unassigned') }}</span>
+          <span v-else class="text-xs text-tertiary">{{ $t('assets-list-unassigned') }}</span>
         </template>
 
         <template #cell-warranty_status="{ item }">
@@ -305,7 +305,7 @@ async function confirmDelete() {
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
         </svg>
-        {{ selectedCount > 0 ? $t('devices-list-bulk-delete-count', { count: selectedCount }) : $t('devices-list-bulk-delete') }}
+        {{ selectedCount > 0 ? $t('assets-list-bulk-delete-count', { count: selectedCount }) : $t('assets-list-bulk-delete') }}
       </button>
     </template>
 
@@ -328,9 +328,9 @@ async function confirmDelete() {
 
   <BulkConfirmDialog
     :show="showDeleteConfirm"
-    :title="$t('devices-list-bulk-delete-title', { count: selection.selectedCount.value })"
-    :message="$t('devices-list-bulk-delete-message', { count: selection.selectedCount.value })"
-    :confirm-label="$t('devices-list-bulk-delete-count', { count: selection.selectedCount.value })"
+    :title="$t('assets-list-bulk-delete-title', { count: selection.selectedCount.value })"
+    :message="$t('assets-list-bulk-delete-message', { count: selection.selectedCount.value })"
+    :confirm-label="$t('assets-list-bulk-delete-count', { count: selection.selectedCount.value })"
     @confirm="confirmDelete"
     @close="showDeleteConfirm = false"
   />

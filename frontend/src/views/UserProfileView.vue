@@ -680,13 +680,13 @@ watch(
 
                         <!-- Devices Section -->
                         <SectionCard content-padding="p-3">
-                            <template #title>{{ $t('user-profile-devices-title') }}</template>
+                            <template #title>{{ $t('user-profile-assets-title') }}</template>
                             <div>
                                 <div
                                     v-if="devices.length === 0"
                                     class="text-secondary text-sm"
                                 >
-                                    {{ $t('user-profile-devices-empty') }}
+                                    {{ $t('user-profile-assets-empty') }}
                                 </div>
                                 <div v-else class="flex flex-col gap-3">
                                     <RouterLink
@@ -709,14 +709,14 @@ watch(
                                                 >
                                                     {{
                                                         device.manufacturer ||
-                                                        $t('user-profile-device-manufacturer-unknown')
+                                                        $t('user-profile-asset-manufacturer-unknown')
                                                     }}
                                                     {{ device.model }}
                                                 </p>
                                                 <p
                                                     class="text-xs text-tertiary"
                                                 >
-                                                    {{ $t('user-profile-device-last-updated', { when: formatDate(device.updated_at) }) }}
+                                                    {{ $t('user-profile-asset-last-updated', { when: formatDate(device.updated_at) }) }}
                                                 </p>
                                             </div>
                                             <div v-if="device.attributes?.warranty_status" class="flex-shrink-0 ml-3">

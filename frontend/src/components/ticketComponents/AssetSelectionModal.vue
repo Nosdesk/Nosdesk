@@ -141,7 +141,7 @@ const loadDevices = async (page: number = 1, search: string = '', append: boolea
     console.log(`Loaded page ${page}: ${response.data.length} devices, total: ${response.total}`);
   } catch (err) {
     console.error('Error loading devices:', err);
-    error.value = t('device-modal-load-failed');
+    error.value = t('asset-modal-load-failed');
     devices.value = [];
     hasMore.value = false;
   } finally {
@@ -348,7 +348,7 @@ const formatLastUpdated = (dateString: string): string => {
 </script>
 
 <template>
-  <Modal :show="show" :title="t('device-modal-title')" @close="emit('close')" size="lg">
+  <Modal :show="show" :title="t('asset-modal-title')" @close="emit('close')" size="lg">
     <div class="flex flex-col gap-4">
       <!-- Search -->
       <div class="relative">
@@ -361,7 +361,7 @@ const formatLastUpdated = (dateString: string): string => {
           type="text"
           v-model="searchQuery"
           class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-default bg-surface-alt text-primary placeholder-tertiary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          :placeholder="t('device-modal-search-placeholder')"
+          :placeholder="t('asset-modal-search-placeholder')"
         >
         <div v-if="loading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
           <svg class="w-5 h-5 animate-spin text-tertiary" fill="none" viewBox="0 0 24 24">
@@ -375,8 +375,8 @@ const formatLastUpdated = (dateString: string): string => {
       <EmptyState
         v-if="!searchQuery && !loading && devices.length === 0"
         icon="search"
-        :title="$t('empty-device-search-prompt-title')"
-        :description="$t('empty-device-search-prompt-description')"
+        :title="$t('empty-asset-search-prompt-title')"
+        :description="$t('empty-asset-search-prompt-description')"
         variant="compact"
       />
 
@@ -413,8 +413,8 @@ const formatLastUpdated = (dateString: string): string => {
       <EmptyState
         v-else-if="!loading && allDevicesForDisplay.length === 0 && searchQuery"
         icon="device"
-        :title="$t('empty-device-search-title')"
-        :description="$t('empty-device-search-description')"
+        :title="$t('empty-asset-search-title')"
+        :description="$t('empty-asset-search-description')"
         variant="compact"
       />
 
@@ -441,7 +441,7 @@ const formatLastUpdated = (dateString: string): string => {
                 <div class="text-xs text-tertiary truncate">{{ (device.attributes?.hostname as string | undefined) }}</div>
               </div>
               <div v-if="device.isRequesterDevice" class="flex-shrink-0">
-                <span class="text-xs bg-accent text-white px-2 py-0.5 rounded-full">{{ t('device-modal-owner') }}</span>
+                <span class="text-xs bg-accent text-white px-2 py-0.5 rounded-full">{{ t('asset-modal-owner') }}</span>
               </div>
             </div>
 
@@ -467,7 +467,7 @@ const formatLastUpdated = (dateString: string): string => {
             <!-- Details -->
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div>
-                <span class="text-tertiary">{{ t('device-modal-col-serial') }}:</span>
+                <span class="text-tertiary">{{ t('asset-modal-col-serial') }}:</span>
                 <span class="text-secondary font-mono ml-1">{{ device.serial_number || '—' }}</span>
               </div>
               <div>
@@ -488,7 +488,7 @@ const formatLastUpdated = (dateString: string): string => {
                   :clickable="false"
                 />
               </div>
-              <span v-else class="text-xs text-tertiary">{{ t('device-modal-unassigned') }}</span>
+              <span v-else class="text-xs text-tertiary">{{ t('asset-modal-unassigned') }}</span>
               <span class="text-xs text-tertiary">{{ formatLastUpdated(device.updated_at) }}</span>
             </div>
           </div>
@@ -499,10 +499,10 @@ const formatLastUpdated = (dateString: string): string => {
           <table class="w-full">
             <thead class="bg-surface-alt text-xs font-medium text-secondary uppercase tracking-wide">
               <tr>
-                <th class="px-4 py-3 text-left">{{ t('device-modal-col-device') }}</th>
-                <th class="px-4 py-3 text-left w-44">{{ t('device-modal-col-status') }}</th>
-                <th class="px-4 py-3 text-left w-32">{{ t('device-modal-col-serial') }}</th>
-                <th class="px-4 py-3 text-left w-40">{{ t('device-modal-col-user') }}</th>
+                <th class="px-4 py-3 text-left">{{ t('asset-modal-col-device') }}</th>
+                <th class="px-4 py-3 text-left w-44">{{ t('asset-modal-col-status') }}</th>
+                <th class="px-4 py-3 text-left w-32">{{ t('asset-modal-col-serial') }}</th>
+                <th class="px-4 py-3 text-left w-40">{{ t('asset-modal-col-user') }}</th>
                 <th class="px-4 py-3 text-right w-20"></th>
               </tr>
             </thead>
@@ -519,7 +519,7 @@ const formatLastUpdated = (dateString: string): string => {
                     <div class="min-w-0">
                       <div class="flex items-center gap-2">
                         <span class="font-medium text-primary truncate">{{ device.name }}</span>
-                        <span v-if="device.isRequesterDevice" class="text-xs bg-accent text-white px-1.5 py-0.5 rounded">{{ t('device-modal-owner') }}</span>
+                        <span v-if="device.isRequesterDevice" class="text-xs bg-accent text-white px-1.5 py-0.5 rounded">{{ t('asset-modal-owner') }}</span>
                       </div>
                       <div class="text-xs text-tertiary truncate">{{ device.manufacturer }} {{ device.model }}</div>
                     </div>

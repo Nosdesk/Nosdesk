@@ -55,7 +55,7 @@ const sortAsc = ref(true);
 const sortFieldOptions = computed(() => [
   { value: 'name', label: t('groups-mgmt-sort-name') },
   { value: 'members', label: t('groups-mgmt-sort-members') },
-  { value: 'devices', label: t('groups-mgmt-sort-devices') },
+  { value: 'devices', label: t('groups-mgmt-sort-assets') },
   { value: 'created', label: t('groups-mgmt-sort-created') },
 ]);
 

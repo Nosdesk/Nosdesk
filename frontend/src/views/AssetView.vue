@@ -107,7 +107,7 @@ const fetchDeviceData = async () => {
 
     const deviceId = Number(route.params.id);
     if (isNaN(deviceId)) {
-      error.value = t('device-detail-error-invalid-id');
+      error.value = t('asset-detail-error-invalid-id');
       loading.value = false;
       return;
     }
@@ -129,7 +129,7 @@ const fetchDeviceData = async () => {
     selectedKindSlug.value = device.value.kind ?? 'generic';
     attributeDraft.value = { ...(device.value.attributes ?? {}) };
   } catch (e) {
-    error.value = t('device-detail-error-load');
+    error.value = t('asset-detail-error-load');
     console.error('Error loading device:', e);
   } finally {
     loading.value = false;
@@ -179,7 +179,7 @@ const saveDevice = async () => {
     router.replace(`/assets/${newDevice.id}`);
   } catch (err) {
     console.error('Error creating device:', err);
-    error.value = t('device-detail-error-create');
+    error.value = t('asset-detail-error-create');
   } finally {
     isSaving.value = false;
   }
@@ -217,7 +217,7 @@ const handleDeleteDevice = async () => {
     router.push('/assets');
   } catch (err) {
     console.error('Error deleting device:', err);
-    error.value = t('device-detail-error-delete');
+    error.value = t('asset-detail-error-delete');
   }
 };
 
@@ -239,7 +239,7 @@ const confirmUnmanageDevice = async () => {
     showUnmanageModal.value = false;
   } catch (err) {
     console.error('Error unmanaging device:', err);
-    unmanageError.value = t('device-detail-error-unmanage');
+    unmanageError.value = t('asset-detail-error-unmanage');
   } finally {
     isSaving.value = false;
   }
@@ -302,20 +302,20 @@ onMounted(() => {
           <BackButton
             v-if="fromTicket"
             :fallbackRoute="`/tickets/${fromTicket}`"
-            :label="$t('device-detail-back-to-ticket', { id: fromTicket })"
+            :label="$t('asset-detail-back-to-ticket', { id: fromTicket })"
           />
-          <BackButton v-else fallbackRoute="/assets" :label="$t('device-detail-back-to-devices')" />
+          <BackButton v-else fallbackRoute="/assets" :label="$t('asset-detail-back-to-devices')" />
 
           <div v-if="isSynced" class="flex items-center gap-2 text-sm">
             <div class="w-2 h-2 rounded-full bg-accent"></div>
-            <span class="text-secondary">{{ $t('device-detail-readonly') }}</span>
+            <span class="text-secondary">{{ $t('asset-detail-readonly') }}</span>
           </div>
         </div>
 
         <DeleteButton
           v-if="!isCreationMode && device?.is_editable"
           fallbackRoute="/assets"
-          :itemName="$t('device-detail-delete-item-name')"
+          :itemName="$t('asset-detail-delete-item-name')"
           @delete="handleDeleteDevice"
         />
       </div>
@@ -330,11 +330,11 @@ onMounted(() => {
              read-only summary so the kind is visible without
              surfacing an edit affordance we don't yet support. -->
         <SectionCard v-if="kinds.length > 0" content-padding="p-4">
-          <template #title>{{ $t('device-detail-section-kind') }}</template>
+          <template #title>{{ $t('asset-detail-section-kind') }}</template>
           <div class="flex flex-col gap-4">
             <div class="flex flex-col gap-1.5">
               <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
-                {{ $t('device-detail-field-kind') }}
+                {{ $t('asset-detail-field-kind') }}
               </h3>
               <select
                 v-if="isCreationMode"
@@ -364,23 +364,23 @@ onMounted(() => {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
           <!-- Left column: Asset Details -->
           <SectionCard content-padding="p-4">
-            <template #title>{{ $t('device-detail-section-details') }}</template>
+            <template #title>{{ $t('asset-detail-section-details') }}</template>
 
             <div class="flex flex-col gap-4">
               <!-- Name -->
               <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-name') }}</h3>
+                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-name') }}</h3>
                 <input
                   v-if="isCreationMode"
                   v-model="editValues.name"
                   type="text"
-                  :placeholder="$t('device-detail-field-name-placeholder-create')"
+                  :placeholder="$t('asset-detail-field-name-placeholder-create')"
                   class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                 />
                 <InlineEdit
                   v-else
                   v-model="editValues.name"
-                  :placeholder="$t('device-detail-field-name-placeholder-edit')"
+                  :placeholder="$t('asset-detail-field-name-placeholder-edit')"
                   text-size="sm"
                   :can-edit="device?.is_editable ?? false"
                   @update:modelValue="() => saveField('name')"
@@ -395,18 +395,18 @@ onMounted(() => {
 
               <!-- Serial Number -->
               <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-serial') }}</h3>
+                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-serial') }}</h3>
                 <input
                   v-if="isCreationMode"
                   v-model="editValues.serial_number"
                   type="text"
-                  :placeholder="$t('device-detail-field-serial-placeholder-create')"
+                  :placeholder="$t('asset-detail-field-serial-placeholder-create')"
                   class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                 />
                 <InlineEdit
                   v-else
                   v-model="editValues.serial_number"
-                  :placeholder="device?.serial_number || $t('device-detail-field-serial-placeholder-edit')"
+                  :placeholder="device?.serial_number || $t('asset-detail-field-serial-placeholder-edit')"
                   text-size="sm"
                   :can-edit="device?.is_editable ?? false"
                   @update:modelValue="() => saveField('serial_number')"
@@ -416,18 +416,18 @@ onMounted(() => {
               <!-- Manufacturer + Model side-by-side -->
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-default">
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-manufacturer') }}</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-manufacturer') }}</h3>
                   <input
                     v-if="isCreationMode"
                     v-model="editValues.manufacturer"
                     type="text"
-                    :placeholder="$t('device-detail-field-manufacturer-placeholder-create')"
+                    :placeholder="$t('asset-detail-field-manufacturer-placeholder-create')"
                     class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                   />
                   <InlineEdit
                     v-else
                     v-model="editValues.manufacturer"
-                    :placeholder="device?.manufacturer || $t('device-detail-field-manufacturer-placeholder-edit')"
+                    :placeholder="device?.manufacturer || $t('asset-detail-field-manufacturer-placeholder-edit')"
                     text-size="sm"
                     :can-edit="device?.is_editable ?? false"
                     @update:modelValue="() => saveField('manufacturer')"
@@ -435,18 +435,18 @@ onMounted(() => {
                 </div>
 
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-model') }}</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-model') }}</h3>
                   <input
                     v-if="isCreationMode"
                     v-model="editValues.model"
                     type="text"
-                    :placeholder="$t('device-detail-field-model-placeholder-create')"
+                    :placeholder="$t('asset-detail-field-model-placeholder-create')"
                     class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                   />
                   <InlineEdit
                     v-else
                     v-model="editValues.model"
-                    :placeholder="device?.model || $t('device-detail-field-model-placeholder-edit')"
+                    :placeholder="device?.model || $t('asset-detail-field-model-placeholder-edit')"
                     text-size="sm"
                     :can-edit="device?.is_editable ?? false"
                     @update:modelValue="() => saveField('model')"
@@ -457,7 +457,7 @@ onMounted(() => {
               <!-- Purchase Date + Asset Tag -->
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-purchase-date') }}</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-purchase-date') }}</h3>
                   <input
                     v-if="isCreationMode || device?.is_editable"
                     v-model="editValues.purchase_date"
@@ -468,18 +468,18 @@ onMounted(() => {
                   <p v-else class="text-primary text-sm">{{ device?.purchase_date || '-' }}</p>
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-asset-tag') }}</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-asset-tag') }}</h3>
                   <input
                     v-if="isCreationMode"
                     v-model="editValues.asset_tag"
                     type="text"
-                    :placeholder="$t('device-detail-field-asset-tag-placeholder-create')"
+                    :placeholder="$t('asset-detail-field-asset-tag-placeholder-create')"
                     class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
                   />
                   <InlineEdit
                     v-else
                     v-model="editValues.asset_tag"
-                    :placeholder="$t('device-detail-field-asset-tag-placeholder-edit')"
+                    :placeholder="$t('asset-detail-field-asset-tag-placeholder-edit')"
                     text-size="sm"
                     :can-edit="device?.is_editable ?? false"
                     @update:modelValue="() => saveField('asset_tag')"
@@ -493,7 +493,7 @@ onMounted(() => {
           <div v-if="isCreationMode || device" class="flex flex-col gap-6">
             <!-- Primary User (create mode) -->
             <SectionCard v-if="isCreationMode" content-padding="p-4">
-              <template #title>{{ $t('device-detail-section-primary-user') }}</template>
+              <template #title>{{ $t('asset-detail-section-primary-user') }}</template>
 
               <div v-if="selectedUser" class="flex flex-col gap-4">
                 <UserCard :user="selectedUser" avatar-size="lg" />
@@ -505,7 +505,7 @@ onMounted(() => {
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                   </svg>
-                  {{ $t('device-detail-action-change-user') }}
+                  {{ $t('asset-detail-action-change-user') }}
                 </button>
               </div>
 
@@ -513,21 +513,21 @@ onMounted(() => {
                 <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
                   <Icon name="user" size="md" class="text-secondary" />
                 </div>
-                <p class="text-secondary text-sm">{{ $t('device-detail-no-user-assigned') }}</p>
+                <p class="text-secondary text-sm">{{ $t('asset-detail-no-user-assigned') }}</p>
 
                 <button
                   @click="showUserSelectionModal = true"
                   class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
                   <Icon name="add" />
-                  {{ $t('device-detail-action-assign-user') }}
+                  {{ $t('asset-detail-action-assign-user') }}
                 </button>
               </div>
             </SectionCard>
 
             <!-- Primary User (edit mode) -->
             <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
-              <template #title>{{ $t('device-detail-section-primary-user') }}</template>
+              <template #title>{{ $t('asset-detail-section-primary-user') }}</template>
 
               <div v-if="device.primary_user" class="flex flex-col gap-4">
                 <UserCard :user="device.primary_user" avatar-size="lg" />
@@ -540,7 +540,7 @@ onMounted(() => {
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                   </svg>
-                  {{ $t('device-detail-action-change-user') }}
+                  {{ $t('asset-detail-action-change-user') }}
                 </button>
               </div>
 
@@ -548,7 +548,7 @@ onMounted(() => {
                 <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
                   <Icon name="user" size="md" class="text-secondary" />
                 </div>
-                <p class="text-secondary text-sm">{{ $t('device-detail-no-user-assigned') }}</p>
+                <p class="text-secondary text-sm">{{ $t('asset-detail-no-user-assigned') }}</p>
 
                 <button
                   v-if="device.is_editable"
@@ -556,7 +556,7 @@ onMounted(() => {
                   class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
                   <Icon name="add" />
-                  {{ $t('device-detail-action-assign-user') }}
+                  {{ $t('asset-detail-action-assign-user') }}
                 </button>
               </div>
             </SectionCard>
@@ -565,15 +565,15 @@ onMounted(() => {
             <DeviceGroups v-if="!isCreationMode && device" :groups="device.groups" />
 
             <!-- Plugin panels for device info -->
-            <PluginSlot v-if="!isCreationMode && device" slot-name="device-info-panels" :device="device" />
+            <PluginSlot v-if="!isCreationMode && device" slot-name="asset-info-panels" :device="device" />
 
             <!-- Asset Information (manual devices, edit mode only) -->
             <SectionCard v-if="!isCreationMode && device?.is_editable" content-padding="p-4">
-              <template #title>{{ $t('device-detail-section-device-information') }}</template>
+              <template #title>{{ $t('asset-detail-section-device-information') }}</template>
 
               <div class="flex flex-col gap-4">
                 <div class="flex flex-col gap-2">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-device-id') }}</h3>
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-device-id') }}</h3>
                   <div class="bg-surface-alt rounded-lg p-3 border border-default">
                     <span class="text-primary font-mono text-sm">{{ device.id }}</span>
                   </div>
@@ -581,11 +581,11 @@ onMounted(() => {
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-created') }}</h4>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-created') }}</h4>
                     <p class="text-primary text-sm">{{ formatDateTime(device.created_at) }}</p>
                   </div>
                   <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-last-updated') }}</h4>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-last-updated') }}</h4>
                     <p class="text-primary text-sm">{{ formatDateTime(device.updated_at) }}</p>
                   </div>
                 </div>
@@ -594,8 +594,8 @@ onMounted(() => {
                   <div class="flex items-center gap-2 text-sm">
                     <Icon name="copyMd" size="md" class="text-secondary flex-shrink-0" />
                     <div>
-                      <p class="font-medium text-primary">{{ $t('device-detail-manually-managed') }}</p>
-                      <p class="text-xs text-tertiary mt-0.5">{{ $t('device-detail-manually-managed-description') }}</p>
+                      <p class="font-medium text-primary">{{ $t('asset-detail-manually-managed') }}</p>
+                      <p class="text-xs text-tertiary mt-0.5">{{ $t('asset-detail-manually-managed-description') }}</p>
                     </div>
                   </div>
                 </div>
@@ -608,26 +608,26 @@ onMounted(() => {
                  attribute schema; this card surfaces the sync
                  source + the unmanage action only. -->
             <SectionCard v-else-if="!isCreationMode && device" content-padding="p-4">
-              <template #title>{{ $t('device-detail-section-external-sync') }}</template>
+              <template #title>{{ $t('asset-detail-section-external-sync') }}</template>
               <div class="flex flex-col gap-4">
                 <div class="flex items-center gap-2 text-sm">
                   <Icon name="refresh" class="text-accent flex-shrink-0" />
                   <div>
                     <p class="font-medium text-primary">
-                      {{ $t('device-detail-external-sync-source', { source: device.external_sync_source || '' }) }}
+                      {{ $t('asset-detail-external-sync-source', { source: device.external_sync_source || '' }) }}
                     </p>
                     <p class="text-xs text-tertiary mt-0.5">
-                      {{ $t('device-detail-external-sync-note') }}
+                      {{ $t('asset-detail-external-sync-note') }}
                     </p>
                   </div>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-created') }}</h4>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-created') }}</h4>
                     <p class="text-primary text-sm">{{ formatDateTime(device.created_at) }}</p>
                   </div>
                   <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-last-updated') }}</h4>
+                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-last-updated') }}</h4>
                     <p class="text-primary text-sm">{{ formatDateTime(device.updated_at) }}</p>
                   </div>
                 </div>
@@ -636,16 +636,16 @@ onMounted(() => {
                     @click="handleUnmanageDevice"
                     :disabled="isSaving"
                     class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-status-warning/20 text-status-warning rounded-lg hover:bg-status-warning/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-                    :title="$t('device-detail-action-unmanage-title')"
+                    :title="$t('asset-detail-action-unmanage-title')"
                   >
                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M18.84 12.25l1.72-1.71h-.02a5.004 5.004 0 00-.12-7.07 5.006 5.006 0 00-6.95 0l-1.72 1.71" />
                       <path d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 00.12 7.07 5.006 5.006 0 006.95 0l1.71-1.71" />
                       <path d="M8 2v3" /><path d="M2 8h3" /><path d="M16 22v-3" /><path d="M22 16h-3" />
                     </svg>
-                    {{ isSaving ? $t('device-detail-action-unmanage-processing') : $t('device-detail-action-unmanage') }}
+                    {{ isSaving ? $t('asset-detail-action-unmanage-processing') : $t('asset-detail-action-unmanage') }}
                   </button>
-                  <p class="text-xs text-tertiary text-center">{{ $t('device-detail-unmanage-conversion-note') }}</p>
+                  <p class="text-xs text-tertiary text-center">{{ $t('asset-detail-unmanage-conversion-note') }}</p>
                 </div>
               </div>
             </SectionCard>
@@ -660,7 +660,7 @@ onMounted(() => {
               :disabled="isSaving"
               class="px-6 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 transition-colors text-sm font-medium"
             >
-              {{ $t('device-detail-action-cancel') }}
+              {{ $t('asset-detail-action-cancel') }}
             </button>
             <button
               @click="saveDevice"
@@ -668,7 +668,7 @@ onMounted(() => {
               class="px-6 py-2.5 bg-status-success text-white rounded-lg hover:bg-status-success/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
             >
               <Spinner v-if="isSaving" />
-              {{ isSaving ? $t('device-detail-action-create-processing') : $t('device-detail-action-create') }}
+              {{ isSaving ? $t('asset-detail-action-create-processing') : $t('asset-detail-action-create') }}
             </button>
           </div>
         </div>
@@ -677,7 +677,7 @@ onMounted(() => {
 
     <!-- Not found -->
     <div v-else class="p-6 text-center text-secondary">
-      {{ $t('device-detail-not-found') }}
+      {{ $t('asset-detail-not-found') }}
     </div>
 
     <!-- User Selection Modal -->
@@ -691,7 +691,7 @@ onMounted(() => {
     <!-- Unmanage Asset Confirmation Modal -->
     <Modal
       :show="showUnmanageModal"
-      :title="$t('device-detail-unmanage-modal-title')"
+      :title="$t('asset-detail-unmanage-modal-title')"
       @close="showUnmanageModal = false"
     >
       <div class="flex flex-col items-center gap-4">
@@ -703,13 +703,13 @@ onMounted(() => {
           </svg>
         </div>
 
-        <h3 class="text-xl font-medium text-primary">{{ $t('device-detail-unmanage-heading') }}</h3>
+        <h3 class="text-xl font-medium text-primary">{{ $t('asset-detail-unmanage-heading') }}</h3>
         <p
           class="text-sm text-secondary text-center max-w-sm"
-          v-html="$t('device-detail-unmanage-confirm-body', { name: (device?.attributes?.hostname as string | undefined) || device?.name || '' })"
+          v-html="$t('asset-detail-unmanage-confirm-body', { name: (device?.attributes?.hostname as string | undefined) || device?.name || '' })"
         ></p>
         <p class="text-xs text-tertiary text-center max-w-sm">
-          {{ $t('device-detail-unmanage-confirm-note') }}
+          {{ $t('asset-detail-unmanage-confirm-note') }}
         </p>
 
         <p v-if="unmanageError" class="text-sm text-status-error text-center">
@@ -721,14 +721,14 @@ onMounted(() => {
             @click="showUnmanageModal = false"
             class="flex-1 px-4 py-2.5 bg-surface text-primary rounded-lg hover:bg-surface-hover transition-colors border border-default"
           >
-            {{ $t('device-detail-action-cancel') }}
+            {{ $t('asset-detail-action-cancel') }}
           </button>
           <button
             @click="confirmUnmanageDevice"
             :disabled="isSaving"
             class="flex-1 px-4 py-2.5 bg-status-warning text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
           >
-            {{ isSaving ? $t('device-detail-action-unmanage-processing') : $t('device-detail-unmanage-action-confirm') }}
+            {{ isSaving ? $t('asset-detail-action-unmanage-processing') : $t('asset-detail-unmanage-action-confirm') }}
           </button>
         </div>
       </div>

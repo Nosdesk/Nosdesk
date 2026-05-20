@@ -36,20 +36,20 @@ const { data, isPending, isLoading, error } = useQuery({
 const devices = computed<Asset[]>(() => data.value ?? [])
 const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
-  error.value ? t('dashboard-my-devices-error') : null,
+  error.value ? t('dashboard-my-assets-error') : null,
 )
 </script>
 
 <template>
   <DashboardWidgetShell
-    :title="t('dashboard-my-devices-title')"
+    :title="t('dashboard-my-assets-title')"
     action-to="/assets"
     :loading="isPending"
     :refreshing="isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && devices.length === 0"
-    :empty-title="t('dashboard-my-devices-empty-title')"
-    :empty-description="t('dashboard-my-devices-empty-description')"
+    :empty-title="t('dashboard-my-assets-empty-title')"
+    :empty-description="t('dashboard-my-assets-empty-description')"
     min-body-height="200px"
   >
     <ul class="divide-y divide-default">
@@ -60,7 +60,7 @@ const errorMessage = computed(() =>
         >
           <p class="text-sm text-primary truncate group-hover:text-accent transition-colors">{{ d.name }}</p>
           <p class="mt-0.5 text-[11px] text-tertiary truncate">
-            {{ d.model || t('dashboard-my-devices-unknown-model') }}<template v-if="d.attributes?.hostname"> · {{ d.attributes.hostname }}</template>
+            {{ d.model || t('dashboard-my-assets-unknown-model') }}<template v-if="d.attributes?.hostname"> · {{ d.attributes.hostname }}</template>
           </p>
         </router-link>
       </li>
