@@ -153,6 +153,41 @@ pub fn index_document_from_device(device: &models::Device) -> IndexDocument {
     if let Some(ref device_type) = device.device_type {
         metadata_parts.push(device_type.clone());
     }
+    if let Some(ref asset_tag) = device.asset_tag {
+        metadata_parts.push(asset_tag.clone());
+    }
+    // Discriminator slug. Indexing the slug rather than the
+    // registry label avoids a per-row lookup; admins searching
+    // for "license" or "vehicle" find the matching rows even
+    // when the kind is non-IT.
+    metadata_parts.push(device.kind.clone());
+    // Quantity + unit as a single token ("50 m") so bulk
+    // materials are searchable by their measured amount.
+    if let Some(ref qty) = device.quantity {
+        let pretty = match device.unit.as_deref() {
+            Some(unit) if !unit.is_empty() => format!("{qty} {unit}"),
+            _ => qty.to_string(),
+        };
+        metadata_parts.push(pretty);
+    } else if let Some(ref unit) = device.unit {
+        metadata_parts.push(unit.clone());
+    }
+    // Attribute values. Stringified scalars are appended so a
+    // search for "22mm copper" hits a material whose attributes
+    // contain those values. Object / array values are skipped
+    // because they need per-kind interpretation that the search
+    // layer shouldn't bake in.
+    if let Some(obj) = device.attributes.as_object() {
+        for v in obj.values() {
+            if let Some(s) = v.as_str() {
+                if !s.is_empty() {
+                    metadata_parts.push(s.to_string());
+                }
+            } else if v.is_number() || v.is_boolean() {
+                metadata_parts.push(v.to_string());
+            }
+        }
+    }
 
     let preview = metadata_parts
         .iter()
@@ -163,7 +198,11 @@ pub fn index_document_from_device(device: &models::Device) -> IndexDocument {
 
     IndexDocument::new(EntityType::Device, device.id as i64, title, "")
         .metadata(metadata_parts.join(" "))
-        .url(format!("/devices/{}", device.id))
+        // Canonical URL now lives at /assets/:id; the /devices
+        // path resolves via a frontend redirect but the new
+        // path is what we want bookmarks and search clicks to
+        // land on.
+        .url(format!("/assets/{}", device.id))
         .preview(preview)
         .updated_at(device.updated_at.and_utc().timestamp())
 }
