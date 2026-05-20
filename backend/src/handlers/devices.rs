@@ -396,30 +396,56 @@ pub async fn asset_planner(
         Err(e) => return e,
     };
 
-    let rows: Result<Vec<Device>, Error> =
-        devices::table.order(devices::name.asc()).load(&mut conn);
+    // The planner's axes (OS family, warranty bucket, compliance)
+    // only make sense for IT-managed hardware. Filter the asset
+    // set to kinds whose category is 'it' so non-IT workspaces
+    // (vehicles, licenses, materials) stay out of the planner
+    // view entirely instead of cluttering it with empty buckets.
+    use crate::schema::asset_kinds;
+    use crate::services::assets::it_attrs;
+    let it_slugs: Vec<String> = match asset_kinds::table
+        .filter(asset_kinds::category.eq("it"))
+        .select(asset_kinds::slug)
+        .load(&mut conn)
+    {
+        Ok(s) => s,
+        Err(e) => {
+            error!(error = ?e, "asset planner: failed to load IT-kind slugs");
+            return errors::internal("Failed to load assets");
+        }
+    };
+
+    let rows: Result<Vec<Device>, Error> = devices::table
+        .filter(devices::kind.eq_any(&it_slugs))
+        .order(devices::name.asc())
+        .load(&mut conn);
 
     match rows {
         Ok(devices) => {
             let today = chrono::Utc::now().date_naive();
             let payload: Vec<AssetPlannerRow> = devices
                 .into_iter()
-                .map(|d| AssetPlannerRow {
-                    id: d.id,
-                    name: d.name.clone(),
-                    hostname: d.hostname.clone(),
-                    manufacturer: d.manufacturer.clone(),
-                    model: d.model.clone(),
-                    os_family: classify_os(d.operating_system.as_deref()),
-                    warranty_bucket: classify_warranty(d.warranty_end_date, today),
-                    operating_system: d.operating_system,
-                    os_version: d.os_version,
-                    warranty_end_date: d
-                        .warranty_end_date
-                        .map(|dt| dt.format("%Y-%m-%d").to_string()),
-                    compliance_state: d.compliance_state,
-                    primary_user_uuid: d.primary_user_uuid,
-                    asset_tag: d.asset_tag,
+                .map(|d| {
+                    let os = it_attrs::operating_system(&d.attributes).map(str::to_string);
+                    let os_version = it_attrs::os_version(&d.attributes).map(str::to_string);
+                    let warranty_end = it_attrs::warranty_end_date(&d.attributes);
+                    let compliance = it_attrs::compliance_state(&d.attributes).map(str::to_string);
+                    let hostname = it_attrs::hostname(&d.attributes).map(str::to_string);
+                    AssetPlannerRow {
+                        id: d.id,
+                        name: d.name.clone(),
+                        hostname,
+                        manufacturer: d.manufacturer.clone(),
+                        model: d.model.clone(),
+                        os_family: classify_os(os.as_deref()),
+                        warranty_bucket: classify_warranty(warranty_end, today),
+                        operating_system: os,
+                        os_version,
+                        warranty_end_date: warranty_end.map(|dt| dt.format("%Y-%m-%d").to_string()),
+                        compliance_state: compliance,
+                        primary_user_uuid: d.primary_user_uuid,
+                        asset_tag: d.asset_tag,
+                    }
                 })
                 .collect();
             HttpResponse::Ok().json(payload)

@@ -120,11 +120,19 @@ pub fn index_document_from_attachment(
 
 /// Create an index document from a device
 pub fn index_document_from_device(device: &models::Device) -> IndexDocument {
+    // The IT-flavoured fields (hostname, OS, etc.) used to live
+    // as top-level columns; Pass B moved them into the
+    // attributes JSONB. Read through the typed accessors so the
+    // search surface stays consistent across IT and non-IT
+    // kinds without re-reaching into Value indexing here.
+    use crate::services::assets::it_attrs;
+
     // Device has `name` field (not optional)
+    let hostname_attr = it_attrs::hostname(&device.attributes);
     let title = if !device.name.is_empty() {
         device.name.clone()
-    } else if let Some(ref hostname) = device.hostname {
-        hostname.clone()
+    } else if let Some(hostname) = hostname_attr {
+        hostname.to_string()
     } else {
         format!("Device #{}", device.id)
     };
@@ -132,8 +140,8 @@ pub fn index_document_from_device(device: &models::Device) -> IndexDocument {
     // Build comprehensive metadata for device search
     let mut metadata_parts = Vec::new();
     metadata_parts.push(device.name.clone());
-    if let Some(ref hostname) = device.hostname {
-        metadata_parts.push(hostname.clone());
+    if let Some(hostname) = hostname_attr {
+        metadata_parts.push(hostname.to_string());
     }
     if let Some(ref serial) = device.serial_number {
         metadata_parts.push(serial.clone());
@@ -144,14 +152,11 @@ pub fn index_document_from_device(device: &models::Device) -> IndexDocument {
     if let Some(ref model) = device.model {
         metadata_parts.push(model.clone());
     }
-    if let Some(ref os) = device.operating_system {
-        metadata_parts.push(os.clone());
+    if let Some(os) = it_attrs::operating_system(&device.attributes) {
+        metadata_parts.push(os.to_string());
     }
-    if let Some(ref os_version) = device.os_version {
-        metadata_parts.push(os_version.clone());
-    }
-    if let Some(ref device_type) = device.device_type {
-        metadata_parts.push(device_type.clone());
+    if let Some(os_version) = it_attrs::os_version(&device.attributes) {
+        metadata_parts.push(os_version.to_string());
     }
     if let Some(ref asset_tag) = device.asset_tag {
         metadata_parts.push(asset_tag.clone());
