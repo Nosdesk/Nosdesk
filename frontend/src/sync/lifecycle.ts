@@ -401,6 +401,7 @@ function toAssetCacheRow(asset: import('@/types/device').Device): Record<string,
     attributes: asset.attributes ?? {},
     quantity: asset.quantity ?? null,
     unit: asset.unit ?? null,
+    external_sync_source: asset.external_sync_source ?? null,
   }
 }
 

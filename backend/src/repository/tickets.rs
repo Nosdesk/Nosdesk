@@ -621,6 +621,7 @@ pub fn import_ticket_from_json(
             attributes: serde_json::json!({}),
             quantity: None,
             unit: None,
+            external_sync_source: None,
         };
 
         crate::repository::devices::create_device(conn, new_device)?;

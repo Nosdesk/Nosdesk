@@ -226,6 +226,7 @@ fn stream_bootstrap(
                 "attributes": asset.attributes,
                 "quantity": asset.quantity,
                 "unit": asset.unit,
+                "external_sync_source": asset.external_sync_source,
             }),
         )?;
     }

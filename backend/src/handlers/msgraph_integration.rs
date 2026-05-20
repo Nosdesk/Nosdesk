@@ -4623,6 +4623,12 @@ async fn process_entra_device(
             attributes: serde_json::json!({}),
             quantity: None,
             unit: None,
+            // entra_device_id is being set on this row, so the
+            // sync-source predicate flips to 'entra' from row
+            // creation. B2 will switch this whole helper to
+            // write attributes; for now keep the column-based
+            // flow but seed the new top-level flag.
+            external_sync_source: Some("entra".to_string()),
         };
 
         device_repo::create_device(conn, new_device)

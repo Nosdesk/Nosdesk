@@ -38,6 +38,9 @@ export interface Device {
    *  f64 round-tripping. Matches `sync-models/asset.json`. */
   quantity?: string | null;
   unit?: string | null;
+  /** When `Some(_)` the row is owned by an external sync (Intune,
+   *  Entra). Drives is_editable. */
+  external_sync_source?: string | null;
   // Computed/joined fields from API
   primary_user?: {
     uuid: string;

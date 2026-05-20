@@ -182,6 +182,8 @@ diesel::table! {
         quantity -> Nullable<Numeric>,
         #[max_length = 32]
         unit -> Nullable<Varchar>,
+        #[max_length = 32]
+        external_sync_source -> Nullable<Varchar>,
     }
 }
 

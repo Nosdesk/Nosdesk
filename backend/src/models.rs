@@ -847,6 +847,14 @@ pub struct Device {
     /// Unit label paired with `quantity`. Free-text ('m', 'L',
     /// 'pcs', etc.) so we don't impose a unit ontology.
     pub unit: Option<String>,
+    /// Identifier of the external system that owns this row,
+    /// when it's synced from one. `Some("intune")` /
+    /// `Some("entra")` for Microsoft-managed assets; `None`
+    /// for assets managed inside Nosdesk. Drives the
+    /// is_editable predicate that hides edit UI for external
+    /// rows so admins don't make changes that the next sync
+    /// will overwrite.
+    pub external_sync_source: Option<String>,
 }
 
 /// Default kind for callers that omit `kind` from the JSON
@@ -899,6 +907,8 @@ pub struct NewDevice {
     pub quantity: Option<bigdecimal::BigDecimal>,
     #[serde(default)]
     pub unit: Option<String>,
+    #[serde(default)]
+    pub external_sync_source: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -932,6 +942,7 @@ pub struct DeviceUpdate {
     pub attributes: Option<serde_json::Value>,
     pub quantity: Option<Option<bigdecimal::BigDecimal>>,
     pub unit: Option<Option<String>>,
+    pub external_sync_source: Option<Option<String>>,
 }
 
 /// Runtime-extensible asset-kind registry. `slug` is the value

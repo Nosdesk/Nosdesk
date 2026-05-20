@@ -42,6 +42,7 @@ fn asset_sync_payload(device: &Device) -> serde_json::Value {
         "attributes": device.attributes,
         "quantity": device.quantity,
         "unit": device.unit,
+        "external_sync_source": device.external_sync_source,
     })
 }
 
@@ -338,6 +339,7 @@ mod tests {
             attributes: serde_json::json!({}),
             quantity: None,
             unit: None,
+            external_sync_source: None,
         }
     }
 

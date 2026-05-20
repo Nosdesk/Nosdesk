@@ -14,7 +14,8 @@
     "primary_user_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
     "attributes": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },
     "quantity": { "rust": "Option<BigDecimal>", "ts": "string | null" },
-    "unit": { "rust": "Option<String>", "ts": "string | null" }
+    "unit": { "rust": "Option<String>", "ts": "string | null" },
+    "external_sync_source": { "rust": "Option<String>", "ts": "string | null" }
   },
   "events": [
     { "type": "asset.created", "op": "I" },
