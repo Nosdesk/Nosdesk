@@ -17,10 +17,12 @@ import DeviceGroups from '@/components/DeviceGroups.vue';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
 import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/deviceService';
+import { assetKindsService, type AssetKind } from '@/services/assetKindsService';
 import { useSSEListeners } from '@/composables/useSSEListeners';
 import type { DeviceUpdatedEventData, DeviceDeletedEventData } from '@/types/sse';
 import { IntuneIcon, EntraIcon } from '@/components/icons';
 import type { Device, DeviceFormData } from '@/types/device';
+import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -52,6 +54,33 @@ const editValues = ref({
   purchase_date: '' as string,
   asset_tag: '' as string,
 });
+
+// Asset-kind registry state. Loaded eagerly on mount so the
+// picker is populated before the create form renders; in edit
+// mode it backs the read-only "Kind" row at the bottom of the
+// details card.
+const kinds = ref<AssetKind[]>([]);
+const selectedKindSlug = ref<string>('device');
+const attributeDraft = ref<Record<string, unknown>>({});
+
+const selectedKind = computed<AssetKind | null>(
+  () => kinds.value.find((k) => k.slug === selectedKindSlug.value) ?? null,
+);
+
+const selectedKindSchema = computed(
+  () => (selectedKind.value?.attribute_schema as Record<string, unknown>) ?? null,
+);
+
+async function loadKinds() {
+  try {
+    kinds.value = await assetKindsService.list();
+  } catch (err) {
+    // Non-fatal: fall back to a single hard-coded 'device' option
+    // so the form still functions for non-admins or if the
+    // endpoint is unavailable.
+    console.warn('asset-kinds list failed; defaulting to device only', err);
+  }
+}
 
 // Computed
 const isCreationMode = computed(() => !route.params.id || route.params.id === 'new');
@@ -119,6 +148,12 @@ const fetchDeviceData = async () => {
       purchase_date: device.value.purchase_date || '',
       asset_tag: device.value.asset_tag || '',
     };
+    // Hydrate the kind picker and attribute draft from the
+    // loaded device so the (currently read-only) display row
+    // shows the right slug; edit support for these fields is a
+    // follow-up.
+    selectedKindSlug.value = device.value.kind ?? 'device';
+    attributeDraft.value = { ...(device.value.attributes ?? {}) };
   } catch (e) {
     error.value = t('device-detail-error-load');
     console.error('Error loading device:', e);
@@ -163,7 +198,9 @@ const saveDevice = async () => {
       purchase_date: editValues.value.purchase_date || null,
       asset_tag: editValues.value.asset_tag || null,
       primary_user_uuid: selectedUser.value?.uuid || undefined,
-      type: 'Other'
+      type: 'Other',
+      kind: selectedKindSlug.value,
+      attributes: attributeDraft.value,
     };
     const newDevice = await createDevice(deviceData);
     router.replace(`/devices/${newDevice.id}`);
@@ -290,7 +327,10 @@ on('device-deleted', (data) => {
 });
 
 // Lifecycle
-onMounted(fetchDeviceData);
+onMounted(() => {
+  loadKinds();
+  fetchDeviceData();
+});
 </script>
 
 <template>
@@ -329,6 +369,43 @@ onMounted(fetchDeviceData);
       <!-- Content area -->
       <div class="flex flex-col gap-6 px-6 py-4 mx-auto w-full max-w-8xl">
         <AlertMessage v-if="error" type="error" :message="error" />
+
+        <!-- Kind picker + dynamic attribute form. In creation
+             mode the admin chooses the kind and fills in any
+             per-kind attributes; in edit mode we show a
+             read-only summary so the kind is visible without
+             surfacing an edit affordance we don't yet support. -->
+        <SectionCard v-if="kinds.length > 0" content-padding="p-4">
+          <template #title>{{ $t('device-detail-section-kind') }}</template>
+          <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-1.5">
+              <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
+                {{ $t('device-detail-field-kind') }}
+              </h3>
+              <select
+                v-if="isCreationMode"
+                v-model="selectedKindSlug"
+                class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary"
+              >
+                <option v-for="k in kinds" :key="k.slug" :value="k.slug">
+                  {{ k.label }}
+                </option>
+              </select>
+              <p v-else class="text-sm text-primary">
+                {{ selectedKind?.label ?? selectedKindSlug }}
+              </p>
+              <p v-if="selectedKind?.description" class="text-xs text-tertiary">
+                {{ selectedKind.description }}
+              </p>
+            </div>
+            <DynamicAttributeForm
+              v-if="selectedKindSchema"
+              :schema="selectedKindSchema"
+              v-model="attributeDraft"
+              :disabled="!isCreationMode"
+            />
+          </div>
+        </SectionCard>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
           <!-- Left column: Device Details -->

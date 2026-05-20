@@ -26,6 +26,15 @@ export interface Device {
   purchase_date?: string | null;
   asset_tag?: string | null;
   is_editable: boolean;
+  /** Asset-kind discriminator. Slug from the asset_kinds
+   *  registry. Defaults to `'device'` for IT-desk assets. */
+  kind?: string;
+  /** Kind-specific attributes validated server-side against
+   *  the kind's attribute_schema. */
+  attributes?: Record<string, unknown>;
+  /** Optional bulk-material quantity; paired with `unit`. */
+  quantity?: string | number | null;
+  unit?: string | null;
   // Computed/joined fields from API
   primary_user?: {
     uuid: string;
@@ -64,4 +73,8 @@ export interface DeviceFormData {
   purchase_date?: string | null;
   asset_tag?: string | null;
   type?: string;
-} 
+  kind?: string;
+  attributes?: Record<string, unknown>;
+  quantity?: string | number | null;
+  unit?: string | null;
+}
