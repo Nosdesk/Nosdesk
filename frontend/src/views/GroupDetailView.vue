@@ -313,7 +313,7 @@ onMounted(() => {
                   </div>
                   <div class="min-w-0 flex-1">
                     <p class="text-sm font-medium text-primary truncate group-hover/item:text-accent transition-colors">
-                      {{ device.name || device.hostname }}
+                      {{ device.name || (device.attributes?.hostname as string | undefined) }}
                     </p>
                     <p class="text-xs text-secondary truncate">
                       {{ [device.manufacturer, device.model].filter(Boolean).join(' ') || $t('group-detail-unknown-device') }}

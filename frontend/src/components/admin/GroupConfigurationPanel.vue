@@ -125,12 +125,15 @@ const hasMemberChanges = computed(() => {
 const filteredDevices = computed(() => {
   if (!deviceSearchQuery.value) return availableDevices.value;
   const query = deviceSearchQuery.value.toLowerCase();
-  return availableDevices.value.filter(d =>
-    d.name.toLowerCase().includes(query) ||
-    (d.hostname && d.hostname.toLowerCase().includes(query)) ||
-    (d.serial_number && d.serial_number.toLowerCase().includes(query)) ||
-    (d.manufacturer && d.manufacturer.toLowerCase().includes(query))
-  );
+  return availableDevices.value.filter(d => {
+    const hostname = d.attributes?.hostname as string | undefined;
+    return (
+      d.name.toLowerCase().includes(query) ||
+      (hostname?.toLowerCase().includes(query) ?? false) ||
+      (d.serial_number && d.serial_number.toLowerCase().includes(query)) ||
+      (d.manufacturer && d.manufacturer.toLowerCase().includes(query))
+    );
+  });
 });
 
 // Check if devices have changes
@@ -218,9 +221,12 @@ const effectiveGroupSources = computed(() => {
   return map;
 });
 
-// Check if a device is externally synced (from Microsoft)
+// Check if an asset is owned by an external sync. Pass B
+// replaced the column-existence predicate with a dedicated
+// `external_sync_source` top-level field that any sync source
+// (Intune, Entra, future) can stamp.
 const isDeviceExternallySynced = (device: Device) => {
-  return !!device.intune_device_id || !!device.entra_device_id;
+  return device.external_sync_source != null;
 };
 
 // Check if the group itself is externally synced (membership managed externally)
@@ -668,13 +674,13 @@ onMounted(() => {
             </template>
             <div v-if="group.devices.length > 0" class="divide-y divide-default max-h-72 overflow-y-auto">
               <div v-for="device in group.devices" :key="device.id" class="flex items-center gap-3 px-4 py-2.5">
-                <DeviceOsIcon :os="device.operating_system" />
+                <DeviceOsIcon :os="(device.attributes?.operating_system as string | undefined)" />
                 <div class="flex-1 min-w-0">
                   <div class="text-sm text-primary truncate">{{ device.name }}</div>
                   <div class="text-xs text-tertiary truncate">
                     <template v-if="device.manufacturer || device.model">{{ [device.manufacturer, device.model].filter(Boolean).join(' ') }}</template>
                     <template v-if="device.serial_number"><span v-if="device.manufacturer || device.model"> · </span>{{ $t('admin-groups-config-device-sn', { sn: device.serial_number }) }}</template>
-                    <template v-if="!device.manufacturer && !device.model && !device.serial_number && device.operating_system">{{ device.operating_system }}</template>
+                    <template v-if="!device.manufacturer && !device.model && !device.serial_number && (device.attributes?.operating_system as string | undefined)">{{ (device.attributes?.operating_system as string | undefined) }}</template>
                   </div>
                 </div>
               </div>
@@ -894,7 +900,7 @@ onMounted(() => {
                   <div @click.stop>
                     <Checkbox :model-value="selectedDeviceIds.includes(device.id)" @update:model-value="toggleDevice(device.id)" />
                   </div>
-                  <DeviceOsIcon :os="device.operating_system" />
+                  <DeviceOsIcon :os="(device.attributes?.operating_system as string | undefined)" />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium text-primary truncate">{{ device.name }}</span>
@@ -910,7 +916,7 @@ onMounted(() => {
                     <div class="text-xs text-tertiary truncate">
                       <template v-if="device.manufacturer || device.model">{{ [device.manufacturer, device.model].filter(Boolean).join(' ') }}</template>
                       <template v-if="device.serial_number"><span v-if="device.manufacturer || device.model"> · </span>{{ $t('admin-groups-config-device-sn', { sn: device.serial_number }) }}</template>
-                      <template v-if="!device.manufacturer && !device.model && !device.serial_number && device.operating_system">{{ device.operating_system }}</template>
+                      <template v-if="!device.manufacturer && !device.model && !device.serial_number && (device.attributes?.operating_system as string | undefined)">{{ (device.attributes?.operating_system as string | undefined) }}</template>
                     </div>
                   </div>
                 </div>

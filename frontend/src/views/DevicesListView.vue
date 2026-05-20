@@ -217,7 +217,7 @@ async function confirmDelete() {
         </template>
 
         <template #cell-hostname="{ item }">
-          <span class="text-xs font-mono text-secondary truncate">{{ item.hostname || '—' }}</span>
+          <span class="text-xs font-mono text-secondary truncate">{{ (item.attributes?.hostname as string) || '—' }}</span>
         </template>
 
         <template #cell-model="{ item }">
@@ -236,7 +236,7 @@ async function confirmDelete() {
         </template>
 
         <template #cell-warranty_status="{ item }">
-          <StatusBadgeCell type="warranty" :value="item.warranty_status" />
+          <StatusBadgeCell type="warranty" :value="(item.attributes?.warranty_status as string | undefined) || ''" />
         </template>
       </DataTable>
     </template>
@@ -272,18 +272,19 @@ async function confirmDelete() {
           </div>
 
           <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-xs">
-            <span v-if="item.hostname" class="text-tertiary font-mono truncate max-w-[160px]">{{ item.hostname }}</span>
+            <span v-if="item.attributes?.hostname" class="text-tertiary font-mono truncate max-w-[160px]">{{ item.attributes.hostname }}</span>
             <span v-if="item.primary_user" class="text-secondary truncate max-w-[120px]">{{ item.primary_user.name }}</span>
             <span
+              v-if="item.attributes?.warranty_status"
               class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
               :class="{
-                'bg-status-success-muted text-status-success border-status-success/30': item.warranty_status === 'Active',
-                'bg-status-warning-muted text-status-warning border-status-warning/30': item.warranty_status === 'Warning',
-                'bg-status-error-muted text-status-error border-status-error/30': item.warranty_status === 'Expired',
-                'bg-surface-alt text-secondary border-default': !item.warranty_status || item.warranty_status === 'Unknown'
+                'bg-status-success-muted text-status-success border-status-success/30': item.attributes.warranty_status === 'Active',
+                'bg-status-warning-muted text-status-warning border-status-warning/30': item.attributes.warranty_status === 'Warning',
+                'bg-status-error-muted text-status-error border-status-error/30': item.attributes.warranty_status === 'Expired',
+                'bg-surface-alt text-secondary border-default': item.attributes.warranty_status === 'Unknown'
               }"
             >
-              {{ item.warranty_status || $t('devices-list-warranty-unknown') }}
+              {{ item.attributes.warranty_status }}
             </span>
           </div>
         </div>

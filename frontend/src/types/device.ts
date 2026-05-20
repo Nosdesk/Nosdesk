@@ -5,43 +5,32 @@ export interface DeviceGroup {
   color?: string | null;
 }
 
+/** Asset row as the REST + sync surfaces ship it. IT-flavoured
+ *  fields (hostname, OS, warranty, Microsoft Graph IDs etc.)
+ *  live inside `attributes` after Pass B. The legacy top-level
+ *  `intune_device_id` / `entra_device_id` / `warranty_status`
+ *  / etc. are gone; read them via `attributes['hostname']`. */
 export interface Device {
   id: number;
   name: string;
-  hostname: string;
+  kind: string;
+  attributes: Record<string, unknown>;
   serial_number: string;
   model: string;
-  warranty_status: string;
   manufacturer?: string | null;
-  operating_system?: string | null;
-  os_version?: string | null;
+  location?: string | null;
   primary_user_uuid?: string | null;
-  intune_device_id?: string | null;
-  entra_device_id?: string | null;
   created_at: string;
   updated_at: string;
-  last_sync_time?: string | null;
-  warranty_start_date?: string | null;
-  warranty_end_date?: string | null;
   purchase_date?: string | null;
   asset_tag?: string | null;
-  is_editable: boolean;
-  /** Asset-kind discriminator. Slug from the asset_kinds
-   *  registry. Defaults to `'device'` for IT-desk assets. */
-  kind?: string;
-  /** Kind-specific attributes validated server-side against
-   *  the kind's attribute_schema. */
-  attributes?: Record<string, unknown>;
-  /** Optional bulk-material quantity; paired with `unit`. Wire
-   *  format is `string | null` because Postgres NUMERIC is
-   *  serialised through BigDecimal as a string to avoid lossy
-   *  f64 round-tripping. Matches `sync-models/asset.json`. */
+  /** BigDecimal-as-string. NUMERIC(12,3) on the backend. */
   quantity?: string | null;
   unit?: string | null;
-  /** When `Some(_)` the row is owned by an external sync (Intune,
-   *  Entra). Drives is_editable. */
+  /** `'intune'` / `'entra'` when sync-owned; null otherwise. */
   external_sync_source?: string | null;
-  // Computed/joined fields from API
+  is_editable: boolean;
+  // Joined enrichments from the REST endpoint
   primary_user?: {
     uuid: string;
     name: string;
@@ -51,34 +40,21 @@ export interface Device {
     avatar_thumb?: string | null;
   } | null;
   groups?: DeviceGroup[];
-  // Legacy fields for backward compatibility
-  type?: string;
-  lastSeen?: string;
-  status?: string;
-  specs?: {
-    cpu?: string;
-    memory?: string;
-    storage?: string;
-    os?: string;
-  };
-  assignedTo?: string | null;
 }
 
+/** Wire shape for POST /devices (create) and the wider parts
+ *  of PUT /devices/:id. IT-flavoured fields go in `attributes`
+ *  now; this DTO mirrors the universal columns plus the
+ *  kind/attributes pair. */
 export interface DeviceFormData {
   name: string;
-  hostname: string;
-  serial_number: string;
-  model: string;
-  warranty_status: string;
-  manufacturer?: string;
+  serial_number?: string;
+  model?: string;
+  manufacturer?: string | null;
+  location?: string | null;
   primary_user_uuid?: string | null;
-  intune_device_id?: string;
-  entra_device_id?: string;
-  warranty_start_date?: string | null;
-  warranty_end_date?: string | null;
   purchase_date?: string | null;
   asset_tag?: string | null;
-  type?: string;
   kind?: string;
   attributes?: Record<string, unknown>;
   quantity?: string | null;

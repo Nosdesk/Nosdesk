@@ -46,11 +46,8 @@ const editValues = ref({
   name: '',
   manufacturer: '',
   model: '',
-  hostname: '',
   serial_number: '',
-  warranty_status: 'Unknown',
-  warranty_start_date: '' as string,
-  warranty_end_date: '' as string,
+  location: '',
   purchase_date: '' as string,
   asset_tag: '' as string,
 });
@@ -91,23 +88,6 @@ const fromTicket = computed(() =>
 
 const isSynced = computed(() => device.value != null && !device.value.is_editable);
 
-const warrantyOptions = computed(() => [
-  { value: 'Active', label: t('device-detail-warranty-active') },
-  { value: 'Warning', label: t('device-detail-warranty-warning') },
-  { value: 'Expired', label: t('device-detail-warranty-expired') },
-  { value: 'Unknown', label: t('device-detail-warranty-unknown') }
-]);
-
-const warrantyStatusLabel = (status: string | undefined) => {
-  switch (status) {
-    case 'Active': return t('device-detail-warranty-active');
-    case 'Warning': return t('device-detail-warranty-warning');
-    case 'Expired': return t('device-detail-warranty-expired');
-    case 'Unknown': return t('device-detail-warranty-unknown');
-    default: return status ?? '';
-  }
-};
-
 // Data fetching
 const fetchDeviceData = async () => {
   try {
@@ -117,8 +97,7 @@ const fetchDeviceData = async () => {
     if (isCreationMode.value) {
       editValues.value = {
         name: '', manufacturer: '', model: '',
-        hostname: '', serial_number: '', warranty_status: 'Unknown',
-        warranty_start_date: '', warranty_end_date: '',
+        serial_number: '', location: '',
         purchase_date: '', asset_tag: '',
       };
       emit('update:device', null);
@@ -140,19 +119,16 @@ const fetchDeviceData = async () => {
       name: device.value.name,
       manufacturer: device.value.manufacturer || '',
       model: device.value.model,
-      hostname: device.value.hostname,
       serial_number: device.value.serial_number,
-      warranty_status: device.value.warranty_status,
-      warranty_start_date: device.value.warranty_start_date || '',
-      warranty_end_date: device.value.warranty_end_date || '',
+      location: device.value.location || '',
       purchase_date: device.value.purchase_date || '',
       asset_tag: device.value.asset_tag || '',
     };
-    // Hydrate the kind picker and attribute draft from the
-    // loaded device so the (currently read-only) display row
-    // shows the right slug; edit support for these fields is a
-    // follow-up.
-    selectedKindSlug.value = device.value.kind ?? 'device';
+    // Hydrate the kind picker and attribute draft so the kind
+    // section + DynamicAttributeForm render the row's actual
+    // attributes (which is where hostname / OS / warranty etc.
+    // live after Pass B).
+    selectedKindSlug.value = device.value.kind ?? 'generic';
     attributeDraft.value = { ...(device.value.attributes ?? {}) };
   } catch (e) {
     error.value = t('device-detail-error-load');
@@ -187,18 +163,17 @@ const saveDevice = async () => {
   try {
     isSaving.value = true;
     const deviceData: DeviceFormData = {
-      name: editValues.value.hostname || editValues.value.name,
+      // Fall back to the hostname attribute for the row's display
+      // name if the admin hasn't typed one — IT-desk muscle memory
+      // sets the kind's hostname and lets the form auto-name.
+      name: editValues.value.name || (attributeDraft.value.hostname as string | undefined) || '',
       manufacturer: editValues.value.manufacturer,
       model: editValues.value.model,
-      hostname: editValues.value.hostname,
       serial_number: editValues.value.serial_number,
-      warranty_status: editValues.value.warranty_status,
-      warranty_start_date: editValues.value.warranty_start_date || null,
-      warranty_end_date: editValues.value.warranty_end_date || null,
+      location: editValues.value.location || null,
       purchase_date: editValues.value.purchase_date || null,
       asset_tag: editValues.value.asset_tag || null,
       primary_user_uuid: selectedUser.value?.uuid || undefined,
-      type: 'Other',
       kind: selectedKindSlug.value,
       attributes: attributeDraft.value,
     };
@@ -269,25 +244,6 @@ const confirmUnmanageDevice = async () => {
     unmanageError.value = t('device-detail-error-unmanage');
   } finally {
     isSaving.value = false;
-  }
-};
-
-// External links
-const openInIntune = () => {
-  if (device.value?.intune_device_id) {
-    window.open(
-      `https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/overview/mdmDeviceId/${device.value.intune_device_id}`,
-      '_blank', 'noopener,noreferrer'
-    );
-  }
-};
-
-const openInEntra = () => {
-  if (device.value?.entra_device_id) {
-    window.open(
-      `https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DeviceDetailsMenuBlade/~/Properties/objectId/${device.value.entra_device_id}`,
-      '_blank', 'noopener,noreferrer'
-    );
   }
 };
 
@@ -433,26 +389,11 @@ onMounted(() => {
                 />
               </div>
 
-              <!-- Hostname -->
-              <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-hostname') }}</h3>
-                <input
-                  v-if="isCreationMode"
-                  ref="hostnameRef"
-                  v-model="editValues.hostname"
-                  type="text"
-                  :placeholder="$t('device-detail-field-hostname-placeholder-create')"
-                  class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
-                />
-                <InlineEdit
-                  v-else
-                  v-model="editValues.hostname"
-                  :placeholder="device?.hostname || $t('device-detail-field-hostname-placeholder-edit')"
-                  text-size="sm"
-                  :can-edit="device?.is_editable ?? false"
-                  @update:modelValue="() => saveField('hostname')"
-                />
-              </div>
+              <!-- Hostname / OS / warranty / Microsoft Graph
+                   IDs now live as per-kind attributes; the
+                   DynamicAttributeForm in the Kind section above
+                   renders them through the kind's
+                   attribute_schema. -->
 
               <!-- Serial Number -->
               <div class="flex flex-col gap-1.5">
@@ -512,56 +453,6 @@ onMounted(() => {
                     :can-edit="device?.is_editable ?? false"
                     @update:modelValue="() => saveField('model')"
                   />
-                </div>
-              </div>
-
-              <!-- Warranty Status -->
-              <div class="flex flex-col gap-1.5 pt-2 border-t border-default">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-warranty-status') }}</h3>
-                <BaseDropdown
-                  v-if="isCreationMode || device?.is_editable"
-                  v-model="editValues.warranty_status"
-                  :options="warrantyOptions"
-                  size="sm"
-                  @update:modelValue="() => { if (!isCreationMode) saveField('warranty_status') }"
-                />
-                <div
-                  v-else
-                  class="inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium w-fit"
-                  :class="{
-                    'bg-status-success/30 text-status-success border border-status-success/30': device?.warranty_status === 'Active',
-                    'bg-status-warning/30 text-status-warning border border-status-warning/30': device?.warranty_status === 'Warning',
-                    'bg-status-error/30 text-status-error border border-status-error/30': device?.warranty_status === 'Expired',
-                    'bg-surface-alt text-secondary border border-default': device?.warranty_status === 'Unknown'
-                  }"
-                >
-                  {{ warrantyStatusLabel(device?.warranty_status) }}
-                </div>
-              </div>
-
-              <!-- Warranty Dates -->
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-warranty-start') }}</h3>
-                  <input
-                    v-if="isCreationMode || device?.is_editable"
-                    v-model="editValues.warranty_start_date"
-                    type="date"
-                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2 text-primary focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
-                    @change="() => { if (!isCreationMode) saveField('warranty_start_date') }"
-                  />
-                  <p v-else class="text-primary text-sm">{{ device?.warranty_start_date || '-' }}</p>
-                </div>
-                <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-warranty-end') }}</h3>
-                  <input
-                    v-if="isCreationMode || device?.is_editable"
-                    v-model="editValues.warranty_end_date"
-                    type="date"
-                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2 text-primary focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
-                    @change="() => { if (!isCreationMode) saveField('warranty_end_date') }"
-                  />
-                  <p v-else class="text-primary text-sm">{{ device?.warranty_end_date || '-' }}</p>
                 </div>
               </div>
 
@@ -713,12 +604,25 @@ onMounted(() => {
               </div>
             </SectionCard>
 
-            <!-- Microsoft Integration (synced devices) -->
+            <!-- Externally-synced asset (Intune / Entra). The
+                 ID fields and last-sync-time now render through
+                 DynamicAttributeForm against the IT baseline
+                 attribute schema; this card surfaces the sync
+                 source + the unmanage action only. -->
             <SectionCard v-else-if="!isCreationMode && device" content-padding="p-4">
-              <template #title>{{ $t('device-detail-section-microsoft-integration') }}</template>
-
-              <div class="flex flex-col gap-6">
-                <!-- Timestamps -->
+              <template #title>{{ $t('device-detail-section-external-sync') }}</template>
+              <div class="flex flex-col gap-4">
+                <div class="flex items-center gap-2 text-sm">
+                  <Icon name="refresh" class="text-accent flex-shrink-0" />
+                  <div>
+                    <p class="font-medium text-primary">
+                      {{ $t('device-detail-external-sync-source', { source: device.external_sync_source || '' }) }}
+                    </p>
+                    <p class="text-xs text-tertiary mt-0.5">
+                      {{ $t('device-detail-external-sync-note') }}
+                    </p>
+                  </div>
+                </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div class="flex flex-col gap-1.5">
                     <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-created') }}</h4>
@@ -729,95 +633,21 @@ onMounted(() => {
                     <p class="text-primary text-sm">{{ formatDateTime(device.updated_at) }}</p>
                   </div>
                 </div>
-
-                <!-- Last Sync Time -->
-                <div v-if="device.last_sync_time" class="flex flex-col gap-2 pt-4 border-t border-default">
-                  <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('device-detail-field-last-intune-check-in') }}</h4>
-                  <div class="flex items-center gap-2">
-                    <Icon name="refresh" class="text-accent flex-shrink-0" />
-                    <p class="text-primary text-sm">{{ formatDateTime(device.last_sync_time) }}</p>
-                  </div>
-                </div>
-
-                <!-- External Links -->
-                <div class="flex flex-col gap-4 pt-4 border-t border-default">
-                  <div class="flex flex-wrap gap-3">
-                    <button
-                      v-if="device.intune_device_id"
-                      @click="openInIntune"
-                      class="flex-1 min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium"
-                    >
-                      <IntuneIcon size="16" class="text-white flex-shrink-0" />
-                      <span>{{ $t('device-detail-action-view-in-intune') }}</span>
-                      <Icon name="openExternal" class="flex-shrink-0 opacity-70" />
-                    </button>
-
-                    <button
-                      v-if="device.entra_device_id"
-                      @click="openInEntra"
-                      class="flex-1 min-w-[160px] flex items-center justify-center gap-2 px-4 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors text-sm font-medium border border-default"
-                    >
-                      <EntraIcon size="16" class="flex-shrink-0" />
-                      <span>{{ $t('device-detail-action-view-in-entra') }}</span>
-                      <Icon name="openExternal" class="flex-shrink-0 opacity-70" />
-                    </button>
-                  </div>
-
-                  <!-- Unmanage Button -->
-                  <div class="pt-4 border-t border-default flex flex-col gap-3">
-                    <button
-                      @click="handleUnmanageDevice"
-                      :disabled="isSaving"
-                      class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-status-warning/20 text-status-warning rounded-lg hover:bg-status-warning/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-                      :title="$t('device-detail-action-unmanage-title')"
-                    >
-                      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M18.84 12.25l1.72-1.71h-.02a5.004 5.004 0 00-.12-7.07 5.006 5.006 0 00-6.95 0l-1.72 1.71" />
-                        <path d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 00.12 7.07 5.006 5.006 0 006.95 0l1.71-1.71" />
-                        <path d="M8 2v3" /><path d="M2 8h3" /><path d="M16 22v-3" /><path d="M22 16h-3" />
-                      </svg>
-                      {{ isSaving ? $t('device-detail-action-unmanage-processing') : $t('device-detail-action-unmanage') }}
-                    </button>
-                    <p class="text-xs text-tertiary text-center">{{ $t('device-detail-unmanage-conversion-note') }}</p>
-                  </div>
-
-                  <!-- Technical Details Dropdown -->
-                  <div class="pt-4 border-t border-default">
-                    <button
-                      @click="showAdditionalDetails = !showAdditionalDetails"
-                      class="w-full flex items-center justify-between text-secondary hover:text-primary transition-colors text-sm"
-                    >
-                      <span class="font-medium">{{ showAdditionalDetails ? $t('device-detail-tech-details-hide') : $t('device-detail-tech-details-show') }}</span>
-                      <Icon
-                        name="chevronDown"
-                        class="transition-transform duration-200"
-                        :class="{ 'rotate-180': showAdditionalDetails }"
-                      />
-                    </button>
-
-                    <div v-show="showAdditionalDetails" class="mt-4 divide-y divide-default">
-                      <div class="flex items-center justify-between py-2.5">
-                        <span class="text-sm text-secondary">{{ $t('device-detail-field-device-id') }}</span>
-                        <span class="text-sm text-primary font-mono">{{ device.id }}</span>
-                      </div>
-                      <div v-if="device.intune_device_id" class="flex items-start justify-between gap-4 py-2.5">
-                        <span class="text-sm text-secondary flex-shrink-0">{{ $t('device-detail-field-intune-id') }}</span>
-                        <span class="text-sm text-primary font-mono text-right break-all">{{ device.intune_device_id }}</span>
-                      </div>
-                      <div v-if="device.entra_device_id" class="flex items-start justify-between gap-4 py-2.5">
-                        <span class="text-sm text-secondary flex-shrink-0">{{ $t('device-detail-field-entra-id') }}</span>
-                        <span class="text-sm text-primary font-mono text-right break-all">{{ device.entra_device_id }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- No Management IDs fallback -->
-                <div v-if="!device.intune_device_id && !device.entra_device_id" class="text-center py-8">
-                  <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full mb-4">
-                    <Icon name="checkCircle" size="md" class="text-secondary" />
-                  </div>
-                  <p class="text-secondary text-sm">{{ $t('device-detail-not-managed-by-intune') }}</p>
+                <div class="pt-4 border-t border-default flex flex-col gap-3">
+                  <button
+                    @click="handleUnmanageDevice"
+                    :disabled="isSaving"
+                    class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-status-warning/20 text-status-warning rounded-lg hover:bg-status-warning/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                    :title="$t('device-detail-action-unmanage-title')"
+                  >
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M18.84 12.25l1.72-1.71h-.02a5.004 5.004 0 00-.12-7.07 5.006 5.006 0 00-6.95 0l-1.72 1.71" />
+                      <path d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 00.12 7.07 5.006 5.006 0 006.95 0l1.71-1.71" />
+                      <path d="M8 2v3" /><path d="M2 8h3" /><path d="M16 22v-3" /><path d="M22 16h-3" />
+                    </svg>
+                    {{ isSaving ? $t('device-detail-action-unmanage-processing') : $t('device-detail-action-unmanage') }}
+                  </button>
+                  <p class="text-xs text-tertiary text-center">{{ $t('device-detail-unmanage-conversion-note') }}</p>
                 </div>
               </div>
             </SectionCard>
@@ -836,7 +666,7 @@ onMounted(() => {
             </button>
             <button
               @click="saveDevice"
-              :disabled="isSaving || !editValues.hostname"
+              :disabled="isSaving || (!editValues.name && !(attributeDraft.hostname as string | undefined))"
               class="px-6 py-2.5 bg-status-success text-white rounded-lg hover:bg-status-success/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
             >
               <Spinner v-if="isSaving" />
@@ -878,7 +708,7 @@ onMounted(() => {
         <h3 class="text-xl font-medium text-primary">{{ $t('device-detail-unmanage-heading') }}</h3>
         <p
           class="text-sm text-secondary text-center max-w-sm"
-          v-html="$t('device-detail-unmanage-confirm-body', { name: device?.hostname || device?.name || '' })"
+          v-html="$t('device-detail-unmanage-confirm-body', { name: (device?.attributes?.hostname as string | undefined) || device?.name || '' })"
         ></p>
         <p class="text-xs text-tertiary text-center max-w-sm">
           {{ $t('device-detail-unmanage-confirm-note') }}

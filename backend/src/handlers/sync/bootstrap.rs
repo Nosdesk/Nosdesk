@@ -216,7 +216,6 @@ fn stream_bootstrap(
                 "id": asset.id,
                 "name": asset.name,
                 "kind": asset.kind,
-                "hostname": asset.hostname,
                 "serial_number": asset.serial_number,
                 "manufacturer": asset.manufacturer,
                 "model": asset.model,

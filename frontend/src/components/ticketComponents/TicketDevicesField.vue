@@ -22,15 +22,17 @@ const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 function deviceLabel(device: Device): string {
-  return device.hostname || t('ticket-field-devices-fallback-name', { id: device.id })
+  const hostname = device.attributes?.hostname as string | undefined
+  return device.name || hostname || t('ticket-field-devices-fallback-name', { id: device.id })
 }
 
 function deviceTitle(device: Device): string | undefined {
-  if (!device.hostname) return undefined
+  const hostname = device.attributes?.hostname as string | undefined
+  if (!hostname) return device.model || undefined
   if (device.model) {
-    return t('ticket-field-devices-title-with-model', { hostname: device.hostname, model: device.model })
+    return t('ticket-field-devices-title-with-model', { hostname, model: device.model })
   }
-  return device.hostname
+  return hostname
 }
 </script>
 

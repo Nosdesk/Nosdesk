@@ -591,34 +591,37 @@ pub fn import_ticket_from_json(
 
     let ticket = create_ticket(conn, new_ticket)?;
 
-    // Create device if present (without ticket association)
+    // Create device if present (without ticket association).
+    // hostname / warranty_status moved into the `attributes`
+    // JSONB blob in Pass B, so the ticket-import shape that
+    // still carries them as top-level keys gets translated
+    // here before insert.
     if let Some(device_json) = &ticket_json.device {
+        let mut attrs = serde_json::Map::new();
+        if !device_json.hostname.is_empty() {
+            attrs.insert(
+                "hostname".to_string(),
+                serde_json::Value::String(device_json.hostname.clone()),
+            );
+        }
+        if !device_json.warranty_status.is_empty() {
+            attrs.insert(
+                "warranty_status".to_string(),
+                serde_json::Value::String(device_json.warranty_status.clone()),
+            );
+        }
         let new_device = NewDevice {
             name: device_json.name.clone(),
-            hostname: Some(device_json.hostname.clone()),
-            device_type: None,
             serial_number: Some(device_json.serial_number.clone()),
-            manufacturer: None, // Will be populated during Microsoft Entra sync
+            manufacturer: None,
             model: Some(device_json.model.clone()),
-            warranty_status: Some(device_json.warranty_status.clone()),
             location: None,
             notes: None,
-            primary_user_uuid: None, // Will be populated during Microsoft Entra sync
-            microsoft_device_id: None,
-            intune_device_id: None,
-            entra_device_id: None,
-            compliance_state: None,
-            last_sync_time: None,
-            operating_system: None,
-            os_version: None,
-            is_managed: None,
-            enrollment_date: None,
-            warranty_start_date: None,
-            warranty_end_date: None,
+            primary_user_uuid: None,
             purchase_date: None,
             asset_tag: None,
             kind: "device".to_string(),
-            attributes: serde_json::json!({}),
+            attributes: serde_json::Value::Object(attrs),
             quantity: None,
             unit: None,
             external_sync_source: None,
@@ -743,6 +746,9 @@ pub fn devices_summary_for_tickets(
     // across reads, no NULLs to break sort. The kanban only renders
     // the count + name; if a richer "primary device" model arrives
     // (criticality-weighted, manual pin) we swap the picker here.
+    //
+    // OS used to live as its own column; Pass B moved it into the
+    // attributes JSONB so the select extracts it via JSON path.
     let firsts: Vec<(i32, i32, String, Option<String>)> = ticket_devices::table
         .inner_join(devices::table)
         .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
@@ -754,7 +760,9 @@ pub fn devices_summary_for_tickets(
             ticket_devices::ticket_id,
             devices::id,
             devices::name,
-            devices::operating_system,
+            sql::<diesel::sql_types::Nullable<diesel::sql_types::Text>>(
+                "attributes->>'operating_system'",
+            ),
         ))
         .distinct_on(ticket_devices::ticket_id)
         .load(conn)?;

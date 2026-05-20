@@ -31,7 +31,7 @@ interface Props {
   useRouteTitle?: boolean;
   ticket: { id: number; title: string } | null;
   document: { id: string; title: string; icon: string } | null;
-  device: { id: number; hostname: string } | null;
+  device: { id: number; name: string; attributes?: Record<string, unknown> } | null;
   isTransitioning?: boolean;
   pageUrl?: string;
   navbarCollapsed?: boolean;
@@ -180,7 +180,7 @@ const handleCreateClick = () => {
             <ItemIdentifier :id="props.device.id" size="md" class="flex-shrink-0" />
             <!-- Display device hostname as read-only in header -->
             <h1 class="text-xl font-semibold text-primary truncate flex-1 min-w-0">
-              {{ props.device.hostname || t('ui-site-header-unknown-device') }}
+              {{ (props.device.attributes?.hostname as string | undefined) || t('ui-site-header-unknown-device') }}
             </h1>
           </div>
         </template>

@@ -32,7 +32,6 @@ fn asset_sync_payload(device: &Device) -> serde_json::Value {
         "id": device.id,
         "name": device.name,
         "kind": device.kind,
-        "hostname": device.hostname,
         "serial_number": device.serial_number,
         "manufacturer": device.manufacturer,
         "model": device.model,
@@ -82,15 +81,19 @@ fn apply_device_filters<'a>(
     mut query: DeviceBoxedQuery<'a>,
     search: Option<&'a str>,
     warranty: Option<&'a str>,
-    device_type: Option<&'a str>,
+    manufacturer_filter: Option<&'a str>,
 ) -> DeviceBoxedQuery<'a> {
     if let Some(search_term) = search {
         if !search_term.is_empty() {
             let pattern = format!("%{}%", search_term.to_lowercase());
+            // Hostname, OS, and other IT-flavoured columns moved
+            // into the attributes JSONB in Pass B. Tantivy is the
+            // index for fuzzy/cross-field search now; this SQL
+            // fallback only covers the universal columns that
+            // still live on `assets`.
             query = query.filter(
                 devices::name
                     .ilike(pattern.clone())
-                    .or(devices::hostname.ilike(pattern.clone()))
                     .or(devices::serial_number.ilike(pattern.clone()))
                     .or(devices::model.ilike(pattern.clone()))
                     .or(devices::manufacturer.ilike(pattern.clone()))
@@ -105,11 +108,17 @@ fn apply_device_filters<'a>(
         }
     }
     if let Some(w) = warranty {
+        // warranty_status moved into attributes JSONB. JSON path
+        // comparison stays inside the boxed query so the filter
+        // stays composable with the universal-column filters.
         if w != "all" {
-            query = query.filter(devices::warranty_status.eq(w));
+            query = query.filter(
+                diesel::dsl::sql::<diesel::sql_types::Bool>("attributes->>'warranty_status' = ")
+                    .bind::<diesel::sql_types::Text, _>(w.to_string()),
+            );
         }
     }
-    if let Some(m) = device_type {
+    if let Some(m) = manufacturer_filter {
         if m != "all" {
             query = query.filter(devices::manufacturer.eq(m));
         }
@@ -150,16 +159,10 @@ pub fn get_paginated_devices(
         (Some("id"), _) => query = query.order(devices::id.desc()),
         (Some("name"), Some("asc")) => query = query.order(devices::name.asc()),
         (Some("name"), _) => query = query.order(devices::name.desc()),
-        (Some("hostname"), Some("asc")) => query = query.order(devices::hostname.asc()),
-        (Some("hostname"), _) => query = query.order(devices::hostname.desc()),
         (Some("model"), Some("asc")) => query = query.order(devices::model.asc()),
         (Some("model"), _) => query = query.order(devices::model.desc()),
         (Some("manufacturer"), Some("asc")) => query = query.order(devices::manufacturer.asc()),
         (Some("manufacturer"), _) => query = query.order(devices::manufacturer.desc()),
-        (Some("warranty_status"), Some("asc")) => {
-            query = query.order(devices::warranty_status.asc())
-        }
-        (Some("warranty_status"), _) => query = query.order(devices::warranty_status.desc()),
         (Some("serial_number"), Some("asc")) => query = query.order(devices::serial_number.asc()),
         (Some("serial_number"), _) => query = query.order(devices::serial_number.desc()),
         (Some("created_at"), Some("asc")) => query = query.order(devices::created_at.asc()),
@@ -179,12 +182,18 @@ pub fn get_device_by_id(conn: &mut DbConnection, device_id: i32) -> QueryResult<
     devices::table.find(device_id).first(conn)
 }
 
+/// Look up an asset by the `entra_device_id` attribute key.
+/// The ID moved out of its own column in Pass B; this helper
+/// hides the JSONB path so Intune sync handlers stay readable.
 pub fn get_device_by_entra_id(
     conn: &mut DbConnection,
     entra_device_id: &str,
 ) -> QueryResult<Device> {
     devices::table
-        .filter(devices::entra_device_id.eq(entra_device_id))
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("attributes->>'entra_device_id' = ")
+                .bind::<diesel::sql_types::Text, _>(entra_device_id.to_string()),
+        )
         .first(conn)
 }
 
@@ -193,7 +202,10 @@ pub fn get_device_by_microsoft_id(
     microsoft_device_id: &str,
 ) -> QueryResult<Device> {
     devices::table
-        .filter(devices::microsoft_device_id.eq(microsoft_device_id))
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("attributes->>'microsoft_device_id' = ")
+                .bind::<diesel::sql_types::Text, _>(microsoft_device_id.to_string()),
+        )
         .first(conn)
 }
 
@@ -291,17 +303,33 @@ pub fn get_paginated_devices_excluding_ids(
     Ok((results, total_count))
 }
 
-/// Get multiple devices by their Entra device IDs (batch lookup for efficiency)
-/// Used for mapping Microsoft Graph device members to local device IDs
+/// Map a batch of Entra device IDs (now attribute keys, not
+/// columns) to local asset ids. Returns `(entra_id, asset_id)`
+/// pairs for the rows whose `attributes->>'entra_device_id'` is
+/// in the set. The Intune sync uses this to resolve group
+/// memberships against the local roster.
 pub fn get_devices_by_entra_ids(
     conn: &mut DbConnection,
     entra_ids: &[&str],
 ) -> QueryResult<Vec<(String, i32)>> {
-    devices::table
-        .filter(devices::entra_device_id.eq_any(entra_ids))
-        .filter(devices::entra_device_id.is_not_null())
-        .select((devices::entra_device_id.assume_not_null(), devices::id))
-        .load::<(String, i32)>(conn)
+    use diesel::sql_types::{Array, Text};
+    let owned: Vec<String> = entra_ids.iter().map(|s| s.to_string()).collect();
+    diesel::sql_query(
+        "SELECT attributes->>'entra_device_id' AS entra_id, id \
+         FROM assets \
+         WHERE attributes->>'entra_device_id' = ANY($1)",
+    )
+    .bind::<Array<Text>, _>(owned)
+    .load::<EntraIdRow>(conn)
+    .map(|rows| rows.into_iter().map(|r| (r.entra_id, r.id)).collect())
+}
+
+#[derive(diesel::QueryableByName)]
+struct EntraIdRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    entra_id: String,
+    #[diesel(sql_type = diesel::sql_types::Int4)]
+    id: i32,
 }
 
 #[cfg(test)]
@@ -313,26 +341,12 @@ mod tests {
     fn minimal_device(name: &str) -> NewDevice {
         NewDevice {
             name: name.to_string(),
-            hostname: None,
-            device_type: None,
             serial_number: None,
             manufacturer: None,
             model: None,
-            warranty_status: None,
             location: None,
             notes: None,
             primary_user_uuid: None,
-            microsoft_device_id: None,
-            intune_device_id: None,
-            entra_device_id: None,
-            compliance_state: None,
-            last_sync_time: None,
-            operating_system: None,
-            os_version: None,
-            is_managed: None,
-            enrollment_date: None,
-            warranty_start_date: None,
-            warranty_end_date: None,
             purchase_date: None,
             asset_tag: None,
             kind: "device".to_string(),

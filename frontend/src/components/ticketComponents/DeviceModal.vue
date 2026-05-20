@@ -32,20 +32,33 @@ const generateId = () => {
 const createEmptyDevice = (): Device => ({
   id: generateId(),
   name: '',
-  hostname: '',
+  kind: 'device',
+  attributes: { hostname: '', warranty_status: 'Unknown' },
   serial_number: '',
   model: '',
-  warranty_status: 'Unknown',
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
-  is_editable: true
+  is_editable: true,
 });
 
 const device = ref<Device>(createEmptyDevice());
 
+// Local mirror of the IT attributes that BaseDropdown / inputs
+// bind against. Re-applied to `device.attributes` on submit so
+// the device row leaves with the typed values populated.
+const hostnameInput = ref('');
+const warrantyInput = ref<string>('Unknown');
+
 const handleSubmit = () => {
+  device.value.attributes = {
+    ...device.value.attributes,
+    hostname: hostnameInput.value,
+    warranty_status: warrantyInput.value,
+  };
   emit('add-device', { ...device.value });
   device.value = createEmptyDevice();
+  hostnameInput.value = '';
+  warrantyInput.value = 'Unknown';
   emit('close');
 };
 </script>
@@ -71,7 +84,7 @@ const handleSubmit = () => {
         <label for="hostname" class="text-sm text-tertiary">{{ $t('ticket-picker-device-hostname-label') }}</label>
         <input
           id="hostname"
-          v-model="device.hostname"
+          v-model="hostnameInput"
           type="text"
           required
           class="bg-surface text-secondary rounded-lg p-2 border-none focus:ring-2 focus:ring-accent"
@@ -109,7 +122,7 @@ const handleSubmit = () => {
       <div class="flex flex-col gap-1">
         <label for="warranty_status" class="text-sm text-tertiary">{{ $t('ticket-picker-device-warranty-label') }}</label>
         <BaseDropdown
-          v-model="device.warranty_status"
+          v-model="warrantyInput"
           :options="warrantyOptions"
           size="sm"
         />

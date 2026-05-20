@@ -19,7 +19,8 @@ export interface TitleableTicket {
 
 export interface TitleableDevice {
   id: number;
-  hostname: string;
+  name: string;
+  attributes?: Record<string, unknown>;
   [key: string]: any; // Allow other properties from the reactive device object
 }
 
@@ -82,7 +83,7 @@ export function useTitleManager() {
         return `#${currentTicket.value.id} ${currentTicket.value.title}`;
       }
       if (isDeviceView.value && currentDevice.value) {
-        return `#${currentDevice.value.id} ${currentDevice.value.hostname}`;
+        return `#${currentDevice.value.id} ${(currentDevice.value.attributes?.hostname as string | undefined)}`;
       }
       // Prefer `titleKey` (translatable). Routes that set a literal
       // `title` (e.g. a document title containing user content) still

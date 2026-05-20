@@ -16,63 +16,14 @@ export interface DevicePaginationParams extends PaginationParams {
 // Re-export for backwards compatibility
 export type { PaginatedResponse } from '@/types/pagination';
 
-// Backend device response structure (before transformation)
-interface BackendDevice {
-  id: number;
-  name: string;
-  hostname: string;
-  serial_number: string;
-  model: string;
-  warranty_status: string;
-  manufacturer?: string | null;
-  primary_user_uuid?: string | null;
-  intune_device_id?: string | null;
-  entra_device_id?: string | null;
-  created_at: string;
-  updated_at: string;
-  last_sync_time?: string | null;
-  warranty_start_date?: string | null;
-  warranty_end_date?: string | null;
-  purchase_date?: string | null;
-  asset_tag?: string | null;
-  is_editable?: boolean;
-  primary_user?: Device['primary_user'];
-  groups?: Device['groups'];
-}
-
 /**
- * Transform backend device response to frontend Device interface
+ * Pass-through: the backend response shape now matches the
+ * frontend `Device` type 1:1. The previous mapper invented
+ * "legacy" fields (type/status/specs) and copied each column
+ * by hand; both became net-negative once Pass B moved IT data
+ * into the attributes JSONB.
  */
-const transformDeviceResponse = (backendDevice: BackendDevice): Device => {
-  return {
-    id: backendDevice.id,
-    name: backendDevice.name,
-    hostname: backendDevice.hostname,
-    serial_number: backendDevice.serial_number,
-    model: backendDevice.model,
-    warranty_status: backendDevice.warranty_status,
-    manufacturer: backendDevice.manufacturer,
-    primary_user_uuid: backendDevice.primary_user_uuid,
-    intune_device_id: backendDevice.intune_device_id,
-    entra_device_id: backendDevice.entra_device_id,
-    created_at: backendDevice.created_at,
-    updated_at: backendDevice.updated_at,
-    last_sync_time: backendDevice.last_sync_time,
-    warranty_start_date: backendDevice.warranty_start_date,
-    warranty_end_date: backendDevice.warranty_end_date,
-    purchase_date: backendDevice.purchase_date,
-    asset_tag: backendDevice.asset_tag,
-    is_editable: backendDevice.is_editable ?? true,
-    primary_user: backendDevice.primary_user,
-    groups: backendDevice.groups,
-    // Legacy fields for backward compatibility
-    type: backendDevice.manufacturer || determineDeviceType(backendDevice.model),
-    lastSeen: backendDevice.updated_at || new Date().toISOString(),
-    status: 'online', // Default status
-    assignedTo: backendDevice.primary_user?.name || null,
-    specs: getDeviceSpecs(backendDevice.model)
-  };
-};
+const transformDeviceResponse = (backendDevice: Device): Device => backendDevice;
 
 /**
  * Get all devices
@@ -191,24 +142,11 @@ export const createDevice = async (deviceData: DeviceFormData): Promise<Device> 
  */
 export const updateDevice = async (id: number, device: Partial<Device>): Promise<Device> => {
   try {
-    // Convert frontend Device to backend update format
-    const backendDevice = {
-      name: device.name,
-      hostname: device.hostname,
-      serial_number: device.serial_number,
-      model: device.model,
-      warranty_status: device.warranty_status,
-      manufacturer: device.manufacturer,
-      primary_user_uuid: device.primary_user_uuid,
-      intune_device_id: device.intune_device_id,
-      entra_device_id: device.entra_device_id,
-      warranty_start_date: device.warranty_start_date,
-      warranty_end_date: device.warranty_end_date,
-      purchase_date: device.purchase_date,
-      asset_tag: device.asset_tag,
-    };
-    
-    const response = await apiClient.put(`/devices/${id}`, backendDevice);
+    // Forward the partial directly. Pass B removed the
+    // hand-mapped column projection; the backend DeviceUpdate
+    // accepts only the universal columns plus kind/attributes,
+    // which is exactly the shape `Partial<Device>` carries.
+    const response = await apiClient.put(`/devices/${id}`, device);
     return transformDeviceResponse(response.data);
   } catch (error) {
     logger.error('Failed to update device', { error, deviceId: id });
@@ -242,66 +180,6 @@ export const unmanageDevice = async (id: number): Promise<Device> => {
   } catch (error) {
     logger.error('Failed to unmanage device', { error, deviceId: id });
     throw error;
-  }
-};
-
-/**
- * Helper function to determine device type based on model
- * @param model - The device model
- * @returns string - The device type
- */
-const determineDeviceType = (model: string): string => {
-  const modelLower = model.toLowerCase();
-  
-  if (modelLower.includes('macbook') || modelLower.includes('thinkpad') || modelLower.includes('xps')) {
-    return 'Laptop';
-  } else if (modelLower.includes('iphone') || modelLower.includes('pixel')) {
-    return 'Mobile';
-  } else if (modelLower.includes('ipad') || modelLower.includes('tab')) {
-    return 'Tablet';
-  } else if (modelLower.includes('imac') || modelLower.includes('desktop')) {
-    return 'Desktop';
-  } else {
-    return 'Other';
-  }
-};
-
-/**
- * Helper function to get device specs based on model
- * @param model - The device model
- * @returns object - The device specs
- */
-const getDeviceSpecs = (model: string): Device['specs'] => {
-  const modelLower = model.toLowerCase();
-  
-  if (modelLower.includes('macbook') && modelLower.includes('pro')) {
-    return {
-      cpu: 'Apple M1 Pro',
-      memory: '16GB',
-      storage: '512GB SSD',
-      os: 'macOS 14.0'
-    };
-  } else if (modelLower.includes('thinkpad')) {
-    return {
-      cpu: 'Intel Core i7-1165G7',
-      memory: '16GB',
-      storage: '512GB SSD',
-      os: 'Windows 11'
-    };
-  } else if (modelLower.includes('xps')) {
-    return {
-      cpu: 'Intel Core i7-11800H',
-      memory: '32GB',
-      storage: '1TB SSD',
-      os: 'Windows 11'
-    };
-  } else {
-    return {
-      cpu: 'Unknown',
-      memory: 'Unknown',
-      storage: 'Unknown',
-      os: 'Unknown'
-    };
   }
 };
 

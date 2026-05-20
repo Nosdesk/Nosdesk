@@ -138,17 +138,11 @@ diesel::table! {
         #[max_length = 255]
         name -> Varchar,
         #[max_length = 255]
-        hostname -> Nullable<Varchar>,
-        #[max_length = 100]
-        device_type -> Nullable<Varchar>,
-        #[max_length = 255]
         serial_number -> Nullable<Varchar>,
         #[max_length = 255]
         manufacturer -> Nullable<Varchar>,
         #[max_length = 255]
         model -> Nullable<Varchar>,
-        #[max_length = 50]
-        warranty_status -> Nullable<Varchar>,
         #[max_length = 255]
         location -> Nullable<Varchar>,
         created_at -> Timestamptz,
@@ -156,23 +150,6 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         notes -> Nullable<Text>,
         primary_user_uuid -> Nullable<Uuid>,
-        #[max_length = 255]
-        microsoft_device_id -> Nullable<Varchar>,
-        #[max_length = 255]
-        intune_device_id -> Nullable<Varchar>,
-        #[max_length = 255]
-        entra_device_id -> Nullable<Varchar>,
-        #[max_length = 50]
-        compliance_state -> Nullable<Varchar>,
-        last_sync_time -> Nullable<Timestamptz>,
-        #[max_length = 100]
-        operating_system -> Nullable<Varchar>,
-        #[max_length = 100]
-        os_version -> Nullable<Varchar>,
-        is_managed -> Nullable<Bool>,
-        enrollment_date -> Nullable<Timestamptz>,
-        warranty_start_date -> Nullable<Date>,
-        warranty_end_date -> Nullable<Date>,
         purchase_date -> Nullable<Date>,
         #[max_length = 255]
         asset_tag -> Nullable<Varchar>,

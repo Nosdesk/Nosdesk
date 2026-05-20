@@ -719,25 +719,25 @@ watch(
                                                     {{ $t('user-profile-device-last-updated', { when: formatDate(device.updated_at) }) }}
                                                 </p>
                                             </div>
-                                            <div class="flex-shrink-0 ml-3">
+                                            <div v-if="device.attributes?.warranty_status" class="flex-shrink-0 ml-3">
                                                 <span
                                                     class="text-xs px-2 py-1 rounded-full"
                                                     :class="{
                                                         'text-status-success bg-status-success/20':
-                                                            device.warranty_status ===
+                                                            device.attributes.warranty_status ===
                                                             'Active',
                                                         'text-status-warning bg-status-warning/20':
-                                                            device.warranty_status ===
+                                                            device.attributes.warranty_status ===
                                                             'Warning',
                                                         'text-status-error bg-status-error/20':
-                                                            device.warranty_status ===
+                                                            device.attributes.warranty_status ===
                                                             'Expired',
                                                         'text-secondary bg-surface-alt':
-                                                            device.warranty_status ===
+                                                            device.attributes.warranty_status ===
                                                             'Unknown',
                                                     }"
                                                 >
-                                                    {{ device.warranty_status }}
+                                                    {{ device.attributes.warranty_status }}
                                                 </span>
                                             </div>
                                         </div>

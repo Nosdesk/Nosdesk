@@ -76,26 +76,30 @@ pub struct PaginatedResponse<T> {
     total_pages: i64,
 }
 
-// Enhanced device response with joined user data
+// Asset response shipped over the REST API. Carries the
+// universal columns plus the kind + attributes blob so the
+// frontend can render kind-specific fields through the
+// DynamicAttributeForm. IT-specific fields like hostname /
+// warranty / Microsoft Graph IDs all live inside `attributes`
+// after Pass B; no top-level keys for them here.
 #[derive(Debug, Serialize)]
 pub struct DeviceResponse {
     pub id: i32,
     pub name: String,
-    pub hostname: String,
+    pub kind: String,
+    pub attributes: serde_json::Value,
     pub serial_number: String,
     pub model: String,
-    pub warranty_status: String,
     pub manufacturer: Option<String>,
+    pub location: Option<String>,
     pub primary_user_uuid: Option<String>,
-    pub intune_device_id: Option<String>,
-    pub entra_device_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-    pub last_sync_time: Option<String>,
-    pub warranty_start_date: Option<String>,
-    pub warranty_end_date: Option<String>,
     pub purchase_date: Option<String>,
     pub asset_tag: Option<String>,
+    pub quantity: Option<String>,
+    pub unit: Option<String>,
+    pub external_sync_source: Option<String>,
     pub primary_user: Option<UserInfo>,
     pub groups: Vec<GroupInfo>,
     pub is_editable: bool,
@@ -137,23 +141,24 @@ impl DeviceResponse {
         groups: Vec<Group>,
         conn: &mut crate::db::DbConnection,
     ) -> Self {
-        // Device is editable only if it's NOT synced from Microsoft Graph
-        // (i.e., it has neither intune_device_id nor entra_device_id)
-        let is_editable = device.intune_device_id.is_none() && device.entra_device_id.is_none();
+        // Editable when the row isn't owned by an external sync.
+        // Pass B replaced the column-existence predicate with a
+        // dedicated `external_sync_source` column so the answer
+        // doesn't depend on a particular Microsoft Graph field.
+        let is_editable = device.external_sync_source.is_none();
 
         Self {
             id: device.id,
             name: device.name,
-            hostname: device.hostname.unwrap_or_default(),
+            kind: device.kind,
+            attributes: device.attributes,
             serial_number: device.serial_number.unwrap_or_default(),
             model: device.model.unwrap_or_default(),
-            warranty_status: device.warranty_status.unwrap_or_default(),
             manufacturer: device.manufacturer,
+            location: device.location,
             primary_user_uuid: device
                 .primary_user_uuid
                 .map(|uuid| utils::uuid_to_string(&uuid)),
-            intune_device_id: device.intune_device_id.clone(),
-            entra_device_id: device.entra_device_id.clone(),
             created_at: device
                 .created_at
                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
@@ -162,19 +167,13 @@ impl DeviceResponse {
                 .updated_at
                 .format("%Y-%m-%dT%H:%M:%S%.3fZ")
                 .to_string(),
-            last_sync_time: device
-                .last_sync_time
-                .map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
-            warranty_start_date: device
-                .warranty_start_date
-                .map(|d| d.format("%Y-%m-%d").to_string()),
-            warranty_end_date: device
-                .warranty_end_date
-                .map(|d| d.format("%Y-%m-%d").to_string()),
             purchase_date: device
                 .purchase_date
                 .map(|d| d.format("%Y-%m-%d").to_string()),
             asset_tag: device.asset_tag,
+            quantity: device.quantity.as_ref().map(|q| q.to_string()),
+            unit: device.unit,
+            external_sync_source: device.external_sync_source,
             is_editable,
             primary_user: user.map(|u| {
                 let name = u.name.clone();
@@ -259,7 +258,6 @@ pub async fn calendar_overlay(
     pool: web::Data<Pool>,
     query: web::Query<CalendarOverlayParams>,
 ) -> impl Responder {
-    use crate::schema::devices;
     use chrono::NaiveDate;
     use diesel::prelude::*;
 
@@ -289,28 +287,40 @@ pub async fn calendar_overlay(
         Err(e) => return e,
     };
 
-    type WarrantyRow = (i32, String, NaiveDate);
-    let rows: Result<Vec<WarrantyRow>, Error> = devices::table
-        .filter(devices::warranty_end_date.is_not_null())
-        .filter(devices::warranty_end_date.ge(start))
-        .filter(devices::warranty_end_date.le(end))
-        .select((
-            devices::id,
-            devices::name,
-            devices::warranty_end_date.assume_not_null(),
-        ))
-        .load(&mut conn);
+    // warranty_end_date moved into the attributes JSONB in
+    // Pass B; the calendar overlay reads it via JSON path and
+    // ::date-casts so the start/end window comparison stays in
+    // SQL. NULLIF guards the empty-string case (jsonb_strip_nulls
+    // would normally remove the key, but a hand-written row
+    // could leave one in).
+    #[derive(diesel::QueryableByName)]
+    struct WarrantyOverlayRow {
+        #[diesel(sql_type = diesel::sql_types::Int4)]
+        id: i32,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        name: String,
+        #[diesel(sql_type = diesel::sql_types::Date)]
+        warranty_end_date: NaiveDate,
+    }
+    let rows: Result<Vec<WarrantyOverlayRow>, Error> = diesel::sql_query(
+        "SELECT id, name, NULLIF(attributes->>'warranty_end_date','')::date AS warranty_end_date \
+         FROM assets \
+         WHERE NULLIF(attributes->>'warranty_end_date','')::date BETWEEN $1 AND $2",
+    )
+    .bind::<diesel::sql_types::Date, _>(start)
+    .bind::<diesel::sql_types::Date, _>(end)
+    .load(&mut conn);
 
     match rows {
         Ok(rows) => {
             let entries: Vec<CalendarOverlayEntry> = rows
                 .into_iter()
-                .map(|(id, name, date)| CalendarOverlayEntry {
+                .map(|row| CalendarOverlayEntry {
                     kind: "warranty_expiry",
-                    date: date.format("%Y-%m-%d").to_string(),
-                    device_id: id,
-                    device_name: name.clone(),
-                    label: format!("Warranty ends: {}", name),
+                    date: row.warranty_end_date.format("%Y-%m-%d").to_string(),
+                    device_id: row.id,
+                    device_name: row.name.clone(),
+                    label: format!("Warranty ends: {}", row.name),
                 })
                 .collect();
             HttpResponse::Ok().json(entries)
@@ -699,10 +709,8 @@ pub async fn update_device(
         }
     };
 
-    // Prevent editing devices synced from Microsoft Graph
-    let is_synced =
-        existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
-    if is_synced {
+    // Prevent editing assets owned by an external sync.
+    if existing_device.external_sync_source.is_some() {
         return errors::forbidden("Cannot edit device synced from Microsoft Graph: This device is managed by Microsoft Intune/Entra and cannot be edited manually. Changes must be made in Microsoft Entra Admin Center or Intune.");
     }
 
@@ -872,20 +880,20 @@ pub async fn unmanage_device(
         }
     };
 
-    // Check if device is synced from Microsoft Graph
-    let is_synced =
-        existing_device.intune_device_id.is_some() || existing_device.entra_device_id.is_some();
-    if !is_synced {
+    // Asset must be sync-owned to unmanage; otherwise it's
+    // already manually editable. `external_sync_source` is the
+    // post-Pass-B replacement for the column-existence predicate.
+    if existing_device.external_sync_source.is_none() {
         return errors::bad_request("Device is not managed by Microsoft Graph: This device is already manually managed and doesn't need to be unmanaged.");
     }
 
-    // `is_editable` on the model returns false when either
-    // intune_device_id or entra_device_id is `Some(_)`. Clear them
-    // by writing an empty string (not NULL) so the DB row keeps a
-    // value for the column but the editable predicate flips.
+    // Clearing `external_sync_source` flips the asset back to
+    // manually-managed. The IT attribute keys (intune_device_id,
+    // entra_device_id, microsoft_device_id) stay in attributes
+    // as historical breadcrumbs; the admin can edit them through
+    // the asset form like any other attribute.
     let update_data = crate::models::DeviceUpdate {
-        intune_device_id: Some(String::new()),
-        entra_device_id: Some(String::new()),
+        external_sync_source: Some(None),
         ..Default::default()
     };
 

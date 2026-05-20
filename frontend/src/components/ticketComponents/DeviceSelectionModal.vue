@@ -306,8 +306,8 @@ const getDeviceTypeClass = (device: Device) => {
 };
 
 // Get warranty status styling
-const getWarrantyStatusClass = (status: string) => {
-  switch (status.toLowerCase()) {
+const getWarrantyStatusClass = (status: string | undefined) => {
+  switch (status?.toLowerCase()) {
     case 'active':
     case 'compliant':
       return 'bg-status-success-muted text-status-success border-status-success/30';
@@ -438,7 +438,7 @@ const formatLastUpdated = (dateString: string): string => {
             <div class="flex items-start justify-between gap-2 mb-2">
               <div class="min-w-0 flex-1">
                 <div class="font-medium text-primary truncate">{{ device.name }}</div>
-                <div class="text-xs text-tertiary truncate">{{ device.hostname }}</div>
+                <div class="text-xs text-tertiary truncate">{{ (device.attributes?.hostname as string | undefined) }}</div>
               </div>
               <div v-if="device.isRequesterDevice" class="flex-shrink-0">
                 <span class="text-xs bg-accent text-white px-2 py-0.5 rounded-full">{{ t('device-modal-owner') }}</span>
@@ -455,11 +455,11 @@ const formatLastUpdated = (dateString: string): string => {
               </span>
               <span
                 class="text-xs px-2 py-0.5 rounded-full border capitalize"
-                :class="getWarrantyStatusClass(device.warranty_status)"
+                :class="getWarrantyStatusClass((device.attributes?.warranty_status as string | undefined))"
               >
-                {{ device.warranty_status }}
+                {{ (device.attributes?.warranty_status as string | undefined) }}
               </span>
-              <span v-if="device.intune_device_id" class="text-xs px-2 py-0.5 rounded-full bg-status-info/20 text-status-info border border-status-info/30">
+              <span v-if="(device.attributes?.intune_device_id as string | undefined)" class="text-xs px-2 py-0.5 rounded-full bg-status-info/20 text-status-info border border-status-info/30">
                 Intune
               </span>
             </div>
@@ -530,8 +530,8 @@ const formatLastUpdated = (dateString: string): string => {
                     <span class="text-xs px-2 py-0.5 rounded-full border" :class="getDeviceTypeClass(device)">
                       {{ getDeviceType(device) }}
                     </span>
-                    <span class="text-xs px-2 py-0.5 rounded-full border capitalize" :class="getWarrantyStatusClass(device.warranty_status)">
-                      {{ device.warranty_status }}
+                    <span v-if="device.attributes?.warranty_status" class="text-xs px-2 py-0.5 rounded-full border capitalize" :class="getWarrantyStatusClass(device.attributes.warranty_status as string)">
+                      {{ device.attributes.warranty_status }}
                     </span>
                   </div>
                 </td>

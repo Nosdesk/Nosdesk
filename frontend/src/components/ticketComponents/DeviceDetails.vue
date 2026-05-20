@@ -13,11 +13,11 @@ const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const warrantyLabel = computed<string | null>(() => {
-  switch (props.device.warranty_status) {
+  switch ((props.device.attributes?.warranty_status as string | undefined)) {
     case 'Active': return t('ticket-chip-device-warranty-active');
     case 'Warning': return t('ticket-chip-device-warranty-warning');
     case 'Expired': return t('ticket-chip-device-warranty-expired');
-    default: return props.device.warranty_status ?? null;
+    default: return (props.device.attributes?.warranty_status as string | undefined) ?? null;
   }
 });
 
@@ -42,7 +42,7 @@ const copyValue = async (field: string, value: string | undefined | null) => {
 };
 
 const warrantyStatusClass = computed(() => {
-  switch (props.device.warranty_status) {
+  switch ((props.device.attributes?.warranty_status as string | undefined)) {
     case 'Active':
       return 'bg-status-success/20 text-status-success border-status-success/40';
     case 'Warning':
@@ -70,7 +70,7 @@ const warrantyStatusClass = computed(() => {
 
       <!-- Warranty status badge -->
       <div
-        v-if="device.warranty_status"
+        v-if="(device.attributes?.warranty_status as string | undefined)"
         class="px-2 py-1 rounded-md text-xs font-medium border flex-shrink-0"
         :class="warrantyStatusClass"
       >
@@ -126,12 +126,12 @@ const warrantyStatusClass = computed(() => {
         <div class="flex flex-col gap-1">
           <span class="text-xs text-tertiary uppercase tracking-wide">{{ t('ticket-chip-device-field-hostname') }}</span>
           <span
-            @click="copyValue('hostname', device.hostname)"
+            @click="copyValue('hostname', (device.attributes?.hostname as string | undefined))"
             class="text-secondary font-mono text-sm truncate cursor-pointer hover:text-accent transition-colors"
-            :title="device.hostname ? t('ticket-chip-device-copy-tooltip') : ''"
+            :title="(device.attributes?.hostname as string | undefined) ? t('ticket-chip-device-copy-tooltip') : ''"
           >
             <span v-if="copiedField === 'hostname'" class="text-status-success">{{ t('ticket-chip-device-copied') }}</span>
-            <template v-else>{{ device.hostname || t('ticket-chip-device-value-na') }}</template>
+            <template v-else>{{ (device.attributes?.hostname as string | undefined) || t('ticket-chip-device-value-na') }}</template>
           </span>
         </div>
       </div>
@@ -141,7 +141,7 @@ const warrantyStatusClass = computed(() => {
       <div class="hidden print:block print-device-card">
         <div class="print-device-header">
           <span class="print-device-name">{{ device.name || 'Unnamed Device' }}</span>
-          <span v-if="device.warranty_status" class="print-device-warranty" :class="`print-warranty-${device.warranty_status.toLowerCase()}`">
+          <span v-if="(device.attributes?.warranty_status as string | undefined)" class="print-device-warranty" :class="`print-warranty-${((device.attributes?.warranty_status as string)).toLowerCase()}`">
             {{ warrantyLabel }}
           </span>
         </div>
@@ -155,8 +155,8 @@ const warrantyStatusClass = computed(() => {
           <span v-if="device.manufacturer" class="print-device-field">
             <span class="print-field-label">Mfr:</span> {{ device.manufacturer }}
           </span>
-          <span v-if="device.hostname" class="print-device-field">
-            <span class="print-field-label">Host:</span> {{ device.hostname }}
+          <span v-if="(device.attributes?.hostname as string | undefined)" class="print-device-field">
+            <span class="print-field-label">Host:</span> {{ (device.attributes?.hostname as string | undefined) }}
           </span>
         </div>
       </div>

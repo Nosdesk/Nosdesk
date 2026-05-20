@@ -4566,24 +4566,74 @@ async fn process_entra_device(
     // Parse last sign in time for last_sync_time
     let last_sign_in = parse_microsoft_datetime(&entra_device.approximate_last_sign_in_date_time);
 
+    // Build the IT attribute blob Entra owns. Pass B moved every
+    // one of these from a top-level column into the per-row
+    // attributes JSONB; the sync writes them through that path so
+    // the rendering form (DynamicAttributeForm) reads back from
+    // the same place.
+    let mut entra_attrs = serde_json::Map::new();
+    entra_attrs.insert(
+        "hostname".to_string(),
+        serde_json::Value::String(hostname.clone()),
+    );
+    entra_attrs.insert(
+        "entra_device_id".to_string(),
+        serde_json::Value::String(entra_device.id.clone()),
+    );
+    if let Some(ref ms_id) = entra_device.device_id {
+        entra_attrs.insert(
+            "microsoft_device_id".to_string(),
+            serde_json::Value::String(ms_id.clone()),
+        );
+    }
+    if let Some(ref c) = compliance_state {
+        entra_attrs.insert(
+            "compliance_state".to_string(),
+            serde_json::Value::String(c.clone()),
+        );
+    }
+    if let Some(t) = last_sign_in {
+        entra_attrs.insert(
+            "last_sync_time".to_string(),
+            serde_json::Value::String(t.and_utc().to_rfc3339()),
+        );
+    }
+    if let Some(ref os) = entra_device.operating_system {
+        entra_attrs.insert(
+            "operating_system".to_string(),
+            serde_json::Value::String(os.clone()),
+        );
+    }
+    if let Some(ref ov) = entra_device.operating_system_version {
+        entra_attrs.insert(
+            "os_version".to_string(),
+            serde_json::Value::String(ov.clone()),
+        );
+    }
+    if let Some(m) = entra_device.is_managed {
+        entra_attrs.insert("is_managed".to_string(), serde_json::Value::Bool(m));
+    }
+    if let Some(t) = registration_date {
+        entra_attrs.insert(
+            "enrollment_date".to_string(),
+            serde_json::Value::String(t.and_utc().to_rfc3339()),
+        );
+    }
+
     if let Some(existing) = existing_device {
-        // Update existing device
-        // Intune sync only touches the columns Entra owns; serial,
-        // warranty, location, notes, asset-tag, kind, attributes
-        // remain whatever the admin set in DeviceView.
+        // Merge sync-owned keys on top of whatever the admin
+        // may have hand-edited so we don't blow away non-Entra
+        // attribute values that another integration could set.
+        let mut merged = existing.attributes.as_object().cloned().unwrap_or_default();
+        for (k, v) in entra_attrs {
+            merged.insert(k, v);
+        }
         let device_update = crate::models::DeviceUpdate {
             name: Some(device_display_name.clone()),
-            hostname: Some(hostname),
             model: Some(model),
             manufacturer: Some(manufacturer),
-            entra_device_id: Some(entra_device.id.clone()),
-            microsoft_device_id: entra_device.device_id.clone(),
-            compliance_state,
-            last_sync_time: last_sign_in,
-            operating_system: entra_device.operating_system.clone(),
-            os_version: entra_device.operating_system_version.clone(),
-            is_managed: entra_device.is_managed,
-            enrollment_date: registration_date,
+            attributes: Some(serde_json::Value::Object(merged)),
+            external_sync_source: Some(Some("entra".to_string())),
             updated_at: Some(chrono::Utc::now().naive_utc()),
             ..Default::default()
         };
@@ -4594,40 +4644,26 @@ async fn process_entra_device(
         debug!(device_name = %device_display_name, "Updated existing Entra device");
         stats.existing_devices_updated += 1;
     } else {
-        // Create new device
+        // Seed warranty_status='Unknown' on the new row so the
+        // legacy IT-desk warranty buckets still classify it.
+        entra_attrs.insert(
+            "warranty_status".to_string(),
+            serde_json::Value::String("Unknown".to_string()),
+        );
         let new_device = crate::models::NewDevice {
             name: device_display_name.clone(),
-            hostname: Some(hostname),
-            serial_number: None, // Entra doesn't provide serial number
+            serial_number: None,
             model: Some(model),
-            warranty_status: Some("Unknown".to_string()),
             manufacturer: Some(manufacturer),
-            primary_user_uuid: None, // Entra /devices doesn't provide user info
-            intune_device_id: None,  // Not from Intune
-            entra_device_id: Some(entra_device.id.clone()), // The Object ID
-            device_type: Some("Computer".to_string()), // Default type
+            primary_user_uuid: None,
             location: None,
             notes: None,
-            microsoft_device_id: entra_device.device_id.clone(), // The deviceId field
-            compliance_state,
-            last_sync_time: last_sign_in,
-            operating_system: entra_device.operating_system.clone(),
-            os_version: entra_device.operating_system_version.clone(),
-            is_managed: entra_device.is_managed,
-            enrollment_date: registration_date,
-            warranty_start_date: None,
-            warranty_end_date: None,
             purchase_date: None,
             asset_tag: None,
             kind: "device".to_string(),
-            attributes: serde_json::json!({}),
+            attributes: serde_json::Value::Object(entra_attrs),
             quantity: None,
             unit: None,
-            // entra_device_id is being set on this row, so the
-            // sync-source predicate flips to 'entra' from row
-            // creation. B2 will switch this whole helper to
-            // write attributes; for now keep the column-based
-            // flow but seed the new top-level flag.
             external_sync_source: Some("entra".to_string()),
         };
 
