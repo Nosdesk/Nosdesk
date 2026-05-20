@@ -34,7 +34,6 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const isSaving = ref(false);
 const showUserSelectionModal = ref(false);
-const showAdditionalDetails = ref(false);
 const showUnmanageModal = ref(false);
 const unmanageError = ref<string | null>(null);
 const hostnameRef = ref<HTMLInputElement | null>(null);
