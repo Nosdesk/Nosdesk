@@ -902,6 +902,49 @@ pub struct DeviceUpdate {
     pub updated_at: Option<NaiveDateTime>,
 }
 
+/// Runtime-extensible asset-kind registry. `slug` is the value
+/// stored on `assets.kind`; `attribute_schema` is a constrained
+/// JSON Schema subset validated by `services::assets::kinds`.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::asset_kinds)]
+pub struct AssetKind {
+    pub id: i32,
+    pub slug: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub attribute_schema: serde_json::Value,
+    pub sort_order: i32,
+    pub is_builtin: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::asset_kinds)]
+pub struct NewAssetKind {
+    pub slug: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub attribute_schema: serde_json::Value,
+    pub sort_order: i32,
+    pub is_builtin: bool,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::asset_kinds)]
+pub struct AssetKindUpdate {
+    pub label: Option<String>,
+    pub description: Option<Option<String>>,
+    pub icon: Option<Option<String>>,
+    pub attribute_schema: Option<serde_json::Value>,
+    pub sort_order: Option<i32>,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::ticket_assets)]
 #[diesel(belongs_to(Ticket))]

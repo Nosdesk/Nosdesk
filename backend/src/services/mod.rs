@@ -1,4 +1,5 @@
 pub mod admin_setup;
+pub mod assets;
 pub mod assignment;
 pub mod backup;
 pub mod channels;
