@@ -182,9 +182,9 @@ pub fn delete_device(
 }
 
 pub fn get_devices_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Vec<Device>> {
-    use crate::schema::devices::dsl::*;
+    use crate::schema::assets::dsl::*;
 
-    devices
+    assets
         .filter(primary_user_uuid.eq(user_uuid))
         .order(name.asc())
         .load(conn)

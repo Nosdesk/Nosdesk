@@ -369,8 +369,8 @@ diesel::table! {
 }
 
 diesel::table! {
-    device_groups (device_id, group_id) {
-        device_id -> Int4,
+    asset_groups (asset_id, group_id) {
+        asset_id -> Int4,
         group_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
@@ -380,7 +380,26 @@ diesel::table! {
 }
 
 diesel::table! {
-    devices (id) {
+    asset_kinds (id) {
+        id -> Int4,
+        #[max_length = 64]
+        slug -> Varchar,
+        #[max_length = 255]
+        label -> Varchar,
+        description -> Nullable<Text>,
+        #[max_length = 64]
+        icon -> Nullable<Varchar>,
+        attribute_schema -> Jsonb,
+        sort_order -> Int4,
+        is_builtin -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    assets (id) {
         id -> Int4,
         #[max_length = 255]
         name -> Varchar,
@@ -423,8 +442,24 @@ diesel::table! {
         purchase_date -> Nullable<Date>,
         #[max_length = 255]
         asset_tag -> Nullable<Varchar>,
+        #[max_length = 64]
+        kind -> Varchar,
+        attributes -> Jsonb,
+        quantity -> Nullable<Numeric>,
+        #[max_length = 32]
+        unit -> Nullable<Varchar>,
     }
 }
+
+// Backwards-compatibility aliases. The SQL rename in
+// 2026-05-20-100000_devices_to_assets replaced these table names
+// outright; the aliases let existing Rust paths
+// (crate::schema::devices, crate::schema::device_groups,
+// crate::schema::ticket_devices) keep compiling while the call
+// sites migrate over in follow-up commits. Remove once every
+// reference is on the new name.
+pub use asset_groups as device_groups;
+pub use assets as devices;
 
 diesel::table! {
     documentation_collection_pages (collection_id, page_id) {
@@ -1211,13 +1246,16 @@ diesel::table! {
 }
 
 diesel::table! {
-    ticket_devices (ticket_id, device_id) {
+    ticket_assets (ticket_id, asset_id) {
         ticket_id -> Int4,
-        device_id -> Int4,
+        asset_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
     }
 }
+// See the alias note alongside `asset_groups` above. Drop when
+// every reference is on `ticket_assets`.
+pub use ticket_assets as ticket_devices;
 
 diesel::table! {
     ticket_tags (ticket_id, tag_id) {
@@ -1487,9 +1525,10 @@ diesel::joinable!(cycle_tickets -> tickets (ticket_id));
 diesel::joinable!(cycle_tickets -> users (added_by));
 diesel::joinable!(cycles -> projects (project_id));
 diesel::joinable!(cycles -> users (created_by));
-diesel::joinable!(device_groups -> devices (device_id));
-diesel::joinable!(device_groups -> groups (group_id));
-diesel::joinable!(device_groups -> users (created_by));
+diesel::joinable!(asset_groups -> assets (asset_id));
+diesel::joinable!(asset_groups -> groups (group_id));
+diesel::joinable!(asset_groups -> users (created_by));
+diesel::joinable!(asset_kinds -> users (created_by));
 diesel::joinable!(documentation_collection_pages -> documentation_collections (collection_id));
 diesel::joinable!(documentation_collection_pages -> documentation_pages (page_id));
 diesel::joinable!(documentation_collection_pages -> users (created_by));
@@ -1544,9 +1583,9 @@ diesel::joinable!(sla_policies -> users (created_by));
 diesel::joinable!(sla_policies -> working_calendars (working_calendar_id));
 diesel::joinable!(sync_history -> users (initiated_by));
 diesel::joinable!(ticket_categories -> users (created_by));
-diesel::joinable!(ticket_devices -> devices (device_id));
-diesel::joinable!(ticket_devices -> tickets (ticket_id));
-diesel::joinable!(ticket_devices -> users (created_by));
+diesel::joinable!(ticket_assets -> assets (asset_id));
+diesel::joinable!(ticket_assets -> tickets (ticket_id));
+diesel::joinable!(ticket_assets -> users (created_by));
 diesel::joinable!(ticket_tags -> tags (tag_id));
 diesel::joinable!(ticket_tags -> tickets (ticket_id));
 diesel::joinable!(ticket_tags -> users (created_by));
@@ -1586,8 +1625,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     csp_reports,
     cycle_tickets,
     cycles,
-    device_groups,
-    devices,
+    asset_groups,
+    asset_kinds,
+    assets,
     documentation_collection_pages,
     documentation_collection_visibility,
     documentation_collections,
@@ -1634,8 +1674,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     sync_history,
     system_meta,
     tags,
+    ticket_assets,
     ticket_categories,
-    ticket_devices,
     ticket_tags,
     ticket_watchers,
     tickets,

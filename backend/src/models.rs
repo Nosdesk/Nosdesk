@@ -825,6 +825,24 @@ pub struct Device {
     pub warranty_end_date: Option<NaiveDate>,
     pub purchase_date: Option<NaiveDate>,
     pub asset_tag: Option<String>,
+    /// Discriminator into the `asset_kinds` registry. Existing
+    /// rows default to `'device'` so the IT-desk lens keeps
+    /// rendering them unchanged; non-device kinds (vehicle,
+    /// license, material, ...) opt in by setting this field
+    /// when created from the typed asset flow.
+    pub kind: String,
+    /// JSONB blob holding kind-specific attributes validated
+    /// against the kind's `attribute_schema` at write time. Empty
+    /// object for IT-desk devices that only use the structured
+    /// columns above.
+    pub attributes: serde_json::Value,
+    /// Quantity for bulk materials / consumables (plumbing pipe
+    /// in metres, ink-cartridge stock). Null on assets that are
+    /// "one row per physical thing" like a laptop.
+    pub quantity: Option<bigdecimal::BigDecimal>,
+    /// Unit label paired with `quantity`. Free-text ('m', 'L',
+    /// 'pcs', etc.) so we don't impose a unit ontology.
+    pub unit: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
@@ -885,22 +903,22 @@ pub struct DeviceUpdate {
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
-#[diesel(table_name = crate::schema::ticket_devices)]
+#[diesel(table_name = crate::schema::ticket_assets)]
 #[diesel(belongs_to(Ticket))]
-#[diesel(belongs_to(Device))]
-#[diesel(primary_key(ticket_id, device_id))]
+#[diesel(belongs_to(Device, foreign_key = asset_id))]
+#[diesel(primary_key(ticket_id, asset_id))]
 pub struct TicketDevice {
     pub ticket_id: i32,
-    pub device_id: i32,
+    pub asset_id: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
-#[diesel(table_name = crate::schema::ticket_devices)]
+#[diesel(table_name = crate::schema::ticket_assets)]
 pub struct NewTicketDevice {
     pub ticket_id: i32,
-    pub device_id: i32,
+    pub asset_id: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
@@ -3483,12 +3501,12 @@ pub struct NewUserGroup {
 
 // Device-Group junction table
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
-#[diesel(table_name = crate::schema::device_groups)]
+#[diesel(table_name = crate::schema::asset_groups)]
 #[diesel(belongs_to(Group))]
-#[diesel(belongs_to(Device))]
-#[diesel(primary_key(device_id, group_id))]
+#[diesel(belongs_to(Device, foreign_key = asset_id))]
+#[diesel(primary_key(asset_id, group_id))]
 pub struct DeviceGroup {
-    pub device_id: i32,
+    pub asset_id: i32,
     pub group_id: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
@@ -3496,9 +3514,9 @@ pub struct DeviceGroup {
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
-#[diesel(table_name = crate::schema::device_groups)]
+#[diesel(table_name = crate::schema::asset_groups)]
 pub struct NewDeviceGroup {
-    pub device_id: i32,
+    pub asset_id: i32,
     pub group_id: i32,
     pub created_by: Option<Uuid>,
     pub external_source: Option<String>,

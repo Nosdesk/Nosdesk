@@ -20,8 +20,9 @@ path = "src/bin/nosdesk_cli.rs"
 
 [dependencies]
 actix-web = "4.9.0"
-diesel = { version = "2.2.0", features = ["postgres", "r2d2", "chrono", "serde_json", "uuid", "network-address"] }
+diesel = { version = "2.2.0", features = ["postgres", "r2d2", "chrono", "serde_json", "uuid", "network-address", "numeric"] }
 diesel_migrations = "2.2.0"
+bigdecimal = { version = "0.4", features = ["serde"] }
 # dotenvy is a maintained drop-in for the unmaintained dotenv crate.
 # API surface is identical (same `dotenv()` entry point under the
 # `dotenvy::dotenv` path), so callers only change their import line.

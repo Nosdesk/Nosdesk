@@ -611,7 +611,7 @@ fn most_recent_device_models(
     // DISTINCT ON (ticket_id) with ORDER BY ticket_id, created_at DESC
     // gives one row per ticket — the most-recently-linked device.
     let rows: Vec<(i32, Option<String>)> = ticket_devices::table
-        .inner_join(devices::table.on(devices::id.eq(ticket_devices::device_id)))
+        .inner_join(devices::table.on(devices::id.eq(ticket_devices::asset_id)))
         .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
         .filter(devices::model.is_not_null())
         .distinct_on(ticket_devices::ticket_id)

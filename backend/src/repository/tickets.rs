@@ -680,7 +680,7 @@ pub fn add_device_to_ticket(
 ) -> QueryResult<TicketDevice> {
     let new_ticket_device = NewTicketDevice {
         ticket_id,
-        device_id,
+        asset_id: device_id,
     };
 
     diesel::insert_into(ticket_devices::table)
@@ -697,7 +697,7 @@ pub fn remove_device_from_ticket(
     diesel::delete(
         ticket_devices::table
             .filter(ticket_devices::ticket_id.eq(ticket_id))
-            .filter(ticket_devices::device_id.eq(device_id)),
+            .filter(ticket_devices::asset_id.eq(device_id)),
     )
     .execute(conn)
 }
@@ -743,7 +743,7 @@ pub fn devices_summary_for_tickets(
         .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
         .order((
             ticket_devices::ticket_id.asc(),
-            ticket_devices::device_id.asc(),
+            ticket_devices::asset_id.asc(),
         ))
         .select((
             ticket_devices::ticket_id,

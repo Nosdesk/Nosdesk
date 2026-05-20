@@ -944,7 +944,7 @@ pub fn set_group_includes(
 pub fn get_devices_in_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Vec<Device>> {
     device_groups::table
         .filter(device_groups::group_id.eq(group_id))
-        .inner_join(devices::table.on(devices::id.eq(device_groups::device_id)))
+        .inner_join(devices::table.on(devices::id.eq(device_groups::asset_id)))
         .select(devices::all_columns)
         .load(conn)
 }
@@ -952,7 +952,7 @@ pub fn get_devices_in_group(conn: &mut DbConnection, group_id: i32) -> QueryResu
 /// Get all groups for a device
 pub fn get_groups_for_device(conn: &mut DbConnection, device_id: i32) -> QueryResult<Vec<Group>> {
     device_groups::table
-        .filter(device_groups::device_id.eq(device_id))
+        .filter(device_groups::asset_id.eq(device_id))
         .inner_join(groups::table)
         .select(groups::all_columns)
         .order(groups::name.asc())
@@ -970,7 +970,7 @@ pub fn add_device_to_group(
     conn.transaction(|conn| {
         // Check if already exists
         let existing = device_groups::table
-            .filter(device_groups::device_id.eq(device_id))
+            .filter(device_groups::asset_id.eq(device_id))
             .filter(device_groups::group_id.eq(group_id))
             .first::<DeviceGroup>(conn);
 
@@ -979,7 +979,7 @@ pub fn add_device_to_group(
         }
 
         let new_membership = NewDeviceGroup {
-            device_id,
+            asset_id: device_id,
             group_id,
             created_by,
             external_source: external_source.map(String::from),
@@ -1018,7 +1018,7 @@ pub fn remove_device_from_group(
     conn.transaction(|conn| {
         let result = diesel::delete(
             device_groups::table
-                .filter(device_groups::device_id.eq(device_id))
+                .filter(device_groups::asset_id.eq(device_id))
                 .filter(device_groups::group_id.eq(group_id)),
         )
         .execute(conn)?;
@@ -1047,7 +1047,7 @@ pub fn remove_device_from_group(
 pub fn get_device_ids_for_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Vec<i32>> {
     device_groups::table
         .filter(device_groups::group_id.eq(group_id))
-        .select(device_groups::device_id)
+        .select(device_groups::asset_id)
         .load(conn)
 }
 
@@ -1060,7 +1060,7 @@ pub fn get_synced_device_ids_for_group(
     device_groups::table
         .filter(device_groups::group_id.eq(group_id))
         .filter(device_groups::external_source.eq(external_source))
-        .select(device_groups::device_id)
+        .select(device_groups::asset_id)
         .load(conn)
 }
 
@@ -1086,7 +1086,7 @@ pub fn set_group_devices(
         let new_memberships: Vec<NewDeviceGroup> = device_ids
             .iter()
             .map(|device_id| NewDeviceGroup {
-                device_id: *device_id,
+                asset_id: *device_id,
                 group_id,
                 created_by,
                 external_source: None,
@@ -1097,7 +1097,7 @@ pub fn set_group_devices(
             // Use ON CONFLICT DO NOTHING to handle devices that are already in the group via sync
             diesel::insert_into(device_groups::table)
                 .values(&new_memberships)
-                .on_conflict((device_groups::device_id, device_groups::group_id))
+                .on_conflict((device_groups::asset_id, device_groups::group_id))
                 .do_nothing()
                 .execute(conn)?;
         }
