@@ -43,10 +43,10 @@ const scrollContainerRef = computed<HTMLElement | null>(
 )
 
 const navigateToCreateDevice = () => {
-  void router.push('/devices/new')
+  void router.push('/assets/new')
 }
 const navigateToDevice = (device: Device) => {
-  void router.push(`/devices/${device.id}`)
+  void router.push(`/assets/${device.id}`)
 }
 
 const controls = useListControls<Device>({

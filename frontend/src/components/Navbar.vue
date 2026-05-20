@@ -174,16 +174,16 @@ const navGroups: NavGroup[] = [
         label: "nav-group-resources",
         links: [
             {
-                to: "/devices",
+                to: "/assets",
                 icon: "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
-                text: "nav-devices",
+                text: "nav-assets",
             },
             {
-                to: "/assets",
-                // Stacked-layers / planning glyph distinct from the
-                // single-monitor Devices icon above.
+                to: "/assets/planner",
+                // Stacked-layers glyph for the rollout planner,
+                // distinct from the inventory list above.
                 icon: "M3 7l9-4 9 4-9 4-9-4zm0 5l9 4 9-4M3 17l9 4 9-4",
-                text: "nav-assets",
+                text: "nav-asset-planner",
             },
             {
                 to: "/users",

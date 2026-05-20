@@ -43,7 +43,7 @@ const errorMessage = computed(() =>
 <template>
   <DashboardWidgetShell
     :title="t('dashboard-my-devices-title')"
-    action-to="/devices"
+    action-to="/assets"
     :loading="isPending"
     :refreshing="isRefreshing"
     :error="errorMessage"
@@ -55,7 +55,7 @@ const errorMessage = computed(() =>
     <ul class="divide-y divide-default">
       <li v-for="d in devices" :key="d.id">
         <router-link
-          :to="`/devices/${d.id}`"
+          :to="`/assets/${d.id}`"
           class="block px-4 py-2 hover:bg-surface-hover transition-colors group"
         >
           <p class="text-sm text-primary truncate group-hover:text-accent transition-colors">{{ d.name }}</p>

@@ -203,7 +203,7 @@ const saveDevice = async () => {
       attributes: attributeDraft.value,
     };
     const newDevice = await createDevice(deviceData);
-    router.replace(`/devices/${newDevice.id}`);
+    router.replace(`/assets/${newDevice.id}`);
   } catch (err) {
     console.error('Error creating device:', err);
     error.value = t('device-detail-error-create');
@@ -241,7 +241,7 @@ const handleDeleteDevice = async () => {
 
   try {
     await deleteDevice(device.value.id);
-    router.push('/devices');
+    router.push('/assets');
   } catch (err) {
     console.error('Error deleting device:', err);
     error.value = t('device-detail-error-delete');
@@ -323,7 +323,7 @@ on('device-updated', (data) => {
 on('device-deleted', (data) => {
   const event = data as DeviceDeletedEventData;
   if (!device.value || event.device_id !== device.value.id) return;
-  router.push('/devices');
+  router.push('/assets');
 });
 
 // Lifecycle
@@ -350,7 +350,7 @@ onMounted(() => {
             :fallbackRoute="`/tickets/${fromTicket}`"
             :label="$t('device-detail-back-to-ticket', { id: fromTicket })"
           />
-          <BackButton v-else fallbackRoute="/devices" :label="$t('device-detail-back-to-devices')" />
+          <BackButton v-else fallbackRoute="/assets" :label="$t('device-detail-back-to-devices')" />
 
           <div v-if="isSynced" class="flex items-center gap-2 text-sm">
             <div class="w-2 h-2 rounded-full bg-accent"></div>
@@ -360,7 +360,7 @@ onMounted(() => {
 
         <DeleteButton
           v-if="!isCreationMode && device?.is_editable"
-          fallbackRoute="/devices"
+          fallbackRoute="/assets"
           :itemName="$t('device-detail-delete-item-name')"
           @delete="handleDeleteDevice"
         />
@@ -828,7 +828,7 @@ onMounted(() => {
         <div v-if="isCreationMode" class="flex justify-end">
           <div class="flex gap-3">
             <button
-              @click="router.push('/devices')"
+              @click="router.push('/assets')"
               :disabled="isSaving"
               class="px-6 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 transition-colors text-sm font-medium"
             >

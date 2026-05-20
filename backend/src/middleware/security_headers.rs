@@ -418,7 +418,7 @@ where
             // immutable; everything else gets handler-specified
             // semantics or the actix default.
             if !headers.contains_key(header::CACHE_CONTROL) {
-                if path.starts_with("/assets/") || path.starts_with("/pdfjs/") {
+                if path.starts_with("/static/") || path.starts_with("/pdfjs/") {
                     headers.insert(
                         header::CACHE_CONTROL,
                         "public, max-age=31536000, immutable".parse().unwrap(),

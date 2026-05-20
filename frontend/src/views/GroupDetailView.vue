@@ -45,7 +45,7 @@ const fetchGroupData = async () => {
 
 // Navigate to device detail
 const navigateToDevice = (deviceId: number) => {
-  router.push(`/devices/${deviceId}`);
+  router.push(`/assets/${deviceId}`);
 };
 
 // Navigate to user profile

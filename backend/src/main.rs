@@ -65,8 +65,10 @@ async fn serve_spa(_req: HttpRequest) -> HttpResponse {
     // Check if this is a static asset request (has file extension and not HTML)
     let path = _req.path();
 
-    // If it's a hashed asset request (contains hash pattern), handle as missing asset
-    if path.starts_with("/assets/") && path.contains('-') {
+    // If it's a hashed asset request (contains hash pattern), handle as missing asset.
+    // Frontend assets live under `/static/` (Vite's `assetsDir`),
+    // not `/assets/` (now a SPA route prefix).
+    if path.starts_with("/static/") && path.contains('-') {
         return handle_missing_asset(path);
     }
 
@@ -1744,7 +1746,13 @@ async fn main() -> std::io::Result<()> {
             // Serve static frontend files with SPA fallback using default_handler
             // This is the recommended actix-web pattern for SPAs
             .service(
-                Files::new("/assets", "./public/assets")
+                // Vite-output assets live under `/static/` so the
+                // SPA can keep `/assets/*` as a route prefix
+                // (inventory list, create, detail). If you move
+                // them back, update `vite.config.ts.assetsDir`,
+                // `serve_spa`, and the security-headers middleware
+                // in lockstep.
+                Files::new("/static", "./public/static")
                     .use_last_modified(true)
                     .use_etag(true)
                     // Handle missing assets gracefully in development (frontend rebuild scenario)

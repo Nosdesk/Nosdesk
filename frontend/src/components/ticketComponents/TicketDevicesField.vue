@@ -45,7 +45,7 @@ function deviceTitle(device: Device): string | undefined {
       :key="device.id"
       :label="deviceLabel(device)"
       :title="deviceTitle(device)"
-      :to="`/devices/${device.id}`"
+      :to="`/assets/${device.id}`"
       removable
       :remove-title="$t('ticket-field-devices-detach')"
       @remove="emit('remove', device.id)"

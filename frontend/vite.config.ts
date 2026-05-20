@@ -44,8 +44,12 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    // Ensure assets are referenced correctly when served by backend
-    assetsDir: "assets",
+    // `/static/`, not the Vite default `/assets/`, so the
+    // backend can keep `/assets/*` free as a SPA route prefix.
+    // The backend `Files::new("/static", "./public/static")`
+    // serves the matching directory; if you change this, change
+    // both at once.
+    assetsDir: "static",
     sourcemap: false,
     // Skip minification in watch mode for faster rebuilds. `true`
     // lets Vite pick its current default minifier (esbuild on v7,

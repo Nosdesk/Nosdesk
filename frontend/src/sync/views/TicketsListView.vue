@@ -507,7 +507,7 @@ function entryToOverlay(e: CalendarOverlayEntry): CalendarOverlay {
     date: e.date,
     kind: e.kind,
     label: e.label,
-    href: `/devices/${e.device_id}`,
+    href: `/assets/${e.device_id}`,
   }
 }
 

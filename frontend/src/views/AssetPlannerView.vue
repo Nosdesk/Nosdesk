@@ -202,7 +202,7 @@ function warrantyTooltip(date: string | null | undefined): string {
 }
 
 function openDevice(id: number): void {
-  router.push(`/devices/${id}`)
+  router.push(`/assets/${id}`)
 }
 
 function clearAllFilters(): void {

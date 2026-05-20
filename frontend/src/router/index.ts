@@ -287,12 +287,15 @@ const router = createRouter({
       }
     },
     {
-      path: '/assets',
+      // Planner moves to `/assets/planner` so `/assets` (singular)
+      // can be the inventory list page. Existing `/assets` deep
+      // links now hit a redirect via the route below.
+      path: '/assets/planner',
       name: 'asset-planner',
       component: AssetPlannerView,
       meta: {
         requiresAuth: true,
-        titleKey: 'route-title-assets',
+        titleKey: 'route-title-asset-planner',
       }
     },
     {
@@ -332,35 +335,49 @@ const router = createRouter({
         createButtonIcon: 'user',
       }
     },
+    // Assets (formerly /devices). The list / create / detail
+    // views are the same components rebranded; `/devices*` paths
+    // resolve to a redirect below so existing deep links and
+    // bookmarks keep working.
     {
-      path: '/devices',
-      name: 'devices',
+      path: '/assets',
+      name: 'assets',
       component: () => import('../views/DevicesListView.vue'),
       meta: {
         requiresAuth: true,
-        titleKey: 'route-title-devices',
-        createButtonTextKey: 'header-create-device',
+        titleKey: 'route-title-assets',
+        createButtonTextKey: 'header-create-asset',
         createButtonIcon: 'device',
       }
     },
     {
-      path: '/devices/new',
-      name: 'device-create',
+      path: '/assets/new',
+      name: 'asset-create',
       component: () => import('../views/DeviceView.vue'),
       meta: {
         requiresAuth: true,
-        titleKey: 'route-title-device-create'
+        titleKey: 'route-title-asset-create'
       }
     },
     {
-      path: '/devices/:id',
-      name: 'device-view',
+      path: '/assets/:id',
+      name: 'asset-view',
       component: () => import('../views/DeviceView.vue'),
       props: true,
       meta: {
         requiresAuth: true,
-        titleKey: 'route-title-device-view'
+        titleKey: 'route-title-asset-view'
       }
+    },
+    // Legacy redirects. Anyone landing on the old /devices paths
+    // (bookmarks, external integrations, in-app links we haven't
+    // migrated yet) bounces to the new /assets equivalent so the
+    // rename is transparent.
+    { path: '/devices', redirect: '/assets' },
+    { path: '/devices/new', redirect: '/assets/new' },
+    {
+      path: '/devices/:id',
+      redirect: (to) => ({ path: `/assets/${to.params.id}` }),
     },
     {
       path: '/documentation',
