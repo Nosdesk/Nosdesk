@@ -582,6 +582,45 @@ admin-workflow-states-default-flash = { $name } est désormais l'état par défa
 admin-workflow-states-archived-flash = { $name } archivé
 admin-workflow-states-added-flash = { $name } ajouté à { $category }
 
+# DRAFT (needs native-review pass): asset-kinds registry.
+admin-asset-kinds-title = Types d'actifs
+admin-asset-kinds-description = Définissez les types d'actifs suivis. Chaque type a un slug (utilisé en interne), un libellé, et un schéma d'attributs au format JSON Schema (sous-ensemble) qui décrit les champs collectés à la création d'un actif de ce type.
+admin-asset-kinds-builtin-heading = Types intégrés
+admin-asset-kinds-builtin-description = Ces types sont fournis avec Nosdesk. Vous pouvez modifier le libellé, la description et le schéma d'attributs ; le slug reste fixe pour que les actifs existants continuent à résoudre.
+admin-asset-kinds-builtin-tag = intégré
+admin-asset-kinds-custom-heading = Types personnalisés
+admin-asset-kinds-custom-description = Types définis par l'administrateur pour toute donnée à suivre (matériaux, véhicules, licences, etc.). Le slug est immuable une fois créé.
+admin-asset-kinds-custom-empty = Aucun type personnalisé. Utilisez le formulaire ci-dessous pour en ajouter un.
+admin-asset-kinds-create-heading = Créer un nouveau type
+admin-asset-kinds-create-button = Créer le type
+admin-asset-kinds-edit = Modifier
+admin-asset-kinds-edit-schema = Modifier
+admin-asset-kinds-delete = Supprimer
+admin-asset-kinds-save = Enregistrer
+admin-asset-kinds-cancel = Annuler
+admin-asset-kinds-field-slug = Slug
+admin-asset-kinds-field-slug-placeholder = ex. piece_plomberie
+admin-asset-kinds-field-label = Libellé
+admin-asset-kinds-field-description = Description
+admin-asset-kinds-field-icon = Nom d'icône
+admin-asset-kinds-field-sort-order = Ordre de tri
+admin-asset-kinds-field-attribute-schema = Schéma d'attributs (JSON)
+admin-asset-kinds-saved = Enregistré
+admin-asset-kinds-created = Type créé
+admin-asset-kinds-deleted = { $label } supprimé
+admin-asset-kinds-error-load = Échec du chargement des types d'actifs
+admin-asset-kinds-error-save = Échec de l'enregistrement du type
+admin-asset-kinds-error-create = Échec de la création du type
+admin-asset-kinds-error-delete = Échec de la suppression du type
+admin-asset-kinds-error-slug-required = Le slug est requis
+admin-asset-kinds-error-label-required = Le libellé est requis
+admin-asset-kinds-error-bad-schema-json = Le schéma d'attributs n'est pas un JSON valide : { $error }
+admin-asset-kinds-delete-confirm-title = Supprimer le type d'actif ?
+admin-asset-kinds-delete-confirm = Supprimer « { $label } » ? Les actifs existants conserveront cette valeur, mais vous ne pourrez plus en créer de nouveaux tant que le type n'est pas réajouté.
+
+admin-nav-asset-kinds-title = Types d'actifs
+admin-nav-asset-kinds-description = Définissez les types d'actifs suivis et les attributs portés par chaque type
+
 # Habillage de l'administration.
 admin-back-to-dashboard = Retour au tableau de bord
 admin-heading = Administration
@@ -4093,6 +4132,7 @@ route-title-group-configuration = Configuration du groupe
 route-title-admin-categories = Catégories
 route-title-admin-assignment-rules = Règles d'attribution
 route-title-admin-workflow = Flux de travail
+route-title-admin-asset-kinds = Types d'actifs
 route-title-admin-api-tokens = Jetons d'API
 route-title-admin-webhooks = Webhooks
 route-title-admin-sla = SLA

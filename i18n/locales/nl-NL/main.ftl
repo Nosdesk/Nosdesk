@@ -579,6 +579,45 @@ admin-workflow-states-default-flash = { $name } is nu de standaardstatus voor ni
 admin-workflow-states-archived-flash = { $name } gearchiveerd
 admin-workflow-states-added-flash = { $name } toegevoegd aan { $category }
 
+# DRAFT (needs native-review pass): asset-kinds registry.
+admin-asset-kinds-title = Activatypen
+admin-asset-kinds-description = Definieer de typen activa die u bijhoudt. Elk type heeft een slug (intern gebruikt), een label en een attribuutschema in de JSON Schema-subset die beschrijft welke velden worden verzameld wanneer een activum van dat type wordt aangemaakt.
+admin-asset-kinds-builtin-heading = Ingebouwde typen
+admin-asset-kinds-builtin-description = Deze typen worden met Nosdesk meegeleverd. U kunt label, beschrijving en attribuutschema bewerken; de slug blijft vast zodat bestaande activa blijven werken.
+admin-asset-kinds-builtin-tag = ingebouwd
+admin-asset-kinds-custom-heading = Aangepaste typen
+admin-asset-kinds-custom-description = Door beheerders gedefinieerde typen voor alles wat u wilt bijhouden (materialen, voertuigen, licenties). De slug is na aanmaken onveranderlijk.
+admin-asset-kinds-custom-empty = Nog geen aangepaste typen. Gebruik het onderstaande formulier om er een toe te voegen.
+admin-asset-kinds-create-heading = Een nieuw type aanmaken
+admin-asset-kinds-create-button = Type aanmaken
+admin-asset-kinds-edit = Bewerken
+admin-asset-kinds-edit-schema = Bewerken
+admin-asset-kinds-delete = Verwijderen
+admin-asset-kinds-save = Opslaan
+admin-asset-kinds-cancel = Annuleren
+admin-asset-kinds-field-slug = Slug
+admin-asset-kinds-field-slug-placeholder = bijv. loodgieter_onderdeel
+admin-asset-kinds-field-label = Label
+admin-asset-kinds-field-description = Beschrijving
+admin-asset-kinds-field-icon = Pictogramnaam
+admin-asset-kinds-field-sort-order = Sorteervolgorde
+admin-asset-kinds-field-attribute-schema = Attribuutschema (JSON)
+admin-asset-kinds-saved = Opgeslagen
+admin-asset-kinds-created = Type aangemaakt
+admin-asset-kinds-deleted = { $label } verwijderd
+admin-asset-kinds-error-load = Activatypen laden mislukt
+admin-asset-kinds-error-save = Type opslaan mislukt
+admin-asset-kinds-error-create = Type aanmaken mislukt
+admin-asset-kinds-error-delete = Type verwijderen mislukt
+admin-asset-kinds-error-slug-required = Slug is verplicht
+admin-asset-kinds-error-label-required = Label is verplicht
+admin-asset-kinds-error-bad-schema-json = Attribuutschema is geen geldige JSON: { $error }
+admin-asset-kinds-delete-confirm-title = Activatype verwijderen?
+admin-asset-kinds-delete-confirm = "{ $label }" verwijderen? Bestaande activa behouden deze waarde, maar u kunt er geen nieuwe meer aanmaken totdat u het type opnieuw toevoegt.
+
+admin-nav-asset-kinds-title = Activatypen
+admin-nav-asset-kinds-description = Definieer de activatypen die u bijhoudt en de attributen per type
+
 # Beheer-chrome.
 admin-back-to-dashboard = Terug naar dashboard
 admin-heading = Beheer
@@ -4084,6 +4123,7 @@ route-title-group-configuration = Groepsconfiguratie
 route-title-admin-categories = Categorieën
 route-title-admin-assignment-rules = Toewijzingsregels
 route-title-admin-workflow = Werkstroom
+route-title-admin-asset-kinds = Activatypen
 route-title-admin-api-tokens = API-tokens
 route-title-admin-webhooks = Webhooks
 route-title-admin-sla = SLA

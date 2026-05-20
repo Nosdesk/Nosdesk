@@ -578,6 +578,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-workflow' }
         },
         {
+          path: 'asset-kinds',
+          name: 'admin-asset-kinds',
+          component: () => import('../views/admin/AssetKindsView.vue'),
+          meta: { titleKey: 'route-title-admin-asset-kinds' }
+        },
+        {
           path: 'api-tokens',
           name: 'admin-api-tokens',
           component: () => import('../views/ApiTokensView.vue'),
