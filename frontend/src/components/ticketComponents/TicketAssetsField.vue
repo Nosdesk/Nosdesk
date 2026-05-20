@@ -5,12 +5,12 @@
  * device detail page; the trailing X detaches it.
  */
 import { useFluent } from 'fluent-vue'
-import type { Device } from '@/types/device'
+import type { Asset } from '@/types/asset'
 import PropertyChipRow from '@/components/ticketComponents/PropertyChipRow.vue'
 import PropertyChip from '@/components/ticketComponents/PropertyChip.vue'
 
 defineProps<{
-  devices: Device[]
+  devices: Asset[]
 }>()
 
 const emit = defineEmits<{
@@ -21,12 +21,12 @@ const emit = defineEmits<{
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-function deviceLabel(device: Device): string {
+function deviceLabel(device: Asset): string {
   const hostname = device.attributes?.hostname as string | undefined
   return device.name || hostname || t('ticket-field-devices-fallback-name', { id: device.id })
 }
 
-function deviceTitle(device: Device): string | undefined {
+function deviceTitle(device: Asset): string | undefined {
   const hostname = device.attributes?.hostname as string | undefined
   if (!hostname) return device.model || undefined
   if (device.model) {

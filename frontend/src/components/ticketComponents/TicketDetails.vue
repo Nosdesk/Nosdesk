@@ -21,11 +21,11 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import UserCell from "@/components/views/UserCell.vue";
 import TicketTagsField from "@/components/ticketComponents/TicketTagsField.vue";
 import TicketWatchersField from "@/components/ticketComponents/TicketWatchersField.vue";
-import TicketDevicesField from "@/components/ticketComponents/TicketDevicesField.vue";
+import TicketDevicesField from "@/components/ticketComponents/TicketAssetsField.vue";
 import TicketLinkedTicketsField from "@/components/ticketComponents/TicketLinkedTicketsField.vue";
 import TicketProjectsField from "@/components/ticketComponents/TicketProjectsField.vue";
 import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
-import type { Device } from "@/types/device";
+import type { Asset } from "@/types/asset";
 import type { CommentWithAttachments } from "@/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
@@ -149,7 +149,7 @@ const props = defineProps<{
   categoryOptions?: { value: string; label: string; color?: string }[];
   /** Devices attached to the ticket. Renders as a property-row of
    *  device chips below the standard properties. */
-  devices?: Device[];
+  devices?: Asset[];
   /** Drag-to-link affordance state for the linked-tickets row. */
   showLinkDropAffordance?: boolean;
   isLinkDropTarget?: boolean;

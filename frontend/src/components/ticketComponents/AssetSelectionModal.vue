@@ -5,8 +5,8 @@ import { useFluent } from 'fluent-vue';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import { getDevicesByUser, getPaginatedDevicesExcluding } from '@/services/deviceService';
-import type { Device } from '@/types/device';
+import { getDevicesByUser, getPaginatedDevicesExcluding } from '@/services/assetService';
+import type { Asset } from '@/types/asset';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -20,13 +20,13 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'select-device', device: Device): void;
+  (e: 'select-device', device: Asset): void;
 }>();
 
 // State management
 const searchQuery = ref('');
-const devices = ref<Device[]>([]);
-const requesterDevices = ref<Device[]>([]);
+const devices = ref<Asset[]>([]);
+const requesterDevices = ref<Asset[]>([]);
 const loading = ref(false);
 const loadingMore = ref(false);
 const loadingRequesterDevices = ref(false);
@@ -263,13 +263,13 @@ watch(() => props.show, (newValue) => {
   }
 });
 
-const selectDevice = (device: Device) => {
+const selectDevice = (device: Asset) => {
   emit('select-device', device);
   emit('close');
 };
 
 // Get device type based on manufacturer and model
-const getDeviceType = (device: Device): string => {
+const getDeviceType = (device: Asset): string => {
   const manufacturer = device.manufacturer?.toLowerCase() || '';
   const model = device.model?.toLowerCase() || '';
   
@@ -287,7 +287,7 @@ const getDeviceType = (device: Device): string => {
   return 'Computer';
 };
 
-const getDeviceTypeClass = (device: Device) => {
+const getDeviceTypeClass = (device: Asset) => {
   const type = getDeviceType(device);
   switch (type) {
     case 'Surface':
@@ -583,7 +583,7 @@ const formatLastUpdated = (dateString: string): string => {
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
         </svg>
-        New Device
+        New Asset
       </button>
 
       <div class="flex items-center justify-between sm:justify-end gap-3">

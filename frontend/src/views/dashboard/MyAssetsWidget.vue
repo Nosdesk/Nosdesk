@@ -6,8 +6,8 @@ import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import { useAuthStore } from '@/stores/auth'
-import { getDevicesByUser } from '@/services/deviceService'
-import type { Device } from '@/types'
+import { getDevicesByUser } from '@/services/assetService'
+import type { Asset } from '@/types'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 
 const fluent = useFluent()
@@ -27,13 +27,13 @@ const { data, isPending, isLoading, error } = useQuery({
   key: () => ['devices', 'by-user', auth.user?.uuid ?? ''],
   query: async () => {
     const uuid = auth.user?.uuid
-    if (!uuid) return [] as Device[]
+    if (!uuid) return [] as Asset[]
     return (await getDevicesByUser(uuid)).slice(0, 5)
   },
   enabled: () => !!auth.user?.uuid,
 })
 
-const devices = computed<Device[]>(() => data.value ?? [])
+const devices = computed<Asset[]>(() => data.value ?? [])
 const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() =>
   error.value ? t('dashboard-my-devices-error') : null,

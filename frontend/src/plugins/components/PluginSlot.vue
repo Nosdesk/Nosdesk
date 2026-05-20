@@ -9,13 +9,13 @@ import { computed, provide } from 'vue';
 import { slotRegistrations } from '../loader';
 import type { PluginSlot as SlotType } from '@/types/plugin';
 import type { Ticket } from '@/types/ticket';
-import type { Device } from '@/types/device';
+import type { Asset } from '@/types/asset';
 import PluginSlotItem from './PluginSlotItem.vue';
 
 const props = defineProps<{
   slotName: SlotType;
   ticket?: Ticket;
-  device?: Device;
+  device?: Asset;
   actionActivatedMap?: Map<string, number>;
 }>();
 

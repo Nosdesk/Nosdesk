@@ -386,7 +386,7 @@ export type PluginSlot =
   // Document context
   | 'document-toolbar'
   | 'document-sidebar'
-  // Device context
+  // Asset context
   | 'device-header-actions'
   | 'device-info-panels';
 
@@ -402,7 +402,7 @@ export const PLUGIN_SLOTS: Record<PluginSlot, { multiple: boolean; description: 
   // Document context
   'document-toolbar': { multiple: true, description: 'Add actions to document toolbar' },
   'document-sidebar': { multiple: true, description: 'Add panels to document sidebar' },
-  // Device context
+  // Asset context
   'device-header-actions': { multiple: true, description: 'Add buttons to device header' },
   'device-info-panels': { multiple: true, description: 'Add info panels to device view' },
 };

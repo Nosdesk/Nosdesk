@@ -11,7 +11,7 @@
  *
  * Usage in a list view:
  *
- *   const selection = useBulkSelection<Device>({...})
+ *   const selection = useBulkSelection<Asset>({...})
  *   const dt = useBulkSelectionForDataTable(selection)
  *   ...
  *   <DataTable

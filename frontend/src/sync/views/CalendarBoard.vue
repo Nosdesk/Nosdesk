@@ -13,7 +13,7 @@
  *
  * Deferred (architecture spec § 10 phase 7):
  * - RRULE recurring tasks (server-side materialise-on-edit).
- * - Device overlays (warranty, OS support cutoff,
+ * - Asset overlays (warranty, OS support cutoff,
  *   scheduled maintenance) — needs the device-on-card payload.
  * - Working calendars + business-hours arithmetic.
  * - SLA breach overlay — needs the SLA engine.

@@ -8,16 +8,16 @@ import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
 import Modal from '@/components/Modal.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
-import DeviceOsIcon from '@/components/common/DeviceOsIcon.vue';
+import DeviceOsIcon from '@/components/common/AssetOsIcon.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import { groupService } from '@/services/groupService';
-import { getPaginatedDevices } from '@/services/deviceService';
+import { getPaginatedDevices } from '@/services/assetService';
 import userService from '@/services/userService';
 import { useColorFilter } from '@/composables/useColorFilter';
 import type { GroupDetails, GroupWithMemberCount, UpdateGroupRequest } from '@/types/group';
 import type { User } from '@/types/user';
-import type { Device } from '@/types/device';
+import type { Asset } from '@/types/asset';
 
 const props = defineProps<{
   groupUuid: string;
@@ -53,7 +53,7 @@ const selectedMemberUuids = ref<string[]>([]);
 const userSearchQuery = ref('');
 
 // Devices state
-const availableDevices = ref<Device[]>([]);
+const availableDevices = ref<Asset[]>([]);
 const selectedDeviceIds = ref<number[]>([]);
 const deviceSearchQuery = ref('');
 const savingDevices = ref(false);
@@ -225,7 +225,7 @@ const effectiveGroupSources = computed(() => {
 // replaced the column-existence predicate with a dedicated
 // `external_sync_source` top-level field that any sync source
 // (Intune, Entra, future) can stamp.
-const isDeviceExternallySynced = (device: Device) => {
+const isDeviceExternallySynced = (device: Asset) => {
   return device.external_sync_source != null;
 };
 

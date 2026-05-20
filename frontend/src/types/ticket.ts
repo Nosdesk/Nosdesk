@@ -4,7 +4,7 @@
  */
 
 import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions'
-import type { Device } from './device'
+import type { Asset } from './asset'
 import type { Comment, Attachment } from './comment'
 import type { Project } from './project'
 import type { UserInfo } from './user'
@@ -12,7 +12,7 @@ import type { WorkflowState } from './workflow'
 import type { SlaPayload } from '@/composables/useSlaState'
 
 // Re-export for convenience
-export type { Device, Comment, Attachment, Project }
+export type { Asset, Comment, Attachment, Project }
 
 export interface Ticket {
   id: number
@@ -42,7 +42,7 @@ export interface Ticket {
   assignee_user?: UserInfo | null
   category_id?: number | null
   closed_at?: string
-  devices?: Device[]
+  devices?: Asset[]
   comments?: Comment[]
   article_content?: string
   linkedTickets?: number[]

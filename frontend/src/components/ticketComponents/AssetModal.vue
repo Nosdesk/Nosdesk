@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
-import type { Device } from '@/types/ticket';
+import type { Asset } from '@/types/ticket';
 import Modal from '@/components/Modal.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 
@@ -21,7 +21,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'add-device', device: Device): void;
+  (e: 'add-device', device: Asset): void;
 }>();
 
 // Generate a simple unique ID as number
@@ -29,7 +29,7 @@ const generateId = () => {
   return Date.now();
 };
 
-const createEmptyDevice = (): Device => ({
+const createEmptyDevice = (): Asset => ({
   id: generateId(),
   name: '',
   kind: 'device',
@@ -41,7 +41,7 @@ const createEmptyDevice = (): Device => ({
   is_editable: true,
 });
 
-const device = ref<Device>(createEmptyDevice());
+const device = ref<Asset>(createEmptyDevice());
 
 // Local mirror of the IT attributes that BaseDropdown / inputs
 // bind against. Re-applied to `device.attributes` on submit so

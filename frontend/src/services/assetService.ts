@@ -1,5 +1,5 @@
 import apiClient from './apiConfig';
-import type { Device, DeviceFormData } from '@/types/device';
+import type { Asset, AssetFormData } from '@/types/asset';
 import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
@@ -18,18 +18,18 @@ export type { PaginatedResponse } from '@/types/pagination';
 
 /**
  * Pass-through: the backend response shape now matches the
- * frontend `Device` type 1:1. The previous mapper invented
+ * frontend `Asset` type 1:1. The previous mapper invented
  * "legacy" fields (type/status/specs) and copied each column
  * by hand; both became net-negative once Pass B moved IT data
  * into the attributes JSONB.
  */
-const transformDeviceResponse = (backendDevice: Device): Device => backendDevice;
+const transformDeviceResponse = (backendDevice: Asset): Asset => backendDevice;
 
 /**
  * Get all devices
- * @returns Promise<Device[]> - A promise that resolves to an array of devices
+ * @returns Promise<Asset[]> - A promise that resolves to an array of devices
  */
-export const getDevices = async (): Promise<Device[]> => {
+export const getDevices = async (): Promise<Asset[]> => {
   try {
     const response = await apiClient.get(`/assets`);
     return response.data.map(transformDeviceResponse);
@@ -40,7 +40,7 @@ export const getDevices = async (): Promise<Device[]> => {
 };
 
 // Get paginated devices
-export const getPaginatedDevices = async (params: PaginationParams, requestKey: string = 'paginated-devices'): Promise<PaginatedResponse<Device>> => {
+export const getPaginatedDevices = async (params: PaginationParams, requestKey: string = 'paginated-devices'): Promise<PaginatedResponse<Asset>> => {
   try {
     // Create cancellable request
     const controller = requestManager.createRequest(requestKey);
@@ -75,9 +75,9 @@ export const getPaginatedDevices = async (params: PaginationParams, requestKey: 
 /**
  * Get a device by ID
  * @param id - The ID of the device to fetch
- * @returns Promise<Device> - A promise that resolves to a device
+ * @returns Promise<Asset> - A promise that resolves to a device
  */
-export const getDeviceById = async (id: number | string): Promise<Device> => {
+export const getDeviceById = async (id: number | string): Promise<Asset> => {
   try {
     const response = await apiClient.get(`/assets/${id}`);
     return transformDeviceResponse(response.data);
@@ -90,9 +90,9 @@ export const getDeviceById = async (id: number | string): Promise<Device> => {
 /**
  * Get devices by ticket ID
  * @param ticketId - The ID of the ticket
- * @returns Promise<Device | null> - A promise that resolves to a device or null
+ * @returns Promise<Asset | null> - A promise that resolves to a device or null
  */
-export const getDeviceByTicketId = async (ticketId: number): Promise<Device | null> => {
+export const getDeviceByTicketId = async (ticketId: number): Promise<Asset | null> => {
   try {
     const response = await apiClient.get(`/tickets/${ticketId}/device`);
     return transformDeviceResponse(response.data);
@@ -105,9 +105,9 @@ export const getDeviceByTicketId = async (ticketId: number): Promise<Device | nu
 /**
  * Get devices by user UUID
  * @param userUuid - The UUID of the user
- * @returns Promise<Device[]> - A promise that resolves to an array of devices
+ * @returns Promise<Asset[]> - A promise that resolves to an array of devices
  */
-export const getDevicesByUser = async (userUuid: string): Promise<Device[]> => {
+export const getDevicesByUser = async (userUuid: string): Promise<Asset[]> => {
   try {
     const response = await apiClient.get(`/users/${userUuid}/assets`);
     return response.data.map(transformDeviceResponse);
@@ -120,9 +120,9 @@ export const getDevicesByUser = async (userUuid: string): Promise<Device[]> => {
 /**
  * Create a new device
  * @param deviceData - The device data to create
- * @returns Promise<Device> - A promise that resolves to the created device
+ * @returns Promise<Asset> - A promise that resolves to the created device
  */
-export const createDevice = async (deviceData: DeviceFormData): Promise<Device> => {
+export const createDevice = async (deviceData: AssetFormData): Promise<Asset> => {
   try {
     const response = await apiClient.post(`/assets`, deviceData);
     return transformDeviceResponse(response.data);
@@ -138,14 +138,14 @@ export const createDevice = async (deviceData: DeviceFormData): Promise<Device> 
  * Update a device
  * @param id - The ID of the device to update
  * @param device - The updated device data
- * @returns Promise<Device> - A promise that resolves to the updated device
+ * @returns Promise<Asset> - A promise that resolves to the updated device
  */
-export const updateDevice = async (id: number, device: Partial<Device>): Promise<Device> => {
+export const updateDevice = async (id: number, device: Partial<Asset>): Promise<Asset> => {
   try {
     // Forward the partial directly. Pass B removed the
     // hand-mapped column projection; the backend DeviceUpdate
     // accepts only the universal columns plus kind/attributes,
-    // which is exactly the shape `Partial<Device>` carries.
+    // which is exactly the shape `Partial<Asset>` carries.
     const response = await apiClient.put(`/assets/${id}`, device);
     return transformDeviceResponse(response.data);
   } catch (error) {
@@ -171,9 +171,9 @@ export const deleteDevice = async (id: number): Promise<void> => {
 /**
  * Unmanage a device (remove Intune/Entra IDs to make it editable)
  * @param id - The ID of the device to unmanage
- * @returns Promise<Device> - The updated device
+ * @returns Promise<Asset> - The updated device
  */
-export const unmanageDevice = async (id: number): Promise<Device> => {
+export const unmanageDevice = async (id: number): Promise<Asset> => {
   try {
     const response = await apiClient.post(`/assets/${id}/unmanage`);
     return transformDeviceResponse(response.data);
@@ -194,7 +194,7 @@ export const getPaginatedDevicesExcluding = async (params: {
   pageSize?: number;
   search?: string;
   excludeIds?: number[];
-}): Promise<PaginatedResponse<Device>> => {
+}): Promise<PaginatedResponse<Asset>> => {
   try {
     const response = await apiClient.get(`/assets/paginated/excluding`, {
       params: {

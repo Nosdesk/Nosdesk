@@ -39,7 +39,7 @@ export const useThemeStore = defineStore('theme', () => {
   const savedColorBlindMode = localStorage.getItem('colorBlindMode') === 'true'
   const colorBlindMode = ref<boolean>(savedColorBlindMode)
 
-  // Device-local theme mode - when enabled, theme is not synced to/from backend
+  // Asset-local theme mode - when enabled, theme is not synced to/from backend
   // Useful for having different themes on different devices (e.g., e-paper tablet)
   const savedDeviceLocalTheme = localStorage.getItem('deviceLocalTheme') === 'true'
   const deviceLocalTheme = ref<boolean>(savedDeviceLocalTheme)

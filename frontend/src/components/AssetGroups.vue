@@ -3,10 +3,10 @@ import { useFluent } from 'fluent-vue'
 import type { FluentVariable } from '@fluent/bundle'
 import SectionCard from '@/components/common/SectionCard.vue'
 import { useColorFilter } from '@/composables/useColorFilter'
-import type { DeviceGroup } from '@/types/device'
+import type { AssetGroup } from '@/types/asset'
 
 defineProps<{
-  groups: DeviceGroup[] | undefined
+  groups: AssetGroup[] | undefined
 }>()
 
 const { colorFilterStyle } = useColorFilter()

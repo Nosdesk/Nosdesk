@@ -12,14 +12,14 @@ import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import UserCard from '@/components/UserCard.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
-import DeviceGroups from '@/components/DeviceGroups.vue';
+import DeviceGroups from '@/components/AssetGroups.vue';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
-import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/deviceService';
+import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/assetService';
 import { assetKindsService, type AssetKind } from '@/services/assetKindsService';
 import { useSSEListeners } from '@/composables/useSSEListeners';
 import type { DeviceUpdatedEventData, DeviceDeletedEventData } from '@/types/sse';
-import type { Device, DeviceFormData } from '@/types/device';
+import type { Asset, AssetFormData } from '@/types/asset';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
 
 const route = useRoute();
@@ -29,7 +29,7 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const emit = defineEmits(['update:device']);
 
 // State
-const device = ref<Device | null>(null);
+const device = ref<Asset | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const isSaving = ref(false);
@@ -149,18 +149,18 @@ const saveField = async (field: keyof typeof editValues.value) => {
   } catch (err) {
     console.error('Error saving device field:', err);
     if (device.value) {
-      editValues.value[field] = (device.value[field as keyof Device] as string) || '';
+      editValues.value[field] = (device.value[field as keyof Asset] as string) || '';
     }
   } finally {
     isSaving.value = false;
   }
 };
 
-// Device creation
+// Asset creation
 const saveDevice = async () => {
   try {
     isSaving.value = true;
-    const deviceData: DeviceFormData = {
+    const deviceData: AssetFormData = {
       // Fall back to the hostname attribute for the row's display
       // name if the admin hasn't typed one — IT-desk muscle memory
       // sets the kind's hostname and lets the form auto-name.
@@ -208,7 +208,7 @@ const handleUserSelection = async (user: { uuid: string; name: string; email: st
   }
 };
 
-// Device deletion
+// Asset deletion
 const handleDeleteDevice = async () => {
   if (!device.value) return;
 
@@ -362,7 +362,7 @@ onMounted(() => {
         </SectionCard>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-          <!-- Left column: Device Details -->
+          <!-- Left column: Asset Details -->
           <SectionCard content-padding="p-4">
             <template #title>{{ $t('device-detail-section-details') }}</template>
 
@@ -567,7 +567,7 @@ onMounted(() => {
             <!-- Plugin panels for device info -->
             <PluginSlot v-if="!isCreationMode && device" slot-name="device-info-panels" :device="device" />
 
-            <!-- Device Information (manual devices, edit mode only) -->
+            <!-- Asset Information (manual devices, edit mode only) -->
             <SectionCard v-if="!isCreationMode && device?.is_editable" content-padding="p-4">
               <template #title>{{ $t('device-detail-section-device-information') }}</template>
 
@@ -688,7 +688,7 @@ onMounted(() => {
       @select-user="handleUserSelection"
     />
 
-    <!-- Unmanage Device Confirmation Modal -->
+    <!-- Unmanage Asset Confirmation Modal -->
     <Modal
       :show="showUnmanageModal"
       :title="$t('device-detail-unmanage-modal-title')"

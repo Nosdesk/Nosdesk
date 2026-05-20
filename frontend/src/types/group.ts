@@ -4,7 +4,7 @@
  */
 
 import type { UserInfo } from './user'
-import type { Device } from './device'
+import type { Asset } from './asset'
 
 // Simplified user info returned by group APIs (matches backend UserInfoWithAvatar)
 export interface GroupMember {
@@ -56,7 +56,7 @@ export interface GroupDetails extends Group {
   last_synced_at?: string | null
   sync_enabled: boolean
   members: GroupMember[]
-  devices: Device[]
+  devices: Asset[]
   included_groups: GroupSummary[]
   included_in: GroupSummary[]
 }

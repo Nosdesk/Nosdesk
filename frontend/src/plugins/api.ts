@@ -19,12 +19,12 @@
 
 import pluginService from '@/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket } from '@/services/ticketService';
-import { getDeviceById, getDevices } from '@/services/deviceService';
+import { getDeviceById, getDevices } from '@/services/assetService';
 import { logger } from '@/utils/logger';
 import { useToastStore } from '@/stores/toast';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@/types/plugin';
 import type { Ticket } from '@/types/ticket';
-import type { Device } from '@/types/device';
+import type { Asset } from '@/types/asset';
 
 // =============================================================================
 // Types
@@ -48,7 +48,7 @@ export interface PluginAttachment {
 
 export interface PluginContext {
   ticket: Ticket | null;
-  device: Device | null;
+  device: Asset | null;
 }
 
 export interface PluginUIHelpers {
@@ -166,7 +166,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     },
 
     devices: {
-      async get(id: number): Promise<Device | null> {
+      async get(id: number): Promise<Asset | null> {
         if (!hasPermission('asset:read')) {
           logger.warn(`Plugin ${plugin.name} denied device:read permission`);
           return null;
@@ -178,7 +178,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           return null;
         }
       },
-      async list(): Promise<Device[]> {
+      async list(): Promise<Asset[]> {
         if (!hasPermission('asset:read')) {
           logger.warn(`Plugin ${plugin.name} denied device:read permission`);
           return [];
@@ -512,8 +512,8 @@ export interface PluginAPI {
   };
 
   devices: {
-    get(id: number): Promise<Device | null>;
-    list(): Promise<Device[]>;
+    get(id: number): Promise<Asset | null>;
+    list(): Promise<Asset[]>;
   };
 
   // Attachment access

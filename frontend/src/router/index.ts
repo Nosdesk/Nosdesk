@@ -342,7 +342,7 @@ const router = createRouter({
     {
       path: '/assets',
       name: 'assets',
-      component: () => import('../views/DevicesListView.vue'),
+      component: () => import('../views/AssetsListView.vue'),
       meta: {
         requiresAuth: true,
         titleKey: 'route-title-assets',
@@ -353,7 +353,7 @@ const router = createRouter({
     {
       path: '/assets/new',
       name: 'asset-create',
-      component: () => import('../views/DeviceView.vue'),
+      component: () => import('../views/AssetView.vue'),
       meta: {
         requiresAuth: true,
         titleKey: 'route-title-asset-create'
@@ -362,7 +362,7 @@ const router = createRouter({
     {
       path: '/assets/:id',
       name: 'asset-view',
-      component: () => import('../views/DeviceView.vue'),
+      component: () => import('../views/AssetView.vue'),
       props: true,
       meta: {
         requiresAuth: true,

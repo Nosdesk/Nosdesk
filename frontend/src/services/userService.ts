@@ -4,7 +4,7 @@ import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
 import type { User, UserSecurityInfo } from '@/types/user';
-import type { Device } from '@/types/device';
+import type { Asset } from '@/types/asset';
 import type { Group } from '@/types/group';
 
 // Re-export for backwards compatibility
@@ -50,7 +50,7 @@ export interface UserProfileCounts {
  *  only included when the corresponding key was in `?include=`. */
 export interface UserProfileBundle {
   user: User
-  devices?: Device[]
+  devices?: Asset[]
   groups?: Group[]
   emails?: UserEmail[]
   counts?: UserProfileCounts

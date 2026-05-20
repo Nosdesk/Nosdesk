@@ -8,7 +8,7 @@ import { logger } from "@/utils/logger";
 import { formatDateTime, getCurrentUTCDateTime } from "@/utils/dateUtils";
 import { ticketDetailKey } from "@/loaders/ticketDetailLoader";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
-import type { Ticket, Device, Project } from '@/types/ticket';
+import type { Ticket, Asset, Project } from '@/types/ticket';
 import type { CommentWithAttachments } from '@/types/comment';
 import { translate } from '@/i18n';
 
@@ -71,7 +71,7 @@ export function useTicketData() {
 
   // Transform devices from API format
   // Uses spread to preserve all fields automatically
-  function transformDevices(apiDevices: Device[]): Device[] {
+  function transformDevices(apiDevices: Asset[]): Asset[] {
     return apiDevices.map((device) => ({ ...device }));
   }
 

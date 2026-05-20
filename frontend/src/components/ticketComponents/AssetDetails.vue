@@ -2,11 +2,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
-import type { Device } from '@/types/ticket';
+import type { Asset } from '@/types/ticket';
 import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
 
 const props = defineProps<{
-  device: Device;
+  device: Asset;
 }>();
 
 const fluent = useFluent();
@@ -78,7 +78,7 @@ const warrantyStatusClass = computed(() => {
       </div>
     </template>
 
-    <!-- Device info grid -->
+    <!-- Asset info grid -->
     <div class="flex flex-col gap-3">
       <div class="grid grid-cols-2 gap-3 text-sm">
         <!-- Serial Number -->
@@ -140,7 +140,7 @@ const warrantyStatusClass = computed(() => {
     <template #print>
       <div class="hidden print:block print-device-card">
         <div class="print-device-header">
-          <span class="print-device-name">{{ device.name || 'Unnamed Device' }}</span>
+          <span class="print-device-name">{{ device.name || 'Unnamed Asset' }}</span>
           <span v-if="(device.attributes?.warranty_status as string | undefined)" class="print-device-warranty" :class="`print-warranty-${((device.attributes?.warranty_status as string)).toLowerCase()}`">
             {{ warrantyLabel }}
           </span>

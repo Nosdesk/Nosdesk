@@ -381,12 +381,12 @@ async function fetchMissingUsers(uuids: string[]): Promise<void> {
  * Cache row shape must stay in lockstep with
  * `backend/sync-models/asset.json` and the SSE / bootstrap
  * payload produced by `repository::devices::asset_sync_payload`.
- * The full REST `Device` DTO carries more fields (warranty,
+ * The full REST `Asset` DTO carries more fields (warranty,
  * Microsoft Graph IDs, etc.) that the sync pool deliberately
  * drops; `toAssetCacheRow` is the single projection point so
  * the lazy path can't drift from the live event stream.
  */
-function toAssetCacheRow(asset: import('@/types/device').Device): Record<string, unknown> {
+function toAssetCacheRow(asset: import('@/types/asset').Asset): Record<string, unknown> {
   return {
     id: asset.id,
     name: asset.name,
@@ -406,7 +406,7 @@ function toAssetCacheRow(asset: import('@/types/device').Device): Record<string,
 
 async function fetchMissingAssets(ids: string[]): Promise<void> {
   if (ids.length === 0) return
-  const { getDeviceById } = await import('@/services/deviceService')
+  const { getDeviceById } = await import('@/services/assetService')
   for (const idStr of ids) {
     const id = Number(idStr)
     if (!Number.isFinite(id)) continue

@@ -20,9 +20,9 @@ import { useBulkSelection } from '@/composables/useBulkSelection'
 import { useBulkSelectionForDataTable } from '@/composables/useBulkSelectionForDataTable'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { getPaginatedDevices, bulkAction } from '@/services/deviceService'
-import { devicesKeys } from '@/queries/devices'
-import type { Device } from '@/types/device'
+import { getPaginatedDevices, bulkAction } from '@/services/assetService'
+import { devicesKeys } from '@/queries/assets'
+import type { Asset } from '@/types/asset'
 
 defineOptions({ name: 'DevicesListView' })
 
@@ -45,11 +45,11 @@ const scrollContainerRef = computed<HTMLElement | null>(
 const navigateToCreateDevice = () => {
   void router.push('/assets/new')
 }
-const navigateToDevice = (device: Device) => {
+const navigateToDevice = (device: Asset) => {
   void router.push(`/assets/${device.id}`)
 }
 
-const controls = useListControls<Device>({
+const controls = useListControls<Asset>({
   itemIdField: 'id',
   defaultSortField: 'name',
   defaultSortDirection: 'asc',
@@ -75,7 +75,7 @@ const page = useListPage({
 
 usePageCreateAction(navigateToCreateDevice)
 
-const selection = useBulkSelection<Device>({
+const selection = useBulkSelection<Asset>({
   items: page.items,
   cacheKey: controls.cacheKeyPart,
   totalCount: page.totalItems,

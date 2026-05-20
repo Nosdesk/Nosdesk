@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue';
 import ticketService from '@/services/ticketService';
-import * as deviceService from '@/services/deviceService';
-import type { Device } from '@/types/device';
+import * as deviceService from '@/services/assetService';
+import type { Asset } from '@/types/asset';
 import type { Ticket } from '@/types/ticket';
 import { useTicketMutations } from './useTicketMutations';
 
@@ -16,7 +16,7 @@ export function useTicketDevices(ticket: Ref<Ticket | null>) {
   const showDeviceModal = ref(false);
 
   // Add device to ticket with optimistic update
-  async function addDevice(device: Device): Promise<void> {
+  async function addDevice(device: Asset): Promise<void> {
     if (!ticket.value || mutations.hasDevice(device.id)) return;
 
     // Optimistic update

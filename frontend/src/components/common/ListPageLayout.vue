@@ -110,7 +110,7 @@ const emit = defineEmits<{
 }>()
 
 // Declare slot signatures so consumer templates infer `item: T`
-// (and other slot props) without `(item as Device)` casts. Vue
+// (and other slot props) without `(item as Asset)` casts. Vue
 // can't deduce slot prop types from `<slot :item="item" />` tags
 // alone, the contract has to be declared explicitly.
 defineSlots<{

@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { Ticket, Device } from '@/types/ticket';
+import type { Ticket, Asset } from '@/types/ticket';
 
 /**
  * Centralized ticket mutation helpers with built-in deduplication.
@@ -90,7 +90,7 @@ export function useTicketMutations(ticket: Ref<Ticket | null>) {
   // Devices
   // ─────────────────────────────────────────────────────────────
 
-  function addDevice(device: Device): boolean {
+  function addDevice(device: Asset): boolean {
     if (!ticket.value) return false;
 
     if (!ticket.value.devices) {

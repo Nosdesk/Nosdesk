@@ -23,7 +23,7 @@ import UserSummaryStats from './UserSummaryStats.vue'
 import RecentlyViewedWidget from './RecentlyViewedWidget.vue'
 import UnassignedQueueWidget from './UnassignedQueueWidget.vue'
 import StarredDocsWidget from './StarredDocsWidget.vue'
-import MyDevicesWidget from './MyDevicesWidget.vue'
+import MyDevicesWidget from './MyAssetsWidget.vue'
 import ChannelHealthWidget from './ChannelHealthWidget.vue'
 import KnowledgeGapsWidget from './KnowledgeGapsWidget.vue'
 

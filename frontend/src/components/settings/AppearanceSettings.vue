@@ -52,7 +52,7 @@ const colorBlindMode = computed({
   set: (value) => themeStore.setColorBlindMode(value)
 })
 
-// Device-local theme mode - when enabled, theme is not synced to/from backend
+// Asset-local theme mode - when enabled, theme is not synced to/from backend
 const deviceLocalTheme = computed({
   get: () => themeStore.deviceLocalTheme,
   set: (value) => themeStore.setDeviceLocalTheme(value)
@@ -186,7 +186,7 @@ const handleCompactViewToggle = () => {
           </div>
         </div>
 
-        <!-- Device-only Theme Toggle (self mode only) -->
+        <!-- Asset-only Theme Toggle (self mode only) -->
         <ToggleSwitch
           v-if="!isAdminMode"
           v-model="deviceLocalTheme"

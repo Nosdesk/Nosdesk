@@ -16,7 +16,7 @@ import { useTicketData } from "@/composables/useTicketData";
 import { useTicketUiStore } from "@/stores/ticketUi";
 import { useTicketSSE } from "@/composables/useTicketSSE";
 import { useFieldAutoSave } from "@/composables/useFieldAutoSave";
-import { useTicketDevices } from "@/composables/useTicketDevices";
+import { useTicketDevices } from "@/composables/useTicketAssets";
 import { useTicketRelationships } from "@/composables/useTicketRelationships";
 import { useTicketComments } from "@/composables/useTicketComments";
 import { useTitleManager } from "@/composables/useTitleManager";
@@ -28,7 +28,7 @@ import PresenceStack from "@/components/PresenceStack.vue";
 import CollaborativeTicketArticle from "@/components/ticketComponents/CollaborativeTicketArticle.vue";
 import TicketDetails from "@/components/ticketComponents/TicketDetails.vue";
 import TicketActivity from "@/components/ticketComponents/TicketActivity.vue";
-import DeviceSelectionModal from "@/components/ticketComponents/DeviceSelectionModal.vue";
+import DeviceSelectionModal from "@/components/ticketComponents/AssetSelectionModal.vue";
 import CommentsAndAttachments from "@/components/ticketComponents/CommentsAndAttachments.vue";
 import LinkedTicketModal from "@/components/ticketComponents/LinkedTicketModal.vue";
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
@@ -140,7 +140,7 @@ const {
     selectedPriority,
 );
 
-// Device management - uses centralized mutations with optimistic updates
+// Asset management - uses centralized mutations with optimistic updates
 const { showDeviceModal, addDevice, removeDevice } =
     useTicketDevices(ticket);
 

@@ -4,7 +4,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useTitleManager } from "@/composables/useTitleManager";
 import { useRecentTicketsStore } from "@/stores/recentTickets";
 import { useTicketMutations } from "@/composables/useTicketMutations";
-import * as deviceService from "@/services/deviceService";
+import * as deviceService from "@/services/assetService";
 import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
 import type { Ticket } from "@/types/ticket";
 import type { CommentWithAttachments } from "@/types/comment";

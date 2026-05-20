@@ -17,7 +17,7 @@ import { RouterLink } from "vue-router";
 import userService from "@/services/userService";
 import { useColorFilter } from "@/composables/useColorFilter";
 import type { User } from "@/services/userService";
-import type { Device } from "@/types/device";
+import type { Asset } from "@/types/asset";
 import type { Group } from "@/types/group";
 
 interface UserProfile extends User {
@@ -41,7 +41,7 @@ const { colorFilterStyle } = useColorFilter();
 const loading = ref(true);
 const error = ref<string | null>(null);
 const userProfile = ref<UserProfile | null>(null);
-const devices = ref<Device[]>([]);
+const devices = ref<Asset[]>([]);
 const groups = ref<Group[]>([]);
 
 // Creation and editing state

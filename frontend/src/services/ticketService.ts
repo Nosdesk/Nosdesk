@@ -1,7 +1,7 @@
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
-import type { Ticket, RecentTicket, Comment, Attachment, Device, Project } from '@/types/ticket';
+import type { Ticket, RecentTicket, Comment, Attachment, Asset, Project } from '@/types/ticket';
 import type { UserInfo } from '@/types/user';
 import type { PaginatedResponse } from '@/types/pagination';
 import type { CommentWithAttachments } from '@/types/comment';
@@ -10,7 +10,7 @@ import type { CommentWithAttachments } from '@/types/comment';
 const requestManager = new RequestManager();
 
 // Re-export types for backwards compatibility
-export type { Ticket, RecentTicket, Comment, Attachment, Device, Project, UserInfo, CommentWithAttachments };
+export type { Ticket, RecentTicket, Comment, Attachment, Asset, Project, UserInfo, CommentWithAttachments };
 
 // Extended pagination params for tickets
 export interface TicketPaginationParams {

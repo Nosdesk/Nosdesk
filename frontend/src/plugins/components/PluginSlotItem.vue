@@ -12,12 +12,12 @@ import { getHostApiForPlugin } from '../api';
 import { createPluginComponent, canRenderComponent } from '../componentLoader';
 import { logger } from '@/utils/logger';
 import type { Ticket } from '@/types/ticket';
-import type { Device } from '@/types/device';
+import type { Asset } from '@/types/asset';
 
 const props = defineProps<{
   registration: PluginSlotRegistration;
   ticket?: Ticket;
-  device?: Device;
+  device?: Asset;
   actionActivated?: number;
 }>();
 

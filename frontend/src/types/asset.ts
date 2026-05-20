@@ -1,4 +1,4 @@
-export interface DeviceGroup {
+export interface AssetGroup {
   id: number;
   uuid: string;
   name: string;
@@ -10,7 +10,7 @@ export interface DeviceGroup {
  *  live inside `attributes` after Pass B. The legacy top-level
  *  `intune_device_id` / `entra_device_id` / `warranty_status`
  *  / etc. are gone; read them via `attributes['hostname']`. */
-export interface Device {
+export interface Asset {
   id: number;
   name: string;
   kind: string;
@@ -39,14 +39,14 @@ export interface Device {
     avatar_url?: string | null;
     avatar_thumb?: string | null;
   } | null;
-  groups?: DeviceGroup[];
+  groups?: AssetGroup[];
 }
 
 /** Wire shape for POST /assets (create) and the wider parts
  *  of PUT /assets/:id. IT-flavoured fields go in `attributes`
  *  now; this DTO mirrors the universal columns plus the
  *  kind/attributes pair. */
-export interface DeviceFormData {
+export interface AssetFormData {
   name: string;
   serial_number?: string;
   model?: string;
