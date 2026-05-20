@@ -369,33 +369,7 @@ mod tests {
 
         let upd = DeviceUpdate {
             name: Some("NewName".to_string()),
-            hostname: None,
-            device_type: None,
-            serial_number: None,
-            manufacturer: None,
-            model: None,
-            warranty_status: None,
-            location: None,
-            notes: None,
-            primary_user_uuid: None,
-            microsoft_device_id: None,
-            intune_device_id: None,
-            entra_device_id: None,
-            compliance_state: None,
-            last_sync_time: None,
-            operating_system: None,
-            os_version: None,
-            is_managed: None,
-            enrollment_date: None,
-            warranty_start_date: None,
-            warranty_end_date: None,
-            purchase_date: None,
-            asset_tag: None,
-            updated_at: None,
-            kind: None,
-            attributes: None,
-            quantity: None,
-            unit: None,
+            ..Default::default()
         };
 
         let updated = update_device(&mut conn, dev.id, upd).unwrap();

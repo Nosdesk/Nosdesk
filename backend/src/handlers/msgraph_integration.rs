@@ -4568,35 +4568,24 @@ async fn process_entra_device(
 
     if let Some(existing) = existing_device {
         // Update existing device
+        // Intune sync only touches the columns Entra owns; serial,
+        // warranty, location, notes, asset-tag, kind, attributes
+        // remain whatever the admin set in DeviceView.
         let device_update = crate::models::DeviceUpdate {
             name: Some(device_display_name.clone()),
             hostname: Some(hostname),
-            serial_number: None, // Entra doesn't provide serial number
             model: Some(model),
-            warranty_status: None, // Keep existing
             manufacturer: Some(manufacturer),
-            primary_user_uuid: None, // Entra /devices doesn't provide user info; keep existing
-            intune_device_id: None,  // Keep existing if set by Intune sync
-            entra_device_id: Some(entra_device.id.clone()), // The Object ID
-            device_type: None,       // Keep existing device type
-            location: None,          // Keep existing location
-            notes: None,             // Keep existing notes
-            microsoft_device_id: entra_device.device_id.clone(), // The deviceId field
+            entra_device_id: Some(entra_device.id.clone()),
+            microsoft_device_id: entra_device.device_id.clone(),
             compliance_state,
             last_sync_time: last_sign_in,
             operating_system: entra_device.operating_system.clone(),
             os_version: entra_device.operating_system_version.clone(),
             is_managed: entra_device.is_managed,
             enrollment_date: registration_date,
-            warranty_start_date: None,
-            warranty_end_date: None,
-            purchase_date: None,
-            asset_tag: None,
             updated_at: Some(chrono::Utc::now().naive_utc()),
-            kind: None,
-            attributes: None,
-            quantity: None,
-            unit: None,
+            ..Default::default()
         };
 
         device_repo::update_device(conn, existing.id, device_update)

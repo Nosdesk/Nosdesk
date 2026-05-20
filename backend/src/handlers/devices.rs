@@ -853,37 +853,14 @@ pub async fn unmanage_device(
         return errors::bad_request("Device is not managed by Microsoft Graph: This device is already manually managed and doesn't need to be unmanaged.");
     }
 
-    // Remove Microsoft Graph IDs to make device editable by setting them to empty strings
-    // Note: Empty strings will be stored in DB, but device will become editable (is_editable checks for None, not empty)
+    // `is_editable` on the model returns false when either
+    // intune_device_id or entra_device_id is `Some(_)`. Clear them
+    // by writing an empty string (not NULL) so the DB row keeps a
+    // value for the column but the editable predicate flips.
     let update_data = crate::models::DeviceUpdate {
-        name: None,
-        hostname: None,
-        device_type: None,
-        serial_number: None,
-        manufacturer: None,
-        model: None,
-        warranty_status: None,
-        location: None,
-        notes: None,
-        primary_user_uuid: None,
-        microsoft_device_id: None,
         intune_device_id: Some(String::new()),
         entra_device_id: Some(String::new()),
-        compliance_state: None,
-        last_sync_time: None,
-        operating_system: None,
-        os_version: None,
-        is_managed: None,
-        enrollment_date: None,
-        warranty_start_date: None,
-        warranty_end_date: None,
-        purchase_date: None,
-        asset_tag: None,
-        updated_at: None,
-        kind: None,
-        attributes: None,
-        quantity: None,
-        unit: None,
+        ..Default::default()
     };
 
     match repository::update_device(&mut conn, device_id, update_data) {

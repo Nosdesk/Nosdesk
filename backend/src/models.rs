@@ -900,7 +900,7 @@ pub struct NewDevice {
     pub unit: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::devices)]
 pub struct DeviceUpdate {
     pub name: Option<String>,

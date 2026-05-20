@@ -32,8 +32,11 @@ export interface Device {
   /** Kind-specific attributes validated server-side against
    *  the kind's attribute_schema. */
   attributes?: Record<string, unknown>;
-  /** Optional bulk-material quantity; paired with `unit`. */
-  quantity?: string | number | null;
+  /** Optional bulk-material quantity; paired with `unit`. Wire
+   *  format is `string | null` because Postgres NUMERIC is
+   *  serialised through BigDecimal as a string to avoid lossy
+   *  f64 round-tripping. Matches `sync-models/asset.json`. */
+  quantity?: string | null;
   unit?: string | null;
   // Computed/joined fields from API
   primary_user?: {
@@ -75,6 +78,6 @@ export interface DeviceFormData {
   type?: string;
   kind?: string;
   attributes?: Record<string, unknown>;
-  quantity?: string | number | null;
+  quantity?: string | null;
   unit?: string | null;
 }

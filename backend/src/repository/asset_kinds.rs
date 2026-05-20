@@ -55,15 +55,11 @@ pub fn update_kind(
 }
 
 // sync-audit-only: kind registry is workspace config, see create_kind
-/// Delete a custom (non-builtin) kind. Refuses to drop a builtin
-/// row so the seeded slugs that ship with the product stay
-/// stable across upgrades. Returns the count of rows affected
-/// so callers can distinguish "missing" from "is_builtin".
+/// Delete an asset kind. The caller is responsible for refusing
+/// builtin slugs first (see `handlers::asset_kinds::delete`),
+/// which gives the admin UI a distinct "can't delete a builtin"
+/// error instead of the generic "not found" you'd get from a
+/// post-filter here.
 pub fn delete_kind(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
-    diesel::delete(
-        asset_kinds::table
-            .filter(asset_kinds::id.eq(id))
-            .filter(asset_kinds::is_builtin.eq(false)),
-    )
-    .execute(conn)
+    diesel::delete(asset_kinds::table.find(id)).execute(conn)
 }

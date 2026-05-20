@@ -377,7 +377,33 @@ async function fetchMissingUsers(uuids: string[]): Promise<void> {
  * Falls back to per-id `getDeviceById` because the REST surface
  * doesn't expose a batch endpoint today; the rarity of the
  * missing-lookup path makes the round-trip cost acceptable.
+ *
+ * Cache row shape must stay in lockstep with
+ * `backend/sync-models/asset.json` and the SSE / bootstrap
+ * payload produced by `repository::devices::asset_sync_payload`.
+ * The full REST `Device` DTO carries more fields (warranty,
+ * Microsoft Graph IDs, etc.) that the sync pool deliberately
+ * drops; `toAssetCacheRow` is the single projection point so
+ * the lazy path can't drift from the live event stream.
  */
+function toAssetCacheRow(asset: import('@/types/device').Device): Record<string, unknown> {
+  return {
+    id: asset.id,
+    name: asset.name,
+    kind: asset.kind ?? 'device',
+    hostname: asset.hostname ?? null,
+    serial_number: asset.serial_number ?? null,
+    manufacturer: asset.manufacturer ?? null,
+    model: asset.model ?? null,
+    asset_tag: asset.asset_tag ?? null,
+    location: (asset as { location?: string | null }).location ?? null,
+    primary_user_uuid: asset.primary_user_uuid ?? null,
+    attributes: asset.attributes ?? {},
+    quantity: asset.quantity ?? null,
+    unit: asset.unit ?? null,
+  }
+}
+
 async function fetchMissingAssets(ids: string[]): Promise<void> {
   if (ids.length === 0) return
   const { getDeviceById } = await import('@/services/deviceService')
@@ -386,21 +412,7 @@ async function fetchMissingAssets(ids: string[]): Promise<void> {
     if (!Number.isFinite(id)) continue
     try {
       const asset = await getDeviceById(id)
-      pool.upsert('asset', asset.id, {
-        id: asset.id,
-        name: asset.name,
-        kind: asset.kind ?? 'device',
-        hostname: asset.hostname ?? null,
-        serial_number: asset.serial_number ?? null,
-        manufacturer: asset.manufacturer ?? null,
-        model: asset.model ?? null,
-        asset_tag: asset.asset_tag ?? null,
-        location: (asset as { location?: string | null }).location ?? null,
-        primary_user_uuid: asset.primary_user_uuid ?? null,
-        attributes: asset.attributes ?? {},
-        quantity: asset.quantity ?? null,
-        unit: asset.unit ?? null,
-      })
+      pool.upsert('asset', asset.id, toAssetCacheRow(asset))
     } catch (err) {
       logger.warn('Lazy asset fetch failed', { id, error: err })
     }
