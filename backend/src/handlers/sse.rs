@@ -58,12 +58,12 @@ pub enum SseEvent {
         attachment_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    DeviceLinked {
+    AssetLinked {
         ticket_id: i32,
         device_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    DeviceUnlinked {
+    AssetUnlinked {
         ticket_id: i32,
         device_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
@@ -226,11 +226,11 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::CommentDeleted { .. } => "comment-deleted",
         SseEvent::AttachmentAdded { .. } => "attachment-added",
         SseEvent::AttachmentDeleted { .. } => "attachment-deleted",
-        SseEvent::DeviceLinked { .. } => "device-linked",
-        SseEvent::DeviceUnlinked { .. } => "device-unlinked",
-        SseEvent::AssetCreated { .. } => "device-created",
-        SseEvent::AssetUpdated { .. } => "device-updated",
-        SseEvent::AssetDeleted { .. } => "device-deleted",
+        SseEvent::AssetLinked { .. } => "asset-linked",
+        SseEvent::AssetUnlinked { .. } => "asset-unlinked",
+        SseEvent::AssetCreated { .. } => "asset-created",
+        SseEvent::AssetUpdated { .. } => "asset-updated",
+        SseEvent::AssetDeleted { .. } => "asset-deleted",
         SseEvent::ProjectAssigned { .. } => "project-assigned",
         SseEvent::ProjectUnassigned { .. } => "project-unassigned",
         SseEvent::TicketLinked { .. } => "ticket-linked",

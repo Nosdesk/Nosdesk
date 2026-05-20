@@ -259,7 +259,7 @@ watch(() => route.params.id, () => {
 // SSE integration for real-time updates
 const { on } = useSSEListeners();
 
-on('device-updated', (data) => {
+on('asset-updated', (data) => {
   const event = data as DeviceUpdatedEventData;
   if (!device.value || event.device_id !== device.value.id) return;
 
@@ -274,7 +274,7 @@ on('device-updated', (data) => {
   }
 });
 
-on('device-deleted', (data) => {
+on('asset-deleted', (data) => {
   const event = data as DeviceDeletedEventData;
   if (!device.value || event.device_id !== device.value.id) return;
   router.push('/assets');

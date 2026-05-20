@@ -61,7 +61,7 @@ const page = useListPage({
   keys: devicesKeys,
   fetchPage: (params) => getPaginatedDevices(params, `devices-page-${params.page}`),
   scrollContainerRef,
-  sseEvents: ['device-updated', 'device-created', 'device-deleted'],
+  sseEvents: ['asset-updated', 'asset-created', 'asset-deleted'],
   mobileSearch: {
     placeholder: t('devices-list-search-placeholder'),
     createIcon: 'device',

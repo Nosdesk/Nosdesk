@@ -150,7 +150,7 @@ async fn broadcast_sse_simple(
             "device_linked" => data
                 .get("device_id")
                 .and_then(|v| v.as_u64())
-                .map(|device_id| SseEvent::DeviceLinked {
+                .map(|device_id| SseEvent::AssetLinked {
                     ticket_id,
                     device_id: device_id as i32,
                     timestamp: chrono::Utc::now(),
@@ -158,7 +158,7 @@ async fn broadcast_sse_simple(
             "device_unlinked" => data
                 .get("device_id")
                 .and_then(|v| v.as_u64())
-                .map(|device_id| SseEvent::DeviceUnlinked {
+                .map(|device_id| SseEvent::AssetUnlinked {
                     ticket_id,
                     device_id: device_id as i32,
                     timestamp: chrono::Utc::now(),

@@ -225,14 +225,14 @@ export function useTicketSSE(
 
     // Skip if already exists (optimistic update already added it)
     if (mutations.hasDevice(eventData.device_id)) {
-      if (DEBUG_SSE) console.log('[SSE] device-linked: skipping duplicate', eventData.device_id);
+      if (DEBUG_SSE) console.log('[SSE] asset-linked: skipping duplicate', eventData.device_id);
       return;
     }
 
     try {
       const device = await deviceService.getDeviceById(eventData.device_id);
       if (mutations.addDevice(device)) {
-        if (DEBUG_SSE) console.log('[SSE] device-linked:', eventData.device_id);
+        if (DEBUG_SSE) console.log('[SSE] asset-linked:', eventData.device_id);
       }
     } catch (error) {
       console.error("Error fetching linked device:", error);
@@ -245,7 +245,7 @@ export function useTicketSSE(
     if (!ticket.value || eventData.ticket_id !== ticket.value.id) return;
 
     if (mutations.removeDevice(eventData.device_id)) {
-      if (DEBUG_SSE) console.log('[SSE] device-unlinked:', eventData.device_id);
+      if (DEBUG_SSE) console.log('[SSE] asset-unlinked:', eventData.device_id);
     }
   }
 
@@ -256,7 +256,7 @@ export function useTicketSSE(
 
     if (eventData.field && eventData.value !== undefined) {
       if (mutations.updateDeviceField(eventData.device_id, eventData.field, eventData.value)) {
-        if (DEBUG_SSE) console.log('[SSE] device-updated:', eventData.device_id, eventData.field);
+        if (DEBUG_SSE) console.log('[SSE] asset-updated:', eventData.device_id, eventData.field);
       }
     }
   }
@@ -360,9 +360,9 @@ export function useTicketSSE(
     | "ticket-updated"
     | "comment-added"
     | "comment-deleted"
-    | "device-linked"
-    | "device-unlinked"
-    | "device-updated"
+    | "asset-linked"
+    | "asset-unlinked"
+    | "asset-updated"
     | "ticket-linked"
     | "ticket-unlinked"
     | "project-assigned"
@@ -378,9 +378,9 @@ export function useTicketSSE(
     "ticket-updated": handleTicketUpdated,
     "comment-added": handleCommentAdded,
     "comment-deleted": handleCommentDeleted,
-    "device-linked": handleDeviceLinked,
-    "device-unlinked": handleDeviceUnlinked,
-    "device-updated": handleDeviceUpdated,
+    "asset-linked": handleDeviceLinked,
+    "asset-unlinked": handleDeviceUnlinked,
+    "asset-updated": handleDeviceUpdated,
     "ticket-linked": handleTicketLinked,
     "ticket-unlinked": handleTicketUnlinked,
     "project-assigned": handleProjectAssigned,

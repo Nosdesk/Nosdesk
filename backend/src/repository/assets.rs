@@ -71,16 +71,16 @@ pub fn get_all_devices(conn: &mut DbConnection) -> QueryResult<Vec<Asset>> {
     assets::table.order_by(assets::id.asc()).load::<Asset>(conn)
 }
 
-type DeviceBoxedQuery<'a> = assets::BoxedQuery<'a, diesel::pg::Pg>;
+type AssetBoxedQuery<'a> = assets::BoxedQuery<'a, diesel::pg::Pg>;
 
 /// Apply search, warranty, and manufacturer filters to a device query.
 /// Shared between data and count queries to avoid duplicating filter logic.
 fn apply_device_filters<'a>(
-    mut query: DeviceBoxedQuery<'a>,
+    mut query: AssetBoxedQuery<'a>,
     search: Option<&'a str>,
     warranty: Option<&'a str>,
     manufacturer_filter: Option<&'a str>,
-) -> DeviceBoxedQuery<'a> {
+) -> AssetBoxedQuery<'a> {
     if let Some(search_term) = search {
         if !search_term.is_empty() {
             let pattern = format!("%{}%", search_term.to_lowercase());
