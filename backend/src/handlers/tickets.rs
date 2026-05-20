@@ -1728,7 +1728,7 @@ pub async fn remove_device_from_ticket(
 
                 HttpResponse::Ok().json(json!({"success": true}))
             } else {
-                errors::not_found_msg("Device not associated with ticket")
+                errors::not_found_msg("Asset not associated with ticket")
             }
         }
         Err(e) => {

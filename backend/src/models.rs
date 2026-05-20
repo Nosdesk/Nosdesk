@@ -800,8 +800,8 @@ pub struct TicketUpdate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
-#[diesel(table_name = crate::schema::devices)]
-pub struct Device {
+#[diesel(table_name = crate::schema::assets)]
+pub struct Asset {
     pub id: i32,
     pub name: String,
     pub serial_number: Option<String>,
@@ -860,8 +860,8 @@ fn default_asset_attributes() -> serde_json::Value {
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
-#[diesel(table_name = crate::schema::devices)]
-pub struct NewDevice {
+#[diesel(table_name = crate::schema::assets)]
+pub struct NewAsset {
     pub name: String,
     pub serial_number: Option<String>,
     pub manufacturer: Option<String>,
@@ -884,8 +884,8 @@ pub struct NewDevice {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
-#[diesel(table_name = crate::schema::devices)]
-pub struct DeviceUpdate {
+#[diesel(table_name = crate::schema::assets)]
+pub struct AssetUpdate {
     pub name: Option<String>,
     pub serial_number: Option<String>,
     pub manufacturer: Option<String>,
@@ -956,9 +956,9 @@ pub struct AssetKindUpdate {
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::ticket_assets)]
 #[diesel(belongs_to(Ticket))]
-#[diesel(belongs_to(Device, foreign_key = asset_id))]
+#[diesel(belongs_to(Asset, foreign_key = asset_id))]
 #[diesel(primary_key(ticket_id, asset_id))]
-pub struct TicketDevice {
+pub struct TicketAsset {
     pub ticket_id: i32,
     pub asset_id: i32,
     pub created_at: NaiveDateTime,
@@ -967,7 +967,7 @@ pub struct TicketDevice {
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
 #[diesel(table_name = crate::schema::ticket_assets)]
-pub struct NewTicketDevice {
+pub struct NewTicketAsset {
     pub ticket_id: i32,
     pub asset_id: i32,
 }
@@ -1176,7 +1176,7 @@ pub struct CompleteTicket {
     pub ticket: Ticket,
     pub requester_user: Option<UserInfoWithAvatar>, // Complete requester data
     pub assignee_user: Option<UserInfoWithAvatar>,  // Complete assignee data
-    pub devices: Vec<Device>,
+    pub devices: Vec<Asset>,
     pub comments: Vec<CommentWithAttachments>,
     pub article_content: Option<String>,
     pub linked_tickets: Vec<i32>,
@@ -1265,13 +1265,13 @@ pub struct TicketJson {
     pub modified: String,
     pub assignee: String,
     pub requester: String,
-    pub device: Option<DeviceJson>,
+    pub device: Option<AssetJson>,
     pub comments: Option<Vec<CommentJson>>,
     pub article_content: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct DeviceJson {
+pub struct AssetJson {
     pub id: String,
     pub name: String,
     pub hostname: String,
@@ -2484,7 +2484,7 @@ pub struct CompleteTicketResponse {
     pub assignee: String,
     pub created: String,
     pub modified: String,
-    pub devices: Vec<Device>,
+    pub devices: Vec<Asset>,
     pub comments: Vec<CommentWithAttachments>,
     pub article_content: Option<String>,
     pub linked_tickets: Vec<i32>,
@@ -3525,7 +3525,7 @@ pub struct GroupDetails {
     #[serde(flatten)]
     pub group: Group,
     pub members: Vec<UserInfoWithAvatar>,
-    pub devices: Vec<Device>,
+    pub devices: Vec<Asset>,
     pub included_groups: Vec<GroupSummary>,
     pub included_in: Vec<GroupSummary>,
 }
@@ -3550,13 +3550,13 @@ pub struct NewUserGroup {
     pub created_by: Option<Uuid>,
 }
 
-// Device-Group junction table
+// Asset-Group junction table
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::asset_groups)]
 #[diesel(belongs_to(Group))]
-#[diesel(belongs_to(Device, foreign_key = asset_id))]
+#[diesel(belongs_to(Asset, foreign_key = asset_id))]
 #[diesel(primary_key(asset_id, group_id))]
-pub struct DeviceGroup {
+pub struct AssetGroup {
     pub asset_id: i32,
     pub group_id: i32,
     pub created_at: NaiveDateTime,
@@ -3566,7 +3566,7 @@ pub struct DeviceGroup {
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
 #[diesel(table_name = crate::schema::asset_groups)]
-pub struct NewDeviceGroup {
+pub struct NewAssetGroup {
     pub asset_id: i32,
     pub group_id: i32,
     pub created_by: Option<Uuid>,

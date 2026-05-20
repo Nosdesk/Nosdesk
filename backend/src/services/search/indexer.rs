@@ -119,7 +119,7 @@ pub fn index_document_from_attachment(
 }
 
 /// Create an index document from a device
-pub fn index_document_from_device(device: &models::Device) -> IndexDocument {
+pub fn index_document_from_device(device: &models::Asset) -> IndexDocument {
     // The IT-flavoured fields (hostname, OS, etc.) used to live
     // as top-level columns; Pass B moved them into the
     // attributes JSONB. Read through the typed accessors so the
@@ -127,14 +127,14 @@ pub fn index_document_from_device(device: &models::Device) -> IndexDocument {
     // kinds without re-reaching into Value indexing here.
     use crate::services::assets::it_attrs;
 
-    // Device has `name` field (not optional)
+    // Asset has `name` field (not optional)
     let hostname_attr = it_attrs::hostname(&device.attributes);
     let title = if !device.name.is_empty() {
         device.name.clone()
     } else if let Some(hostname) = hostname_attr {
         hostname.to_string()
     } else {
-        format!("Device #{}", device.id)
+        format!("Asset #{}", device.id)
     };
 
     // Build comprehensive metadata for device search
@@ -201,7 +201,7 @@ pub fn index_document_from_device(device: &models::Device) -> IndexDocument {
         .collect::<Vec<_>>()
         .join(" | ");
 
-    IndexDocument::new(EntityType::Device, device.id as i64, title, "")
+    IndexDocument::new(EntityType::Asset, device.id as i64, title, "")
         .metadata(metadata_parts.join(" "))
         // Canonical URL now lives at /assets/:id; the /devices
         // path resolves via a frontend redirect but the new
@@ -277,8 +277,8 @@ pub fn rebuild_index(
     schema: &SearchSchema,
 ) -> Result<IndexStats, Box<dyn std::error::Error + Send + Sync>> {
     use crate::schema::{
-        article_contents, attachments, comments, devices, documentation_pages, tickets,
-        user_emails, users,
+        article_contents, assets, attachments, comments, documentation_pages, tickets, user_emails,
+        users,
     };
 
     info!("Starting full index rebuild");
@@ -379,7 +379,7 @@ pub fn rebuild_index(
     }
 
     // Index all devices
-    let all_devices: Vec<models::Device> = devices::table.load(conn)?;
+    let all_devices: Vec<models::Asset> = assets::table.load(conn)?;
     info!(count = all_devices.len(), "Indexing devices");
     for device in &all_devices {
         let doc = index_document_from_device(device);

@@ -68,19 +68,19 @@ pub enum SseEvent {
         device_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    DeviceCreated {
+    AssetCreated {
         device_id: i32,
         device: serde_json::Value,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    DeviceUpdated {
+    AssetUpdated {
         device_id: i32,
         field: String,
         value: serde_json::Value,
         updated_by: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    DeviceDeleted {
+    AssetDeleted {
         device_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
@@ -228,9 +228,9 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::AttachmentDeleted { .. } => "attachment-deleted",
         SseEvent::DeviceLinked { .. } => "device-linked",
         SseEvent::DeviceUnlinked { .. } => "device-unlinked",
-        SseEvent::DeviceCreated { .. } => "device-created",
-        SseEvent::DeviceUpdated { .. } => "device-updated",
-        SseEvent::DeviceDeleted { .. } => "device-deleted",
+        SseEvent::AssetCreated { .. } => "device-created",
+        SseEvent::AssetUpdated { .. } => "device-updated",
+        SseEvent::AssetDeleted { .. } => "device-deleted",
         SseEvent::ProjectAssigned { .. } => "project-assigned",
         SseEvent::ProjectUnassigned { .. } => "project-unassigned",
         SseEvent::TicketLinked { .. } => "ticket-linked",

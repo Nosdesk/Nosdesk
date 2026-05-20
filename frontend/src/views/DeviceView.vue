@@ -8,7 +8,6 @@ import DeleteButton from '@/components/common/DeleteButton.vue';
 import InlineEdit from '@/components/common/InlineEdit.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import UserCard from '@/components/UserCard.vue';
@@ -20,7 +19,6 @@ import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice
 import { assetKindsService, type AssetKind } from '@/services/assetKindsService';
 import { useSSEListeners } from '@/composables/useSSEListeners';
 import type { DeviceUpdatedEventData, DeviceDeletedEventData } from '@/types/sse';
-import { IntuneIcon, EntraIcon } from '@/components/icons';
 import type { Device, DeviceFormData } from '@/types/device';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
 

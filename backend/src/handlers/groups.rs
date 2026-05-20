@@ -453,7 +453,7 @@ pub async fn set_group_includes(
 }
 
 // ============================================================================
-// Device-Group Membership Endpoints
+// Asset-Group Membership Endpoints
 // ============================================================================
 
 /// Request body for setting group devices
@@ -486,7 +486,7 @@ pub async fn set_group_devices(
     match repository::groups::get_group_by_id(&mut conn, group_id) {
         Ok(group) => {
             if group.external_source.is_some() {
-                return errors::bad_request("Cannot modify membership: This group is synced from an external source. Device membership is managed externally and updated during sync.");
+                return errors::bad_request("Cannot modify membership: This group is synced from an external source. Asset membership is managed externally and updated during sync.");
             }
         }
         Err(Error::NotFound) => return errors::not_found_msg("Group not found"),

@@ -10,7 +10,7 @@ pub enum EntityType {
     Comment,
     Documentation,
     Attachment,
-    Device,
+    Asset,
     User,
 }
 
@@ -21,7 +21,7 @@ impl EntityType {
             EntityType::Comment => "comment",
             EntityType::Documentation => "documentation",
             EntityType::Attachment => "attachment",
-            EntityType::Device => "device",
+            EntityType::Asset => "device",
             EntityType::User => "user",
         }
     }
@@ -32,7 +32,7 @@ impl EntityType {
             "comment" => Some(EntityType::Comment),
             "documentation" => Some(EntityType::Documentation),
             "attachment" => Some(EntityType::Attachment),
-            "device" => Some(EntityType::Device),
+            "device" => Some(EntityType::Asset),
             "user" => Some(EntityType::User),
             _ => None,
         }
@@ -228,7 +228,7 @@ mod tests {
             EntityType::Comment,
             EntityType::Documentation,
             EntityType::Attachment,
-            EntityType::Device,
+            EntityType::Asset,
             EntityType::User,
         ];
         for variant in &variants {

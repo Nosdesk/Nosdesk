@@ -602,7 +602,7 @@ fn most_recent_device_models(
     conn: &mut DbConnection,
     ticket_ids: &[i32],
 ) -> Result<std::collections::HashMap<i32, String>, Error> {
-    use crate::schema::{devices, ticket_devices};
+    use crate::schema::{assets, ticket_assets};
 
     if ticket_ids.is_empty() {
         return Ok(Default::default());
@@ -610,13 +610,13 @@ fn most_recent_device_models(
 
     // DISTINCT ON (ticket_id) with ORDER BY ticket_id, created_at DESC
     // gives one row per ticket — the most-recently-linked device.
-    let rows: Vec<(i32, Option<String>)> = ticket_devices::table
-        .inner_join(devices::table.on(devices::id.eq(ticket_devices::asset_id)))
-        .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
-        .filter(devices::model.is_not_null())
-        .distinct_on(ticket_devices::ticket_id)
-        .order_by((ticket_devices::ticket_id, ticket_devices::created_at.desc()))
-        .select((ticket_devices::ticket_id, devices::model))
+    let rows: Vec<(i32, Option<String>)> = ticket_assets::table
+        .inner_join(assets::table.on(assets::id.eq(ticket_assets::asset_id)))
+        .filter(ticket_assets::ticket_id.eq_any(ticket_ids))
+        .filter(assets::model.is_not_null())
+        .distinct_on(ticket_assets::ticket_id)
+        .order_by((ticket_assets::ticket_id, ticket_assets::created_at.desc()))
+        .select((ticket_assets::ticket_id, assets::model))
         .load(conn)?;
 
     Ok(rows

@@ -21,9 +21,9 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{Device, Group, UserEmail, UserResponse};
+use crate::models::{Asset, Group, UserEmail, UserResponse};
 use crate::repository::{
-    devices as devices_repo, groups as groups_repo, user_emails as user_emails_repo, user_helpers,
+    assets as assets_repo, groups as groups_repo, user_emails as user_emails_repo, user_helpers,
     users as users_repo,
 };
 use crate::schema::tickets;
@@ -65,7 +65,7 @@ impl ProfileGroup {
 pub struct ProfileBundle {
     pub user: UserResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub devices: Option<Vec<Device>>,
+    pub devices: Option<Vec<Asset>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub groups: Option<Vec<Group>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,7 +99,7 @@ pub fn compute(
     let user_response = user_helpers::get_user_with_primary_email(user, conn);
 
     let devices = if groups.contains(&ProfileGroup::Devices) {
-        Some(devices_repo::get_devices_for_user(conn, user_uuid)?)
+        Some(assets_repo::get_devices_for_user(conn, user_uuid)?)
     } else {
         None
     };

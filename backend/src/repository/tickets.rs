@@ -341,8 +341,8 @@ pub async fn delete_ticket_with_cleanup(
 
         // 5. Delete ticket-device relationships
         diesel::delete(
-            crate::schema::ticket_devices::table
-                .filter(crate::schema::ticket_devices::ticket_id.eq(ticket_id)),
+            crate::schema::ticket_assets::table
+                .filter(crate::schema::ticket_assets::ticket_id.eq(ticket_id)),
         )
         .execute(conn)?;
 
@@ -610,7 +610,7 @@ pub fn import_ticket_from_json(
                 serde_json::Value::String(device_json.warranty_status.clone()),
             );
         }
-        let new_device = NewDevice {
+        let new_device = NewAsset {
             name: device_json.name.clone(),
             serial_number: Some(device_json.serial_number.clone()),
             manufacturer: None,
@@ -627,7 +627,7 @@ pub fn import_ticket_from_json(
             external_sync_source: None,
         };
 
-        crate::repository::devices::create_device(conn, new_device)?;
+        crate::repository::assets::create_device(conn, new_device)?;
     }
 
     // Create comments and attachments if present
@@ -679,19 +679,19 @@ pub fn import_ticket_from_json(
     Ok(ticket)
 }
 
-// Ticket-Device relationship functions
+// Ticket-Asset relationship functions
 // sync-pending-wire: needs sync aggregate wiring
 pub fn add_device_to_ticket(
     conn: &mut DbConnection,
     ticket_id: i32,
     device_id: i32,
-) -> QueryResult<TicketDevice> {
-    let new_ticket_device = NewTicketDevice {
+) -> QueryResult<TicketAsset> {
+    let new_ticket_device = NewTicketAsset {
         ticket_id,
         asset_id: device_id,
     };
 
-    diesel::insert_into(ticket_devices::table)
+    diesel::insert_into(ticket_assets::table)
         .values(&new_ticket_device)
         .get_result(conn)
 }
@@ -703,18 +703,18 @@ pub fn remove_device_from_ticket(
     device_id: i32,
 ) -> QueryResult<usize> {
     diesel::delete(
-        ticket_devices::table
-            .filter(ticket_devices::ticket_id.eq(ticket_id))
-            .filter(ticket_devices::asset_id.eq(device_id)),
+        ticket_assets::table
+            .filter(ticket_assets::ticket_id.eq(ticket_id))
+            .filter(ticket_assets::asset_id.eq(device_id)),
     )
     .execute(conn)
 }
 
-pub fn get_devices_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Device>> {
-    ticket_devices::table
-        .inner_join(devices::table)
-        .filter(ticket_devices::ticket_id.eq(ticket_id))
-        .select(devices::all_columns)
+pub fn get_devices_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Asset>> {
+    ticket_assets::table
+        .inner_join(assets::table)
+        .filter(ticket_assets::ticket_id.eq(ticket_id))
+        .select(assets::all_columns)
         .load(conn)
 }
 
@@ -736,10 +736,10 @@ pub fn devices_summary_for_tickets(
     }
 
     // Per-ticket counts.
-    let counts: Vec<(i32, i64)> = ticket_devices::table
-        .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
-        .group_by(ticket_devices::ticket_id)
-        .select((ticket_devices::ticket_id, sql::<BigInt>("COUNT(*)")))
+    let counts: Vec<(i32, i64)> = ticket_assets::table
+        .filter(ticket_assets::ticket_id.eq_any(ticket_ids))
+        .group_by(ticket_assets::ticket_id)
+        .select((ticket_assets::ticket_id, sql::<BigInt>("COUNT(*)")))
         .load(conn)?;
 
     // Pick the lowest-id device per ticket as the "first" — stable
@@ -749,22 +749,22 @@ pub fn devices_summary_for_tickets(
     //
     // OS used to live as its own column; Pass B moved it into the
     // attributes JSONB so the select extracts it via JSON path.
-    let firsts: Vec<(i32, i32, String, Option<String>)> = ticket_devices::table
-        .inner_join(devices::table)
-        .filter(ticket_devices::ticket_id.eq_any(ticket_ids))
+    let firsts: Vec<(i32, i32, String, Option<String>)> = ticket_assets::table
+        .inner_join(assets::table)
+        .filter(ticket_assets::ticket_id.eq_any(ticket_ids))
         .order((
-            ticket_devices::ticket_id.asc(),
-            ticket_devices::asset_id.asc(),
+            ticket_assets::ticket_id.asc(),
+            ticket_assets::asset_id.asc(),
         ))
         .select((
-            ticket_devices::ticket_id,
-            devices::id,
-            devices::name,
+            ticket_assets::ticket_id,
+            assets::id,
+            assets::name,
             sql::<diesel::sql_types::Nullable<diesel::sql_types::Text>>(
                 "attributes->>'operating_system'",
             ),
         ))
-        .distinct_on(ticket_devices::ticket_id)
+        .distinct_on(ticket_assets::ticket_id)
         .load(conn)?;
 
     let mut by_count: std::collections::HashMap<i32, i64> = counts.into_iter().collect();

@@ -14,7 +14,7 @@ use tracing::{debug, error};
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::models::{Claims, Device, DeviceUpdate, Group, NewDevice, User};
+use crate::models::{Asset, AssetUpdate, Claims, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
 use crate::services::assets::{validate_for_kind, AssetValidationError};
@@ -83,7 +83,7 @@ pub struct PaginatedResponse<T> {
 // warranty / Microsoft Graph IDs all live inside `attributes`
 // after Pass B; no top-level keys for them here.
 #[derive(Debug, Serialize)]
-pub struct DeviceResponse {
+pub struct AssetResponse {
     pub id: i32,
     pub name: String,
     pub kind: String,
@@ -134,9 +134,9 @@ impl From<Group> for GroupInfo {
     }
 }
 
-impl DeviceResponse {
+impl AssetResponse {
     pub fn from_device_and_user(
-        device: Device,
+        device: Asset,
         user: Option<User>,
         groups: Vec<Group>,
         conn: &mut crate::db::DbConnection,
@@ -211,8 +211,8 @@ fn get_user_by_uuid(conn: &mut crate::db::DbConnection, uuid: &Uuid) -> Option<U
 // Helper function to convert devices to device responses with user data
 fn devices_to_responses(
     conn: &mut crate::db::DbConnection,
-    devices: Vec<Device>,
-) -> Vec<DeviceResponse> {
+    devices: Vec<Asset>,
+) -> Vec<AssetResponse> {
     devices
         .into_iter()
         .map(|device| {
@@ -221,7 +221,7 @@ fn devices_to_responses(
                 .as_ref()
                 .and_then(|uuid| get_user_by_uuid(conn, uuid));
             let groups = groups_repo::get_groups_for_device(conn, device.id).unwrap_or_default();
-            DeviceResponse::from_device_and_user(device, user, groups, conn)
+            AssetResponse::from_device_and_user(device, user, groups, conn)
         })
         .collect()
 }
@@ -398,7 +398,7 @@ pub async fn asset_planner(
     pool: web::Data<Pool>,
     _auth: crate::extractors::AuthContext,
 ) -> impl Responder {
-    use crate::schema::devices;
+    use crate::schema::assets;
     use diesel::prelude::*;
 
     let mut conn = match helpers::db_conn(&pool) {
@@ -425,9 +425,9 @@ pub async fn asset_planner(
         }
     };
 
-    let rows: Result<Vec<Device>, Error> = devices::table
-        .filter(devices::kind.eq_any(&it_slugs))
-        .order(devices::name.asc())
+    let rows: Result<Vec<Asset>, Error> = assets::table
+        .filter(assets::kind.eq_any(&it_slugs))
+        .order(assets::name.asc())
         .load(&mut conn);
 
     match rows {
@@ -559,11 +559,11 @@ pub async fn get_device_by_id(pool: web::Data<Pool>, path: web::Path<i32>) -> im
             );
 
             let device_response =
-                DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
+                AssetResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
         }
         Err(e) => match e {
-            Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
+            Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
             _ => {
                 error!(device_id, error = ?e, "Database error getting device");
                 errors::internal(format!("Failed to get device {device_id}"))
@@ -586,7 +586,7 @@ pub async fn get_user_devices(pool: web::Data<Pool>, path: web::Path<String>) ->
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
-    match crate::repository::devices::get_devices_for_user(&mut conn, &user_uuid) {
+    match crate::repository::assets::get_devices_for_user(&mut conn, &user_uuid) {
         Ok(devices) => {
             let device_responses = devices_to_responses(&mut conn, devices);
             HttpResponse::Ok().json(device_responses)
@@ -602,7 +602,7 @@ pub async fn get_user_devices(pool: web::Data<Pool>, path: web::Path<String>) ->
 pub async fn create_device(
     req: HttpRequest,
     pool: web::Data<Pool>,
-    device: web::Json<NewDevice>,
+    device: web::Json<NewAsset>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
@@ -643,13 +643,13 @@ pub async fn create_device(
 
             // Newly created device has no groups yet
             let device_response =
-                DeviceResponse::from_device_and_user(device, user, vec![], &mut conn);
+                AssetResponse::from_device_and_user(device, user, vec![], &mut conn);
 
             // Broadcast SSE event for device creation (with echo suppression)
             let source_client_id = extract_sse_client_id(&req);
             sse_state
                 .broadcast_event_from(
-                    crate::handlers::sse::SseEvent::DeviceCreated {
+                    crate::handlers::sse::SseEvent::AssetCreated {
                         device_id,
                         device: serde_json::to_value(&device_response).unwrap_or_default(),
                         timestamp: chrono::Utc::now(),
@@ -671,7 +671,7 @@ pub async fn create_device(
 pub async fn update_device(
     pool: web::Data<Pool>,
     path: web::Path<i32>,
-    device_update: web::Json<DeviceUpdate>,
+    device_update: web::Json<AssetUpdate>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
@@ -700,7 +700,7 @@ pub async fn update_device(
         Ok(device) => device,
         Err(e) => {
             return match e {
-                Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
+                Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error getting device");
                     errors::internal(format!("Failed to get device {device_id}"))
@@ -749,7 +749,7 @@ pub async fn update_device(
                         debug!(device_id, field = %key, value = ?value, "Broadcasting SSE event for device update");
                         sse_state
                             .broadcast_event_from(
-                                crate::handlers::sse::SseEvent::DeviceUpdated {
+                                crate::handlers::sse::SseEvent::AssetUpdated {
                                     device_id,
                                     field: key.to_string(),
                                     value: value.clone(),
@@ -774,11 +774,11 @@ pub async fn update_device(
                 groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
 
             let device_response =
-                DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
+                AssetResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
         }
         Err(e) => match e {
-            Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
+            Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
             _ => {
                 error!(device_id, error = ?e, "Database error updating device");
                 errors::internal(format!("Failed to update device {device_id}"))
@@ -815,13 +815,13 @@ pub async fn delete_device(
         Ok(rows_affected) => {
             if rows_affected > 0 {
                 // Search index removal is fired by the
-                // DeviceDeletedObserver inside `delete_device`.
+                // AssetDeletedObserver inside `delete_device`.
 
                 // Broadcast SSE event for device deletion (with echo suppression)
                 let source_client_id = extract_sse_client_id(&req);
                 sse_state
                     .broadcast_event_from(
-                        crate::handlers::sse::SseEvent::DeviceDeleted {
+                        crate::handlers::sse::SseEvent::AssetDeleted {
                             device_id,
                             timestamp: chrono::Utc::now(),
                         },
@@ -830,10 +830,10 @@ pub async fn delete_device(
                     .await;
 
                 HttpResponse::Ok().json(json!({
-                    "message": format!("Device {} deleted successfully", device_id)
+                    "message": format!("Asset {} deleted successfully", device_id)
                 }))
             } else {
-                errors::not_found_msg(format!("Device {device_id} not found"))
+                errors::not_found_msg(format!("Asset {device_id} not found"))
             }
         }
         Err(e) => {
@@ -871,7 +871,7 @@ pub async fn unmanage_device(
         Ok(device) => device,
         Err(e) => {
             return match e {
-                Error::NotFound => errors::not_found_msg(format!("Device {device_id} not found")),
+                Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
                 _ => {
                     error!(device_id, error = ?e, "Database error getting device");
                     errors::internal(format!("Failed to get device {device_id}"))
@@ -884,7 +884,7 @@ pub async fn unmanage_device(
     // already manually editable. `external_sync_source` is the
     // post-Pass-B replacement for the column-existence predicate.
     if existing_device.external_sync_source.is_none() {
-        return errors::bad_request("Device is not managed by Microsoft Graph: This device is already manually managed and doesn't need to be unmanaged.");
+        return errors::bad_request("Asset is not managed by Microsoft Graph: This device is already manually managed and doesn't need to be unmanaged.");
     }
 
     // Clearing `external_sync_source` flips the asset back to
@@ -892,7 +892,7 @@ pub async fn unmanage_device(
     // entra_device_id, microsoft_device_id) stay in attributes
     // as historical breadcrumbs; the admin can edit them through
     // the asset form like any other attribute.
-    let update_data = crate::models::DeviceUpdate {
+    let update_data = crate::models::AssetUpdate {
         external_sync_source: Some(None),
         ..Default::default()
     };
@@ -910,7 +910,7 @@ pub async fn unmanage_device(
                 groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
 
             let device_response =
-                DeviceResponse::from_device_and_user(device, user, groups, &mut conn);
+                AssetResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
         }
         Err(e) => {
@@ -945,7 +945,7 @@ pub async fn get_paginated_devices_excluding(
         })
         .unwrap_or_default();
 
-    match crate::repository::devices::get_paginated_devices_excluding_ids(
+    match crate::repository::assets::get_paginated_devices_excluding_ids(
         &mut conn,
         page,
         page_size,
@@ -1022,12 +1022,12 @@ pub async fn bulk_devices(
                     Ok(rows) => {
                         deleted += rows;
                         // Search index removal is fired by the
-                        // DeviceDeletedObserver inside `delete_device`.
+                        // AssetDeletedObserver inside `delete_device`.
 
                         // Broadcast SSE event for each deleted device
                         sse_state
                             .broadcast_event_from(
-                                crate::handlers::sse::SseEvent::DeviceDeleted {
+                                crate::handlers::sse::SseEvent::AssetDeleted {
                                     device_id: *id,
                                     timestamp: chrono::Utc::now(),
                                 },

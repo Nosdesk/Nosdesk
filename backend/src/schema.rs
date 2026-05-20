@@ -164,15 +164,6 @@ diesel::table! {
     }
 }
 
-// Legacy aliases. Phase A renamed devices → assets in Postgres
-// but a lot of repository code still references `crate::schema::
-// devices`. These `pub use` re-exports keep those paths
-// resolving while the internal-naming sweep is deferred. Once
-// every caller switches to the canonical `assets` path these
-// can be deleted.
-pub use asset_groups as device_groups;
-pub use assets as devices;
-
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::AssignmentMethod;
@@ -1214,8 +1205,6 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
     }
 }
-
-pub use ticket_assets as ticket_devices;
 
 diesel::table! {
     ticket_categories (id) {

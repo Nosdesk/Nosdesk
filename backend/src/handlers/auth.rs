@@ -113,7 +113,7 @@ fn parse_device_name(ua: &str) -> &'static str {
     } else if ua.contains("iPad") {
         "iPad"
     } else if ua.contains("Android") {
-        "Android Device"
+        "Android Asset"
     } else if ua.contains("Macintosh") || ua.contains("Mac OS") {
         "Mac"
     } else if ua.contains("Windows") {
@@ -121,7 +121,7 @@ fn parse_device_name(ua: &str) -> &'static str {
     } else if ua.contains("Linux") {
         "Linux"
     } else {
-        "Unknown Device"
+        "Unknown Asset"
     }
 }
 

@@ -1,6 +1,7 @@
 // Reexport handlers
 pub mod api_tokens;
 pub mod asset_kinds;
+pub mod assets;
 pub mod assignment_rules;
 pub mod audit_log;
 pub mod auth;
@@ -15,7 +16,6 @@ pub mod csp_reports;
 pub mod cycles;
 pub mod dashboard;
 pub mod debug;
-pub mod devices;
 pub mod documentation;
 pub mod documentation_collections;
 pub mod email;
@@ -77,12 +77,12 @@ pub use tickets::{
     update_ticket, update_ticket_partial,
 };
 // Export specific items from devices to avoid conflicts
-pub use auth_providers::*;
-pub use devices::{
+pub use assets::{
     bulk_devices, create_device, delete_device, get_all_devices, get_device_by_id,
     get_paginated_devices, get_paginated_devices_excluding, get_user_devices, unmanage_device,
     update_device,
 };
+pub use auth_providers::*;
 pub use documentation::*;
 pub use microsoft_graph::*;
 pub use msgraph_integration::{

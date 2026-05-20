@@ -83,7 +83,7 @@ pub fn spawn_delete_documentation(search_service: Arc<SearchService>, doc_id: i3
 }
 
 /// Index a device in the background
-pub fn spawn_index_device(search_service: Arc<SearchService>, device: models::Device) {
+pub fn spawn_index_device(search_service: Arc<SearchService>, device: models::Asset) {
     spawn_indexing_task(search_service, "index device", move |svc| {
         svc.index_device(&device)
     });

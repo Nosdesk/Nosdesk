@@ -26,7 +26,7 @@ use tracing::error;
 
 use crate::db::Pool;
 use crate::extractors::SyncContext;
-use crate::models::{Device, Project, ProjectTicket, Ticket, User, WorkflowState};
+use crate::models::{Asset, Project, ProjectTicket, Ticket, User, WorkflowState};
 use crate::schema::{
     assets, project_tickets, projects, tickets, user_emails, users, workflow_states,
 };
@@ -204,10 +204,10 @@ fn stream_bootstrap(
     // device picker, and asset list view needs an id -> name
     // lookup, and the count is bounded (~hundreds in the wild),
     // not unbounded like tickets. Shape mirrors
-    // `repository::devices::asset_sync_payload` so frontend pool
+    // `repository::assets::asset_sync_payload` so frontend pool
     // deserialisation handles bootstrap and incremental updates
     // through one path.
-    let asset_rows: Vec<Device> = assets::table.order(assets::name.asc()).load(&mut conn)?;
+    let asset_rows: Vec<Asset> = assets::table.order(assets::name.asc()).load(&mut conn)?;
     for asset in asset_rows {
         send(
             tx,

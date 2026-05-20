@@ -1,6 +1,7 @@
 // Domain-specific modules
 pub mod article_content;
 pub mod asset_kinds;
+pub mod assets;
 pub mod assignment_rules;
 pub mod audit_log;
 pub mod canned_responses;
@@ -9,7 +10,6 @@ pub mod channels;
 pub mod comments;
 pub mod cycles;
 pub mod dashboard_stats;
-pub mod devices;
 pub mod documentation;
 pub mod documentation_collections;
 pub mod documentation_page_tickets;
@@ -68,8 +68,8 @@ pub mod plugins;
 
 // Re-export all functions
 pub use article_content::*;
+pub use assets::*;
 pub use comments::*;
-pub use devices::*;
 pub use documentation::*;
 pub use linked_tickets::*;
 pub use projects::*;

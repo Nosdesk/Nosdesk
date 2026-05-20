@@ -14,7 +14,7 @@ use crate::sync::groups;
 /// Observer fired after a device is deleted. Implementor removes
 /// the device from the search index so the row doesn't haunt
 /// search results after removal.
-pub trait DeviceDeletedObserver: Send + Sync {
+pub trait AssetDeletedObserver: Send + Sync {
     fn device_deleted(&self, device_id: i32);
 }
 
@@ -27,7 +27,7 @@ pub trait DeviceDeletedObserver: Send + Sync {
 /// while the full REST device DTO carries Microsoft Graph and
 /// warranty columns that aren't needed for picker / chip
 /// rendering.
-fn asset_sync_payload(device: &Device) -> serde_json::Value {
+fn asset_sync_payload(device: &Asset) -> serde_json::Value {
     json!({
         "id": device.id,
         "name": device.name,
@@ -47,7 +47,7 @@ fn asset_sync_payload(device: &Device) -> serde_json::Value {
 
 fn emit_asset_event(
     conn: &mut DbConnection,
-    device: &Device,
+    device: &Asset,
     op: SyncOp,
     event_type: &'static str,
 ) -> QueryResult<()> {
@@ -66,14 +66,12 @@ fn emit_asset_event(
     Ok(())
 }
 
-// Device operations
-pub fn get_all_devices(conn: &mut DbConnection) -> QueryResult<Vec<Device>> {
-    devices::table
-        .order_by(devices::id.asc())
-        .load::<Device>(conn)
+// Asset operations
+pub fn get_all_devices(conn: &mut DbConnection) -> QueryResult<Vec<Asset>> {
+    assets::table.order_by(assets::id.asc()).load::<Asset>(conn)
 }
 
-type DeviceBoxedQuery<'a> = devices::BoxedQuery<'a, diesel::pg::Pg>;
+type DeviceBoxedQuery<'a> = assets::BoxedQuery<'a, diesel::pg::Pg>;
 
 /// Apply search, warranty, and manufacturer filters to a device query.
 /// Shared between data and count queries to avoid duplicating filter logic.
@@ -92,12 +90,12 @@ fn apply_device_filters<'a>(
             // fallback only covers the universal columns that
             // still live on `assets`.
             query = query.filter(
-                devices::name
+                assets::name
                     .ilike(pattern.clone())
-                    .or(devices::serial_number.ilike(pattern.clone()))
-                    .or(devices::model.ilike(pattern.clone()))
-                    .or(devices::manufacturer.ilike(pattern.clone()))
-                    .or(devices::id.eq_any(
+                    .or(assets::serial_number.ilike(pattern.clone()))
+                    .or(assets::model.ilike(pattern.clone()))
+                    .or(assets::manufacturer.ilike(pattern.clone()))
+                    .or(assets::id.eq_any(
                         search_term
                             .parse::<i32>()
                             .ok()
@@ -120,7 +118,7 @@ fn apply_device_filters<'a>(
     }
     if let Some(m) = manufacturer_filter {
         if m != "all" {
-            query = query.filter(devices::manufacturer.eq(m));
+            query = query.filter(assets::manufacturer.eq(m));
         }
     }
     query
@@ -136,9 +134,9 @@ pub fn get_paginated_devices(
     search: Option<String>,
     device_type: Option<String>,
     warranty: Option<String>,
-) -> Result<(Vec<Device>, i64), Error> {
+) -> Result<(Vec<Asset>, i64), Error> {
     let total: i64 = apply_device_filters(
-        devices::table.into_boxed(),
+        assets::table.into_boxed(),
         search.as_deref(),
         warranty.as_deref(),
         device_type.as_deref(),
@@ -147,7 +145,7 @@ pub fn get_paginated_devices(
     .get_result(conn)?;
 
     let mut query = apply_device_filters(
-        devices::table.into_boxed(),
+        assets::table.into_boxed(),
         search.as_deref(),
         warranty.as_deref(),
         device_type.as_deref(),
@@ -155,31 +153,31 @@ pub fn get_paginated_devices(
 
     // Apply sorting
     match (sort_field.as_deref(), sort_direction.as_deref()) {
-        (Some("id"), Some("asc")) => query = query.order(devices::id.asc()),
-        (Some("id"), _) => query = query.order(devices::id.desc()),
-        (Some("name"), Some("asc")) => query = query.order(devices::name.asc()),
-        (Some("name"), _) => query = query.order(devices::name.desc()),
-        (Some("model"), Some("asc")) => query = query.order(devices::model.asc()),
-        (Some("model"), _) => query = query.order(devices::model.desc()),
-        (Some("manufacturer"), Some("asc")) => query = query.order(devices::manufacturer.asc()),
-        (Some("manufacturer"), _) => query = query.order(devices::manufacturer.desc()),
-        (Some("serial_number"), Some("asc")) => query = query.order(devices::serial_number.asc()),
-        (Some("serial_number"), _) => query = query.order(devices::serial_number.desc()),
-        (Some("created_at"), Some("asc")) => query = query.order(devices::created_at.asc()),
-        (Some("created_at"), _) => query = query.order(devices::created_at.desc()),
-        (Some("updated_at"), Some("asc")) => query = query.order(devices::updated_at.asc()),
-        (Some("updated_at"), _) => query = query.order(devices::updated_at.desc()),
-        _ => query = query.order(devices::name.asc()),
+        (Some("id"), Some("asc")) => query = query.order(assets::id.asc()),
+        (Some("id"), _) => query = query.order(assets::id.desc()),
+        (Some("name"), Some("asc")) => query = query.order(assets::name.asc()),
+        (Some("name"), _) => query = query.order(assets::name.desc()),
+        (Some("model"), Some("asc")) => query = query.order(assets::model.asc()),
+        (Some("model"), _) => query = query.order(assets::model.desc()),
+        (Some("manufacturer"), Some("asc")) => query = query.order(assets::manufacturer.asc()),
+        (Some("manufacturer"), _) => query = query.order(assets::manufacturer.desc()),
+        (Some("serial_number"), Some("asc")) => query = query.order(assets::serial_number.asc()),
+        (Some("serial_number"), _) => query = query.order(assets::serial_number.desc()),
+        (Some("created_at"), Some("asc")) => query = query.order(assets::created_at.asc()),
+        (Some("created_at"), _) => query = query.order(assets::created_at.desc()),
+        (Some("updated_at"), Some("asc")) => query = query.order(assets::updated_at.asc()),
+        (Some("updated_at"), _) => query = query.order(assets::updated_at.desc()),
+        _ => query = query.order(assets::name.asc()),
     }
 
     let offset = (page - 1) * page_size;
-    let results = query.offset(offset).limit(page_size).load::<Device>(conn)?;
+    let results = query.offset(offset).limit(page_size).load::<Asset>(conn)?;
 
     Ok((results, total))
 }
 
-pub fn get_device_by_id(conn: &mut DbConnection, device_id: i32) -> QueryResult<Device> {
-    devices::table.find(device_id).first(conn)
+pub fn get_device_by_id(conn: &mut DbConnection, device_id: i32) -> QueryResult<Asset> {
+    assets::table.find(device_id).first(conn)
 }
 
 /// Look up an asset by the `entra_device_id` attribute key.
@@ -188,8 +186,8 @@ pub fn get_device_by_id(conn: &mut DbConnection, device_id: i32) -> QueryResult<
 pub fn get_device_by_entra_id(
     conn: &mut DbConnection,
     entra_device_id: &str,
-) -> QueryResult<Device> {
-    devices::table
+) -> QueryResult<Asset> {
+    assets::table
         .filter(
             diesel::dsl::sql::<diesel::sql_types::Bool>("attributes->>'entra_device_id' = ")
                 .bind::<diesel::sql_types::Text, _>(entra_device_id.to_string()),
@@ -200,8 +198,8 @@ pub fn get_device_by_entra_id(
 pub fn get_device_by_microsoft_id(
     conn: &mut DbConnection,
     microsoft_device_id: &str,
-) -> QueryResult<Device> {
-    devices::table
+) -> QueryResult<Asset> {
+    assets::table
         .filter(
             diesel::dsl::sql::<diesel::sql_types::Bool>("attributes->>'microsoft_device_id' = ")
                 .bind::<diesel::sql_types::Text, _>(microsoft_device_id.to_string()),
@@ -209,13 +207,13 @@ pub fn get_device_by_microsoft_id(
         .first(conn)
 }
 
-pub fn create_device(conn: &mut DbConnection, new_device: NewDevice) -> QueryResult<Device> {
+pub fn create_device(conn: &mut DbConnection, new_device: NewAsset) -> QueryResult<Asset> {
     // Wrap the INSERT + sync emit in a single transaction so a
     // crash between the two never leaves the row inserted
     // without a corresponding sync_actions event.
     // emit::record fires inside emit_asset_event.
-    conn.transaction::<Device, Error, _>(|conn| {
-        let device: Device = diesel::insert_into(devices::table)
+    conn.transaction::<Asset, Error, _>(|conn| {
+        let device: Asset = diesel::insert_into(assets::table)
             .values(&new_device)
             .get_result(conn)?;
         emit_asset_event(conn, &device, SyncOp::Insert, "asset.created")?;
@@ -226,14 +224,14 @@ pub fn create_device(conn: &mut DbConnection, new_device: NewDevice) -> QueryRes
 pub fn update_device(
     conn: &mut DbConnection,
     device_id: i32,
-    device_update: DeviceUpdate,
-) -> QueryResult<Device> {
+    device_update: AssetUpdate,
+) -> QueryResult<Asset> {
     let mut update = device_update;
     update.updated_at = Some(Utc::now().naive_utc());
 
     // emit::record fires inside emit_asset_event.
-    conn.transaction::<Device, Error, _>(|conn| {
-        let device: Device = diesel::update(devices::table.find(device_id))
+    conn.transaction::<Asset, Error, _>(|conn| {
+        let device: Asset = diesel::update(assets::table.find(device_id))
             .set(&update)
             .get_result(conn)?;
         emit_asset_event(conn, &device, SyncOp::Update, "asset.updated")?;
@@ -244,15 +242,15 @@ pub fn update_device(
 pub fn delete_device(
     conn: &mut DbConnection,
     device_id: i32,
-    observer: Option<&dyn DeviceDeletedObserver>,
+    observer: Option<&dyn AssetDeletedObserver>,
 ) -> QueryResult<usize> {
     // emit::record fires inside emit_asset_event.
     let count = conn.transaction::<usize, Error, _>(|conn| {
         // Capture the row before deletion so the sync payload can
         // carry the final state to subscribers that joined after
         // the row was already gone from `assets`.
-        let device: Option<Device> = devices::table.find(device_id).first(conn).optional()?;
-        let removed = diesel::delete(devices::table.find(device_id)).execute(conn)?;
+        let device: Option<Asset> = assets::table.find(device_id).first(conn).optional()?;
+        let removed = diesel::delete(assets::table.find(device_id)).execute(conn)?;
         if removed > 0 {
             if let Some(device) = device.as_ref() {
                 emit_asset_event(conn, device, SyncOp::Delete, "asset.deleted")?;
@@ -268,7 +266,7 @@ pub fn delete_device(
     Ok(count)
 }
 
-pub fn get_devices_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Vec<Device>> {
+pub fn get_devices_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Vec<Asset>> {
     use crate::schema::assets::dsl::*;
 
     assets
@@ -283,19 +281,19 @@ pub fn get_paginated_devices_excluding_ids(
     page_size: i64,
     search: Option<&str>,
     exclude_ids: &[i32],
-) -> QueryResult<(Vec<Device>, i64)> {
-    let mut count_query = apply_device_filters(devices::table.into_boxed(), search, None, None);
+) -> QueryResult<(Vec<Asset>, i64)> {
+    let mut count_query = apply_device_filters(assets::table.into_boxed(), search, None, None);
     if !exclude_ids.is_empty() {
-        count_query = count_query.filter(devices::id.ne_all(exclude_ids));
+        count_query = count_query.filter(assets::id.ne_all(exclude_ids));
     }
     let total_count = count_query.count().get_result::<i64>(conn)?;
 
-    let mut data_query = apply_device_filters(devices::table.into_boxed(), search, None, None);
+    let mut data_query = apply_device_filters(assets::table.into_boxed(), search, None, None);
     if !exclude_ids.is_empty() {
-        data_query = data_query.filter(devices::id.ne_all(exclude_ids));
+        data_query = data_query.filter(assets::id.ne_all(exclude_ids));
     }
     let results = data_query
-        .order(devices::name.asc())
+        .order(assets::name.asc())
         .limit(page_size)
         .offset((page - 1) * page_size)
         .load(conn)?;
@@ -308,6 +306,7 @@ pub fn get_paginated_devices_excluding_ids(
 /// pairs for the rows whose `attributes->>'entra_device_id'` is
 /// in the set. The Intune sync uses this to resolve group
 /// memberships against the local roster.
+// sync-audit-only: read-only lookup used by Intune sync to map external IDs to local asset IDs
 pub fn get_devices_by_entra_ids(
     conn: &mut DbConnection,
     entra_ids: &[&str],
@@ -335,11 +334,11 @@ struct EntraIdRow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::NewDevice;
+    use crate::models::NewAsset;
     use crate::test_helpers::setup_test_connection;
 
-    fn minimal_device(name: &str) -> NewDevice {
-        NewDevice {
+    fn minimal_device(name: &str) -> NewAsset {
+        NewAsset {
             name: name.to_string(),
             serial_number: None,
             manufacturer: None,
@@ -383,7 +382,7 @@ mod tests {
         let mut conn = setup_test_connection();
         let dev = create_device(&mut conn, minimal_device("OldName")).unwrap();
 
-        let upd = DeviceUpdate {
+        let upd = AssetUpdate {
             name: Some("NewName".to_string()),
             ..Default::default()
         };

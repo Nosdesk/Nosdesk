@@ -439,13 +439,13 @@ fn get_open_ticket_counts_batch(
 
 /// Batch count of devices assigned to each user
 fn get_device_counts_batch(user_uuids: &[Uuid], conn: &mut DbConnection) -> HashMap<Uuid, i64> {
-    use crate::schema::devices;
+    use crate::schema::assets;
 
-    let results: Vec<(Uuid, i64)> = devices::table
-        .filter(devices::primary_user_uuid.eq_any(user_uuids))
-        .group_by(devices::primary_user_uuid)
+    let results: Vec<(Uuid, i64)> = assets::table
+        .filter(assets::primary_user_uuid.eq_any(user_uuids))
+        .group_by(assets::primary_user_uuid)
         .select((
-            devices::primary_user_uuid.assume_not_null(),
+            assets::primary_user_uuid.assume_not_null(),
             diesel::dsl::count_star(),
         ))
         .load::<(Uuid, i64)>(conn)

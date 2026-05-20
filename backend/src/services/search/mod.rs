@@ -195,7 +195,7 @@ impl SearchService {
     /// Index a device
     pub fn index_device(
         &self,
-        device: &models::Device,
+        device: &models::Asset,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let doc = indexer::index_document_from_device(device);
         self.index_document(&doc)
@@ -240,7 +240,7 @@ impl SearchService {
         &self,
         device_id: i32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.delete_by_key(EntityType::Device, &device_id.to_string())
+        self.delete_by_key(EntityType::Asset, &device_id.to_string())
     }
 
     /// Delete a user from the index
@@ -429,7 +429,7 @@ impl crate::repository::comments::CommentDeletedObserver for Arc<SearchService> 
     }
 }
 
-impl crate::repository::devices::DeviceDeletedObserver for Arc<SearchService> {
+impl crate::repository::assets::AssetDeletedObserver for Arc<SearchService> {
     fn device_deleted(&self, device_id: i32) {
         indexing_tasks::spawn_delete_device(Arc::clone(self), device_id);
     }

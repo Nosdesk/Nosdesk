@@ -20,7 +20,7 @@ use crate::config_utils;
 use crate::models::{
     AuthProvider, NewSyncHistory, NewUserAuthIdentity, SyncHistoryUpdate, User, UserAuthIdentity,
 };
-use crate::repository::devices as device_repo;
+use crate::repository::assets as asset_repo;
 use crate::repository::groups as groups_repo;
 use crate::repository::sync_history as sync_history_repo;
 use crate::repository::user_auth_identities as identity_repo;
@@ -203,7 +203,7 @@ pub struct MicrosoftGraphUser {
     pub account_enabled: Option<bool>,
 }
 
-// Entra ID Device structure from API response (/devices endpoint)
+// Entra ID Asset structure from API response (/devices endpoint)
 // This is for device identity from Microsoft Entra ID, supports delta sync
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct EntraDevice {
@@ -237,7 +237,7 @@ pub struct EntraDevice {
     pub registration_date_time: Option<String>,
 }
 
-// Microsoft Graph Device structure from API response (Intune managedDevice)
+// Microsoft Graph Asset structure from API response (Intune managedDevice)
 // This is for device management/compliance from Intune, does NOT support delta sync
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct MicrosoftGraphDevice {
@@ -408,7 +408,7 @@ pub struct UserSyncStats {
     pub errors: Vec<String>,
 }
 
-// Device sync statistics
+// Asset sync statistics
 #[derive(Serialize, Debug)]
 pub struct DeviceSyncStats {
     pub new_devices_created: usize,
@@ -1346,13 +1346,13 @@ async fn test_graph_connection(_provider_id: i32) -> Result<serde_json::Value, S
                 2. Navigate to 'Azure Active Directory' → 'App registrations'\n\
                 3. Select your application\n\
                 4. Click 'API permissions' → 'Add a permission' → 'Microsoft Graph' → 'Application permissions'\n\
-                5. Add: Organization.Read.All, User.Read.All, Device.Read.All, Group.Read.All\n\
+                5. Add: Organization.Read.All, User.Read.All, Asset.Read.All, Group.Read.All\n\
                 6. Click 'Grant admin consent for [Your Tenant]' (requires Global Admin)\n\
                 7. Wait 5-10 minutes for permissions to propagate\n\n\
                 Common required permissions for full functionality:\n\
                 • Organization.Read.All - Read tenant information\n\
                 • User.Read.All - Read user profiles\n\
-                • Device.Read.All - Read device information\n\
+                • Asset.Read.All - Read device information\n\
                 • Group.Read.All - Read group information\n\
                 • DeviceManagementManagedDevices.Read.All - Read Intune devices\n\n\
                 Error Code: {error_code}"
@@ -2829,7 +2829,7 @@ async fn sync_devices(
             "Processing removed devices from delta response"
         );
         for removed_id in &removed_device_ids {
-            if let Ok(device) = device_repo::get_device_by_entra_id(conn, removed_id) {
+            if let Ok(device) = asset_repo::get_device_by_entra_id(conn, removed_id) {
                 warn!(
                     device_id = %device.id,
                     device_name = %device.name,
@@ -3837,7 +3837,7 @@ async fn apply_delta_group_membership(
     if !device_members_added.is_empty() {
         for device_member in device_members_added {
             // Try to find the device by Entra Object ID
-            if let Ok(device) = device_repo::get_device_by_entra_id(conn, &device_member.id) {
+            if let Ok(device) = asset_repo::get_device_by_entra_id(conn, &device_member.id) {
                 // Check if device is already a member
                 let current_devices =
                     groups_repo::get_device_ids_for_group(conn, local_group_id).unwrap_or_default();
@@ -3867,7 +3867,7 @@ async fn apply_delta_group_membership(
     // Process removed device members
     for removed_id in members_removed {
         // Try to find the device by Entra Object ID
-        if let Ok(device) = device_repo::get_device_by_entra_id(conn, removed_id) {
+        if let Ok(device) = asset_repo::get_device_by_entra_id(conn, removed_id) {
             if let Err(e) = groups_repo::remove_device_from_group(conn, device.id, local_group_id) {
                 warn!(device_id = device.id, group_id = local_group_id, error = %e, "Failed to remove device from group from delta");
             } else {
@@ -3932,7 +3932,7 @@ async fn sync_device_group_membership(
         "Looking up local devices by Entra IDs"
     );
 
-    let device_mappings = device_repo::get_devices_by_entra_ids(conn, &graph_device_ids)
+    let device_mappings = asset_repo::get_devices_by_entra_ids(conn, &graph_device_ids)
         .map_err(|e| format!("Failed to lookup devices: {e}"))?;
 
     debug!(
@@ -4521,12 +4521,12 @@ async fn process_entra_device(
 
     // Step 1: Check if this device already exists by Entra Object ID
     // The `id` field from /devices IS the Entra Object ID
-    let existing_device = device_repo::get_device_by_entra_id(conn, &entra_device.id).ok();
+    let existing_device = asset_repo::get_device_by_entra_id(conn, &entra_device.id).ok();
 
-    // Step 2: If not found by Entra ID, try by Microsoft Device ID (the deviceId field)
+    // Step 2: If not found by Entra ID, try by Microsoft Asset ID (the deviceId field)
     let existing_device = if existing_device.is_none() {
         if let Some(microsoft_device_id) = &entra_device.device_id {
-            device_repo::get_device_by_microsoft_id(conn, microsoft_device_id).ok()
+            asset_repo::get_device_by_microsoft_id(conn, microsoft_device_id).ok()
         } else {
             None
         }
@@ -4628,7 +4628,7 @@ async fn process_entra_device(
         for (k, v) in entra_attrs {
             merged.insert(k, v);
         }
-        let device_update = crate::models::DeviceUpdate {
+        let device_update = crate::models::AssetUpdate {
             name: Some(device_display_name.clone()),
             model: Some(model),
             manufacturer: Some(manufacturer),
@@ -4638,7 +4638,7 @@ async fn process_entra_device(
             ..Default::default()
         };
 
-        device_repo::update_device(conn, existing.id, device_update)
+        asset_repo::update_device(conn, existing.id, device_update)
             .map_err(|e| format!("Failed to update device: {e}"))?;
 
         debug!(device_name = %device_display_name, "Updated existing Entra device");
@@ -4650,7 +4650,7 @@ async fn process_entra_device(
             "warranty_status".to_string(),
             serde_json::Value::String("Unknown".to_string()),
         );
-        let new_device = crate::models::NewDevice {
+        let new_device = crate::models::NewAsset {
             name: device_display_name.clone(),
             serial_number: None,
             model: Some(model),
@@ -4667,7 +4667,7 @@ async fn process_entra_device(
             external_sync_source: Some("entra".to_string()),
         };
 
-        device_repo::create_device(conn, new_device)
+        asset_repo::create_device(conn, new_device)
             .map_err(|e| format!("Failed to create device: {e}"))?;
 
         info!(device_name = %device_display_name, "Created new Entra device");
@@ -4677,7 +4677,7 @@ async fn process_entra_device(
     Ok(())
 }
 
-/// Get Entra Object ID from Azure AD Device ID
+/// Get Entra Object ID from Azure AD Asset ID
 pub async fn get_entra_object_id(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
@@ -4713,20 +4713,20 @@ pub async fn get_entra_object_id(
     }
 }
 
-/// Fetch Entra Object ID from Microsoft Graph using Azure AD Device ID
+/// Fetch Entra Object ID from Microsoft Graph using Azure AD Asset ID
 async fn fetch_entra_object_id_from_graph(
     _provider_id: i32,
     azure_ad_device_id: &str,
 ) -> Result<String, String> {
     let (client, access_token) = get_msgraph_client_and_token().await?;
 
-    // Query Microsoft Graph for the device using the Azure AD Device ID
-    // Filter by deviceId (Azure AD Device ID) to get the Object ID (id field)
+    // Query Microsoft Graph for the device using the Azure AD Asset ID
+    // Filter by deviceId (Azure AD Asset ID) to get the Object ID (id field)
     let url = format!(
         "https://graph.microsoft.com/v1.0/devices?$filter=deviceId eq '{azure_ad_device_id}'&$select=id,deviceId"
     );
 
-    debug!(azure_ad_device_id = %azure_ad_device_id, "Fetching Entra Object ID for Azure AD Device ID");
+    debug!(azure_ad_device_id = %azure_ad_device_id, "Fetching Entra Object ID for Azure AD Asset ID");
 
     let graph_response = client
         .get(&url)
@@ -4759,7 +4759,7 @@ async fn fetch_entra_object_id_from_graph(
 
     if devices_array.is_empty() {
         return Err(format!(
-            "No device found with Azure AD Device ID: {azure_ad_device_id}"
+            "No device found with Azure AD Asset ID: {azure_ad_device_id}"
         ));
     }
 
@@ -4770,7 +4770,7 @@ async fn fetch_entra_object_id_from_graph(
         .and_then(|id| id.as_str())
         .ok_or_else(|| "Device Object ID not found in response".to_string())?;
 
-    debug!(object_id = %object_id, azure_ad_device_id = %azure_ad_device_id, "Successfully found Object ID for Azure AD Device ID");
+    debug!(object_id = %object_id, azure_ad_device_id = %azure_ad_device_id, "Successfully found Object ID for Azure AD Asset ID");
 
     Ok(object_id.to_string())
 }

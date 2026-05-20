@@ -67,7 +67,7 @@ pub(crate) const KNOWN_SLOTS: &[&str] = &[
     // Document context
     "document-toolbar",
     "document-sidebar",
-    // Device context
+    // Asset context
     "device-header-actions",
     "device-info-panels",
 ];

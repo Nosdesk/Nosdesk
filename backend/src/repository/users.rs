@@ -327,9 +327,9 @@ pub fn purge_user(
     observer: Option<&dyn UserDeletedObserver>,
 ) -> Result<usize, Error> {
     use crate::schema::{
-        article_contents, attachments, comments, devices, documentation_pages,
+        article_contents, assets, attachments, comments, documentation_pages,
         documentation_revisions, linked_tickets, project_tickets, projects, sync_history,
-        ticket_devices, tickets, user_auth_identities, user_emails,
+        ticket_assets, tickets, user_auth_identities, user_emails,
     };
 
     // Start a transaction to ensure all-or-nothing deletion
@@ -383,11 +383,11 @@ pub fn purge_user(
         // These tables have ON DELETE SET NULL but handled explicitly for clarity
 
         // 2a. Devices
-        diesel::update(devices::table.filter(devices::primary_user_uuid.eq(user_uuid)))
-            .set(devices::primary_user_uuid.eq::<Option<Uuid>>(None))
+        diesel::update(assets::table.filter(assets::primary_user_uuid.eq(user_uuid)))
+            .set(assets::primary_user_uuid.eq::<Option<Uuid>>(None))
             .execute(conn)?;
-        diesel::update(devices::table.filter(devices::created_by.eq(user_uuid)))
-            .set(devices::created_by.eq::<Option<Uuid>>(None))
+        diesel::update(assets::table.filter(assets::created_by.eq(user_uuid)))
+            .set(assets::created_by.eq::<Option<Uuid>>(None))
             .execute(conn)?;
 
         // 2b. Tickets (assignee, created_by, closed_by)
@@ -425,8 +425,8 @@ pub fn purge_user(
             .execute(conn)?;
 
         // 2g. Ticket devices
-        diesel::update(ticket_devices::table.filter(ticket_devices::created_by.eq(user_uuid)))
-            .set(ticket_devices::created_by.eq::<Option<Uuid>>(None))
+        diesel::update(ticket_assets::table.filter(ticket_assets::created_by.eq(user_uuid)))
+            .set(ticket_assets::created_by.eq::<Option<Uuid>>(None))
             .execute(conn)?;
 
         // 2h. Article contents
