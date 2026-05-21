@@ -950,7 +950,7 @@ fn restore_table_data(
             "backup references unknown table '{table_name}'"
         )));
     }
-    let valid_columns = fetch_table_columns(conn, table_name)?;
+    let column_types = fetch_table_columns(conn, table_name)?;
 
     let mut inserted = 0;
     for (row_index, row) in rows.iter().enumerate() {
@@ -961,8 +961,11 @@ fn restore_table_data(
 
         let entries: Vec<(&str, String)> = map
             .iter()
-            .filter(|(k, _)| valid_columns.contains(k.as_str()))
-            .map(|(k, v)| (k.as_str(), json_to_sql_value(v)))
+            .filter(|(k, _)| column_types.contains_key(k.as_str()))
+            .map(|(k, v)| {
+                let ty = column_types.get(k.as_str()).map(String::as_str);
+                (k.as_str(), json_to_sql_value(v, ty))
+            })
             .collect();
         if entries.is_empty() {
             continue;
@@ -997,13 +1000,39 @@ fn restore_table_data(
 /// Postgres 9.1+). The column-name allowlist in
 /// [`restore_table_data`] is the load-bearing protection; this
 /// helper is the second layer.
-fn json_to_sql_value(value: &serde_json::Value) -> String {
+///
+/// `column_udt` is the column's Postgres internal type name from
+/// `information_schema.columns.udt_name` when available. For
+/// array columns this is `_uuid`, `_text`, `_int4`, etc. (the
+/// leading underscore is Postgres's array marker). Without this
+/// hint a JSON array gets cast to `::jsonb`, which is correct
+/// for `jsonb` columns but wrong for native Postgres arrays.
+fn json_to_sql_value(value: &serde_json::Value, column_udt: Option<&str>) -> String {
     match value {
         serde_json::Value::Null => "NULL".to_string(),
         serde_json::Value::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_string(),
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::String(s) => format!("'{}'", s.replace('\'', "''")),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+        serde_json::Value::Array(arr) => {
+            // Native Postgres array columns (`uuid[]`, `text[]`,
+            // `int4[]`, ...) have a udt_name that starts with an
+            // underscore. Anything else (`jsonb`, `json`, or an
+            // absent udt hint) falls back to the JSONB cast.
+            if let Some(udt) = column_udt {
+                if let Some(element_udt) = udt.strip_prefix('_') {
+                    // Build `ARRAY[el1, el2]::elementtype[]`. Each
+                    // element gets the same single-quote escape;
+                    // numbers and booleans go in as bare literals.
+                    let elements: Vec<String> = arr
+                        .iter()
+                        .map(|el| json_to_sql_value(el, None))
+                        .collect();
+                    return format!("ARRAY[{}]::{}[]", elements.join(", "), element_udt);
+                }
+            }
+            format!("'{}'::jsonb", value.to_string().replace('\'', "''"))
+        }
+        serde_json::Value::Object(_) => {
             format!("'{}'::jsonb", value.to_string().replace('\'', "''"))
         }
     }
@@ -1013,29 +1042,35 @@ fn json_to_sql_value(value: &serde_json::Value) -> String {
 /// Used to filter JSON keys before they're interpolated into a
 /// restore INSERT — a column name that isn't on this list can't
 /// reach the SQL layer regardless of what the backup file claims.
+/// Map column name -> `udt_name` from `information_schema.columns`.
+/// `udt_name` carries the Postgres internal type (`uuid`, `text`,
+/// `_uuid` for `uuid[]`, `jsonb`, etc.) which is what
+/// [`json_to_sql_value`] needs to pick the right literal cast.
 fn fetch_table_columns(
     conn: &mut DbConnection,
     table_name: &str,
-) -> Result<std::collections::HashSet<String>, BackupError> {
+) -> Result<std::collections::HashMap<String, String>, BackupError> {
     use diesel::deserialize::QueryableByName;
     use diesel::prelude::*;
     use diesel::sql_query;
     use diesel::sql_types::Text;
 
     #[derive(QueryableByName)]
-    struct ColumnName {
+    struct ColumnRow {
         #[diesel(sql_type = Text)]
         column_name: String,
+        #[diesel(sql_type = Text)]
+        udt_name: String,
     }
 
-    let rows: Vec<ColumnName> = sql_query(
-        "SELECT column_name FROM information_schema.columns \
+    let rows: Vec<ColumnRow> = sql_query(
+        "SELECT column_name, udt_name FROM information_schema.columns \
          WHERE table_schema = 'public' AND table_name = $1",
     )
     .bind::<Text, _>(table_name)
     .load(conn)
     .map_err(BackupError::DatabaseError)?;
-    Ok(rows.into_iter().map(|c| c.column_name).collect())
+    Ok(rows.into_iter().map(|c| (c.column_name, c.udt_name)).collect())
 }
 
 #[cfg(test)]
