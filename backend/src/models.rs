@@ -953,6 +953,36 @@ pub struct AssetKindUpdate {
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// One row of the asset usage ledger. Records how much of a
+/// stock-tracked asset was consumed and when, optionally tied
+/// to a ticket. The plumbing-business use case: "5m of 20mm
+/// copper pipe consumed on ticket #142". `unit` is stored on
+/// the row (not derived from asset.unit at read time) so a
+/// later unit change on the asset doesn't rewrite history.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::asset_usage_log)]
+pub struct AssetUsage {
+    pub id: i64,
+    pub asset_id: i32,
+    pub ticket_id: Option<i32>,
+    pub quantity_used: bigdecimal::BigDecimal,
+    pub unit: String,
+    pub recorded_by: Option<Uuid>,
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::asset_usage_log)]
+pub struct NewAssetUsage {
+    pub asset_id: i32,
+    pub ticket_id: Option<i32>,
+    pub quantity_used: bigdecimal::BigDecimal,
+    pub unit: String,
+    pub recorded_by: Option<Uuid>,
+    pub notes: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::ticket_assets)]
 #[diesel(belongs_to(Ticket))]

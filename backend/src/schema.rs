@@ -165,6 +165,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_usage_log (id) {
+        id -> Int8,
+        asset_id -> Int4,
+        ticket_id -> Nullable<Int4>,
+        quantity_used -> Numeric,
+        #[max_length = 32]
+        unit -> Varchar,
+        recorded_by -> Nullable<Uuid>,
+        recorded_at -> Timestamptz,
+        notes -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::AssignmentMethod;
 
@@ -1471,6 +1485,9 @@ diesel::joinable!(asset_groups -> assets (asset_id));
 diesel::joinable!(asset_groups -> groups (group_id));
 diesel::joinable!(asset_groups -> users (created_by));
 diesel::joinable!(asset_kinds -> users (created_by));
+diesel::joinable!(asset_usage_log -> assets (asset_id));
+diesel::joinable!(asset_usage_log -> tickets (ticket_id));
+diesel::joinable!(asset_usage_log -> users (recorded_by));
 diesel::joinable!(assignment_log -> assignment_rules (rule_id));
 diesel::joinable!(assignment_log -> tickets (ticket_id));
 diesel::joinable!(assignment_rule_state -> assignment_rules (rule_id));
@@ -1579,6 +1596,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     article_contents,
     asset_groups,
     asset_kinds,
+    asset_usage_log,
     assets,
     assignment_log,
     assignment_rule_state,
