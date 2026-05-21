@@ -3191,6 +3191,10 @@ asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (t
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
 
+# Asset list: low-stock badge surfaced on each row.
+assets-list-low-stock-badge = Low stock
+assets-list-low-stock-tooltip = { $quantity } { $unit } remaining (threshold { $threshold }).
+
 # Ticket: gekoppelde tickets (TicketLinkedTicketsField).
 ticket-field-linked-tickets-label = Gekoppelde tickets
 ticket-field-linked-tickets-add = Ticket koppelen

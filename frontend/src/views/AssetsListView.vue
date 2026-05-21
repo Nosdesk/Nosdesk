@@ -124,6 +124,18 @@ const bulkDelete = useMutation({
   },
 })
 
+/** Asset row is low-stock when both quantity and threshold are
+ *  set and the on-hand count has fallen to at or below the
+ *  threshold. parseFloat is fine for the comparison; both
+ *  strings come from the same NUMERIC(12,3) column so any
+ *  precision loss is symmetric. */
+function isLowStock(asset: Asset): boolean {
+  const q = asset.quantity
+  const th = asset.low_stock_threshold
+  if (q == null || th == null) return false
+  return parseFloat(q) <= parseFloat(th)
+}
+
 async function confirmDelete() {
   showDeleteConfirm.value = false
   const ids = selection.selectedIds.value.map((id) => parseInt(id))
@@ -207,6 +219,13 @@ async function confirmDelete() {
                 />
                 <span v-if="item.groups.length > 3" class="text-[10px] text-tertiary">+{{ item.groups.length - 3 }}</span>
               </div>
+              <span
+                v-if="isLowStock(item)"
+                class="text-[10px] px-1.5 py-0.5 rounded-full bg-status-warning/15 text-status-warning whitespace-nowrap font-medium"
+                :title="$t('assets-list-low-stock-tooltip', { quantity: item.quantity ?? '', unit: item.unit ?? '', threshold: item.low_stock_threshold ?? '' })"
+              >
+                {{ $t('assets-list-low-stock-badge') }}
+              </span>
             </div>
             <span v-if="item.manufacturer" class="text-xs text-tertiary">{{ item.manufacturer }}</span>
           </div>
@@ -274,6 +293,12 @@ async function confirmDelete() {
           <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-xs">
             <span v-if="item.attributes?.hostname" class="text-tertiary font-mono truncate max-w-[160px]">{{ item.attributes.hostname }}</span>
             <span v-if="item.primary_user" class="text-secondary truncate max-w-[120px]">{{ item.primary_user.name }}</span>
+            <span
+              v-if="isLowStock(item)"
+              class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border bg-status-warning-muted text-status-warning border-status-warning/30"
+            >
+              {{ $t('assets-list-low-stock-badge') }}
+            </span>
             <span
               v-if="item.attributes?.warranty_status"
               class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
