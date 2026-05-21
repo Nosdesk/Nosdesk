@@ -83,7 +83,7 @@ async function loadMore() {
   }
 }
 
-async function submitRecord() {
+async function submitRecord(kind: 'usage' | 'restock') {
   const trimmed = recordQuantity.value.trim();
   if (!trimmed) return;
 
@@ -94,6 +94,7 @@ async function submitRecord() {
       quantity_used: trimmed,
       ticket_id: null,
       notes: recordNotes.value.trim() || null,
+      kind,
     });
     recordQuantity.value = '';
     recordNotes.value = '';
@@ -130,14 +131,23 @@ function formatDate(iso: string): string {
           inputmode="decimal"
           :placeholder="$t('asset-usage-record-quantity-placeholder', { unit: unit ?? '' })"
           class="flex-1 bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-1.5 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
-          @keyup.enter="submitRecord"
+          @keyup.enter="submitRecord('usage')"
         />
         <button
           :disabled="!recordQuantity.trim() || recording"
           class="px-3 py-1.5 text-sm rounded-lg bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed"
-          @click="submitRecord"
+          :title="$t('asset-usage-record-submit-usage-title')"
+          @click="submitRecord('usage')"
         >
           {{ $t('asset-usage-record-submit') }}
+        </button>
+        <button
+          :disabled="!recordQuantity.trim() || recording"
+          class="px-3 py-1.5 text-sm rounded-lg border border-status-success/40 text-status-success hover:bg-status-success/10 disabled:opacity-50 disabled:cursor-not-allowed"
+          :title="$t('asset-usage-record-submit-restock-title')"
+          @click="submitRecord('restock')"
+        >
+          {{ $t('asset-usage-record-submit-restock') }}
         </button>
       </div>
       <input
@@ -160,8 +170,11 @@ function formatDate(iso: string): string {
     <div v-if="rows.length > 0" class="divide-y divide-default">
       <div v-for="row in rows" :key="row.id" class="py-2.5 flex flex-col gap-1">
         <div class="flex items-baseline justify-between gap-3">
-          <span class="text-sm text-primary font-medium">
-            {{ row.quantity_used }} {{ row.unit }}
+          <span
+            class="text-sm font-medium"
+            :class="row.event_kind === 'restock' ? 'text-status-success' : 'text-status-error'"
+          >
+            {{ row.event_kind === 'restock' ? '+' : '−' }}{{ row.quantity_used }} {{ row.unit }}
           </span>
           <span class="text-xs text-tertiary whitespace-nowrap">
             {{ formatDate(row.recorded_at) }}

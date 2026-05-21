@@ -981,6 +981,12 @@ pub struct AssetUsage {
     pub recorded_by: Option<Uuid>,
     pub recorded_at: chrono::DateTime<chrono::Utc>,
     pub notes: Option<String>,
+    /// Direction discriminator. `"usage"` decrements the asset's
+    /// quantity; `"restock"` increments it. Both kinds keep
+    /// `quantity_used > 0`; the magnitude lives in
+    /// `quantity_used`, the direction here. The DB CHECK
+    /// constraint pins the enum to this closed set.
+    pub event_kind: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -992,6 +998,7 @@ pub struct NewAssetUsage {
     pub unit: String,
     pub recorded_by: Option<Uuid>,
     pub notes: Option<String>,
+    pub event_kind: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]

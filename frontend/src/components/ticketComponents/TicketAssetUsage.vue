@@ -125,9 +125,9 @@ onMounted(reload);
         class="flex items-baseline justify-between gap-2 text-sm"
       >
         <div class="flex flex-col gap-0.5 min-w-0">
-          <span class="text-primary truncate">
-            {{ row.quantity_used }} {{ row.unit }}
-            <span class="text-tertiary">
+          <span class="truncate font-medium" :class="row.event_kind === 'restock' ? 'text-status-success' : 'text-status-error'">
+            {{ row.event_kind === 'restock' ? '+' : '−' }}{{ row.quantity_used }} {{ row.unit }}
+            <span class="text-tertiary font-normal">
               · {{ assetsById.get(row.asset_id)?.name ?? `#${row.asset_id}` }}
             </span>
           </span>

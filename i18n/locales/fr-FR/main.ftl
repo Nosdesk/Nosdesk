@@ -3185,6 +3185,11 @@ asset-usage-record-on-hand = on hand
 asset-usage-record-quantity-placeholder = Quantity ({ $unit })
 asset-usage-record-notes-placeholder = Notes (optional)
 asset-usage-record-submit = Record
+
+# Phase H — restock affordance on the asset usage panel.
+asset-usage-record-submit-usage-title = Record consumption (decrement stock)
+asset-usage-record-submit-restock = + Restock
+asset-usage-record-submit-restock-title = Record restock (increment stock)
 asset-usage-record-failed = Failed to record usage
 
 # Asset detail: stock tracking section + low-stock indicator (Phase G).

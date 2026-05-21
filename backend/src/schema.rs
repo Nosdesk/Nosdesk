@@ -176,6 +176,8 @@ diesel::table! {
         recorded_by -> Nullable<Uuid>,
         recorded_at -> Timestamptz,
         notes -> Nullable<Text>,
+        #[max_length = 16]
+        event_kind -> Varchar,
     }
 }
 

@@ -29,11 +29,21 @@ pub struct RecordUsageBody {
     /// wire format is text.
     pub quantity_used: String,
     /// Optional tie-in to a ticket. If absent, the row is an
-    /// ad-hoc consumption (restock audit, write-off).
+    /// ad-hoc event (restock, write-off).
     #[serde(default)]
     pub ticket_id: Option<i32>,
     #[serde(default)]
     pub notes: Option<String>,
+    /// Direction discriminator. `"usage"` (default) decrements
+    /// the asset's on-hand quantity; `"restock"` increments it.
+    /// Unknown values are rejected at the handler boundary so
+    /// the DB CHECK never has to be the only validator.
+    #[serde(default = "default_event_kind")]
+    pub kind: String,
+}
+
+fn default_event_kind() -> String {
+    "usage".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,6 +81,13 @@ pub async fn record(
 
     let asset_id = path.into_inner();
     let body = body.into_inner();
+
+    // Validate the event kind at the handler boundary. The DB
+    // CHECK also catches bad values, but a clean 422 here is
+    // friendlier than a 500.
+    if body.kind != "usage" && body.kind != "restock" {
+        return errors::bad_request("kind must be 'usage' or 'restock'");
+    }
 
     // Parse and bounds-check the quantity. Decimal-string in,
     // BigDecimal out; reject zero / negative immediately because
@@ -129,9 +146,10 @@ pub async fn record(
             let trimmed = s.trim();
             (!trimmed.is_empty()).then(|| trimmed.to_string())
         }),
+        event_kind: body.kind,
     };
 
-    match repo::record_usage(&mut conn, new_usage) {
+    match repo::record_event(&mut conn, new_usage) {
         Ok(outcome) => {
             if outcome.crossed_low_stock {
                 if let Some(threshold) = outcome.threshold.as_ref() {

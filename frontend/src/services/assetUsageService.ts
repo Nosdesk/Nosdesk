@@ -2,7 +2,10 @@ import apiClient from './apiConfig'
 
 /** One ledger row from the asset usage log. Decimal fields are
  *  serialised as strings to avoid lossy f64 round-tripping
- *  (NUMERIC(12,3) on the backend). */
+ *  (NUMERIC(12,3) on the backend). Direction lives in
+ *  `event_kind`: `'usage'` decremented the asset's quantity,
+ *  `'restock'` incremented it. `quantity_used` is the magnitude
+ *  either way. */
 export interface AssetUsage {
   id: number
   asset_id: number
@@ -13,15 +16,18 @@ export interface AssetUsage {
   recorded_by: string | null
   recorded_at: string
   notes: string | null
+  event_kind: 'usage' | 'restock'
 }
 
 export interface RecordAssetUsageBody {
   /** Decimal-as-string. Backend rejects non-positive values. */
   quantity_used: string
-  /** Optional. Omit for ad-hoc consumption (restock audits,
+  /** Optional. Omit for ad-hoc events (restock receipts,
    *  write-offs); set for ticket-driven usage. */
   ticket_id?: number | null
   notes?: string | null
+  /** Direction. Defaults to 'usage' on the wire. */
+  kind?: 'usage' | 'restock'
 }
 
 export const assetUsageService = {

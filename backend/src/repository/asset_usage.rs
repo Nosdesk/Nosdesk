@@ -16,44 +16,45 @@ use crate::db::DbConnection;
 use crate::models::{AssetUsage, NewAssetUsage};
 use crate::schema::{asset_usage_log, assets};
 
-/// Outcome of a successful usage record. Carries the inserted
-/// row plus enough post-decrement context for the handler to
-/// decide whether to emit an `asset.low_stock` SSE event without
-/// having to re-query the asset.
+/// Outcome of a successful ledger event. Carries the inserted
+/// row plus enough post-write context for the handler to decide
+/// whether to emit an `asset.low_stock` SSE event without having
+/// to re-query the asset.
 #[derive(Debug, Clone)]
 pub struct RecordUsageOutcome {
     pub row: AssetUsage,
     pub asset_name: String,
     pub new_quantity: BigDecimal,
     pub threshold: Option<BigDecimal>,
-    /// True iff the asset has a configured `low_stock_threshold`
-    /// and the decrement crossed it (pre-decrement quantity was
-    /// strictly above the threshold, post-decrement quantity is
-    /// at or below it). Hovers in the "edge-detect" semantic so
-    /// every usage entry below the threshold doesn't re-fire the
-    /// alert.
+    /// True iff this was a `usage` event, the asset has a
+    /// configured `low_stock_threshold`, and the decrement
+    /// edge-crossed it (pre-write quantity above the threshold,
+    /// post-write quantity at or below). Restock events never
+    /// cross downward into the alert zone.
     pub crossed_low_stock: bool,
 }
 
-/// Insert a usage row and decrement the asset's on-hand
-/// quantity in the same transaction. Returns the inserted row
-/// plus low-stock crossing telemetry.
+/// Insert a ledger row and adjust the asset's on-hand quantity
+/// in the same transaction. Direction is taken from
+/// `new_usage.event_kind`: `"usage"` decrements, `"restock"`
+/// increments. Returns the inserted row plus low-stock crossing
+/// telemetry (only meaningful for the usage path).
 ///
 /// Caller is responsible for verifying that `assets.quantity IS
 /// NOT NULL` before calling; this fn assumes the row is stock-
-/// tracked and unconditionally decrements. The decrement is
-/// allowed to drive `quantity` below zero (we don't refuse a
-/// usage event on overdraw, the admin needs to see the negative
-/// to know they have an inventory discrepancy).
+/// tracked. The usage decrement is allowed to drive `quantity`
+/// below zero (we don't refuse on overdraw, the admin needs to
+/// see the negative to know they have an inventory discrepancy).
 // sync-pending-wire: emit fires inside the handler so the sync_action carries the joined ticket + asset display fields the frontend needs; see handlers::asset_usage::record
-pub fn record_usage(
+pub fn record_event(
     conn: &mut DbConnection,
     new_usage: NewAssetUsage,
 ) -> QueryResult<RecordUsageOutcome> {
-    let qty = new_usage.quantity_used.clone();
+    let magnitude = new_usage.quantity_used.clone();
     let asset_id = new_usage.asset_id;
+    let is_usage = new_usage.event_kind == "usage";
     conn.transaction::<RecordUsageOutcome, Error, _>(|conn| {
-        // Snapshot the pre-decrement quantity + name + threshold
+        // Snapshot the pre-write quantity + name + threshold
         // inside the transaction so the crossing check sees a
         // consistent view of the row. Locking unnecessary at
         // READ COMMITTED here because Postgres serialises the
@@ -67,7 +68,11 @@ pub fn record_usage(
         // tolerate the NULL case as a defensive default of zero
         // for the crossing calc rather than panicking.
         let pre = pre_qty.unwrap_or_else(|| BigDecimal::from(0));
-        let new_qty = &pre - &qty;
+        let new_qty = if is_usage {
+            &pre - &magnitude
+        } else {
+            &pre + &magnitude
+        };
 
         let row: AssetUsage = diesel::insert_into(asset_usage_log::table)
             .values(&new_usage)
@@ -76,12 +81,17 @@ pub fn record_usage(
             .set(assets::quantity.eq(&new_qty))
             .execute(conn)?;
 
-        // Edge-detect crossing: was above threshold, now at or
-        // below it. If the asset started below the threshold,
-        // recording further usage doesn't re-fire the alert.
-        let crossed = match threshold.as_ref() {
-            Some(t) => &pre > t && &new_qty <= t,
-            None => false,
+        // Edge-detect crossing only on the usage path. Restock
+        // never trips the low-stock alert downward; a "stock
+        // recovered" event might be useful in the future but
+        // isn't on the wire yet.
+        let crossed = if is_usage {
+            match threshold.as_ref() {
+                Some(t) => &pre > t && &new_qty <= t,
+                None => false,
+            }
+        } else {
+            false
         };
 
         Ok(RecordUsageOutcome {
