@@ -567,7 +567,12 @@ onMounted(() => {
             <!-- Usage history (stock-tracked assets only) -->
             <SectionCard v-if="!isCreationMode && device?.quantity != null" content-padding="p-4">
               <template #title>{{ $t('asset-usage-history-heading') }}</template>
-              <AssetUsageHistory :asset-id="device!.id" />
+              <AssetUsageHistory
+                :asset-id="device!.id"
+                :unit="device!.unit"
+                :current-quantity="device!.quantity"
+                @recorded="fetchDeviceData"
+              />
             </SectionCard>
 
             <!-- Plugin panels for device info -->

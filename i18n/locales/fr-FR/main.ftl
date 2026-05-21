@@ -3179,6 +3179,14 @@ asset-usage-history-loading = Loading…
 asset-usage-history-ticket-link = Ticket #{ $id }
 asset-usage-history-ad-hoc = Ad-hoc consumption
 
+# Asset detail: ad-hoc consumption recording (AssetUsageHistory record form).
+asset-usage-record-heading = Record consumption
+asset-usage-record-on-hand = on hand
+asset-usage-record-quantity-placeholder = Quantity ({ $unit })
+asset-usage-record-notes-placeholder = Notes (optional)
+asset-usage-record-submit = Record
+asset-usage-record-failed = Failed to record usage
+
 # Ticket : tickets liés (TicketLinkedTicketsField).
 ticket-field-linked-tickets-label = Tickets liés
 ticket-field-linked-tickets-add = Lier un ticket
