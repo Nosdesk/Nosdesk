@@ -17,6 +17,7 @@ pub enum NotificationTypeCode {
     Mentioned,
     TicketCreatedRequester,
     DocPageUpdated,
+    AssetLowStock,
 }
 
 impl NotificationTypeCode {
@@ -28,6 +29,7 @@ impl NotificationTypeCode {
             Self::Mentioned => "mentioned",
             Self::TicketCreatedRequester => "ticket_created_requester",
             Self::DocPageUpdated => "doc_page_updated",
+            Self::AssetLowStock => "asset_low_stock",
         }
     }
 
@@ -39,6 +41,7 @@ impl NotificationTypeCode {
             "mentioned" => Some(Self::Mentioned),
             "ticket_created_requester" => Some(Self::TicketCreatedRequester),
             "doc_page_updated" => Some(Self::DocPageUpdated),
+            "asset_low_stock" => Some(Self::AssetLowStock),
             _ => None,
         }
     }
@@ -52,6 +55,7 @@ impl NotificationTypeCode {
             Self::Mentioned => "Mentioned",
             Self::TicketCreatedRequester => "Ticket Created",
             Self::DocPageUpdated => "Documentation Page Updated",
+            Self::AssetLowStock => "Low Stock Alert",
         }
     }
 }
@@ -102,6 +106,14 @@ pub enum NotificationEntity {
         title: String,
         slug: String,
     },
+    /// Stock-tracked asset. The notification metadata carries
+    /// the on-hand quantity at fire time, the configured
+    /// threshold, and the unit so the in-app drop and the email
+    /// can render a complete sentence without re-fetching.
+    Asset {
+        id: i32,
+        name: String,
+    },
 }
 
 impl NotificationEntity {
@@ -110,6 +122,7 @@ impl NotificationEntity {
             Self::Ticket { .. } => "ticket",
             Self::Comment { .. } => "comment",
             Self::DocumentationPage { .. } => "documentation_page",
+            Self::Asset { .. } => "asset",
         }
     }
 
@@ -118,15 +131,20 @@ impl NotificationEntity {
             Self::Ticket { id, .. } => *id,
             Self::Comment { id, .. } => *id,
             Self::DocumentationPage { id, .. } => *id,
+            Self::Asset { id, .. } => *id,
         }
     }
 
-    /// Get the ticket ID (for navigation)
+    /// Get the ticket ID (for navigation). Returns 0 for
+    /// entities that aren't ticket-shaped; the frontend treats
+    /// 0 as "no ticket link" and falls back to the entity's
+    /// own detail route.
     pub fn ticket_id(&self) -> i32 {
         match self {
             Self::Ticket { id, .. } => *id,
             Self::Comment { ticket_id, .. } => *ticket_id,
             Self::DocumentationPage { .. } => 0,
+            Self::Asset { .. } => 0,
         }
     }
 }

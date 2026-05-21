@@ -169,6 +169,9 @@ async function navigateToNotification(notification: Notification) {
     const slug = notification.metadata?.slug as string | undefined
     const pageId = (notification.metadata?.page_id as number | undefined) ?? notification.entity_id
     router.push(`/documentation/${slug || pageId}`)
+  } else if (notification.entity_type === 'asset') {
+    const assetId = (notification.metadata?.asset_id as number | undefined) ?? notification.entity_id
+    router.push(`/assets/${assetId}`)
   } else if (notification.entity_type === 'ticket' || notification.entity_type === 'comment') {
     const ticketId = (notification.metadata?.ticket_id as number | undefined) ?? notification.entity_id
     router.push(`/tickets/${ticketId}`)

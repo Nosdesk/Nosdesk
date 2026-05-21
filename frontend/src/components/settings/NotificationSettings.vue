@@ -25,6 +25,7 @@ const TYPE_KEY_SUFFIX: Record<string, string> = {
   mentioned: 'mentioned',
   ticket_created_requester: 'ticket-created-requester',
   doc_page_updated: 'doc-page-updated',
+  asset_low_stock: 'asset-low-stock',
 };
 
 const CHANNEL_KEY_SUFFIX: Record<string, string> = {

@@ -220,6 +220,10 @@ impl NotificationService {
                     map.insert("page_id".to_string(), serde_json::json!(id));
                     map.insert("slug".to_string(), serde_json::json!(slug));
                 }
+                NotificationEntity::Asset { id, name } => {
+                    map.insert("asset_id".to_string(), serde_json::json!(id));
+                    map.insert("asset_name".to_string(), serde_json::json!(name));
+                }
                 _ => {
                     map.insert(
                         "ticket_id".to_string(),
@@ -233,6 +237,12 @@ impl NotificationService {
                     serde_json::json!({
                         "page_id": id,
                         "slug": slug
+                    })
+                }
+                NotificationEntity::Asset { id, name } => {
+                    serde_json::json!({
+                        "asset_id": id,
+                        "asset_name": name,
                     })
                 }
                 _ => {

@@ -20,6 +20,10 @@ use crate::handlers::sse::{SseEvent, SseState};
 use crate::handlers::{errors, helpers};
 use crate::models::NewAssetUsage;
 use crate::repository::asset_usage as repo;
+use crate::services::notifications::types::{
+    NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
+};
+use crate::services::notifications::NotificationService;
 use crate::utils::rbac::is_technician_or_admin;
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +67,7 @@ pub async fn record(
     path: web::Path<i32>,
     body: web::Json<RecordUsageBody>,
     sse_state: web::Data<SseState>,
+    notification_service: web::Data<NotificationService>,
 ) -> impl Responder {
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(c) => c.clone(),
@@ -153,16 +158,64 @@ pub async fn record(
         Ok(outcome) => {
             if outcome.crossed_low_stock {
                 if let Some(threshold) = outcome.threshold.as_ref() {
+                    let threshold_str = threshold.to_string();
+                    let quantity_str = outcome.new_quantity.to_string();
+                    let asset_name = outcome.asset_name.clone();
+
                     sse_state
                         .broadcast_event(SseEvent::AssetLowStock {
                             device_id: asset_id,
-                            device_name: outcome.asset_name.clone(),
-                            quantity: outcome.new_quantity.to_string(),
-                            threshold: threshold.to_string(),
+                            device_name: asset_name.clone(),
+                            quantity: quantity_str.clone(),
+                            threshold: threshold_str.clone(),
                             unit: unit.clone(),
                             timestamp: chrono::Utc::now(),
                         })
                         .await;
+
+                    // Fan persistent notifications out to every
+                    // admin/technician who hasn't opted out. The
+                    // actor is the user who recorded the usage
+                    // event; the NotificationService self-skip
+                    // suppresses their own copy. Failure to
+                    // notify any recipient must not fail the
+                    // usage write, so errors are logged not
+                    // bubbled.
+                    let actor_uuid = recorded_by.unwrap_or_else(uuid::Uuid::nil);
+                    let actor_name = actor_name_for(&mut conn, actor_uuid)
+                        .unwrap_or_else(|| "System".to_string());
+                    let recipients = inventory_alert_recipients(&mut conn);
+
+                    let body = format!(
+                        "{} is low: {} {} remaining (threshold {} {}).",
+                        asset_name, quantity_str, unit, threshold_str, unit,
+                    );
+
+                    for recipient_uuid in recipients {
+                        let payload = NotificationPayload::new(
+                            NotificationTypeCode::AssetLowStock,
+                            recipient_uuid,
+                            NotificationActor {
+                                uuid: actor_uuid,
+                                name: actor_name.clone(),
+                                avatar_thumb: None,
+                            },
+                            NotificationEntity::Asset {
+                                id: asset_id,
+                                name: asset_name.clone(),
+                            },
+                        )
+                        .with_body(body.clone());
+
+                        if let Err(e) = notification_service.notify(payload).await {
+                            error!(
+                                asset_id,
+                                recipient = %recipient_uuid,
+                                error = %e,
+                                "Failed to deliver asset_low_stock notification",
+                            );
+                        }
+                    }
                 }
             }
             HttpResponse::Created().json(outcome.row)
@@ -223,4 +276,44 @@ pub async fn list_for_ticket(
             errors::internal("Failed to load usage history")
         }
     }
+}
+
+/// Look up the recipients for an inventory-level alert: every
+/// active admin or technician. Inventory management isn't a
+/// per-asset subscription model, those roles are who acts on
+/// low-stock signals.
+///
+/// Errors swallow to an empty list rather than failing the
+/// usage write that triggered the notification; we'd rather a
+/// degraded notification path than a refused usage record.
+fn inventory_alert_recipients(conn: &mut crate::db::DbConnection) -> Vec<uuid::Uuid> {
+    use crate::models::UserRole;
+    use crate::schema::users;
+    use diesel::prelude::*;
+    let res: Result<Vec<uuid::Uuid>, diesel::result::Error> = users::table
+        .filter(users::role.eq_any(vec![UserRole::Admin, UserRole::Technician]))
+        .filter(users::deleted_at.is_null())
+        .select(users::uuid)
+        .load(conn);
+    res.unwrap_or_else(|e| {
+        error!(error = %e, "failed to load inventory alert recipients");
+        Vec::new()
+    })
+}
+
+/// Resolve the actor's display name for the notification
+/// payload. Returns None when the actor is the nil UUID or the
+/// lookup fails; the caller falls back to "System" for that
+/// case so the notification still renders coherently.
+fn actor_name_for(conn: &mut crate::db::DbConnection, actor: uuid::Uuid) -> Option<String> {
+    use crate::schema::users;
+    use diesel::prelude::*;
+    if actor.is_nil() {
+        return None;
+    }
+    users::table
+        .find(actor)
+        .select(users::name)
+        .first::<String>(conn)
+        .ok()
 }

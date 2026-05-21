@@ -95,6 +95,7 @@ notif-comment-added = [{ $app }] New comment on: { $title }
 notif-mentioned = [{ $app }] { $actor } mentioned you
 notif-ticket-created-requester = [{ $app }] Ticket created: { $title }
 notif-doc-page-updated = [{ $app }] Page updated: { $title }
+notif-asset-low-stock = [{ $app }] Low stock: { $title }
 # Notification email body. The user-authored payload (`body`)
 # stays verbatim, escaped at the Rust boundary. Only the
 # connector copy below gets translated.
@@ -2660,6 +2661,8 @@ settings-notifications-type-ticket-created-requester-name = Ticket Created
 settings-notifications-type-ticket-created-requester-description = When a ticket is created on your behalf
 settings-notifications-type-doc-page-updated-name = Page Updated
 settings-notifications-type-doc-page-updated-description = When a documentation page you subscribe to is modified
+settings-notifications-type-asset-low-stock-name = Low Stock Alert
+settings-notifications-type-asset-low-stock-description = When a stock-tracked asset drops to or below its configured low-stock threshold
 settings-notifications-browser-banner-title = Enable Browser Notifications
 settings-notifications-browser-banner-description = Allow browser notifications to receive alerts even when the app isn't in focus.
 settings-notifications-browser-banner-enable = Enable Notifications

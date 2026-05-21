@@ -53,6 +53,7 @@ notif-comment-added = [{ $app }] Nieuwe reactie: { $title }
 notif-mentioned = [{ $app }] { $actor } heeft u genoemd
 notif-ticket-created-requester = [{ $app }] Ticket aangemaakt: { $title }
 notif-doc-page-updated = [{ $app }] Pagina bijgewerkt: { $title }
+notif-asset-low-stock = [{ $app }] Low stock: { $title }
 # Notification email body.
 notif-body-fallback = U hebt een nieuwe melding.
 notif-from-row = <strong>Van:</strong> { $actor }
@@ -2603,6 +2604,8 @@ settings-notifications-type-ticket-created-requester-name = Ticket aangemaakt
 settings-notifications-type-ticket-created-requester-description = Wanneer een ticket namens u wordt aangemaakt
 settings-notifications-type-doc-page-updated-name = Pagina bijgewerkt
 settings-notifications-type-doc-page-updated-description = Wanneer een documentatiepagina waarop u bent geabonneerd wordt gewijzigd
+settings-notifications-type-asset-low-stock-name = Low Stock Alert
+settings-notifications-type-asset-low-stock-description = When a stock-tracked asset drops to or below its configured low-stock threshold
 settings-notifications-browser-banner-title = Browsermeldingen inschakelen
 settings-notifications-browser-banner-description = Sta browsermeldingen toe om waarschuwingen te ontvangen, ook als de app niet actief is.
 settings-notifications-browser-banner-enable = Meldingen inschakelen

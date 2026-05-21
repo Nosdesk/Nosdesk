@@ -56,6 +56,7 @@ notif-comment-added = [{ $app }] Nouveau commentaire : { $title }
 notif-mentioned = [{ $app }] { $actor } vous a mentionné
 notif-ticket-created-requester = [{ $app }] Ticket créé : { $title }
 notif-doc-page-updated = [{ $app }] Page mise à jour : { $title }
+notif-asset-low-stock = [{ $app }] Low stock: { $title }
 # Notification email body.
 notif-body-fallback = Vous avez une nouvelle notification.
 notif-from-row = <strong>De :</strong> { $actor }
@@ -2612,6 +2613,8 @@ settings-notifications-type-ticket-created-requester-name = Ticket créé
 settings-notifications-type-ticket-created-requester-description = Lorsqu'un ticket est créé en votre nom
 settings-notifications-type-doc-page-updated-name = Page mise à jour
 settings-notifications-type-doc-page-updated-description = Lorsqu'une page de documentation à laquelle vous êtes abonné est modifiée
+settings-notifications-type-asset-low-stock-name = Low Stock Alert
+settings-notifications-type-asset-low-stock-description = When a stock-tracked asset drops to or below its configured low-stock threshold
 settings-notifications-browser-banner-title = Activer les notifications du navigateur
 settings-notifications-browser-banner-description = Autorisez les notifications du navigateur pour recevoir des alertes même lorsque l'application n'est pas active.
 settings-notifications-browser-banner-enable = Activer les notifications

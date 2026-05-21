@@ -67,6 +67,9 @@ impl EmailChannel {
                 title,
                 ..
             } => title.clone(),
+            crate::services::notifications::types::NotificationEntity::Asset { name, .. } => {
+                name.clone()
+            }
         };
 
         let key = match notification.payload.notification_type {
@@ -76,6 +79,7 @@ impl EmailChannel {
             NotificationTypeCode::Mentioned => "notif-mentioned",
             NotificationTypeCode::TicketCreatedRequester => "notif-ticket-created-requester",
             NotificationTypeCode::DocPageUpdated => "notif-doc-page-updated",
+            NotificationTypeCode::AssetLowStock => "notif-asset-low-stock",
         };
 
         // Pass every possible arg; Fluent silently ignores unused
@@ -99,6 +103,9 @@ impl EmailChannel {
                 ..
             } => {
                 format!("{}/documentation/{}", self.base_url, slug)
+            }
+            crate::services::notifications::types::NotificationEntity::Asset { id, .. } => {
+                format!("{}/assets/{}", self.base_url, id)
             }
             _ => {
                 let ticket_id = notification.payload.entity.ticket_id();
