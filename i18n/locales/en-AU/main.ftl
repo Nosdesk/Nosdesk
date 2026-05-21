@@ -3196,6 +3196,13 @@ asset-detail-field-unit-placeholder = e.g. m, L, pcs
 asset-detail-field-low-stock-threshold = Low-stock threshold
 asset-detail-field-low-stock-threshold-placeholder = e.g. 5
 asset-detail-field-low-stock-threshold-help = Show a warning and broadcast an event when stock falls to or below this value.
+
+# Editable kind / attributes affordance on existing assets.
+asset-detail-attributes-save = Save attributes
+asset-detail-attributes-discard = Discard
+asset-detail-attributes-save-failed = Failed to save attributes
+asset-detail-kind-change-confirm = Change kind to { $newKind }? Current attributes will be cleared, you can re-enter them against the new kind schema.
+asset-detail-kind-change-failed = Failed to change kind
 asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (threshold { $threshold }).
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).

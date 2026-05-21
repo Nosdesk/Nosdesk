@@ -89,6 +89,104 @@ const fromTicket = computed(() =>
 
 const isSynced = computed(() => device.value != null && !device.value.is_editable);
 
+/** Kind picker + attribute form are editable in creation mode
+ *  for any user, and in edit mode only when the row isn't owned
+ *  by an external sync. Synced rows (Intune, Entra) stay locked
+ *  because the next sync run would overwrite any manual edit. */
+const isKindOrAttributesEditable = computed(
+  () => isCreationMode.value || (device.value?.is_editable ?? false),
+);
+
+/** Attribute draft drifts from the saved value as the admin
+ *  types in the dynamic form. Comparing the JSON serialisation
+ *  is fine for the attribute payloads we ship (small,
+ *  deterministic key ordering since the form rebuilds the
+ *  object from the schema each time). */
+const attributesDirty = computed(() => {
+  if (!device.value) return false;
+  return (
+    JSON.stringify(attributeDraft.value) !==
+    JSON.stringify(device.value.attributes ?? {})
+  );
+});
+
+const kindChangeError = ref<string | null>(null);
+const attributesError = ref<string | null>(null);
+
+/** Persist the attribute draft against the existing kind. Used
+ *  by the Save attributes button in edit mode. */
+async function saveAttributes() {
+  if (!device.value || !attributesDirty.value) return;
+  isSaving.value = true;
+  attributesError.value = null;
+  try {
+    const updated = await updateDevice(device.value.id, {
+      attributes: attributeDraft.value,
+    });
+    device.value = { ...device.value, ...updated };
+    attributeDraft.value = { ...(updated.attributes ?? {}) };
+  } catch (err) {
+    const e = err as { response?: { data?: { error?: string } } };
+    attributesError.value =
+      e?.response?.data?.error ??
+      (err instanceof Error ? err.message : t('asset-detail-attributes-save-failed'));
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+function discardAttributes() {
+  if (!device.value) return;
+  attributeDraft.value = { ...(device.value.attributes ?? {}) };
+  attributesError.value = null;
+}
+
+/** Kind change is a bigger commit than a single field update:
+ *  it almost certainly invalidates the row's current attributes
+ *  (different schemas, different required keys). We require an
+ *  explicit confirm, clear attributes to {} on save, and let
+ *  the admin re-enter them against the new kind's schema. */
+async function onKindPickerChange() {
+  if (!device.value) return;
+  if (isCreationMode.value) {
+    // Creation flow: kind/attributes get sent together on
+    // saveDevice; no per-change save here.
+    return;
+  }
+  const newSlug = selectedKindSlug.value;
+  const currentSlug = device.value.kind ?? 'generic';
+  if (newSlug === currentSlug) return;
+
+  const confirmed = window.confirm(
+    t('asset-detail-kind-change-confirm', {
+      newKind: kinds.value.find((k) => k.slug === newSlug)?.label ?? newSlug,
+    }),
+  );
+  if (!confirmed) {
+    selectedKindSlug.value = currentSlug;
+    return;
+  }
+
+  isSaving.value = true;
+  kindChangeError.value = null;
+  try {
+    const updated = await updateDevice(device.value.id, {
+      kind: newSlug,
+      attributes: {},
+    });
+    device.value = { ...device.value, ...updated };
+    attributeDraft.value = { ...(updated.attributes ?? {}) };
+  } catch (err) {
+    const e = err as { response?: { data?: { error?: string } } };
+    kindChangeError.value =
+      e?.response?.data?.error ??
+      (err instanceof Error ? err.message : t('asset-detail-kind-change-failed'));
+    selectedKindSlug.value = currentSlug;
+  } finally {
+    isSaving.value = false;
+  }
+}
+
 // Data fetching
 const fetchDeviceData = async () => {
   try {
@@ -371,9 +469,11 @@ onMounted(() => {
 
         <!-- Kind picker + dynamic attribute form. In creation
              mode the admin chooses the kind and fills in any
-             per-kind attributes; in edit mode we show a
-             read-only summary so the kind is visible without
-             surfacing an edit affordance we don't yet support. -->
+             per-kind attributes; in edit mode for editable
+             rows, both the picker and the attribute form remain
+             writable. Externally synced rows (Intune, Entra)
+             stay read-only because the next sync would
+             overwrite manual edits anyway. -->
         <SectionCard v-if="kinds.length > 0" content-padding="p-4">
           <template #title>{{ $t('asset-detail-section-kind') }}</template>
           <div class="flex flex-col gap-4">
@@ -382,9 +482,10 @@ onMounted(() => {
                 {{ $t('asset-detail-field-kind') }}
               </h3>
               <select
-                v-if="isCreationMode"
+                v-if="isKindOrAttributesEditable"
                 v-model="selectedKindSlug"
                 class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary"
+                @change="onKindPickerChange"
               >
                 <option v-for="k in kinds" :key="k.slug" :value="k.slug">
                   {{ k.label }}
@@ -396,13 +497,40 @@ onMounted(() => {
               <p v-if="selectedKind?.description" class="text-xs text-tertiary">
                 {{ selectedKind.description }}
               </p>
+              <p v-if="kindChangeError" class="text-xs text-status-error">
+                {{ kindChangeError }}
+              </p>
             </div>
             <DynamicAttributeForm
               v-if="selectedKindSchema"
               :schema="selectedKindSchema"
               v-model="attributeDraft"
-              :disabled="!isCreationMode"
+              :disabled="!isKindOrAttributesEditable"
             />
+            <div
+              v-if="!isCreationMode && isKindOrAttributesEditable && attributesDirty"
+              class="flex items-center gap-2 pt-2"
+            >
+              <button
+                type="button"
+                class="px-3 py-1.5 text-sm rounded-lg bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-50"
+                :disabled="isSaving"
+                @click="saveAttributes"
+              >
+                {{ $t('asset-detail-attributes-save') }}
+              </button>
+              <button
+                type="button"
+                class="px-3 py-1.5 text-sm rounded-lg border border-default text-secondary hover:text-primary"
+                :disabled="isSaving"
+                @click="discardAttributes"
+              >
+                {{ $t('asset-detail-attributes-discard') }}
+              </button>
+              <p v-if="attributesError" class="text-xs text-status-error ml-2">
+                {{ attributesError }}
+              </p>
+            </div>
           </div>
         </SectionCard>
 
