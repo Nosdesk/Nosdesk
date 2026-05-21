@@ -16,6 +16,7 @@ use std::str::FromStr;
 use tracing::error;
 
 use crate::db::Pool;
+use crate::handlers::sse::{SseEvent, SseState};
 use crate::handlers::{errors, helpers};
 use crate::models::NewAssetUsage;
 use crate::repository::asset_usage as repo;
@@ -51,6 +52,7 @@ pub async fn record(
     pool: web::Data<Pool>,
     path: web::Path<i32>,
     body: web::Json<RecordUsageBody>,
+    sse_state: web::Data<SseState>,
 ) -> impl Responder {
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(c) => c.clone(),
@@ -121,7 +123,7 @@ pub async fn record(
         asset_id,
         ticket_id: body.ticket_id,
         quantity_used: quantity,
-        unit,
+        unit: unit.clone(),
         recorded_by,
         notes: body.notes.and_then(|s| {
             let trimmed = s.trim();
@@ -130,7 +132,23 @@ pub async fn record(
     };
 
     match repo::record_usage(&mut conn, new_usage) {
-        Ok(row) => HttpResponse::Created().json(row),
+        Ok(outcome) => {
+            if outcome.crossed_low_stock {
+                if let Some(threshold) = outcome.threshold.as_ref() {
+                    sse_state
+                        .broadcast_event(SseEvent::AssetLowStock {
+                            device_id: asset_id,
+                            device_name: outcome.asset_name.clone(),
+                            quantity: outcome.new_quantity.to_string(),
+                            threshold: threshold.to_string(),
+                            unit: unit.clone(),
+                            timestamp: chrono::Utc::now(),
+                        })
+                        .await;
+                }
+            }
+            HttpResponse::Created().json(outcome.row)
+        }
         Err(DieselError::DatabaseError(
             diesel::result::DatabaseErrorKind::ForeignKeyViolation,
             _,

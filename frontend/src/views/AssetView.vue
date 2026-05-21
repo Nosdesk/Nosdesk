@@ -48,6 +48,9 @@ const editValues = ref({
   location: '',
   purchase_date: '' as string,
   asset_tag: '' as string,
+  quantity: '' as string,
+  unit: '' as string,
+  low_stock_threshold: '' as string,
 });
 
 // Asset-kind registry state. Loaded eagerly on mount so the
@@ -97,6 +100,7 @@ const fetchDeviceData = async () => {
         name: '', manufacturer: '', model: '',
         serial_number: '', location: '',
         purchase_date: '', asset_tag: '',
+        quantity: '', unit: '', low_stock_threshold: '',
       };
       emit('update:device', null);
       loading.value = false;
@@ -121,6 +125,9 @@ const fetchDeviceData = async () => {
       location: device.value.location || '',
       purchase_date: device.value.purchase_date || '',
       asset_tag: device.value.asset_tag || '',
+      quantity: device.value.quantity ?? '',
+      unit: device.value.unit ?? '',
+      low_stock_threshold: device.value.low_stock_threshold ?? '',
     };
     // Hydrate the kind picker and attribute draft so the kind
     // section + DynamicAttributeForm render the row's actual
@@ -155,6 +162,44 @@ const saveField = async (field: keyof typeof editValues.value) => {
     isSaving.value = false;
   }
 };
+
+/** Inline-edit a stock-tracking field (quantity, unit, or
+ *  low_stock_threshold). Empty input is omitted from the PATCH
+ *  body so the backend leaves the column untouched, since the
+ *  Diesel AsChangeset can't distinguish "absent" from "null"
+ *  without a serde double-Option helper. Clearing a value back
+ *  to NULL isn't supported through this surface; admins who need
+ *  that should use the API directly. */
+const saveStockField = async (field: 'quantity' | 'unit' | 'low_stock_threshold') => {
+  if (!device.value) return;
+  const raw = editValues.value[field].trim();
+  if (raw === '') {
+    editValues.value[field] = (device.value[field] as string | null | undefined) ?? '';
+    return;
+  }
+  try {
+    isSaving.value = true;
+    const updatedDevice = await updateDevice(device.value.id, { [field]: raw });
+    device.value = { ...device.value, ...updatedDevice };
+  } catch (err) {
+    console.error('Error saving stock field:', err);
+    editValues.value[field] = (device.value[field] as string | null | undefined) ?? '';
+  } finally {
+    isSaving.value = false;
+  }
+};
+
+/** Derived low-stock flag for the warning row on AssetView. The
+ *  backend is the source of truth for the SSE crossing event;
+ *  this is a UI-only paint, OK to use parseFloat as a quick
+ *  comparison since both strings come from the same NUMERIC(12,3)
+ *  column. */
+const isLowStock = computed(() => {
+  const q = device.value?.quantity;
+  const t = device.value?.low_stock_threshold;
+  if (q == null || t == null) return false;
+  return parseFloat(q) <= parseFloat(t);
+});
 
 // Asset creation
 const saveDevice = async () => {
@@ -563,6 +608,68 @@ onMounted(() => {
 
             <!-- Groups (edit mode only) -->
             <DeviceGroups v-if="!isCreationMode && device" :groups="device.groups" />
+
+            <!-- Stock tracking (editable assets only). Surfaces
+                 the three columns that drive consumable usage:
+                 quantity (on-hand count), unit (label), and the
+                 optional low_stock_threshold. -->
+            <SectionCard v-if="!isCreationMode && device?.is_editable" content-padding="p-4">
+              <template #title>{{ $t('asset-detail-section-stock') }}</template>
+
+              <div class="flex flex-col gap-4">
+                <div v-if="isLowStock" class="flex items-center gap-2 px-3 py-2 bg-status-warning/10 text-status-warning rounded-lg text-sm">
+                  <Icon name="warning" />
+                  <span>{{ $t('asset-detail-low-stock-warning', { quantity: device!.quantity!, unit: device!.unit ?? '', threshold: device!.low_stock_threshold! }) }}</span>
+                </div>
+
+                <div class="flex flex-col gap-2">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
+                    {{ $t('asset-detail-field-quantity') }}
+                  </h3>
+                  <input
+                    v-model="editValues.quantity"
+                    type="text"
+                    inputmode="decimal"
+                    :placeholder="$t('asset-detail-field-quantity-placeholder')"
+                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
+                    @blur="saveStockField('quantity')"
+                    @keyup.enter="saveStockField('quantity')"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-2">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
+                    {{ $t('asset-detail-field-unit') }}
+                  </h3>
+                  <input
+                    v-model="editValues.unit"
+                    type="text"
+                    :placeholder="$t('asset-detail-field-unit-placeholder')"
+                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
+                    @blur="saveStockField('unit')"
+                    @keyup.enter="saveStockField('unit')"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-2">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
+                    {{ $t('asset-detail-field-low-stock-threshold') }}
+                  </h3>
+                  <input
+                    v-model="editValues.low_stock_threshold"
+                    type="text"
+                    inputmode="decimal"
+                    :placeholder="$t('asset-detail-field-low-stock-threshold-placeholder')"
+                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
+                    @blur="saveStockField('low_stock_threshold')"
+                    @keyup.enter="saveStockField('low_stock_threshold')"
+                  />
+                  <p class="text-xs text-tertiary">
+                    {{ $t('asset-detail-field-low-stock-threshold-help') }}
+                  </p>
+                </div>
+              </div>
+            </SectionCard>
 
             <!-- Usage history (stock-tracked assets only) -->
             <SectionCard v-if="!isCreationMode && device?.quantity != null" content-padding="p-4">

@@ -166,6 +166,10 @@ impl WebhookEventType {
             SseEvent::UserRestored { .. } => None,
             // Internal events not exposed to webhooks
             SseEvent::CollectionUpdated { .. } => None,
+            // Low-stock fires after a transactional decrement and is
+            // an in-app UX signal; webhook consumers already see
+            // the parent `asset.updated` for the quantity write.
+            SseEvent::AssetLowStock { .. } => None,
             SseEvent::Heartbeat { .. } => None,
             SseEvent::ViewersChanged { .. } => None,
             SseEvent::TicketFieldPreviewed { .. } => None,

@@ -84,6 +84,19 @@ pub enum SseEvent {
         device_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// Emitted after a usage decrement that drops a stock-tracked
+    /// asset's quantity to at-or-below its configured
+    /// `low_stock_threshold`, having been above it before the
+    /// decrement. Carries the new quantity + threshold + unit so
+    /// the frontend can render a toast without re-fetching.
+    AssetLowStock {
+        device_id: i32,
+        device_name: String,
+        quantity: String,
+        threshold: String,
+        unit: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     ProjectAssigned {
         ticket_id: i32,
         project_id: i32,
@@ -231,6 +244,7 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::AssetCreated { .. } => "asset-created",
         SseEvent::AssetUpdated { .. } => "asset-updated",
         SseEvent::AssetDeleted { .. } => "asset-deleted",
+        SseEvent::AssetLowStock { .. } => "asset-low-stock",
         SseEvent::ProjectAssigned { .. } => "project-assigned",
         SseEvent::ProjectUnassigned { .. } => "project-unassigned",
         SseEvent::TicketLinked { .. } => "ticket-linked",

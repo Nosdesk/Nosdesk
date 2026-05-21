@@ -42,6 +42,7 @@ fn asset_sync_payload(device: &Asset) -> serde_json::Value {
         "quantity": device.quantity,
         "unit": device.unit,
         "external_sync_source": device.external_sync_source,
+        "low_stock_threshold": device.low_stock_threshold,
     })
 }
 
@@ -353,6 +354,7 @@ mod tests {
             quantity: None,
             unit: None,
             external_sync_source: None,
+            low_stock_threshold: None,
         }
     }
 

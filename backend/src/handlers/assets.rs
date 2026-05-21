@@ -100,6 +100,7 @@ pub struct AssetResponse {
     pub quantity: Option<String>,
     pub unit: Option<String>,
     pub external_sync_source: Option<String>,
+    pub low_stock_threshold: Option<String>,
     pub primary_user: Option<UserInfo>,
     pub groups: Vec<GroupInfo>,
     pub is_editable: bool,
@@ -174,6 +175,7 @@ impl AssetResponse {
             quantity: device.quantity.as_ref().map(|q| q.to_string()),
             unit: device.unit,
             external_sync_source: device.external_sync_source,
+            low_stock_threshold: device.low_stock_threshold.as_ref().map(|q| q.to_string()),
             is_editable,
             primary_user: user.map(|u| {
                 let name = u.name.clone();

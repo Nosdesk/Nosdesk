@@ -16,6 +16,7 @@ import { useCrtEffect } from '@/composables/useCrtEffect'
 import { useSnowfall } from '@/composables/useSnowfall'
 import { useFavicon } from '@/composables/useFavicon'
 import { useNotificationSSE } from '@/composables/useNotificationSSE'
+import { useLowStockSSE } from '@/composables/useLowStockSSE'
 import { useTicketDeletionCleanup } from '@/composables/useTicketDeletionCleanup'
 import { setMentionNavigationHandler } from '@/plugins/prosemirror-mention-view'
 import authService from '@/services/authService'
@@ -80,6 +81,8 @@ useSnowfall();         // Christmas: Ambient falling snow
 
 // Real-time notification handling
 useNotificationSSE();
+// Warning toast on the asset.low_stock SSE event.
+useLowStockSSE();
 // App-level SSE listener that wipes local artefacts (collab IDB
 // cache, comment draft, pending attachments) for any ticket the
 // server announces as deleted, see useTicketDeletionCleanup.

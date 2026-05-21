@@ -841,6 +841,14 @@ pub struct Asset {
     /// rows so admins don't make changes that the next sync
     /// will overwrite.
     pub external_sync_source: Option<String>,
+    /// Optional low-stock threshold. When set on a
+    /// stock-tracked asset (i.e. `quantity` is also Some), a
+    /// current `quantity` at or below this value flags the
+    /// asset as low-stock in the UI and emits an
+    /// `asset.low_stock` SSE event after each usage decrement
+    /// that crosses the threshold. NULL means "not configured"
+    /// (no alerting).
+    pub low_stock_threshold: Option<bigdecimal::BigDecimal>,
 }
 
 /// Default kind for callers that omit `kind` from the JSON
@@ -881,6 +889,8 @@ pub struct NewAsset {
     pub unit: Option<String>,
     #[serde(default)]
     pub external_sync_source: Option<String>,
+    #[serde(default)]
+    pub low_stock_threshold: Option<bigdecimal::BigDecimal>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -901,6 +911,7 @@ pub struct AssetUpdate {
     pub quantity: Option<Option<bigdecimal::BigDecimal>>,
     pub unit: Option<Option<String>>,
     pub external_sync_source: Option<Option<String>>,
+    pub low_stock_threshold: Option<Option<bigdecimal::BigDecimal>>,
 }
 
 /// Runtime-extensible asset-kind registry. `slug` is the value

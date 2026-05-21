@@ -161,6 +161,7 @@ diesel::table! {
         unit -> Nullable<Varchar>,
         #[max_length = 32]
         external_sync_source -> Nullable<Varchar>,
+        low_stock_threshold -> Nullable<Numeric>,
     }
 }
 

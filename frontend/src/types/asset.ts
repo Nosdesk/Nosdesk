@@ -29,6 +29,10 @@ export interface Asset {
   unit?: string | null;
   /** `'intune'` / `'entra'` when sync-owned; null otherwise. */
   external_sync_source?: string | null;
+  /** BigDecimal-as-string. Optional low-stock threshold; when
+   *  set and `quantity` is at or below this value, the asset is
+   *  rendered as low-stock in the UI. */
+  low_stock_threshold?: string | null;
   is_editable: boolean;
   // Joined enrichments from the REST endpoint
   primary_user?: {
@@ -59,4 +63,5 @@ export interface AssetFormData {
   attributes?: Record<string, unknown>;
   quantity?: string | null;
   unit?: string | null;
+  low_stock_threshold?: string | null;
 }

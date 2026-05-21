@@ -4665,6 +4665,7 @@ async fn process_entra_device(
             quantity: None,
             unit: None,
             external_sync_source: Some("entra".to_string()),
+            low_stock_threshold: None,
         };
 
         asset_repo::create_device(conn, new_device)

@@ -625,6 +625,7 @@ pub fn import_ticket_from_json(
             quantity: None,
             unit: None,
             external_sync_source: None,
+            low_stock_threshold: None,
         };
 
         crate::repository::assets::create_device(conn, new_device)?;

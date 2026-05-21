@@ -3178,6 +3178,19 @@ asset-usage-record-notes-placeholder = Notes (optional)
 asset-usage-record-submit = Record
 asset-usage-record-failed = Failed to record usage
 
+# Asset detail: stock tracking section + low-stock indicator (Phase G).
+asset-detail-section-stock = Stock tracking
+asset-detail-field-quantity = On-hand quantity
+asset-detail-field-quantity-placeholder = e.g. 25
+asset-detail-field-unit = Unit
+asset-detail-field-unit-placeholder = e.g. m, L, pcs
+asset-detail-field-low-stock-threshold = Low-stock threshold
+asset-detail-field-low-stock-threshold-placeholder = e.g. 5
+asset-detail-field-low-stock-threshold-help = Show a warning and broadcast an event when stock falls to or below this value.
+asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (threshold { $threshold }).
+asset-low-stock-toast-title = Low stock: { $name }
+asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
+
 # Ticket: gekoppelde tickets (TicketLinkedTicketsField).
 ticket-field-linked-tickets-label = Gekoppelde tickets
 ticket-field-linked-tickets-add = Ticket koppelen
