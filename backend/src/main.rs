@@ -1488,6 +1488,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/{ticket_id}/unlink/{linked_ticket_id}", web::delete().to(handlers::unlink_tickets))
                     .route("/tickets/{ticket_id}/assets/{asset_id}", web::post().to(handlers::add_device_to_ticket))
                     .route("/tickets/{ticket_id}/assets/{asset_id}", web::delete().to(handlers::remove_device_from_ticket))
+                    .route("/tickets/{id}/asset-usage", web::get().to(handlers::asset_usage::list_for_ticket))
                     .route("/tickets/{ticket_id}/comments", web::get().to(handlers::get_comments_by_ticket_id))
                     .route("/tickets/{ticket_id}/comments", web::post().to(handlers::add_comment_to_ticket))
                     .route("/tickets/{ticket_id}/notes/images", web::post().to(handlers::upload_ticket_note_image))
@@ -1664,6 +1665,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/{id}", web::put().to(handlers::update_device))
                     .route("/assets/{id}", web::delete().to(handlers::delete_device))
                     .route("/assets/{id}/unmanage", web::post().to(handlers::unmanage_device))
+                    .route("/assets/{id}/usage", web::post().to(handlers::asset_usage::record))
+                    .route("/assets/{id}/usage", web::get().to(handlers::asset_usage::list_for_asset))
                     .route("/users/{uuid}/assets", web::get().to(handlers::get_user_devices))
 
                     // ===== DOCUMENTATION SYSTEM =====
