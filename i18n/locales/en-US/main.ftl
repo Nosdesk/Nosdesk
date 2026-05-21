@@ -1752,6 +1752,10 @@ assets-list-column-hostname = Hostname
 assets-list-column-model = Model
 assets-list-column-user = User
 assets-list-column-warranty = Warranty
+
+assets-list-column-stock = Stock
+assets-list-filter-low-stock-all = All stock
+assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Add Device
 assets-list-unassigned = Unassigned
 assets-list-warranty-unknown = Unknown

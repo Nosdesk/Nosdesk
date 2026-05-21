@@ -74,13 +74,15 @@ pub fn get_all_devices(conn: &mut DbConnection) -> QueryResult<Vec<Asset>> {
 
 type AssetBoxedQuery<'a> = assets::BoxedQuery<'a, diesel::pg::Pg>;
 
-/// Apply search, warranty, and manufacturer filters to a device query.
-/// Shared between data and count queries to avoid duplicating filter logic.
+/// Apply search, warranty, manufacturer, and stock filters to
+/// a device query. Shared between data and count queries to
+/// avoid duplicating filter logic.
 fn apply_device_filters<'a>(
     mut query: AssetBoxedQuery<'a>,
     search: Option<&'a str>,
     warranty: Option<&'a str>,
     manufacturer_filter: Option<&'a str>,
+    low_stock_only: bool,
 ) -> AssetBoxedQuery<'a> {
     if let Some(search_term) = search {
         if !search_term.is_empty() {
@@ -122,6 +124,16 @@ fn apply_device_filters<'a>(
             query = query.filter(assets::manufacturer.eq(m));
         }
     }
+    if low_stock_only {
+        // Both columns must be set, and current quantity must be
+        // at or below the threshold. NUMERIC comparison is exact.
+        query = query.filter(
+            assets::quantity
+                .is_not_null()
+                .and(assets::low_stock_threshold.is_not_null())
+                .and(assets::quantity.le(assets::low_stock_threshold)),
+        );
+    }
     query
 }
 
@@ -135,12 +147,14 @@ pub fn get_paginated_devices(
     search: Option<String>,
     device_type: Option<String>,
     warranty: Option<String>,
+    low_stock_only: bool,
 ) -> Result<(Vec<Asset>, i64), Error> {
     let total: i64 = apply_device_filters(
         assets::table.into_boxed(),
         search.as_deref(),
         warranty.as_deref(),
         device_type.as_deref(),
+        low_stock_only,
     )
     .count()
     .get_result(conn)?;
@@ -150,6 +164,7 @@ pub fn get_paginated_devices(
         search.as_deref(),
         warranty.as_deref(),
         device_type.as_deref(),
+        low_stock_only,
     );
 
     // Apply sorting
@@ -168,6 +183,11 @@ pub fn get_paginated_devices(
         (Some("created_at"), _) => query = query.order(assets::created_at.desc()),
         (Some("updated_at"), Some("asc")) => query = query.order(assets::updated_at.asc()),
         (Some("updated_at"), _) => query = query.order(assets::updated_at.desc()),
+        // Stock-tracked rows sort by on-hand quantity. NULL is
+        // ordered last in both directions so non-stock-tracked
+        // assets cluster at the bottom regardless of asc/desc.
+        (Some("quantity"), Some("asc")) => query = query.order(assets::quantity.asc().nulls_last()),
+        (Some("quantity"), _) => query = query.order(assets::quantity.desc().nulls_last()),
         _ => query = query.order(assets::name.asc()),
     }
 
@@ -283,13 +303,13 @@ pub fn get_paginated_devices_excluding_ids(
     search: Option<&str>,
     exclude_ids: &[i32],
 ) -> QueryResult<(Vec<Asset>, i64)> {
-    let mut count_query = apply_device_filters(assets::table.into_boxed(), search, None, None);
+    let mut count_query = apply_device_filters(assets::table.into_boxed(), search, None, None, false);
     if !exclude_ids.is_empty() {
         count_query = count_query.filter(assets::id.ne_all(exclude_ids));
     }
     let total_count = count_query.count().get_result::<i64>(conn)?;
 
-    let mut data_query = apply_device_filters(assets::table.into_boxed(), search, None, None);
+    let mut data_query = apply_device_filters(assets::table.into_boxed(), search, None, None, false);
     if !exclude_ids.is_empty() {
         data_query = data_query.filter(assets::id.ne_all(exclude_ids));
     }

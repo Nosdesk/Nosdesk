@@ -1700,6 +1700,10 @@ assets-list-column-hostname = Nom d'hôte
 assets-list-column-model = Modèle
 assets-list-column-user = Utilisateur
 assets-list-column-warranty = Garantie
+
+assets-list-column-stock = Stock
+assets-list-filter-low-stock-all = All stock
+assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Ajouter un appareil
 assets-list-unassigned = Non attribué
 assets-list-warranty-unknown = Inconnue

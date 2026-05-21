@@ -62,6 +62,12 @@ pub struct PaginationParams {
     #[serde(rename = "type")]
     device_type: Option<String>,
     warranty: Option<String>,
+    /// Restrict the page to assets whose on-hand quantity is at
+    /// or below their `low_stock_threshold`. Accepts the strings
+    /// `"true"` / `"1"`; anything else is treated as off so the
+    /// param can be omitted without an explicit `false`.
+    #[serde(rename = "lowStock")]
+    low_stock: Option<String>,
 }
 
 // Paginated response
@@ -511,6 +517,7 @@ pub async fn get_paginated_devices(
         query.search.clone(),
         query.device_type.clone(),
         query.warranty.clone(),
+        matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
     ) {
         Ok((devices, total)) => {
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;

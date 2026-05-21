@@ -1697,6 +1697,10 @@ assets-list-column-hostname = Hostnaam
 assets-list-column-model = Model
 assets-list-column-user = Gebruiker
 assets-list-column-warranty = Garantie
+
+assets-list-column-stock = Stock
+assets-list-filter-low-stock-all = All stock
+assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Apparaat toevoegen
 assets-list-unassigned = Niet toegewezen
 assets-list-warranty-unknown = Onbekend

@@ -11,6 +11,10 @@ const requestManager = new RequestManager();
 export interface DevicePaginationParams extends PaginationParams {
   type?: string;
   warranty?: string;
+  /** Set to `'true'` to restrict the page to stock-tracked
+   *  assets at or below their low-stock threshold. Backend
+   *  treats anything else as off. */
+  lowStock?: string;
 }
 
 // Re-export for backwards compatibility

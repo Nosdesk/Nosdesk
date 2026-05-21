@@ -67,7 +67,7 @@ const page = useListPage({
     createIcon: 'device',
     onCreate: navigateToCreateDevice,
   },
-  urlSync: { paramKeys: ['warranty'] },
+  urlSync: { paramKeys: ['warranty', 'lowStock'] },
   // No per-page user prewarm: primary_user uuids are already in
   // the sync engine's user pool (workspace:1 bootstrap), so the
   // avatar cells resolve from there without an extra round trip.
@@ -94,6 +94,13 @@ const filterOptions = computed(() =>
       width: 'w-[140px]',
       allLabel: t('assets-list-filter-warranty-all'),
     },
+    lowStock: {
+      options: [
+        { value: 'true', label: t('assets-list-filter-low-stock-on') },
+      ],
+      width: 'w-[140px]',
+      allLabel: t('assets-list-filter-low-stock-all'),
+    },
   }),
 )
 
@@ -106,11 +113,12 @@ const columns = computed(() => [
   { field: 'hostname', label: t('assets-list-column-hostname'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
   { field: 'model', label: t('assets-list-column-model'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
   { field: 'primary_user', label: t('assets-list-column-user'), width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
+  { field: 'quantity', label: t('assets-list-column-stock'), width: 'minmax(100px,auto)', sortable: true, responsive: 'md' as const },
   { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
 ])
 
 const gridClass =
-  'grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(120px,auto)_minmax(120px,auto)_minmax(140px,auto)_minmax(100px,auto)]'
+  'grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(120px,auto)_minmax(120px,auto)_minmax(140px,auto)_minmax(100px,auto)_minmax(100px,auto)]'
 
 // Bulk delete: irreversible (devices aren't soft-deleted), so a
 // confirm modal rather than the optimistic Undo-toast pattern.
@@ -252,6 +260,13 @@ async function confirmDelete() {
             :show-name="true"
           />
           <span v-else class="text-xs text-tertiary">{{ $t('assets-list-unassigned') }}</span>
+        </template>
+
+        <template #cell-quantity="{ item }">
+          <span v-if="item.quantity != null" class="text-sm text-primary tabular-nums whitespace-nowrap">
+            {{ item.quantity }}<span v-if="item.unit" class="text-tertiary ml-1">{{ item.unit }}</span>
+          </span>
+          <span v-else class="text-xs text-tertiary">—</span>
         </template>
 
         <template #cell-warranty_status="{ item }">
