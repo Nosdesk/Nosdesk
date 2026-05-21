@@ -3144,6 +3144,15 @@ ticket-asset-usage-notes-placeholder = Notes (optional)
 ticket-asset-usage-load-failed = Failed to load usage history
 ticket-asset-usage-record-failed = Failed to record usage
 
+# Asset detail: usage history panel (AssetUsageHistory).
+asset-usage-history-heading = Usage history
+asset-usage-history-empty = No usage recorded yet.
+asset-usage-history-load-failed = Failed to load usage history
+asset-usage-history-load-more = Load more
+asset-usage-history-loading = Loading…
+asset-usage-history-ticket-link = Ticket #{ $id }
+asset-usage-history-ad-hoc = Ad-hoc consumption
+
 # Ticket: linked tickets chip row (TicketLinkedTicketsField).
 ticket-field-linked-tickets-label = Linked Tickets
 ticket-field-linked-tickets-add = Link ticket

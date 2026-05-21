@@ -13,6 +13,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import UserCard from '@/components/UserCard.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/AssetGroups.vue';
+import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
 import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/assetService';
@@ -562,6 +563,12 @@ onMounted(() => {
 
             <!-- Groups (edit mode only) -->
             <DeviceGroups v-if="!isCreationMode && device" :groups="device.groups" />
+
+            <!-- Usage history (stock-tracked assets only) -->
+            <SectionCard v-if="!isCreationMode && device?.quantity != null" content-padding="p-4">
+              <template #title>{{ $t('asset-usage-history-heading') }}</template>
+              <AssetUsageHistory :asset-id="device!.id" />
+            </SectionCard>
 
             <!-- Plugin panels for device info -->
             <PluginSlot v-if="!isCreationMode && device" slot-name="asset-info-panels" :device="device" />
