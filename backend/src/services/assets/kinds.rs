@@ -27,8 +27,38 @@
 //! 2. when an asset row is written (validate the row's
 //!    `attributes` against the kind's schema)
 
+use dashmap::DashMap;
+use diesel::prelude::*;
+use diesel::result::Error as DieselError;
+use once_cell::sync::Lazy;
 use regex::Regex;
-use serde_json::Value;
+use serde_json::{json, Value};
+
+use crate::db::DbConnection;
+
+/// Compiled-regex cache keyed by the schema's `pattern` source.
+/// Attribute schemas are stable across many writes (every save
+/// of an asset of the same kind re-validates against the same
+/// patterns), so re-compiling on each request burns measurable
+/// CPU. Bounded only by the set of distinct patterns admins
+/// define across kinds, which is small. Insertion is rare,
+/// reads dominate, so DashMap's sharded read path is the right
+/// fit.
+///
+/// A pattern that fails to compile is intentionally NOT cached:
+/// we want every call to surface the compilation error to the
+/// caller and we don't want a one-off bad write to poison the
+/// cache for later writes that fix the schema.
+static PATTERN_CACHE: Lazy<DashMap<String, Regex>> = Lazy::new(DashMap::new);
+
+fn compile_pattern(pat: &str) -> Result<Regex, regex::Error> {
+    if let Some(re) = PATTERN_CACHE.get(pat) {
+        return Ok(re.clone());
+    }
+    let re = Regex::new(pat)?;
+    PATTERN_CACHE.insert(pat.to_string(), re.clone());
+    Ok(re)
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum AttributeSchemaError {
@@ -183,7 +213,11 @@ fn validate_property_schema(name: &str, prop: &Value) -> Result<(), AttributeSch
                             property: name.to_string(),
                             keyword: keyword.clone(),
                         })?;
-                Regex::new(pat).map_err(|err| AttributeSchemaError::InvalidPattern {
+                // Compile-once and seed the runtime cache so the
+                // first asset write of this kind doesn't pay the
+                // compilation cost. compile_pattern handles its
+                // own caching internally.
+                compile_pattern(pat).map_err(|err| AttributeSchemaError::InvalidPattern {
                     property: name.to_string(),
                     error: err.to_string(),
                 })?;
@@ -317,7 +351,7 @@ fn check_string(name: &str, prop: &Value, value: &str) -> Result<(), AttributeEr
         }
     }
     if let Some(pat) = prop.get("pattern").and_then(Value::as_str) {
-        let re = Regex::new(pat).map_err(|_| AttributeError::PatternMismatch {
+        let re = compile_pattern(pat).map_err(|_| AttributeError::PatternMismatch {
             property: name.to_string(),
         })?;
         if !re.is_match(value) {
@@ -331,7 +365,7 @@ fn check_string(name: &str, prop: &Value, value: &str) -> Result<(), AttributeEr
             "date" => chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok(),
             "date-time" => chrono::DateTime::parse_from_rfc3339(value).is_ok(),
             "email" => is_email(value),
-            "uri" => url::Url::parse(value).is_ok(),
+            "uri" => is_web_uri(value),
             _ => true,
         };
         if !ok {
@@ -386,17 +420,96 @@ fn json_kind(v: &Value) -> &'static str {
     }
 }
 
+/// Permissive email validator. Not RFC 5322 complete — that
+/// surface is too sharp for an attribute-schema validator — but
+/// catches the obvious shapes of bad input that the v1 check
+/// allowed through: whitespace anywhere, empty local part,
+/// consecutive dots, leading/trailing dots in either side of
+/// the @, and a domain without at least one dot.
 fn is_email(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    let at = match s.find('@') {
-        Some(idx) => idx,
-        None => return false,
-    };
-    if at == 0 || at == bytes.len() - 1 {
+    if s.is_empty() || s.chars().any(char::is_whitespace) {
         return false;
     }
-    let (_local, domain) = s.split_at(at + 1);
-    domain.contains('.') && !domain.starts_with('.') && !domain.ends_with('.')
+    // Exactly one '@'. Multi-@ inputs (foo@bar@baz) are
+    // unconditionally rejected.
+    let at = match s.find('@') {
+        Some(idx) if !s[idx + 1..].contains('@') => idx,
+        _ => return false,
+    };
+    let (local, rest) = s.split_at(at);
+    let domain = &rest[1..];
+    if local.is_empty() || domain.is_empty() {
+        return false;
+    }
+    if local.starts_with('.') || local.ends_with('.') || local.contains("..") {
+        return false;
+    }
+    // Domain must have at least one dot and no empty labels.
+    if !domain.contains('.') || domain.starts_with('.') || domain.ends_with('.') {
+        return false;
+    }
+    if domain.contains("..") {
+        return false;
+    }
+    true
+}
+
+/// Tighter `format: "uri"` validator. JSON Schema's `uri` is
+/// RFC 3986 (mailto:, javascript:, data:, file:, ... all valid)
+/// but for the asset-attribute use case we only want web URLs:
+/// admins typing "vendor portal URL" or "documentation link"
+/// always mean http or https. Anything else is rejected at the
+/// validator boundary so the frontend can render the value as
+/// a link without an XSS audit on the rendering side.
+fn is_web_uri(s: &str) -> bool {
+    match url::Url::parse(s) {
+        Ok(u) => matches!(u.scheme(), "http" | "https") && u.host().is_some(),
+        Err(_) => false,
+    }
+}
+
+/// Count existing assets of `kind_slug` whose `attributes` would
+/// no longer validate against `new_schema`, returning the total
+/// count plus a sample of up to `sample_limit` failures with the
+/// asset id, display name, and the validation error string.
+///
+/// The handler uses this as a pre-flight before applying a kind
+/// schema change so admins see what would break before they
+/// commit the edit (and can opt in via `?force=true` to apply
+/// anyway and surface the failed rows in the admin UI).
+///
+/// The asset scan is fully in-process; for the asset volumes
+/// this project targets (single-tenant, thousands of rows per
+/// kind), running validate_attributes per row is well under a
+/// second. A streaming row iterator would be a future
+/// optimisation if a kind ever holds 100k+ rows.
+pub fn count_invalid_assets_for_kind(
+    conn: &mut DbConnection,
+    kind_slug: &str,
+    new_schema: &Value,
+    sample_limit: usize,
+) -> Result<(usize, Vec<Value>), DieselError> {
+    use crate::schema::assets;
+    let rows: Vec<(i32, String, Value)> = assets::table
+        .filter(assets::kind.eq(kind_slug))
+        .select((assets::id, assets::name, assets::attributes))
+        .load(conn)?;
+
+    let mut invalid_count = 0usize;
+    let mut samples: Vec<Value> = Vec::with_capacity(sample_limit.min(8));
+    for (id, name, attrs) in rows {
+        if let Err(err) = validate_attributes(new_schema, &attrs) {
+            invalid_count += 1;
+            if samples.len() < sample_limit {
+                samples.push(json!({
+                    "id": id,
+                    "name": name,
+                    "error": err.to_string(),
+                }));
+            }
+        }
+    }
+    Ok((invalid_count, samples))
 }
 
 #[cfg(test)]
@@ -534,6 +647,58 @@ mod tests {
             Err(AttributeError::NotMultipleOf { .. })
         ));
         validate_attributes(&s, &json!({"x": 2.5})).unwrap();
+    }
+
+    #[test]
+    fn email_format_tightened() {
+        // Bare local-part / domain shapes that the v1 validator
+        // accidentally accepted: missing TLD, leading/trailing
+        // dots, consecutive dots, multi-@, whitespace.
+        assert!(!is_email(""));
+        assert!(!is_email("foo"));
+        assert!(!is_email("foo@bar"));            // no dot in domain
+        assert!(!is_email("@example.com"));        // empty local
+        assert!(!is_email("foo@"));                // empty domain
+        assert!(!is_email(".foo@example.com"));    // local leads with .
+        assert!(!is_email("foo.@example.com"));    // local ends with .
+        assert!(!is_email("a..b@example.com"));    // consecutive dots
+        assert!(!is_email("foo@example..com"));    // consecutive dots in domain
+        assert!(!is_email("foo bar@example.com")); // whitespace
+        assert!(!is_email("foo@bar@example.com")); // multi-@
+
+        assert!(is_email("foo@example.com"));
+        assert!(is_email("foo.bar@example.co.uk"));
+    }
+
+    #[test]
+    fn web_uri_format_rejects_non_http() {
+        // The tightened validator rejects mailto, javascript,
+        // data, file, etc.; the v1 validator (url::Url::parse)
+        // accepted all of these.
+        assert!(!is_web_uri(""));
+        assert!(!is_web_uri("not a url"));
+        assert!(!is_web_uri("mailto:foo@example.com"));
+        assert!(!is_web_uri("javascript:alert(1)"));
+        assert!(!is_web_uri("data:text/html,<script>"));
+        assert!(!is_web_uri("file:///etc/passwd"));
+        assert!(!is_web_uri("ftp://example.com/file"));
+        // http/https with a host are the only acceptable shapes.
+        assert!(is_web_uri("http://example.com"));
+        assert!(is_web_uri("https://example.com/path?q=1"));
+        // Missing host: should not pass even with the http scheme.
+        assert!(!is_web_uri("http:///nohost"));
+    }
+
+    #[test]
+    fn pattern_cache_returns_consistent_results() {
+        // Compiling the same pattern twice should return the same
+        // regex from cache, and both must match the same inputs.
+        let pat = r"^[A-Z]{2}\d{4}$";
+        let r1 = compile_pattern(pat).unwrap();
+        let r2 = compile_pattern(pat).unwrap();
+        assert_eq!(r1.is_match("AB1234"), r2.is_match("AB1234"));
+        assert!(r1.is_match("XY9999"));
+        assert!(!r1.is_match("ab1234"));
     }
 
     #[test]

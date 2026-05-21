@@ -179,10 +179,25 @@ pub async fn create(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateQuery {
+    /// When the update changes `attribute_schema`, the handler
+    /// pre-checks every existing asset of this kind against the
+    /// new schema and refuses the write if any would fail. Set
+    /// `force=true` to apply the schema change anyway; existing
+    /// invalid rows stay in the DB but get flagged on the asset
+    /// detail page until an admin fixes their attributes. This
+    /// is the safety-net pattern the frontend can rely on
+    /// without bolting on a separate dry-run endpoint.
+    #[serde(default)]
+    pub force: Option<String>,
+}
+
 pub async fn update(
     pool: web::Data<Pool>,
     path: web::Path<i32>,
     body: web::Json<UpdateBody>,
+    query: web::Query<UpdateQuery>,
     req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match helpers::admin_conn(&req, &pool) {
@@ -192,6 +207,7 @@ pub async fn update(
 
     let id = path.into_inner();
     let body = body.into_inner();
+    let force = matches!(query.force.as_deref(), Some("true") | Some("1"));
 
     if let Some(ref label) = body.label {
         let trimmed = label.trim();
@@ -210,6 +226,50 @@ pub async fn update(
                 "category must be one of: {}",
                 VALID_CATEGORIES.join(", ")
             ));
+        }
+    }
+
+    // Revalidate existing assets against the new schema before
+    // applying the change, unless the admin has explicitly opted
+    // in via `?force=true`. Cuts off the common footgun where a
+    // tightened schema silently invalidates already-stored data.
+    if let Some(ref new_schema) = body.attribute_schema {
+        if !force {
+            let existing_kind = match repo::get_kind(&mut conn, id) {
+                Ok(k) => k,
+                Err(DieselError::NotFound) => {
+                    return errors::not_found_msg(format!("Asset kind {id} not found"))
+                }
+                Err(e) => {
+                    error!(id, error = %e, "failed to load kind for revalidation");
+                    return errors::internal("Failed to load asset kind");
+                }
+            };
+            const SAMPLE_LIMIT: usize = 5;
+            match schema_validator::count_invalid_assets_for_kind(
+                &mut conn,
+                &existing_kind.slug,
+                new_schema,
+                SAMPLE_LIMIT,
+            ) {
+                Ok((invalid_count, samples)) if invalid_count > 0 => {
+                    return HttpResponse::Conflict().json(json!({
+                        "error": "schema_invalidates_existing_assets",
+                        "message": format!(
+                            "{invalid_count} existing asset(s) of kind '{}' would no longer validate. \
+                             Pass ?force=true to apply anyway, then fix or remove the listed rows.",
+                            existing_kind.slug
+                        ),
+                        "invalid_count": invalid_count,
+                        "sample": samples,
+                    }));
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    error!(id, error = %e, "failed to revalidate existing assets");
+                    return errors::internal("Failed to revalidate existing assets");
+                }
+            }
         }
     }
 

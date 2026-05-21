@@ -74,8 +74,12 @@ export const assetKindsService = {
     return data
   },
 
-  async update(id: number, body: UpdateAssetKindBody): Promise<AssetKind> {
-    const { data } = await apiClient.put<AssetKind>(`/admin/asset-kinds/${id}`, body)
+  async update(id: number, body: UpdateAssetKindBody, opts?: { force?: boolean }): Promise<AssetKind> {
+    const { data } = await apiClient.put<AssetKind>(
+      `/admin/asset-kinds/${id}`,
+      body,
+      opts?.force ? { params: { force: 'true' } } : undefined,
+    )
     return data
   },
 

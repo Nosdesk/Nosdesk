@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -103,7 +104,19 @@ function cancelEdit() {
   editDraft.value = null;
 }
 
-async function saveEdit(kind: AssetKind) {
+/** Schema-change conflict surface. When the backend refuses an
+ *  attribute_schema edit because existing rows would no longer
+ *  validate, we capture the conflict here so the template can
+ *  render the row sample + a Force-apply button without losing
+ *  the in-progress draft. Cleared on every fresh save attempt. */
+interface SchemaConflict {
+  kindId: number;
+  invalidCount: number;
+  sample: Array<{ id: number; name: string; error: string }>;
+}
+const schemaConflict = ref<SchemaConflict | null>(null);
+
+async function saveEdit(kind: AssetKind, force = false) {
   if (!editDraft.value) return;
   const draft = editDraft.value;
   const label = draft.label.trim();
@@ -121,6 +134,7 @@ async function saveEdit(kind: AssetKind) {
     return;
   }
   try {
+    schemaConflict.value = null;
     await assetKindsService.update(kind.id, {
       label,
       // null clears, empty string leaves alone; we treat blank
@@ -130,13 +144,33 @@ async function saveEdit(kind: AssetKind) {
       sort_order: draft.sort_order,
       category: draft.category,
       attribute_schema: schema,
-    });
+    }, force ? { force: true } : undefined);
     await reload();
     cancelEdit();
     flash(t('admin-asset-kinds-saved'));
   } catch (e) {
+    // 409 with a structured body means existing rows would
+    // break under the new schema. Capture the sample so the
+    // admin sees what would fail and can Force-apply.
+    const err = e as { response?: { status?: number; data?: { error?: string; invalid_count?: number; sample?: SchemaConflict['sample'] } } };
+    if (
+      err?.response?.status === 409 &&
+      err.response.data?.error === 'schema_invalidates_existing_assets' &&
+      typeof err.response.data.invalid_count === 'number'
+    ) {
+      schemaConflict.value = {
+        kindId: kind.id,
+        invalidCount: err.response.data.invalid_count,
+        sample: err.response.data.sample ?? [],
+      };
+      return;
+    }
     errorMessage.value = e instanceof Error ? e.message : t('admin-asset-kinds-error-save');
   }
+}
+
+async function forceSaveEdit(kind: AssetKind) {
+  await saveEdit(kind, true);
 }
 
 async function createKind() {
@@ -275,12 +309,36 @@ onMounted(reload);
                   class="mt-1 w-full bg-surface-alt text-primary rounded border border-default px-2 py-1 font-mono text-xs"
                 />
               </label>
+              <div
+                v-if="schemaConflict && schemaConflict.kindId === kind.id"
+                class="flex flex-col gap-2 p-3 rounded border border-status-warning/40 bg-status-warning/10 text-sm"
+              >
+                <p class="text-status-warning font-medium">
+                  {{ $t('admin-asset-kinds-conflict-heading', { count: schemaConflict.invalidCount }) }}
+                </p>
+                <ul class="text-xs text-secondary list-disc pl-5">
+                  <li v-for="row in schemaConflict.sample" :key="row.id">
+                    <RouterLink :to="`/assets/${row.id}`" class="text-accent hover:underline">{{ row.name }}</RouterLink>
+                    <span class="text-tertiary"> — {{ row.error }}</span>
+                  </li>
+                </ul>
+                <p class="text-xs text-secondary">
+                  {{ $t('admin-asset-kinds-conflict-help') }}
+                </p>
+              </div>
               <div class="flex justify-end gap-2">
                 <button
                   class="px-3 py-1 text-sm rounded border border-default text-secondary hover:text-primary"
                   @click="cancelEdit"
                 >
                   {{ $t('admin-asset-kinds-cancel') }}
+                </button>
+                <button
+                  v-if="schemaConflict && schemaConflict.kindId === kind.id"
+                  class="px-3 py-1 text-sm rounded border border-status-warning/40 text-status-warning hover:bg-status-warning/10"
+                  @click="forceSaveEdit(kind)"
+                >
+                  {{ $t('admin-asset-kinds-force-save') }}
                 </button>
                 <button
                   class="px-3 py-1 text-sm rounded bg-accent text-on-accent hover:bg-accent-strong"
@@ -396,12 +454,36 @@ onMounted(reload);
                   class="mt-1 w-full bg-surface-alt text-primary rounded border border-default px-2 py-1 font-mono text-xs"
                 />
               </label>
+              <div
+                v-if="schemaConflict && schemaConflict.kindId === kind.id"
+                class="flex flex-col gap-2 p-3 rounded border border-status-warning/40 bg-status-warning/10 text-sm"
+              >
+                <p class="text-status-warning font-medium">
+                  {{ $t('admin-asset-kinds-conflict-heading', { count: schemaConflict.invalidCount }) }}
+                </p>
+                <ul class="text-xs text-secondary list-disc pl-5">
+                  <li v-for="row in schemaConflict.sample" :key="row.id">
+                    <RouterLink :to="`/assets/${row.id}`" class="text-accent hover:underline">{{ row.name }}</RouterLink>
+                    <span class="text-tertiary"> — {{ row.error }}</span>
+                  </li>
+                </ul>
+                <p class="text-xs text-secondary">
+                  {{ $t('admin-asset-kinds-conflict-help') }}
+                </p>
+              </div>
               <div class="flex justify-end gap-2">
                 <button
                   class="px-3 py-1 text-sm rounded border border-default text-secondary hover:text-primary"
                   @click="cancelEdit"
                 >
                   {{ $t('admin-asset-kinds-cancel') }}
+                </button>
+                <button
+                  v-if="schemaConflict && schemaConflict.kindId === kind.id"
+                  class="px-3 py-1 text-sm rounded border border-status-warning/40 text-status-warning hover:bg-status-warning/10"
+                  @click="forceSaveEdit(kind)"
+                >
+                  {{ $t('admin-asset-kinds-force-save') }}
                 </button>
                 <button
                   class="px-3 py-1 text-sm rounded bg-accent text-on-accent hover:bg-accent-strong"

@@ -612,6 +612,11 @@ admin-asset-kinds-category-physical = Physique (véhicule, équipement)
 admin-asset-kinds-category-bulk = En vrac (mesuré par quantité et unité)
 admin-asset-kinds-category-generic = Générique
 admin-asset-kinds-saved = Enregistré
+
+# Schema-conflict surface when an attribute_schema change would invalidate existing rows.
+admin-asset-kinds-conflict-heading = { $count } existing asset(s) would no longer validate against this schema:
+admin-asset-kinds-conflict-help = Fix the listed assets first, or click Force save to apply the schema change anyway. Force-saved assets stay in the database with their old attributes; the asset detail page will flag them.
+admin-asset-kinds-force-save = Force save
 admin-asset-kinds-created = Type créé
 admin-asset-kinds-deleted = { $label } supprimé
 admin-asset-kinds-error-load = Échec du chargement des types d'actifs
