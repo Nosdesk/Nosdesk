@@ -101,11 +101,17 @@ fn discover_user_tables(conn: &mut DbConnection) -> Result<Vec<String>, BackupEr
         table_name: String,
     }
 
+    // Ordinary tables and partitioned parents only. Partition
+    // children are excluded; the parent's row set covers them
+    // and dumping both duplicates the data.
     let rows: Vec<TableName> = sql_query(
-        "SELECT table_name FROM information_schema.tables \
-         WHERE table_schema = 'public' \
-           AND table_type = 'BASE TABLE' \
-         ORDER BY table_name",
+        "SELECT c.relname AS table_name \
+         FROM pg_class c \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = 'public' \
+           AND c.relkind IN ('r','p') \
+           AND c.relispartition = false \
+         ORDER BY c.relname",
     )
     .load(conn)
     .map_err(BackupError::DatabaseError)?;
@@ -115,6 +121,37 @@ fn discover_user_tables(conn: &mut DbConnection) -> Result<Vec<String>, BackupEr
         .map(|r| r.table_name)
         .filter(|t| !EXCLUDE_FROM_BACKUP.contains(&t.as_str()))
         .collect())
+}
+
+/// Names of partition-child tables in the public schema. The
+/// restore path skips these because their rows arrive via the
+/// parent table's payload.
+fn partition_children(
+    conn: &mut DbConnection,
+) -> Result<std::collections::HashSet<String>, BackupError> {
+    use diesel::deserialize::QueryableByName;
+    use diesel::prelude::*;
+    use diesel::sql_query;
+    use diesel::sql_types::Text;
+
+    #[derive(QueryableByName)]
+    struct TableName {
+        #[diesel(sql_type = Text)]
+        table_name: String,
+    }
+
+    let rows: Vec<TableName> = sql_query(
+        "SELECT c.relname AS table_name \
+         FROM pg_class c \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = 'public' \
+           AND c.relkind = 'r' \
+           AND c.relispartition = true",
+    )
+    .load(conn)
+    .map_err(BackupError::DatabaseError)?;
+
+    Ok(rows.into_iter().map(|r| r.table_name).collect())
 }
 
 /// Defence-in-depth check used by `export_table_data` and the
@@ -791,13 +828,21 @@ pub fn restore_database(
     // ---- Phase 4: figure out what to restore ----
     let live_tables: std::collections::HashSet<String> =
         discover_user_tables(conn)?.into_iter().collect();
+    // Skip partition children if a backup carries them; the
+    // parent's rows route to the right child on insert.
+    let partition_children = partition_children(conn)?;
     let mut backup_tables: Vec<String> = manifest.tables.keys().cloned().collect();
     backup_tables.sort();
 
     let mut skipped_unknown: Vec<String> = Vec::new();
+    let mut skipped_partition: Vec<String> = Vec::new();
     let restore_order: Vec<String> = backup_tables
         .into_iter()
         .filter(|t| {
+            if partition_children.contains(t) {
+                skipped_partition.push(t.clone());
+                return false;
+            }
             if live_tables.contains(t) {
                 true
             } else {
@@ -809,6 +854,11 @@ pub fn restore_database(
     for name in &skipped_unknown {
         log::warn!(
             "restore: skipping table '{name}' that is in the backup but not in the live schema (likely a forward-compat scenario)"
+        );
+    }
+    for name in &skipped_partition {
+        log::info!(
+            "restore: skipping partition child '{name}'; parent table covers its rows on restore"
         );
     }
 
@@ -853,6 +903,20 @@ pub fn restore_database(
             .execute(c)
             .map_err(BackupError::DatabaseError)?;
 
+        // Clear migration-seeded rows from the tables we're
+        // about to restore so explicit IDs in the backup don't
+        // collide.
+        if !table_payloads.is_empty() {
+            let names: Vec<String> = table_payloads
+                .iter()
+                .map(|(n, _)| format!("\"{}\"", n.replace('"', "\"\"")))
+                .collect();
+            let stmt = format!("TRUNCATE TABLE {} RESTART IDENTITY CASCADE", names.join(", "));
+            sql_query(&stmt)
+                .execute(c)
+                .map_err(BackupError::DatabaseError)?;
+        }
+
         let mut stats = RestoreStats::default();
 
         for (table_name, rows) in &table_payloads {
@@ -883,54 +947,82 @@ pub fn restore_database(
     })
 }
 
-/// Reset all sequences to be higher than the max ID in each table
-/// This is necessary after restoring data with explicit IDs
+/// Re-align every column-owned sequence to MAX(col)+1. Sourced
+/// from `pg_depend` so any serial / bigserial / identity column
+/// is covered without a hand-maintained list.
 fn reset_sequences(conn: &mut DbConnection) -> Result<(), BackupError> {
+    use diesel::deserialize::QueryableByName;
+    use diesel::prelude::*;
     use diesel::sql_query;
-    use diesel::RunQueryDsl;
+    use diesel::sql_types::Text;
 
-    // Tables with serial/bigserial id columns that need sequence reset
-    let tables_with_sequences = [
-        "tickets",
-        "devices",
-        "user_emails",
-        "user_auth_identities",
-        "comments",
-        "attachments",
-        "projects",
-        "documentation_pages",
-        "documentation_revisions",
-        "article_contents",
-        "article_content_revisions",
-        "active_sessions",
-        "refresh_tokens",
-        "security_events",
-        "sync_history",
-    ];
+    #[derive(QueryableByName)]
+    struct SequenceOwner {
+        #[diesel(sql_type = Text)]
+        seq_qualified: String,
+        #[diesel(sql_type = Text)]
+        table_qualified: String,
+        #[diesel(sql_type = Text)]
+        column_name: String,
+    }
 
-    for table in tables_with_sequences {
-        let seq_name = format!("{table}_id_seq");
-        let query = format!(
-            "SELECT setval('{seq_name}', COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)"
+    // Resolve every sequence that's `OWNED BY` a column. The
+    // serial / bigserial / identity machinery all wire through
+    // pg_depend with deptype='a' (auto). Restricted to public
+    // schema and to numeric columns so the setval cast below
+    // is safe.
+    let owners: Vec<SequenceOwner> = sql_query(
+        "SELECT \
+             format('%I.%I', n.nspname, c.relname) AS seq_qualified, \
+             format('%I.%I', tn.nspname, t.relname) AS table_qualified, \
+             a.attname AS column_name \
+         FROM pg_class c \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         JOIN pg_depend d \
+           ON d.objid = c.oid \
+          AND d.classid = 'pg_class'::regclass \
+          AND d.refclassid = 'pg_class'::regclass \
+          AND d.deptype = 'a' \
+         JOIN pg_class t ON t.oid = d.refobjid \
+         JOIN pg_namespace tn ON tn.oid = t.relnamespace \
+         JOIN pg_attribute a \
+           ON a.attrelid = t.oid \
+          AND a.attnum = d.refobjsubid \
+         WHERE c.relkind = 'S' \
+           AND n.nspname = 'public' \
+           AND tn.nspname = 'public'",
+    )
+    .load(conn)
+    .map_err(BackupError::DatabaseError)?;
+
+    for SequenceOwner {
+        seq_qualified,
+        table_qualified,
+        column_name,
+    } in owners
+    {
+        let stmt = format!(
+            "SELECT setval('{seq_qualified}', COALESCE((SELECT MAX(\"{column_name}\") FROM {table_qualified}), 0) + 1, false)"
         );
-
-        if let Err(e) = sql_query(&query).execute(conn) {
-            // Log but don't fail - some sequences might not exist
-            log::warn!("Could not reset sequence {seq_name}: {e}");
-        } else {
-            log::debug!("Reset sequence {seq_name} for table {table}");
+        if let Err(e) = sql_query(&stmt).execute(conn) {
+            log::warn!(
+                "reset_sequences: failed to reset {seq_qualified} (owner {table_qualified}.{column_name}): {e}"
+            );
         }
     }
 
-    log::info!("Sequences reset after restore");
+    log::info!("reset_sequences: aligned all owned sequences to MAX+1");
     Ok(())
 }
 
-/// Restore data to a table.
+/// Restore one table's rows. Hands the JSONB row array to
+/// `jsonb_populate_recordset(NULL::table, $1)` so Postgres runs
+/// the per-column conversion against the target record type.
+/// Extra JSON keys are ignored; missing keys default to NULL.
 ///
-/// AUD-008: column names come from `information_schema.columns` for
-/// the target table, never from JSON keys. A poisoned backup can put
-/// arbitrary strings in its row keys, but only keys that match a
+/// The table identifier is checked against `pg_class` upstream
+/// and re-verified here with an ASCII identifier pattern; the
+/// row payload travels as a bound JSONB parameter.
 /// real column on `table_name` are interpolated into the INSERT;
 /// everything else is dropped. The table name itself is checked
 /// against `ALLOWED_RESTORE_TABLES`. Values still go through
@@ -942,136 +1034,44 @@ fn restore_table_data(
     table_name: &str,
     rows: &[serde_json::Value],
 ) -> Result<usize, BackupError> {
+    use diesel::prelude::*;
     use diesel::sql_query;
-    use diesel::RunQueryDsl;
+    use diesel::sql_types::Jsonb;
 
     if !table_exists_in_db(conn, table_name)? {
         return Err(BackupError::CorruptedBackup(format!(
             "backup references unknown table '{table_name}'"
         )));
     }
-    let column_types = fetch_table_columns(conn, table_name)?;
+    if rows.is_empty() {
+        return Ok(0);
+    }
 
-    let mut inserted = 0;
-    for (row_index, row) in rows.iter().enumerate() {
-        let Some(map) = row.as_object() else { continue };
-        if map.is_empty() {
-            continue;
-        }
+    if !table_name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    {
+        return Err(BackupError::CorruptedBackup(format!(
+            "unsafe table identifier '{table_name}'"
+        )));
+    }
 
-        let entries: Vec<(&str, String)> = map
-            .iter()
-            .filter(|(k, _)| column_types.contains_key(k.as_str()))
-            .map(|(k, v)| {
-                let ty = column_types.get(k.as_str()).map(String::as_str);
-                (k.as_str(), json_to_sql_value(v, ty))
-            })
-            .collect();
-        if entries.is_empty() {
-            continue;
-        }
-        let columns: Vec<&str> = entries.iter().map(|(k, _)| *k).collect();
-        let values: Vec<&str> = entries.iter().map(|(_, v)| v.as_str()).collect();
-        // No `ON CONFLICT DO NOTHING` — the caller wraps us in a
-        // transaction and we want errors to abort the whole
-        // restore (Discourse + Django pattern). Silently dropping
-        // FK violations is exactly the bug that hid 4 missing
-        // tickets from the operator before this rewrite.
-        let full_query = format!(
-            "INSERT INTO {} ({}) VALUES ({})",
-            table_name,
-            columns.join(", "),
-            values.join(", ")
-        );
-
-        let count = sql_query(&full_query).execute(conn).map_err(|e| {
+    let payload = serde_json::Value::Array(rows.to_vec());
+    let stmt = format!(
+        "INSERT INTO public.{table_name} \
+         SELECT * FROM jsonb_populate_recordset(NULL::public.{table_name}, $1)"
+    );
+    let count = sql_query(&stmt)
+        .bind::<Jsonb, _>(payload)
+        .execute(conn)
+        .map_err(|e| {
             BackupError::DatabaseError(diesel::result::Error::QueryBuilderError(
-                format!("row {row_index} of '{table_name}': {e}").into(),
+                format!("table '{table_name}' restore failed: {e}").into(),
             ))
         })?;
-        inserted += count;
-    }
-    Ok(inserted)
+    Ok(count)
 }
 
-/// Convert JSON value to SQL literal. Single-quote escaping via
-/// doubling is the standard Postgres pattern and is safe as long
-/// as `standard_conforming_strings` is on (default since
-/// Postgres 9.1+). The column-name allowlist in
-/// [`restore_table_data`] is the load-bearing protection; this
-/// helper is the second layer.
-///
-/// `column_udt` is the column's Postgres internal type name from
-/// `information_schema.columns.udt_name` when available. For
-/// array columns this is `_uuid`, `_text`, `_int4`, etc. (the
-/// leading underscore is Postgres's array marker). Without this
-/// hint a JSON array gets cast to `::jsonb`, which is correct
-/// for `jsonb` columns but wrong for native Postgres arrays.
-fn json_to_sql_value(value: &serde_json::Value, column_udt: Option<&str>) -> String {
-    match value {
-        serde_json::Value::Null => "NULL".to_string(),
-        serde_json::Value::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_string(),
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::String(s) => format!("'{}'", s.replace('\'', "''")),
-        serde_json::Value::Array(arr) => {
-            // Native Postgres array columns (`uuid[]`, `text[]`,
-            // `int4[]`, ...) have a udt_name that starts with an
-            // underscore. Anything else (`jsonb`, `json`, or an
-            // absent udt hint) falls back to the JSONB cast.
-            if let Some(udt) = column_udt {
-                if let Some(element_udt) = udt.strip_prefix('_') {
-                    // Build `ARRAY[el1, el2]::elementtype[]`. Each
-                    // element gets the same single-quote escape;
-                    // numbers and booleans go in as bare literals.
-                    let elements: Vec<String> = arr
-                        .iter()
-                        .map(|el| json_to_sql_value(el, None))
-                        .collect();
-                    return format!("ARRAY[{}]::{}[]", elements.join(", "), element_udt);
-                }
-            }
-            format!("'{}'::jsonb", value.to_string().replace('\'', "''"))
-        }
-        serde_json::Value::Object(_) => {
-            format!("'{}'::jsonb", value.to_string().replace('\'', "''"))
-        }
-    }
-}
-
-/// Look up the column names of a table from `information_schema`.
-/// Used to filter JSON keys before they're interpolated into a
-/// restore INSERT — a column name that isn't on this list can't
-/// reach the SQL layer regardless of what the backup file claims.
-/// Map column name -> `udt_name` from `information_schema.columns`.
-/// `udt_name` carries the Postgres internal type (`uuid`, `text`,
-/// `_uuid` for `uuid[]`, `jsonb`, etc.) which is what
-/// [`json_to_sql_value`] needs to pick the right literal cast.
-fn fetch_table_columns(
-    conn: &mut DbConnection,
-    table_name: &str,
-) -> Result<std::collections::HashMap<String, String>, BackupError> {
-    use diesel::deserialize::QueryableByName;
-    use diesel::prelude::*;
-    use diesel::sql_query;
-    use diesel::sql_types::Text;
-
-    #[derive(QueryableByName)]
-    struct ColumnRow {
-        #[diesel(sql_type = Text)]
-        column_name: String,
-        #[diesel(sql_type = Text)]
-        udt_name: String,
-    }
-
-    let rows: Vec<ColumnRow> = sql_query(
-        "SELECT column_name, udt_name FROM information_schema.columns \
-         WHERE table_schema = 'public' AND table_name = $1",
-    )
-    .bind::<Text, _>(table_name)
-    .load(conn)
-    .map_err(BackupError::DatabaseError)?;
-    Ok(rows.into_iter().map(|c| (c.column_name, c.udt_name)).collect())
-}
 
 #[cfg(test)]
 mod tests {
