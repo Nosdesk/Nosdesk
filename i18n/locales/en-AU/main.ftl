@@ -3148,6 +3148,14 @@ ticket-field-devices-detach = Detach device
 ticket-field-devices-fallback-name = Device #{ $id }
 ticket-field-devices-title-with-model = { $hostname } · { $model }
 
+ticket-asset-usage-heading = Asset usage
+ticket-asset-usage-empty-no-stock = No stock-tracked assets linked to this ticket.
+ticket-asset-usage-empty-no-history = No usage recorded yet.
+ticket-asset-usage-quantity-placeholder = Used (in { $unit })
+ticket-asset-usage-notes-placeholder = Notes (optional)
+ticket-asset-usage-load-failed = Failed to load usage history
+ticket-asset-usage-record-failed = Failed to record usage
+
 # Ticket: linked tickets chip row (TicketLinkedTicketsField).
 ticket-field-linked-tickets-label = Linked Tickets
 ticket-field-linked-tickets-add = Link ticket

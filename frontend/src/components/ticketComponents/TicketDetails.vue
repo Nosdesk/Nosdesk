@@ -22,6 +22,7 @@ import UserCell from "@/components/views/UserCell.vue";
 import TicketTagsField from "@/components/ticketComponents/TicketTagsField.vue";
 import TicketWatchersField from "@/components/ticketComponents/TicketWatchersField.vue";
 import TicketDevicesField from "@/components/ticketComponents/TicketAssetsField.vue";
+import TicketAssetUsage from "@/components/ticketComponents/TicketAssetUsage.vue";
 import TicketLinkedTicketsField from "@/components/ticketComponents/TicketLinkedTicketsField.vue";
 import TicketProjectsField from "@/components/ticketComponents/TicketProjectsField.vue";
 import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
@@ -187,6 +188,10 @@ const emit = defineEmits<{
   (e: "add-device"): void;
   /** Detach a device from the ticket. */
   (e: "remove-device", deviceId: number): void;
+  /** Fired after a usage row lands; the parent should refresh
+   *  its copy of the asset because assets.quantity decremented
+   *  in the same transaction. */
+  (e: "asset-usage-recorded", assetId: number): void;
   /** Open the link-ticket modal. */
   (e: "add-linked-ticket"): void;
   /** Unlink a ticket. */
@@ -938,6 +943,13 @@ watchEffect(async () => {
             :devices="devices ?? []"
             @add="emit('add-device')"
             @remove="(id) => emit('remove-device', id)"
+          />
+
+          <TicketAssetUsage
+            v-if="ticket.id"
+            :ticket-id="ticket.id"
+            :assets="devices ?? []"
+            @asset-updated="(id) => emit('asset-usage-recorded', id)"
           />
 
           <div
