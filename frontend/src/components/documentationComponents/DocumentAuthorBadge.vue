@@ -133,7 +133,7 @@ async function unverify() {
       <div class="flex items-baseline justify-between gap-2">
         <span class="text-tertiary">{{ $t('docs-author-badge-created') }}</span>
         <span class="text-secondary text-right">
-          {{ page.created_at ? formatDate(page.created_at) : '—' }}
+          {{ page.created_at ? formatDate(page.created_at) : '-' }}
         </span>
       </div>
       <div class="flex items-baseline justify-between gap-2">

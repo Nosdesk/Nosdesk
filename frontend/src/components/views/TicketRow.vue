@@ -82,7 +82,7 @@ function relativeTime(iso: string): string {
 }
 
 function shortDate(iso: string | null | undefined): string {
-  return formatCompactDate(iso) || '—'
+  return formatCompactDate(iso) || '-'
 }
 
 function slaToneClass(card: CardData): string {
@@ -90,7 +90,7 @@ function slaToneClass(card: CardData): string {
 }
 
 function slaLabel(card: CardData): string {
-  return deriveSlaState(card)?.compactLabel ?? '—'
+  return deriveSlaState(card)?.compactLabel ?? '-'
 }
 
 function slaTitle(card: CardData): string {
@@ -274,7 +274,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
           :priority="priorityForBadge(card.priority)!"
           size="xs"
         />
-        <span v-else class="text-xs text-tertiary">—</span>
+        <span v-else class="text-xs text-tertiary">-</span>
       </template>
 
       <template v-else-if="col.id === 'assignee'">
@@ -290,7 +290,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
           v-if="card.category_id != null"
           class="text-[11px] text-secondary bg-surface-hover rounded px-1.5 py-0.5"
         >#{{ card.category_id }}</span>
-        <span v-else class="text-xs text-tertiary">—</span>
+        <span v-else class="text-xs text-tertiary">-</span>
       </template>
 
       <template v-else-if="col.id === 'cycle'">
@@ -299,7 +299,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
           class="text-[11px] text-accent bg-accent/10 rounded px-1.5 py-0.5"
           :title="$t('views-ticket-row-cycle-tooltip')"
         >{{ $t('views-ticket-row-cycle-label', { id: card.cycle_id }) }}</span>
-        <span v-else class="text-xs text-tertiary">—</span>
+        <span v-else class="text-xs text-tertiary">-</span>
       </template>
 
       <template v-else-if="col.id === 'due_date'">
@@ -334,7 +334,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
           <Icon name="clock" class="w-3 h-3" />
           {{ slaLabel(card) }}
         </span>
-        <span v-else class="text-xs text-tertiary">—</span>
+        <span v-else class="text-xs text-tertiary">-</span>
       </template>
 
       <template v-else-if="col.id === 'kb_gap'">
@@ -346,7 +346,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
             : 'bg-surface-hover text-secondary'"
           :title="$t('views-ticket-row-kb-gap-tooltip', { signal: card.kb_gap_signal })"
         >{{ $t('views-ticket-row-kb-badge') }}</span>
-        <span v-else class="text-xs text-tertiary">—</span>
+        <span v-else class="text-xs text-tertiary">-</span>
       </template>
 
       <template v-else-if="col.id === 'devices'">
@@ -358,7 +358,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
           <Icon name="device" class="w-3 h-3" />
           {{ card.affected_devices.count }}
         </span>
-        <span v-else class="text-xs text-tertiary">—</span>
+        <span v-else class="text-xs text-tertiary">-</span>
       </template>
 
       <template v-else-if="col.id === 'recurrence'">
@@ -367,7 +367,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
           class="text-[10px] font-medium rounded px-1.5 py-0.5 bg-violet-500/15 text-violet-700 dark:text-violet-300"
           :title="card.recurrence_rule"
         >{{ recurrenceLabel(card.recurrence_rule) }}</span>
-        <span v-else class="text-xs text-tertiary">—</span>
+        <span v-else class="text-xs text-tertiary">-</span>
       </template>
     </td>
   </tr>

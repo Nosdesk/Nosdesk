@@ -220,7 +220,7 @@ const getPriorityClass = (priority: TicketPriority) => {
                 :showName="true"
                 :clickable="false"
               />
-              <span v-else>—</span>
+              <span v-else>-</span>
               <span>{{ formatRelativeTime(ticket.modified) }}</span>
             </div>
           </div>
@@ -277,7 +277,7 @@ const getPriorityClass = (priority: TicketPriority) => {
                   :showName="true"
                   :clickable="false"
                 />
-                <span v-else class="text-xs text-tertiary">—</span>
+                <span v-else class="text-xs text-tertiary">-</span>
               </td>
               <td class="px-3 py-2.5">
                 <span class="text-xs text-tertiary">{{ formatRelativeTime(ticket.modified) }}</span>

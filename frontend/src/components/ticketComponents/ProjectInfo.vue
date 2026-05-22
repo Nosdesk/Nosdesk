@@ -36,7 +36,7 @@ const fetchProject = async () => {
 };
 
 const ticketCount = computed(() => {
-  return project.value?.ticket_count ?? '—';
+  return project.value?.ticket_count ?? '-';
 });
 
 const statusLabel = computed(() => {
@@ -122,7 +122,7 @@ const getStatusClass = (status: string) => {
           <span class="print-project-status" :class="`print-status-${project.status}`">{{ statusLabel }}</span>
           <span class="print-project-meta">
             <span class="print-project-id">#{{ projectId }}</span>
-            <span v-if="ticketCount !== '—'">{{ t('tickets-project-info-print-tickets', { count: ticketCount }) }}</span>
+            <span v-if="ticketCount !== '-'">{{ t('tickets-project-info-print-tickets', { count: ticketCount }) }}</span>
           </span>
         </div>
         <p v-if="project.description" class="print-project-description">{{ project.description }}</p>

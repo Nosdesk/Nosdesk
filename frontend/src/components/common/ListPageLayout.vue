@@ -203,10 +203,13 @@ function onClearSelection() {
 
           <slot name="filters" />
 
-          <div class="text-xs text-secondary ml-auto">
-            <slot name="search-meta">
-              {{ totalItems }} result{{ totalItems !== 1 ? 's' : '' }}
-            </slot>
+          <!-- Optional meta slot to the right of the filter row.
+               Default is empty: the pagination footer already
+               shows the row count, so the toolbar stays focused
+               on its filter chrome unless a view explicitly
+               opts back in via this slot. -->
+          <div v-if="$slots['search-meta']" class="text-xs text-secondary ml-auto">
+            <slot name="search-meta" />
           </div>
         </div>
       </div>

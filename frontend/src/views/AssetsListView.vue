@@ -478,15 +478,15 @@ async function confirmDelete() {
         </template>
 
         <template #cell-serial_number="{ item }">
-          <span class="text-xs font-mono text-secondary">{{ item.serial_number || '—' }}</span>
+          <span class="text-xs font-mono text-secondary">{{ item.serial_number || '-' }}</span>
         </template>
 
         <template #cell-hostname="{ item }">
-          <span class="text-xs font-mono text-secondary truncate">{{ (item.attributes?.hostname as string) || '—' }}</span>
+          <span class="text-xs font-mono text-secondary truncate">{{ (item.attributes?.hostname as string) || '-' }}</span>
         </template>
 
         <template #cell-model="{ item }">
-          <TextCell :value="item.model || '—'" />
+          <TextCell :value="item.model || '-'" />
         </template>
 
         <template #cell-primary_user="{ item }">
@@ -504,7 +504,7 @@ async function confirmDelete() {
           <span v-if="item.quantity != null" class="text-sm text-primary tabular-nums whitespace-nowrap">
             {{ item.quantity }}<span v-if="item.unit" class="text-tertiary ml-1">{{ item.unit }}</span>
           </span>
-          <span v-else class="text-xs text-tertiary">—</span>
+          <span v-else class="text-xs text-tertiary">-</span>
         </template>
 
         <template #cell-warranty_status="{ item }">

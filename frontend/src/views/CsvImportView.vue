@@ -384,7 +384,7 @@ const viewImportedLabelKey = computed(() => {
             <tbody class="divide-y divide-default">
               <tr v-for="(e, i) in summary.errors" :key="i" class="text-primary">
                 <td class="px-4 py-2 font-mono text-tertiary">{{ e.row }}</td>
-                <td class="px-4 py-2 font-mono text-secondary">{{ e.column ?? '—' }}</td>
+                <td class="px-4 py-2 font-mono text-secondary">{{ e.column ?? '-' }}</td>
                 <td class="px-4 py-2">{{ e.message }}</td>
               </tr>
             </tbody>

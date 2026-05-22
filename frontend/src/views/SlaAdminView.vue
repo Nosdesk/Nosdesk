@@ -207,12 +207,12 @@ async function patchPolicy(p: SlaPolicy, patch: Partial<SlaPolicyBody>): Promise
 }
 
 function calendarName(id: number | null): string {
-  if (id == null) return '—'
+  if (id == null) return '-'
   return calendars.value.find((c) => c.id === id)?.name ?? `#${id}`
 }
 
 function fmtMinutes(m: number | null): string {
-  if (m == null) return '—'
+  if (m == null) return '-'
   if (m < 60) return `${m}m`
   if (m < 24 * 60) return `${(m / 60).toFixed(m % 60 === 0 ? 0 : 1)}h`
   return `${(m / (24 * 60)).toFixed(m % (24 * 60) === 0 ? 0 : 1)}d`
@@ -404,7 +404,7 @@ function fmtMinutes(m: number | null): string {
                 v-model.number="policyDraft.working_calendar_id"
                 class="bg-surface border border-subtle rounded-md text-sm px-2 py-1 text-primary"
               >
-                <option :value="null">—</option>
+                <option :value="null">-</option>
                 <option v-for="opt in calendarOptions" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
                 </option>

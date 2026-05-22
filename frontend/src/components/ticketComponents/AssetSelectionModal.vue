@@ -468,11 +468,11 @@ const formatLastUpdated = (dateString: string): string => {
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div>
                 <span class="text-tertiary">{{ t('asset-modal-col-serial') }}:</span>
-                <span class="text-secondary font-mono ml-1">{{ device.serial_number || '—' }}</span>
+                <span class="text-secondary font-mono ml-1">{{ device.serial_number || '-' }}</span>
               </div>
               <div>
                 <span class="text-tertiary">Model:</span>
-                <span class="text-secondary ml-1">{{ device.model || '—' }}</span>
+                <span class="text-secondary ml-1">{{ device.model || '-' }}</span>
               </div>
             </div>
 
@@ -536,7 +536,7 @@ const formatLastUpdated = (dateString: string): string => {
                   </div>
                 </td>
                 <td class="px-4 py-3">
-                  <span class="text-xs text-secondary font-mono">{{ device.serial_number || '—' }}</span>
+                  <span class="text-xs text-secondary font-mono">{{ device.serial_number || '-' }}</span>
                 </td>
                 <td class="px-4 py-3">
                   <UserAvatar
@@ -548,7 +548,7 @@ const formatLastUpdated = (dateString: string): string => {
                     :showName="true"
                     :clickable="false"
                   />
-                  <span v-else class="text-xs text-tertiary">—</span>
+                  <span v-else class="text-xs text-tertiary">-</span>
                 </td>
                 <td class="px-4 py-3 text-right">
                   <button class="text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors">

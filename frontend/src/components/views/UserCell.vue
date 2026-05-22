@@ -87,5 +87,5 @@ const avatarSrc = computed<string | null>(
       >{{ t('user-cell-unknown') }}</span>
     </template>
   </div>
-  <span v-else class="text-xs text-tertiary italic">—</span>
+  <span v-else class="text-xs text-tertiary italic">-</span>
 </template>

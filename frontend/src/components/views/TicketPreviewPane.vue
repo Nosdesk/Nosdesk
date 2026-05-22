@@ -54,7 +54,7 @@ const emit = defineEmits<{
 }>()
 
 function shortDate(iso: string | null | undefined): string {
-  return formatDate(iso) || '—'
+  return formatDate(iso) || '-'
 }
 
 function relativeOrAbsolute(iso: string): string {

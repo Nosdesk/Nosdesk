@@ -165,7 +165,7 @@ function statusTone(s: string): string {
 }
 
 function formatAge(seconds: number | null): string {
-  if (seconds === null || seconds < 0) return '—';
+  if (seconds === null || seconds < 0) return '-';
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;

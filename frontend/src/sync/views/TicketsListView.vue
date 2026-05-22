@@ -112,7 +112,7 @@ const facetOrder = computed(() =>
 // principle as facetOrder. We don't filter the active visible set
 // here; useTicketsColumns owns that. The picker simply doesn't
 // list disabled-feature columns so the user can't toggle them on
-// only to see "—" in every row.
+// only to see "-" in every row.
 const availableColumns = computed(() =>
   TICKET_COLUMNS.filter((c) => c.id !== 'sla' || capabilities.slaEnabled.value),
 )
