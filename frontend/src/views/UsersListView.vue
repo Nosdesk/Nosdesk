@@ -14,6 +14,9 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
 import ChipFilterStrip from '@/components/views/ChipFilterStrip.vue'
 import GroupByMenu from '@/components/views/GroupByMenu.vue'
+import ViewSwitcher from '@/components/views/ViewSwitcher.vue'
+import SavedViewEditorModal from '@/components/views/SavedViewEditorModal.vue'
+import SaveViewModal from '@/components/views/SaveViewModal.vue'
 import {
   useChipFiltersFromControls,
   type ChipFacetDef,
@@ -22,6 +25,10 @@ import {
   useListGrouping,
   type GroupAxisDef,
 } from '@/composables/useListGrouping'
+import { useSavedListViews } from '@/composables/useSavedListViews'
+import type { SavedView } from '@/services/savedViewsService'
+import type { Filters } from '@/composables/useListControls'
+import { useAuthStore } from '@/stores/auth'
 
 import { StatusBadgeCell, UserInfoCell, DateCell } from '@/components/common/cells'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -124,6 +131,13 @@ const dt = useBulkSelectionForDataTable(selection)
 // soft-deleted.
 const userFacets = computed<ChipFacetDef[]>(() => [
   {
+    key: 'name',
+    labelKey: 'user-mgmt-filter-name-label',
+    kind: 'text',
+    searchInput: true,
+    options: () => [],
+  },
+  {
     key: 'role',
     labelKey: 'user-mgmt-filter-role-label',
     kind: 'multi',
@@ -224,6 +238,75 @@ const grouping = useListGrouping<User>({
 
 const itemsRef = computed(() => page.items.value)
 const buckets = grouping.buckets(itemsRef)
+
+// ---------------------------------------------------------------
+// Saved views. Same shape as AssetsListView: each view captures
+// filter facets + display shape (group axis + sort). Search
+// query stays in-the-moment.
+// ---------------------------------------------------------------
+interface UserViewShape {
+  groupBy: string
+  sortField: string
+  sortDirection: 'asc' | 'desc'
+}
+type UserViewFilter = Filters
+
+const auth = useAuthStore()
+const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
+
+const savedViews = useSavedListViews<UserViewShape, UserViewFilter>({
+  dataset: 'users',
+  userUuid,
+  captureShape: () => ({
+    groupBy: grouping.groupBy.value,
+    sortField: controls.sortField.value,
+    sortDirection: controls.sortDirection.value,
+  }),
+  captureFilter: () => ({ ...controls.filters.value }),
+  applyShape: (shape) => {
+    grouping.setGroupBy(shape.groupBy)
+    controls.handleSortUpdate(shape.sortField, shape.sortDirection)
+  },
+  applyFilter: (filter) => {
+    controls.filters.value = { ...filter }
+  },
+  t,
+})
+
+const showSaveModal = ref(false)
+const editingView = ref<SavedView<UserViewShape, UserViewFilter> | null>(null)
+
+function openEditor(uuid: string): void {
+  editingView.value = savedViews.views.value.find((v) => v.uuid === uuid) ?? null
+}
+
+async function handleSaveAs(name: string): Promise<boolean> {
+  const created = await savedViews.saveAs(name)
+  if (!created) {
+    toast.error(t('views-save-as-error'))
+    return false
+  }
+  toast.success(t('views-save-as-success', { name: created.name }))
+  return true
+}
+
+async function handleRename(uuid: string, name: string): Promise<boolean> {
+  const ok = await savedViews.rename(uuid, name)
+  if (!ok) toast.error(t('views-saved-editor-rename-error'))
+  return ok
+}
+
+async function handleDelete(uuid: string): Promise<boolean> {
+  const ok = await savedViews.deleteView(uuid)
+  if (!ok) toast.error(t('views-saved-editor-delete-error'))
+  return ok
+}
+
+const defaultSaveName = computed<string>(() => {
+  const active = savedViews.activeView.value
+  if (!active) return ''
+  return `${active.name} ${t('views-save-default-suffix')}`
+})
 
 
 const columns = computed(() => [
@@ -331,10 +414,20 @@ function formatPurgeAt(deletedAt: string): string {
       bulk-selection-copy-key="bulk-bar-users-selected"
       bulk-all-selected-copy-key="bulk-bar-users-all-selected"
       :bulk-selection="selection"
+      hide-desktop-search
       @update:search-query="controls.handleSearchUpdate"
       @retry="page.handleRetry"
     >
       <template #filters>
+        <ViewSwitcher
+          v-if="savedViews.switcherItems.value.length > 0"
+          :items="savedViews.switcherItems.value"
+          :active-id="savedViews.activeViewId.value ?? ''"
+          size="sm"
+          :placeholder="$t('views-user-switcher-placeholder')"
+          @select="savedViews.switchTo"
+          @edit="openEditor"
+        />
         <ChipFilterStrip
           :pills="chipFilters.pills.value"
           :add-filter-facets="chipFilters.addFilterFacets.value"
@@ -351,6 +444,14 @@ function formatPurgeAt(deletedAt: string): string {
           :model-value="grouping.groupBy.value"
           @update:model-value="grouping.setGroupBy"
         />
+        <button
+          type="button"
+          class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-dashed border-subtle text-tertiary hover:text-primary hover:border-default hover:bg-surface-hover transition-colors"
+          :title="$t('views-save-trigger')"
+          @click="showSaveModal = true"
+        >
+          {{ $t('views-save-trigger') }}
+        </button>
       </template>
 
       <template #empty-state>
@@ -564,5 +665,19 @@ function formatPurgeAt(deletedAt: string): string {
         </button>
       </div>
     </Modal>
+
+    <SaveViewModal
+      :show="showSaveModal"
+      :default-name="defaultSaveName"
+      @save="handleSaveAs"
+      @close="showSaveModal = false"
+    />
+
+    <SavedViewEditorModal
+      :view="editingView"
+      @rename="handleRename"
+      @delete="handleDelete"
+      @close="editingView = null"
+    />
   </div>
 </template>

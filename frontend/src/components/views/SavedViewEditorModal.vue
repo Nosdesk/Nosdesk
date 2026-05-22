@@ -15,11 +15,19 @@ import { computed, ref, watch } from 'vue'
 import Modal from '@/components/Modal.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Spinner from '@/components/common/Spinner.vue'
-import type { SavedView } from '@/services/savedViewsService'
+
+/** The editor only reads `uuid` and `name`; widening to this
+ *  minimal shape lets the modal accept any SavedView<S, F> from
+ *  the dataset-generic savedViewsService without per-consumer
+ *  casts. */
+interface EditableView {
+  uuid: string
+  name: string
+}
 
 const props = defineProps<{
   /** When non-null the modal is open and editing the given view. */
-  view: SavedView | null
+  view: EditableView | null
 }>()
 
 const emit = defineEmits<{

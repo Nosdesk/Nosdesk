@@ -13,6 +13,9 @@ import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/L
 import EmptyState from '@/components/common/EmptyState.vue'
 import ChipFilterStrip from '@/components/views/ChipFilterStrip.vue'
 import GroupByMenu from '@/components/views/GroupByMenu.vue'
+import ViewSwitcher from '@/components/views/ViewSwitcher.vue'
+import SavedViewEditorModal from '@/components/views/SavedViewEditorModal.vue'
+import SaveViewModal from '@/components/views/SaveViewModal.vue'
 import {
   useChipFiltersFromControls,
   type ChipFacetDef,
@@ -21,6 +24,10 @@ import {
   useListGrouping,
   type GroupAxisDef,
 } from '@/composables/useListGrouping'
+import { useSavedListViews } from '@/composables/useSavedListViews'
+import type { SavedView } from '@/services/savedViewsService'
+import type { Filters } from '@/composables/useListControls'
+import { useAuthStore } from '@/stores/auth'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
@@ -98,6 +105,13 @@ const dt = useBulkSelectionForDataTable(selection)
 // State lives in `controls.filters` so URL sync + backend query
 // + saved views all see the same source of truth.
 const assetFacets = computed<ChipFacetDef[]>(() => [
+  {
+    key: 'name',
+    labelKey: 'assets-list-filter-name-label',
+    kind: 'text',
+    searchInput: true,
+    options: () => [],
+  },
   {
     key: 'warranty',
     labelKey: 'assets-list-filter-warranty-label',
@@ -206,6 +220,88 @@ const grouping = useListGrouping<Asset>({
 const itemsRef = computed(() => page.items.value)
 const buckets = grouping.buckets(itemsRef)
 
+// ---------------------------------------------------------------
+// Saved views. Each view persists the user's filter facets plus
+// the display shape (group axis + sort). Search query stays out
+// because it's an in-the-moment input, not durable state.
+//
+// Shape and filter blobs round-trip through the backend as
+// opaque JSON; the schema is defined here so applyShape and
+// applyFilter can rebuild controls + grouping from a row.
+// ---------------------------------------------------------------
+interface AssetViewShape {
+  groupBy: string
+  sortField: string
+  sortDirection: 'asc' | 'desc'
+}
+type AssetViewFilter = Filters
+
+const auth = useAuthStore()
+const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
+
+const savedViews = useSavedListViews<AssetViewShape, AssetViewFilter>({
+  dataset: 'assets',
+  userUuid,
+  captureShape: () => ({
+    groupBy: grouping.groupBy.value,
+    sortField: controls.sortField.value,
+    sortDirection: controls.sortDirection.value,
+  }),
+  captureFilter: () => ({ ...controls.filters.value }),
+  applyShape: (shape) => {
+    grouping.setGroupBy(shape.groupBy)
+    controls.handleSortUpdate(shape.sortField, shape.sortDirection)
+  },
+  applyFilter: (filter) => {
+    // Replace the whole filter map so axes the saved view didn't
+    // touch get cleared. Search query (a separate ref) stays
+    // alone so the user can search inside a saved view without
+    // re-typing.
+    controls.filters.value = { ...filter }
+  },
+  t,
+})
+
+const showSaveModal = ref(false)
+const editingView = ref<SavedView<AssetViewShape, AssetViewFilter> | null>(null)
+
+function openEditor(uuid: string): void {
+  editingView.value = savedViews.views.value.find((v) => v.uuid === uuid) ?? null
+}
+
+async function handleSaveAs(name: string): Promise<boolean> {
+  const created = await savedViews.saveAs(name)
+  if (!created) {
+    toast.error(t('views-save-as-error'))
+    return false
+  }
+  toast.success(t('views-save-as-success', { name: created.name }))
+  return true
+}
+
+async function handleRename(uuid: string, name: string): Promise<boolean> {
+  const ok = await savedViews.rename(uuid, name)
+  if (!ok) toast.error(t('views-saved-editor-rename-error'))
+  return ok
+}
+
+async function handleDelete(uuid: string): Promise<boolean> {
+  const ok = await savedViews.deleteView(uuid)
+  if (!ok) toast.error(t('views-saved-editor-delete-error'))
+  return ok
+}
+
+/** Default name pre-filled in the SaveViewModal: when the user
+ *  is currently viewing a saved view, suggest "<name> (copy)";
+ *  otherwise an empty string. Mirrors the tickets save-as flow. */
+const defaultSaveName = computed<string>(() => {
+  const active = savedViews.activeView.value
+  if (!active) return ''
+  return t('views-save-default-suffix') === '(copy)'
+    ? `${active.name} (copy)`
+    : `${active.name} ${t('views-save-default-suffix')}`
+})
+
 // Available sortable fields: id, name, hostname, serial_number,
 // model, warranty_status, manufacturer, created_at, updated_at,
 // last_sync_time.
@@ -280,6 +376,7 @@ async function confirmDelete() {
     bulk-selection-copy-key="bulk-bar-devices-selected"
     bulk-all-selected-copy-key="bulk-bar-devices-all-selected"
     :bulk-selection="selection"
+    hide-desktop-search
     @update:search-query="controls.handleSearchUpdate"
     @retry="page.handleRetry"
   >
@@ -288,6 +385,19 @@ async function confirmDelete() {
     </template>
 
     <template #filters>
+      <!-- Saved-view switcher. Hidden until the user has at least
+           one saved view; until then "Save view as" is the only
+           affordance and the empty switcher would read as dead
+           chrome. -->
+      <ViewSwitcher
+        v-if="savedViews.switcherItems.value.length > 0"
+        :items="savedViews.switcherItems.value"
+        :active-id="savedViews.activeViewId.value ?? ''"
+        size="sm"
+        :placeholder="$t('views-asset-switcher-placeholder')"
+        @select="savedViews.switchTo"
+        @edit="openEditor"
+      />
       <ChipFilterStrip
         :pills="chipFilters.pills.value"
         :add-filter-facets="chipFilters.addFilterFacets.value"
@@ -304,6 +414,14 @@ async function confirmDelete() {
         :model-value="grouping.groupBy.value"
         @update:model-value="grouping.setGroupBy"
       />
+      <button
+        type="button"
+        class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-dashed border-subtle text-tertiary hover:text-primary hover:border-default hover:bg-surface-hover transition-colors"
+        :title="$t('views-save-trigger')"
+        @click="showSaveModal = true"
+      >
+        {{ $t('views-save-trigger') }}
+      </button>
     </template>
 
     <template #empty-state>
@@ -493,6 +611,20 @@ async function confirmDelete() {
     :confirm-label="$t('assets-list-bulk-delete-count', { count: selection.selectedCount.value })"
     @confirm="confirmDelete"
     @close="showDeleteConfirm = false"
+  />
+
+  <SaveViewModal
+    :show="showSaveModal"
+    :default-name="defaultSaveName"
+    @save="handleSaveAs"
+    @close="showSaveModal = false"
+  />
+
+  <SavedViewEditorModal
+    :view="editingView"
+    @rename="handleRename"
+    @delete="handleDelete"
+    @close="editingView = null"
   />
   </div>
 </template>

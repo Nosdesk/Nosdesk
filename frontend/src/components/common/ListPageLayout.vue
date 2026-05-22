@@ -88,6 +88,12 @@ const props = withDefaults(
      *  the layout renders the BulkActionBar and exposes the
      *  `#bulk-actions` slot. Omit to disable bulk UI entirely. */
     bulkSelection?: BulkSelection<T>
+    /** Hide the desktop search input. Views that surface search
+     *  via a chip-style name/title text-facet pass this so the
+     *  full-width input doesn't duplicate the chip. Mobile
+     *  search (registered via `useListPage`'s mobileSearch
+     *  option) is unaffected. */
+    hideDesktopSearch?: boolean
   }>(),
   {
     error: null,
@@ -188,6 +194,7 @@ function onClearSelection() {
 
         <div class="p-2 flex items-center gap-2 flex-wrap">
           <DebouncedSearchInput
+            v-if="!hideDesktopSearch"
             :model-value="searchQuery"
             @update:model-value="(value: string) => emit('update:search-query', value)"
             :placeholder="resolvedSearchPlaceholder"

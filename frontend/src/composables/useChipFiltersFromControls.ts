@@ -32,10 +32,14 @@ import type { AddFilterFacet } from '@/components/views/AddFilterMenu.vue'
 /** Subset of `useListControls`'s return that this composable
  *  needs. Declaring the dependency narrowly keeps the composable
  *  callable from tests without standing up the full controls
- *  composable. */
+ *  composable. `searchQuery` + `handleSearchUpdate` are only
+ *  needed when a facet sets `searchInput: true`; consumers that
+ *  don't expose a search chip can pass a noop. */
 export interface ChipControlsLike {
   filters: Ref<Record<string, string | string[]>>
   handleFilterUpdate: (name: string, value: string | string[]) => void
+  searchQuery: Ref<string>
+  handleSearchUpdate: (value: string) => void
 }
 
 /** Per-facet declaration. `options` is a getter so consumers can
@@ -49,6 +53,12 @@ export interface ChipFacetDef {
   labelKey: string
   kind: FacetKind
   options: () => FilterOption[]
+  /** When true, the facet writes through `controls.searchQuery`
+   *  (and `handleSearchUpdate`) instead of `controls.filters`,
+   *  letting a view show a chip-style name/title search that
+   *  hits the backend's search param. Only meaningful for
+   *  `kind: 'text'` facets. */
+  searchInput?: boolean
 }
 
 export interface ChipPill {
@@ -123,8 +133,12 @@ export function useChipFiltersFromControls(
    *  CSV-string encoding (handleFilterUpdate(key, "a,b,c")) and
    *  the array encoding (string[]) round-trip cleanly. "" and
    *  "all" both mean no filter so they normalise to an empty
-   *  set. */
+   *  set. Search-input facets always return an empty set; their
+   *  value lives in `controls.searchQuery` and surfaces via
+   *  `textValueFor`. */
   function selectedFor(key: string): Set<string> {
+    const def = facetByKey(key)
+    if (def?.searchInput) return new Set()
     const raw = controls.filters.value[key]
     if (typeof raw === 'string') {
       if (raw === '' || raw === 'all') return new Set()
@@ -138,14 +152,18 @@ export function useChipFiltersFromControls(
     return facetByKey(key)?.options() ?? []
   }
 
-  function textValueFor(_key: string): string {
-    // No text facets in the server-paginated flow yet. When a
-    // consumer needs one (eg. backend full-text search exposed
-    // as a chip), extend FacetKind handling here.
+  function textValueFor(key: string): string {
+    const def = facetByKey(key)
+    if (def?.searchInput) return controls.searchQuery.value
     return ''
   }
 
   function summariseFor(key: string): string {
+    const def = facetByKey(key)
+    if (def?.searchInput) {
+      const v = controls.searchQuery.value.trim()
+      return v.length > 0 ? `"${v}"` : ''
+    }
     return summariseSelection(selectedFor(key), optionsFor(key), t)
   }
 
@@ -162,26 +180,37 @@ export function useChipFiltersFromControls(
   }
 
   function toggleValue(key: string, value: string): void {
+    const def = facetByKey(key)
+    if (def?.searchInput) return
     const next = new Set(selectedFor(key))
     if (next.has(value)) next.delete(value)
     else next.add(value)
     writeSelection(key, next)
   }
 
-  function setText(_key: string, _value: string): void {
-    // No-op until text-facet support lands. Kept as a stable
-    // surface so the AddFilterMenu's @set-text emit can wire to
-    // this composable without per-view branching.
+  function setText(key: string, value: string): void {
+    const def = facetByKey(key)
+    if (def?.searchInput) {
+      controls.handleSearchUpdate(value)
+    }
   }
 
   function clearFacet(key: string): void {
+    const def = facetByKey(key)
+    if (def?.searchInput) {
+      controls.handleSearchUpdate('')
+      return
+    }
     writeSelection(key, new Set())
   }
 
+  function isActive(def: ChipFacetDef): boolean {
+    if (def.searchInput) return controls.searchQuery.value.trim().length > 0
+    return selectedFor(def.key).size > 0
+  }
+
   const activeFacets = computed<string[]>(() =>
-    facets.value
-      .filter((f) => selectedFor(f.key).size > 0)
-      .map((f) => f.key),
+    facets.value.filter((f) => isActive(f)).map((f) => f.key),
   )
 
   const addFilterFacets = computed<AddFilterFacet[]>(() =>
