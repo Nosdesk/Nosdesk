@@ -303,13 +303,15 @@ pub fn get_paginated_devices_excluding_ids(
     search: Option<&str>,
     exclude_ids: &[i32],
 ) -> QueryResult<(Vec<Asset>, i64)> {
-    let mut count_query = apply_device_filters(assets::table.into_boxed(), search, None, None, false);
+    let mut count_query =
+        apply_device_filters(assets::table.into_boxed(), search, None, None, false);
     if !exclude_ids.is_empty() {
         count_query = count_query.filter(assets::id.ne_all(exclude_ids));
     }
     let total_count = count_query.count().get_result::<i64>(conn)?;
 
-    let mut data_query = apply_device_filters(assets::table.into_boxed(), search, None, None, false);
+    let mut data_query =
+        apply_device_filters(assets::table.into_boxed(), search, None, None, false);
     if !exclude_ids.is_empty() {
         data_query = data_query.filter(assets::id.ne_all(exclude_ids));
     }

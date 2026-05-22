@@ -114,8 +114,8 @@ impl TestDb {
         let name = format!("nosdesk_test_{suffix}");
         let url = with_database(&base_url(), &name);
 
-        let mut admin = PgConnection::establish(&admin_url())
-            .expect("connect to admin DB for sandbox CREATE");
+        let mut admin =
+            PgConnection::establish(&admin_url()).expect("connect to admin DB for sandbox CREATE");
         diesel::sql_query(format!(
             "CREATE DATABASE \"{name}\" TEMPLATE \"{TEMPLATE_NAME}\""
         ))

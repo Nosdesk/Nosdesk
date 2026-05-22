@@ -656,13 +656,13 @@ mod tests {
         // dots, consecutive dots, multi-@, whitespace.
         assert!(!is_email(""));
         assert!(!is_email("foo"));
-        assert!(!is_email("foo@bar"));            // no dot in domain
-        assert!(!is_email("@example.com"));        // empty local
-        assert!(!is_email("foo@"));                // empty domain
-        assert!(!is_email(".foo@example.com"));    // local leads with .
-        assert!(!is_email("foo.@example.com"));    // local ends with .
-        assert!(!is_email("a..b@example.com"));    // consecutive dots
-        assert!(!is_email("foo@example..com"));    // consecutive dots in domain
+        assert!(!is_email("foo@bar")); // no dot in domain
+        assert!(!is_email("@example.com")); // empty local
+        assert!(!is_email("foo@")); // empty domain
+        assert!(!is_email(".foo@example.com")); // local leads with .
+        assert!(!is_email("foo.@example.com")); // local ends with .
+        assert!(!is_email("a..b@example.com")); // consecutive dots
+        assert!(!is_email("foo@example..com")); // consecutive dots in domain
         assert!(!is_email("foo bar@example.com")); // whitespace
         assert!(!is_email("foo@bar@example.com")); // multi-@
 

@@ -562,8 +562,7 @@ fn build_inner_zip(
 
     for table_name in &tables_to_export {
         let table_name: &str = table_name;
-        let (json_content, count) =
-            export_table_data(conn, table_name, include_sensitive)?;
+        let (json_content, count) = export_table_data(conn, table_name, include_sensitive)?;
         let sha256 = sha256_hex(json_content.as_bytes());
 
         let path = format!("data/{table_name}.json");
@@ -894,8 +893,7 @@ pub fn restore_database(
     //              `serde_json::Value` here would coerce numbers
     //              into f64 and lose NUMERIC precision (a JSONB
     //              column holding 10.000 would come back 10.0).
-    let mut table_payloads: Vec<(String, String, usize)> =
-        Vec::with_capacity(restore_order.len());
+    let mut table_payloads: Vec<(String, String, usize)> = Vec::with_capacity(restore_order.len());
     for table_name in &restore_order {
         let data_path = format!("data/{table_name}.json");
         let content = match archive.by_name(&data_path) {
@@ -943,7 +941,10 @@ pub fn restore_database(
                 .iter()
                 .map(|(n, _, _)| format!("\"{}\"", n.replace('"', "\"\"")))
                 .collect();
-            let stmt = format!("TRUNCATE TABLE {} RESTART IDENTITY CASCADE", names.join(", "));
+            let stmt = format!(
+                "TRUNCATE TABLE {} RESTART IDENTITY CASCADE",
+                names.join(", ")
+            );
             sql_query(&stmt)
                 .execute(c)
                 .map_err(BackupError::DatabaseError)?;
@@ -1097,7 +1098,6 @@ fn restore_table_data(
         })?;
     Ok(count)
 }
-
 
 #[cfg(test)]
 mod tests {
