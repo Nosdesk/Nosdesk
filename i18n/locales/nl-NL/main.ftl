@@ -191,6 +191,11 @@ nav-cycles = Cycli
 nav-projects = Projecten
 nav-assets = Activa
 nav-asset-planner = Activaplanner
+
+# Tab strip across the top of the asset section. Used in place
+# of duplicate sidebar entries for inventory list + planner.
+asset-tabs-inventory = Inventory
+asset-tabs-planner = Planner
 nav-users = Gebruikers
 nav-documentation = Documentatie
 nav-inbox = Postvak

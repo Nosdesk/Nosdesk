@@ -19,6 +19,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
+import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
 import {
   assetsService,
   type AssetPlannerRow,
@@ -219,6 +220,7 @@ const activeFilterCount = computed<number>(() =>
 
 <template>
   <div class="flex flex-col h-full">
+    <AssetViewTabs />
     <!-- Header. On md+ everything sits on one row; below md the
          title stacks above the controls and the search expands to
          full width so it's tappable on a phone. -->

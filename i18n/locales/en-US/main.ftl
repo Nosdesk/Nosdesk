@@ -250,6 +250,11 @@ nav-cycles = Cycles
 nav-projects = Projects
 nav-assets = Assets
 nav-asset-planner = Asset Planner
+
+# Tab strip across the top of the asset section. Used in place
+# of duplicate sidebar entries for inventory list + planner.
+asset-tabs-inventory = Inventory
+asset-tabs-planner = Planner
 nav-users = Users
 nav-documentation = Documentation
 nav-inbox = Inbox

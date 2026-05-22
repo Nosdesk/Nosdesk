@@ -14,6 +14,7 @@ import FilterRow from '@/components/common/FilterRow.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
+import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
 import { useListControls } from '@/composables/useListControls'
 import { useListPage } from '@/composables/useListPage'
 import { useBulkSelection } from '@/composables/useBulkSelection'
@@ -181,6 +182,10 @@ async function confirmDelete() {
     @update:search-query="controls.handleSearchUpdate"
     @retry="page.handleRetry"
   >
+    <template #view-tabs>
+      <AssetViewTabs />
+    </template>
+
     <template #filters>
       <FilterRow
         :options="filterOptions"

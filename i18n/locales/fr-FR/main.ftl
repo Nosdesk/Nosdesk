@@ -194,6 +194,11 @@ nav-cycles = Cycles
 nav-projects = Projets
 nav-assets = Ressources matérielles
 nav-asset-planner = Planificateur d'actifs
+
+# Tab strip across the top of the asset section. Used in place
+# of duplicate sidebar entries for inventory list + planner.
+asset-tabs-inventory = Inventory
+asset-tabs-planner = Planner
 nav-users = Utilisateurs
 nav-documentation = Documentation
 nav-inbox = Boîte de réception

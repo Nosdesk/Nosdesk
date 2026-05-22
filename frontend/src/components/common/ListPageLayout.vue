@@ -114,6 +114,7 @@ const emit = defineEmits<{
 // can't deduce slot prop types from `<slot :item="item" />` tags
 // alone, the contract has to be declared explicitly.
 defineSlots<{
+  'view-tabs'(): unknown
   filters(): unknown
   'search-meta'(): unknown
   'empty-state'(): unknown
@@ -177,6 +178,14 @@ function onClearSelection() {
            anchors filters to the viewport top while the body
            scrolls behind. -->
       <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
+        <!--
+          Optional view-switcher tab strip (e.g. List / Planner
+          views over the same dataset). Sits above the filter
+          row so it's the first thing the user sees, and lives
+          inside the sticky chrome so it doesn't scroll away.
+        -->
+        <slot name="view-tabs" />
+
         <div class="p-2 flex items-center gap-2 flex-wrap">
           <DebouncedSearchInput
             :model-value="searchQuery"
