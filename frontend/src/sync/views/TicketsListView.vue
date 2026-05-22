@@ -458,6 +458,11 @@ async function saveAsView(): Promise<void> {
       name: name.trim(),
       shape: activeView.value.shape,
       filter: activeView.value.filter,
+      // Explicit so the row's dataset is set by the client
+      // rather than relying on the backend default. Makes the
+      // intent obvious in the diff and matches how the asset /
+      // user surfaces write the field.
+      dataset: 'tickets',
     })
     if (created) {
       router.push({ query: { view: created.uuid } })
