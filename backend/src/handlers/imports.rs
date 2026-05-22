@@ -291,27 +291,31 @@ pub async fn template(path: web::Path<String>) -> impl Responder {
 // ---- helpers ----
 
 async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u8>), String> {
-    while let Ok(Some(mut field)) = payload.try_next().await {
-        let filename = field
-            .content_disposition()
-            .get_filename()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "upload.csv".to_string());
+    // The wizard ships exactly one file field; extra parts are
+    // ignored. Take the first one and return.
+    let mut field = match payload.try_next().await {
+        Ok(Some(field)) => field,
+        _ => return Err("missing file field in upload".to_string()),
+    };
 
-        let mut bytes: Vec<u8> = Vec::new();
-        while let Some(chunk) = field.next().await {
-            let chunk = chunk.map_err(|e| format!("read error: {e}"))?;
-            bytes.extend_from_slice(&chunk);
-            // 10 MB cap — well above plumber-friend volumes,
-            // well below our memory budget. Larger files belong
-            // in the Phase 2 background-worker path.
-            if bytes.len() > 10 * 1024 * 1024 {
-                return Err("file exceeds the 10 MB upload cap".to_string());
-            }
+    let filename = field
+        .content_disposition()
+        .get_filename()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "upload.csv".to_string());
+
+    let mut bytes: Vec<u8> = Vec::new();
+    while let Some(chunk) = field.next().await {
+        let chunk = chunk.map_err(|e| format!("read error: {e}"))?;
+        bytes.extend_from_slice(&chunk);
+        // 10 MB cap, well above plumber-friend volumes, well
+        // below our memory budget. Larger files belong in the
+        // Phase 2 background-worker path.
+        if bytes.len() > 10 * 1024 * 1024 {
+            return Err("file exceeds the 10 MB upload cap".to_string());
         }
-        return Ok((filename, bytes));
     }
-    Err("missing file field in upload".to_string())
+    Ok((filename, bytes))
 }
 
 fn persist_upload(

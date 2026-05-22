@@ -506,7 +506,10 @@ pub fn create_backup(
     let backups_dir = get_backups_dir();
     fs::create_dir_all(&backups_dir)?;
 
-    let timestamp = Utc::now().format("%Y-%m-%d-%H%M%S");
+    // Microsecond resolution so concurrent backup calls (test
+    // parallelism, fast successive admin clicks) don't collide
+    // on the on-disk filename.
+    let timestamp = Utc::now().format("%Y-%m-%d-%H%M%S-%6f");
     // Encrypted backups still carry the `.zip` extension because
     // the wrapped inner format IS a zip; the only difference is
     // the 52-byte header. Operators can still tell them apart
