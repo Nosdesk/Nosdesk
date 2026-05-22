@@ -97,6 +97,23 @@ pub enum SseEvent {
         unit: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// Audit-count event. Distinct from AssetUsageRecorded
+    /// because audits replace the asset quantity rather than
+    /// adjust it; the payload carries both the new (counted)
+    /// quantity and the previous so the frontend can render
+    /// "Counted 42, was 50 (-8)" without re-fetching.
+    AssetAuditRecorded {
+        audit_id: i64,
+        asset_id: i32,
+        asset_name: String,
+        counted_quantity: String,
+        previous_quantity: String,
+        delta: String,
+        unit: String,
+        notes: Option<String>,
+        recorded_at: chrono::DateTime<chrono::Utc>,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     /// Append-only ledger row that just landed. Lets the usage
     /// history panels on both the asset detail and the ticket
     /// detail refresh reactively without a refetch. The payload
@@ -263,6 +280,7 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::AssetDeleted { .. } => "asset-deleted",
         SseEvent::AssetLowStock { .. } => "asset-low-stock",
         SseEvent::AssetUsageRecorded { .. } => "asset-usage-recorded",
+        SseEvent::AssetAuditRecorded { .. } => "asset-audit-recorded",
         SseEvent::ProjectAssigned { .. } => "project-assigned",
         SseEvent::ProjectUnassigned { .. } => "project-unassigned",
         SseEvent::TicketLinked { .. } => "ticket-linked",

@@ -1676,6 +1676,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/{id}/unmanage", web::post().to(handlers::unmanage_device))
                     .route("/assets/{id}/usage", web::post().to(handlers::asset_usage::record))
                     .route("/assets/{id}/usage", web::get().to(handlers::asset_usage::list_for_asset))
+                    .route("/assets/{id}/audit", web::post().to(handlers::asset_audits::record))
+                    .route("/assets/{id}/audits", web::get().to(handlers::asset_audits::list_for_asset))
                     .route("/users/{uuid}/assets", web::get().to(handlers::get_user_devices))
 
                     // ===== DOCUMENTATION SYSTEM =====

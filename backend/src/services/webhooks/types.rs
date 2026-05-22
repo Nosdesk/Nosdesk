@@ -175,6 +175,9 @@ impl WebhookEventType {
             // `asset.updated` covers the quantity change for
             // downstream integrations.
             SseEvent::AssetUsageRecorded { .. } => None,
+            // Same reasoning for audit events: webhook consumers
+            // see the corrected quantity via asset.updated.
+            SseEvent::AssetAuditRecorded { .. } => None,
             SseEvent::Heartbeat { .. } => None,
             SseEvent::ViewersChanged { .. } => None,
             SseEvent::TicketFieldPreviewed { .. } => None,

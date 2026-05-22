@@ -990,6 +990,37 @@ pub struct AssetUsage {
     pub event_kind: String,
 }
 
+/// One row of the asset audit ledger. Records a physical-
+/// count assertion: the admin counted `counted_quantity` units
+/// on hand at `recorded_at`; the system held `previous_quantity`
+/// at that moment. `delta` = counted - previous (signed). The
+/// assets.quantity column is set to counted_quantity in the
+/// same transaction, so this row is also the audit trail for
+/// the corresponding correction.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::asset_audits)]
+pub struct AssetAudit {
+    pub id: i64,
+    pub asset_id: i32,
+    pub counted_quantity: bigdecimal::BigDecimal,
+    pub previous_quantity: bigdecimal::BigDecimal,
+    pub delta: bigdecimal::BigDecimal,
+    pub notes: Option<String>,
+    pub recorded_by: Option<Uuid>,
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::asset_audits)]
+pub struct NewAssetAudit {
+    pub asset_id: i32,
+    pub counted_quantity: bigdecimal::BigDecimal,
+    pub previous_quantity: bigdecimal::BigDecimal,
+    pub delta: bigdecimal::BigDecimal,
+    pub notes: Option<String>,
+    pub recorded_by: Option<Uuid>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Insertable)]
 #[diesel(table_name = crate::schema::asset_usage_log)]
 pub struct NewAssetUsage {

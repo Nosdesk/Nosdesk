@@ -3291,6 +3291,16 @@ asset-usage-record-submit = Record
 # Phase H — restock affordance on the asset usage panel.
 asset-usage-record-submit-usage-title = Record consumption (decrement stock)
 asset-usage-record-submit-restock = + Restock
+
+# Stock audit (physical count) on the asset history panel.
+asset-audit-record-heading = Audit count
+asset-audit-record-hint = enter the physical count, system corrects to match
+asset-audit-record-placeholder = Counted ({ $unit })
+asset-audit-record-notes-placeholder = Notes (optional)
+asset-audit-record-submit = Save audit
+asset-audit-record-failed = Failed to record audit
+asset-audit-history-label = Audit
+asset-audit-history-previous = was { $previous }
 asset-usage-record-submit-restock-title = Record restock (increment stock)
 asset-usage-record-failed = Failed to record usage
 

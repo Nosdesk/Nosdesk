@@ -1,5 +1,6 @@
 // Domain-specific modules
 pub mod article_content;
+pub mod asset_audits;
 pub mod asset_kinds;
 pub mod asset_usage;
 pub mod assets;

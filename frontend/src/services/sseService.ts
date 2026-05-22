@@ -26,6 +26,7 @@ const ALL_SSE_EVENT_TYPES = [
   "asset-deleted",
   "asset-low-stock",
   "asset-usage-recorded",
+  "asset-audit-recorded",
   "ticket-linked",
   "ticket-unlinked",
   "project-assigned",

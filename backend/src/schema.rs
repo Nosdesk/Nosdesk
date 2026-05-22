@@ -166,6 +166,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_audits (id) {
+        id -> Int8,
+        asset_id -> Int4,
+        counted_quantity -> Numeric,
+        previous_quantity -> Numeric,
+        delta -> Numeric,
+        notes -> Nullable<Text>,
+        recorded_by -> Nullable<Uuid>,
+        recorded_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     asset_usage_log (id) {
         id -> Int8,
         asset_id -> Int4,
@@ -1508,6 +1521,8 @@ diesel::joinable!(asset_groups -> assets (asset_id));
 diesel::joinable!(asset_groups -> groups (group_id));
 diesel::joinable!(asset_groups -> users (created_by));
 diesel::joinable!(asset_kinds -> users (created_by));
+diesel::joinable!(asset_audits -> assets (asset_id));
+diesel::joinable!(asset_audits -> users (recorded_by));
 diesel::joinable!(asset_usage_log -> assets (asset_id));
 diesel::joinable!(asset_usage_log -> tickets (ticket_id));
 diesel::joinable!(asset_usage_log -> users (recorded_by));
@@ -1619,6 +1634,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     article_content_revisions,
     article_contents,
     asset_groups,
+    asset_audits,
     asset_kinds,
     asset_usage_log,
     assets,
