@@ -22,6 +22,7 @@ import { useFluent } from 'fluent-vue'
 import { useRouter } from 'vue-router'
 
 import BackButton from '@/components/common/BackButton.vue'
+import Callout from '@/components/common/Callout.vue'
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
 
@@ -342,12 +343,11 @@ const viewImportedLabelKey = computed(() => {
 
       <!-- Step 2: Review ----------------------------------------------- -->
       <section v-if="step === 'review' && summary" class="flex flex-col gap-6">
-        <div
-          v-if="summary.row_count === 0"
-          class="bg-status-warning/10 border border-status-warning/40 rounded-lg p-4 text-sm text-status-warning"
-        >
-          {{ $t('csv-import-empty-file') }}
-        </div>
+        <Callout v-if="summary.row_count === 0" severity="warning">
+          <template #header>
+            <span class="text-primary">{{ $t('csv-import-empty-file') }}</span>
+          </template>
+        </Callout>
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div class="bg-surface border border-default rounded-lg p-4">
@@ -364,28 +364,24 @@ const viewImportedLabelKey = computed(() => {
           </div>
         </div>
 
-        <div
-          v-if="summary.errors.length > 0"
-          class="bg-surface border border-status-error/40 rounded-lg overflow-hidden"
-        >
-          <div class="px-4 py-3 bg-status-error/10 flex items-center gap-2">
-            <Icon name="warning" class="text-status-error" />
-            <span class="text-sm font-medium text-status-error">
+        <Callout v-if="summary.errors.length > 0" severity="error">
+          <template #header>
+            <span class="font-medium text-primary">
               {{ $t('csv-import-errors-heading', { count: summary.errors.length }) }}
-              <span v-if="summary.errors_truncated" class="text-tertiary font-normal">
-                ({{ $t('csv-import-errors-truncated') }})
-              </span>
             </span>
-          </div>
+            <span v-if="summary.errors_truncated" class="text-tertiary ml-1">
+              ({{ $t('csv-import-errors-truncated') }})
+            </span>
+          </template>
           <table class="w-full text-sm">
-            <thead class="bg-status-error/5">
-              <tr class="text-left text-tertiary text-xs uppercase tracking-wide border-t border-status-error/20">
+            <thead class="bg-surface-alt">
+              <tr class="text-left text-tertiary text-xs uppercase tracking-wide">
                 <th class="px-4 py-2 w-20">{{ $t('csv-import-errors-row') }}</th>
                 <th class="px-4 py-2 w-40">{{ $t('csv-import-errors-column') }}</th>
                 <th class="px-4 py-2">{{ $t('csv-import-errors-message') }}</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-status-error/15">
+            <tbody class="divide-y divide-default">
               <tr v-for="(e, i) in summary.errors" :key="i" class="text-primary">
                 <td class="px-4 py-2 font-mono text-tertiary">{{ e.row }}</td>
                 <td class="px-4 py-2 font-mono text-secondary">{{ e.column ?? '—' }}</td>
@@ -393,7 +389,7 @@ const viewImportedLabelKey = computed(() => {
               </tr>
             </tbody>
           </table>
-        </div>
+        </Callout>
 
         <div class="flex justify-end gap-2">
           <button

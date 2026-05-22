@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useBrandingStore } from '@/stores/branding';
 import { useToastStore } from '@/stores/toast';
 import BackButton from '@/components/common/BackButton.vue';
+import Callout from '@/components/common/Callout.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
@@ -742,14 +743,11 @@ const cancelDelete = () => {
             />
 
             <!-- Delete Account Section -->
-            <div class="bg-surface rounded-xl border border-status-error hover:border-status-error transition-colors overflow-hidden">
-              <div class="px-4 py-3 bg-status-error/10 border-b border-status-error">
-                <div class="flex items-center gap-2">
-                  <Icon name="warning" size="md" class="text-status-error" />
-                  <h2 class="text-lg font-medium text-status-error">{{ t('user-settings-danger-zone-title') }}</h2>
-                </div>
-                <p class="text-sm text-status-error/80 mt-1">{{ t('user-settings-danger-zone-subtitle') }}</p>
-              </div>
+            <Callout severity="error">
+              <template #header>
+                <p class="font-medium text-primary">{{ t('user-settings-danger-zone-title') }}</p>
+                <p class="text-secondary mt-0.5">{{ t('user-settings-danger-zone-subtitle') }}</p>
+              </template>
 
               <div class="p-6">
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -774,7 +772,7 @@ const cancelDelete = () => {
                   </button>
                 </div>
               </div>
-            </div>
+            </Callout>
           </div>
           </template>
         </div>
