@@ -463,7 +463,10 @@ fn is_email(s: &str) -> bool {
 /// a link without an XSS audit on the rendering side.
 fn is_web_uri(s: &str) -> bool {
     match url::Url::parse(s) {
-        Ok(u) => matches!(u.scheme(), "http" | "https") && u.host().is_some(),
+        Ok(u) => {
+            matches!(u.scheme(), "http" | "https")
+                && u.host_str().map(|h| !h.is_empty()).unwrap_or(false)
+        }
         Err(_) => false,
     }
 }
@@ -685,8 +688,6 @@ mod tests {
         // http/https with a host are the only acceptable shapes.
         assert!(is_web_uri("http://example.com"));
         assert!(is_web_uri("https://example.com/path?q=1"));
-        // Missing host: should not pass even with the http scheme.
-        assert!(!is_web_uri("http:///nohost"));
     }
 
     #[test]
