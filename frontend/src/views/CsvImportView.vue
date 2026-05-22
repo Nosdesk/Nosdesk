@@ -259,6 +259,13 @@ const viewImportedLabelKey = computed(() => {
 
       <!-- Step 2: Review ----------------------------------------------- -->
       <section v-if="step === 'review' && summary" class="flex flex-col gap-6">
+        <div
+          v-if="summary.row_count === 0"
+          class="bg-status-warning/10 border border-status-warning/40 rounded-lg p-4 text-sm text-status-warning"
+        >
+          {{ $t('csv-import-empty-file') }}
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div class="bg-surface border border-default rounded-lg p-4">
             <p class="text-xs text-tertiary uppercase tracking-wide">{{ $t('csv-import-summary-rows') }}</p>

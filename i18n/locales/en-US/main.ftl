@@ -2206,6 +2206,7 @@ csv-import-template-button = Download template
 csv-import-file-label = Choose your file
 csv-import-action-validate = Validate
 csv-import-summary-rows = Rows in file
+csv-import-empty-file = This file has only a header row. Fill in some data rows below the header, save the CSV, and upload again.
 csv-import-summary-create = Will create
 csv-import-summary-update = Will update
 csv-import-errors-heading = { $count } row(s) have errors
