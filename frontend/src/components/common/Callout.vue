@@ -38,56 +38,42 @@ const props = withDefaults(
 const slots = useSlots()
 const hasHeader = computed(() => Boolean(slots.header))
 
-const defaultIcon: Record<Severity, IconName> = {
+/** Per-severity Tailwind class tables. Centralised so the
+ *  strip / tint / icon-tint colours stay in sync; adding a new
+ *  severity is one row per table. */
+const DEFAULT_ICON: Record<Severity, IconName> = {
   error: 'warning',
   warning: 'warning',
   info: 'info',
   success: 'check',
 }
+const STRIP_CLASS: Record<Severity, string> = {
+  error: 'bg-status-error',
+  warning: 'bg-status-warning',
+  info: 'bg-accent',
+  success: 'bg-status-success',
+}
+const HEADER_BG_CLASS: Record<Severity, string> = {
+  error: 'bg-status-error/10',
+  warning: 'bg-status-warning/10',
+  info: 'bg-accent/10',
+  success: 'bg-status-success/10',
+}
+const ICON_COLOR_CLASS: Record<Severity, string> = {
+  error: 'text-status-error',
+  warning: 'text-status-warning',
+  info: 'text-accent',
+  success: 'text-status-success',
+}
 
 const resolvedIcon = computed<IconName | null>(() => {
   if (props.icon === null) return null
-  return props.icon ?? defaultIcon[props.severity]
+  return props.icon ?? DEFAULT_ICON[props.severity]
 })
 
-const stripClass = computed(() => {
-  switch (props.severity) {
-    case 'error':
-      return 'bg-status-error'
-    case 'warning':
-      return 'bg-status-warning'
-    case 'info':
-      return 'bg-accent'
-    case 'success':
-      return 'bg-status-success'
-  }
-})
-
-const headerBgClass = computed(() => {
-  switch (props.severity) {
-    case 'error':
-      return 'bg-status-error/10'
-    case 'warning':
-      return 'bg-status-warning/10'
-    case 'info':
-      return 'bg-accent/10'
-    case 'success':
-      return 'bg-status-success/10'
-  }
-})
-
-const iconColorClass = computed(() => {
-  switch (props.severity) {
-    case 'error':
-      return 'text-status-error'
-    case 'warning':
-      return 'text-status-warning'
-    case 'info':
-      return 'text-accent'
-    case 'success':
-      return 'text-status-success'
-  }
-})
+const stripClass = computed(() => STRIP_CLASS[props.severity])
+const headerBgClass = computed(() => HEADER_BG_CLASS[props.severity])
+const iconColorClass = computed(() => ICON_COLOR_CLASS[props.severity])
 </script>
 
 <template>
