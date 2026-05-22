@@ -1,0 +1,4 @@
+title,workflow_state,priority,requester_email,assignee_email,category,due_date
+Kitchen sink leak,Backlog,high,plumber.bob@example.com,plumber.alice@example.com,,2026-06-15
+Bathroom remodel quote,Backlog,low,plumber.bob@example.com,,,
+Emergency callout,In Progress,high,plumber.bob@example.com,plumber.alice@example.com,,2026-05-23

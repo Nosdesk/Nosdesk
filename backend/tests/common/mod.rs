@@ -307,6 +307,18 @@ pub fn with_upload_dir() {
     std::env::set_var("UPLOAD_DIR", dir.path());
 }
 
+/// Resolve a path inside `tests/fixtures/`. Tests use this so
+/// `cargo test` invocations don't depend on the current working
+/// directory.
+pub fn fixture_path(rel: &str) -> std::path::PathBuf {
+    let manifest =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set under `cargo test`");
+    std::path::PathBuf::from(manifest)
+        .join("tests")
+        .join("fixtures")
+        .join(rel)
+}
+
 /// Names of every user table (ordinary + partitioned parent,
 /// excluding partition children and Diesel's migration ledger).
 /// Match the writer's view from `backup_service::create_backup`.

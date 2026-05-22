@@ -1,0 +1,5 @@
+name,kind,asset_tag,serial_number,manufacturer,model,location,notes,quantity,unit,low_stock_threshold
+20mm Copper Pipe,generic,PIPE-001,,Acme,CU20,Warehouse A,2.5m lengths,50.000,m,10.000
+PEX-A Tubing 12mm,generic,PIPE-002,,Uponor,PEX12,Warehouse A,,200.000,m,25.000
+Brass Tee Fitting,generic,FIT-001,,Acme,BT-15,Warehouse B,15mm,75,pcs,15
+Pipe Wrench 14",generic,TOOL-001,SN-001234,Ridgid,14-WRENCH,Workshop,,,,

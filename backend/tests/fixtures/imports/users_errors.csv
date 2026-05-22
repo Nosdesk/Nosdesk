@@ -1,0 +1,10 @@
+email,name,role,pronouns
+valid@example.com,Valid User,user,
+,No Email,user,
+no-at-sign,No At,user,
+no-domain@,No Domain,user,
+bad@nodot,Bad Domain,user,
+duplicate@example.com,Dup 1,user,
+duplicate@example.com,Dup 2,admin,
+admin@example.com,Bad Role,not-a-role,
+nopronouns@example.com,,technician,

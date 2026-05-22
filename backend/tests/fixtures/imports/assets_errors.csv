@@ -1,0 +1,8 @@
+name,kind,asset_tag,serial_number,manufacturer,model,location,notes,quantity,unit,low_stock_threshold
+Valid Row,generic,VALID-001,,Acme,,,,,,
+,generic,EMPTY-NAME,,,,,,,,
+No Kind,,NO-KIND-001,,,,,,,,
+Bad Kind,no-such-kind,BAD-KIND-001,,,,,,,,
+Bad Decimal,generic,BAD-DEC-001,,,,,,,,oops
+Dup Tag,generic,DUP-001,,,,,,,,
+Dup Tag 2,generic,DUP-001,,,,,,,,
