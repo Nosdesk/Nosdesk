@@ -57,10 +57,6 @@ pub async fn upload(
             ));
         }
     };
-    if matches!(job_type, ImportType::Tickets) {
-        return errors::bad_request("tickets imports aren't shipped yet; check back in Phase 3");
-    }
-
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -278,9 +274,6 @@ pub async fn template(path: web::Path<String>) -> impl Responder {
         Some(t) => t,
         None => return errors::bad_request("unknown import type"),
     };
-    if matches!(job_type, ImportType::Tickets) {
-        return errors::bad_request("tickets template isn't shipped yet; check back in Phase 3");
-    }
     let importer = imports::importer_for(job_type);
     let body = importer.template_headers().join(",") + "\n";
     HttpResponse::Ok()

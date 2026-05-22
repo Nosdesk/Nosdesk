@@ -42,7 +42,7 @@ const step = ref<Step>('upload')
 const supportedTypes: { value: ImportJobType; available: boolean }[] = [
   { value: 'assets', available: true },
   { value: 'users', available: true },
-  { value: 'tickets', available: false },
+  { value: 'tickets', available: true },
 ]
 
 const selectedType = ref<ImportJobType>('assets')

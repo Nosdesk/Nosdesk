@@ -11,6 +11,7 @@
 
 pub mod assets;
 pub mod csv_parser;
+pub mod tickets;
 pub mod types;
 pub mod users;
 
@@ -25,10 +26,7 @@ pub fn importer_for(t: ImportType) -> Box<dyn Importer> {
     match t {
         ImportType::Assets => Box::new(assets::AssetImporter),
         ImportType::Users => Box::new(users::UserImporter),
-        // Tickets ships in Phase 3.
-        ImportType::Tickets => {
-            unreachable!("tickets importer ships in Phase 3")
-        }
+        ImportType::Tickets => Box::new(tickets::TicketImporter),
     }
 }
 
