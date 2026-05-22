@@ -10,9 +10,18 @@ import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
 import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
-import FilterRow from '@/components/common/FilterRow.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
+import ChipFilterStrip from '@/components/views/ChipFilterStrip.vue'
+import GroupByMenu from '@/components/views/GroupByMenu.vue'
+import {
+  useChipFiltersFromControls,
+  type ChipFacetDef,
+} from '@/composables/useChipFiltersFromControls'
+import {
+  useListGrouping,
+  type GroupAxisDef,
+} from '@/composables/useListGrouping'
 
 import { StatusBadgeCell, UserInfoCell, DateCell } from '@/components/common/cells'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -59,11 +68,15 @@ const controls = useListControls<User>({
 // list view doesn't need to warm a separate by-uuid cache. The
 // list-only Pinia Colada cache is still useful for pagination /
 // search state independent of the pool.
-// Tracks whether the "Show deleted" filter chip is active. The
-// param flows through to UserPaginationParams.deleted so the
-// backend swaps the WHERE clause; we don't filter client-side
-// because the deleted-set might span many pages.
-const showDeleted = ref(false)
+//
+// "Deleted" is a chip facet living in `controls.filters.deleted`
+// alongside role. Presence means show only soft-deleted rows; the
+// backend defaults to active when the param is absent.
+
+function deletedParam(): 'active' | 'deleted' {
+  const v = controls.filters.value.deleted
+  return typeof v === 'string' && v === 'deleted' ? 'deleted' : 'active'
+}
 
 const page = useListPage({
   controls,
@@ -71,7 +84,7 @@ const page = useListPage({
   fetchPage: (params) =>
     userService.getPaginatedUsers({
       ...params,
-      deleted: showDeleted.value ? 'deleted' : 'active',
+      deleted: deletedParam(),
     }),
   scrollContainerRef,
   // Subscribe to the new soft-delete lifecycle events alongside
@@ -92,13 +105,8 @@ const page = useListPage({
     createIcon: 'user',
     onCreate: navigateToCreateUser,
   },
-  urlSync: { paramKeys: ['role'] },
+  urlSync: { paramKeys: ['role', 'deleted'] },
 })
-
-function toggleShowDeleted() {
-  showDeleted.value = !showDeleted.value
-  void queryCache.invalidateQueries({ key: usersKeys.root })
-}
 
 usePageCreateAction(navigateToCreateUser)
 
@@ -110,19 +118,113 @@ const selection = useBulkSelection<User>({
 })
 const dt = useBulkSelectionForDataTable(selection)
 
-const filterOptions = computed(() =>
-  controls.buildFilterOptions({
-    role: {
-      options: [
-        { value: 'admin', label: t('user-mgmt-role-admin') },
-        { value: 'technician', label: t('user-mgmt-role-technician') },
-        { value: 'user', label: t('user-mgmt-role-user') },
-      ],
-      width: 'w-[140px]',
-      allLabel: t('user-mgmt-filter-all-roles'),
+// Filter facets (chip UI). Role is multi-select (backend accepts
+// CSV via parse_role); Deleted is a single-option toggle whose
+// presence swaps the backend WHERE clause from active to
+// soft-deleted.
+const userFacets = computed<ChipFacetDef[]>(() => [
+  {
+    key: 'role',
+    labelKey: 'user-mgmt-filter-role-label',
+    kind: 'multi',
+    options: () => [
+      { value: 'admin', label: t('user-mgmt-role-admin'), swatchClass: 'bg-rose-500' },
+      { value: 'technician', label: t('user-mgmt-role-technician'), swatchClass: 'bg-accent' },
+      { value: 'user', label: t('user-mgmt-role-user'), swatchClass: 'bg-zinc-400' },
+    ],
+  },
+  {
+    key: 'deleted',
+    labelKey: 'user-mgmt-filter-deleted-label',
+    kind: 'multi',
+    options: () => [
+      { value: 'deleted', label: t('user-mgmt-filter-deleted-on'), swatchClass: 'bg-rose-500' },
+    ],
+  },
+])
+
+const chipFilters = useChipFiltersFromControls({
+  controls,
+  facets: userFacets,
+  t,
+})
+
+// ---------------------------------------------------------------
+// Group-by. Client-side bucketing of the loaded page. Three axes
+// for the directory view: role (admin/technician/user severity
+// order), status (active vs soft-deleted), and join recency
+// (this month / this year / older) — useful for spotting recent
+// hires when onboarding.
+// ---------------------------------------------------------------
+const ROLE_ORDER: Array<User['role']> = ['admin', 'technician', 'user']
+const JOIN_BUCKET_ORDER = ['this-month', 'this-year', 'older'] as const
+
+function joinBucket(createdAt: string): (typeof JOIN_BUCKET_ORDER)[number] {
+  const created = new Date(createdAt)
+  const now = new Date()
+  const thirtyDaysAgo = new Date(now)
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  if (created >= thirtyDaysAgo) return 'this-month'
+  if (created.getFullYear() === now.getFullYear()) return 'this-year'
+  return 'older'
+}
+
+const groupAxes: GroupAxisDef<User>[] = [
+  {
+    key: 'role',
+    labelKey: 'user-mgmt-grouping-role',
+    bucketFor: (user) => ({
+      key: `role:${user.role}`,
+      label: t(`user-mgmt-role-${user.role}`),
+    }),
+    sortBy: (bucketKey) => {
+      const v = bucketKey.replace('role:', '') as User['role']
+      const idx = ROLE_ORDER.indexOf(v)
+      return idx === -1 ? 999 : idx
     },
-  }),
-)
+  },
+  {
+    key: 'status',
+    labelKey: 'user-mgmt-grouping-status',
+    bucketFor: (user) => {
+      const isDeleted = user.deleted_at != null
+      return {
+        key: `status:${isDeleted ? 'deleted' : 'active'}`,
+        label: isDeleted
+          ? t('user-mgmt-grouping-status-deleted')
+          : t('user-mgmt-grouping-status-active'),
+      }
+    },
+    sortBy: (bucketKey) => (bucketKey === 'status:active' ? 0 : 1),
+  },
+  {
+    key: 'joined',
+    labelKey: 'user-mgmt-grouping-joined',
+    bucketFor: (user) => {
+      const b = joinBucket(user.created_at)
+      return {
+        key: `joined:${b}`,
+        label: t(`user-mgmt-grouping-joined-${b}`),
+      }
+    },
+    sortBy: (bucketKey) => {
+      const v = bucketKey.replace('joined:', '') as (typeof JOIN_BUCKET_ORDER)[number]
+      const idx = JOIN_BUCKET_ORDER.indexOf(v)
+      return idx === -1 ? 999 : idx
+    },
+  },
+]
+
+const grouping = useListGrouping<User>({
+  axes: groupAxes,
+  storageNamespace: 'users',
+  getViewId: () => 'default',
+  t,
+})
+
+const itemsRef = computed(() => page.items.value)
+const buckets = grouping.buckets(itemsRef)
+
 
 const columns = computed(() => [
   { field: 'user', label: t('user-mgmt-column-user'), width: '1fr', sortable: true, sortKey: 'name', responsive: 'always' as const },
@@ -233,25 +335,22 @@ function formatPurgeAt(deletedAt: string): string {
       @retry="page.handleRetry"
     >
       <template #filters>
-        <div class="flex flex-wrap items-center gap-2">
-          <FilterRow
-            :options="filterOptions"
-            @update="controls.handleFilterUpdate"
-            @reset="controls.resetFilters"
-          />
-          <button
-            type="button"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border transition-colors whitespace-nowrap"
-            :class="
-              showDeleted
-                ? 'border-status-error/40 bg-status-error/10 text-status-error'
-                : 'border-default text-secondary hover:bg-surface-hover'
-            "
-            @click="toggleShowDeleted"
-          >
-            {{ showDeleted ? $t('user-mgmt-deleted-on') : $t('user-mgmt-deleted-off') }}
-          </button>
-        </div>
+        <ChipFilterStrip
+          :pills="chipFilters.pills.value"
+          :add-filter-facets="chipFilters.addFilterFacets.value"
+          :active-facets="chipFilters.activeFacets.value"
+          :options-for="chipFilters.optionsFor"
+          :selected-for="chipFilters.selectedFor"
+          :text-value-for="chipFilters.textValueFor"
+          :on-toggle="chipFilters.toggleValue"
+          :on-clear="chipFilters.clearFacet"
+          :on-set-text="chipFilters.setText"
+        />
+        <GroupByMenu
+          :options="grouping.axisOptions.value"
+          :model-value="grouping.groupBy.value"
+          @update:model-value="grouping.setGroupBy"
+        />
       </template>
 
       <template #empty-state>
@@ -268,6 +367,8 @@ function formatPurgeAt(deletedAt: string): string {
         <DataTable
           :columns="columns"
           :data="items"
+          :buckets="buckets"
+          :is-collapsed="grouping.isCollapsed"
           :selected-items="dt.selectedItems"
           item-id-field="uuid"
           :sort-field="controls.sortField.value"
@@ -278,6 +379,7 @@ function formatPurgeAt(deletedAt: string): string {
           @toggle-selection="dt.onToggleSelection"
           @toggle-all="dt.onToggleAll"
           @row-click="navigateToUser"
+          @toggle-bucket="grouping.toggleCollapsed"
         >
           <template #cell-user="{ item }">
             <div class="flex items-center gap-2">

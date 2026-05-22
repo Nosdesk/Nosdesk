@@ -11,6 +11,12 @@ export interface Column {
   responsive?: 'always' | 'md' | 'lg' // Show only on certain breakpoints
 }
 
+export interface DataTableBucket<T> {
+  key: string
+  label: string
+  items: readonly T[]
+}
+
 const props = withDefaults(defineProps<{
   columns: readonly Column[]
   data: readonly T[]
@@ -20,10 +26,18 @@ const props = withDefaults(defineProps<{
   sortDirection?: 'asc' | 'desc'
   loading?: boolean
   gridClass?: string
+  /** When non-empty, the table renders bucket header rows
+   *  interleaved with item rows under each bucket. Use this for
+   *  group-by views. When omitted or empty, the existing flat
+   *  rendering of `data` applies. */
+  buckets?: readonly DataTableBucket<T>[]
+  /** Per-bucket fold state. Called for each bucket; collapsed
+   *  buckets render the header alone, skipping their items. */
+  isCollapsed?: (bucketKey: string) => boolean
 }>(), {
   itemIdField: 'id',
   loading: false,
-  gridClass: ''
+  gridClass: '',
 })
 
 const emit = defineEmits<{
@@ -32,7 +46,17 @@ const emit = defineEmits<{
   'toggle-all': [event: Event]
   'row-click': [item: T]
   'row-mouseenter': [item: T]
+  'toggle-bucket': [bucketKey: string]
 }>()
+
+/** True when the consumer asked for grouped rendering. Buckets
+ *  with no items are filtered out below so empty groups don't
+ *  produce a lone header row. */
+const isGrouped = computed(() => (props.buckets?.length ?? 0) > 0)
+
+const visibleBuckets = computed(() =>
+  (props.buckets ?? []).filter((b) => b.items.length > 0),
+)
 
 /// Read a field from a row by string name. Tables are dynamic by
 /// their nature — column.field is a string from the column config —
@@ -146,54 +170,132 @@ const getColumnVisibility = (column: Column) => {
         </div>
       </div>
 
-      <!-- Data Rows -->
-      <template v-for="(item, index) in data" :key="String(fieldValue(item, itemIdField))">
-        <div
-          class="contents group cursor-pointer"
-          @click="emit('row-click', item)"
-          @mouseenter="emit('row-mouseenter', item)"
-        >
-          <!-- Checkbox Cell -->
+      <!-- Flat rendering: existing behaviour when no buckets. -->
+      <template v-if="!isGrouped">
+        <template v-for="(item, index) in data" :key="String(fieldValue(item, itemIdField))">
           <div
-            class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover"
-            :class="[
-              loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
-              index > 0 ? 'border-t border-default' : ''
-            ]"
-            @click.stop
+            class="contents group cursor-pointer"
+            @click="emit('row-click', item)"
+            @mouseenter="emit('row-mouseenter', item)"
           >
-            <Checkbox
-              :model-value="selectedItems.includes(String(fieldValue(item, itemIdField)))"
-              @change="(e) => emit('toggle-selection', e, String(fieldValue(item, itemIdField)))"
-            />
-          </div>
-
-          <!-- Data Cells -->
-          <div
-            v-for="column in columns"
-            :key="column.field"
-            :class="[
-              'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
-              getColumnVisibility(column),
-              loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
-              index > 0 ? 'border-t border-default' : ''
-            ]"
-          >
-            <!-- Slot for custom cell content -->
-            <slot
-              :name="`cell-${column.field}`"
-              :item="item"
-              :value="fieldValue(item, column.field)"
-              :index="index"
-              :column="column"
+            <!-- Checkbox Cell -->
+            <div
+              class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover"
+              :class="[
+                loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
+                index > 0 ? 'border-t border-default' : ''
+              ]"
+              @click.stop
             >
-              <!-- Default cell content -->
-              <span class="truncate text-primary">
-                {{ fieldValue(item, column.field) }}
-              </span>
-            </slot>
+              <Checkbox
+                :model-value="selectedItems.includes(String(fieldValue(item, itemIdField)))"
+                @change="(e) => emit('toggle-selection', e, String(fieldValue(item, itemIdField)))"
+              />
+            </div>
+
+            <!-- Data Cells -->
+            <div
+              v-for="column in columns"
+              :key="column.field"
+              :class="[
+                'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
+                getColumnVisibility(column),
+                loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
+                index > 0 ? 'border-t border-default' : ''
+              ]"
+            >
+              <slot
+                :name="`cell-${column.field}`"
+                :item="item"
+                :value="fieldValue(item, column.field)"
+                :index="index"
+                :column="column"
+              >
+                <span class="truncate text-primary">
+                  {{ fieldValue(item, column.field) }}
+                </span>
+              </slot>
+            </div>
           </div>
-        </div>
+        </template>
+      </template>
+
+      <!-- Grouped rendering: bucket header row + items per bucket.
+           The header spans all columns via `grid-column: 1 / -1`
+           so it reads as a single full-width row inside the same
+           grid; this keeps the column-header alignment that
+           rendering N small tables would lose. -->
+      <template v-else>
+        <template v-for="(bucket, bIdx) in visibleBuckets" :key="bucket.key">
+          <button
+            type="button"
+            class="bucket-header px-3 py-1.5 flex items-center gap-2 text-left bg-surface-alt hover:bg-surface-hover transition-colors sticky"
+            :class="bIdx > 0 ? 'border-t border-default' : 'border-t border-default'"
+            :style="{ gridColumn: '1 / -1' }"
+            @click="emit('toggle-bucket', bucket.key)"
+          >
+            <svg
+              class="w-3 h-3 text-tertiary transition-transform"
+              :class="isCollapsed?.(bucket.key) ? '-rotate-90' : ''"
+              viewBox="0 0 12 12"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M2 4l4 4 4-4z" />
+            </svg>
+            <span class="text-xs font-medium text-primary">{{ bucket.label }}</span>
+            <span class="text-[10px] text-tertiary tabular-nums">{{ bucket.items.length }}</span>
+          </button>
+
+          <template v-if="!isCollapsed?.(bucket.key)">
+            <template
+              v-for="(item, index) in bucket.items"
+              :key="`${bucket.key}:${String(fieldValue(item, itemIdField))}`"
+            >
+              <div
+                class="contents group cursor-pointer"
+                @click="emit('row-click', item)"
+                @mouseenter="emit('row-mouseenter', item)"
+              >
+                <div
+                  class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover"
+                  :class="[
+                    loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
+                    index > 0 ? 'border-t border-default' : ''
+                  ]"
+                  @click.stop
+                >
+                  <Checkbox
+                    :model-value="selectedItems.includes(String(fieldValue(item, itemIdField)))"
+                    @change="(e) => emit('toggle-selection', e, String(fieldValue(item, itemIdField)))"
+                  />
+                </div>
+                <div
+                  v-for="column in columns"
+                  :key="column.field"
+                  :class="[
+                    'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
+                    getColumnVisibility(column),
+                    loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
+                    index > 0 ? 'border-t border-default' : ''
+                  ]"
+                >
+                  <slot
+                    :name="`cell-${column.field}`"
+                    :item="item"
+                    :value="fieldValue(item, column.field)"
+                    :index="index"
+                    :column="column"
+                  >
+                    <span class="truncate text-primary">
+                      {{ fieldValue(item, column.field) }}
+                    </span>
+                  </slot>
+                </div>
+              </div>
+            </template>
+          </template>
+        </template>
       </template>
     </div>
   </div>

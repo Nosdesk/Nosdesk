@@ -27,54 +27,45 @@
  * keybinding can jump straight to stage 2 for the title facet.
  */
 import { computed, nextTick, ref, watch } from 'vue'
-import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import FilterValueList from '@/components/views/FilterValueList.vue'
 import { useMenuKeyboardNav, type KeyboardNavItem } from '@/composables/useMenuKeyboardNav'
 import type { PopoverAnchor } from '@/composables/usePopover'
-import type { FilterFacet } from '@/composables/useTicketsFilters'
-import {
-  FACET_META,
-  FACET_ORDER,
-  type FilterOption,
-} from '@/components/views/filterFacets'
+import type { FilterOption, FacetKind } from '@/composables/useListFilters'
 
-const fluent = useFluent()
-
-/** Map a FilterFacet to its localised label. The FACET_META
- * registry is the source of truth for facet ordering + multi
- * semantics, but its English `label` is overridden here so the
- * Add-filter menu and pill labels follow the active locale. */
-function facetLabel(facet: FilterFacet): string {
-  return fluent.$t(`views-add-filter-facet-${facet}`)
+/** Minimal descriptor the menu needs to render and route events.
+ *  Consumers map their FacetDef array to this shape; the menu
+ *  stays dataset-agnostic so tickets, assets, and users all
+ *  share one popover. */
+export interface AddFilterFacet {
+  key: string
+  label: string
+  kind: FacetKind
 }
 
-const props = withDefaults(defineProps<{
-  activeFacets: FilterFacet[]
-  optionsFor: (facet: FilterFacet) => FilterOption[]
-  selectedFor: (facet: FilterFacet) => Set<string>
-  textValueFor: (facet: FilterFacet) => string
-  /** Facets the menu offers. Consumer can pass a filtered subset
-   * (eg. omit 'sla' when the workspace has no SLA policies) so
-   * inapplicable filters never appear in the picker. Defaults to
-   * the full registry order. */
-  facetOrder?: FilterFacet[]
-}>(), {
-  facetOrder: () => FACET_ORDER,
-})
+const props = defineProps<{
+  facets: AddFilterFacet[]
+  activeFacets: string[]
+  optionsFor: (key: string) => FilterOption[]
+  selectedFor: (key: string) => Set<string>
+  textValueFor: (key: string) => string
+  /** Placeholder for text-facet inputs. Defaults to the generic
+   *  search-title string for backwards compat with tickets. */
+  textPlaceholder?: string
+}>()
 
 const emit = defineEmits<{
-  (e: 'toggle', facet: FilterFacet, value: string): void
-  (e: 'clear', facet: FilterFacet): void
-  (e: 'set-text', facet: FilterFacet, value: string): void
+  (e: 'toggle', key: string, value: string): void
+  (e: 'clear', key: string): void
+  (e: 'set-text', key: string, value: string): void
 }>()
 
 const triggerRef = ref<HTMLElement | null>(null)
 const open = ref(false)
 const stage = ref<'facets' | 'values'>('facets')
 const direction = ref<'forward' | 'back'>('forward')
-const activeFacet = ref<FilterFacet | null>(null)
+const activeFacet = ref<string | null>(null)
 const textInputRef = ref<HTMLInputElement | null>(null)
 const facetListRef = ref<HTMLDivElement | null>(null)
 
@@ -83,7 +74,7 @@ const anchor = computed<PopoverAnchor>(() => ({
   element: () => triggerRef.value,
 }))
 
-const activeSet = computed<Set<FilterFacet>>(() => new Set(props.activeFacets))
+const activeSet = computed<Set<string>>(() => new Set(props.activeFacets))
 
 // ---------------------------------------------------------------
 // Stage 1 keyboard nav. The facet list uses the same composable
@@ -91,14 +82,15 @@ const activeSet = computed<Set<FilterFacet>>(() => new Set(props.activeFacets))
 // Enter to drill in.
 // ---------------------------------------------------------------
 interface FacetNavItem extends KeyboardNavItem {
-  facet: FilterFacet
+  key: string
+  kind: FacetKind
 }
 
 const facetItems = computed<FacetNavItem[]>(() =>
-  props.facetOrder.map((f) => ({ label: facetLabel(f), facet: f })),
+  props.facets.map((f) => ({ label: f.label, key: f.key, kind: f.kind })),
 )
 
-const facetNav = useMenuKeyboardNav<FacetNavItem>((item) => pickFacet(item.facet))
+const facetNav = useMenuKeyboardNav<FacetNavItem>((item) => pickFacet(item.key))
 
 watch(facetItems, (next) => facetNav.setItems(next), { immediate: true })
 
@@ -106,11 +98,15 @@ function onFacetListKeydown(e: KeyboardEvent): void {
   facetNav.onKeydown(e)
 }
 
-function pickFacet(facet: FilterFacet): void {
+function facetByKey(key: string): AddFilterFacet | undefined {
+  return props.facets.find((f) => f.key === key)
+}
+
+function pickFacet(key: string): void {
   direction.value = 'forward'
-  activeFacet.value = facet
+  activeFacet.value = key
   stage.value = 'values'
-  if (facet === 'title') {
+  if (facetByKey(key)?.kind === 'text') {
     void nextTick(() => textInputRef.value?.focus())
   }
 }
@@ -164,9 +160,9 @@ function onValueStageKeydown(e: KeyboardEvent): void {
   }
 }
 
-function openWithFacet(facet: FilterFacet): void {
+function openWithFacet(key: string): void {
   open.value = true
-  pickFacet(facet)
+  pickFacet(key)
 }
 
 defineExpose({ openWithFacet })
@@ -186,11 +182,11 @@ const stageSelected = computed<Set<string>>(() =>
 const stageTextValue = computed<string>(() =>
   activeFacet.value ? props.textValueFor(activeFacet.value) : '',
 )
-const stageMeta = computed(() =>
-  activeFacet.value
-    ? { ...FACET_META[activeFacet.value], label: facetLabel(activeFacet.value) }
-    : null,
-)
+const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
+  if (!activeFacet.value) return null
+  const f = facetByKey(activeFacet.value)
+  return f ? { label: f.label, kind: f.kind } : null
+})
 </script>
 
 <template>
@@ -242,20 +238,20 @@ const stageMeta = computed(() =>
             @keydown="onFacetListKeydown"
           >
             <button
-              v-for="(facet, i) in facetOrder"
-              :key="facet"
+              v-for="(facet, i) in facets"
+              :key="facet.key"
               type="button"
               role="menuitem"
               class="w-full px-3 py-1.5 flex items-center gap-2 text-left transition-colors duration-75"
               :class="facetNav.highlightedIndex.value === i
                 ? 'bg-accent/10'
                 : 'hover:bg-surface-hover'"
-              @click.stop="pickFacet(facet)"
+              @click.stop="pickFacet(facet.key)"
               @mouseenter="facetNav.setHighlighted(i)"
             >
-              <span class="flex-1 text-xs text-primary">{{ facetLabel(facet) }}</span>
+              <span class="flex-1 text-xs text-primary">{{ facet.label }}</span>
               <Icon
-                v-if="activeSet.has(facet)"
+                v-if="activeSet.has(facet.key)"
                 name="check"
                 class="w-3 h-3 text-accent"
               />
@@ -279,12 +275,12 @@ const stageMeta = computed(() =>
               <span class="text-xs font-medium text-primary">{{ stageMeta?.label }}</span>
             </header>
 
-            <div v-if="stageMeta && !stageMeta.multi" class="p-2">
+            <div v-if="stageMeta && stageMeta.kind === 'text'" class="p-2">
               <input
                 ref="textInputRef"
                 type="text"
                 :value="stageTextValue"
-                :placeholder="$t('views-add-filter-search-title-placeholder')"
+                :placeholder="textPlaceholder ?? $t('views-add-filter-search-title-placeholder')"
                 class="bg-surface border border-subtle rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
                 @input="onTextInput"
                 @keydown="onTextKeydown"

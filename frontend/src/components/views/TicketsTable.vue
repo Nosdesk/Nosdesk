@@ -51,7 +51,7 @@ import BucketRows from '@/components/views/BucketRows.vue'
 import { rowMemoKey, type ListColumn } from '@/sync/views/ticketColumns'
 import type { useColumnLayout } from '@/composables/useColumnLayout'
 import type { CardData } from '@/sync/views/types'
-import type { GroupBucket } from '@/composables/useTicketsGrouping'
+import type { TicketGroupBucket as GroupBucket } from '@/composables/useTicketsGrouping'
 import type { BulkSelection } from '@/composables/useBulkSelection'
 
 const props = defineProps<{

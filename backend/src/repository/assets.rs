@@ -112,11 +112,35 @@ fn apply_device_filters<'a>(
         // warranty_status moved into attributes JSONB. JSON path
         // comparison stays inside the boxed query so the filter
         // stays composable with the universal-column filters.
-        if w != "all" {
-            query = query.filter(
-                diesel::dsl::sql::<diesel::sql_types::Bool>("attributes->>'warranty_status' = ")
-                    .bind::<diesel::sql_types::Text, _>(w.to_string()),
-            );
+        // Accepts a comma-separated list so the chip UI can
+        // multi-select (Active + Warning, etc); a single value
+        // still works as before.
+        if w != "all" && !w.is_empty() {
+            let values: Vec<String> = w
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty() && *s != "all")
+                .map(|s| s.to_string())
+                .collect();
+            if !values.is_empty() {
+                // Bind via ANY(...) over a text array so the value
+                // count is dynamic without dropping out of the
+                // boxed query. Diesel's `eq_any` doesn't compose
+                // with `sql::<Bool>` fragments, so this stays raw.
+                // Compare case-insensitively because the request
+                // pipeline lowercases filter values while the
+                // stored JSON uses capitalised buckets ("Active",
+                // "Warning", "Expired", "Unknown").
+                let values_lower: Vec<String> =
+                    values.iter().map(|v| v.to_lowercase()).collect();
+                query = query.filter(
+                    diesel::dsl::sql::<diesel::sql_types::Bool>(
+                        "LOWER(attributes->>'warranty_status') = ANY(",
+                    )
+                    .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(values_lower)
+                    .sql(")"),
+                );
+            }
         }
     }
     if let Some(m) = manufacturer_filter {

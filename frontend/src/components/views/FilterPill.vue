@@ -18,20 +18,27 @@ import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import FilterValueList from '@/components/views/FilterValueList.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
-import type { FilterFacet } from '@/composables/useTicketsFilters'
-import type { FilterOption } from '@/components/views/filterFacets'
+import type { FilterOption, FacetKind } from '@/composables/useListFilters'
 
 const props = defineProps<{
-  facet: FilterFacet
+  /** Stable facet key (eg. "status", "warranty", "role"). Used
+   *  by the consumer to map events back to the right facet. */
+  facet: string
+  /** Facet kind. Drives whether the popover shows a text input
+   *  (kind === 'text') or the multi-select value list. */
+  kind: FacetKind
   label: string
   valueSummary: string
   /** For multi facets: the option list + current selection.
-   * For 'title' (text facet): pass an empty array and the
-   * current text via `textValue`. */
+   * For text facets: pass an empty array and the current text
+   * via `textValue`. */
   options: FilterOption[]
   selected: Set<string>
   textValue?: string
   emptyMessage?: string
+  /** Placeholder for the text-facet input. Defaults to the
+   *  generic search-title placeholder string. */
+  textPlaceholder?: string
 }>()
 
 const emit = defineEmits<{
@@ -49,7 +56,7 @@ const anchor = computed<PopoverAnchor>(() => ({
   element: () => triggerRef.value,
 }))
 
-const isText = computed<boolean>(() => props.facet === 'title')
+const isText = computed<boolean>(() => props.kind === 'text')
 
 function onTextInput(e: Event): void {
   const t = e.target as HTMLInputElement
@@ -105,7 +112,7 @@ function onRemove(e: MouseEvent): void {
         <input
           type="text"
           :value="textValue ?? ''"
-          :placeholder="$t('views-filter-pill-search-title-placeholder')"
+          :placeholder="textPlaceholder ?? $t('views-filter-pill-search-title-placeholder')"
           class="bg-surface border border-subtle rounded-md text-xs px-2 h-7 w-full text-primary placeholder:text-tertiary focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
           @input="onTextInput"
         />

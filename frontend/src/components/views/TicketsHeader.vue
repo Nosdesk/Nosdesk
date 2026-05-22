@@ -192,6 +192,7 @@ function textValueFor(facet: FilterFacet): string {
  */
 const pills = computed(() => {
   return props.activeFacets.map((facet) => {
+    const meta = FACET_META[facet]
     const options = optionsFor(facet)
     const selected = selectedFor(facet)
     const textValue = textValueFor(facet)
@@ -200,7 +201,8 @@ const pills = computed(() => {
       : summariseSelected(facet, selected, options)
     return {
       facet,
-      label: fluent.$t(FACET_META[facet].labelKey),
+      kind: (meta.multi ? 'multi' : 'text') as 'multi' | 'text',
+      label: fluent.$t(meta.labelKey),
       options,
       selected,
       textValue,
@@ -208,6 +210,31 @@ const pills = computed(() => {
     }
   })
 })
+
+/** AddFilterMenu's generic facet descriptors. Maps the
+ *  ticket-specific FilterFacet union onto the dataset-agnostic
+ *  { key, label, kind } shape the menu now consumes. */
+const addFilterFacets = computed(() =>
+  props.facetOrder.map((facet) => ({
+    key: facet,
+    label: fluent.$t(`views-add-filter-facet-${facet}`),
+    kind: (FACET_META[facet].multi ? 'multi' : 'text') as 'multi' | 'text',
+  })),
+)
+
+// Wrappers that accept the menu's plain `string` key but call
+// through to the existing ticket-typed helpers. Casting at the
+// boundary keeps the emit contract on FilterFacet without
+// forcing the inner helpers to widen.
+function optionsForKey(key: string): FilterOption[] {
+  return optionsFor(key as FilterFacet)
+}
+function selectedForKey(key: string): Set<string> {
+  return selectedFor(key as FilterFacet)
+}
+function textValueForKey(key: string): string {
+  return textValueFor(key as FilterFacet)
+}
 
 const toneClass = computed<(tone: 'default' | 'amber' | 'red') => string>(() => (tone) => {
   if (tone === 'red') return 'text-rose-600 dark:text-rose-400 font-medium'
@@ -331,6 +358,7 @@ defineExpose({ openAddFilter })
           v-for="pill in pills"
           :key="pill.facet"
           :facet="pill.facet"
+          :kind="pill.kind"
           :label="pill.label"
           :value-summary="pill.valueSummary"
           :options="pill.options"
@@ -423,14 +451,14 @@ defineExpose({ openAddFilter })
     <div class="flex items-center gap-2">
       <AddFilterMenu
         ref="addFilterRef"
-        :facet-order="facetOrder"
+        :facets="addFilterFacets"
         :active-facets="activeFacets"
-        :options-for="optionsFor"
-        :selected-for="selectedFor"
-        :text-value-for="textValueFor"
-        @toggle="(facet, v) => emit('toggle-filter', facet, v)"
-        @clear="(facet) => emit('clear-filter', facet)"
-        @set-text="(facet, v) => emit('set-filter-text', facet, v)"
+        :options-for="optionsForKey"
+        :selected-for="selectedForKey"
+        :text-value-for="textValueForKey"
+        @toggle="(key, v) => emit('toggle-filter', key as FilterFacet, v)"
+        @clear="(key) => emit('clear-filter', key as FilterFacet)"
+        @set-text="(key, v) => emit('set-filter-text', key as FilterFacet, v)"
       />
       <button
         type="button"

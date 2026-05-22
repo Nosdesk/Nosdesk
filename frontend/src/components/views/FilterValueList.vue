@@ -24,7 +24,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import { useMenuKeyboardNav, type KeyboardNavItem } from '@/composables/useMenuKeyboardNav'
-import type { FilterOption } from '@/components/views/filterFacets'
+import type { FilterOption } from '@/composables/useListFilters'
 
 const props = withDefaults(defineProps<{
   options: FilterOption[]
@@ -167,15 +167,27 @@ watch(
         role="option"
         :aria-selected="selected.has(opt.value)"
         :tabindex="isHighlighted(i) ? 0 : -1"
-        class="w-full px-3 py-1.5 flex items-start gap-2 text-left transition-colors duration-75"
-        :class="isHighlighted(i)
-          ? 'bg-accent/10'
-          : 'hover:bg-surface-hover'"
+        :class="[
+          'w-full px-3 py-1.5 grid items-center gap-x-2 text-left transition-colors duration-75',
+          opt.swatchClass
+            ? 'grid-cols-[auto_auto_1fr]'
+            : 'grid-cols-[auto_1fr]',
+          isHighlighted(i) ? 'bg-accent/10' : 'hover:bg-surface-hover',
+        ]"
         @click.stop="emit('toggle', opt.value)"
         @mouseenter="setHighlighted(i)"
       >
+        <!--
+          Two-column (or three with a swatch) grid keeps the
+          checkbox, optional colour dot, and label on row 1 with
+          `items-center` so they sit on a shared optical line,
+          regardless of font ascent / descent quirks. The hint
+          (when present) lives on row 2 under the label, so the
+          checkbox doesn't drift to the midpoint of label+hint
+          the way a single-line items-center flex would.
+        -->
         <span
-          class="w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors duration-75"
+          class="w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors duration-75"
           :class="selected.has(opt.value) ? 'bg-accent border-accent' : 'border-default'"
         >
           <Icon
@@ -186,17 +198,18 @@ watch(
         </span>
         <span
           v-if="opt.swatchClass"
-          class="inline-block w-2 h-2 rounded-full mt-1 shrink-0"
+          class="inline-block w-2 h-2 rounded-full shrink-0"
           :class="opt.swatchClass"
           aria-hidden="true"
         />
-        <span class="flex-1 min-w-0">
-          <span class="block text-xs text-primary">{{ opt.label }}</span>
-          <span
-            v-if="opt.hint"
-            class="block text-[10px] text-tertiary truncate"
-          >{{ opt.hint }}</span>
-        </span>
+        <span class="text-xs text-primary truncate min-w-0">{{ opt.label }}</span>
+        <span
+          v-if="opt.hint"
+          :class="[
+            'text-[10px] text-tertiary truncate min-w-0',
+            opt.swatchClass ? 'col-start-3' : 'col-start-2',
+          ]"
+        >{{ opt.hint }}</span>
       </button>
     </div>
     <footer

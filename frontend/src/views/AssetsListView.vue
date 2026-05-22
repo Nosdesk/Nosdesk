@@ -10,8 +10,17 @@ import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
 import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
-import FilterRow from '@/components/common/FilterRow.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import ChipFilterStrip from '@/components/views/ChipFilterStrip.vue'
+import GroupByMenu from '@/components/views/GroupByMenu.vue'
+import {
+  useChipFiltersFromControls,
+  type ChipFacetDef,
+} from '@/composables/useChipFiltersFromControls'
+import {
+  useListGrouping,
+  type GroupAxisDef,
+} from '@/composables/useListGrouping'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
@@ -83,27 +92,119 @@ const selection = useBulkSelection<Asset>({
 })
 const dt = useBulkSelectionForDataTable(selection)
 
-const filterOptions = computed(() =>
-  controls.buildFilterOptions({
-    warranty: {
-      options: [
-        { value: 'active', label: t('assets-list-filter-warranty-active') },
-        { value: 'warning', label: t('assets-list-filter-warranty-warning') },
-        { value: 'expired', label: t('assets-list-filter-warranty-expired') },
-        { value: 'unknown', label: t('assets-list-filter-warranty-unknown') },
-      ],
-      width: 'w-[140px]',
-      allLabel: t('assets-list-filter-warranty-all'),
+// Filter facets (chip UI). Backend encoding:
+//   warranty  -> CSV under one filter key, backend ANY-matches
+//   lowStock  -> single 'true' when on, absent when off
+// State lives in `controls.filters` so URL sync + backend query
+// + saved views all see the same source of truth.
+const assetFacets = computed<ChipFacetDef[]>(() => [
+  {
+    key: 'warranty',
+    labelKey: 'assets-list-filter-warranty-label',
+    kind: 'multi',
+    options: () => [
+      { value: 'Active', label: t('assets-list-filter-warranty-active'), swatchClass: 'bg-emerald-500' },
+      { value: 'Warning', label: t('assets-list-filter-warranty-warning'), swatchClass: 'bg-amber-500' },
+      { value: 'Expired', label: t('assets-list-filter-warranty-expired'), swatchClass: 'bg-rose-500' },
+      { value: 'Unknown', label: t('assets-list-filter-warranty-unknown'), swatchClass: 'bg-zinc-400' },
+    ],
+  },
+  {
+    key: 'lowStock',
+    labelKey: 'assets-list-filter-low-stock-label',
+    kind: 'multi',
+    options: () => [
+      { value: 'true', label: t('assets-list-filter-low-stock-on'), swatchClass: 'bg-amber-500' },
+    ],
+  },
+])
+
+const chipFilters = useChipFiltersFromControls({
+  controls,
+  facets: assetFacets,
+  t,
+})
+
+// ---------------------------------------------------------------
+// Group-by. Client-side bucketing of the currently-loaded page,
+// so grouping is most meaningful in infinite-scroll mode (default
+// pageSize=0 → backend returns up to 50 rows in one shot). The
+// axes pick from columns that the table already shows, so the
+// bucket label and the grouped column carry the same information.
+// ---------------------------------------------------------------
+const WARRANTY_ORDER = ['Expired', 'Warning', 'Active', 'Unknown'] as const
+
+const groupAxes: GroupAxisDef<Asset>[] = [
+  {
+    key: 'warranty',
+    labelKey: 'assets-list-grouping-warranty',
+    bucketFor: (asset) => {
+      const raw = (asset.attributes?.warranty_status as string | undefined) ?? ''
+      const key = raw || 'unknown'
+      const label = raw || t('assets-list-filter-warranty-unknown')
+      return { key: `warranty:${key}`, label }
     },
-    lowStock: {
-      options: [
-        { value: 'true', label: t('assets-list-filter-low-stock-on') },
-      ],
-      width: 'w-[140px]',
-      allLabel: t('assets-list-filter-low-stock-all'),
+    sortBy: (bucketKey) => {
+      const v = bucketKey.replace('warranty:', '') as (typeof WARRANTY_ORDER)[number]
+      const idx = WARRANTY_ORDER.indexOf(v)
+      return idx === -1 ? 999 : idx
     },
-  }),
-)
+  },
+  {
+    key: 'kind',
+    labelKey: 'assets-list-grouping-kind',
+    bucketFor: (asset) => ({
+      key: `kind:${asset.kind}`,
+      label: asset.kind,
+    }),
+  },
+  {
+    key: 'manufacturer',
+    labelKey: 'assets-list-grouping-manufacturer',
+    bucketFor: (asset) => {
+      const m = asset.manufacturer ?? ''
+      return {
+        key: `manufacturer:${m || '__none'}`,
+        label: m || t('assets-list-grouping-manufacturer-none'),
+      }
+    },
+  },
+  {
+    key: 'location',
+    labelKey: 'assets-list-grouping-location',
+    bucketFor: (asset) => {
+      const l = asset.location ?? ''
+      return {
+        key: `location:${l || '__none'}`,
+        label: l || t('assets-list-grouping-location-none'),
+      }
+    },
+  },
+  {
+    key: 'primary_user',
+    labelKey: 'assets-list-grouping-primary-user',
+    bucketFor: (asset) => {
+      const uuid = asset.primary_user?.uuid ?? '__unassigned'
+      return {
+        key: `user:${uuid}`,
+        label: asset.primary_user?.name ?? t('assets-list-unassigned'),
+      }
+    },
+  },
+]
+
+const grouping = useListGrouping<Asset>({
+  axes: groupAxes,
+  storageNamespace: 'assets',
+  // No saved-views story yet for assets; everything lives under
+  // the single 'default' scope. When saved views land, swap this
+  // for `() => activeViewId.value`.
+  getViewId: () => 'default',
+  t,
+})
+
+const itemsRef = computed(() => page.items.value)
+const buckets = grouping.buckets(itemsRef)
 
 // Available sortable fields: id, name, hostname, serial_number,
 // model, warranty_status, manufacturer, created_at, updated_at,
@@ -187,10 +288,21 @@ async function confirmDelete() {
     </template>
 
     <template #filters>
-      <FilterRow
-        :options="filterOptions"
-        @update="controls.handleFilterUpdate"
-        @reset="controls.resetFilters"
+      <ChipFilterStrip
+        :pills="chipFilters.pills.value"
+        :add-filter-facets="chipFilters.addFilterFacets.value"
+        :active-facets="chipFilters.activeFacets.value"
+        :options-for="chipFilters.optionsFor"
+        :selected-for="chipFilters.selectedFor"
+        :text-value-for="chipFilters.textValueFor"
+        :on-toggle="chipFilters.toggleValue"
+        :on-clear="chipFilters.clearFacet"
+        :on-set-text="chipFilters.setText"
+      />
+      <GroupByMenu
+        :options="grouping.axisOptions.value"
+        :model-value="grouping.groupBy.value"
+        @update:model-value="grouping.setGroupBy"
       />
     </template>
 
@@ -208,6 +320,8 @@ async function confirmDelete() {
       <DataTable
         :columns="columns"
         :data="items"
+        :buckets="buckets"
+        :is-collapsed="grouping.isCollapsed"
         :selected-items="dt.selectedItems"
         :sort-field="controls.sortField.value"
         :sort-direction="controls.sortDirection.value"
@@ -217,6 +331,7 @@ async function confirmDelete() {
         @toggle-selection="dt.onToggleSelection"
         @toggle-all="dt.onToggleAll"
         @row-click="navigateToDevice"
+        @toggle-bucket="grouping.toggleCollapsed"
       >
         <template #cell-name="{ item }">
           <div class="flex flex-col gap-0.5">
