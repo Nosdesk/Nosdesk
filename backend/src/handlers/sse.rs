@@ -97,6 +97,23 @@ pub enum SseEvent {
         unit: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// Append-only ledger row that just landed. Lets the usage
+    /// history panels on both the asset detail and the ticket
+    /// detail refresh reactively without a refetch. The payload
+    /// is the full ledger row plus the asset's display name so
+    /// the frontend can render the line without a join.
+    AssetUsageRecorded {
+        usage_id: i64,
+        asset_id: i32,
+        asset_name: String,
+        ticket_id: Option<i32>,
+        quantity_used: String,
+        unit: String,
+        event_kind: String,
+        notes: Option<String>,
+        recorded_at: chrono::DateTime<chrono::Utc>,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     ProjectAssigned {
         ticket_id: i32,
         project_id: i32,
@@ -245,6 +262,7 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::AssetUpdated { .. } => "asset-updated",
         SseEvent::AssetDeleted { .. } => "asset-deleted",
         SseEvent::AssetLowStock { .. } => "asset-low-stock",
+        SseEvent::AssetUsageRecorded { .. } => "asset-usage-recorded",
         SseEvent::ProjectAssigned { .. } => "project-assigned",
         SseEvent::ProjectUnassigned { .. } => "project-unassigned",
         SseEvent::TicketLinked { .. } => "ticket-linked",

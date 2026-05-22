@@ -20,9 +20,10 @@
  * don't generate usage rows so the panel would always be
  * empty.
  */
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { assetUsageService, type AssetUsage } from '@/services/assetUsageService';
+import { useSSE } from '@/services/sseService';
 import { RouterLink } from 'vue-router';
 
 const props = defineProps<{
@@ -107,7 +108,52 @@ async function submitRecord(kind: 'usage' | 'restock') {
   }
 }
 
-onMounted(loadInitial);
+/** Live ledger updates from other browsers. Prepends matching
+ *  rows so the panel reflects writes that didn't originate
+ *  here. Self-writes already update the local list via the
+ *  submit handler, so we dedupe by id. */
+interface AssetUsageRecordedEvent {
+  usage_id: number;
+  asset_id: number;
+  asset_name: string;
+  ticket_id: number | null;
+  quantity_used: string;
+  unit: string;
+  event_kind: 'usage' | 'restock';
+  notes: string | null;
+  recorded_at: string;
+}
+
+const { addEventListener, removeEventListener } = useSSE();
+
+function handleUsageRecorded(raw: unknown) {
+  const data = raw as AssetUsageRecordedEvent;
+  if (!data || data.asset_id !== props.assetId) return;
+  if (rows.value.some((r) => r.id === data.usage_id)) return;
+  rows.value = [
+    {
+      id: data.usage_id,
+      asset_id: data.asset_id,
+      ticket_id: data.ticket_id,
+      quantity_used: data.quantity_used,
+      unit: data.unit,
+      recorded_by: null,
+      recorded_at: data.recorded_at,
+      notes: data.notes,
+      event_kind: data.event_kind,
+    },
+    ...rows.value,
+  ];
+}
+
+onMounted(() => {
+  loadInitial();
+  addEventListener('asset-usage-recorded', handleUsageRecorded);
+});
+
+onUnmounted(() => {
+  removeEventListener('asset-usage-recorded', handleUsageRecorded);
+});
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();

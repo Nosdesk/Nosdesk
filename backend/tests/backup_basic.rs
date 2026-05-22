@@ -34,7 +34,7 @@ fn snapshot_all(conn: &mut PgConnection) -> Vec<(String, String)> {
 fn round_trip_preserves_every_table_byte_for_byte() {
     let db = TestDb::new();
     let mut conn = db.conn();
-    let _upload = with_upload_dir();
+    with_upload_dir();
 
     // Seed user-data variety on top of the migration baseline.
     // Numeric (3dp BigDecimal), jsonb attributes, varchar, uuid

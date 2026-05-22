@@ -57,7 +57,7 @@ fn tamper_backup(path: &std::path::Path) {
 fn restore_rejects_tampered_row_payload() {
     let db = TestDb::new();
     let mut conn = db.conn();
-    let _upload = with_upload_dir();
+    with_upload_dir();
 
     // Need at least one user row with an 'A' somewhere so the
     // tamper helper has a byte to flip. Insert a deterministic

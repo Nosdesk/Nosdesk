@@ -170,6 +170,11 @@ impl WebhookEventType {
             // an in-app UX signal; webhook consumers already see
             // the parent `asset.updated` for the quantity write.
             SseEvent::AssetLowStock { .. } => None,
+            // Usage ledger entries are an in-app reactive signal,
+            // not a contract for external consumers. The parent
+            // `asset.updated` covers the quantity change for
+            // downstream integrations.
+            SseEvent::AssetUsageRecorded { .. } => None,
             SseEvent::Heartbeat { .. } => None,
             SseEvent::ViewersChanged { .. } => None,
             SseEvent::TicketFieldPreviewed { .. } => None,

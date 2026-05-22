@@ -35,7 +35,7 @@ fn max_id(conn: &mut PgConnection, table: &str, col: &str) -> i64 {
 fn restore_realigns_sequences_so_new_inserts_dont_collide() {
     let db = TestDb::new();
     let mut conn = db.conn();
-    let _upload = with_upload_dir();
+    with_upload_dir();
 
     // Seed a few rows so the sequences advance past their initial
     // values. We want the post-restore sequence reset to land at

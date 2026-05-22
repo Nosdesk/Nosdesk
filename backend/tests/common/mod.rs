@@ -286,13 +286,25 @@ pub fn seed_backup_job(conn: &mut backend::db::DbConnection) -> Uuid {
     .id
 }
 
-/// Per-test UPLOAD_DIR. Returns the TempDir guard so tests can
-/// hold it for the duration of the test body; dropping the
-/// guard wipes the directory.
-pub fn with_upload_dir() -> tempfile::TempDir {
-    let d = tempfile::tempdir().expect("tempdir");
-    std::env::set_var("UPLOAD_DIR", d.path());
-    d
+/// Process-wide UPLOAD_DIR. Tests share one root because the
+/// env var is global; per-test temp dirs would race each other
+/// under `cargo test`'s parallel execution (test A's TempDir
+/// Drop would wipe test B's backup file). Each `create_backup`
+/// call generates a timestamped filename so backups don't
+/// collide. The shared tempdir lives in a `OnceLock` so it
+/// cleans up when the test process exits.
+pub fn with_upload_dir() {
+    static UPLOAD_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
+    let dir = UPLOAD_DIR.get_or_init(|| {
+        let d = tempfile::tempdir().expect("tempdir");
+        std::env::set_var("UPLOAD_DIR", d.path());
+        d
+    });
+    // Defensive re-set: another test's overwrite would have
+    // pointed UPLOAD_DIR somewhere else, leaving the OnceLock
+    // path stale. Stamping again on every call is cheap and
+    // makes the helper robust to call ordering.
+    std::env::set_var("UPLOAD_DIR", dir.path());
 }
 
 /// Names of every user table (ordinary + partitioned parent,

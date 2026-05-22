@@ -45,7 +45,7 @@ pub struct RecordUsageOutcome {
 /// tracked. The usage decrement is allowed to drive `quantity`
 /// below zero (we don't refuse on overdraw, the admin needs to
 /// see the negative to know they have an inventory discrepancy).
-// sync-pending-wire: emit fires inside the handler so the sync_action carries the joined ticket + asset display fields the frontend needs; see handlers::asset_usage::record
+// sync-audit-only: ledger rows are append-only events, not entities with identity, so they ride the SseEvent::AssetUsageRecorded channel from the handler (see handlers::asset_usage::record) rather than the sync_actions stream that's for cache-pool-tracked aggregates.
 pub fn record_event(
     conn: &mut DbConnection,
     new_usage: NewAssetUsage,

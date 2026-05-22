@@ -15,7 +15,7 @@ use common::{insert_stock_asset, insert_user, seed_backup_job, with_upload_dir, 
 fn encrypted_backup_round_trips_with_correct_password() {
     let db = TestDb::new();
     let mut conn = db.conn();
-    let _upload = with_upload_dir();
+    with_upload_dir();
 
     insert_user(&mut *conn, "Encrypted Eve");
     let asset_id = insert_stock_asset(&mut *conn, "encrypted-asset");
@@ -56,7 +56,7 @@ fn encrypted_backup_round_trips_with_correct_password() {
 fn restore_rejects_wrong_password() {
     let db = TestDb::new();
     let mut conn = db.conn();
-    let _upload = with_upload_dir();
+    with_upload_dir();
 
     insert_user(&mut *conn, "Eve");
     let job_id = seed_backup_job(&mut conn);

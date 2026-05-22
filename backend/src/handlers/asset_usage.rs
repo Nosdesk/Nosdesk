@@ -156,6 +156,25 @@ pub async fn record(
 
     match repo::record_event(&mut conn, new_usage) {
         Ok(outcome) => {
+            // Live ledger broadcast: the usage history panels on
+            // the asset detail and the ticket detail subscribe
+            // to this so other open browsers see the row land
+            // without a refresh.
+            sse_state
+                .broadcast_event(SseEvent::AssetUsageRecorded {
+                    usage_id: outcome.row.id,
+                    asset_id,
+                    asset_name: outcome.asset_name.clone(),
+                    ticket_id: outcome.row.ticket_id,
+                    quantity_used: outcome.row.quantity_used.to_string(),
+                    unit: outcome.row.unit.clone(),
+                    event_kind: outcome.row.event_kind.clone(),
+                    notes: outcome.row.notes.clone(),
+                    recorded_at: outcome.row.recorded_at,
+                    timestamp: chrono::Utc::now(),
+                })
+                .await;
+
             if outcome.crossed_low_stock {
                 if let Some(threshold) = outcome.threshold.as_ref() {
                     let threshold_str = threshold.to_string();
