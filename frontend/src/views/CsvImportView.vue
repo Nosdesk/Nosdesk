@@ -280,10 +280,10 @@ const viewImportedLabelKey = computed(() => {
               filter.
             -->
             <div
-              class="border-2 border-dashed rounded-lg px-6 py-8 text-center cursor-pointer transition-colors"
+              class="flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl px-6 py-12 min-h-[200px] text-center cursor-pointer transition-colors"
               :class="isDragOver
                 ? 'border-accent bg-accent/10'
-                : 'border-default bg-surface-alt hover:border-strong'"
+                : 'border-default bg-surface-alt/60 hover:border-strong hover:bg-surface-alt'"
               role="button"
               tabindex="0"
               @click="triggerFilePicker"
@@ -293,20 +293,29 @@ const viewImportedLabelKey = computed(() => {
               @dragleave="onDragLeave"
               @drop="onDrop"
             >
-              <Icon name="document" class="text-tertiary mx-auto mb-2" />
-              <p v-if="!selectedFile" class="text-sm text-primary">
-                {{ isDragOver ? $t('csv-import-drop-here') : $t('csv-import-drop-zone-idle') }}
-              </p>
-              <p v-else class="text-sm text-primary">
-                <span class="font-medium">{{ selectedFile.name }}</span>
-                <span class="text-tertiary"> · {{ Math.round(selectedFile.size / 1024) }} KB</span>
-              </p>
-              <p v-if="!selectedFile" class="text-xs text-tertiary mt-1">
-                {{ $t('csv-import-drop-zone-hint') }}
-              </p>
-              <p v-else class="text-xs text-tertiary mt-1">
-                {{ $t('csv-import-drop-zone-replace') }}
-              </p>
+              <div
+                class="w-12 h-12 rounded-full flex items-center justify-center"
+                :class="isDragOver
+                  ? 'bg-accent/20 text-accent'
+                  : 'bg-surface text-tertiary'"
+              >
+                <Icon name="document" size="md" />
+              </div>
+              <div class="flex flex-col items-center gap-1">
+                <p v-if="!selectedFile" class="text-sm text-primary font-medium">
+                  {{ isDragOver ? $t('csv-import-drop-here') : $t('csv-import-drop-zone-idle') }}
+                </p>
+                <p v-else class="text-sm text-primary">
+                  <span class="font-medium">{{ selectedFile.name }}</span>
+                  <span class="text-tertiary"> · {{ Math.round(selectedFile.size / 1024) }} KB</span>
+                </p>
+                <p v-if="!selectedFile" class="text-xs text-tertiary">
+                  {{ $t('csv-import-drop-zone-hint') }}
+                </p>
+                <p v-else class="text-xs text-tertiary">
+                  {{ $t('csv-import-drop-zone-replace') }}
+                </p>
+              </div>
             </div>
             <input
               ref="fileInput"
