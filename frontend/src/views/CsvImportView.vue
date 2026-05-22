@@ -364,8 +364,11 @@ const viewImportedLabelKey = computed(() => {
           </div>
         </div>
 
-        <div v-if="summary.errors.length > 0" class="bg-surface border border-default rounded-lg overflow-hidden">
-          <div class="px-4 py-3 bg-status-error/10 border-b border-status-error/40 flex items-center gap-2">
+        <div
+          v-if="summary.errors.length > 0"
+          class="bg-surface border border-status-error/40 rounded-lg overflow-hidden"
+        >
+          <div class="px-4 py-3 bg-status-error/10 flex items-center gap-2">
             <Icon name="warning" class="text-status-error" />
             <span class="text-sm font-medium text-status-error">
               {{ $t('csv-import-errors-heading', { count: summary.errors.length }) }}
@@ -375,14 +378,14 @@ const viewImportedLabelKey = computed(() => {
             </span>
           </div>
           <table class="w-full text-sm">
-            <thead class="bg-surface-alt">
-              <tr class="text-left text-tertiary text-xs uppercase tracking-wide">
+            <thead class="bg-status-error/5">
+              <tr class="text-left text-tertiary text-xs uppercase tracking-wide border-t border-status-error/20">
                 <th class="px-4 py-2 w-20">{{ $t('csv-import-errors-row') }}</th>
                 <th class="px-4 py-2 w-40">{{ $t('csv-import-errors-column') }}</th>
                 <th class="px-4 py-2">{{ $t('csv-import-errors-message') }}</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-default">
+            <tbody class="divide-y divide-status-error/15">
               <tr v-for="(e, i) in summary.errors" :key="i" class="text-primary">
                 <td class="px-4 py-2 font-mono text-tertiary">{{ e.row }}</td>
                 <td class="px-4 py-2 font-mono text-secondary">{{ e.column ?? '—' }}</td>
