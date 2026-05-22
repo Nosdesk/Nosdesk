@@ -41,7 +41,7 @@ const step = ref<Step>('upload')
 
 const supportedTypes: { value: ImportJobType; available: boolean }[] = [
   { value: 'assets', available: true },
-  { value: 'users', available: false },
+  { value: 'users', available: true },
   { value: 'tickets', available: false },
 ]
 
@@ -114,9 +114,31 @@ function startOver() {
   errorMessage.value = ''
 }
 
-function viewAssets() {
-  router.push('/assets')
+function viewImported() {
+  if (!job.value) return
+  switch (job.value.job_type) {
+    case 'assets':
+      router.push('/assets')
+      return
+    case 'users':
+      router.push('/admin/users')
+      return
+    case 'tickets':
+      router.push('/tickets')
+      return
+  }
 }
+
+const viewImportedLabelKey = computed(() => {
+  switch (job.value?.job_type) {
+    case 'users':
+      return 'csv-import-action-view-users'
+    case 'tickets':
+      return 'csv-import-action-view-tickets'
+    default:
+      return 'csv-import-action-view-assets'
+  }
+})
 </script>
 
 <template>
@@ -322,12 +344,11 @@ function viewAssets() {
             {{ $t('csv-import-action-new') }}
           </button>
           <button
-            v-if="job.job_type === 'assets'"
             type="button"
             class="px-4 py-2 rounded-lg bg-accent text-on-accent hover:bg-accent-strong"
-            @click="viewAssets"
+            @click="viewImported"
           >
-            {{ $t('csv-import-action-view-assets') }}
+            {{ $t(viewImportedLabelKey) }}
           </button>
         </div>
       </section>

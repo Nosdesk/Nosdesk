@@ -55,6 +55,7 @@ pub fn latest_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<
         .optional()
 }
 
+// sync-audit-only: workspace config row, see create
 #[allow(dead_code)]
 pub fn delete(conn: &mut DbConnection, id: Uuid) -> Result<usize, Error> {
     use crate::schema::import_jobs;

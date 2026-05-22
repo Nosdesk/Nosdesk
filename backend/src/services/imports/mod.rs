@@ -12,6 +12,7 @@
 pub mod assets;
 pub mod csv_parser;
 pub mod types;
+pub mod users;
 
 pub use types::{ImportSummary, ImportType, Importer, RowError};
 
@@ -23,10 +24,10 @@ use crate::db::DbConnection;
 pub fn importer_for(t: ImportType) -> Box<dyn Importer> {
     match t {
         ImportType::Assets => Box::new(assets::AssetImporter),
-        // Phase 2/3 stubs; the handler routes "not yet supported"
-        // errors for these before reaching the dispatch.
-        ImportType::Users | ImportType::Tickets => {
-            unreachable!("users and tickets importers ship in Phase 2/3")
+        ImportType::Users => Box::new(users::UserImporter),
+        // Tickets ships in Phase 3.
+        ImportType::Tickets => {
+            unreachable!("tickets importer ships in Phase 3")
         }
     }
 }

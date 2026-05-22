@@ -2143,6 +2143,8 @@ csv-import-action-discard = Discard
 csv-import-action-apply = Apply ({ $count } rows)
 csv-import-action-new = New import
 csv-import-action-view-assets = View assets
+csv-import-action-view-users = View users
+csv-import-action-view-tickets = View tickets
 csv-import-done-heading = Import complete
 csv-import-done-body = { $count } row(s) committed.
 csv-import-error-generic = Import failed. Check the file and try again.
@@ -2199,7 +2201,6 @@ csv-import-modal-fields-count = { $count ->
 csv-import-modal-close = Close
 csv-import-error-no-file = Please select a file to import
 csv-import-error-failed = Import failed
-csv-import-error-generic = Failed to import data
 csv-import-success-completed = Import completed successfully
 csv-import-toast-template-downloaded = { $type } template downloaded
 
