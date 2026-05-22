@@ -37,8 +37,8 @@ fn happy_path_creates_tickets_with_resolved_refs() {
     assert_eq!(count, 3);
     assert_eq!(count_table(&mut *conn, "tickets"), tickets_before + 3);
 
-    // Sentinel: the Kitchen Sink ticket has the right
-    // priority, requester, and workflow state.
+    // Sentinel: the onboarding ticket has the right priority,
+    // requester, and workflow state.
     #[derive(diesel::QueryableByName)]
     struct TicketRow {
         #[diesel(sql_type = diesel::sql_types::Text)]
@@ -56,17 +56,14 @@ fn happy_path_creates_tickets_with_resolved_refs() {
          FROM tickets t \
          JOIN workflow_states ws ON ws.id = t.workflow_state_id \
          LEFT JOIN user_emails ue ON ue.user_uuid = t.requester_uuid AND ue.is_primary \
-         WHERE t.title = 'Kitchen sink leak'",
+         WHERE t.title = 'Onboarding kit for new hire'",
     )
     .get_result(&mut *conn)
     .expect("re-read ticket");
-    assert_eq!(row.title, "Kitchen sink leak");
+    assert_eq!(row.title, "Onboarding kit for new hire");
     assert_eq!(row.priority, "high");
     assert_eq!(row.workflow_state_name, "Backlog");
-    assert_eq!(
-        row.requester_email.as_deref(),
-        Some("plumber.bob@example.com")
-    );
+    assert_eq!(row.requester_email.as_deref(), Some("alex.kim@example.com"));
 }
 
 #[test]

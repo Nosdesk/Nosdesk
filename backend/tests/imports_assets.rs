@@ -48,20 +48,20 @@ fn happy_path_creates_every_row() {
     assert_eq!(count, 4);
     assert_eq!(count_table(&mut *conn, "assets"), assets_before + 4);
 
-    // Sentinel: PIPE-001 landed with the right decimal quantity.
+    // Sentinel: STOCK-001 landed with the right decimal quantity.
     let row: AssetRow = diesel::sql_query(
-        "SELECT name, kind, asset_tag, quantity, unit FROM assets WHERE asset_tag = 'PIPE-001'",
+        "SELECT name, kind, asset_tag, quantity, unit FROM assets WHERE asset_tag = 'STOCK-001'",
     )
     .get_result(&mut *conn)
-    .expect("re-read PIPE-001");
-    assert_eq!(row.name, "20mm Copper Pipe");
+    .expect("re-read STOCK-001");
+    assert_eq!(row.name, "Black Toner Cartridge");
     assert_eq!(row.kind, "generic");
-    assert_eq!(row.asset_tag.as_deref(), Some("PIPE-001"));
+    assert_eq!(row.asset_tag.as_deref(), Some("STOCK-001"));
     assert_eq!(
         row.quantity.map(|q| q.to_string()).as_deref(),
         Some("50.000")
     );
-    assert_eq!(row.unit.as_deref(), Some("m"));
+    assert_eq!(row.unit.as_deref(), Some("pcs"));
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn second_commit_upserts_by_tag() {
         count: i64,
     }
     let by_tag: i64 = diesel::sql_query(
-        "SELECT COUNT(*)::bigint AS count FROM assets WHERE asset_tag IN ('PIPE-001','PIPE-002','FIT-001','TOOL-001')",
+        "SELECT COUNT(*)::bigint AS count FROM assets WHERE asset_tag IN ('STOCK-001','STOCK-002','STOCK-003','STOCK-004')",
     )
     .get_result::<CountRow>(&mut *conn)
     .map(|r| r.count)

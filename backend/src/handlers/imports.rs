@@ -308,9 +308,9 @@ async fn read_first_file_field(payload: &mut Multipart) -> Result<(String, Vec<u
     while let Some(chunk) = field.next().await {
         let chunk = chunk.map_err(|e| format!("read error: {e}"))?;
         bytes.extend_from_slice(&chunk);
-        // 10 MB cap, well above plumber-friend volumes, well
-        // below our memory budget. Larger files belong in the
-        // Phase 2 background-worker path.
+        // 10 MB cap, well above typical single-tenant import
+        // volumes, well below our memory budget. Larger files
+        // belong in the Phase 2 background-worker path.
         if bytes.len() > 10 * 1024 * 1024 {
             return Err("file exceeds the 10 MB upload cap".to_string());
         }

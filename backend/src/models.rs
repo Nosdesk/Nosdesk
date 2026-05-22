@@ -826,9 +826,10 @@ pub struct Asset {
     /// object for IT-desk devices that only use the structured
     /// columns above.
     pub attributes: serde_json::Value,
-    /// Quantity for bulk materials / consumables (plumbing pipe
-    /// in metres, ink-cartridge stock). Null on assets that are
-    /// "one row per physical thing" like a laptop.
+    /// Quantity for bulk materials / consumables (cable length
+    /// in metres, ink-cartridge stock, screws by the hundred).
+    /// Null on assets that are "one row per physical thing"
+    /// like a laptop.
     pub quantity: Option<bigdecimal::BigDecimal>,
     /// Unit label paired with `quantity`. Free-text ('m', 'L',
     /// 'pcs', etc.) so we don't impose a unit ontology.
@@ -966,10 +967,10 @@ pub struct AssetKindUpdate {
 
 /// One row of the asset usage ledger. Records how much of a
 /// stock-tracked asset was consumed and when, optionally tied
-/// to a ticket. The plumbing-business use case: "5m of 20mm
-/// copper pipe consumed on ticket #142". `unit` is stored on
-/// the row (not derived from asset.unit at read time) so a
-/// later unit change on the asset doesn't rewrite history.
+/// to a ticket. Example: "5 m of cable consumed on ticket
+/// #142". `unit` is stored on the row (not derived from
+/// asset.unit at read time) so a later unit change on the
+/// asset doesn't rewrite history.
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::asset_usage_log)]
 pub struct AssetUsage {

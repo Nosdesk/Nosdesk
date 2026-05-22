@@ -25,8 +25,8 @@ fn happy_path_creates_users_and_primary_emails() {
     assert_eq!(count, 3);
     assert_eq!(count_table(&mut *conn, "users"), users_before + 3);
 
-    // Sentinel: Bob has a primary email row with the right
-    // address and source='csv_import'.
+    // Sentinel: Alex's primary email row landed with the
+    // right address and source='csv_import'.
     #[derive(diesel::QueryableByName)]
     struct EmailRow {
         #[diesel(sql_type = diesel::sql_types::Text)]
@@ -38,13 +38,13 @@ fn happy_path_creates_users_and_primary_emails() {
     }
     let row: EmailRow = diesel::sql_query(
         "SELECT email, is_primary, source FROM user_emails \
-         WHERE email = 'plumber.bob@example.com'",
+         WHERE email = 'alex.kim@example.com'",
     )
     .get_result(&mut *conn)
-    .expect("re-read Bob's email");
+    .expect("re-read Alex's email");
     assert!(row.is_primary);
     assert_eq!(row.source.as_deref(), Some("csv_import"));
-    assert_eq!(row.email, "plumber.bob@example.com");
+    assert_eq!(row.email, "alex.kim@example.com");
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn second_commit_upserts_by_email() {
     }
     let n: i64 = diesel::sql_query(
         "SELECT COUNT(*)::bigint AS count FROM user_emails \
-         WHERE email = 'plumber.bob@example.com'",
+         WHERE email = 'alex.kim@example.com'",
     )
     .get_result::<CountRow>(&mut *conn)
     .map(|r| r.count)
