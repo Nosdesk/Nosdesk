@@ -22,15 +22,20 @@ use crate::db::DbConnection;
 use crate::models::{NewSavedView, SavedView, SavedViewUpdate};
 use crate::schema::saved_views;
 
-/// List every saved view for the given scope tuple. The most common
-/// call site — render the saved-views picker for a route.
-pub fn list_for_scope(
+/// List saved views for a (scope, scope_id) tuple, restricted to
+/// one dataset. The tickets surface keeps using the convenience
+/// wrapper `list_for_scope` below; new datasets (assets, users)
+/// pass their dataset explicitly so private views don't leak
+/// across surfaces for the same user.
+pub fn list_for_scope_dataset(
     conn: &mut DbConnection,
     scope: &str,
     scope_id: Option<&str>,
+    dataset: &str,
 ) -> QueryResult<Vec<SavedView>> {
     let mut query = saved_views::table
         .filter(saved_views::scope.eq(scope))
+        .filter(saved_views::dataset.eq(dataset))
         .into_boxed();
     if let Some(sid) = scope_id {
         query = query.filter(saved_views::scope_id.eq(sid));
@@ -38,6 +43,17 @@ pub fn list_for_scope(
         query = query.filter(saved_views::scope_id.is_null());
     }
     query.order(saved_views::name.asc()).load(conn)
+}
+
+/// Tickets-only convenience wrapper. Kept so existing call sites
+/// (the saved-views handler list path) don't need to thread a
+/// dataset argument.
+pub fn list_for_scope(
+    conn: &mut DbConnection,
+    scope: &str,
+    scope_id: Option<&str>,
+) -> QueryResult<Vec<SavedView>> {
+    list_for_scope_dataset(conn, scope, scope_id, "tickets")
 }
 
 pub fn find_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<SavedView>> {
@@ -88,6 +104,7 @@ mod tests {
             shape: json!({"type": "list"}),
             filter: json!({"predicate": {"combinator": "AND", "children": []}}),
             created_by: user_uuid,
+            dataset: "tickets".into(),
         }
     }
 
@@ -119,6 +136,39 @@ mod tests {
         let listed = list_for_scope(&mut conn, "private", Some(&user.uuid.to_string())).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, live.id);
+    }
+
+    #[test]
+    fn list_for_scope_dataset_keeps_datasets_separate() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "sv_dataset", UserRole::User);
+
+        let mut ticket_view = private_view_for(user.uuid, "tickets-view");
+        ticket_view.dataset = "tickets".into();
+        let mut asset_view = private_view_for(user.uuid, "assets-view");
+        asset_view.dataset = "assets".into();
+        create(&mut conn, ticket_view).unwrap();
+        create(&mut conn, asset_view).unwrap();
+
+        let tickets = list_for_scope_dataset(
+            &mut conn,
+            "private",
+            Some(&user.uuid.to_string()),
+            "tickets",
+        )
+        .unwrap();
+        let assets = list_for_scope_dataset(
+            &mut conn,
+            "private",
+            Some(&user.uuid.to_string()),
+            "assets",
+        )
+        .unwrap();
+
+        assert_eq!(tickets.len(), 1);
+        assert_eq!(tickets[0].name, "tickets-view");
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].name, "assets-view");
     }
 
     #[test]

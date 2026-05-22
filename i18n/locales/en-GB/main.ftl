@@ -3560,6 +3560,13 @@ views-project-tab-cycles = Cycles
 
 # Views: saved-view editor modal (SavedViewEditorModal)
 views-saved-editor-title = Edit view
+views-save-as-title = Save view as
+views-save-as-name-label = Name
+views-save-as-save = Save
+views-save-as-saving = Saving
+views-save-as-cancel = Cancel
+views-save-trigger = Save view as
+views-save-default-suffix = (copy)
 views-saved-editor-name-label = Name
 views-saved-editor-delete = Delete view
 views-saved-editor-cancel = Cancel

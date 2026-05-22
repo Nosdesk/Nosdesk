@@ -101,6 +101,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_audits (id) {
+        id -> Int8,
+        asset_id -> Int4,
+        counted_quantity -> Numeric,
+        previous_quantity -> Numeric,
+        delta -> Numeric,
+        notes -> Nullable<Text>,
+        recorded_by -> Nullable<Uuid>,
+        recorded_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     asset_groups (asset_id, group_id) {
         asset_id -> Int4,
         group_id -> Int4,
@@ -129,6 +142,22 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         #[max_length = 16]
         category -> Varchar,
+    }
+}
+
+diesel::table! {
+    asset_usage_log (id) {
+        id -> Int8,
+        asset_id -> Int4,
+        ticket_id -> Nullable<Int4>,
+        quantity_used -> Numeric,
+        #[max_length = 32]
+        unit -> Varchar,
+        recorded_by -> Nullable<Uuid>,
+        recorded_at -> Timestamptz,
+        notes -> Nullable<Text>,
+        #[max_length = 16]
+        event_kind -> Varchar,
     }
 }
 
@@ -162,35 +191,6 @@ diesel::table! {
         #[max_length = 32]
         external_sync_source -> Nullable<Varchar>,
         low_stock_threshold -> Nullable<Numeric>,
-    }
-}
-
-diesel::table! {
-    asset_audits (id) {
-        id -> Int8,
-        asset_id -> Int4,
-        counted_quantity -> Numeric,
-        previous_quantity -> Numeric,
-        delta -> Numeric,
-        notes -> Nullable<Text>,
-        recorded_by -> Nullable<Uuid>,
-        recorded_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    asset_usage_log (id) {
-        id -> Int8,
-        asset_id -> Int4,
-        ticket_id -> Nullable<Int4>,
-        quantity_used -> Numeric,
-        #[max_length = 32]
-        unit -> Varchar,
-        recorded_by -> Nullable<Uuid>,
-        recorded_at -> Timestamptz,
-        notes -> Nullable<Text>,
-        #[max_length = 16]
-        event_kind -> Varchar,
     }
 }
 
@@ -1036,6 +1036,8 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        #[max_length = 20]
+        dataset -> Varchar,
     }
 }
 
@@ -1517,12 +1519,12 @@ diesel::table! {
 diesel::joinable!(active_sessions -> users (user_uuid));
 diesel::joinable!(article_content_revisions -> article_contents (article_content_id));
 diesel::joinable!(article_contents -> tickets (ticket_id));
+diesel::joinable!(asset_audits -> assets (asset_id));
+diesel::joinable!(asset_audits -> users (recorded_by));
 diesel::joinable!(asset_groups -> assets (asset_id));
 diesel::joinable!(asset_groups -> groups (group_id));
 diesel::joinable!(asset_groups -> users (created_by));
 diesel::joinable!(asset_kinds -> users (created_by));
-diesel::joinable!(asset_audits -> assets (asset_id));
-diesel::joinable!(asset_audits -> users (recorded_by));
 diesel::joinable!(asset_usage_log -> assets (asset_id));
 diesel::joinable!(asset_usage_log -> tickets (ticket_id));
 diesel::joinable!(asset_usage_log -> users (recorded_by));
@@ -1629,92 +1631,4 @@ diesel::joinable!(working_calendar_holidays -> working_calendars (calendar_id));
 diesel::joinable!(working_calendars -> users (created_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    active_sessions,
-    api_tokens,
-    article_content_revisions,
-    article_contents,
-    asset_groups,
-    asset_audits,
-    asset_kinds,
-    asset_usage_log,
-    assets,
-    assignment_log,
-    assignment_rule_state,
-    assignment_rules,
-    attachments,
-    audit_log,
-    audit_log_default,
-    backup_jobs,
-    canned_responses,
-    category_group_visibility,
-    channel_credentials,
-    channel_messages,
-    channels,
-    comments,
-    csp_reports,
-    cycle_tickets,
-    cycles,
-    documentation_collection_pages,
-    documentation_collection_visibility,
-    documentation_collections,
-    documentation_page_embeddings,
-    documentation_page_tickets,
-    documentation_page_visibility,
-    documentation_pages,
-    documentation_revisions,
-    documentation_starred_pages,
-    documentation_subscriptions,
-    email_suppressions,
-    group_includes,
-    groups,
-    import_jobs,
-    knowledge_gap_signals,
-    knowledge_gaps,
-    linked_tickets,
-    notification_preferences,
-    notification_rate_limits,
-    notification_types,
-    notifications,
-    outbound_emails,
-    passkey_credentials,
-    plugin_activity,
-    plugin_collection_rows,
-    plugin_collection_schemas,
-    plugin_data,
-    plugin_local_signing_key,
-    plugin_registry_state,
-    plugin_trusted_publishers,
-    plugins,
-    project_tickets,
-    projects,
-    refresh_tokens,
-    reset_tokens,
-    saved_views,
-    search_index_state,
-    search_query_log,
-    security_events,
-    site_settings,
-    sla_policies,
-    sync_actions,
-    sync_actions_default,
-    sync_delta_tokens,
-    sync_history,
-    system_meta,
-    tags,
-    ticket_assets,
-    ticket_categories,
-    ticket_tags,
-    ticket_watchers,
-    tickets,
-    user_auth_identities,
-    user_emails,
-    user_groups,
-    user_preferences,
-    user_ticket_views,
-    users,
-    webhook_deliveries,
-    webhooks,
-    workflow_states,
-    working_calendar_holidays,
-    working_calendars,
-);
+    active_sessions,api_tokens,article_content_revisions,article_contents,asset_audits,asset_groups,asset_kinds,asset_usage_log,assets,assignment_log,assignment_rule_state,assignment_rules,attachments,audit_log,audit_log_default,backup_jobs,canned_responses,category_group_visibility,channel_credentials,channel_messages,channels,comments,csp_reports,cycle_tickets,cycles,documentation_collection_pages,documentation_collection_visibility,documentation_collections,documentation_page_embeddings,documentation_page_tickets,documentation_page_visibility,documentation_pages,documentation_revisions,documentation_starred_pages,documentation_subscriptions,email_suppressions,group_includes,groups,import_jobs,knowledge_gap_signals,knowledge_gaps,linked_tickets,notification_preferences,notification_rate_limits,notification_types,notifications,outbound_emails,passkey_credentials,plugin_activity,plugin_collection_rows,plugin_collection_schemas,plugin_data,plugin_local_signing_key,plugin_registry_state,plugin_trusted_publishers,plugins,project_tickets,projects,refresh_tokens,reset_tokens,saved_views,search_index_state,search_query_log,security_events,site_settings,sla_policies,sync_actions,sync_actions_default,sync_delta_tokens,sync_history,system_meta,tags,ticket_assets,ticket_categories,ticket_tags,ticket_watchers,tickets,user_auth_identities,user_emails,user_groups,user_preferences,user_ticket_views,users,webhook_deliveries,webhooks,workflow_states,working_calendar_holidays,working_calendars,);

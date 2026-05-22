@@ -3577,6 +3577,13 @@ views-project-tab-cycles = Cycli
 
 # Weergaven: editor voor opgeslagen weergave (SavedViewEditorModal)
 views-saved-editor-title = Weergave bewerken
+views-save-as-title = Save view as
+views-save-as-name-label = Name
+views-save-as-save = Save
+views-save-as-saving = Saving
+views-save-as-cancel = Cancel
+views-save-trigger = Save view as
+views-save-default-suffix = (copy)
 views-saved-editor-name-label = Naam
 views-saved-editor-delete = Weergave verwijderen
 views-saved-editor-cancel = Annuleren

@@ -1,20 +1,27 @@
 //! Saved-view endpoints.
 //!
-//! - `GET    /api/saved-views?project_id=<n>` — list every view
-//!   the caller can see for the given context (workspace +
-//!   project if `project_id` is set + the caller's private views).
+//! - `GET    /api/saved-views?project_id=<n>` — list every ticket
+//!   view the caller can see (workspace + project if `project_id`
+//!   is set + the caller's private views). Tickets-specific.
+//! - `GET    /api/saved-views?dataset=<d>` — list the caller's
+//!   private views for one dataset ('assets' | 'users'). Non-
+//!   ticket datasets are private-only by design.
 //! - `GET    /api/saved-views/{uuid}` — fetch one.
 //! - `POST   /api/saved-views` — create.
 //! - `PATCH  /api/saved-views/{uuid}` — rename / re-shape / re-filter.
 //! - `DELETE /api/saved-views/{uuid}` — hard delete.
 //!
-//! Permission model:
+//! Permission model (tickets):
 //! - `workspace` scope writes require admin; reads open to any
 //!   authenticated user.
 //! - `project` scope writes require technician/admin (project-
 //!   member ACLs land alongside the per-project permission
 //!   rework in a later phase).
 //! - `private` scope writes are owner-only; reads same.
+//!
+//! Non-ticket datasets are restricted to `private` scope: the
+//! handler refuses any other scope on create so the per-dataset
+//! visibility story stays simple ("my saved views, only mine").
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
@@ -34,10 +41,17 @@ const NAME_MAX: usize = 120;
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
-    /// When provided, the response includes views with
-    /// `scope = 'project' AND scope_id = project_id`. Without it,
-    /// only `workspace` and `private` views are returned.
+    /// Tickets surface only. When set, includes views with
+    /// `scope = 'project' AND scope_id = project_id` alongside
+    /// the workspace + private views. Without it, the response
+    /// is workspace + private only.
     pub project_id: Option<i32>,
+    /// When set to a non-ticket dataset ('assets' | 'users'),
+    /// the response is the caller's private views for that
+    /// dataset and nothing else. The ticket scope merging
+    /// (workspace + project + private) is skipped because those
+    /// scopes only apply to ticket views.
+    pub dataset: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +61,10 @@ pub struct CreateBody {
     pub name: String,
     pub shape: Value,
     pub filter: Value,
+    /// Defaults to 'tickets' when absent for backwards compat
+    /// with the existing ticket-view UI.
+    #[serde(default)]
+    pub dataset: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,6 +83,32 @@ pub async fn list(
         Ok(c) => c,
         Err(e) => return e,
     };
+
+    // Non-ticket dataset path: private-only, single dataset. The
+    // ticket scope-merging branches below don't apply because
+    // workspace / project scopes are ticket-specific.
+    if let Some(dataset) = query
+        .dataset
+        .as_deref()
+        .filter(|d| !d.is_empty() && *d != "tickets")
+    {
+        if let Err(msg) = validate_dataset(dataset) {
+            return errors::bad_request(msg);
+        }
+        let user_id = auth.user_uuid.to_string();
+        return match repo::list_for_scope_dataset(
+            &mut conn,
+            "private",
+            Some(&user_id),
+            dataset,
+        ) {
+            Ok(rows) => HttpResponse::Ok().json(rows),
+            Err(e) => {
+                error!(error = %e, dataset, "failed to load dataset saved views");
+                errors::internal("Failed to load saved views")
+            }
+        };
+    }
 
     let mut out: Vec<SavedView> = Vec::new();
 
@@ -137,6 +181,22 @@ pub async fn create(
     if let Err(msg) = validate_name(&body.name) {
         return errors::bad_request(msg);
     }
+    let dataset = body
+        .dataset
+        .as_deref()
+        .filter(|d| !d.is_empty())
+        .unwrap_or("tickets");
+    if let Err(msg) = validate_dataset(dataset) {
+        return errors::bad_request(msg);
+    }
+    // Non-ticket datasets are private-only. Refuse workspace /
+    // project scope on those so the access model stays simple
+    // ("my saved views, only mine") until product asks for more.
+    if dataset != "tickets" && body.scope != "private" {
+        return errors::bad_request(
+            "Non-ticket saved views must use the 'private' scope",
+        );
+    }
     if let Err(msg) = validate_scope_pair(&body.scope, &body.scope_id, &auth) {
         return errors::bad_request(msg);
     }
@@ -157,6 +217,7 @@ pub async fn create(
         shape: body.shape,
         filter: body.filter,
         created_by: auth.user_uuid,
+        dataset: dataset.to_string(),
     };
 
     match repo::create(&mut conn, new) {
@@ -258,6 +319,16 @@ fn validate_name(name: &str) -> Result<(), &'static str> {
         return Err("Name must be 1 to 120 characters");
     }
     Ok(())
+}
+
+/// Allowlist for the `dataset` column. Kept narrow so a typo on
+/// the client doesn't quietly land an "asssets" partition that
+/// nothing else ever queries.
+fn validate_dataset(dataset: &str) -> Result<(), &'static str> {
+    match dataset {
+        "tickets" | "assets" | "users" => Ok(()),
+        _ => Err("dataset must be one of: tickets, assets, users"),
+    }
 }
 
 fn validate_scope_pair(

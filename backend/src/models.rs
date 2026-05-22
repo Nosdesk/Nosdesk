@@ -137,6 +137,11 @@ pub struct SavedView {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Dataset the view applies to: 'tickets' | 'assets' |
+    /// 'users'. Existing rows backfilled to 'tickets'. The
+    /// handler refuses workspace/project scope on non-ticket
+    /// datasets so the access model stays ticket-specific.
+    pub dataset: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -148,6 +153,7 @@ pub struct NewSavedView {
     pub shape: serde_json::Value,
     pub filter: serde_json::Value,
     pub created_by: Uuid,
+    pub dataset: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
