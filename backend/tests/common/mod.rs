@@ -1,0 +1,241 @@
+//! Shared helpers for backup/restore integration tests.
+//!
+//! Strategy: per-test database cloned from a once-per-binary
+//! template. The template is created on first call, migrated
+//! once, and reused across all tests in the binary. Each
+//! `TestDb::new()` runs `CREATE DATABASE ... TEMPLATE`, which
+//! Postgres implements as a filesystem copy (~100-300ms on a
+//! warm cluster, vs ~1-2s for a full migration replay). Drop
+//! terminates open connections and drops the per-test DB.
+//!
+//! Pattern follows `#[sqlx::test]` ([sqlx docs][1]). We hand-roll
+//! it for Diesel since Diesel ships no equivalent.
+//!
+//! [1]: https://docs.rs/sqlx/latest/sqlx/attr.test.html
+
+#![allow(dead_code)]
+
+use diesel::pg::PgConnection;
+use diesel::prelude::*;
+use diesel::r2d2::{self, ConnectionManager, PooledConnection};
+use diesel_migrations::MigrationHarness;
+use std::sync::OnceLock;
+use uuid::Uuid;
+
+use backend::db::MIGRATIONS;
+
+pub type TestPool = r2d2::Pool<ConnectionManager<PgConnection>>;
+pub type TestPooledConn = PooledConnection<ConnectionManager<PgConnection>>;
+
+const TEMPLATE_NAME: &str = "nosdesk_test_template";
+
+/// Resolve the base test database URL from env. Same precedence
+/// as `backend::test_helpers`: dedicated test DB preferred.
+fn base_url() -> String {
+    dotenvy::dotenv().ok();
+    std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("TEST_DATABASE_URL or DATABASE_URL must be set for tests")
+}
+
+/// Swap the database name on a Postgres connection URL.
+/// Format assumed: `postgres://user:pw@host:port/dbname[?params]`.
+fn with_database(url: &str, db: &str) -> String {
+    let q = url.find('?').unwrap_or(url.len());
+    let path_end = q;
+    let path_start = url[..path_end].rfind('/').expect("URL must have a path");
+    format!("{}/{}{}", &url[..path_start], db, &url[path_end..])
+}
+
+fn admin_url() -> String {
+    with_database(&base_url(), "postgres")
+}
+
+fn template_url() -> String {
+    with_database(&base_url(), TEMPLATE_NAME)
+}
+
+/// Ensure the template DB exists with every migration applied.
+/// Idempotent; runs at most once per process.
+fn ensure_template_ready() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        let mut admin =
+            PgConnection::establish(&admin_url()).expect("connect to admin DB (postgres)");
+
+        // CREATE DATABASE IF NOT EXISTS isn't a thing in PG; do it
+        // through a probe.
+        let exists = diesel::sql_query(format!(
+            "SELECT 1 AS one FROM pg_database WHERE datname = '{TEMPLATE_NAME}'"
+        ))
+        .execute(&mut admin)
+        .map(|n| n > 0)
+        .unwrap_or(false);
+
+        if !exists {
+            diesel::sql_query(format!("CREATE DATABASE \"{TEMPLATE_NAME}\""))
+                .execute(&mut admin)
+                .expect("CREATE template DB");
+        }
+
+        // Run all migrations against the template. Embedded
+        // migrations are idempotent: re-running on an
+        // already-migrated DB is a no-op.
+        let mut template =
+            PgConnection::establish(&template_url()).expect("connect to template DB");
+        template
+            .run_pending_migrations(MIGRATIONS)
+            .expect("migrate template");
+
+        // Mark the template so `CREATE DATABASE ... TEMPLATE`
+        // doesn't refuse it. Idempotent.
+        let _ = diesel::sql_query(format!(
+            "ALTER DATABASE \"{TEMPLATE_NAME}\" IS_TEMPLATE TRUE"
+        ))
+        .execute(&mut admin);
+    });
+}
+
+/// Per-test sandbox DB. Cloned from the template on construct,
+/// dropped on Drop. Holds the URL so callers can establish their
+/// own connections inside the test body.
+pub struct TestDb {
+    name: String,
+    url: String,
+}
+
+impl TestDb {
+    pub fn new() -> Self {
+        ensure_template_ready();
+
+        // 13 hex chars from a v7 UUID — collision-free for any
+        // realistic test run, short enough to read in logs.
+        let suffix: String = Uuid::now_v7().simple().to_string()[..13].to_string();
+        let name = format!("nosdesk_test_{suffix}");
+        let url = with_database(&base_url(), &name);
+
+        let mut admin = PgConnection::establish(&admin_url())
+            .expect("connect to admin DB for sandbox CREATE");
+        diesel::sql_query(format!(
+            "CREATE DATABASE \"{name}\" TEMPLATE \"{TEMPLATE_NAME}\""
+        ))
+        .execute(&mut admin)
+        .expect("CREATE sandbox DB from template");
+
+        Self { name, url }
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// Single-connection r2d2 pool over the sandbox DB. Matches
+    /// the shape `backend::db::DbConnection` (a
+    /// `PooledConnection`), which is what backup_service and
+    /// every repository fn expect.
+    pub fn pool(&self) -> TestPool {
+        let manager = ConnectionManager::<PgConnection>::new(&self.url);
+        r2d2::Pool::builder()
+            .max_size(1)
+            .build(manager)
+            .expect("build sandbox pool")
+    }
+
+    pub fn conn(&self) -> TestPooledConn {
+        self.pool().get().expect("pool.get")
+    }
+}
+
+impl Drop for TestDb {
+    fn drop(&mut self) {
+        // PG refuses DROP DATABASE while sessions are connected;
+        // terminate first. If admin connect fails (shutdown race),
+        // we silently leak — better than panicking out of Drop.
+        if let Ok(mut admin) = PgConnection::establish(&admin_url()) {
+            let _ = diesel::sql_query(format!(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+                 WHERE datname = '{}' AND pid <> pg_backend_pid()",
+                self.name
+            ))
+            .execute(&mut admin);
+            let _ = diesel::sql_query(format!("DROP DATABASE IF EXISTS \"{}\"", self.name))
+                .execute(&mut admin);
+        }
+    }
+}
+
+/// Hash a table's row content for round-trip equality. Uses
+/// `string_agg(t::text, ',' ORDER BY ctid)` so equality is
+/// row-set-level: same rows, any order. md5 over the
+/// concatenated text representation. NULL-safe via COALESCE on
+/// the aggregate.
+pub fn hash_table(conn: &mut PgConnection, table: &str) -> String {
+    use diesel::deserialize::QueryableByName;
+    use diesel::sql_types::Text;
+
+    #[derive(QueryableByName)]
+    struct HashRow {
+        #[diesel(sql_type = Text)]
+        hash: String,
+    }
+
+    // Two-step: hash inside PG to keep the wire payload tiny,
+    // even for tables with thousands of rows.
+    let q = format!(
+        "SELECT COALESCE(md5(string_agg(t::text, ',' ORDER BY t::text)), 'empty') AS hash \
+         FROM \"{table}\" t"
+    );
+    diesel::sql_query(q)
+        .get_result::<HashRow>(conn)
+        .unwrap_or_else(|e| panic!("hash_table {table} failed: {e}"))
+        .hash
+}
+
+/// Count rows in `table`. Convenience wrapper used in basic
+/// row-level assertions.
+pub fn count_table(conn: &mut PgConnection, table: &str) -> i64 {
+    use diesel::deserialize::QueryableByName;
+    use diesel::sql_types::BigInt;
+
+    #[derive(QueryableByName)]
+    struct CountRow {
+        #[diesel(sql_type = BigInt)]
+        count: i64,
+    }
+
+    let q = format!("SELECT COUNT(*) AS count FROM \"{table}\"");
+    diesel::sql_query(q)
+        .get_result::<CountRow>(conn)
+        .unwrap_or_else(|e| panic!("count_table {table} failed: {e}"))
+        .count
+}
+
+/// Names of every user table (ordinary + partitioned parent,
+/// excluding partition children and Diesel's migration ledger).
+/// Match the writer's view from `backup_service::create_backup`.
+pub fn user_tables(conn: &mut PgConnection) -> Vec<String> {
+    use diesel::deserialize::QueryableByName;
+    use diesel::sql_types::Text;
+
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Text)]
+        table_name: String,
+    }
+
+    diesel::sql_query(
+        "SELECT c.relname AS table_name \
+         FROM pg_class c \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = 'public' \
+           AND c.relkind IN ('r','p') \
+           AND c.relispartition = false \
+           AND c.relname <> '__diesel_schema_migrations' \
+         ORDER BY c.relname",
+    )
+    .load::<Row>(conn)
+    .expect("list user tables")
+    .into_iter()
+    .map(|r| r.table_name)
+    .collect()
+}

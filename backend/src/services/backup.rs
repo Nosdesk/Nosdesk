@@ -392,11 +392,16 @@ fn decrypt_data(
 /// `information_schema.tables` here as defence in depth so a
 /// future caller can't accidentally widen the SQL-injection
 /// surface.
+/// Export one table's rows as a JSON-text payload. The row JSON
+/// never passes through serde_json::Value, so numeric precision
+/// (NUMERIC(12,3) → "10.000") is preserved verbatim. Sensitive-
+/// field stripping runs inside Postgres via the `jsonb - 'key'`
+/// operator.
 fn export_table_data(
     conn: &mut DbConnection,
     table_name: &str,
     include_sensitive: bool,
-) -> Result<(serde_json::Value, i64), BackupError> {
+) -> Result<(String, i64), BackupError> {
     use diesel::sql_query;
     use diesel::sql_types::Text;
 
@@ -406,40 +411,61 @@ fn export_table_data(
         )));
     }
 
-    let query = format!("SELECT row_to_json(t) FROM {table_name} t");
+    // Decide the per-row projection. With sensitive stripping,
+    // the row goes through ::jsonb so the `- 'key'` operator can
+    // run; back to ::text at the end for the wire format.
+    let strip_fields: &[&str] = if include_sensitive {
+        &[]
+    } else {
+        SENSITIVE_FIELDS
+            .iter()
+            .find(|(t, _)| *t == table_name)
+            .map(|(_, fields)| *fields)
+            .unwrap_or(&[])
+    };
+
+    let row_expr = if strip_fields.is_empty() {
+        "row_to_json(t)::text".to_string()
+    } else {
+        let mut expr = "row_to_json(t)::jsonb".to_string();
+        for f in strip_fields {
+            // The stripped names come from the SENSITIVE_FIELDS
+            // const so the value is fully under our control. We
+            // still escape any embedded single quotes defensively.
+            let escaped = f.replace('\'', "''");
+            expr.push_str(&format!(" - '{escaped}'"));
+        }
+        format!("({expr})::text")
+    };
 
     #[derive(QueryableByName)]
     struct JsonRow {
         #[diesel(sql_type = Text)]
-        row_to_json: String,
+        row_text: String,
     }
 
+    let query = format!("SELECT {row_expr} AS row_text FROM {table_name} t");
     let results: Vec<JsonRow> = sql_query(&query).load(conn)?;
 
-    let mut rows: Vec<serde_json::Value> = Vec::new();
-    for row in results {
-        let mut json_value: serde_json::Value = serde_json::from_str(&row.row_to_json)?;
-
-        // If not including sensitive data, remove sensitive fields
-        if !include_sensitive {
-            if let Some(fields) = SENSITIVE_FIELDS
-                .iter()
-                .find(|(t, _)| *t == table_name)
-                .map(|(_, fields)| *fields)
-            {
-                if let serde_json::Value::Object(ref mut map) = json_value {
-                    for field in fields {
-                        map.remove(*field);
-                    }
-                }
-            }
+    // Assemble a JSON array as text. Each row_text is already a
+    // valid JSON object (or null for empty rows, which shouldn't
+    // happen). Joining with `,\n  ` keeps the on-disk format
+    // mirror-image to the old pretty-printed output.
+    let mut payload = String::from("[");
+    for (i, row) in results.iter().enumerate() {
+        if i > 0 {
+            payload.push(',');
         }
-
-        rows.push(json_value);
+        payload.push_str("\n  ");
+        payload.push_str(&row.row_text);
     }
+    if !results.is_empty() {
+        payload.push('\n');
+    }
+    payload.push(']');
 
-    let count = rows.len() as i64;
-    Ok((serde_json::Value::Array(rows), count))
+    let count = results.len() as i64;
+    Ok((payload, count))
 }
 
 /// Get the uploads directory path
@@ -536,9 +562,8 @@ fn build_inner_zip(
 
     for table_name in &tables_to_export {
         let table_name: &str = table_name;
-        let (data, count) = export_table_data(conn, table_name, include_sensitive)?;
-
-        let json_content = serde_json::to_string_pretty(&data)?;
+        let (json_content, count) =
+            export_table_data(conn, table_name, include_sensitive)?;
         let sha256 = sha256_hex(json_content.as_bytes());
 
         let path = format!("data/{table_name}.json");
@@ -863,10 +888,13 @@ pub fn restore_database(
     }
 
     // ---- Phase 5: load + hash-check every table BEFORE the
-    //              transaction. Cheaper to bail on a corrupt
-    //              hash here than to roll back a half-done
-    //              restore inside the transaction.
-    let mut table_payloads: Vec<(String, Vec<serde_json::Value>)> =
+    //              transaction. The payload stays as raw JSON
+    //              text and is bound to the restore INSERT
+    //              server-side; routing it through
+    //              `serde_json::Value` here would coerce numbers
+    //              into f64 and lose NUMERIC precision (a JSONB
+    //              column holding 10.000 would come back 10.0).
+    let mut table_payloads: Vec<(String, String, usize)> =
         Vec::with_capacity(restore_order.len());
     for table_name in &restore_order {
         let data_path = format!("data/{table_name}.json");
@@ -891,8 +919,12 @@ pub fn restore_database(
             )));
         }
 
-        let rows: Vec<serde_json::Value> = serde_json::from_str(&content)?;
-        table_payloads.push((table_name.clone(), rows));
+        let row_count = manifest
+            .tables
+            .get(table_name)
+            .map(|m| m.count as usize)
+            .unwrap_or(0);
+        table_payloads.push((table_name.clone(), content, row_count));
     }
 
     // ---- Phase 6: single transaction with FK + trigger
@@ -909,7 +941,7 @@ pub fn restore_database(
         if !table_payloads.is_empty() {
             let names: Vec<String> = table_payloads
                 .iter()
-                .map(|(n, _)| format!("\"{}\"", n.replace('"', "\"\"")))
+                .map(|(n, _, _)| format!("\"{}\"", n.replace('"', "\"\"")))
                 .collect();
             let stmt = format!("TRUNCATE TABLE {} RESTART IDENTITY CASCADE", names.join(", "));
             sql_query(&stmt)
@@ -919,9 +951,8 @@ pub fn restore_database(
 
         let mut stats = RestoreStats::default();
 
-        for (table_name, rows) in &table_payloads {
-            let rows_attempted = rows.len();
-            if rows.is_empty() {
+        for (table_name, payload, rows_attempted) in &table_payloads {
+            if *rows_attempted == 0 {
                 stats.per_table.push(TableRestoreResult {
                     table: table_name.clone(),
                     rows_attempted: 0,
@@ -929,14 +960,14 @@ pub fn restore_database(
                 });
                 continue;
             }
-            let rows_loaded = restore_table_data(c, table_name, rows)?;
+            let rows_loaded = restore_table_data(c, table_name, payload)?;
             if rows_loaded > 0 {
                 stats.tables_restored += 1;
                 stats.records_restored += rows_loaded;
             }
             stats.per_table.push(TableRestoreResult {
                 table: table_name.clone(),
-                rows_attempted,
+                rows_attempted: *rows_attempted,
                 rows_loaded,
             });
         }
@@ -1015,35 +1046,31 @@ fn reset_sequences(conn: &mut DbConnection) -> Result<(), BackupError> {
     Ok(())
 }
 
-/// Restore one table's rows. Hands the JSONB row array to
-/// `jsonb_populate_recordset(NULL::table, $1)` so Postgres runs
-/// the per-column conversion against the target record type.
-/// Extra JSON keys are ignored; missing keys default to NULL.
+/// Restore one table's rows. The JSON array payload travels as
+/// raw text and is cast to jsonb server-side via `$1::jsonb` so
+/// Postgres's own JSON parser handles numeric values
+/// (NUMERIC(12,3) → "10.000" stays "10.000"). Round-tripping
+/// through `serde_json::Value` would coerce numbers into f64
+/// and lose precision.
 ///
-/// The table identifier is checked against `pg_class` upstream
-/// and re-verified here with an ASCII identifier pattern; the
-/// row payload travels as a bound JSONB parameter.
-/// real column on `table_name` are interpolated into the INSERT;
-/// everything else is dropped. The table name itself is checked
-/// against `ALLOWED_RESTORE_TABLES`. Values still go through
-/// `json_to_sql_value`'s quote-doubling escape, but the
-/// load-bearing protection is column-name validation against the
-/// schema rather than escape correctness.
+/// `jsonb_populate_recordset(NULL::table, ...)` then runs the
+/// per-column conversion against the target record type. Extra
+/// JSON keys are ignored; missing keys default to NULL.
 fn restore_table_data(
     conn: &mut DbConnection,
     table_name: &str,
-    rows: &[serde_json::Value],
+    payload: &str,
 ) -> Result<usize, BackupError> {
     use diesel::prelude::*;
     use diesel::sql_query;
-    use diesel::sql_types::Jsonb;
+    use diesel::sql_types::Text;
 
     if !table_exists_in_db(conn, table_name)? {
         return Err(BackupError::CorruptedBackup(format!(
             "backup references unknown table '{table_name}'"
         )));
     }
-    if rows.is_empty() {
+    if payload.is_empty() || payload.trim() == "[]" {
         return Ok(0);
     }
 
@@ -1056,13 +1083,12 @@ fn restore_table_data(
         )));
     }
 
-    let payload = serde_json::Value::Array(rows.to_vec());
     let stmt = format!(
         "INSERT INTO public.{table_name} \
-         SELECT * FROM jsonb_populate_recordset(NULL::public.{table_name}, $1)"
+         SELECT * FROM jsonb_populate_recordset(NULL::public.{table_name}, $1::jsonb)"
     );
     let count = sql_query(&stmt)
-        .bind::<Jsonb, _>(payload)
+        .bind::<Text, _>(payload)
         .execute(conn)
         .map_err(|e| {
             BackupError::DatabaseError(diesel::result::Error::QueryBuilderError(
@@ -1201,20 +1227,26 @@ mod tests {
         let mut conn = setup_test_connection();
 
         let uuid = Uuid::new_v4();
+        // Full row shape, matching what a real backup would
+        // capture. `jsonb_populate_recordset` writes NULL for
+        // missing keys, so the JSON must spell out the NOT NULL
+        // columns explicitly. The hostile keys at the end are
+        // what we're actually testing.
         let row = serde_json::json!({
             "uuid": uuid,
             "name": "Restored Alice",
             "role": "user",
             "feature_flag_overrides": {},
+            "mfa_enabled": false,
             "created_at": "2026-01-01T00:00:00",
             "updated_at": "2026-01-01T00:00:00",
-            // Hostile keys that an attacker might smuggle in.
             "name); DROP TABLE users; --": "ignored",
             "id, mfa_enabled) VALUES (1,true": 42,
             "); SELECT pg_sleep(60)--": null,
         });
 
-        let inserted = restore_table_data(&mut conn, "users", &[row])
+        let payload = serde_json::to_string(&[row]).expect("serialize row");
+        let inserted = restore_table_data(&mut conn, "users", &payload)
             .expect("restore_table_data should not fail");
         assert_eq!(inserted, 1, "exactly one row inserted");
 
