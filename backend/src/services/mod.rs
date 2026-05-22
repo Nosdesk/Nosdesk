@@ -4,6 +4,7 @@ pub mod assignment;
 pub mod backup;
 pub mod channels;
 pub mod email_queue;
+pub mod imports;
 pub mod notifications;
 pub mod plugins;
 pub mod presence;

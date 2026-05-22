@@ -19,6 +19,7 @@ pub mod documentation_subscriptions;
 pub mod email_suppressions;
 pub mod feature_flags;
 pub mod groups;
+pub mod imports;
 pub mod knowledge_gaps;
 pub mod linked_tickets;
 pub mod outbound_emails;

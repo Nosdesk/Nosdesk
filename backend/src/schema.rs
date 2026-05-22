@@ -640,6 +640,26 @@ diesel::table! {
 }
 
 diesel::table! {
+    import_jobs (id) {
+        id -> Uuid,
+        #[max_length = 32]
+        job_type -> Varchar,
+        #[max_length = 32]
+        status -> Varchar,
+        #[max_length = 255]
+        filename -> Varchar,
+        file_path -> Text,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        completed_at -> Nullable<Timestamptz>,
+        summary -> Nullable<Jsonb>,
+        records_committed -> Nullable<Int4>,
+        error_message -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     knowledge_gap_signals (id) {
         id -> Int8,
         gap_id -> Int8,
@@ -1536,6 +1556,7 @@ diesel::joinable!(documentation_subscriptions -> documentation_pages (page_id));
 diesel::joinable!(documentation_subscriptions -> users (user_uuid));
 diesel::joinable!(group_includes -> users (created_by));
 diesel::joinable!(groups -> users (created_by));
+diesel::joinable!(import_jobs -> users (created_by));
 diesel::joinable!(knowledge_gap_signals -> knowledge_gaps (gap_id));
 diesel::joinable!(knowledge_gaps -> documentation_pages (resolved_page_id));
 diesel::joinable!(linked_tickets -> users (created_by));
@@ -1630,6 +1651,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     email_suppressions,
     group_includes,
     groups,
+    import_jobs,
     knowledge_gap_signals,
     knowledge_gaps,
     linked_tickets,
