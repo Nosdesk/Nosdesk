@@ -3,26 +3,20 @@
 //! Per-push CI gate: the migration-seeded baseline + a small
 //! hand-rolled fixture should survive a full backup → restore
 //! round-trip with byte-identical table contents.
-//!
-//! Runs against a per-test sandbox DB cloned from a once-per-
-//! binary template (see `common::TestDb`), so this test plays
-//! nicely under `cargo test` parallelism.
 
 mod common;
 
 use std::path::PathBuf;
 
-use bigdecimal::BigDecimal;
 use diesel::prelude::*;
 use diesel::sql_types::Text;
-use std::str::FromStr;
-use uuid::Uuid;
 
-use backend::models::{NewAsset, NewBackupJob, NewUser, User, UserRole};
-use backend::repository::backup as backup_repo;
 use backend::services::backup as backup_service;
 
-use common::{count_table, hash_table, user_tables, TestDb};
+use common::{
+    count_table, hash_table, insert_stock_asset, insert_user, seed_backup_job, user_tables,
+    with_upload_dir, TestDb,
+};
 
 /// Snapshot of every user table's content hash. Equality means
 /// every row across the schema matches at the text-cast level.
@@ -36,84 +30,11 @@ fn snapshot_all(conn: &mut PgConnection) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Seed a user. Returns the inserted row so the test can refer
-/// to it by UUID later.
-fn insert_user(conn: &mut PgConnection, name: &str) -> User {
-    use backend::schema::users;
-    let new_user = NewUser {
-        uuid: Uuid::new_v4(),
-        name: name.to_string(),
-        role: UserRole::Admin,
-        pronouns: None,
-        avatar_url: None,
-        banner_url: None,
-        avatar_thumb: None,
-        microsoft_uuid: None,
-        mfa_secret: None,
-        mfa_enabled: false,
-        mfa_backup_codes: None,
-    };
-    diesel::insert_into(users::table)
-        .values(&new_user)
-        .get_result(conn)
-        .expect("insert user")
-}
-
-/// Seed a stock-tracked asset with the Phase E columns set
-/// (quantity, unit, low_stock_threshold). Exercises numeric
-/// round-trip plus the jsonb `attributes` column.
-fn insert_stock_asset(conn: &mut diesel::PgConnection, name: &str) -> i32 {
-    use backend::schema::assets;
-    let new = NewAsset {
-        name: name.to_string(),
-        serial_number: None,
-        manufacturer: Some("Acme".to_string()),
-        model: Some("Pipe".to_string()),
-        location: Some("Warehouse A".to_string()),
-        notes: None,
-        primary_user_uuid: None,
-        purchase_date: None,
-        asset_tag: None,
-        kind: "generic".to_string(),
-        attributes: serde_json::json!({"warranty_status": "Active", "color": "blue"}),
-        quantity: Some(BigDecimal::from_str("123.456").unwrap()),
-        unit: Some("m".to_string()),
-        external_sync_source: None,
-        low_stock_threshold: Some(BigDecimal::from_str("10.000").unwrap()),
-    };
-    diesel::insert_into(assets::table)
-        .values(&new)
-        .returning(assets::id)
-        .get_result(conn)
-        .expect("insert asset")
-}
-
-/// Seed a backup_jobs row so `create_backup` has something to
-/// update on completion. Mirrors what `handlers::backup` does;
-/// `BackupJob.id` is a UUID.
-fn seed_backup_job(conn: &mut backend::db::DbConnection) -> Uuid {
-    backup_repo::create_backup_job(
-        conn,
-        NewBackupJob {
-            job_type: "export".to_string(),
-            status: "processing".to_string(),
-            include_sensitive: true,
-            created_by: None,
-        },
-    )
-    .expect("seed backup_jobs row")
-    .id
-}
-
 #[test]
 fn round_trip_preserves_every_table_byte_for_byte() {
     let db = TestDb::new();
     let mut conn = db.conn();
-
-    // Per-test UPLOAD_DIR so the backup zip writes somewhere we
-    // own. tempdir cleans up automatically on Drop.
-    let upload_root = tempfile::tempdir().expect("tempdir");
-    std::env::set_var("UPLOAD_DIR", upload_root.path());
+    let _upload = with_upload_dir();
 
     // Seed user-data variety on top of the migration baseline.
     // Numeric (3dp BigDecimal), jsonb attributes, varchar, uuid
@@ -124,7 +45,6 @@ fn round_trip_preserves_every_table_byte_for_byte() {
     assert!(count_table(&mut *conn, "users") >= 1);
     assert!(count_table(&mut *conn, "assets") >= 1);
 
-    // Reference state.
     let baseline = snapshot_all(&mut *conn);
 
     let job_id = seed_backup_job(&mut conn);

@@ -108,9 +108,10 @@ impl TestDb {
     pub fn new() -> Self {
         ensure_template_ready();
 
-        // 13 hex chars from a v7 UUID — collision-free for any
-        // realistic test run, short enough to read in logs.
-        let suffix: String = Uuid::now_v7().simple().to_string()[..13].to_string();
+        // 24 hex chars from a v4 UUID. v7's first 48 bits are a
+        // timestamp, so tests starting in the same millisecond
+        // collide if we truncate; v4 is fully random.
+        let suffix: String = Uuid::new_v4().simple().to_string()[..24].to_string();
         let name = format!("nosdesk_test_{suffix}");
         let url = with_database(&base_url(), &name);
 
@@ -208,6 +209,90 @@ pub fn count_table(conn: &mut PgConnection, table: &str) -> i64 {
         .get_result::<CountRow>(conn)
         .unwrap_or_else(|e| panic!("count_table {table} failed: {e}"))
         .count
+}
+
+// ---- Fixture helpers ---------------------------------------
+
+/// Seed a user with a UUID PK. Returns the inserted row.
+pub fn insert_user(conn: &mut PgConnection, name: &str) -> backend::models::User {
+    use backend::models::{NewUser, UserRole};
+    use backend::schema::users;
+    let new_user = NewUser {
+        uuid: Uuid::new_v4(),
+        name: name.to_string(),
+        role: UserRole::Admin,
+        pronouns: None,
+        avatar_url: None,
+        banner_url: None,
+        avatar_thumb: None,
+        microsoft_uuid: None,
+        mfa_secret: None,
+        mfa_enabled: false,
+        mfa_backup_codes: None,
+    };
+    diesel::insert_into(users::table)
+        .values(&new_user)
+        .get_result(conn)
+        .expect("insert user")
+}
+
+/// Seed a stock-tracked asset with the Phase E columns set.
+/// Exercises NUMERIC(12,3), jsonb attributes, and the generic
+/// kind path. Returns the new row's id.
+pub fn insert_stock_asset(conn: &mut PgConnection, name: &str) -> i32 {
+    use backend::models::NewAsset;
+    use backend::schema::assets;
+    use bigdecimal::BigDecimal;
+    use std::str::FromStr;
+    let new = NewAsset {
+        name: name.to_string(),
+        serial_number: None,
+        manufacturer: Some("Acme".to_string()),
+        model: Some("Pipe".to_string()),
+        location: Some("Warehouse A".to_string()),
+        notes: None,
+        primary_user_uuid: None,
+        purchase_date: None,
+        asset_tag: None,
+        kind: "generic".to_string(),
+        attributes: serde_json::json!({"warranty_status": "Active", "color": "blue"}),
+        quantity: Some(BigDecimal::from_str("123.456").unwrap()),
+        unit: Some("m".to_string()),
+        external_sync_source: None,
+        low_stock_threshold: Some(BigDecimal::from_str("10.000").unwrap()),
+    };
+    diesel::insert_into(assets::table)
+        .values(&new)
+        .returning(assets::id)
+        .get_result(conn)
+        .expect("insert asset")
+}
+
+/// Seed a backup_jobs row so `create_backup` has something to
+/// update on completion. Mirrors what `handlers::backup` does.
+pub fn seed_backup_job(conn: &mut backend::db::DbConnection) -> Uuid {
+    use backend::models::NewBackupJob;
+    use backend::repository::backup as backup_repo;
+    backup_repo::create_backup_job(
+        conn,
+        NewBackupJob {
+            job_type: "export".to_string(),
+            status: "processing".to_string(),
+            include_sensitive: true,
+            created_by: None,
+        },
+    )
+    .expect("seed backup_jobs row")
+    .id
+}
+
+/// Per-test UPLOAD_DIR. Returns the TempDir guard so tests can
+/// hold it for the duration of the test body; dropping the
+/// guard wipes the directory.
+pub fn with_upload_dir() -> tempfile::TempDir {
+    let d = tempfile::tempdir().expect("tempdir");
+    std::env::set_var("UPLOAD_DIR", d.path());
+    d
 }
 
 /// Names of every user table (ordinary + partitioned parent,
