@@ -1393,11 +1393,14 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/asset-kinds/{id}", web::put().to(handlers::asset_kinds::update))
                     .route("/admin/asset-kinds/{id}", web::delete().to(handlers::asset_kinds::delete))
 
-                    // Bulk CSV import — admin-only.
+                    // Bulk CSV import — admin-only. The template
+                    // route is declared before /{id} so the literal
+                    // "template" path segment doesn't get matched
+                    // as a job-uuid by the catch-all.
                     .route("/admin/import", web::post().to(handlers::imports::upload))
-                    .route("/admin/import/{id}", web::get().to(handlers::imports::get_job))
-                    .route("/admin/import/{id}/commit", web::post().to(handlers::imports::commit))
                     .route("/admin/import/template/{type}", web::get().to(handlers::imports::template))
+                    .route("/admin/import/{id}/commit", web::post().to(handlers::imports::commit))
+                    .route("/admin/import/{id}", web::get().to(handlers::imports::get_job))
 
                     // Feature flags — staged rollout machinery (Phase 0 of the
                     // projects-v2 architecture). Read endpoint open to any
