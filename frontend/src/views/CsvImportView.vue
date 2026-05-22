@@ -48,6 +48,7 @@ const supportedTypes: { value: ImportJobType; available: boolean }[] = [
 const selectedType = ref<ImportJobType>('assets')
 const selectedFile = ref<File | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+const isDragOver = ref(false)
 
 const isWorking = ref(false)
 const errorMessage = ref('')
@@ -58,8 +59,45 @@ const summary = computed(() => job.value?.summary ?? null)
 function pickFile(event: Event) {
   const input = event.target as HTMLInputElement
   if (!input.files || input.files.length === 0) return
-  selectedFile.value = input.files[0]
+  acceptFile(input.files[0])
+}
+
+function acceptFile(file: File) {
+  // Lightly gate on extension/type so the user finds out
+  // immediately rather than at validate-time. The backend
+  // re-checks anyway.
+  const looksLikeCsv =
+    file.name.toLowerCase().endsWith('.csv') ||
+    file.type === 'text/csv' ||
+    file.type === 'application/vnd.ms-excel' ||
+    file.type === ''
+  if (!looksLikeCsv) {
+    errorMessage.value = t('csv-import-error-not-csv', { name: file.name })
+    return
+  }
+  selectedFile.value = file
   errorMessage.value = ''
+}
+
+function triggerFilePicker() {
+  fileInput.value?.click()
+}
+
+function onDragOver(event: DragEvent) {
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  isDragOver.value = true
+}
+
+function onDragLeave() {
+  isDragOver.value = false
+}
+
+function onDrop(event: DragEvent) {
+  event.preventDefault()
+  isDragOver.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) acceptFile(file)
 }
 
 function downloadTemplate() {
@@ -231,16 +269,52 @@ const viewImportedLabelKey = computed(() => {
             <label class="text-xs font-medium text-secondary uppercase tracking-wide">
               {{ $t('csv-import-file-label') }}
             </label>
+            <!--
+              Drop zone. Clicking anywhere on the card opens the
+              file picker; dragging a file over highlights the
+              border and dropping accepts the first file in the
+              data transfer. The hidden <input> below is what
+              the click handler triggers — keeping the input in
+              the DOM (rather than synthesising one) means the
+              native file dialog opens with the right `accept`
+              filter.
+            -->
+            <div
+              class="border-2 border-dashed rounded-lg px-6 py-8 text-center cursor-pointer transition-colors"
+              :class="isDragOver
+                ? 'border-accent bg-accent/10'
+                : 'border-default bg-surface-alt hover:border-strong'"
+              role="button"
+              tabindex="0"
+              @click="triggerFilePicker"
+              @keydown.enter.prevent="triggerFilePicker"
+              @keydown.space.prevent="triggerFilePicker"
+              @dragover="onDragOver"
+              @dragleave="onDragLeave"
+              @drop="onDrop"
+            >
+              <Icon name="document" class="text-tertiary mx-auto mb-2" />
+              <p v-if="!selectedFile" class="text-sm text-primary">
+                {{ isDragOver ? $t('csv-import-drop-here') : $t('csv-import-drop-zone-idle') }}
+              </p>
+              <p v-else class="text-sm text-primary">
+                <span class="font-medium">{{ selectedFile.name }}</span>
+                <span class="text-tertiary"> · {{ Math.round(selectedFile.size / 1024) }} KB</span>
+              </p>
+              <p v-if="!selectedFile" class="text-xs text-tertiary mt-1">
+                {{ $t('csv-import-drop-zone-hint') }}
+              </p>
+              <p v-else class="text-xs text-tertiary mt-1">
+                {{ $t('csv-import-drop-zone-replace') }}
+              </p>
+            </div>
             <input
               ref="fileInput"
               type="file"
               accept=".csv,text/csv"
-              class="text-sm text-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-default file:bg-surface-alt file:text-primary file:cursor-pointer hover:file:border-strong"
+              class="hidden"
               @change="pickFile"
             />
-            <p v-if="selectedFile" class="text-xs text-tertiary">
-              {{ selectedFile.name }} ({{ Math.round(selectedFile.size / 1024) }} KB)
-            </p>
           </div>
 
           <div class="flex justify-end gap-2 pt-2">
