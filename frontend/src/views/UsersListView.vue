@@ -12,30 +12,15 @@ import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
-import ChipFilterStrip from '@/components/views/ChipFilterStrip.vue'
-import GroupByMenu from '@/components/views/GroupByMenu.vue'
-import ViewSwitcher from '@/components/views/ViewSwitcher.vue'
-import SavedViewEditorModal from '@/components/views/SavedViewEditorModal.vue'
-import SaveViewModal from '@/components/views/SaveViewModal.vue'
-import {
-  useChipFiltersFromControls,
-  type ChipFacetDef,
-} from '@/composables/useChipFiltersFromControls'
-import {
-  useListGrouping,
-  type GroupAxisDef,
-} from '@/composables/useListGrouping'
-import { useSavedListViews } from '@/composables/useSavedListViews'
-import type { SavedView } from '@/services/savedViewsService'
-import type { Filters } from '@/composables/useListControls'
+import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
+import ListViewModals from '@/components/views/ListViewModals.vue'
+import { useListView } from '@/composables/useListView'
+import type { ChipFacetDef } from '@/composables/useChipFiltersFromControls'
+import type { GroupAxisDef } from '@/composables/useListGrouping'
 import { useAuthStore } from '@/stores/auth'
 
 import { StatusBadgeCell, UserInfoCell, DateCell } from '@/components/common/cells'
 import UserAvatar from '@/components/UserAvatar.vue'
-import { useListControls } from '@/composables/useListControls'
-import { useListPage } from '@/composables/useListPage'
-import { useBulkSelection } from '@/composables/useBulkSelection'
-import { useBulkSelectionForDataTable } from '@/composables/useBulkSelectionForDataTable'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import userService from '@/services/userService'
@@ -50,6 +35,8 @@ const { isMobile } = useMobileDetection()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const toast = useToastStore()
+const auth = useAuthStore()
+const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
 
 const layoutRef = useTemplateRef<ListPageLayoutExpose>('layout')
 const scrollContainerRef = computed<HTMLElement | null>(
@@ -62,73 +49,12 @@ const navigateToCreateUser = () => {
 const navigateToUser = (user: User) => {
   void router.push(`/users/${user.uuid}`)
 }
-
-const controls = useListControls<User>({
-  itemIdField: 'uuid',
-  defaultSortField: 'name',
-  defaultSortDirection: 'asc',
-  defaultPageSize: 0,
-})
-
-// Avatar / cell consumers subscribe to the sync engine's user
-// pool (workspace:1 bootstrap streams every user up-front), so the
-// list view doesn't need to warm a separate by-uuid cache. The
-// list-only Pinia Colada cache is still useful for pagination /
-// search state independent of the pool.
-//
-// "Deleted" is a chip facet living in `controls.filters.deleted`
-// alongside role. Presence means show only soft-deleted rows; the
-// backend defaults to active when the param is absent.
-
-function deletedParam(): 'active' | 'deleted' {
-  const v = controls.filters.value.deleted
-  return typeof v === 'string' && v === 'deleted' ? 'deleted' : 'active'
-}
-
-const page = useListPage({
-  controls,
-  keys: usersKeys,
-  fetchPage: (params) =>
-    userService.getPaginatedUsers({
-      ...params,
-      deleted: deletedParam(),
-    }),
-  scrollContainerRef,
-  // Subscribe to the new soft-delete lifecycle events alongside
-  // the legacy user-deleted. user-soft-deleted refreshes the
-  // active view (row drops out); user-restored refreshes both
-  // active and deleted views (row appears/disappears); user-purged
-  // refreshes the deleted view (row finally gone).
-  sseEvents: [
-    'user-updated',
-    'user-created',
-    'user-deleted',
-    'user-soft-deleted',
-    'user-restored',
-    'user-purged',
-  ],
-  mobileSearch: {
-    placeholder: t('user-mgmt-search-placeholder'),
-    createIcon: 'user',
-    onCreate: navigateToCreateUser,
-  },
-  urlSync: { paramKeys: ['role', 'deleted'] },
-})
-
 usePageCreateAction(navigateToCreateUser)
 
-const selection = useBulkSelection<User>({
-  items: page.items,
-  cacheKey: controls.cacheKeyPart,
-  totalCount: page.totalItems,
-  itemId: (u) => u.uuid,
-})
-const dt = useBulkSelectionForDataTable(selection)
-
-// Filter facets (chip UI). Role is multi-select (backend accepts
-// CSV via parse_role); Deleted is a single-option toggle whose
-// presence swaps the backend WHERE clause from active to
-// soft-deleted.
+// Filter facets. Role is multi-select (backend accepts CSV via
+// parse_role); Deleted is a single-option toggle whose presence
+// swaps the backend WHERE clause from active to soft-deleted;
+// Name is the chip text-facet that drives controls.searchQuery.
 const userFacets = computed<ChipFacetDef[]>(() => [
   {
     key: 'name',
@@ -157,19 +83,9 @@ const userFacets = computed<ChipFacetDef[]>(() => [
   },
 ])
 
-const chipFilters = useChipFiltersFromControls({
-  controls,
-  facets: userFacets,
-  t,
-})
-
-// ---------------------------------------------------------------
-// Group-by. Client-side bucketing of the loaded page. Three axes
-// for the directory view: role (admin/technician/user severity
-// order), status (active vs soft-deleted), and join recency
-// (this month / this year / older) — useful for spotting recent
-// hires when onboarding.
-// ---------------------------------------------------------------
+// Group-by axes. Role uses severity order; status splits active
+// vs soft-deleted; joined buckets recent vs older to spot recent
+// hires during onboarding.
 const ROLE_ORDER: Array<User['role']> = ['admin', 'technician', 'user']
 const JOIN_BUCKET_ORDER = ['this-month', 'this-year', 'older'] as const
 
@@ -229,96 +145,59 @@ const groupAxes: GroupAxisDef<User>[] = [
   },
 ]
 
-const grouping = useListGrouping<User>({
-  axes: groupAxes,
-  storageNamespace: 'users',
-  getViewId: () => 'default',
-  t,
-})
-
-const itemsRef = computed(() => page.items.value)
-const buckets = grouping.buckets(itemsRef)
-
-// ---------------------------------------------------------------
-// Saved views. Same shape as AssetsListView: each view captures
-// filter facets + display shape (group axis + sort). Search
-// query stays in-the-moment.
-// ---------------------------------------------------------------
-interface UserViewShape {
-  groupBy: string
-  sortField: string
-  sortDirection: 'asc' | 'desc'
-}
-type UserViewFilter = Filters
-
-const auth = useAuthStore()
-const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
-
-const savedViews = useSavedListViews<UserViewShape, UserViewFilter>({
-  dataset: 'users',
-  userUuid,
-  captureShape: () => ({
-    groupBy: grouping.groupBy.value,
-    sortField: controls.sortField.value,
-    sortDirection: controls.sortDirection.value,
-  }),
-  captureFilter: () => ({ ...controls.filters.value }),
-  applyShape: (shape) => {
-    grouping.setGroupBy(shape.groupBy)
-    controls.handleSortUpdate(shape.sortField, shape.sortDirection)
-  },
-  applyFilter: (filter) => {
-    controls.filters.value = { ...filter }
-  },
-  t,
-})
-
-const showSaveModal = ref(false)
-const editingView = ref<SavedView<UserViewShape, UserViewFilter> | null>(null)
-
-function openEditor(uuid: string): void {
-  editingView.value = savedViews.views.value.find((v) => v.uuid === uuid) ?? null
-}
-
-async function handleSaveAs(name: string): Promise<boolean> {
-  const created = await savedViews.saveAs(name)
-  if (!created) {
-    toast.error(t('views-save-as-error'))
-    return false
-  }
-  toast.success(t('views-save-as-success', { name: created.name }))
-  return true
-}
-
-async function handleRename(uuid: string, name: string): Promise<boolean> {
-  const ok = await savedViews.rename(uuid, name)
-  if (!ok) toast.error(t('views-saved-editor-rename-error'))
-  return ok
-}
-
-async function handleDelete(uuid: string): Promise<boolean> {
-  const ok = await savedViews.deleteView(uuid)
-  if (!ok) toast.error(t('views-saved-editor-delete-error'))
-  return ok
-}
-
-const defaultSaveName = computed<string>(() => {
-  const active = savedViews.activeView.value
-  if (!active) return ''
-  return `${active.name} ${t('views-save-default-suffix')}`
-})
-
-
 const columns = computed(() => [
   { field: 'user', label: t('user-mgmt-column-user'), width: '1fr', sortable: true, sortKey: 'name', responsive: 'always' as const },
   { field: 'role', label: t('user-mgmt-column-role'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
   { field: 'open_ticket_count', label: t('user-mgmt-column-tickets'), width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
   { field: 'device_count', label: t('user-mgmt-column-assets'), width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(140px,auto)', sortable: false, responsive: 'lg' as const },
+  { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(140px,auto)', sortable: false, responsive: 'lg' as const, defaultHidden: true },
 ])
 
-const gridClass =
-  'grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(80px,auto)_minmax(80px,auto)] lg:grid-cols-[auto_1fr_minmax(100px,auto)_minmax(80px,auto)_minmax(80px,auto)_minmax(140px,auto)]'
+// Shell composable bundling controls + page + selection + chip
+// filters + grouping + columns + saved-view round-trip. The
+// `user` column is pinned (primary identifier stays anchored)
+// and `created_at` is default-hidden so the first paint stays
+// focused on identity + activity.
+const listView = useListView({
+  dataset: 'users',
+  userUuid,
+  t,
+  itemIdField: 'uuid',
+  itemId: (u: User) => u.uuid,
+  defaultSortField: 'name',
+  pageKeys: usersKeys,
+  // The "deleted" chip lives in controls.filters; the fetcher
+  // reads it back to swap the backend WHERE clause.
+  fetchPage: (params) =>
+    userService.getPaginatedUsers({
+      ...params,
+      deleted:
+        typeof params.deleted === 'string' && params.deleted === 'deleted'
+          ? 'deleted'
+          : 'active',
+    }),
+  // Soft-delete lifecycle events keep both active and deleted
+  // views in sync without manual cache busts.
+  sseEvents: [
+    'user-updated',
+    'user-created',
+    'user-deleted',
+    'user-soft-deleted',
+    'user-restored',
+    'user-purged',
+  ],
+  mobileSearch: {
+    placeholder: t('user-mgmt-search-placeholder'),
+    createIcon: 'user',
+    onCreate: navigateToCreateUser,
+  },
+  urlSyncParamKeys: ['role', 'deleted'],
+  scrollContainerRef,
+  facets: userFacets,
+  groupAxes,
+  columns,
+  pinnedColumnIds: ['user'],
+})
 
 // Bulk delete: irreversible, so a confirm modal rather than the
 // optimistic Undo-toast pattern. Bulk role change: a domain-
@@ -344,17 +223,17 @@ const bulkActionMutation = useMutation({
 
 async function confirmDelete() {
   showDeleteConfirm.value = false
-  const ids = selection.selectedIds.value
+  const ids = listView.selection.selectedIds.value
   if (ids.length === 0) return
   await bulkActionMutation.mutateAsync({ action: 'delete', ids })
-  selection.clear()
+  listView.selection.clear()
 }
 
 async function applyRoleChange(role: string) {
-  const ids = selection.selectedIds.value
+  const ids = listView.selection.selectedIds.value
   if (ids.length === 0) return
   await bulkActionMutation.mutateAsync({ action: 'set-role', ids, value: role })
-  selection.clear()
+  listView.selection.clear()
   showRoleModal.value = false
 }
 
@@ -402,85 +281,58 @@ function formatPurgeAt(deletedAt: string): string {
   <div class="h-full">
     <ListPageLayout
       ref="layout"
-      :items="page.items.value"
-      :total-items="page.totalItems.value"
-      :is-first-load="page.isFirstLoad.value"
-      :is-background-refresh="page.isBackgroundRefresh.value"
-      :is-loading-more="page.isLoadingMore.value"
-      :error="page.errorMessage.value"
-      :search-query="controls.searchQuery.value"
+      :items="listView.page.items.value"
+      :total-items="listView.page.totalItems.value"
+      :is-first-load="listView.page.isFirstLoad.value"
+      :is-background-refresh="listView.page.isBackgroundRefresh.value"
+      :is-loading-more="listView.page.isLoadingMore.value"
+      :error="listView.page.errorMessage.value"
+      :search-query="listView.controls.searchQuery.value"
       :search-placeholder="$t('user-mgmt-search-placeholder')"
       :item-label="$t('user-mgmt-item-label')"
       bulk-selection-copy-key="bulk-bar-users-selected"
       bulk-all-selected-copy-key="bulk-bar-users-all-selected"
-      :bulk-selection="selection"
+      :bulk-selection="listView.selection"
       hide-desktop-search
-      @update:search-query="controls.handleSearchUpdate"
-      @retry="page.handleRetry"
+      @update:search-query="listView.controls.handleSearchUpdate"
+      @retry="listView.page.handleRetry"
     >
       <template #filters>
-        <ViewSwitcher
-          v-if="savedViews.switcherItems.value.length > 0"
-          :items="savedViews.switcherItems.value"
-          :active-id="savedViews.activeViewId.value ?? ''"
-          size="sm"
-          :placeholder="$t('views-user-switcher-placeholder')"
-          @select="savedViews.switchTo"
-          @edit="openEditor"
+        <ListViewToolbar
+          :list-view="listView"
+          :switcher-placeholder="$t('views-user-switcher-placeholder')"
+          @open-editor="listView.openEditor"
+          @save-as="listView.showSaveModal.value = true"
         />
-        <ChipFilterStrip
-          :pills="chipFilters.pills.value"
-          :add-filter-facets="chipFilters.addFilterFacets.value"
-          :active-facets="chipFilters.activeFacets.value"
-          :options-for="chipFilters.optionsFor"
-          :selected-for="chipFilters.selectedFor"
-          :text-value-for="chipFilters.textValueFor"
-          :on-toggle="chipFilters.toggleValue"
-          :on-clear="chipFilters.clearFacet"
-          :on-set-text="chipFilters.setText"
-        />
-        <GroupByMenu
-          :options="grouping.axisOptions.value"
-          :model-value="grouping.groupBy.value"
-          @update:model-value="grouping.setGroupBy"
-        />
-        <button
-          type="button"
-          class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-dashed border-subtle text-tertiary hover:text-primary hover:border-default hover:bg-surface-hover transition-colors"
-          :title="$t('views-save-trigger')"
-          @click="showSaveModal = true"
-        >
-          {{ $t('views-save-trigger') }}
-        </button>
       </template>
 
       <template #empty-state>
         <EmptyState
           icon="users"
-          :title="controls.searchQuery.value ? $t('empty-users-search-title') : $t('empty-users-default-title')"
-          :description="controls.searchQuery.value ? $t('empty-users-search-description') : $t('empty-users-default-description')"
-          :action-label="!controls.searchQuery.value ? $t('user-mgmt-invite-action') : undefined"
+          :title="listView.controls.searchQuery.value ? $t('empty-users-search-title') : $t('empty-users-default-title')"
+          :description="listView.controls.searchQuery.value ? $t('empty-users-search-description') : $t('empty-users-default-description')"
+          :action-label="!listView.controls.searchQuery.value ? $t('user-mgmt-invite-action') : undefined"
           @action="navigateToCreateUser"
         />
       </template>
 
       <template #desktop="{ items, isBackgroundRefresh }">
         <DataTable
-          :columns="columns"
+          :columns="listView.tableColumns.visible.value"
           :data="items"
-          :buckets="buckets"
-          :is-collapsed="grouping.isCollapsed"
-          :selected-items="dt.selectedItems"
+          :buckets="listView.buckets.value"
+          :is-collapsed="listView.grouping.isCollapsed"
+          :selected-items="listView.dt.selectedItems"
           item-id-field="uuid"
-          :sort-field="controls.sortField.value"
-          :sort-direction="controls.sortDirection.value"
-          :grid-class="gridClass"
+          :sort-field="listView.controls.sortField.value"
+          :sort-direction="listView.controls.sortDirection.value"
+          :column-reorder="listView.tableColumns.reorderBundle"
           :loading="isBackgroundRefresh"
-          @update:sort="controls.handleSortUpdate"
-          @toggle-selection="dt.onToggleSelection"
-          @toggle-all="dt.onToggleAll"
+          @update:sort="listView.controls.handleSortUpdate"
+          @toggle-selection="listView.dt.onToggleSelection"
+          @toggle-all="listView.dt.onToggleAll"
           @row-click="navigateToUser"
-          @toggle-bucket="grouping.toggleCollapsed"
+          @toggle-bucket="listView.grouping.toggleCollapsed"
         >
           <template #cell-user="{ item }">
             <div class="flex items-center gap-2">
@@ -611,15 +463,15 @@ function formatPurgeAt(deletedAt: string): string {
       <template #footer>
         <PaginationControls
           v-if="!isMobile"
-          :current-page="controls.currentPage.value"
-          :total-pages="page.totalPages.value"
-          :total-items="page.totalItems.value"
-          :page-size="controls.pageSize.value"
-          :page-size-options="controls.pageSizeOptions"
-          :is-infinite-mode="controls.isInfiniteMode.value"
+          :current-page="listView.controls.currentPage.value"
+          :total-pages="listView.page.totalPages.value"
+          :total-items="listView.page.totalItems.value"
+          :page-size="listView.controls.pageSize.value"
+          :page-size-options="listView.controls.pageSizeOptions"
+          :is-infinite-mode="listView.controls.isInfiniteMode.value"
           :show-import="true"
-          @update:current-page="controls.handlePageChange"
-          @update:page-size="controls.handlePageSizeChange"
+          @update:current-page="listView.controls.handlePageChange"
+          @update:page-size="listView.controls.handlePageSizeChange"
           @import="() => {}"
         />
       </template>
@@ -627,9 +479,9 @@ function formatPurgeAt(deletedAt: string): string {
 
     <BulkConfirmDialog
       :show="showDeleteConfirm"
-      :title="$t('user-mgmt-bulk-delete-title', { count: selection.selectedCount.value })"
-      :message="$t('user-mgmt-bulk-delete-message', { count: selection.selectedCount.value })"
-      :confirm-label="$t('user-mgmt-bulk-delete-count', { count: selection.selectedCount.value })"
+      :title="$t('user-mgmt-bulk-delete-title', { count: listView.selection.selectedCount.value })"
+      :message="$t('user-mgmt-bulk-delete-message', { count: listView.selection.selectedCount.value })"
+      :confirm-label="$t('user-mgmt-bulk-delete-count', { count: listView.selection.selectedCount.value })"
       @confirm="confirmDelete"
       @close="showDeleteConfirm = false"
     />
@@ -651,7 +503,7 @@ function formatPurgeAt(deletedAt: string): string {
     >
       <div class="flex flex-col gap-2 p-4">
         <p class="text-sm text-secondary mb-2">
-          {{ $t('user-mgmt-role-modal-body', { count: selection.selectedCount.value }) }}
+          {{ $t('user-mgmt-role-modal-body', { count: listView.selection.selectedCount.value }) }}
         </p>
         <button
           v-for="role in ROLE_OPTIONS"
@@ -666,18 +518,6 @@ function formatPurgeAt(deletedAt: string): string {
       </div>
     </Modal>
 
-    <SaveViewModal
-      :show="showSaveModal"
-      :default-name="defaultSaveName"
-      @save="handleSaveAs"
-      @close="showSaveModal = false"
-    />
-
-    <SavedViewEditorModal
-      :view="editingView"
-      @rename="handleRename"
-      @delete="handleDelete"
-      @close="editingView = null"
-    />
+    <ListViewModals :list-view="listView" />
   </div>
 </template>

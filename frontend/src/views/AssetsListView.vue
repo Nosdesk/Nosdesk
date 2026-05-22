@@ -11,30 +11,15 @@ import PaginationControls from '@/components/common/PaginationControls.vue'
 import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import ChipFilterStrip from '@/components/views/ChipFilterStrip.vue'
-import GroupByMenu from '@/components/views/GroupByMenu.vue'
-import ViewSwitcher from '@/components/views/ViewSwitcher.vue'
-import SavedViewEditorModal from '@/components/views/SavedViewEditorModal.vue'
-import SaveViewModal from '@/components/views/SaveViewModal.vue'
-import {
-  useChipFiltersFromControls,
-  type ChipFacetDef,
-} from '@/composables/useChipFiltersFromControls'
-import {
-  useListGrouping,
-  type GroupAxisDef,
-} from '@/composables/useListGrouping'
-import { useSavedListViews } from '@/composables/useSavedListViews'
-import type { SavedView } from '@/services/savedViewsService'
-import type { Filters } from '@/composables/useListControls'
+import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
+import ListViewModals from '@/components/views/ListViewModals.vue'
+import { useListView } from '@/composables/useListView'
+import type { ChipFacetDef } from '@/composables/useChipFiltersFromControls'
+import type { GroupAxisDef } from '@/composables/useListGrouping'
 import { useAuthStore } from '@/stores/auth'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
-import { useListControls } from '@/composables/useListControls'
-import { useListPage } from '@/composables/useListPage'
-import { useBulkSelection } from '@/composables/useBulkSelection'
-import { useBulkSelectionForDataTable } from '@/composables/useBulkSelectionForDataTable'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { getPaginatedDevices, bulkAction } from '@/services/assetService'
@@ -49,11 +34,9 @@ const { isMobile } = useMobileDetection()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const toast = useToastStore()
+const auth = useAuthStore()
+const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
 
-// `useTemplateRef` (Vue 3.5+) typed against the layout's exported
-// expose interface. TypeScript can't `InstanceType<>` a generic
-// component, so the layout exports `ListPageLayoutExpose` as the
-// public typed shape of its `defineExpose` payload.
 const layoutRef = useTemplateRef<ListPageLayoutExpose>('layout')
 const scrollContainerRef = computed<HTMLElement | null>(
   () => layoutRef.value?.scrollContainerRef ?? null,
@@ -65,45 +48,12 @@ const navigateToCreateDevice = () => {
 const navigateToDevice = (device: Asset) => {
   void router.push(`/assets/${device.id}`)
 }
-
-const controls = useListControls<Asset>({
-  itemIdField: 'id',
-  defaultSortField: 'name',
-  defaultSortDirection: 'asc',
-  defaultPageSize: 0,
-})
-
-const page = useListPage({
-  controls,
-  keys: devicesKeys,
-  fetchPage: (params) => getPaginatedDevices(params, `devices-page-${params.page}`),
-  scrollContainerRef,
-  sseEvents: ['asset-updated', 'asset-created', 'asset-deleted'],
-  mobileSearch: {
-    placeholder: t('assets-list-search-placeholder'),
-    createIcon: 'device',
-    onCreate: navigateToCreateDevice,
-  },
-  urlSync: { paramKeys: ['warranty', 'lowStock'] },
-  // No per-page user prewarm: primary_user uuids are already in
-  // the sync engine's user pool (workspace:1 bootstrap), so the
-  // avatar cells resolve from there without an extra round trip.
-})
-
 usePageCreateAction(navigateToCreateDevice)
 
-const selection = useBulkSelection<Asset>({
-  items: page.items,
-  cacheKey: controls.cacheKeyPart,
-  totalCount: page.totalItems,
-})
-const dt = useBulkSelectionForDataTable(selection)
-
 // Filter facets (chip UI). Backend encoding:
+//   name      -> controls.searchQuery (chip text-facet)
 //   warranty  -> CSV under one filter key, backend ANY-matches
 //   lowStock  -> single 'true' when on, absent when off
-// State lives in `controls.filters` so URL sync + backend query
-// + saved views all see the same source of truth.
 const assetFacets = computed<ChipFacetDef[]>(() => [
   {
     key: 'name',
@@ -133,19 +83,9 @@ const assetFacets = computed<ChipFacetDef[]>(() => [
   },
 ])
 
-const chipFilters = useChipFiltersFromControls({
-  controls,
-  facets: assetFacets,
-  t,
-})
-
-// ---------------------------------------------------------------
-// Group-by. Client-side bucketing of the currently-loaded page,
-// so grouping is most meaningful in infinite-scroll mode (default
-// pageSize=0 → backend returns up to 50 rows in one shot). The
-// axes pick from columns that the table already shows, so the
-// bucket label and the grouped column carry the same information.
-// ---------------------------------------------------------------
+// Group-by axes. Client-side bucketing of the loaded page; most
+// useful in infinite-scroll mode (default pageSize=0 → up to 50
+// rows in one shot).
 const WARRANTY_ORDER = ['Expired', 'Warning', 'Active', 'Unknown'] as const
 
 const groupAxes: GroupAxisDef<Asset>[] = [
@@ -167,10 +107,7 @@ const groupAxes: GroupAxisDef<Asset>[] = [
   {
     key: 'kind',
     labelKey: 'assets-list-grouping-kind',
-    bucketFor: (asset) => ({
-      key: `kind:${asset.kind}`,
-      label: asset.kind,
-    }),
+    bucketFor: (asset) => ({ key: `kind:${asset.kind}`, label: asset.kind }),
   },
   {
     key: 'manufacturer',
@@ -207,116 +144,44 @@ const groupAxes: GroupAxisDef<Asset>[] = [
   },
 ]
 
-const grouping = useListGrouping<Asset>({
-  axes: groupAxes,
-  storageNamespace: 'assets',
-  // No saved-views story yet for assets; everything lives under
-  // the single 'default' scope. When saved views land, swap this
-  // for `() => activeViewId.value`.
-  getViewId: () => 'default',
-  t,
-})
-
-const itemsRef = computed(() => page.items.value)
-const buckets = grouping.buckets(itemsRef)
-
-// ---------------------------------------------------------------
-// Saved views. Each view persists the user's filter facets plus
-// the display shape (group axis + sort). Search query stays out
-// because it's an in-the-moment input, not durable state.
-//
-// Shape and filter blobs round-trip through the backend as
-// opaque JSON; the schema is defined here so applyShape and
-// applyFilter can rebuild controls + grouping from a row.
-// ---------------------------------------------------------------
-interface AssetViewShape {
-  groupBy: string
-  sortField: string
-  sortDirection: 'asc' | 'desc'
-}
-type AssetViewFilter = Filters
-
-const auth = useAuthStore()
-const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
-
-const savedViews = useSavedListViews<AssetViewShape, AssetViewFilter>({
-  dataset: 'assets',
-  userUuid,
-  captureShape: () => ({
-    groupBy: grouping.groupBy.value,
-    sortField: controls.sortField.value,
-    sortDirection: controls.sortDirection.value,
-  }),
-  captureFilter: () => ({ ...controls.filters.value }),
-  applyShape: (shape) => {
-    grouping.setGroupBy(shape.groupBy)
-    controls.handleSortUpdate(shape.sortField, shape.sortDirection)
-  },
-  applyFilter: (filter) => {
-    // Replace the whole filter map so axes the saved view didn't
-    // touch get cleared. Search query (a separate ref) stays
-    // alone so the user can search inside a saved view without
-    // re-typing.
-    controls.filters.value = { ...filter }
-  },
-  t,
-})
-
-const showSaveModal = ref(false)
-const editingView = ref<SavedView<AssetViewShape, AssetViewFilter> | null>(null)
-
-function openEditor(uuid: string): void {
-  editingView.value = savedViews.views.value.find((v) => v.uuid === uuid) ?? null
-}
-
-async function handleSaveAs(name: string): Promise<boolean> {
-  const created = await savedViews.saveAs(name)
-  if (!created) {
-    toast.error(t('views-save-as-error'))
-    return false
-  }
-  toast.success(t('views-save-as-success', { name: created.name }))
-  return true
-}
-
-async function handleRename(uuid: string, name: string): Promise<boolean> {
-  const ok = await savedViews.rename(uuid, name)
-  if (!ok) toast.error(t('views-saved-editor-rename-error'))
-  return ok
-}
-
-async function handleDelete(uuid: string): Promise<boolean> {
-  const ok = await savedViews.deleteView(uuid)
-  if (!ok) toast.error(t('views-saved-editor-delete-error'))
-  return ok
-}
-
-/** Default name pre-filled in the SaveViewModal: when the user
- *  is currently viewing a saved view, suggest "<name> (copy)";
- *  otherwise an empty string. Mirrors the tickets save-as flow. */
-const defaultSaveName = computed<string>(() => {
-  const active = savedViews.activeView.value
-  if (!active) return ''
-  return t('views-save-default-suffix') === '(copy)'
-    ? `${active.name} (copy)`
-    : `${active.name} ${t('views-save-default-suffix')}`
-})
-
 // Available sortable fields: id, name, hostname, serial_number,
 // model, warranty_status, manufacturer, created_at, updated_at,
 // last_sync_time.
 const columns = computed(() => [
   { field: 'name', label: t('assets-list-column-device'), width: '1fr', sortable: true, responsive: 'always' as const },
   { field: 'serial_number', label: t('assets-list-column-serial'), width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'hostname', label: t('assets-list-column-hostname'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
+  { field: 'hostname', label: t('assets-list-column-hostname'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
   { field: 'model', label: t('assets-list-column-model'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
   { field: 'primary_user', label: t('assets-list-column-user'), width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
   { field: 'quantity', label: t('assets-list-column-stock'), width: 'minmax(100px,auto)', sortable: true, responsive: 'md' as const },
   { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
 ])
 
-const gridClass =
-  'grid-cols-[auto_1fr_minmax(100px,auto)] md:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(140px,auto)_minmax(100px,auto)_minmax(100px,auto)] lg:grid-cols-[auto_1fr_minmax(140px,auto)_minmax(120px,auto)_minmax(120px,auto)_minmax(140px,auto)_minmax(100px,auto)_minmax(100px,auto)]'
+// Shell composable bundling controls + page + selection + chip
+// filters + grouping + columns + saved-view round-trip in one
+// call. View-specific bits (bulk delete, cell renderers,
+// navigation) stay in this file below.
+const listView = useListView({
+  dataset: 'assets',
+  userUuid,
+  t,
+  itemIdField: 'id',
+  defaultSortField: 'name',
+  pageKeys: devicesKeys,
+  fetchPage: (params) => getPaginatedDevices(params, `devices-page-${params.page}`),
+  sseEvents: ['asset-updated', 'asset-created', 'asset-deleted'],
+  mobileSearch: {
+    placeholder: t('assets-list-search-placeholder'),
+    createIcon: 'device',
+    onCreate: navigateToCreateDevice,
+  },
+  urlSyncParamKeys: ['warranty', 'lowStock'],
+  scrollContainerRef,
+  facets: assetFacets,
+  groupAxes,
+  columns,
+  pinnedColumnIds: ['name'],
+})
 
 // Bulk delete: irreversible (devices aren't soft-deleted), so a
 // confirm modal rather than the optimistic Undo-toast pattern.
@@ -344,10 +209,10 @@ function isLowStock(asset: Asset): boolean {
 
 async function confirmDelete() {
   showDeleteConfirm.value = false
-  const ids = selection.selectedIds.value.map((id) => parseInt(id))
+  const ids = listView.selection.selectedIds.value.map((id) => parseInt(id))
   if (ids.length === 0) return
   await bulkDelete.mutateAsync(ids)
-  selection.clear()
+  listView.selection.clear()
 }
 </script>
 
@@ -364,92 +229,61 @@ async function confirmDelete() {
   <div class="h-full">
   <ListPageLayout
     ref="layout"
-    :items="page.items.value"
-    :total-items="page.totalItems.value"
-    :is-first-load="page.isFirstLoad.value"
-    :is-background-refresh="page.isBackgroundRefresh.value"
-    :is-loading-more="page.isLoadingMore.value"
-    :error="page.errorMessage.value"
-    :search-query="controls.searchQuery.value"
+    :items="listView.page.items.value"
+    :total-items="listView.page.totalItems.value"
+    :is-first-load="listView.page.isFirstLoad.value"
+    :is-background-refresh="listView.page.isBackgroundRefresh.value"
+    :is-loading-more="listView.page.isLoadingMore.value"
+    :error="listView.page.errorMessage.value"
+    :search-query="listView.controls.searchQuery.value"
     :search-placeholder="$t('assets-list-search-placeholder')"
     :item-label="$t('assets-list-item-label')"
     bulk-selection-copy-key="bulk-bar-devices-selected"
     bulk-all-selected-copy-key="bulk-bar-devices-all-selected"
-    :bulk-selection="selection"
+    :bulk-selection="listView.selection"
     hide-desktop-search
-    @update:search-query="controls.handleSearchUpdate"
-    @retry="page.handleRetry"
+    @update:search-query="listView.controls.handleSearchUpdate"
+    @retry="listView.page.handleRetry"
   >
     <template #view-tabs>
       <AssetViewTabs />
     </template>
 
     <template #filters>
-      <!-- Saved-view switcher. Hidden until the user has at least
-           one saved view; until then "Save view as" is the only
-           affordance and the empty switcher would read as dead
-           chrome. -->
-      <ViewSwitcher
-        v-if="savedViews.switcherItems.value.length > 0"
-        :items="savedViews.switcherItems.value"
-        :active-id="savedViews.activeViewId.value ?? ''"
-        size="sm"
-        :placeholder="$t('views-asset-switcher-placeholder')"
-        @select="savedViews.switchTo"
-        @edit="openEditor"
+      <ListViewToolbar
+        :list-view="listView"
+        :switcher-placeholder="$t('views-asset-switcher-placeholder')"
+        @open-editor="listView.openEditor"
+        @save-as="listView.showSaveModal.value = true"
       />
-      <ChipFilterStrip
-        :pills="chipFilters.pills.value"
-        :add-filter-facets="chipFilters.addFilterFacets.value"
-        :active-facets="chipFilters.activeFacets.value"
-        :options-for="chipFilters.optionsFor"
-        :selected-for="chipFilters.selectedFor"
-        :text-value-for="chipFilters.textValueFor"
-        :on-toggle="chipFilters.toggleValue"
-        :on-clear="chipFilters.clearFacet"
-        :on-set-text="chipFilters.setText"
-      />
-      <GroupByMenu
-        :options="grouping.axisOptions.value"
-        :model-value="grouping.groupBy.value"
-        @update:model-value="grouping.setGroupBy"
-      />
-      <button
-        type="button"
-        class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-dashed border-subtle text-tertiary hover:text-primary hover:border-default hover:bg-surface-hover transition-colors"
-        :title="$t('views-save-trigger')"
-        @click="showSaveModal = true"
-      >
-        {{ $t('views-save-trigger') }}
-      </button>
     </template>
 
     <template #empty-state>
       <EmptyState
         icon="device"
-        :title="controls.searchQuery.value ? $t('empty-assets-search-title') : $t('empty-assets-default-title')"
-        :description="controls.searchQuery.value ? $t('empty-assets-search-description') : $t('empty-assets-default-description')"
-        :action-label="!controls.searchQuery.value ? $t('assets-list-add-action') : undefined"
+        :title="listView.controls.searchQuery.value ? $t('empty-assets-search-title') : $t('empty-assets-default-title')"
+        :description="listView.controls.searchQuery.value ? $t('empty-assets-search-description') : $t('empty-assets-default-description')"
+        :action-label="!listView.controls.searchQuery.value ? $t('assets-list-add-action') : undefined"
         @action="navigateToCreateDevice"
       />
     </template>
 
     <template #desktop="{ items, isBackgroundRefresh }">
       <DataTable
-        :columns="columns"
+        :columns="listView.tableColumns.visible.value"
         :data="items"
-        :buckets="buckets"
-        :is-collapsed="grouping.isCollapsed"
-        :selected-items="dt.selectedItems"
-        :sort-field="controls.sortField.value"
-        :sort-direction="controls.sortDirection.value"
-        :grid-class="gridClass"
+        :buckets="listView.buckets.value"
+        :is-collapsed="listView.grouping.isCollapsed"
+        :selected-items="listView.dt.selectedItems"
+        :sort-field="listView.controls.sortField.value"
+        :sort-direction="listView.controls.sortDirection.value"
+        :column-reorder="listView.tableColumns.reorderBundle"
         :loading="isBackgroundRefresh"
-        @update:sort="controls.handleSortUpdate"
-        @toggle-selection="dt.onToggleSelection"
-        @toggle-all="dt.onToggleAll"
+        @update:sort="listView.controls.handleSortUpdate"
+        @toggle-selection="listView.dt.onToggleSelection"
+        @toggle-all="listView.dt.onToggleAll"
         @row-click="navigateToDevice"
-        @toggle-bucket="grouping.toggleCollapsed"
+        @toggle-bucket="listView.grouping.toggleCollapsed"
       >
         <template #cell-name="{ item }">
           <div class="flex flex-col gap-0.5">
@@ -590,15 +424,15 @@ async function confirmDelete() {
     <template #footer>
       <PaginationControls
         v-if="!isMobile"
-        :current-page="controls.currentPage.value"
-        :total-pages="page.totalPages.value"
-        :total-items="page.totalItems.value"
-        :page-size="controls.pageSize.value"
-        :page-size-options="controls.pageSizeOptions"
-        :is-infinite-mode="controls.isInfiniteMode.value"
+        :current-page="listView.controls.currentPage.value"
+        :total-pages="listView.page.totalPages.value"
+        :total-items="listView.page.totalItems.value"
+        :page-size="listView.controls.pageSize.value"
+        :page-size-options="listView.controls.pageSizeOptions"
+        :is-infinite-mode="listView.controls.isInfiniteMode.value"
         :show-import="true"
-        @update:current-page="controls.handlePageChange"
-        @update:page-size="controls.handlePageSizeChange"
+        @update:current-page="listView.controls.handlePageChange"
+        @update:page-size="listView.controls.handlePageSizeChange"
         @import="() => {}"
       />
     </template>
@@ -606,25 +440,13 @@ async function confirmDelete() {
 
   <BulkConfirmDialog
     :show="showDeleteConfirm"
-    :title="$t('assets-list-bulk-delete-title', { count: selection.selectedCount.value })"
-    :message="$t('assets-list-bulk-delete-message', { count: selection.selectedCount.value })"
-    :confirm-label="$t('assets-list-bulk-delete-count', { count: selection.selectedCount.value })"
+    :title="$t('assets-list-bulk-delete-title', { count: listView.selection.selectedCount.value })"
+    :message="$t('assets-list-bulk-delete-message', { count: listView.selection.selectedCount.value })"
+    :confirm-label="$t('assets-list-bulk-delete-count', { count: listView.selection.selectedCount.value })"
     @confirm="confirmDelete"
     @close="showDeleteConfirm = false"
   />
 
-  <SaveViewModal
-    :show="showSaveModal"
-    :default-name="defaultSaveName"
-    @save="handleSaveAs"
-    @close="showSaveModal = false"
-  />
-
-  <SavedViewEditorModal
-    :view="editingView"
-    @rename="handleRename"
-    @delete="handleDelete"
-    @close="editingView = null"
-  />
+  <ListViewModals :list-view="listView" />
   </div>
 </template>

@@ -17,6 +17,21 @@ export interface DataTableBucket<T> {
   items: readonly T[]
 }
 
+/** Header drag-reorder bundle. The consumer wires this up via
+ *  `useDataTableColumns`; the table marks each non-pinned
+ *  header `draggable=true` and forwards the gesture events.
+ *  Optional — when omitted, headers are not draggable. */
+export interface DataTableColumnReorder {
+  sourceId: { value: string | null }
+  targetId: { value: string | null }
+  isReorderable: (field: string) => boolean
+  onDragStart: (field: string, event: DragEvent) => void
+  onDragOver: (field: string, event: DragEvent) => void
+  onDragLeave: (field: string) => void
+  onDrop: (field: string, event: DragEvent) => void
+  onDragEnd: () => void
+}
+
 const props = withDefaults(defineProps<{
   columns: readonly Column[]
   data: readonly T[]
@@ -34,6 +49,10 @@ const props = withDefaults(defineProps<{
   /** Per-bucket fold state. Called for each bucket; collapsed
    *  buckets render the header alone, skipping their items. */
   isCollapsed?: (bucketKey: string) => boolean
+  /** Drag-reorder wiring from useDataTableColumns. When set,
+   *  headers become draggable and the gesture commits a new
+   *  column order through the composable. */
+  columnReorder?: DataTableColumnReorder
 }>(), {
   itemIdField: 'id',
   loading: false,
@@ -150,16 +169,28 @@ const getColumnVisibility = (column: Column) => {
           />
         </div>
 
-        <!-- Column Headers -->
+        <!-- Column Headers. When `columnReorder` is provided,
+             non-pinned headers become draggable so the user can
+             grab a header and drop it on another to reorder.
+             The current drag-target highlights with a left-edge
+             accent indicator. -->
         <div
           v-for="column in columns"
           :key="column.field"
+          :draggable="columnReorder ? columnReorder.isReorderable(column.field) : false"
           :class="[
-            'px-2 py-3 flex items-center font-semibold text-primary bg-surface border-b-1 border-default sticky top-0 z-10',
+            'px-2 py-3 flex items-center font-semibold text-primary bg-surface border-b-1 border-default sticky top-0 z-10 relative',
             getColumnVisibility(column),
-            column.sortable ? 'cursor-pointer hover:bg-surface-hover' : ''
+            column.sortable ? 'cursor-pointer hover:bg-surface-hover' : '',
+            columnReorder?.sourceId.value === column.field ? 'opacity-50' : '',
+            columnReorder?.targetId.value === column.field ? 'before:absolute before:left-0 before:top-1 before:bottom-1 before:w-0.5 before:bg-accent before:rounded-r' : '',
           ]"
           @click="toggleSort(column)"
+          @dragstart="(e) => columnReorder?.onDragStart(column.field, e)"
+          @dragover="(e) => columnReorder?.onDragOver(column.field, e)"
+          @dragleave="() => columnReorder?.onDragLeave(column.field)"
+          @drop="(e) => columnReorder?.onDrop(column.field, e)"
+          @dragend="() => columnReorder?.onDragEnd()"
         >
           <div class="flex items-center gap-1">
             {{ column.label }}
