@@ -260,6 +260,7 @@ mod tests {
             feature_flags: serde_json::json!({}),
             default_locale: "en-US".into(),
             default_timezone: "UTC".into(),
+            workspace_id: None,
         }
     }
 
@@ -286,6 +287,7 @@ mod tests {
             recurrence_rule: None,
             recurrence_template_id: None,
             resolution_notes: None,
+            workspace_id: None,
         }
     }
 

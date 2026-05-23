@@ -277,6 +277,13 @@ impl From<PluginCollectionRowRaw> for PluginCollectionRow {
             created_by: raw.created_by,
             created_at: raw.created_at,
             updated_at: raw.updated_at,
+            // Phase 1: workspace column exists on the schema +
+            // backfilled to the default workspace, but the
+            // raw-row projection above is hand-written and only
+            // selects the original columns. None here keeps the
+            // From conversion compiling; Phase 2 wires the raw
+            // projection to actually carry workspace_id through.
+            workspace_id: None,
         }
     }
 }

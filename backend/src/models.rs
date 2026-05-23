@@ -142,6 +142,7 @@ pub struct SavedView {
     /// handler refuses workspace/project scope on non-ticket
     /// datasets so the access model stays ticket-specific.
     pub dataset: String,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -187,6 +188,7 @@ pub struct Cycle {
     pub updated_at: DateTime<Utc>,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -223,6 +225,7 @@ pub struct CycleTicket {
     pub ticket_id: i32,
     pub added_at: DateTime<Utc>,
     pub added_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -250,6 +253,7 @@ pub struct WorkingCalendar {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 /// Per-calendar holiday override. Days listed here count as
@@ -261,6 +265,7 @@ pub struct WorkingCalendarHoliday {
     pub calendar_id: i32,
     pub date: chrono::NaiveDate,
     pub label: Option<String>,
+    pub workspace_id: Option<i32>,
 }
 
 /// SLA policy — applies to a ticket when its `priority_filter` /
@@ -281,6 +286,7 @@ pub struct SlaPolicy {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 /// Operation kind recorded in `sync_actions.op`. The fourth variant
@@ -460,6 +466,7 @@ pub struct TicketWatcher {
     /// ignore this flag because they are explicit pings rather
     /// than implicit fan-out.
     pub notify_on_internal_notes: bool,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
@@ -490,6 +497,7 @@ pub struct Tag {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub archived_at: Option<DateTime<Utc>>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Insertable, AsChangeset)]
@@ -518,6 +526,7 @@ pub struct TicketTag {
     pub tag_id: i32,
     pub created_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
@@ -540,6 +549,7 @@ pub struct WorkflowState {
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -751,6 +761,7 @@ pub struct Ticket {
     /// string normalises to NULL at the API boundary so the UI can
     /// use a single null-check.
     pub resolution_notes: Option<String>,
+    pub workspace_id: Option<i32>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -856,6 +867,7 @@ pub struct Asset {
     /// that crosses the threshold. NULL means "not configured"
     /// (no alerting).
     pub low_stock_threshold: Option<bigdecimal::BigDecimal>,
+    pub workspace_id: Option<i32>,
 }
 
 /// Default kind for callers that omit `kind` from the JSON
@@ -943,6 +955,7 @@ pub struct AssetKind {
     /// planner UI to render off this; the DB CHECK constraint
     /// enforces the closed set.
     pub category: String,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -994,6 +1007,7 @@ pub struct AssetUsage {
     /// `quantity_used`, the direction here. The DB CHECK
     /// constraint pins the enum to this closed set.
     pub event_kind: String,
+    pub workspace_id: Option<i32>,
 }
 
 /// One row of the asset audit ledger. Records a physical-
@@ -1014,6 +1028,7 @@ pub struct AssetAudit {
     pub notes: Option<String>,
     pub recorded_by: Option<Uuid>,
     pub recorded_at: chrono::DateTime<chrono::Utc>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -1049,6 +1064,7 @@ pub struct TicketAsset {
     pub asset_id: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -1123,6 +1139,7 @@ pub struct Comment {
     /// LocalStorage roots) in API responses.
     #[serde(skip)]
     pub raw_source_uri: Option<String>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, Default)]
@@ -1169,6 +1186,7 @@ pub struct Attachment {
     pub uploaded_by: Option<Uuid>,
     pub created_at: NaiveDateTime,
     pub transcription: Option<String>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
@@ -1199,6 +1217,7 @@ pub struct ArticleContent {
     pub yjs_state_vector: Option<Vec<u8>>,
     pub yjs_document: Option<Vec<u8>>,
     pub yjs_client_id: Option<i64>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
@@ -1223,6 +1242,7 @@ pub struct ArticleContentRevision {
     pub yjs_document_content: Vec<u8>,
     pub contributed_by: Vec<Option<Uuid>>,
     pub created_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -1472,6 +1492,7 @@ pub struct DocumentationPage {
     /// None means verification doesn't expire (evergreen reference
     /// docs).
     pub verify_interval_days: Option<i32>,
+    pub workspace_id: Option<i32>,
 }
 
 // Documentation Page with Children
@@ -1930,6 +1951,7 @@ pub struct Project {
     pub updated_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
     pub owner_uuid: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 // New Project for creating projects
@@ -1967,6 +1989,7 @@ pub struct ProjectTicket {
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
     pub display_order: i32,
+    pub workspace_id: Option<i32>,
 }
 
 // New Project Ticket for creating associations
@@ -2012,6 +2035,7 @@ pub struct LinkedTicket {
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -2382,6 +2406,7 @@ pub struct DocumentationRevision {
     pub created_at: chrono::NaiveDateTime,
     pub created_by: Uuid,
     pub change_summary: Option<String>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -2466,6 +2491,7 @@ pub struct SyncHistory {
     pub tenant_id: Option<String>,
     pub initiated_by: Option<Uuid>,
     pub is_delta: bool,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -2506,6 +2532,7 @@ pub struct SyncDeltaToken {
     pub delta_link: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -2786,6 +2813,7 @@ pub struct ApiToken {
     pub revoked_at: Option<chrono::NaiveDateTime>,
     pub last_used_at: Option<chrono::NaiveDateTime>,
     pub last_used_ip: Option<ipnetwork::IpNetwork>,
+    pub workspace_id: Option<i32>,
 }
 
 /// New API token for insertion
@@ -3164,6 +3192,7 @@ pub struct UserTicketView {
     pub first_viewed_at: NaiveDateTime,
     pub last_viewed_at: NaiveDateTime,
     pub view_count: i32,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3245,6 +3274,7 @@ pub struct SiteSettings {
     /// preference. Defaults to `UTC`; operator typically sets this
     /// to the team's working zone (e.g. `Australia/Sydney`).
     pub default_timezone: String,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -3369,6 +3399,7 @@ pub struct BackupJob {
     pub created_by: Option<Uuid>,
     pub created_at: NaiveDateTime,
     pub completed_at: Option<NaiveDateTime>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3409,6 +3440,7 @@ pub struct ImportJob {
     pub summary: Option<serde_json::Value>,
     pub records_committed: Option<i32>,
     pub error_message: Option<String>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3553,6 +3585,7 @@ pub struct Group {
     pub security_enabled: bool,
     pub last_synced_at: Option<NaiveDateTime>,
     pub sync_enabled: bool,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3606,6 +3639,7 @@ pub struct GroupInclude {
     pub child_group_id: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3667,6 +3701,7 @@ pub struct UserGroup {
     pub group_id: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3689,6 +3724,7 @@ pub struct AssetGroup {
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
     pub external_source: Option<String>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3718,6 +3754,7 @@ pub struct TicketCategory {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3764,6 +3801,7 @@ pub struct CategoryGroupVisibility {
     pub group_id: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3806,6 +3844,7 @@ pub struct DocumentationCollection {
     /// "Restricted page" for viewers without read access, instead
     /// of leaking the page title.
     pub hide_titles_from_non_members: bool,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3868,6 +3907,7 @@ pub struct DocumentationCollectionPage {
     pub page_id: i32,
     pub created_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3890,6 +3930,7 @@ pub struct DocumentationCollectionVisibility {
     pub created_by: Option<Uuid>,
     pub id: i32,
     pub user_uuid: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3921,6 +3962,7 @@ pub struct DocumentationPageTicket {
     pub link_type: String,
     pub created_by: Option<Uuid>,
     pub created_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3947,6 +3989,7 @@ pub struct DocumentationPageVisibility {
     pub created_by: Option<Uuid>,
     pub id: i32,
     pub user_uuid: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3970,6 +4013,7 @@ pub struct DocumentationPageEmbedding {
     pub source_page_id: i32,
     pub target_page_id: i32,
     pub created_at: chrono::NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -3991,6 +4035,7 @@ pub struct DocumentationSubscription {
     pub user_uuid: Uuid,
     pub page_id: i32,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -4012,6 +4057,7 @@ pub struct DocumentationStarredPage {
     pub user_uuid: Uuid,
     pub page_id: i32,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -4115,6 +4161,7 @@ pub struct AssignmentRule {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -4162,6 +4209,7 @@ pub struct AssignmentRuleState {
     pub total_assignments: i32,
     pub last_assigned_at: Option<NaiveDateTime>,
     pub last_assigned_user_uuid: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -4196,6 +4244,7 @@ pub struct AssignmentLog {
     pub method: AssignmentMethod,
     pub context: Option<serde_json::Value>,
     pub assigned_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -4276,6 +4325,7 @@ pub struct NotificationPreference {
     pub enabled: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -4313,6 +4363,7 @@ pub struct Notification {
     pub is_read: bool,
     pub read_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -4405,6 +4456,7 @@ pub struct Webhook {
     pub last_triggered_at: Option<NaiveDateTime>,
     pub failure_count: i32,
     pub disabled_reason: Option<String>,
+    pub workspace_id: Option<i32>,
 }
 
 /// New webhook for insertion
@@ -4454,6 +4506,7 @@ pub struct WebhookDelivery {
     pub delivered_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub next_retry_at: Option<NaiveDateTime>,
+    pub workspace_id: Option<i32>,
 }
 
 /// New webhook delivery for insertion
@@ -4655,6 +4708,7 @@ pub struct Plugin {
     /// before this column existed; reinstall populates it. Capped
     /// at `install::MAX_BUNDLE_SIZE` (500 KB).
     pub bundle_js: Option<Vec<u8>>,
+    pub workspace_id: Option<i32>,
 }
 
 impl Plugin {
@@ -4920,6 +4974,7 @@ pub struct PluginData {
     pub is_secret: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 impl PluginData {
@@ -4963,6 +5018,7 @@ pub struct PluginActivity {
     pub details: Option<serde_json::Value>,
     pub user_uuid: Option<Uuid>,
     pub created_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 /// New plugin activity entry for insertion
@@ -5553,6 +5609,7 @@ pub struct PluginCollectionSchema {
     pub version: i32,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 /// New collection schema for insertion
@@ -5586,6 +5643,7 @@ pub struct PluginCollectionRow {
     pub created_by: Option<Uuid>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 /// New collection row for insertion
@@ -5700,6 +5758,7 @@ pub struct Channel {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub last_polled_at: Option<NaiveDateTime>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -5737,6 +5796,7 @@ pub struct ChannelCredential {
     pub encrypted_value: String,
     pub expires_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -5767,6 +5827,7 @@ pub struct ChannelMessage {
     pub author_user_uuid: Option<Uuid>,
     pub raw_metadata: Option<serde_json::Value>,
     pub received_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -5796,6 +5857,7 @@ pub struct CannedResponse {
     pub created_by: Option<Uuid>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Insertable, Deserialize)]
@@ -5857,6 +5919,7 @@ pub struct KnowledgeGap {
     pub dismissed_at: Option<NaiveDateTime>,
     pub dismissed_by: Option<Uuid>,
     pub resolved_at: Option<NaiveDateTime>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -5903,6 +5966,7 @@ pub struct KnowledgeGapSignal {
     pub detected_at: NaiveDateTime,
     pub dismissed_at: Option<NaiveDateTime>,
     pub dismissed_by: Option<Uuid>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -5944,6 +6008,7 @@ pub struct CspReport {
     pub occurrence_count: i32,
     pub first_seen_at: chrono::DateTime<chrono::Utc>,
     pub last_seen_at: chrono::DateTime<chrono::Utc>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -5988,6 +6053,7 @@ pub struct AuditLogRow {
     pub actor_uuid: Option<Uuid>,
     pub correlation_id: Option<Uuid>,
     pub occurred_at: chrono::DateTime<chrono::Utc>,
+    pub workspace_id: Option<i32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -6063,6 +6129,7 @@ pub struct OutboundEmail {
     /// Channel-reply rows leave it NULL — they're already deduped at
     /// the handler layer via stable Message-ID.
     pub idempotency_key: Option<String>,
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Insertable)]
