@@ -278,6 +278,7 @@ async function confirmDelete() {
         :sort-field="listView.controls.sortField.value"
         :sort-direction="listView.controls.sortDirection.value"
         :column-reorder="listView.tableColumns.reorderBundle"
+        :column-resize="listView.tableColumns.resizeBundle"
         :loading="isBackgroundRefresh"
         @update:sort="listView.controls.handleSortUpdate"
         @toggle-selection="listView.dt.onToggleSelection"

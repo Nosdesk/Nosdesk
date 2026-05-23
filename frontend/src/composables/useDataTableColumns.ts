@@ -28,6 +28,13 @@
  * excluded via `pinnedIds`.
  */
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { useDragGesture } from '@/composables/useDragGesture'
+
+/** Default resize bounds when a column doesn't declare its own.
+ *  Mirrors typical helpdesk-list ergonomics: too narrow and the
+ *  header label clips; too wide and a single column eats the row. */
+const DEFAULT_MIN_WIDTH_PX = 60
+const DEFAULT_MAX_WIDTH_PX = 800
 
 /** Minimal column shape this composable reads. Consumers'
  *  richer column types extend / overlap this. */
@@ -36,8 +43,19 @@ export interface DataTableColumnLike {
   field: string
   /** Header label fallback (for the picker). */
   label: string
+  /** Default grid-template-columns slot for this column (string
+   *  passed to CSS, eg. '1fr', 'minmax(140px,auto)', '120px').
+   *  Overridden by the resize state when the user drags a
+   *  header edge; the override is always a `${px}px` string. */
+  width?: string
   /** When set, default-hide the column until the user opts in. */
   defaultHidden?: boolean
+  /** Resize lower bound in pixels. Falls back to a sensible
+   *  default if absent. */
+  minWidthPx?: number
+  /** Resize upper bound in pixels. Falls back to a sensible
+   *  default if absent. */
+  maxWidthPx?: number
 }
 
 export interface UseDataTableColumnsOptions<C extends DataTableColumnLike> {
@@ -65,14 +83,22 @@ export interface UseDataTableColumns<C extends DataTableColumnLike> {
   isHidden: (field: string) => boolean
   isPinned: (field: string) => boolean
   toggleVisible: (field: string) => void
-  /** Replace the entire order + hidden state at once. Used by
-   *  saved-view apply to restore a layout from the view's shape. */
-  applyLayout: (order: string[], hidden: string[]) => void
-  /** Snapshot the current order + hidden set for saved-view
-   *  capture. */
-  captureLayout: () => { order: string[]; hidden: string[] }
-  /** Reset to the registry's default order + visibility. Clears
-   *  the localStorage rows for the current view. */
+  /** Replace the entire order + hidden + widths state at once.
+   *  Used by saved-view apply to restore a layout from the
+   *  view's shape. Widths are field -> px. */
+  applyLayout: (
+    order: string[],
+    hidden: string[],
+    widths?: Record<string, number>,
+  ) => void
+  /** Snapshot the current layout for saved-view capture. */
+  captureLayout: () => {
+    order: string[]
+    hidden: string[]
+    widths: Record<string, number>
+  }
+  /** Reset to the registry's default order, visibility, and
+   *  widths. Clears the localStorage rows for the current view. */
   reset: () => void
 
   // Drag-reorder state + handlers
@@ -97,6 +123,20 @@ export interface UseDataTableColumns<C extends DataTableColumnLike> {
     onDrop: (field: string, event: DragEvent) => void
     onDragEnd: () => void
   }
+
+  // Column resize state + handlers
+  resizingId: Ref<string | null>
+  /** Begin a pointer-driven resize. `startWidthPx` is the
+   *  column's current rendered width — the DataTable's handle
+   *  measures the header's offsetWidth on pointerdown and
+   *  passes it in (the composable doesn't have DOM access
+   *  itself). */
+  beginResize: (field: string, event: PointerEvent, startWidthPx: number) => void
+  /** Pre-shaped bundle matching DataTable's `columnResize` prop. */
+  resizeBundle: {
+    resizingId: Ref<string | null>
+    onResizeStart: (field: string, event: PointerEvent, startWidthPx: number) => void
+  }
 }
 
 function orderStorageKey(namespace: string, viewId: string): string {
@@ -105,6 +145,40 @@ function orderStorageKey(namespace: string, viewId: string): string {
 
 function hiddenStorageKey(namespace: string, viewId: string): string {
   return `${namespace}-columns-hidden:${viewId}`
+}
+
+function widthsStorageKey(namespace: string, viewId: string): string {
+  return `${namespace}-columns-widths:${viewId}`
+}
+
+function loadWidths(key: string): Map<string, number> | null {
+  if (typeof localStorage === 'undefined') return null
+  const raw = localStorage.getItem(key)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    const out = new Map<string, number>()
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+        out.set(k, v)
+      }
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
+function persistWidths(key: string, value: Map<string, number>): void {
+  if (typeof localStorage === 'undefined') return
+  if (value.size === 0) {
+    localStorage.removeItem(key)
+    return
+  }
+  const obj: Record<string, number> = {}
+  for (const [k, v] of value) obj[k] = v
+  localStorage.setItem(key, JSON.stringify(obj))
 }
 
 function loadStringArray(key: string): string[] | null {
@@ -132,11 +206,13 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
   const { columns, storageNamespace, getViewId, pinnedIds = [] } = options
   const pinned = new Set(pinnedIds)
 
-  // Initialise from storage or registry defaults. Both refs are
-  // string arrays / sets keyed by `column.field`, decoupled from
-  // the C type so reactive identity is straightforward.
+  // Initialise from storage or registry defaults. All refs are
+  // keyed by `column.field`, decoupled from the C type so
+  // reactive identity is straightforward.
   const order = ref<string[]>(initialOrder())
   const hidden = ref<Set<string>>(initialHidden())
+  const widthOverrides = ref<Map<string, number>>(initialWidths())
+  const resizingId = ref<string | null>(null)
 
   function initialOrder(): string[] {
     const stored = loadStringArray(orderStorageKey(storageNamespace, getViewId()))
@@ -149,6 +225,10 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
     if (stored) return new Set(stored)
     // First-time defaults from the registry.
     return new Set(columns.value.filter((c) => c.defaultHidden).map((c) => c.field))
+  }
+
+  function initialWidths(): Map<string, number> {
+    return loadWidths(widthsStorageKey(storageNamespace, getViewId())) ?? new Map()
   }
 
   /** Drop ids that no longer exist in the registry; append new
@@ -172,6 +252,7 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
     () => {
       order.value = initialOrder()
       hidden.value = initialHidden()
+      widthOverrides.value = initialWidths()
     },
   )
 
@@ -192,8 +273,22 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
     return m
   })
 
+  /** Apply the user's px width override to a column copy. Leaves
+   *  the registry default `width` string in place when no
+   *  override exists, so flex (`'1fr'`) and `minmax(...)` slots
+   *  keep their CSS-grid semantics until the user manually
+   *  resizes. */
+  function withEffectiveWidth(col: C): C {
+    const override = widthOverrides.value.get(col.field)
+    if (override == null) return col
+    return { ...col, width: `${override}px` }
+  }
+
   const ordered = computed<C[]>(() =>
-    order.value.map((id) => byField.value.get(id)).filter((c): c is C => !!c),
+    order.value
+      .map((id) => byField.value.get(id))
+      .filter((c): c is C => !!c)
+      .map(withEffectiveWidth),
   )
 
   const visible = computed<C[]>(() =>
@@ -217,6 +312,10 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
       hiddenStorageKey(storageNamespace, getViewId()),
       [...hidden.value],
     )
+    persistWidths(
+      widthsStorageKey(storageNamespace, getViewId()),
+      widthOverrides.value,
+    )
   }
 
   function toggleVisible(field: string): void {
@@ -228,16 +327,38 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
     persist()
   }
 
-  function applyLayout(nextOrder: string[], nextHidden: string[]): void {
+  function applyLayout(
+    nextOrder: string[],
+    nextHidden: string[],
+    nextWidths?: Record<string, number>,
+  ): void {
     order.value = reconcileOrder(nextOrder)
     hidden.value = new Set(nextHidden)
+    if (nextWidths) {
+      const map = new Map<string, number>()
+      for (const [k, v] of Object.entries(nextWidths)) {
+        if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+          map.set(k, v)
+        }
+      }
+      widthOverrides.value = map
+    } else {
+      widthOverrides.value = new Map()
+    }
     persist()
   }
 
-  function captureLayout(): { order: string[]; hidden: string[] } {
+  function captureLayout(): {
+    order: string[]
+    hidden: string[]
+    widths: Record<string, number>
+  } {
+    const widths: Record<string, number> = {}
+    for (const [k, v] of widthOverrides.value) widths[k] = v
     return {
       order: [...order.value],
       hidden: [...hidden.value],
+      widths,
     }
   }
 
@@ -246,10 +367,55 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
     hidden.value = new Set(
       columns.value.filter((c) => c.defaultHidden).map((c) => c.field),
     )
+    widthOverrides.value = new Map()
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(orderStorageKey(storageNamespace, getViewId()))
       localStorage.removeItem(hiddenStorageKey(storageNamespace, getViewId()))
+      localStorage.removeItem(widthsStorageKey(storageNamespace, getViewId()))
     }
+  }
+
+  // ---- Column resize -------------------------------------------
+  // CSS-grid layout means the column's rendered width comes
+  // from `grid-template-columns`, not from any `width` style on
+  // the cell. The composable maintains a px override per field
+  // and bakes it into the `visible` / `ordered` columns above;
+  // DataTable's grid template recomputes whenever the override
+  // changes. Pointer-driven resize uses the shared
+  // `useDragGesture` composable for rAF-coalesced live updates.
+  const resizeDrag = useDragGesture()
+
+  function beginResize(
+    field: string,
+    event: PointerEvent,
+    startWidthPx: number,
+  ): void {
+    if (!Number.isFinite(startWidthPx) || startWidthPx <= 0) return
+    const col = columns.value.find((c) => c.field === field)
+    if (!col) return
+    event.stopPropagation()
+
+    const minPx = col.minWidthPx ?? DEFAULT_MIN_WIDTH_PX
+    const maxPx = col.maxWidthPx ?? DEFAULT_MAX_WIDTH_PX
+    resizingId.value = field
+
+    const writeWidth = (px: number): void => {
+      const map = new Map(widthOverrides.value)
+      map.set(field, Math.round(px))
+      widthOverrides.value = map
+    }
+
+    resizeDrag.begin(event, {
+      axis: 'x',
+      startValue: startWidthPx,
+      clamp: (raw) => Math.min(maxPx, Math.max(minPx, raw)),
+      onUpdate: writeWidth,
+      onCommit: (finalWidth) => {
+        writeWidth(finalWidth)
+        resizingId.value = null
+        persist()
+      },
+    })
   }
 
   // ---- Drag-reorder ---------------------------------------------
@@ -332,6 +498,12 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
       onDragLeave,
       onDrop,
       onDragEnd,
+    },
+    resizingId,
+    beginResize,
+    resizeBundle: {
+      resizingId,
+      onResizeStart: beginResize,
     },
   }
 }

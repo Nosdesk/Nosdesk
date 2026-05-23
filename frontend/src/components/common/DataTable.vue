@@ -32,6 +32,22 @@ export interface DataTableColumnReorder {
   onDragEnd: () => void
 }
 
+/** Header resize bundle. When provided, each header renders a
+ *  right-edge drag handle that initiates a pointer-driven
+ *  width resize through `useDataTableColumns`. The composable
+ *  measures the column's start width by reading the header
+ *  element's offsetWidth on pointerdown; the table passes that
+ *  through here. Optional — when omitted, headers are not
+ *  resizable. */
+export interface DataTableColumnResize {
+  resizingId: { value: string | null }
+  onResizeStart: (
+    field: string,
+    event: PointerEvent,
+    startWidthPx: number,
+  ) => void
+}
+
 const props = withDefaults(defineProps<{
   columns: readonly Column[]
   data: readonly T[]
@@ -53,6 +69,9 @@ const props = withDefaults(defineProps<{
    *  headers become draggable and the gesture commits a new
    *  column order through the composable. */
   columnReorder?: DataTableColumnReorder
+  /** Column resize wiring from useDataTableColumns. When set,
+   *  each header renders a right-edge drag handle for resize. */
+  columnResize?: DataTableColumnResize
 }>(), {
   itemIdField: 'id',
   loading: false,
@@ -161,27 +180,34 @@ const getColumnVisibility = (column: Column) => {
       
       <!-- Sticky Header Row -->
       <div class="contents sticky top-0 z-10">
-        <!-- Checkbox Header -->
-        <div class="px-4 py-3 flex items-center font-semibold text-primary bg-surface border-b-1 border-default sticky top-0 z-10">
+        <!-- Checkbox Header. Padding + border match the data-
+             column headers below so the strip reads as one
+             compact band of column chrome. -->
+        <div class="px-4 py-2 flex items-center bg-surface border-b border-subtle sticky top-0 z-10">
           <Checkbox
             :model-value="allSelected && data.length > 0"
             @change="(e) => emit('toggle-all', e)"
           />
         </div>
 
-        <!-- Column Headers. When `columnReorder` is provided,
-             non-pinned headers become draggable so the user can
-             grab a header and drop it on another to reorder.
-             The current drag-target highlights with a left-edge
-             accent indicator. -->
+        <!-- Column Headers. Compact uppercase treatment mirroring
+             the tickets table: text-[10px] uppercase + tertiary
+             text + tracking-wider, with a subtle bottom rule so
+             the header row reads as scaffolding rather than
+             competing with the data cells. When `columnReorder`
+             is provided, non-pinned headers become draggable so
+             the user can grab and drop to reorder; the current
+             drag-target highlights with a left-edge accent. When
+             `columnResize` is provided, each header renders a
+             right-edge drag handle for live width resize. -->
         <div
           v-for="column in columns"
           :key="column.field"
           :draggable="columnReorder ? columnReorder.isReorderable(column.field) : false"
           :class="[
-            'px-2 py-3 flex items-center font-semibold text-primary bg-surface border-b-1 border-default sticky top-0 z-10 relative',
+            'px-2 py-2 flex items-center text-[10px] font-semibold uppercase tracking-wider text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 relative',
             getColumnVisibility(column),
-            column.sortable ? 'cursor-pointer hover:bg-surface-hover' : '',
+            column.sortable ? 'cursor-pointer hover:bg-surface-hover hover:text-primary' : '',
             columnReorder?.sourceId.value === column.field ? 'opacity-50' : '',
             columnReorder?.targetId.value === column.field ? 'before:absolute before:left-0 before:top-1 before:bottom-1 before:w-0.5 before:bg-accent before:rounded-r' : '',
           ]"
@@ -198,6 +224,26 @@ const getColumnVisibility = (column: Column) => {
               {{ sortDirection === 'asc' ? '↑' : '↓' }}
             </span>
           </div>
+          <!-- Resize handle. 4px hit area on the right edge, with
+               a thin accent line that brightens on hover and
+               while the gesture is active. Reads the parent
+               header's offsetWidth on pointerdown to give the
+               composable an accurate startValue (the composable
+               can't measure DOM itself). -->
+          <div
+            v-if="columnResize"
+            class="absolute top-1 bottom-1 right-0 w-1 cursor-col-resize group/handle"
+            :class="columnResize.resizingId.value === column.field
+              ? 'bg-accent/50'
+              : 'hover:bg-accent/30'"
+            :title="$t('views-column-resize-handle-tooltip')"
+            @click.stop
+            @pointerdown="(e: PointerEvent) => {
+              const headerEl = (e.currentTarget as HTMLElement).parentElement
+              const startPx = headerEl?.offsetWidth ?? 0
+              columnResize!.onResizeStart(column.field, e, startPx)
+            }"
+          />
         </div>
       </div>
 

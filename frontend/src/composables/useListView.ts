@@ -61,9 +61,15 @@ export interface BaseListViewShape {
   groupBy: string
   sortField: string
   sortDirection: 'asc' | 'desc'
-  /** Column order + hidden ids. Optional so views saved before
-   *  the column UX landed still load cleanly. */
-  columns?: { order: string[]; hidden: string[] }
+  /** Column order + hidden ids + per-column px width overrides.
+   *  Optional so views saved before the column UX landed still
+   *  load cleanly; `widths` is optional for the same reason
+   *  against views saved before resize landed. */
+  columns?: {
+    order: string[]
+    hidden: string[]
+    widths?: Record<string, number>
+  }
 }
 
 export type ListViewDataset = Exclude<SavedViewDataset, 'tickets'>
@@ -245,7 +251,11 @@ export function useListView<
       grouping.setGroupBy(shape.groupBy)
       controls.handleSortUpdate(shape.sortField, shape.sortDirection)
       if (shape.columns) {
-        tableColumns.applyLayout(shape.columns.order, shape.columns.hidden)
+        tableColumns.applyLayout(
+          shape.columns.order,
+          shape.columns.hidden,
+          shape.columns.widths,
+        )
       }
       if (applyExtras) applyExtras(shape)
     },

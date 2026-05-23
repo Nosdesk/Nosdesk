@@ -183,16 +183,18 @@ function onClearSelection() {
       <!-- Sticky filter / search bar. The shadow + sticky combo
            anchors filters to the viewport top while the body
            scrolls behind. -->
-      <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
-        <!--
-          Optional view-switcher tab strip (e.g. List / Planner
-          views over the same dataset). Sits above the filter
-          row so it's the first thing the user sees, and lives
-          inside the sticky chrome so it doesn't scroll away.
-        -->
-        <slot name="view-tabs" />
+      <!--
+        Sticky header band styled to match the tickets header:
+        subtle bottom border, no drop-shadow, generous padding,
+        and the view-tab strip rendered inline at the start of
+        the toolbar row rather than dominating its own band
+        above the filters. The flex-wrap keeps narrow viewports
+        readable when the chip strip grows beyond one row.
+      -->
+      <div class="sticky top-0 z-20 bg-surface border-b border-subtle shrink-0">
+        <div class="px-4 py-3 flex items-center gap-2 sm:gap-3 flex-wrap">
+          <slot name="view-tabs" />
 
-        <div class="p-2 flex items-center gap-2 flex-wrap">
           <DebouncedSearchInput
             v-if="!hideDesktopSearch"
             :model-value="searchQuery"

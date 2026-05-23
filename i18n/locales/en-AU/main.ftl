@@ -4635,6 +4635,7 @@ list-grouping-none = No grouping
 list-grouping-trigger = Group by
 views-column-picker-trigger = Columns
 views-column-picker-reset = Reset columns
+views-column-resize-handle-tooltip = Drag to resize
 assets-list-grouping-warranty = Warranty
 assets-list-grouping-kind = Type
 assets-list-grouping-manufacturer = Manufacturer

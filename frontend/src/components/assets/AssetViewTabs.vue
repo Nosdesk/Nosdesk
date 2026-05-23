@@ -36,20 +36,29 @@ function isActive(tab: Tab): boolean {
 </script>
 
 <template>
-  <nav
-    class="flex items-center gap-1 px-2 pt-2 border-b border-default bg-surface"
+  <!-- Segmented-pill tab strip matching the tickets header's
+       TicketsViewTabs treatment: a small rounded group with the
+       active tab on `bg-surface shadow-sm` and inactive tabs on
+       `text-secondary`. Sits inline with the filter chrome
+       rather than dominating its own band the way a heavy
+       underline-style tab strip would. -->
+  <div
+    class="inline-flex items-center gap-0.5 rounded-md bg-surface-alt p-0.5"
+    role="tablist"
     aria-label="Asset section views"
   >
     <RouterLink
       v-for="tab in tabs"
       :key="tab.to"
       :to="tab.to"
-      class="px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors"
+      role="tab"
+      :aria-selected="isActive(tab)"
+      class="inline-flex items-center px-2.5 h-7 rounded text-sm font-medium transition-colors whitespace-nowrap shrink-0"
       :class="isActive(tab)
-        ? 'text-primary border-accent'
-        : 'text-secondary border-transparent hover:text-primary hover:border-default'"
+        ? 'bg-surface text-primary shadow-sm'
+        : 'text-secondary hover:text-primary hover:bg-surface/60'"
     >
       {{ $t(tab.labelKey) }}
     </RouterLink>
-  </nav>
+  </div>
 </template>
