@@ -31,6 +31,7 @@ import {
   type ListColumn,
 } from '@/sync/views/ticketColumns'
 import { useDragGesture } from '@/composables/useDragGesture'
+import { useColumnReorder } from '@/composables/useColumnReorder'
 
 const COLUMN_WIDTHS_PREFIX = 'tickets-column-widths:'
 
@@ -252,72 +253,39 @@ export function useColumnLayout(
   }
 
   // ---------------------------------------------------------------
-  // Reorder via HTML5 drag-and-drop. Headers set draggable=true;
-  // these handlers track the source + target and emit the new
-  // order on drop. Title doesn't participate — it's pinned first
+  // Reorder via HTML5 drag-and-drop. Delegated to the shared
+  // `useColumnReorder` composable so the gesture state + drop
+  // reducer match the behaviour DataTable consumers get.
+  //
+  // The title column doesn't participate — it's pinned first
   // because of its flex behaviour and would be confusing if a
   // user could push it mid-row only to have it bounce back.
+  //
+  // Resize and reorder both initiate from a mousedown inside the
+  // same draggable <th>. The resize handle's pointerdown fires
+  // synchronously and sets `resizingId` before the dragstart
+  // bubbles up — when that flag is set the drag is cancelled so
+  // the pointer-driven resize loop owns the gesture.
   // ---------------------------------------------------------------
-  const dragSourceId = ref<ColumnId | null>(null)
-  const dragTargetId = ref<ColumnId | null>(null)
+  const reorder = useColumnReorder({
+    isReorderable: (id) => id !== 'title',
+    getCurrentOrder: () => getCurrentOrder(),
+    onOrderChange: (next) => onOrderChange(next as ColumnId[]),
+  })
 
-  function isReorderable(colId: ColumnId): boolean {
-    return colId !== 'title'
-  }
+  const { dragSourceId, dragTargetId, isReorderable, onDragOver, onDragLeave, onDragEnd } =
+    reorder
 
   function onDragStart(colId: ColumnId, event: DragEvent): void {
-    // Resize and reorder both initiate from a mousedown inside
-    // the same draggable <th>. The resize handle's pointerdown
-    // fires synchronously and sets `resizingId` before this
-    // dragstart can fire. If that flag is set, the user grabbed
-    // the resize handle; cancel the drag so the pointer-driven
-    // resize loop owns the gesture.
     if (resizingId.value !== null) {
       event.preventDefault()
       return
     }
-    if (!isReorderable(colId)) {
-      event.preventDefault()
-      return
-    }
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move'
-      event.dataTransfer.setData('text/plain', colId)
-    }
-    dragSourceId.value = colId
-  }
-
-  function onDragOver(colId: ColumnId, event: DragEvent): void {
-    if (!dragSourceId.value || !isReorderable(colId)) return
-    if (colId === dragSourceId.value) return
-    event.preventDefault()
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-    dragTargetId.value = colId
-  }
-
-  function onDragLeave(colId: ColumnId): void {
-    if (dragTargetId.value === colId) dragTargetId.value = null
+    reorder.onDragStart(colId, event)
   }
 
   function onDrop(colId: ColumnId, event: DragEvent): void {
-    event.preventDefault()
-    const source = dragSourceId.value
-    dragSourceId.value = null
-    dragTargetId.value = null
-    if (!source || source === colId || !isReorderable(colId)) return
-
-    const order = [...getCurrentOrder()]
-    const fromIdx = order.indexOf(source)
-    const toIdx = order.indexOf(colId)
-    if (fromIdx < 0 || toIdx < 0) return
-    order.splice(fromIdx, 1)
-    order.splice(toIdx, 0, source)
-    onOrderChange(order)
-  }
-
-  function onDragEnd(): void {
-    dragSourceId.value = null
-    dragTargetId.value = null
+    reorder.onDrop(colId, event)
   }
 
   function clearWidths(): void {

@@ -29,6 +29,7 @@
  */
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useDragGesture } from '@/composables/useDragGesture'
+import { useColumnReorder } from '@/composables/useColumnReorder'
 
 /** Default resize bounds when a column doesn't declare its own.
  *  Mirrors typical helpdesk-list ergonomics: too narrow and the
@@ -419,58 +420,29 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
   }
 
   // ---- Drag-reorder ---------------------------------------------
-  const dragSourceId = ref<string | null>(null)
-  const dragTargetId = ref<string | null>(null)
+  // Gesture state + drop reducer come from the shared
+  // `useColumnReorder` composable; this composable just wires
+  // the persisted `order` ref through it. Pinned columns are
+  // non-reorderable.
+  const reorder = useColumnReorder({
+    isReorderable: (id) => !pinned.has(id),
+    getCurrentOrder: () => order.value,
+    onOrderChange: (next) => {
+      order.value = next
+      persist()
+    },
+  })
 
-  function isReorderable(field: string): boolean {
-    return !pinned.has(field)
-  }
-
-  function onDragStart(field: string, event: DragEvent): void {
-    if (!isReorderable(field)) {
-      event.preventDefault()
-      return
-    }
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move'
-      event.dataTransfer.setData('text/plain', field)
-    }
-    dragSourceId.value = field
-  }
-
-  function onDragOver(field: string, event: DragEvent): void {
-    if (!dragSourceId.value || !isReorderable(field)) return
-    if (field === dragSourceId.value) return
-    event.preventDefault()
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-    dragTargetId.value = field
-  }
-
-  function onDragLeave(field: string): void {
-    if (dragTargetId.value === field) dragTargetId.value = null
-  }
-
-  function onDrop(field: string, event: DragEvent): void {
-    event.preventDefault()
-    const source = dragSourceId.value
-    dragSourceId.value = null
-    dragTargetId.value = null
-    if (!source || source === field || !isReorderable(field)) return
-
-    const next = [...order.value]
-    const fromIdx = next.indexOf(source)
-    const toIdx = next.indexOf(field)
-    if (fromIdx < 0 || toIdx < 0) return
-    next.splice(fromIdx, 1)
-    next.splice(toIdx, 0, source)
-    order.value = next
-    persist()
-  }
-
-  function onDragEnd(): void {
-    dragSourceId.value = null
-    dragTargetId.value = null
-  }
+  const {
+    dragSourceId,
+    dragTargetId,
+    isReorderable,
+    onDragStart,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+    onDragEnd,
+  } = reorder
 
   return {
     visible,

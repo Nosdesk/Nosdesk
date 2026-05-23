@@ -45,6 +45,7 @@ import TicketsTable from '@/components/views/TicketsTable.vue'
 import TicketsCardList from '@/components/views/TicketsCardList.vue'
 import TicketPreviewPane from '@/components/views/TicketPreviewPane.vue'
 import SavedViewEditorModal from '@/components/views/SavedViewEditorModal.vue'
+import SaveViewModal from '@/components/views/SaveViewModal.vue'
 import type { SavedView } from '@/services/savedViewsService'
 import { useTicketsViewResolution } from '@/composables/useTicketsViewResolution'
 import { useTicketsSort } from '@/composables/useTicketsSort'
@@ -435,21 +436,34 @@ onUnmounted(() => {
 
 // ---------------------------------------------------------------
 // Save-as-view + rename + archive flows. Kept here (not in the
-// resolver composable) because they reach into router + window
-// prompt — keeping them in the route component makes the
+// resolver composable) because they reach into router + modal
+// state — keeping them in the route component makes the
 // composable testable without DOM globals.
+//
+// Save-as-view drives the shared SaveViewModal: opening the
+// modal pre-fills the input with a "<active view> (copy)"
+// suggestion when the active view is itself a saved view, or
+// the built-in view's name otherwise. The actual create
+// runs inside `handleSaveAsView` (called by the modal's @save
+// emit) and routes to the new view's URL on success.
 // ---------------------------------------------------------------
 const isSaving = ref(false)
+const showSaveModal = ref(false)
 const savedViewsRef = savedViewsStore.viewsForProject(null)
 
-async function saveAsView(): Promise<void> {
-  const userUuid = authStore.user?.uuid
-  if (!userUuid) return
-  const fallbackName = activeView.value.source === 'saved'
+const defaultSaveName = computed<string>(() =>
+  activeView.value.source === 'saved'
     ? t('saved-view-copy-suffix', { name: activeView.value.name })
-    : activeView.value.name
-  const name = window.prompt(t('saved-view-name-this'), fallbackName)
-  if (!name) return
+    : activeView.value.name,
+)
+
+function saveAsView(): void {
+  showSaveModal.value = true
+}
+
+async function handleSaveAsView(name: string): Promise<boolean> {
+  const userUuid = authStore.user?.uuid
+  if (!userUuid) return false
   isSaving.value = true
   try {
     const created = await savedViewsStore.create({
@@ -464,9 +478,9 @@ async function saveAsView(): Promise<void> {
       // user surfaces write the field.
       dataset: 'tickets',
     })
-    if (created) {
-      router.push({ query: { view: created.uuid } })
-    }
+    if (!created) return false
+    router.push({ query: { view: created.uuid } })
+    return true
   } finally {
     isSaving.value = false
   }
@@ -771,6 +785,13 @@ function startPaneResize(event: PointerEvent): void {
       @close="editingView = null"
       @rename="handleRename"
       @delete="handleDelete"
+    />
+
+    <SaveViewModal
+      :show="showSaveModal"
+      :default-name="defaultSaveName"
+      @save="handleSaveAsView"
+      @close="showSaveModal = false"
     />
 
     <!-- Floating bulk-action bar. Renders only when at least one
