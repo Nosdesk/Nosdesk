@@ -1611,6 +1611,7 @@ diesel::table! {
         settings -> Jsonb,
         created_at -> Timestamptz,
         archived_at -> Nullable<Timestamptz>,
+        organisation_id -> Nullable<Int4>,
     }
 }
 
