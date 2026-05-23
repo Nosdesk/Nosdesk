@@ -8,7 +8,7 @@ import { RequestManager } from '@/utils/requestManager';
 const requestManager = new RequestManager();
 
 // Extended pagination params for devices
-export interface DevicePaginationParams extends PaginationParams {
+export interface AssetPaginationParams extends PaginationParams {
   type?: string;
   warranty?: string;
   /** Set to `'true'` to restrict the page to stock-tracked
@@ -33,7 +33,7 @@ const transformDeviceResponse = (backendDevice: Asset): Asset => backendDevice;
  * Get all devices
  * @returns Promise<Asset[]> - A promise that resolves to an array of devices
  */
-export const getDevices = async (): Promise<Asset[]> => {
+export const getAssets = async (): Promise<Asset[]> => {
   try {
     const response = await apiClient.get(`/assets`);
     return response.data.map(transformDeviceResponse);
@@ -43,8 +43,8 @@ export const getDevices = async (): Promise<Asset[]> => {
   }
 };
 
-// Get paginated devices
-export const getPaginatedDevices = async (params: PaginationParams, requestKey: string = 'paginated-devices'): Promise<PaginatedResponse<Asset>> => {
+// Get paginated assets
+export const getPaginatedAssets = async (params: PaginationParams, requestKey: string = 'paginated-assets'): Promise<PaginatedResponse<Asset>> => {
   try {
     // Create cancellable request
     const controller = requestManager.createRequest(requestKey);
@@ -81,7 +81,7 @@ export const getPaginatedDevices = async (params: PaginationParams, requestKey: 
  * @param id - The ID of the device to fetch
  * @returns Promise<Asset> - A promise that resolves to a device
  */
-export const getDeviceById = async (id: number | string): Promise<Asset> => {
+export const getAssetById = async (id: number | string): Promise<Asset> => {
   try {
     const response = await apiClient.get(`/assets/${id}`);
     return transformDeviceResponse(response.data);
@@ -96,7 +96,7 @@ export const getDeviceById = async (id: number | string): Promise<Asset> => {
  * @param ticketId - The ID of the ticket
  * @returns Promise<Asset | null> - A promise that resolves to a device or null
  */
-export const getDeviceByTicketId = async (ticketId: number): Promise<Asset | null> => {
+export const getAssetByTicketId = async (ticketId: number): Promise<Asset | null> => {
   try {
     const response = await apiClient.get(`/tickets/${ticketId}/device`);
     return transformDeviceResponse(response.data);
@@ -111,7 +111,7 @@ export const getDeviceByTicketId = async (ticketId: number): Promise<Asset | nul
  * @param userUuid - The UUID of the user
  * @returns Promise<Asset[]> - A promise that resolves to an array of devices
  */
-export const getDevicesByUser = async (userUuid: string): Promise<Asset[]> => {
+export const getAssetsByUser = async (userUuid: string): Promise<Asset[]> => {
   try {
     const response = await apiClient.get(`/users/${userUuid}/assets`);
     return response.data.map(transformDeviceResponse);
@@ -126,7 +126,7 @@ export const getDevicesByUser = async (userUuid: string): Promise<Asset[]> => {
  * @param deviceData - The device data to create
  * @returns Promise<Asset> - A promise that resolves to the created device
  */
-export const createDevice = async (deviceData: AssetFormData): Promise<Asset> => {
+export const createAsset = async (deviceData: AssetFormData): Promise<Asset> => {
   try {
     const response = await apiClient.post(`/assets`, deviceData);
     return transformDeviceResponse(response.data);
@@ -144,7 +144,7 @@ export const createDevice = async (deviceData: AssetFormData): Promise<Asset> =>
  * @param device - The updated device data
  * @returns Promise<Asset> - A promise that resolves to the updated device
  */
-export const updateDevice = async (id: number, device: Partial<Asset>): Promise<Asset> => {
+export const updateAsset = async (id: number, device: Partial<Asset>): Promise<Asset> => {
   try {
     // Forward the partial directly. Pass B removed the
     // hand-mapped column projection; the backend DeviceUpdate
@@ -163,7 +163,7 @@ export const updateDevice = async (id: number, device: Partial<Asset>): Promise<
  * @param id - The ID of the device to delete
  * @returns Promise<void>
  */
-export const deleteDevice = async (id: number): Promise<void> => {
+export const deleteAsset = async (id: number): Promise<void> => {
   try {
     await apiClient.delete(`/assets/${id}`);
   } catch (error) {
@@ -177,7 +177,7 @@ export const deleteDevice = async (id: number): Promise<void> => {
  * @param id - The ID of the device to unmanage
  * @returns Promise<Asset> - The updated device
  */
-export const unmanageDevice = async (id: number): Promise<Asset> => {
+export const unmanageAsset = async (id: number): Promise<Asset> => {
   try {
     const response = await apiClient.post(`/assets/${id}/unmanage`);
     return transformDeviceResponse(response.data);
@@ -193,7 +193,7 @@ export const cancelAllRequests = (): void => {
 };
 
 // Get paginated devices excluding specific IDs
-export const getPaginatedDevicesExcluding = async (params: {
+export const getPaginatedAssetsExcluding = async (params: {
   page?: number;
   pageSize?: number;
   search?: string;

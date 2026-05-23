@@ -230,7 +230,7 @@ export function useTicketSSE(
     }
 
     try {
-      const device = await deviceService.getDeviceById(eventData.device_id);
+      const device = await deviceService.getAssetById(eventData.device_id);
       if (mutations.addDevice(device)) {
         if (DEBUG_SSE) console.log('[SSE] asset-linked:', eventData.device_id);
       }
@@ -255,7 +255,7 @@ export function useTicketSSE(
     if (!ticket.value?.devices) return;
 
     if (eventData.field && eventData.value !== undefined) {
-      if (mutations.updateDeviceField(eventData.device_id, eventData.field, eventData.value)) {
+      if (mutations.updateAssetField(eventData.device_id, eventData.field, eventData.value)) {
         if (DEBUG_SSE) console.log('[SSE] asset-updated:', eventData.device_id, eventData.field);
       }
     }

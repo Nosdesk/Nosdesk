@@ -115,7 +115,7 @@ export function useTicketMutations(ticket: Ref<Ticket | null>) {
     return true;
   }
 
-  function updateDeviceField(deviceId: number, field: string, value: unknown): boolean {
+  function updateAssetField(deviceId: number, field: string, value: unknown): boolean {
     if (!ticket.value?.devices) return false;
 
     const device = ticket.value.devices.find(d => d.id === deviceId);
@@ -141,7 +141,7 @@ export function useTicketMutations(ticket: Ref<Ticket | null>) {
     // Devices
     addDevice,
     removeDevice,
-    updateDeviceField,
+    updateAssetField,
     hasDevice,
   };
 }

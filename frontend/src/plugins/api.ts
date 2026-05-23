@@ -19,7 +19,7 @@
 
 import pluginService from '@/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket } from '@/services/ticketService';
-import { getDeviceById, getDevices } from '@/services/assetService';
+import { getAssetById, getAssets } from '@/services/assetService';
 import { logger } from '@/utils/logger';
 import { useToastStore } from '@/stores/toast';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@/types/plugin';
@@ -172,7 +172,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           return null;
         }
         try {
-          return await getDeviceById(id);
+          return await getAssetById(id);
         } catch (error) {
           logger.error(`Plugin ${plugin.name} failed to get device`, { id, error });
           return null;
@@ -184,7 +184,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           return [];
         }
         try {
-          return await getDevices();
+          return await getAssets();
         } catch (error) {
           logger.error(`Plugin ${plugin.name} failed to list devices`, { error });
           return [];

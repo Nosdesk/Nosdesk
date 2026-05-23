@@ -1,7 +1,7 @@
 /**
- * Devices list query layer. Owns the cache-key family the view
- * (`useInfiniteQuery` in `DevicesListView.vue`) subscribes to.
+ * Assets list query layer. Owns the cache-key family the view
+ * (`useInfiniteQuery` in `AssetsListView.vue`) subscribes to.
  */
 import { listKeys } from './listKeys'
 
-export const devicesKeys = listKeys('devices')
+export const assetsKeys = listKeys('assets')

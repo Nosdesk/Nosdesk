@@ -51,7 +51,7 @@ export function useTicketDevices(ticket: Ref<Ticket | null>) {
   }
 
   // Update device field with optimistic update
-  async function updateDeviceField(deviceId: number, field: string, newValue: string): Promise<void> {
+  async function updateAssetField(deviceId: number, field: string, newValue: string): Promise<void> {
     if (!ticket.value?.devices) return;
 
     const device = ticket.value.devices.find(d => d.id === deviceId);
@@ -61,13 +61,13 @@ export function useTicketDevices(ticket: Ref<Ticket | null>) {
     if (oldValue === newValue) return;
 
     // Optimistic update
-    mutations.updateDeviceField(deviceId, field, newValue);
+    mutations.updateAssetField(deviceId, field, newValue);
 
     try {
-      await deviceService.updateDevice(deviceId, { [field]: newValue });
+      await deviceService.updateAsset(deviceId, { [field]: newValue });
     } catch (err) {
       console.error('Error updating device field:', err);
-      mutations.updateDeviceField(deviceId, field, oldValue);
+      mutations.updateAssetField(deviceId, field, oldValue);
     }
   }
 
@@ -75,6 +75,6 @@ export function useTicketDevices(ticket: Ref<Ticket | null>) {
     showDeviceModal,
     addDevice,
     removeDevice,
-    updateDeviceField,
+    updateAssetField,
   };
 }

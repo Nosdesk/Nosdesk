@@ -12,7 +12,7 @@ import DeviceOsIcon from '@/components/common/AssetOsIcon.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import { groupService } from '@/services/groupService';
-import { getPaginatedDevices } from '@/services/assetService';
+import { getPaginatedAssets } from '@/services/assetService';
 import userService from '@/services/userService';
 import { useColorFilter } from '@/composables/useColorFilter';
 import type { GroupDetails, GroupWithMemberCount, UpdateGroupRequest } from '@/types/group';
@@ -284,7 +284,7 @@ const loadUsers = async () => {
 // Load available devices
 const loadDevices = async () => {
   try {
-    const response = await getPaginatedDevices({ page: 1, pageSize: 1000 });
+    const response = await getPaginatedAssets({ page: 1, pageSize: 1000 });
     availableDevices.value = response.data;
   } catch (error) {
     console.error('Failed to load devices:', error);

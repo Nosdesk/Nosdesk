@@ -44,7 +44,7 @@ const fetchGroupData = async () => {
 };
 
 // Navigate to device detail
-const navigateToDevice = (deviceId: number) => {
+const navigateToAsset = (deviceId: number) => {
   router.push(`/assets/${deviceId}`);
 };
 
@@ -304,7 +304,7 @@ onMounted(() => {
               <div
                 v-for="device in group.devices"
                 :key="device.id"
-                @click="navigateToDevice(device.id)"
+                @click="navigateToAsset(device.id)"
                 class="p-2.5 sm:p-3 hover:bg-surface-hover cursor-pointer transition-colors group/item"
               >
                 <div class="flex items-center gap-2.5 sm:gap-3">

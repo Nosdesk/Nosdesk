@@ -374,7 +374,7 @@ async function fetchMissingUsers(uuids: string[]): Promise<void> {
  * Lazy reference fetcher for the `asset` aggregate. Bootstrap
  * ships every workspace asset, so this only fires for entries
  * created in the gap between bootstrap and the first SSE frame.
- * Falls back to per-id `getDeviceById` because the REST surface
+ * Falls back to per-id `getAssetById` because the REST surface
  * doesn't expose a batch endpoint today; the rarity of the
  * missing-lookup path makes the round-trip cost acceptable.
  *
@@ -406,12 +406,12 @@ function toAssetCacheRow(asset: import('@/types/asset').Asset): Record<string, u
 
 async function fetchMissingAssets(ids: string[]): Promise<void> {
   if (ids.length === 0) return
-  const { getDeviceById } = await import('@/services/assetService')
+  const { getAssetById } = await import('@/services/assetService')
   for (const idStr of ids) {
     const id = Number(idStr)
     if (!Number.isFinite(id)) continue
     try {
-      const asset = await getDeviceById(id)
+      const asset = await getAssetById(id)
       pool.upsert('asset', asset.id, toAssetCacheRow(asset))
     } catch (err) {
       logger.warn('Lazy asset fetch failed', { id, error: err })

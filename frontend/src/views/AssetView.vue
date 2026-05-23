@@ -16,7 +16,7 @@ import DeviceGroups from '@/components/AssetGroups.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
-import { getDeviceById, updateDevice, createDevice, deleteDevice, unmanageDevice } from '@/services/assetService';
+import { getAssetById, updateAsset, createAsset, deleteAsset, unmanageAsset } from '@/services/assetService';
 import { assetKindsService, type AssetKind } from '@/services/assetKindsService';
 import { useSSEListeners } from '@/composables/useSSEListeners';
 import type { DeviceUpdatedEventData, DeviceDeletedEventData } from '@/types/sse';
@@ -120,7 +120,7 @@ async function saveAttributes() {
   isSaving.value = true;
   attributesError.value = null;
   try {
-    const updated = await updateDevice(device.value.id, {
+    const updated = await updateAsset(device.value.id, {
       attributes: attributeDraft.value,
     });
     device.value = { ...device.value, ...updated };
@@ -170,7 +170,7 @@ async function onKindPickerChange() {
   isSaving.value = true;
   kindChangeError.value = null;
   try {
-    const updated = await updateDevice(device.value.id, {
+    const updated = await updateAsset(device.value.id, {
       kind: newSlug,
       attributes: {},
     });
@@ -214,7 +214,7 @@ const fetchDeviceData = async () => {
       return;
     }
 
-    device.value = await getDeviceById(deviceId);
+    device.value = await getAssetById(deviceId);
     editValues.value = {
       name: device.value.name,
       manufacturer: device.value.manufacturer || '',
@@ -247,7 +247,7 @@ const saveField = async (field: keyof typeof editValues.value) => {
 
   try {
     isSaving.value = true;
-    const updatedDevice = await updateDevice(device.value.id, {
+    const updatedDevice = await updateAsset(device.value.id, {
       [field]: editValues.value[field]
     });
     device.value = { ...device.value, ...updatedDevice };
@@ -277,7 +277,7 @@ const saveStockField = async (field: 'quantity' | 'unit' | 'low_stock_threshold'
   }
   try {
     isSaving.value = true;
-    const updatedDevice = await updateDevice(device.value.id, { [field]: raw });
+    const updatedDevice = await updateAsset(device.value.id, { [field]: raw });
     device.value = { ...device.value, ...updatedDevice };
   } catch (err) {
     console.error('Error saving stock field:', err);
@@ -318,7 +318,7 @@ const saveDevice = async () => {
       kind: selectedKindSlug.value,
       attributes: attributeDraft.value,
     };
-    const newDevice = await createDevice(deviceData);
+    const newDevice = await createAsset(deviceData);
     router.replace(`/assets/${newDevice.id}`);
   } catch (err) {
     console.error('Error creating device:', err);
@@ -340,7 +340,7 @@ const handleUserSelection = async (user: { uuid: string; name: string; email: st
 
   try {
     isSaving.value = true;
-    const updatedDevice = await updateDevice(device.value.id, {
+    const updatedDevice = await updateAsset(device.value.id, {
       primary_user_uuid: user.uuid || null
     });
     device.value = { ...device.value, ...updatedDevice };
@@ -356,7 +356,7 @@ const handleDeleteDevice = async () => {
   if (!device.value) return;
 
   try {
-    await deleteDevice(device.value.id);
+    await deleteAsset(device.value.id);
     router.push('/assets');
   } catch (err) {
     console.error('Error deleting device:', err);
@@ -377,7 +377,7 @@ const confirmUnmanageDevice = async () => {
   try {
     isSaving.value = true;
     unmanageError.value = null;
-    const updatedDevice = await unmanageDevice(device.value.id);
+    const updatedDevice = await unmanageAsset(device.value.id);
     device.value = updatedDevice;
     showUnmanageModal.value = false;
   } catch (err) {

@@ -22,11 +22,11 @@ import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/c
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { getPaginatedDevices, bulkAction } from '@/services/assetService'
-import { devicesKeys } from '@/queries/assets'
+import { getPaginatedAssets, bulkAction } from '@/services/assetService'
+import { assetsKeys } from '@/queries/assets'
 import type { Asset } from '@/types/asset'
 
-defineOptions({ name: 'DevicesListView' })
+defineOptions({ name: 'AssetsListView' })
 
 const router = useRouter()
 const queryCache = useQueryCache()
@@ -42,13 +42,13 @@ const scrollContainerRef = computed<HTMLElement | null>(
   () => layoutRef.value?.scrollContainerRef ?? null,
 )
 
-const navigateToCreateDevice = () => {
+const navigateToCreateAsset = () => {
   void router.push('/assets/new')
 }
-const navigateToDevice = (device: Asset) => {
-  void router.push(`/assets/${device.id}`)
+const navigateToAsset = (asset: Asset) => {
+  void router.push(`/assets/${asset.id}`)
 }
-usePageCreateAction(navigateToCreateDevice)
+usePageCreateAction(navigateToCreateAsset)
 
 // Filter facets (chip UI). Backend encoding:
 //   name      -> controls.searchQuery (chip text-facet)
@@ -167,13 +167,13 @@ const listView = useListView({
   t,
   itemIdField: 'id',
   defaultSortField: 'name',
-  pageKeys: devicesKeys,
-  fetchPage: (params) => getPaginatedDevices(params, `devices-page-${params.page}`),
+  pageKeys: assetsKeys,
+  fetchPage: (params) => getPaginatedAssets(params, `assets-page-${params.page}`),
   sseEvents: ['asset-updated', 'asset-created', 'asset-deleted'],
   mobileSearch: {
     placeholder: t('assets-list-search-placeholder'),
     createIcon: 'device',
-    onCreate: navigateToCreateDevice,
+    onCreate: navigateToCreateAsset,
   },
   urlSyncParamKeys: ['warranty', 'lowStock'],
   scrollContainerRef,
@@ -188,7 +188,7 @@ const listView = useListView({
 const showDeleteConfirm = ref(false)
 const bulkDelete = useMutation({
   mutation: (ids: number[]) => bulkAction({ action: 'delete', ids }),
-  onSettled: () => queryCache.invalidateQueries({ key: devicesKeys.root }),
+  onSettled: () => queryCache.invalidateQueries({ key: assetsKeys.root }),
   onError: (err) => {
     console.error('Bulk delete failed:', err)
     toast.error(extractErrorMessage(err, t('assets-list-bulk-action-error')))
@@ -264,7 +264,7 @@ async function confirmDelete() {
         :title="listView.controls.searchQuery.value ? $t('empty-assets-search-title') : $t('empty-assets-default-title')"
         :description="listView.controls.searchQuery.value ? $t('empty-assets-search-description') : $t('empty-assets-default-description')"
         :action-label="!listView.controls.searchQuery.value ? $t('assets-list-add-action') : undefined"
-        @action="navigateToCreateDevice"
+        @action="navigateToCreateAsset"
       />
     </template>
 
@@ -283,7 +283,7 @@ async function confirmDelete() {
         @update:sort="listView.controls.handleSortUpdate"
         @toggle-selection="listView.dt.onToggleSelection"
         @toggle-all="listView.dt.onToggleAll"
-        @row-click="navigateToDevice"
+        @row-click="navigateToAsset"
         @toggle-bucket="listView.grouping.toggleCollapsed"
       >
         <template #cell-name="{ item }">
@@ -351,7 +351,7 @@ async function confirmDelete() {
     <template #mobile-row="{ item }">
       <div
         class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer border-t border-default first:border-t-0"
-        @click="navigateToDevice(item)"
+        @click="navigateToAsset(item)"
       >
         <div class="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center flex-shrink-0">
           <svg class="w-5 h-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">

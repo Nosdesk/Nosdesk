@@ -5,7 +5,7 @@ import { useFluent } from 'fluent-vue';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import { getDevicesByUser, getPaginatedDevicesExcluding } from '@/services/assetService';
+import { getAssetsByUser, getPaginatedAssetsExcluding } from '@/services/assetService';
 import type { Asset } from '@/types/asset';
 
 const fluent = useFluent();
@@ -62,10 +62,10 @@ const loadRequesterDevices = async () => {
       console.log(`DeviceSelectionModal: Fetching devices for requester ${props.requesterUuid}`);
     }
     
-    const devices = await getDevicesByUser(props.requesterUuid);
+    const devices = await getAssetsByUser(props.requesterUuid);
     
     if (import.meta.env.DEV) {
-      console.log(`DeviceSelectionModal: Received ${devices.length} devices from getDevicesByUser:`, devices);
+      console.log(`DeviceSelectionModal: Received ${devices.length} devices from getAssetsByUser:`, devices);
     }
     
     // Filter out already assigned devices
@@ -121,7 +121,7 @@ const loadDevices = async (page: number = 1, search: string = '', append: boolea
   try {
     const excludeIds = getExcludeIds();
     
-    const response = await getPaginatedDevicesExcluding({
+    const response = await getPaginatedAssetsExcluding({
       page,
       pageSize,
       search: search.trim() || undefined,
