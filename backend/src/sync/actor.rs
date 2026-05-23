@@ -45,10 +45,22 @@ pub struct ActorContext {
     /// Optional client-supplied transaction id; the sync engine uses
     /// it for idempotent retry dedup.
     pub client_tx_id: Option<String>,
+    /// Workspace this action runs against. Set by the request
+    /// pipeline from the resolved `WorkspaceContext` (see
+    /// `middleware::workspace_context`); `None` for super-admin /
+    /// platform-level paths that legitimately operate across
+    /// workspaces. Drives the `app.workspace_id` Postgres GUC the
+    /// Phase 4 RLS policies will read. Phase 2 wires the plumbing;
+    /// no policy reads the value yet, so it's a no-op at the
+    /// query layer until then.
+    pub workspace_id: Option<i32>,
 }
 
 impl ActorContext {
     /// Construct an actor context for a JWT-authenticated user.
+    /// Workspace defaults to `None`; the request pipeline calls
+    /// `.with_workspace(...)` after constructing if a workspace
+    /// context is resolved (almost always true for user actions).
     pub fn user(uuid: Uuid, correlation_id: Option<Uuid>) -> Self {
         Self {
             kind: ActorKind::User,
@@ -56,11 +68,16 @@ impl ActorContext {
             reference: None,
             correlation_id,
             client_tx_id: None,
+            workspace_id: None,
         }
     }
 
     /// Construct an actor context for an unattributed system action
-    /// (background job, migration, scheduler).
+    /// (background job, migration, scheduler). Most system actions
+    /// are workspace-scoped (per-workspace jobs); the caller pins
+    /// the workspace with `.with_workspace(ws_id)`. The handful of
+    /// genuinely cross-workspace jobs (registry sync, partition
+    /// rotation) leave it as `None`.
     pub fn system(reference: impl Into<String>) -> Self {
         Self {
             kind: ActorKind::System,
@@ -68,6 +85,7 @@ impl ActorContext {
             reference: Some(reference.into()),
             correlation_id: None,
             client_tx_id: None,
+            workspace_id: None,
         }
     }
 
@@ -79,6 +97,19 @@ impl ActorContext {
             reference: Some(plugin_slug.into()),
             correlation_id: None,
             client_tx_id: None,
+            workspace_id: None,
         }
+    }
+
+    /// Builder that pins the workspace for this actor context.
+    /// Called by the request pipeline after `ActorContext::user(...)`
+    /// once the `WorkspaceContext` middleware has resolved one. The
+    /// take-by-value + return-Self shape matches the rest of the
+    /// codebase's builder pattern and avoids forcing every existing
+    /// `ActorContext::user(...)` call site to pass a workspace they
+    /// haven't computed yet.
+    pub fn with_workspace(mut self, workspace_id: i32) -> Self {
+        self.workspace_id = Some(workspace_id);
+        self
     }
 }

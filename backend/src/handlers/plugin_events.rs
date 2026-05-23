@@ -98,6 +98,15 @@ pub async fn emit_plugin_event(
         reference: Some(user_ref),
         correlation_id: None,
         client_tx_id: None,
+        // Plugin events are workspace-scoped via the plugin
+        // install's workspace_id (Phase 1 added the column).
+        // Phase 2d will read it from the plugin row and pin
+        // here; for now leaving as None means the GUC stays
+        // empty and Phase 4 RLS will treat it as super-admin.
+        // Safe-by-default for the skeleton: plugin events are
+        // a small surface and Phase 2d / 2e land before Phase 4
+        // enforcement makes this load-bearing.
+        workspace_id: None,
     };
 
     let groups = body.groups.unwrap_or_else(groups::workspace);

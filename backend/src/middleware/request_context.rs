@@ -95,7 +95,7 @@ pub fn populate(req: &ServiceRequest, claims: &Claims) {
         .map(|rid| **rid)
         .unwrap_or_else(Uuid::now_v7);
     let user_uuid = Uuid::parse_str(&claims.sub).ok();
-    let actor = if let Some(uuid) = user_uuid {
+    let mut actor = if let Some(uuid) = user_uuid {
         ActorContext::user(uuid, Some(correlation_id))
     } else {
         ActorContext {
@@ -104,8 +104,22 @@ pub fn populate(req: &ServiceRequest, claims: &Claims) {
             reference: None,
             correlation_id: Some(correlation_id),
             client_tx_id: None,
+            workspace_id: None,
         }
     };
+    // The WorkspaceContextMiddleware runs ahead of this and
+    // attaches a WorkspaceContext to the request extensions
+    // (self-hosted always; hosted when subdomain resolves). Pin
+    // the actor to that workspace so the `app.workspace_id` GUC
+    // gets set inside `with_actor_context`. None for apex /
+    // unrecognised-subdomain paths — those routes shouldn't
+    // touch tenant tables.
+    if let Some(ws) = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+    {
+        actor = actor.with_workspace(ws.workspace_id);
+    }
     record_user_on_span(&claims.sub, ActorKind::User.as_str());
     req.extensions_mut()
         .insert(RequestContext::new(correlation_id, actor));

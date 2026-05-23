@@ -56,6 +56,10 @@ pub fn set_actor(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<(
         .correlation_id
         .map(|u| u.to_string())
         .unwrap_or_default();
+    let workspace_id = actor
+        .workspace_id
+        .map(|i| i.to_string())
+        .unwrap_or_default();
 
     set_config(conn, "app.actor_uuid", &actor_uuid)?;
     set_config(conn, "app.actor_kind", actor.kind.as_str())?;
@@ -70,6 +74,13 @@ pub fn set_actor(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<(
         "app.client_tx_id",
         actor.client_tx_id.as_deref().unwrap_or(""),
     )?;
+    // app.workspace_id is read by the Phase 4 RLS policies via
+    // `(SELECT NULLIF(current_setting('app.workspace_id', true), '')::int)`.
+    // Empty string -> NULL -> RLS sees "no workspace pinned"
+    // (super-admin / platform path); a real workspace id -> the
+    // policy filters tenant rows accordingly. Phase 2b only
+    // lands the writer side; no policy reads it until Phase 4.
+    set_config(conn, "app.workspace_id", &workspace_id)?;
     Ok(())
 }
 

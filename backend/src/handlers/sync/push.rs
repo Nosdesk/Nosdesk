@@ -91,6 +91,14 @@ pub async fn push(
             reference: None,
             correlation_id: Some(ctx.correlation_id),
             client_tx_id: Some(tx_id.clone()),
+            // Phase 2b: the SyncContext currently doesn't carry
+            // a workspace; the sync push surface predates the
+            // multi-tenant work. Phase 2d will plumb the
+            // resolved WorkspaceContext through SyncContext so
+            // every sync action attributes to its tenant. For
+            // now the GUC stays empty here, which is safe
+            // because Phase 4 RLS isn't on yet.
+            workspace_id: None,
         };
 
         match apply_transaction(&mut conn, &tx, &actor) {
