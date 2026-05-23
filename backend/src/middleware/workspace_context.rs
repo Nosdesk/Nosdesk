@@ -91,9 +91,9 @@ impl WorkspaceContextConfig {
         let mode = DeploymentMode::from_env();
         let bootstrap = match mode {
             DeploymentMode::SelfHosted => {
-                let mut conn = pool.get().map_err(|e| {
-                    format!("workspace bootstrap: pool acquire failed: {e}")
-                })?;
+                let mut conn = pool
+                    .get()
+                    .map_err(|e| format!("workspace bootstrap: pool acquire failed: {e}"))?;
                 let ws = workspace_repo::find_by_id(&mut conn, 1)
                     .map_err(|e| format!("workspace bootstrap: query failed: {e}"))?
                     .ok_or_else(|| {
@@ -252,10 +252,7 @@ mod tests {
     #[test]
     fn subdomain_extracts_first_label() {
         assert_eq!(subdomain_from_host("acme.nosdesk.com"), Some("acme"));
-        assert_eq!(
-            subdomain_from_host("acme.nosdesk.com:8080"),
-            Some("acme")
-        );
+        assert_eq!(subdomain_from_host("acme.nosdesk.com:8080"), Some("acme"));
     }
 
     #[test]

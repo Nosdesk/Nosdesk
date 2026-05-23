@@ -19,10 +19,7 @@ use crate::schema::{workspace_members, workspaces};
 
 /// Load a workspace by id. Returns `None` if the workspace
 /// doesn't exist or is soft-archived.
-pub fn find_by_id(
-    conn: &mut DbConnection,
-    id: i32,
-) -> QueryResult<Option<Workspace>> {
+pub fn find_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<Workspace>> {
     workspaces::table
         .filter(workspaces::id.eq(id))
         .filter(workspaces::archived_at.is_null())
@@ -34,10 +31,7 @@ pub fn find_by_id(
 /// middleware to resolve `acme.nosdesk.com` -> the Acme
 /// workspace row. Returns `None` if the slug doesn't match an
 /// active workspace.
-pub fn find_by_slug(
-    conn: &mut DbConnection,
-    slug: &str,
-) -> QueryResult<Option<Workspace>> {
+pub fn find_by_slug(conn: &mut DbConnection, slug: &str) -> QueryResult<Option<Workspace>> {
     workspaces::table
         .filter(workspaces::slug.eq(slug))
         .filter(workspaces::archived_at.is_null())

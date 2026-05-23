@@ -131,8 +131,7 @@ fn apply_device_filters<'a>(
                 // pipeline lowercases filter values while the
                 // stored JSON uses capitalised buckets ("Active",
                 // "Warning", "Expired", "Unknown").
-                let values_lower: Vec<String> =
-                    values.iter().map(|v| v.to_lowercase()).collect();
+                let values_lower: Vec<String> = values.iter().map(|v| v.to_lowercase()).collect();
                 query = query.filter(
                     diesel::dsl::sql::<diesel::sql_types::Bool>(
                         "LOWER(attributes->>'warranty_status') = ANY(",

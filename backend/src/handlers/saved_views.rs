@@ -96,12 +96,7 @@ pub async fn list(
             return errors::bad_request(msg);
         }
         let user_id = auth.user_uuid.to_string();
-        return match repo::list_for_scope_dataset(
-            &mut conn,
-            "private",
-            Some(&user_id),
-            dataset,
-        ) {
+        return match repo::list_for_scope_dataset(&mut conn, "private", Some(&user_id), dataset) {
             Ok(rows) => HttpResponse::Ok().json(rows),
             Err(e) => {
                 error!(error = %e, dataset, "failed to load dataset saved views");
@@ -193,9 +188,7 @@ pub async fn create(
     // project scope on those so the access model stays simple
     // ("my saved views, only mine") until product asks for more.
     if dataset != "tickets" && body.scope != "private" {
-        return errors::bad_request(
-            "Non-ticket saved views must use the 'private' scope",
-        );
+        return errors::bad_request("Non-ticket saved views must use the 'private' scope");
     }
     if let Err(msg) = validate_scope_pair(&body.scope, &body.scope_id, &auth) {
         return errors::bad_request(msg);

@@ -157,13 +157,9 @@ mod tests {
             "tickets",
         )
         .unwrap();
-        let assets = list_for_scope_dataset(
-            &mut conn,
-            "private",
-            Some(&user.uuid.to_string()),
-            "assets",
-        )
-        .unwrap();
+        let assets =
+            list_for_scope_dataset(&mut conn, "private", Some(&user.uuid.to_string()), "assets")
+                .unwrap();
 
         assert_eq!(tickets.len(), 1);
         assert_eq!(tickets[0].name, "tickets-view");
