@@ -40,11 +40,12 @@ services:
     stdin_open: true
     tty: true
     env_file: docker.env
-    # 6 GB memory ceiling stops the linker from being killed during
-    # debug builds. Rust's incremental linker for a large workspace
-    # peaks well above the Docker Desktop default; the OOM was
-    # silent (bacon kept the previous binary running).
-    mem_limit: 6g
+    # 8 GB memory ceiling. The Rust debug-link step on a workspace
+    # this size peaks past 6 GB once the multi-tenant work landed;
+    # bumping the cap unblocks bacon-driven rebuilds. Docker Desktop
+    # users may need to raise the host VM memory under Settings ->
+    # Resources to actually get the full 8 GB.
+    mem_limit: 8g
     ports: !override
       # Defaults to localhost-only; set BACKEND_BIND=0.0.0.0 to expose on LAN
       # for collaboration testing from other devices.

@@ -1055,6 +1055,27 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // === MULTI-TENANT BOOTSTRAP ===
+    // Phase 2a: resolve a workspace per request via middleware.
+    // Self-hosted mode loads the bootstrap workspace once here
+    // and reuses it for every request; hosted mode resolves
+    // subdomain -> slug -> workspace lazily inside the
+    // middleware itself. Failing fast at startup if the
+    // bootstrap workspace is missing surfaces a misconfigured
+    // deployment before any traffic hits.
+    let workspace_config = match crate::middleware::WorkspaceContextConfig::initialise(&pool) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            error!(error = %e, "Workspace context bootstrap failed");
+            return Err(std::io::Error::other(e));
+        }
+    };
+    info!(
+        mode = ?workspace_config.mode,
+        bootstrap_slug = workspace_config.bootstrap.as_ref().map(|w| w.slug.as_str()),
+        "Workspace context middleware initialised"
+    );
+
     let server_result = HttpServer::new(move || {
         // Configure CORS with specific allowed origins
         let mut cors = Cors::default()
@@ -1094,6 +1115,16 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .wrap(crate::middleware::SecurityHeaders) // Apply security headers globally
             .wrap(crate::utils::csrf::CsrfProtection)
+            // Workspace context resolution. Sits before the auth
+            // middlewares because authenticated routes need the
+            // workspace identified first (a Phase 2e change will
+            // wire the membership check into auth using this
+            // context). Self-hosted attaches the bootstrap
+            // workspace to every request; hosted resolves
+            // subdomain per request.
+            .wrap(crate::middleware::WorkspaceContextMiddleware::new(
+                workspace_config.clone(),
+            ))
             .app_data(public_limiter_data.clone())
             .app_data(auth_limiter_data.clone())
             .app_data(web::Data::new(pool.clone()))

@@ -44,6 +44,7 @@ pub mod user_preferences;
 pub mod user_profile;
 pub mod users;
 pub mod workflow_states;
+pub mod workspaces;
 
 // Security and session management repositories
 pub mod active_sessions;
