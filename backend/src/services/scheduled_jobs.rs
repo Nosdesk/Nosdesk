@@ -255,11 +255,20 @@ pub async fn purge_soft_deleted_users(
         return Ok(());
     }
 
+    // Purge is conceptually cross-tenant: a user typically spans
+    // multiple workspaces (workspace_members), and purge_user runs
+    // ~30 UPDATE/DELETE statements against tickets / comments /
+    // projects / attachments / assets / documentation_pages /
+    // article_contents / sync_history / etc., all RLS-enabled.
+    // A workspace-pinned actor matches only its workspace's rows
+    // and leaves orphans in every other workspace, causing the
+    // next purge to fail the FK check. with_actor_bypass_context
+    // (nosdesk_admin role, BYPASSRLS) is the correct shape.
     let actor = crate::sync::actor::ActorContext::system("user_purge_worker");
     let mut purged = 0usize;
     let mut failed = 0usize;
     for user in pending {
-        let result = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+        let result = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
             &mut conn,
             &actor,
             |conn| crate::repository::users::purge_user(&user.uuid, conn, Some(&search)),

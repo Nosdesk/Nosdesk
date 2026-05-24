@@ -1025,14 +1025,26 @@ pub async fn purge_user_now(
         );
     }
 
+    // Purge cascades across every workspace the user belongs to
+    // (workspace_members is many-to-many). A workspace-pinned
+    // actor would only match the admin's current workspace and
+    // leave orphans elsewhere, breaking the next purge with an
+    // FK violation. with_actor_bypass_context (nosdesk_admin,
+    // BYPASSRLS) is the correct shape — same as the scheduler-
+    // driven purge_soft_deleted_users path.
     let actor = helpers::actor_for(&req, "users_admin");
-    let result = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
-        &mut conn,
-        &actor,
-        |conn| {
-            repository::users::purge_user(&user_uuid_parsed, conn, Some(search_service.get_ref()))
-        },
-    );
+    let result =
+        crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |conn| {
+                repository::users::purge_user(
+                    &user_uuid_parsed,
+                    conn,
+                    Some(search_service.get_ref()),
+                )
+            },
+        );
     match result {
         Ok(count) if count > 0 => {
             info!(
