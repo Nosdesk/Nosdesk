@@ -18,8 +18,7 @@
 //! is free-form per call. (The architecture doc § 6 references this
 //! constraint as part of the manifest design.)
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
-use diesel::Connection;
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{error, info, warn};
@@ -27,6 +26,7 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::handlers::{errors, helpers};
+use crate::middleware::RequestContext;
 use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::plugins as plugin_repo;
 use crate::sync::actor::ActorContext;
@@ -79,7 +79,12 @@ pub async fn emit_plugin_event(
         Err(e) => return e,
     };
 
-    // Plugin must exist before we accept its events.
+    // Plugin must exist before we accept its events. This read
+    // happens before we set the workspace GUC; once RLS on `plugins`
+    // is the only access layer, the read will be implicitly scoped
+    // by the surrounding tx-level GUC (set by the workspace
+    // middleware on the outer connection). For now, the runtime DSN
+    // still bypasses RLS so the lookup is unscoped here.
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
         Ok(p) => p,
         Err(diesel::result::Error::NotFound) => {
@@ -91,6 +96,20 @@ pub async fn emit_plugin_event(
         }
     };
 
+    // Pull the workspace pin from RequestContext (populated by the
+    // auth middleware via WorkspaceContext). Without it the inner
+    // emit::record write would land in `sync_actions` with no
+    // `app.workspace_id` GUC set, and once Phase 3a-style RLS
+    // covers sync_actions any cross-tenant inference would fail.
+    // The actor here is `Plugin`-kind (not `User`), so we can't
+    // delegate to `TenantConn` which would build a User actor;
+    // instead we copy the workspace_id off the RequestContext's
+    // actor and pair it with the plugin actor.
+    let workspace_id = req
+        .extensions()
+        .get::<RequestContext>()
+        .and_then(|ctx| ctx.actor.workspace_id);
+
     let user_ref = format!("plugin:{} via user:{}", plugin.name, claims.sub);
     let actor = ActorContext {
         kind: crate::sync::actor::ActorKind::Plugin,
@@ -98,36 +117,41 @@ pub async fn emit_plugin_event(
         reference: Some(user_ref),
         correlation_id: None,
         client_tx_id: None,
-        // Plugin events are workspace-scoped via the plugin
-        // install's workspace_id (Phase 1 added the column).
-        // Phase 2d will read it from the plugin row and pin
-        // here; for now leaving as None means the GUC stays
-        // empty and Phase 4 RLS will treat it as super-admin.
-        // Safe-by-default for the skeleton: plugin events are
-        // a small surface and Phase 2d / 2e land before Phase 4
-        // enforcement makes this load-bearing.
-        workspace_id: None,
+        // Workspace pin sourced from RequestContext (Phase 2d
+        // delivery). If absent (no workspace middleware match,
+        // tests bypassing middleware), the GUC stays unset and
+        // the strict RLS policy returns zero rows — preferable
+        // to a silent cross-tenant write.
+        workspace_id,
     };
 
     let groups = body.groups.unwrap_or_else(groups::workspace);
     let aggregate = body.aggregate;
     let event_type_owned = body.event_type.clone();
 
-    let result = conn.transaction::<i64, diesel::result::Error, _>(|conn| {
-        session::set_actor(conn, &actor)?;
-        emit::record(
-            conn,
-            SyncEmit {
-                aggregate,
-                aggregate_id: body.aggregate_id,
-                op: body.op,
-                event_type: &event_type_owned,
-                data: body.data,
-                groups,
-                causation_id: body.causation_id,
-            },
-        )
-    });
+    // `with_actor_context` opens a transaction, primes the actor +
+    // workspace GUCs, then runs the closure inside it. Same
+    // mechanism `TenantConn::run` uses internally; we call it
+    // directly here because the actor is a Plugin actor, not the
+    // User actor TenantConn would synthesize.
+    let result = session::with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &actor,
+        |conn| {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate,
+                    aggregate_id: body.aggregate_id,
+                    op: body.op,
+                    event_type: &event_type_owned,
+                    data: body.data,
+                    groups,
+                    causation_id: body.causation_id,
+                },
+            )
+        },
+    );
 
     match result {
         Ok(sync_id) => {

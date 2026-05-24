@@ -10,9 +10,11 @@ use serde::Deserialize;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::db::{DbConnection, Pool};
+use crate::db::Pool;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::helpers;
+use crate::middleware::RequestContext;
 use crate::models::{
     Claims, PluginActivityResponse, PluginResponse, PluginSettingResponse, PluginStorageResponse,
     SetPluginDataRequest, UpdatePluginRequest,
@@ -20,6 +22,7 @@ use crate::models::{
 use crate::repository::plugin_publishers;
 use crate::repository::plugins as plugin_repo;
 use crate::services::plugins::{install, registry, signing, trust};
+use crate::sync::actor::ActorContext;
 use crate::sync::session as actor_session;
 use crate::utils::encryption;
 use crate::utils::rbac::require_admin;
@@ -56,19 +59,21 @@ pub fn web_sideload_enabled() -> bool {
     )
 }
 
-/// Get a plugin by UUID or return a 404/500 error response
-fn get_plugin_or_error(
-    conn: &mut DbConnection,
-    plugin_uuid: Uuid,
-) -> Result<crate::models::Plugin, HttpResponse> {
-    match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
-        Ok(p) => Ok(p),
-        Err(DieselError::NotFound) => Err(errors::not_found_msg("Plugin not found")),
-        Err(e) => {
-            error!("Failed to get plugin: {}", e);
-            Err(errors::internal("Failed to get plugin"))
-        }
+/// Pull the workspace-pinned actor from the request's `RequestContext`
+/// for the lifecycle / install dispatchers that need to drive
+/// `with_actor_context` themselves (their error types aren't
+/// `diesel::result::Error`, so they can't go through `tc.run`). The
+/// `RequestContext` actor is populated by the auth middleware with
+/// the workspace pin already attached, so writes inside the
+/// resulting txn pass the RLS WITH CHECK.
+///
+/// Falls back to `helpers::actor_for(...)` for the no-RequestContext
+/// path (e.g. handler-level unit tests that bypass middleware).
+fn workspace_pinned_actor(req: &HttpRequest, system_ref: &'static str) -> ActorContext {
+    if let Some(ctx) = req.extensions().get::<RequestContext>().cloned() {
+        return ctx.actor;
     }
+    helpers::actor_for(req, system_ref)
 }
 
 // =============================================================================
@@ -76,44 +81,41 @@ fn get_plugin_or_error(
 // =============================================================================
 
 /// List all plugins (admin only)
-pub async fn list_plugins(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+pub async fn list_plugins(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match plugin_repo::list_all_plugins(&mut conn) {
-        Ok(plugins) => {
-            // Single round-trip to learn which signing pubkeys are
-            // revoked; the map lookup per plugin is O(1). On error
-            // we degrade to "no revocation info" rather than 500ing
-            // the list, since the list is more important than the
-            // badge.
-            let revocations =
-                plugin_publishers::revoked_publisher_map(&mut conn).unwrap_or_else(|e| {
-                    warn!(
-                        "Failed to load publisher revocation map; list will omit badges: {}",
-                        e
-                    );
-                    Default::default()
-                });
-            let response: Vec<_> = plugins
-                .into_iter()
-                .filter_map(|p| {
-                    let pubkey = p.signer_pubkey.clone();
-                    PluginResponse::try_from(p).ok().map(|mut r| {
-                        r.signer_revoked_at =
-                            pubkey.as_deref().and_then(|k| revocations.get(k).copied());
-                        r
-                    })
+    let result = tc.run(|conn| {
+        let plugins = plugin_repo::list_all_plugins(conn)?;
+        // Single round-trip to learn which signing pubkeys are
+        // revoked; the map lookup per plugin is O(1). On error
+        // we degrade to "no revocation info" rather than 500ing
+        // the list, since the list is more important than the
+        // badge.
+        let revocations = plugin_publishers::revoked_publisher_map(conn).unwrap_or_else(|e| {
+            warn!(
+                "Failed to load publisher revocation map; list will omit badges: {}",
+                e
+            );
+            Default::default()
+        });
+        let response: Vec<_> = plugins
+            .into_iter()
+            .filter_map(|p| {
+                let pubkey = p.signer_pubkey.clone();
+                PluginResponse::try_from(p).ok().map(|mut r| {
+                    r.signer_revoked_at =
+                        pubkey.as_deref().and_then(|k| revocations.get(k).copied());
+                    r
                 })
-                .collect();
-            HttpResponse::Ok().json(response)
-        }
+            })
+            .collect();
+        Ok::<_, DieselError>(response)
+    });
+
+    match result {
+        Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => {
             error!("Failed to list plugins: {}", e);
             errors::internal("Failed to list plugins")
@@ -122,18 +124,13 @@ pub async fn list_plugins(req: HttpRequest, pool: web::Data<Pool>) -> impl Respo
 }
 
 /// List enabled plugins (for frontend plugin loader - authenticated users)
-pub async fn list_enabled_plugins(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+pub async fn list_enabled_plugins(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     // Any authenticated user can get enabled plugins
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Authentication required");
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match plugin_repo::list_enabled_plugins(&mut conn) {
+    match tc.run(|conn| plugin_repo::list_enabled_plugins(conn)) {
         Ok(plugins) => {
             let response: Vec<_> = plugins
                 .into_iter()
@@ -151,7 +148,7 @@ pub async fn list_enabled_plugins(req: HttpRequest, pool: web::Data<Pool>) -> im
 /// Get a single plugin by UUID (admin only)
 pub async fn get_plugin(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -160,31 +157,42 @@ pub async fn get_plugin(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    enum GetOutcome {
+        Ok(crate::models::Plugin, Option<chrono::NaiveDateTime>),
+        NotFound,
+    }
 
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(GetOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
 
-    let revoked_at = plugin.signer_pubkey.as_deref().and_then(|pk| {
-        match plugin_publishers::find_publisher_by_pubkey(&mut conn, pk) {
-            Ok(Some(pub_row)) => pub_row.revoked_at,
-            _ => None,
-        }
+        let revoked_at = plugin.signer_pubkey.as_deref().and_then(|pk| {
+            match plugin_publishers::find_publisher_by_pubkey(conn, pk) {
+                Ok(Some(pub_row)) => pub_row.revoked_at,
+                _ => None,
+            }
+        });
+        Ok::<_, DieselError>(GetOutcome::Ok(plugin, revoked_at))
     });
 
-    match PluginResponse::try_from(plugin) {
-        Ok(mut response) => {
-            response.signer_revoked_at = revoked_at;
-            HttpResponse::Ok().json(response)
-        }
+    match outcome {
+        Ok(GetOutcome::Ok(plugin, revoked_at)) => match PluginResponse::try_from(plugin) {
+            Ok(mut response) => {
+                response.signer_revoked_at = revoked_at;
+                HttpResponse::Ok().json(response)
+            }
+            Err(e) => {
+                error!("Failed to parse plugin manifest: {}", e);
+                errors::internal("Invalid plugin manifest")
+            }
+        },
+        Ok(GetOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
         Err(e) => {
-            error!("Failed to parse plugin manifest: {}", e);
-            errors::internal("Invalid plugin manifest")
+            error!("Failed to get plugin: {}", e);
+            errors::internal("Failed to get plugin")
         }
     }
 }
@@ -193,6 +201,7 @@ pub async fn get_plugin(
 pub async fn update_plugin(
     req: HttpRequest,
     pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<UpdatePluginRequest>,
 ) -> impl Responder {
@@ -208,16 +217,21 @@ pub async fn update_plugin(
     let user_uuid = Uuid::parse_str(&claims.sub).ok();
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Confirm the plugin exists; the lifecycle dispatch below
     // also looks it up, but failing fast here gives a 404 instead
     // of a generic InternalServerError if it's missing.
-    if let Err(e) = get_plugin_or_error(&mut conn, plugin_uuid) {
-        return e;
+    let exists = tc.run(|conn| match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        Ok(_) => Ok::<bool, DieselError>(true),
+        Err(DieselError::NotFound) => Ok(false),
+        Err(e) => Err(e),
+    });
+    match exists {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Plugin not found"),
+        Err(e) => {
+            error!("Failed to look up plugin: {}", e);
+            return errors::internal("Failed to load plugin");
+        }
     }
 
     // Enable/disable goes through `lifecycle::apply` so the state
@@ -225,18 +239,22 @@ pub async fn update_plugin(
     // pair is exhaustively legality-checked, and a quarantined
     // plugin can't be silently un-quarantined via this endpoint.
     //
-    // Wrap the call in `with_actor_context` so the audit_log_trigger
-    // on the `plugins` table captures *who* flipped the state, not
-    // just that the row changed. lifecycle::apply already runs its
-    // own transaction; the actor GUCs set here propagate through
-    // the nested savepoint via SET LOCAL semantics.
+    // `lifecycle::apply` returns `ActionError` (not DieselError) so
+    // we can't drive it through `tc.run`; instead we acquire a pool
+    // connection and call `with_actor_context` directly, using the
+    // workspace-pinned actor from `RequestContext` so the inner
+    // writes pass the RLS WITH CHECK.
     if let Some(enabled) = body.enabled {
         let action = if enabled {
             crate::services::plugins::lifecycle::PluginAction::Enable
         } else {
             crate::services::plugins::lifecycle::PluginAction::Disable
         };
-        let actor = helpers::actor_for(&req, "plugins_admin");
+        let actor = workspace_pinned_actor(&req, "plugins_admin");
+        let mut conn = match helpers::db_conn(&pool) {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
         let result = actor_session::with_actor_context::<
             _,
             crate::services::plugins::lifecycle::ActionError,
@@ -266,7 +284,7 @@ pub async fn update_plugin(
     // change to the stored manifest now flows through the signed
     // install paths (zip upload, registry install) which
     // re-verify end-to-end.
-    let updated_plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
+    let updated_plugin = match tc.run(|conn| plugin_repo::get_plugin_by_uuid(conn, plugin_uuid)) {
         Ok(p) => p,
         Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
         Err(e) => {
@@ -303,6 +321,7 @@ pub async fn update_plugin(
 pub async fn uninstall_plugin(
     req: HttpRequest,
     pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     let claims = match require_admin(&req) {
@@ -313,14 +332,13 @@ pub async fn uninstall_plugin(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
+    let plugin = match tc.run(|conn| plugin_repo::get_plugin_by_uuid(conn, plugin_uuid)) {
         Ok(p) => p,
-        Err(resp) => return resp,
+        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
+        Err(e) => {
+            error!("Failed to get plugin: {}", e);
+            return errors::internal("Failed to get plugin");
+        }
     };
 
     // Read the policy from the stored manifest. If parsing fails
@@ -344,10 +362,15 @@ pub async fn uninstall_plugin(
         }
     };
 
-    // Same actor-context pattern as update_plugin: the audit
-    // trigger on `plugins` records *who* uninstalled, not just
-    // that the row changed (or was deleted, for cascade).
-    let actor_ctx = helpers::actor_for(&req, "plugins_admin");
+    // Same actor-context pattern as update_plugin: lifecycle::apply
+    // returns ActionError, so we drive it through with_actor_context
+    // on a freshly checked-out connection rather than tc.run. The
+    // workspace pin comes from the RequestContext-derived actor.
+    let actor_ctx = workspace_pinned_actor(&req, "plugins_admin");
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
     let outcome_result = actor_session::with_actor_context::<
         _,
         crate::services::plugins::lifecycle::ActionError,
@@ -394,7 +417,7 @@ pub async fn uninstall_plugin(
 /// Get all settings for a plugin (admin only)
 pub async fn get_plugin_settings(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -403,22 +426,28 @@ pub async fn get_plugin_settings(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    enum SettingsOutcome {
+        Ok(Vec<crate::models::PluginData>),
+        NotFound,
+    }
 
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(SettingsOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        let settings = plugin_repo::get_plugin_settings(conn, plugin.id)?;
+        Ok::<_, DieselError>(SettingsOutcome::Ok(settings))
+    });
 
-    match plugin_repo::get_plugin_settings(&mut conn, plugin.id) {
-        Ok(settings) => {
+    match outcome {
+        Ok(SettingsOutcome::Ok(settings)) => {
             let response: Vec<PluginSettingResponse> =
                 settings.into_iter().map(Into::into).collect();
             HttpResponse::Ok().json(response)
         }
+        Ok(SettingsOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
         Err(e) => {
             error!("Failed to get plugin settings: {}", e);
             errors::internal("Failed to get settings")
@@ -429,7 +458,7 @@ pub async fn get_plugin_settings(
 /// Set a plugin setting (admin only)
 pub async fn set_plugin_setting(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<SetPluginDataRequest>,
 ) -> impl Responder {
@@ -438,59 +467,73 @@ pub async fn set_plugin_setting(
     }
 
     let plugin_uuid = path.into_inner();
+    let body = body.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    enum SetOutcome {
+        Ok(crate::models::PluginData, String),
+        NotFound,
+        EncryptionFailed,
+        NonStringSecret,
+    }
 
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
+    let key = body.key.clone();
+    let value = body.value.clone();
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(SetOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
 
-    // Check if this is a secret setting from the manifest
-    let is_secret = plugin
-        .parse_manifest()
-        .ok()
-        .and_then(|m| {
-            m.settings
-                .iter()
-                .find(|s| s.key == body.key)
-                .map(|s| s.setting_type == "secret")
-        })
-        .unwrap_or(false);
+        // Check if this is a secret setting from the manifest
+        let is_secret = plugin
+            .parse_manifest()
+            .ok()
+            .and_then(|m| {
+                m.settings
+                    .iter()
+                    .find(|s| s.key == key)
+                    .map(|s| s.setting_type == "secret")
+            })
+            .unwrap_or(false);
 
-    // Encrypt secret values before storing
-    let value_to_store = if is_secret {
-        match body.value.as_str() {
-            Some(plaintext) => match encryption::encrypt(plaintext) {
-                Ok(encrypted) => serde_json::Value::String(encrypted),
-                Err(e) => {
-                    error!("Failed to encrypt plugin secret: {}", e);
-                    return errors::internal(
-                        "Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.",
-                    );
-                }
-            },
-            None => {
-                return errors::bad_request("Secret settings must be string values");
+        // Encrypt secret values before storing
+        let value_to_store = if is_secret {
+            match value.as_str() {
+                Some(plaintext) => match encryption::encrypt(plaintext) {
+                    Ok(encrypted) => serde_json::Value::String(encrypted),
+                    Err(e) => {
+                        error!("Failed to encrypt plugin secret: {}", e);
+                        return Ok(SetOutcome::EncryptionFailed);
+                    }
+                },
+                None => return Ok(SetOutcome::NonStringSecret),
             }
-        }
-    } else {
-        body.value.clone()
-    };
+        } else {
+            value.clone()
+        };
 
-    match plugin_repo::set_plugin_setting(
-        &mut conn,
-        plugin.id,
-        body.key.clone(),
-        Some(value_to_store),
-        is_secret,
-    ) {
-        Ok(setting) => {
-            info!("Plugin setting updated: {} / {}", plugin.name, body.key);
+        let setting = plugin_repo::set_plugin_setting(
+            conn,
+            plugin.id,
+            key.clone(),
+            Some(value_to_store),
+            is_secret,
+        )?;
+        Ok::<_, DieselError>(SetOutcome::Ok(setting, plugin.name))
+    });
+
+    match outcome {
+        Ok(SetOutcome::Ok(setting, plugin_name)) => {
+            info!("Plugin setting updated: {} / {}", plugin_name, body.key);
             HttpResponse::Ok().json(PluginSettingResponse::from(setting))
+        }
+        Ok(SetOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(SetOutcome::EncryptionFailed) => errors::internal(
+            "Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.",
+        ),
+        Ok(SetOutcome::NonStringSecret) => {
+            errors::bad_request("Secret settings must be string values")
         }
         Err(e) => {
             error!("Failed to set plugin setting: {}", e);
@@ -502,7 +545,7 @@ pub async fn set_plugin_setting(
 /// Delete a plugin setting (admin only)
 pub async fn delete_plugin_setting(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -511,19 +554,28 @@ pub async fn delete_plugin_setting(
 
     let (plugin_uuid, key) = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    enum DeleteOutcome {
+        Deleted,
+        PluginNotFound,
+        SettingNotFound,
+    }
 
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(DeleteOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        };
+        match plugin_repo::delete_plugin_setting(conn, plugin.id, &key)? {
+            n if n > 0 => Ok::<_, DieselError>(DeleteOutcome::Deleted),
+            _ => Ok(DeleteOutcome::SettingNotFound),
+        }
+    });
 
-    match plugin_repo::delete_plugin_setting(&mut conn, plugin.id, &key) {
-        Ok(count) if count > 0 => HttpResponse::NoContent().finish(),
-        Ok(_) => errors::not_found_msg("Setting not found"),
+    match outcome {
+        Ok(DeleteOutcome::Deleted) => HttpResponse::NoContent().finish(),
+        Ok(DeleteOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(DeleteOutcome::SettingNotFound) => errors::not_found_msg("Setting not found"),
         Err(e) => {
             error!("Failed to delete plugin setting: {}", e);
             errors::internal("Failed to delete setting")
@@ -538,7 +590,7 @@ pub async fn delete_plugin_setting(
 /// Get storage value for a plugin (authenticated users - for plugin use)
 pub async fn get_plugin_storage(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
     if req.extensions().get::<Claims>().is_none() {
@@ -547,26 +599,38 @@ pub async fn get_plugin_storage(
 
     let (plugin_uuid, key) = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-
-    if !plugin.is_active() {
-        return errors::forbidden("Plugin is disabled");
+    enum StorageOutcome {
+        Ok(crate::models::PluginData),
+        Empty,
+        PluginNotFound,
+        PluginDisabled,
     }
 
-    match plugin_repo::get_plugin_storage_entry(&mut conn, plugin.id, &key) {
-        Ok(entry) => HttpResponse::Ok().json(PluginStorageResponse::from(entry)),
-        Err(DieselError::NotFound) => HttpResponse::Ok().json(serde_json::json!({
+    let key_for_closure = key.clone();
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(StorageOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        };
+        if !plugin.is_active() {
+            return Ok(StorageOutcome::PluginDisabled);
+        }
+        match plugin_repo::get_plugin_storage_entry(conn, plugin.id, &key_for_closure) {
+            Ok(entry) => Ok::<_, DieselError>(StorageOutcome::Ok(entry)),
+            Err(DieselError::NotFound) => Ok(StorageOutcome::Empty),
+            Err(e) => Err(e),
+        }
+    });
+
+    match outcome {
+        Ok(StorageOutcome::Ok(entry)) => HttpResponse::Ok().json(PluginStorageResponse::from(entry)),
+        Ok(StorageOutcome::Empty) => HttpResponse::Ok().json(serde_json::json!({
             "key": key,
             "value": null
         })),
+        Ok(StorageOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(StorageOutcome::PluginDisabled) => errors::forbidden("Plugin is disabled"),
         Err(e) => {
             error!("Failed to get plugin storage: {}", e);
             errors::internal("Failed to get storage")
@@ -577,7 +641,7 @@ pub async fn get_plugin_storage(
 /// Set storage value for a plugin (authenticated users - for plugin use)
 pub async fn set_plugin_storage(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<SetPluginDataRequest>,
 ) -> impl Responder {
@@ -586,28 +650,33 @@ pub async fn set_plugin_storage(
     }
 
     let plugin_uuid = path.into_inner();
+    let body = body.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-
-    if !plugin.is_active() {
-        return errors::forbidden("Plugin is disabled");
+    enum StorageOutcome {
+        Ok(crate::models::PluginData),
+        PluginNotFound,
+        PluginDisabled,
     }
 
-    match plugin_repo::set_plugin_storage(
-        &mut conn,
-        plugin.id,
-        body.key.clone(),
-        Some(body.value.clone()),
-    ) {
-        Ok(entry) => HttpResponse::Ok().json(PluginStorageResponse::from(entry)),
+    let key = body.key.clone();
+    let value = body.value.clone();
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(StorageOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        };
+        if !plugin.is_active() {
+            return Ok(StorageOutcome::PluginDisabled);
+        }
+        let entry = plugin_repo::set_plugin_storage(conn, plugin.id, key, Some(value))?;
+        Ok::<_, DieselError>(StorageOutcome::Ok(entry))
+    });
+
+    match outcome {
+        Ok(StorageOutcome::Ok(entry)) => HttpResponse::Ok().json(PluginStorageResponse::from(entry)),
+        Ok(StorageOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(StorageOutcome::PluginDisabled) => errors::forbidden("Plugin is disabled"),
         Err(e) => {
             error!("Failed to set plugin storage: {}", e);
             errors::internal("Failed to set storage")
@@ -618,7 +687,7 @@ pub async fn set_plugin_storage(
 /// Delete storage value for a plugin (authenticated users - for plugin use)
 pub async fn delete_plugin_storage(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
     if req.extensions().get::<Claims>().is_none() {
@@ -627,22 +696,29 @@ pub async fn delete_plugin_storage(
 
     let (plugin_uuid, key) = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-
-    if !plugin.is_active() {
-        return errors::forbidden("Plugin is disabled");
+    enum StorageOutcome {
+        Deleted,
+        PluginNotFound,
+        PluginDisabled,
     }
 
-    match plugin_repo::delete_plugin_storage_entry(&mut conn, plugin.id, &key) {
-        Ok(_) => HttpResponse::NoContent().finish(),
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(StorageOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        };
+        if !plugin.is_active() {
+            return Ok(StorageOutcome::PluginDisabled);
+        }
+        plugin_repo::delete_plugin_storage_entry(conn, plugin.id, &key)?;
+        Ok::<_, DieselError>(StorageOutcome::Deleted)
+    });
+
+    match outcome {
+        Ok(StorageOutcome::Deleted) => HttpResponse::NoContent().finish(),
+        Ok(StorageOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(StorageOutcome::PluginDisabled) => errors::forbidden("Plugin is disabled"),
         Err(e) => {
             error!("Failed to delete plugin storage: {}", e);
             errors::internal("Failed to delete storage")
@@ -657,7 +733,7 @@ pub async fn delete_plugin_storage(
 /// Get activity log for a plugin (admin only)
 pub async fn get_plugin_activity(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     query: web::Query<PaginationQuery>,
 ) -> impl Responder {
@@ -669,22 +745,28 @@ pub async fn get_plugin_activity(
     let limit = helpers::clamp_limit(query.limit);
     let offset = helpers::clamp_offset(query.offset);
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    enum ActivityOutcome {
+        Ok(Vec<crate::models::PluginActivity>),
+        NotFound,
+    }
 
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(ActivityOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        let activity = plugin_repo::get_plugin_activity(conn, plugin.id, limit, offset)?;
+        Ok::<_, DieselError>(ActivityOutcome::Ok(activity))
+    });
 
-    match plugin_repo::get_plugin_activity(&mut conn, plugin.id, limit, offset) {
-        Ok(activity) => {
+    match outcome {
+        Ok(ActivityOutcome::Ok(activity)) => {
             let response: Vec<PluginActivityResponse> =
                 activity.into_iter().map(Into::into).collect();
             HttpResponse::Ok().json(response)
         }
+        Ok(ActivityOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
         Err(e) => {
             error!("Failed to get plugin activity: {}", e);
             errors::internal("Failed to get activity")
@@ -699,7 +781,7 @@ pub async fn get_plugin_activity(
 /// Proxy an external request for a plugin (authenticated users)
 pub async fn proxy_plugin_request(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     proxy_service: web::Data<crate::services::plugins::PluginProxyService>,
     path: web::Path<Uuid>,
     body: web::Json<crate::models::PluginProxyRequest>,
@@ -710,20 +792,46 @@ pub async fn proxy_plugin_request(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(e) => return e,
-    };
-
-    // Check if plugin is enabled
-    if !plugin.is_active() {
-        return errors::forbidden("Plugin is disabled");
+    enum ProxyOutcome {
+        Ok(
+            crate::models::Plugin,
+            Vec<crate::models::PluginData>,
+        ),
+        NotFound,
+        Disabled,
     }
+
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(ProxyOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        if !plugin.is_active() {
+            return Ok(ProxyOutcome::Disabled);
+        }
+        // Fetch plugin settings for auth injection. We squash any error
+        // to an empty vec rather than failing the proxy call — same
+        // degraded-fallback behaviour as the legacy path.
+        let settings = match crate::repository::plugins::get_plugin_settings(conn, plugin.id) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to get plugin settings: {}", e);
+                vec![]
+            }
+        };
+        Ok::<_, DieselError>(ProxyOutcome::Ok(plugin, settings))
+    });
+
+    let (plugin, settings) = match outcome {
+        Ok(ProxyOutcome::Ok(p, s)) => (p, s),
+        Ok(ProxyOutcome::NotFound) => return errors::not_found_msg("Plugin not found"),
+        Ok(ProxyOutcome::Disabled) => return errors::forbidden("Plugin is disabled"),
+        Err(e) => {
+            error!("Failed to load plugin for proxy: {}", e);
+            return errors::internal("Failed to get plugin");
+        }
+    };
 
     // Parse the manifest
     let manifest = match plugin.parse_manifest() {
@@ -731,15 +839,6 @@ pub async fn proxy_plugin_request(
         Err(e) => {
             error!("Failed to parse plugin manifest: {}", e);
             return errors::internal("Invalid plugin manifest");
-        }
-    };
-
-    // Fetch plugin settings for auth injection
-    let settings = match crate::repository::plugins::get_plugin_settings(&mut conn, plugin.id) {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Failed to get plugin settings: {}", e);
-            vec![]
         }
     };
 
@@ -790,13 +889,9 @@ pub async fn proxy_plugin_request(
 /// `ETag` derived from the plugin's `updated_at` via the route's
 /// `Last-Modified` semantics. For simplicity we just cache for 5
 /// minutes and let the next install bust it via row update.
-pub async fn serve_plugin_icon(pool: web::Data<Pool>, path: web::Path<Uuid>) -> impl Responder {
+pub async fn serve_plugin_icon(mut tc: TenantConn, path: web::Path<Uuid>) -> impl Responder {
     let plugin_uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match plugin_repo::get_plugin_icon(&mut conn, plugin_uuid) {
+    match tc.run(|conn| plugin_repo::get_plugin_icon(conn, plugin_uuid)) {
         Ok((state, _)) if !matches!(state, crate::models::PluginState::Installed) => {
             // Quarantined / disabled / uninstalled plugins do not
             // serve their icon. Mirrors the bundle handler's
@@ -820,7 +915,7 @@ pub async fn serve_plugin_icon(pool: web::Data<Pool>, path: web::Path<Uuid>) -> 
 /// Serve a plugin bundle (authenticated users)
 pub async fn serve_plugin_bundle(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     // Any authenticated user can request plugin bundles
@@ -830,15 +925,14 @@ pub async fn serve_plugin_bundle(
 
     let plugin_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Verify plugin exists and is enabled
-    let plugin = match get_plugin_or_error(&mut conn, plugin_uuid) {
+    let plugin = match tc.run(|conn| plugin_repo::get_plugin_by_uuid(conn, plugin_uuid)) {
         Ok(p) => p,
-        Err(e) => return e,
+        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
+        Err(e) => {
+            error!("Failed to get plugin: {}", e);
+            return errors::internal("Failed to get plugin");
+        }
     };
 
     if !plugin.is_active() {
@@ -976,10 +1070,12 @@ pub async fn install_plugin_from_zip(
         skip_if_unchanged: false,
     };
 
-    // Attribute the install in audit_log via the actor GUCs.
-    // install_verified runs its own transaction; the GUCs set
-    // here propagate down through SET LOCAL.
-    let actor = helpers::actor_for(&req, "plugins_admin");
+    // Attribute the install in audit_log via the actor GUCs. We pin
+    // the workspace from RequestContext so the inner writes pass the
+    // RLS WITH CHECK on plugins / plugin_activity. install_verified
+    // runs its own transaction; the GUCs set here propagate down
+    // through SET LOCAL.
+    let actor = workspace_pinned_actor(&req, "plugins_admin");
     let outcome = match actor_session::with_actor_context::<_, install::InstallError>(
         &mut conn,
         &actor,
@@ -1068,17 +1164,12 @@ pub async fn get_admin_config(req: HttpRequest) -> impl Responder {
 /// production red flag), legacy unsigned rows (migration straggler
 /// detector), and the top-5 publishers by install count for
 /// revocation-blast-radius visibility.
-pub async fn get_signing_overview(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+pub async fn get_signing_overview(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match plugin_repo::signing_overview(&mut conn) {
+    match tc.run(|conn| plugin_repo::signing_overview(conn)) {
         Ok(overview) => HttpResponse::Ok().json(overview),
         Err(e) => {
             error!("Failed to compute plugin signing overview: {}", e);
@@ -1352,9 +1443,10 @@ pub async fn install_from_registry(
         provision_settings: false,
         skip_if_unchanged: false,
     };
-    // Same actor-context wrap as the zip-upload path: pin the
-    // installer to the admin who clicked through the registry UI.
-    let actor = helpers::actor_for(&req, "plugins_admin");
+    // Same actor-context wrap as the zip-upload path: pull the
+    // workspace-pinned actor from RequestContext so the inner
+    // writes pass RLS WITH CHECK on plugins / plugin_activity.
+    let actor = workspace_pinned_actor(&req, "plugins_admin");
     let outcome = match actor_session::with_actor_context::<_, install::InstallError>(
         &mut conn,
         &actor,

@@ -7,7 +7,7 @@ use diesel::result::Error as DieselError;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::db::Pool;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{
@@ -47,6 +47,15 @@ fn get_claims(req: &HttpRequest) -> Result<Claims, HttpResponse> {
         .ok_or_else(|| errors::unauthorized("Authentication required"))
 }
 
+/// In-closure outcome for schema lookup so the tc.run boundary can
+/// distinguish plugin-not-found / collection-not-found from a generic
+/// internal error without leaking HttpResponse into the txn closure.
+enum SchemaLookup {
+    Ok(crate::models::PluginCollectionSchema, crate::models::Plugin),
+    PluginNotFound,
+    CollectionNotFound,
+}
+
 // =============================================================================
 // Schema endpoints
 // =============================================================================
@@ -54,7 +63,7 @@ fn get_claims(req: &HttpRequest) -> Result<Claims, HttpResponse> {
 /// List all collections for a plugin
 pub async fn list_collections(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
@@ -63,49 +72,53 @@ pub async fn list_collections(
     };
 
     let plugin_uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
-        Ok(p) => p,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
+    enum ListOutcome {
+        Ok(Vec<CollectionSchemaResponse>),
+        PluginNotFound,
+    }
+
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(ListOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        };
+
+        let schemas = collection_repo::get_schemas_by_plugin(conn, plugin.id)?;
+
+        let responses: Vec<CollectionSchemaResponse> = schemas
+            .into_iter()
+            .map(|s| {
+                let row_count =
+                    collection_repo::count_rows_by_schema(conn, s.id).unwrap_or(0);
+                CollectionSchemaResponse {
+                    uuid: s.uuid,
+                    collection_name: s.collection_name,
+                    schema: s.schema,
+                    version: s.version,
+                    row_count,
+                }
+            })
+            .collect();
+
+        Ok::<_, DieselError>(ListOutcome::Ok(responses))
+    });
+
+    match outcome {
+        Ok(ListOutcome::Ok(resp)) => HttpResponse::Ok().json(resp),
+        Ok(ListOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
         Err(e) => {
-            error!("Failed to get plugin: {}", e);
-            return errors::internal("Failed to get plugin");
+            error!("Failed to list collections: {}", e);
+            errors::internal("Failed to get collections")
         }
-    };
-
-    let schemas = match collection_repo::get_schemas_by_plugin(&mut conn, plugin.id) {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Failed to get collection schemas: {}", e);
-            return errors::internal("Failed to get collections");
-        }
-    };
-
-    let responses: Vec<CollectionSchemaResponse> = schemas
-        .into_iter()
-        .map(|s| {
-            let row_count = collection_repo::count_rows_by_schema(&mut conn, s.id).unwrap_or(0);
-            CollectionSchemaResponse {
-                uuid: s.uuid,
-                collection_name: s.collection_name,
-                schema: s.schema,
-                version: s.version,
-                row_count,
-            }
-        })
-        .collect();
-
-    HttpResponse::Ok().json(responses)
+    }
 }
 
 /// Get a single collection schema
 pub async fn get_collection_schema(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<CollectionPath>,
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
@@ -114,38 +127,44 @@ pub async fn get_collection_schema(
     };
 
     let path = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
-        Ok(p) => p,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
-        Err(e) => {
-            error!("Failed to get plugin: {}", e);
-            return errors::internal("Failed to get plugin");
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(SchemaLookup::PluginNotFound),
+            Err(e) => return Err(e),
+        };
+        let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
+            Ok(s) => s,
+            Err(DieselError::NotFound) => return Ok(SchemaLookup::CollectionNotFound),
+            Err(e) => return Err(e),
+        };
+        Ok::<_, DieselError>(SchemaLookup::Ok(schema, plugin))
+    });
+
+    match outcome {
+        Ok(SchemaLookup::Ok(schema, _plugin)) => {
+            // count_rows_by_schema is a read that needs the same
+            // workspace pin, so run it inside another tc.run rather
+            // than reusing the connection outside the closure.
+            let row_count = tc
+                .run(|conn| collection_repo::count_rows_by_schema(conn, schema.id))
+                .unwrap_or(0);
+            HttpResponse::Ok().json(CollectionSchemaResponse {
+                uuid: schema.uuid,
+                collection_name: schema.collection_name,
+                schema: schema.schema,
+                version: schema.version,
+                row_count,
+            })
         }
-    };
-
-    let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
-        Ok(s) => s,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Collection not found"),
+        Ok(SchemaLookup::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(SchemaLookup::CollectionNotFound) => errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
-            return errors::internal("Failed to get collection");
+            errors::internal("Failed to get collection")
         }
-    };
-
-    let row_count = collection_repo::count_rows_by_schema(&mut conn, schema.id).unwrap_or(0);
-
-    HttpResponse::Ok().json(CollectionSchemaResponse {
-        uuid: schema.uuid,
-        collection_name: schema.collection_name,
-        schema: schema.schema,
-        version: schema.version,
-        row_count,
-    })
+    }
 }
 
 // =============================================================================
@@ -155,7 +174,7 @@ pub async fn get_collection_schema(
 /// List rows in a collection
 pub async fn list_collection_rows(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<CollectionPath>,
     query: web::Query<CollectionQueryParams>,
 ) -> impl Responder {
@@ -165,29 +184,6 @@ pub async fn list_collection_rows(
     };
 
     let path = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
-        Ok(p) => p,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
-        Err(e) => {
-            error!("Failed to get plugin: {}", e);
-            return errors::internal("Failed to get plugin");
-        }
-    };
-
-    let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
-        Ok(s) => s,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Collection not found"),
-        Err(e) => {
-            error!("Failed to get collection schema: {}", e);
-            return errors::internal("Failed to get collection");
-        }
-    };
-
     let limit = helpers::clamp_limit(query.limit);
     let offset = helpers::clamp_offset(query.offset);
 
@@ -196,33 +192,56 @@ pub async fn list_collection_rows(
         .filter
         .as_ref()
         .and_then(|f| serde_json::from_str(f).ok());
+    let sort_by = query.sort_by.clone();
+    let sort_order = query.sort_order.clone();
 
-    let (rows, total) = match collection_repo::list_rows(
-        &mut conn,
-        schema.id,
-        limit,
-        offset,
-        filter_json,
-        query.sort_by.clone(),
-        query.sort_order.clone(),
-    ) {
-        Ok(result) => result,
+    enum RowsOutcome {
+        Ok(Vec<crate::models::PluginCollectionRow>, i64),
+        PluginNotFound,
+        CollectionNotFound,
+    }
+
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(RowsOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        };
+        let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
+            Ok(s) => s,
+            Err(DieselError::NotFound) => return Ok(RowsOutcome::CollectionNotFound),
+            Err(e) => return Err(e),
+        };
+        let (rows, total) = collection_repo::list_rows(
+            conn,
+            schema.id,
+            limit,
+            offset,
+            filter_json,
+            sort_by,
+            sort_order,
+        )?;
+        Ok::<_, DieselError>(RowsOutcome::Ok(rows, total))
+    });
+
+    match outcome {
+        Ok(RowsOutcome::Ok(rows, total)) => HttpResponse::Ok().json(CollectionListResponse {
+            rows: rows.into_iter().map(CollectionRowResponse::from).collect(),
+            total,
+        }),
+        Ok(RowsOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(RowsOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!("Failed to list collection rows: {}", e);
-            return errors::internal("Failed to list rows");
+            errors::internal("Failed to list rows")
         }
-    };
-
-    HttpResponse::Ok().json(CollectionListResponse {
-        rows: rows.into_iter().map(CollectionRowResponse::from).collect(),
-        total,
-    })
+    }
 }
 
 /// Create a row in a collection
 pub async fn create_collection_row(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<CollectionPath>,
     body: web::Json<CreateCollectionRowRequest>,
 ) -> impl Responder {
@@ -232,53 +251,61 @@ pub async fn create_collection_row(
     };
 
     let path = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let user_uuid = Uuid::parse_str(&claims.sub).ok();
+    let body_data = body.data.clone();
+    let locale = request_locale(&req);
 
-    let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
-        Ok(p) => p,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
-        Err(e) => {
-            error!("Failed to get plugin: {}", e);
-            return errors::internal("Failed to get plugin");
-        }
-    };
-
-    let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
-        Ok(s) => s,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Collection not found"),
-        Err(e) => {
-            error!("Failed to get collection schema: {}", e);
-            return errors::internal("Failed to get collection");
-        }
-    };
-
-    // Parse the collection definition from the schema for validation
-    if let Ok(definition) =
-        serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone())
-    {
-        if let Err(e) = validation::validate_row_data(&body.data, &definition) {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": i18n::tr(&request_locale(&req), "backend-error-validation"),
-                "code": "backend-error-validation",
-                "message": e
-            }));
-        }
+    enum CreateOutcome {
+        Ok(crate::models::PluginCollectionRow),
+        PluginNotFound,
+        CollectionNotFound,
+        ValidationError(String),
     }
 
-    let user_uuid = Uuid::parse_str(&claims.sub).ok();
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(CreateOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        };
+        let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
+            Ok(s) => s,
+            Err(DieselError::NotFound) => return Ok(CreateOutcome::CollectionNotFound),
+            Err(e) => return Err(e),
+        };
 
-    let new_row = NewPluginCollectionRow {
-        plugin_id: plugin.id,
-        schema_id: schema.id,
-        data: body.data.clone(),
-        created_by: user_uuid,
-    };
+        // Parse the collection definition from the schema for validation
+        if let Ok(definition) = serde_json::from_value::<crate::models::CollectionDefinition>(
+            schema.schema.clone(),
+        ) {
+            if let Err(e) = validation::validate_row_data(&body_data, &definition) {
+                return Ok(CreateOutcome::ValidationError(e));
+            }
+        }
 
-    match collection_repo::create_row(&mut conn, new_row) {
-        Ok(row) => HttpResponse::Created().json(CollectionRowResponse::from(row)),
+        let new_row = NewPluginCollectionRow {
+            plugin_id: plugin.id,
+            schema_id: schema.id,
+            data: body_data.clone(),
+            created_by: user_uuid,
+        };
+        let row = collection_repo::create_row(conn, new_row)?;
+        Ok::<_, DieselError>(CreateOutcome::Ok(row))
+    });
+
+    match outcome {
+        Ok(CreateOutcome::Ok(row)) => {
+            HttpResponse::Created().json(CollectionRowResponse::from(row))
+        }
+        Ok(CreateOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(CreateOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
+        Ok(CreateOutcome::ValidationError(msg)) => {
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "error": i18n::tr(&locale, "backend-error-validation"),
+                "code": "backend-error-validation",
+                "message": msg
+            }))
+        }
         Err(e) => {
             error!("Failed to create collection row: {}", e);
             errors::internal("Failed to create row")
@@ -289,7 +316,7 @@ pub async fn create_collection_row(
 /// Get a single row
 pub async fn get_collection_row(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<CollectionRowPath>,
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
@@ -298,19 +325,30 @@ pub async fn get_collection_row(
     };
 
     let path = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    // Verify plugin exists
-    if let Err(DieselError::NotFound) = plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
-        return errors::not_found_msg("Plugin not found");
+    enum GetOutcome {
+        Ok(crate::models::PluginCollectionRow),
+        PluginNotFound,
+        RowNotFound,
     }
 
-    match collection_repo::get_row_by_uuid(&mut conn, path.row_uuid) {
-        Ok(row) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
-        Err(DieselError::NotFound) => errors::not_found_msg("Row not found"),
+    let outcome = tc.run(|conn| {
+        match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+            Ok(_) => {}
+            Err(DieselError::NotFound) => return Ok(GetOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        }
+        match collection_repo::get_row_by_uuid(conn, path.row_uuid) {
+            Ok(row) => Ok::<_, DieselError>(GetOutcome::Ok(row)),
+            Err(DieselError::NotFound) => Ok(GetOutcome::RowNotFound),
+            Err(e) => Err(e),
+        }
+    });
+
+    match outcome {
+        Ok(GetOutcome::Ok(row)) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
+        Ok(GetOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(GetOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
         Err(e) => {
             error!("Failed to get collection row: {}", e);
             errors::internal("Failed to get row")
@@ -321,7 +359,7 @@ pub async fn get_collection_row(
 /// Update a row
 pub async fn update_collection_row(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<CollectionRowPath>,
     body: web::Json<UpdateCollectionRowRequest>,
 ) -> impl Responder {
@@ -331,49 +369,61 @@ pub async fn update_collection_row(
     };
 
     let path = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let body_data = body.data.clone();
+    let locale = request_locale(&req);
 
-    let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
-        Ok(p) => p,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
-        Err(e) => {
-            error!("Failed to get plugin: {}", e);
-            return errors::internal("Failed to get plugin");
-        }
-    };
-
-    let schema = match collection_repo::get_schema_by_name(&mut conn, plugin.id, &path.name) {
-        Ok(s) => s,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Collection not found"),
-        Err(e) => {
-            error!("Failed to get collection schema: {}", e);
-            return errors::internal("Failed to get collection");
-        }
-    };
-
-    // Validate updated data
-    if let Ok(definition) =
-        serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone())
-    {
-        if let Err(e) = validation::validate_row_data(&body.data, &definition) {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": i18n::tr(&request_locale(&req), "backend-error-validation"),
-                "code": "backend-error-validation",
-                "message": e
-            }));
-        }
+    enum UpdateOutcome {
+        Ok(crate::models::PluginCollectionRow),
+        PluginNotFound,
+        CollectionNotFound,
+        RowNotFound,
+        ValidationError(String),
     }
 
-    let update = PluginCollectionRowUpdate {
-        data: Some(body.data.clone()),
-    };
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(UpdateOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        };
+        let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
+            Ok(s) => s,
+            Err(DieselError::NotFound) => return Ok(UpdateOutcome::CollectionNotFound),
+            Err(e) => return Err(e),
+        };
 
-    match collection_repo::update_row(&mut conn, path.row_uuid, update) {
-        Ok(row) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
-        Err(DieselError::NotFound) => errors::not_found_msg("Row not found"),
+        // Validate updated data
+        if let Ok(definition) = serde_json::from_value::<crate::models::CollectionDefinition>(
+            schema.schema.clone(),
+        ) {
+            if let Err(e) = validation::validate_row_data(&body_data, &definition) {
+                return Ok(UpdateOutcome::ValidationError(e));
+            }
+        }
+
+        let update = PluginCollectionRowUpdate {
+            data: Some(body_data.clone()),
+        };
+
+        match collection_repo::update_row(conn, path.row_uuid, update) {
+            Ok(row) => Ok::<_, DieselError>(UpdateOutcome::Ok(row)),
+            Err(DieselError::NotFound) => Ok(UpdateOutcome::RowNotFound),
+            Err(e) => Err(e),
+        }
+    });
+
+    match outcome {
+        Ok(UpdateOutcome::Ok(row)) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
+        Ok(UpdateOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(UpdateOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
+        Ok(UpdateOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
+        Ok(UpdateOutcome::ValidationError(msg)) => {
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "error": i18n::tr(&locale, "backend-error-validation"),
+                "code": "backend-error-validation",
+                "message": msg
+            }))
+        }
         Err(e) => {
             error!("Failed to update collection row: {}", e);
             errors::internal("Failed to update row")
@@ -384,7 +434,7 @@ pub async fn update_collection_row(
 /// Delete a row
 pub async fn delete_collection_row(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<CollectionRowPath>,
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
@@ -393,19 +443,29 @@ pub async fn delete_collection_row(
     };
 
     let path = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    // Verify plugin exists
-    if let Err(DieselError::NotFound) = plugin_repo::get_plugin_by_uuid(&mut conn, path.uuid) {
-        return errors::not_found_msg("Plugin not found");
+    enum DeleteOutcome {
+        Deleted,
+        PluginNotFound,
+        RowNotFound,
     }
 
-    match collection_repo::delete_row(&mut conn, path.row_uuid) {
-        Ok(count) if count > 0 => HttpResponse::NoContent().finish(),
-        Ok(_) => errors::not_found_msg("Row not found"),
+    let outcome = tc.run(|conn| {
+        match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+            Ok(_) => {}
+            Err(DieselError::NotFound) => return Ok(DeleteOutcome::PluginNotFound),
+            Err(e) => return Err(e),
+        }
+        match collection_repo::delete_row(conn, path.row_uuid)? {
+            n if n > 0 => Ok::<_, DieselError>(DeleteOutcome::Deleted),
+            _ => Ok(DeleteOutcome::RowNotFound),
+        }
+    });
+
+    match outcome {
+        Ok(DeleteOutcome::Deleted) => HttpResponse::NoContent().finish(),
+        Ok(DeleteOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(DeleteOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
         Err(e) => {
             error!("Failed to delete collection row: {}", e);
             errors::internal("Failed to delete row")
