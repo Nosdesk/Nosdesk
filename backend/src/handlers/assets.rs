@@ -1,10 +1,9 @@
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::utils;
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
-use crate::utils::rbac::{is_admin, is_technician_or_admin};
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -13,8 +12,7 @@ use std::sync::Arc;
 use tracing::{debug, error};
 use uuid::Uuid;
 
-use crate::db::Pool;
-use crate::models::{Asset, AssetUpdate, Claims, Group, NewAsset, User};
+use crate::models::{Asset, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
 use crate::services::assets::{validate_for_kind, AssetValidationError};
@@ -263,11 +261,11 @@ pub struct CalendarOverlayEntry {
 /// each entry as a badge in the day cell so device events are
 /// visible alongside ticket due dates.
 pub async fn calendar_overlay(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    _auth: AuthContext,
     query: web::Query<CalendarOverlayParams>,
 ) -> impl Responder {
     use chrono::NaiveDate;
-    use diesel::prelude::*;
 
     let parse = |s: &str| -> Option<NaiveDate> {
         // Accept YYYY-MM-DD or full RFC3339 (drop the time part).
@@ -290,11 +288,6 @@ pub async fn calendar_overlay(
         return errors::bad_request("end must be on or after start");
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // warranty_end_date moved into the attributes JSONB in
     // Pass B; the calendar overlay reads it via JSON path and
     // ::date-casts so the start/end window comparison stays in
@@ -310,14 +303,17 @@ pub async fn calendar_overlay(
         #[diesel(sql_type = diesel::sql_types::Date)]
         warranty_end_date: NaiveDate,
     }
-    let rows: Result<Vec<WarrantyOverlayRow>, Error> = diesel::sql_query(
-        "SELECT id, name, NULLIF(attributes->>'warranty_end_date','')::date AS warranty_end_date \
-         FROM assets \
-         WHERE NULLIF(attributes->>'warranty_end_date','')::date BETWEEN $1 AND $2",
-    )
-    .bind::<diesel::sql_types::Date, _>(start)
-    .bind::<diesel::sql_types::Date, _>(end)
-    .load(&mut conn);
+    let rows: Result<Vec<WarrantyOverlayRow>, Error> = tc.run(|conn| {
+        use diesel::RunQueryDsl;
+        diesel::sql_query(
+            "SELECT id, name, NULLIF(attributes->>'warranty_end_date','')::date AS warranty_end_date \
+             FROM assets \
+             WHERE NULLIF(attributes->>'warranty_end_date','')::date BETWEEN $1 AND $2",
+        )
+        .bind::<diesel::sql_types::Date, _>(start)
+        .bind::<diesel::sql_types::Date, _>(end)
+        .load(conn)
+    });
 
     match rows {
         Ok(rows) => {
@@ -403,29 +399,24 @@ fn classify_warranty(end: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -
 /// asset rollout planner view. Bucketing happens server-side so
 /// the renderer doesn't repeat the OS-string heuristics.
 pub async fn asset_planner(
-    pool: web::Data<Pool>,
-    _auth: crate::extractors::AuthContext,
+    mut tc: TenantConn,
+    _auth: AuthContext,
 ) -> impl Responder {
-    use crate::schema::assets;
-    use diesel::prelude::*;
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    use crate::services::assets::it_attrs;
 
     // The planner's axes (OS family, warranty bucket, compliance)
     // only make sense for IT-managed hardware. Filter the asset
     // set to kinds whose category is 'it' so non-IT workspaces
     // (vehicles, licenses, materials) stay out of the planner
     // view entirely instead of cluttering it with empty buckets.
-    use crate::schema::asset_kinds;
-    use crate::services::assets::it_attrs;
-    let it_slugs: Vec<String> = match asset_kinds::table
-        .filter(asset_kinds::category.eq("it"))
-        .select(asset_kinds::slug)
-        .load(&mut conn)
-    {
+    let it_slugs: Vec<String> = match tc.run(|conn| {
+        use crate::schema::asset_kinds;
+        use diesel::prelude::*;
+        asset_kinds::table
+            .filter(asset_kinds::category.eq("it"))
+            .select(asset_kinds::slug)
+            .load(conn)
+    }) {
         Ok(s) => s,
         Err(e) => {
             error!(error = ?e, "asset planner: failed to load IT-kind slugs");
@@ -433,10 +424,14 @@ pub async fn asset_planner(
         }
     };
 
-    let rows: Result<Vec<Asset>, Error> = assets::table
-        .filter(assets::kind.eq_any(&it_slugs))
-        .order(assets::name.asc())
-        .load(&mut conn);
+    let rows: Result<Vec<Asset>, Error> = tc.run(|conn| {
+        use crate::schema::assets;
+        use diesel::prelude::*;
+        assets::table
+            .filter(assets::kind.eq_any(&it_slugs))
+            .order(assets::name.asc())
+            .load(conn)
+    });
 
     match rows {
         Ok(devices) => {
@@ -476,18 +471,14 @@ pub async fn asset_planner(
 }
 
 /// Get all devices
-pub async fn get_all_devices(pool: web::Data<Pool>) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+pub async fn get_all_devices(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
+    let result = tc.run(|conn| {
+        let devices = repository::get_all_devices(conn)?;
+        Ok(devices_to_responses(conn, devices))
+    });
 
-    match repository::get_all_devices(&mut conn) {
-        Ok(devices) => {
-            // Convert devices to enhanced responses with user data
-            let device_responses = devices_to_responses(&mut conn, devices);
-            HttpResponse::Ok().json(device_responses)
-        }
+    match result {
+        Ok(device_responses) => HttpResponse::Ok().json(device_responses),
         Err(e) => {
             error!(error = ?e, "Database error getting all devices");
             errors::internal("Failed to get devices")
@@ -497,34 +488,38 @@ pub async fn get_all_devices(pool: web::Data<Pool>) -> impl Responder {
 
 // Get paginated devices
 pub async fn get_paginated_devices(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    _auth: AuthContext,
     query: web::Query<PaginationParams>,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
+    let sort_field = query.sort_field.clone();
+    let sort_direction = query.sort_direction.clone();
+    let search = query.search.clone();
+    let device_type = query.device_type.clone();
+    let warranty = query.warranty.clone();
+    let low_stock = matches!(query.low_stock.as_deref(), Some("true") | Some("1"));
 
-    match repository::get_paginated_devices(
-        &mut conn,
-        page,
-        page_size,
-        query.sort_field.clone(),
-        query.sort_direction.clone(),
-        query.search.clone(),
-        query.device_type.clone(),
-        query.warranty.clone(),
-        matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
-    ) {
-        Ok((devices, total)) => {
+    let result = tc.run(|conn| {
+        let (devices, total) = repository::get_paginated_devices(
+            conn,
+            page,
+            page_size,
+            sort_field,
+            sort_direction,
+            search,
+            device_type,
+            warranty,
+            low_stock,
+        )?;
+        let device_responses = devices_to_responses(conn, devices);
+        Ok((device_responses, total))
+    });
+
+    match result {
+        Ok((device_responses, total)) => {
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;
-
-            // Convert devices to enhanced responses with user data
-            let device_responses = devices_to_responses(&mut conn, devices);
-
             let response = PaginatedResponse {
                 data: device_responses,
                 total,
@@ -532,7 +527,6 @@ pub async fn get_paginated_devices(
                 page_size,
                 total_pages,
             };
-
             HttpResponse::Ok().json(response)
         }
         Err(e) => {
@@ -543,34 +537,30 @@ pub async fn get_paginated_devices(
 }
 
 /// Get a single device by ID
-pub async fn get_device_by_id(pool: web::Data<Pool>, path: web::Path<i32>) -> impl Responder {
+pub async fn get_device_by_id(
+    mut tc: TenantConn,
+    _auth: AuthContext,
+    path: web::Path<i32>,
+) -> impl Responder {
     let device_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::get_device_by_id(&mut conn, device_id) {
-        Ok(device) => {
-            // Get user data if device has a primary user
-            let user = device
-                .primary_user_uuid
-                .as_ref()
-                .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
+    let result = tc.run(|conn| {
+        let device = repository::get_device_by_id(conn, device_id)?;
+        let user = device
+            .primary_user_uuid
+            .as_ref()
+            .and_then(|uuid| get_user_by_uuid(conn, uuid));
+        let groups = groups_repo::get_groups_for_device(conn, device_id).unwrap_or_default();
+        debug!(
+            device_id,
+            group_count = groups.len(),
+            "Fetched groups for device"
+        );
+        Ok(AssetResponse::from_device_and_user(device, user, groups, conn))
+    });
 
-            // Get groups for the device
-            let groups =
-                groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
-            debug!(
-                device_id,
-                group_count = groups.len(),
-                "Fetched groups for device"
-            );
-
-            let device_response =
-                AssetResponse::from_device_and_user(device, user, groups, &mut conn);
-            HttpResponse::Ok().json(device_response)
-        }
+    match result {
+        Ok(device_response) => HttpResponse::Ok().json(device_response),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
             _ => {
@@ -582,12 +572,12 @@ pub async fn get_device_by_id(pool: web::Data<Pool>, path: web::Path<i32>) -> im
 }
 
 /// Get devices for a specific user
-pub async fn get_user_devices(pool: web::Data<Pool>, path: web::Path<String>) -> impl Responder {
+pub async fn get_user_devices(
+    mut tc: TenantConn,
+    _auth: AuthContext,
+    path: web::Path<String>,
+) -> impl Responder {
     let user_uuid_str = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     // Parse UUID from string
     let user_uuid = match utils::parse_uuid(&user_uuid_str) {
@@ -595,11 +585,13 @@ pub async fn get_user_devices(pool: web::Data<Pool>, path: web::Path<String>) ->
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
-    match crate::repository::assets::get_devices_for_user(&mut conn, &user_uuid) {
-        Ok(devices) => {
-            let device_responses = devices_to_responses(&mut conn, devices);
-            HttpResponse::Ok().json(device_responses)
-        }
+    let result = tc.run(|conn| {
+        let devices = crate::repository::assets::get_devices_for_user(conn, &user_uuid)?;
+        Ok(devices_to_responses(conn, devices))
+    });
+
+    match result {
+        Ok(device_responses) => HttpResponse::Ok().json(device_responses),
         Err(e) => {
             error!(user_uuid = %user_uuid_str, error = ?e, "Error getting devices for user");
             errors::internal(format!("Failed to get devices for user {user_uuid_str}"))
@@ -610,49 +602,51 @@ pub async fn get_user_devices(pool: web::Data<Pool>, path: web::Path<String>) ->
 /// Create a new device (technician or admin only)
 pub async fn create_device(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     device: web::Json<NewAsset>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
-    // Extract claims and check role
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can create devices",
         );
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let new_device = device.into_inner();
-    if let Err(e) = validate_for_kind(&mut conn, &new_device.kind, &new_device.attributes) {
-        return asset_validation_response(e);
+
+    // Validate kind/attributes coherence. Mirror the tickets-style
+    // nested Result pattern so the inner validator's HttpResponse
+    // bubbles cleanly while still running inside the txn.
+    let kind = new_device.kind.clone();
+    let attributes = new_device.attributes.clone();
+    let validation: Result<Result<(), AssetValidationError>, diesel::result::Error> =
+        tc.run(|conn| Ok(validate_for_kind(conn, &kind, &attributes)));
+    match validation {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return asset_validation_response(e),
+        Err(_) => return errors::internal("Failed to validate asset"),
     }
 
-    match repository::create_device(&mut conn, new_device) {
-        Ok(device) => {
+    let result = tc.run(|conn| {
+        let device = repository::create_device(conn, new_device)?;
+        let user = device
+            .primary_user_uuid
+            .as_ref()
+            .and_then(|uuid| get_user_by_uuid(conn, uuid));
+        // Newly created device has no groups yet
+        let device_response =
+            AssetResponse::from_device_and_user(device.clone(), user, vec![], conn);
+        Ok((device, device_response))
+    });
+
+    match result {
+        Ok((device, device_response)) => {
             let device_id = device.id;
 
             // Index the new device in search
-            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device.clone());
-
-            // Get user data if device has a primary user
-            let user = device
-                .primary_user_uuid
-                .as_ref()
-                .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
-
-            // Newly created device has no groups yet
-            let device_response =
-                AssetResponse::from_device_and_user(device, user, vec![], &mut conn);
+            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
 
             // Broadcast SSE event for device creation (with echo suppression)
             let source_client_id = extract_sse_client_id(&req);
@@ -678,7 +672,8 @@ pub async fn create_device(
 
 /// Update a device (technician or admin only)
 pub async fn update_device(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     path: web::Path<i32>,
     device_update: web::Json<AssetUpdate>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
@@ -686,26 +681,16 @@ pub async fn update_device(
     req: HttpRequest,
 ) -> impl Responder {
     let device_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Extract claims from cookie auth middleware for SSE events and role check
-    let user_info = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
 
     // Check role - only technicians and admins can update devices
-    if !is_technician_or_admin(&user_info) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can update devices",
         );
     }
 
     // Check if device is editable (not synced from Microsoft Graph)
-    let existing_device = match repository::get_device_by_id(&mut conn, device_id) {
+    let existing_device = match tc.run(|conn| repository::get_device_by_id(conn, device_id)) {
         Ok(device) => device,
         Err(e) => {
             return match e {
@@ -737,21 +722,38 @@ pub async fn update_device(
             .attributes
             .clone()
             .unwrap_or_else(|| existing_device.attributes.clone());
-        if let Err(e) = validate_for_kind(&mut conn, &effective_kind, &effective_attributes) {
-            return asset_validation_response(e);
+        let validation: Result<Result<(), AssetValidationError>, diesel::result::Error> = tc
+            .run(|conn| Ok(validate_for_kind(conn, &effective_kind, &effective_attributes)));
+        match validation {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return asset_validation_response(e),
+            Err(_) => return errors::internal("Failed to validate asset"),
         }
     }
 
     // Convert to JSON before the move for SSE broadcasting
     let update_json = serde_json::to_value(&update_data).unwrap_or_default();
 
-    match repository::update_device(&mut conn, device_id, update_data) {
-        Ok(device) => {
+    let result = tc.run(|conn| {
+        let device = repository::update_device(conn, device_id, update_data)?;
+        let user = device
+            .primary_user_uuid
+            .as_ref()
+            .and_then(|uuid| get_user_by_uuid(conn, uuid));
+        let groups = groups_repo::get_groups_for_device(conn, device_id).unwrap_or_default();
+        let device_response =
+            AssetResponse::from_device_and_user(device.clone(), user, groups, conn);
+        Ok((device, device_response))
+    });
+
+    match result {
+        Ok((device, device_response)) => {
             // Re-index the updated device in search
-            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device.clone());
+            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
 
             // Broadcast SSE events for each field that was updated (with echo suppression)
             let source_client_id = extract_sse_client_id(&req);
+            let updated_by = auth.user_uuid.to_string();
             if let Some(update_obj) = update_json.as_object() {
                 for (key, value) in update_obj {
                     if !value.is_null() {
@@ -762,7 +764,7 @@ pub async fn update_device(
                                     device_id,
                                     field: key.to_string(),
                                     value: value.clone(),
-                                    updated_by: user_info.sub.clone(),
+                                    updated_by: updated_by.clone(),
                                     timestamp: chrono::Utc::now(),
                                 },
                                 source_client_id.clone(),
@@ -772,18 +774,6 @@ pub async fn update_device(
                 }
             }
 
-            // Get user data if device has a primary user
-            let user = device
-                .primary_user_uuid
-                .as_ref()
-                .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
-
-            // Get groups for the device
-            let groups =
-                groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
-
-            let device_response =
-                AssetResponse::from_device_and_user(device, user, groups, &mut conn);
             HttpResponse::Ok().json(device_response)
         }
         Err(e) => match e {
@@ -799,28 +789,19 @@ pub async fn update_device(
 /// Delete a device (admin only)
 pub async fn delete_device(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     search_service: web::Data<Arc<SearchService>>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
 ) -> impl Responder {
-    // Extract claims and check role
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
-    if !is_admin(&claims) {
+    if !auth.is_admin() {
         return errors::forbidden("Forbidden: Only administrators can delete devices");
     }
 
     let device_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::delete_device(&mut conn, device_id, Some(search_service.get_ref())) {
+    match tc.run(|conn| repository::delete_device(conn, device_id, Some(search_service.get_ref()))) {
         Ok(rows_affected) => {
             if rows_affected > 0 {
                 // Search index removal is fired by the
@@ -854,29 +835,19 @@ pub async fn delete_device(
 
 /// Unmanage a device (remove Intune/Entra IDs to make it editable) - admin only
 pub async fn unmanage_device(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     path: web::Path<i32>,
-    req: HttpRequest,
 ) -> impl Responder {
     let device_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Extract claims from cookie auth middleware and check role
-    let user_info = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
 
     // Only admins can unmanage devices
-    if !is_admin(&user_info) {
+    if !auth.is_admin() {
         return errors::forbidden("Forbidden: Only administrators can unmanage devices");
     }
 
     // Check if device exists
-    let existing_device = match repository::get_device_by_id(&mut conn, device_id) {
+    let existing_device = match tc.run(|conn| repository::get_device_by_id(conn, device_id)) {
         Ok(device) => device,
         Err(e) => {
             return match e {
@@ -906,22 +877,18 @@ pub async fn unmanage_device(
         ..Default::default()
     };
 
-    match repository::update_device(&mut conn, device_id, update_data) {
-        Ok(device) => {
-            // Get user data if device has a primary user
-            let user = device
-                .primary_user_uuid
-                .as_ref()
-                .and_then(|uuid| get_user_by_uuid(&mut conn, uuid));
+    let result = tc.run(|conn| {
+        let device = repository::update_device(conn, device_id, update_data)?;
+        let user = device
+            .primary_user_uuid
+            .as_ref()
+            .and_then(|uuid| get_user_by_uuid(conn, uuid));
+        let groups = groups_repo::get_groups_for_device(conn, device_id).unwrap_or_default();
+        Ok(AssetResponse::from_device_and_user(device, user, groups, conn))
+    });
 
-            // Get groups for the device
-            let groups =
-                groups_repo::get_groups_for_device(&mut conn, device_id).unwrap_or_default();
-
-            let device_response =
-                AssetResponse::from_device_and_user(device, user, groups, &mut conn);
-            HttpResponse::Ok().json(device_response)
-        }
+    match result {
+        Ok(device_response) => HttpResponse::Ok().json(device_response),
         Err(e) => {
             error!(device_id, error = ?e, "Database error unmanaging device");
             errors::internal(format!("Failed to unmanage device {device_id}"))
@@ -931,15 +898,11 @@ pub async fn unmanage_device(
 
 /// Get paginated devices excluding specific IDs
 pub async fn get_paginated_devices_excluding(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    _auth: AuthContext,
     query: web::Query<PaginationParams>,
     exclude_query: web::Query<HashMap<String, String>>,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(20).clamp(1, 100);
 
@@ -954,17 +917,23 @@ pub async fn get_paginated_devices_excluding(
         })
         .unwrap_or_default();
 
-    match crate::repository::assets::get_paginated_devices_excluding_ids(
-        &mut conn,
-        page,
-        page_size,
-        query.search.as_deref(),
-        &exclude_ids,
-    ) {
-        Ok((devices, total_count)) => {
-            let total_pages = ((total_count as f64) / (page_size as f64)).ceil() as i64;
-            let device_responses = devices_to_responses(&mut conn, devices);
+    let search = query.search.clone();
 
+    let result = tc.run(|conn| {
+        let (devices, total_count) = crate::repository::assets::get_paginated_devices_excluding_ids(
+            conn,
+            page,
+            page_size,
+            search.as_deref(),
+            &exclude_ids,
+        )?;
+        let device_responses = devices_to_responses(conn, devices);
+        Ok((device_responses, total_count))
+    });
+
+    match result {
+        Ok((device_responses, total_count)) => {
+            let total_pages = ((total_count as f64) / (page_size as f64)).ceil() as i64;
             let response = PaginatedResponse {
                 data: device_responses,
                 page,
@@ -972,7 +941,6 @@ pub async fn get_paginated_devices_excluding(
                 total: total_count,
                 total_pages,
             };
-
             HttpResponse::Ok().json(response)
         }
         Err(e) => {
@@ -992,28 +960,18 @@ pub struct BulkDeviceActionRequest {
 /// Perform bulk operations on devices (admin only)
 pub async fn bulk_devices(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     search_service: web::Data<Arc<SearchService>>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     body: web::Json<BulkDeviceActionRequest>,
 ) -> impl Responder {
-    // Extract claims and check authentication
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
     // Only admins can perform bulk operations
-    if !is_admin(&claims) {
+    if !auth.is_admin() {
         return errors::forbidden(
             "Forbidden: Only administrators can perform bulk device operations",
         );
     }
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     let action = body.action.as_str();
     let ids = &body.ids;
@@ -1027,7 +985,9 @@ pub async fn bulk_devices(
             let mut deleted = 0;
             let source_client_id = extract_sse_client_id(&req);
             for id in ids {
-                match repository::delete_device(&mut conn, *id, Some(search_service.get_ref())) {
+                let id = *id;
+                let search = search_service.get_ref().clone();
+                match tc.run(|conn| repository::delete_device(conn, id, Some(&search))) {
                     Ok(rows) => {
                         deleted += rows;
                         // Search index removal is fired by the
@@ -1037,7 +997,7 @@ pub async fn bulk_devices(
                         sse_state
                             .broadcast_event_from(
                                 crate::handlers::sse::SseEvent::AssetDeleted {
-                                    device_id: *id,
+                                    device_id: id,
                                     timestamp: chrono::Utc::now(),
                                 },
                                 source_client_id.clone(),
@@ -1045,7 +1005,7 @@ pub async fn bulk_devices(
                             .await;
                     }
                     Err(e) => {
-                        error!(device_id = *id, error = ?e, "Error deleting device in bulk operation");
+                        error!(device_id = id, error = ?e, "Error deleting device in bulk operation");
                     }
                 }
             }

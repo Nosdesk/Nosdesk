@@ -8,23 +8,22 @@
 //! - `GET  /api/tickets/{id}/asset-usage` — usage rows attached
 //!   to a ticket.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder};
 use bigdecimal::BigDecimal;
 use diesel::result::Error as DieselError;
 use serde::Deserialize;
 use std::str::FromStr;
 use tracing::error;
 
-use crate::db::Pool;
+use crate::extractors::{AuthContext, TenantConn};
+use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
-use crate::handlers::{errors, helpers};
 use crate::models::NewAssetUsage;
 use crate::repository::asset_usage as repo;
 use crate::services::notifications::types::{
     NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
 };
 use crate::services::notifications::NotificationService;
-use crate::utils::rbac::is_technician_or_admin;
 
 #[derive(Debug, Deserialize)]
 pub struct RecordUsageBody {
@@ -62,27 +61,18 @@ const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 200;
 
 pub async fn record(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     path: web::Path<i32>,
     body: web::Json<RecordUsageBody>,
     sse_state: web::Data<SseState>,
     notification_service: web::Data<NotificationService>,
 ) -> impl Responder {
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(c) => c.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can record usage",
         );
     }
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     let asset_id = path.into_inner();
     let body = body.into_inner();
@@ -110,17 +100,18 @@ pub async fn record(
     // writes for assets that aren't stock-tracked (quantity is
     // NULL); the unit lives on the asset's own row so we can
     // stamp it onto the usage row without trusting client input.
-    use crate::schema::assets;
-    use diesel::prelude::*;
-    let asset_row: Result<(Option<BigDecimal>, Option<String>), DieselError> = assets::table
-        .find(asset_id)
-        .select((assets::quantity, assets::unit))
-        .first(&mut conn);
+    let asset_row = tc.run(|conn| {
+        use crate::schema::assets;
+        use diesel::prelude::*;
+        assets::table
+            .find(asset_id)
+            .select((assets::quantity, assets::unit))
+            .first::<(Option<BigDecimal>, Option<String>)>(conn)
+            .optional()
+    });
     let (current_qty, unit) = match asset_row {
-        Ok(row) => row,
-        Err(DieselError::NotFound) => {
-            return errors::not_found_msg(format!("Asset {asset_id} not found"))
-        }
+        Ok(Some(row)) => row,
+        Ok(None) => return errors::not_found_msg(format!("Asset {asset_id} not found")),
         Err(e) => {
             error!(asset_id, error = ?e, "failed to load asset for usage record");
             return errors::internal("Failed to load asset");
@@ -140,7 +131,7 @@ pub async fn record(
         }
     };
 
-    let recorded_by = uuid::Uuid::parse_str(&claims.sub).ok();
+    let recorded_by = Some(auth.user_uuid);
     let new_usage = NewAssetUsage {
         asset_id,
         ticket_id: body.ticket_id,
@@ -154,7 +145,7 @@ pub async fn record(
         event_kind: body.kind,
     };
 
-    match repo::record_event(&mut conn, new_usage) {
+    match tc.run(|conn| repo::record_event(conn, new_usage)) {
         Ok(outcome) => {
             // Live ledger broadcast: the usage history panels on
             // the asset detail and the ticket detail subscribe
@@ -201,9 +192,14 @@ pub async fn record(
                     // usage write, so errors are logged not
                     // bubbled.
                     let actor_uuid = recorded_by.unwrap_or_else(uuid::Uuid::nil);
-                    let actor_name = actor_name_for(&mut conn, actor_uuid)
+                    let actor_name = tc
+                        .run(|conn| Ok(actor_name_for(conn, actor_uuid)))
+                        .ok()
+                        .flatten()
                         .unwrap_or_else(|| "System".to_string());
-                    let recipients = inventory_alert_recipients(&mut conn);
+                    let recipients = tc
+                        .run(|conn| Ok(inventory_alert_recipients(conn)))
+                        .unwrap_or_default();
 
                     let body = format!(
                         "{} is low: {} {} remaining (threshold {} {}).",
@@ -254,21 +250,16 @@ pub async fn record(
 }
 
 pub async fn list_for_asset(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    _auth: AuthContext,
     path: web::Path<i32>,
     query: web::Query<ListUsageQuery>,
 ) -> impl Responder {
-    let (_claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-
     let asset_id = path.into_inner();
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = query.offset.unwrap_or(0).max(0);
 
-    match repo::list_for_asset(&mut conn, asset_id, limit, offset) {
+    match tc.run(|conn| repo::list_for_asset(conn, asset_id, limit, offset)) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(asset_id, error = ?e, "failed to list asset usage");
@@ -278,17 +269,12 @@ pub async fn list_for_asset(
 }
 
 pub async fn list_for_ticket(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    _auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
-    let (_claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-
     let ticket_id = path.into_inner();
-    match repo::list_for_ticket(&mut conn, ticket_id) {
+    match tc.run(|conn| repo::list_for_ticket(conn, ticket_id)) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(ticket_id, error = ?e, "failed to list ticket usage");

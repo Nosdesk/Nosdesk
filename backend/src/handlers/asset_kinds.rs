@@ -14,14 +14,14 @@
 //! `services::assets::kinds::validate_schema` so a malformed
 //! schema can't poison the registry.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder};
 use diesel::result::Error as DieselError;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::error;
 
-use crate::db::Pool;
-use crate::handlers::{errors, helpers};
+use crate::extractors::{AuthContext, TenantConn};
+use crate::handlers::errors;
 use crate::models::{AssetKind, AssetKindUpdate, NewAssetKind};
 use crate::repository::asset_kinds as repo;
 use crate::services::assets::kinds as schema_validator;
@@ -82,13 +82,12 @@ fn default_category() -> String {
     "generic".to_string()
 }
 
-pub async fn list(pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+pub async fn list(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if !auth.is_admin() {
+        return errors::forbidden("Admin required");
+    }
 
-    match repo::list_kinds(&mut conn) {
+    match tc.run(|conn| repo::list_kinds(conn)) {
         Ok(kinds) => HttpResponse::Ok().json(kinds),
         Err(e) => {
             error!(error = %e, "failed to list asset kinds");
@@ -97,14 +96,13 @@ pub async fn list(pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
     }
 }
 
-pub async fn get(pool: web::Data<Pool>, path: web::Path<i32>, req: HttpRequest) -> impl Responder {
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+pub async fn get(mut tc: TenantConn, path: web::Path<i32>, auth: AuthContext) -> impl Responder {
+    if !auth.is_admin() {
+        return errors::forbidden("Admin required");
+    }
 
     let id = path.into_inner();
-    match repo::get_kind(&mut conn, id) {
+    match tc.run(|conn| repo::get_kind(conn, id)) {
         Ok(kind) => HttpResponse::Ok().json(kind),
         Err(DieselError::NotFound) => errors::not_found_msg(format!("Asset kind {id} not found")),
         Err(e) => {
@@ -115,14 +113,13 @@ pub async fn get(pool: web::Data<Pool>, path: web::Path<i32>, req: HttpRequest) 
 }
 
 pub async fn create(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<CreateBody>,
-    req: HttpRequest,
+    auth: AuthContext,
 ) -> impl Responder {
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if !auth.is_admin() {
+        return errors::forbidden("Admin required");
+    }
 
     let body = body.into_inner();
 
@@ -148,12 +145,9 @@ pub async fn create(
         ));
     }
 
-    // Pull the admin's UUID for created_by. admin_conn already
-    // verified the role; we just need the subject claim.
-    let created_by = req
-        .extensions()
-        .get::<crate::models::Claims>()
-        .and_then(|c| uuid::Uuid::parse_str(&c.sub).ok());
+    // AuthContext already verified the admin role; reuse its
+    // user_uuid for created_by attribution.
+    let created_by = Some(auth.user_uuid);
 
     let new_kind = NewAssetKind {
         slug,
@@ -167,7 +161,7 @@ pub async fn create(
         category: body.category,
     };
 
-    match repo::create_kind(&mut conn, new_kind) {
+    match tc.run(|conn| repo::create_kind(conn, new_kind)) {
         Ok(kind) => HttpResponse::Created().json(kind),
         Err(DieselError::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, _)) => {
             errors::bad_request("Another asset kind already uses that slug")
@@ -194,16 +188,15 @@ pub struct UpdateQuery {
 }
 
 pub async fn update(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateBody>,
     query: web::Query<UpdateQuery>,
-    req: HttpRequest,
+    auth: AuthContext,
 ) -> impl Responder {
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if !auth.is_admin() {
+        return errors::forbidden("Admin required");
+    }
 
     let id = path.into_inner();
     let body = body.into_inner();
@@ -235,7 +228,7 @@ pub async fn update(
     // tightened schema silently invalidates already-stored data.
     if let Some(ref new_schema) = body.attribute_schema {
         if !force {
-            let existing_kind = match repo::get_kind(&mut conn, id) {
+            let existing_kind = match tc.run(|conn| repo::get_kind(conn, id)) {
                 Ok(k) => k,
                 Err(DieselError::NotFound) => {
                     return errors::not_found_msg(format!("Asset kind {id} not found"))
@@ -246,12 +239,16 @@ pub async fn update(
                 }
             };
             const SAMPLE_LIMIT: usize = 5;
-            match schema_validator::count_invalid_assets_for_kind(
-                &mut conn,
-                &existing_kind.slug,
-                new_schema,
-                SAMPLE_LIMIT,
-            ) {
+            let slug = existing_kind.slug.clone();
+            let new_schema_clone = new_schema.clone();
+            match tc.run(|conn| {
+                schema_validator::count_invalid_assets_for_kind(
+                    conn,
+                    &slug,
+                    &new_schema_clone,
+                    SAMPLE_LIMIT,
+                )
+            }) {
                 Ok((invalid_count, samples)) if invalid_count > 0 => {
                     return HttpResponse::Conflict().json(json!({
                         "error": "schema_invalidates_existing_assets",
@@ -285,7 +282,7 @@ pub async fn update(
         updated_at: None,
     };
 
-    match repo::update_kind(&mut conn, id, update) {
+    match tc.run(|conn| repo::update_kind(conn, id, update)) {
         Ok(kind) => HttpResponse::Ok().json(kind),
         Err(DieselError::NotFound) => errors::not_found_msg(format!("Asset kind {id} not found")),
         Err(e) => {
@@ -296,14 +293,13 @@ pub async fn update(
 }
 
 pub async fn delete(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
-    req: HttpRequest,
+    auth: AuthContext,
 ) -> impl Responder {
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if !auth.is_admin() {
+        return errors::forbidden("Admin required");
+    }
 
     let id = path.into_inner();
 
@@ -311,7 +307,7 @@ pub async fn delete(
     // "is_builtin" (delete refused), and "deleted" with clear
     // status codes. The delete itself filters on is_builtin =
     // false so the DB guarantees the same.
-    let existing: AssetKind = match repo::get_kind(&mut conn, id) {
+    let existing: AssetKind = match tc.run(|conn| repo::get_kind(conn, id)) {
         Ok(k) => k,
         Err(DieselError::NotFound) => {
             return errors::not_found_msg(format!("Asset kind {id} not found"))
@@ -327,7 +323,7 @@ pub async fn delete(
         );
     }
 
-    match repo::delete_kind(&mut conn, id) {
+    match tc.run(|conn| repo::delete_kind(conn, id)) {
         Ok(0) => errors::not_found_msg(format!("Asset kind {id} not found")),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {

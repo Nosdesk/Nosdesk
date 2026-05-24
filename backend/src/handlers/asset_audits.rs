@@ -7,22 +7,20 @@
 //!   be overwritten by the next sync.
 //! - `GET  /api/assets/{id}/audits` — paginated history.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder};
 use bigdecimal::BigDecimal;
-use diesel::result::Error as DieselError;
 use serde::Deserialize;
 use std::str::FromStr;
 use tracing::error;
 
-use crate::db::Pool;
+use crate::extractors::{AuthContext, TenantConn};
+use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
-use crate::handlers::{errors, helpers};
 use crate::repository::asset_audits as repo;
 use crate::services::notifications::types::{
     NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
 };
 use crate::services::notifications::NotificationService;
-use crate::utils::rbac::is_technician_or_admin;
 
 #[derive(Debug, Deserialize)]
 pub struct RecordAuditBody {
@@ -44,27 +42,19 @@ const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 200;
 
 pub async fn record(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     path: web::Path<i32>,
     body: web::Json<RecordAuditBody>,
     sse_state: web::Data<SseState>,
     notification_service: web::Data<NotificationService>,
 ) -> impl Responder {
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(c) => c.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can record audits",
         );
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
     let asset_id = path.into_inner();
     let body = body.into_inner();
 
@@ -81,17 +71,18 @@ pub async fn record(
     // Gate: asset must be stock-tracked and not externally
     // owned. Both checks mirror the usage-record path so the
     // two ledgers stay aligned on which assets accept writes.
-    use crate::schema::assets;
-    use diesel::prelude::*;
-    let row: Result<(Option<BigDecimal>, Option<String>), DieselError> = assets::table
-        .find(asset_id)
-        .select((assets::quantity, assets::external_sync_source))
-        .first(&mut conn);
+    let row = tc.run(|conn| {
+        use crate::schema::assets;
+        use diesel::prelude::*;
+        assets::table
+            .find(asset_id)
+            .select((assets::quantity, assets::external_sync_source))
+            .first::<(Option<BigDecimal>, Option<String>)>(conn)
+            .optional()
+    });
     let (current_qty, external) = match row {
-        Ok(r) => r,
-        Err(DieselError::NotFound) => {
-            return errors::not_found_msg(format!("Asset {asset_id} not found"))
-        }
+        Ok(Some(r)) => r,
+        Ok(None) => return errors::not_found_msg(format!("Asset {asset_id} not found")),
         Err(e) => {
             error!(asset_id, error = ?e, "failed to load asset for audit");
             return errors::internal("Failed to load asset");
@@ -108,13 +99,13 @@ pub async fn record(
         );
     }
 
-    let recorded_by = uuid::Uuid::parse_str(&claims.sub).ok();
+    let recorded_by = Some(auth.user_uuid);
     let notes = body.notes.and_then(|s| {
         let trimmed = s.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     });
 
-    match repo::record_audit(&mut conn, asset_id, counted, notes, recorded_by) {
+    match tc.run(|conn| repo::record_audit(conn, asset_id, counted, notes, recorded_by)) {
         Ok(outcome) => {
             sse_state
                 .broadcast_event(SseEvent::AssetAuditRecorded {
@@ -134,9 +125,14 @@ pub async fn record(
             if outcome.crossed_low_stock {
                 if let Some(threshold) = outcome.threshold.as_ref() {
                     let actor_uuid = recorded_by.unwrap_or_else(uuid::Uuid::nil);
-                    let actor_name = actor_name_for(&mut conn, actor_uuid)
+                    let actor_name = tc
+                        .run(|conn| Ok(actor_name_for(conn, actor_uuid)))
+                        .ok()
+                        .flatten()
                         .unwrap_or_else(|| "System".to_string());
-                    let recipients = inventory_alert_recipients(&mut conn);
+                    let recipients = tc
+                        .run(|conn| Ok(inventory_alert_recipients(conn)))
+                        .unwrap_or_default();
                     let body_text = format!(
                         "{} audit lowered stock: {} {} remaining (threshold {} {}).",
                         outcome.asset_name,
@@ -181,19 +177,15 @@ pub async fn record(
 }
 
 pub async fn list_for_asset(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    _auth: AuthContext,
     path: web::Path<i32>,
     query: web::Query<ListAuditsQuery>,
 ) -> impl Responder {
-    let (_claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
     let asset_id = path.into_inner();
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = query.offset.unwrap_or(0).max(0);
-    match repo::list_for_asset(&mut conn, asset_id, limit, offset) {
+    match tc.run(|conn| repo::list_for_asset(conn, asset_id, limit, offset)) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(asset_id, error = ?e, "failed to list asset audits");
