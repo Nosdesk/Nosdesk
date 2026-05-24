@@ -94,19 +94,25 @@ impl SearchService {
             is_rebuilding: AtomicBool::new(false),
         };
 
-        // Auto-populate if the index is empty
+        // Auto-populate if the index is empty. The indexer reads
+        // across every workspace's tickets / comments /
+        // documentation / devices — all RLS-enabled — so wrap in
+        // background_run for the platform-level bypass.
         let doc_count = service.reader.searcher().num_docs();
         if doc_count == 0 {
             info!("Search index is empty, rebuilding from database");
-            match pool.get() {
-                Ok(mut conn) => match service.rebuild_index(&mut conn) {
-                    Ok(stats) => info!(total = stats.total(), "Initial index build complete"),
-                    Err(e) => {
-                        warn!(error = ?e, "Initial index build failed, search will populate incrementally")
-                    }
+            match crate::sync::session::background_run(
+                &pool,
+                "background:search_initial_index_build",
+                |conn| {
+                    service
+                        .rebuild_index(conn)
+                        .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
                 },
+            ) {
+                Ok(stats) => info!(total = stats.total(), "Initial index build complete"),
                 Err(e) => {
-                    warn!(error = ?e, "Could not connect to database for initial index build")
+                    warn!(error = ?e, "Initial index build failed, search will populate incrementally")
                 }
             }
         } else {

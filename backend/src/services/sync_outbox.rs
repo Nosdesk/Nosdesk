@@ -137,10 +137,18 @@ async fn run(database_url: String, pool: Pool, sse: Arc<SseState>) {
 }
 
 fn initial_watermark(pool: &Pool) -> Result<i64, anyhow::Error> {
-    let mut conn = pool.get()?;
-    let max_id: Option<i64> = sync_actions::table
-        .select(diesel::dsl::max(sync_actions::sync_id))
-        .first(&mut conn)?;
+    // sync_actions is RLS-enabled (Phase 3c.2); the outbox SSE
+    // broadcaster is a platform-level reader fanning out across
+    // every workspace, so it bypasses via background_run.
+    let max_id: Option<i64> = crate::sync::session::background_run(
+        pool,
+        "background:sync_outbox_watermark",
+        |conn| {
+            sync_actions::table
+                .select(diesel::dsl::max(sync_actions::sync_id))
+                .first(conn)
+        },
+    )?;
     Ok(max_id.unwrap_or(0))
 }
 
@@ -217,28 +225,35 @@ async fn drain_since(
         let snapshot_watermark = *watermark;
         let pool = pool.clone();
         let rows = tokio::task::spawn_blocking(move || -> Result<Vec<ActionRow>, anyhow::Error> {
-            let mut conn = pool.get()?;
-            let rows = sync_actions::table
-                .filter(sync_actions::sync_id.gt(snapshot_watermark))
-                .order(sync_actions::sync_id.asc())
-                .limit(DRAIN_PAGE_SIZE)
-                .select((
-                    sync_actions::sync_id,
-                    sync_actions::aggregate,
-                    sync_actions::aggregate_id,
-                    sync_actions::op,
-                    sync_actions::event_type,
-                    sync_actions::schema_version,
-                    sync_actions::data,
-                    sync_actions::groups,
-                    sync_actions::actor_uuid,
-                    sync_actions::actor_kind,
-                    sync_actions::actor_ref,
-                    sync_actions::correlation_id,
-                    sync_actions::causation_id,
-                    sync_actions::occurred_at,
-                ))
-                .load::<ActionRow>(&mut conn)?;
+            // Same bypass story: outbox drain reads across every
+            // workspace's sync_actions.
+            let rows = crate::sync::session::background_run(
+                &pool,
+                "background:sync_outbox_drain",
+                |conn| {
+                    sync_actions::table
+                        .filter(sync_actions::sync_id.gt(snapshot_watermark))
+                        .order(sync_actions::sync_id.asc())
+                        .limit(DRAIN_PAGE_SIZE)
+                        .select((
+                            sync_actions::sync_id,
+                            sync_actions::aggregate,
+                            sync_actions::aggregate_id,
+                            sync_actions::op,
+                            sync_actions::event_type,
+                            sync_actions::schema_version,
+                            sync_actions::data,
+                            sync_actions::groups,
+                            sync_actions::actor_uuid,
+                            sync_actions::actor_kind,
+                            sync_actions::actor_ref,
+                            sync_actions::correlation_id,
+                            sync_actions::causation_id,
+                            sync_actions::occurred_at,
+                        ))
+                        .load::<ActionRow>(conn)
+                },
+            )?;
             Ok(rows)
         })
         .await??;
