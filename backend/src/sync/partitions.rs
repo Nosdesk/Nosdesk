@@ -202,6 +202,18 @@ fn ensure_one_partition(
         ))
         .execute(conn)?;
 
+        // 7. REVOKE app-role access on the new child so direct
+        //    queries (`SELECT FROM audit_log_2026_07`) fail loudly
+        //    with "permission denied" rather than returning zero
+        //    rows via RLS. Postgres routes parent-queries through
+        //    parent ACLs, so the legitimate access path is
+        //    unaffected. Defense in depth for any future code
+        //    that accidentally hardcodes a partition name.
+        diesel::sql_query(format!(
+            "REVOKE SELECT, INSERT, UPDATE, DELETE ON {child} FROM nosdesk_app, nosdesk_admin"
+        ))
+        .execute(conn)?;
+
         Ok(())
     })
 }
