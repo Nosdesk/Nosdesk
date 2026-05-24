@@ -86,11 +86,18 @@ pub fn set_actor(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<(
     if let Some(ws) = actor.workspace_id {
         set_config(conn, "app.workspace_id", &ws.to_string())?;
     }
-    // Always reset the bypass flag on entry so a stale value can't
-    // ride from a prior leaky txn (defensive; set_config with the
-    // local flag is already txn-scoped). The bypass-context helper
-    // sets this to "true" after calling set_actor.
-    set_config(conn, "app.bypass_workspace_check", "")?;
+    // Re-establish the baseline role at the start of every
+    // actor-context txn. In production this is a no-op
+    // (`nosdesk_app` is already the connection's auth role); in
+    // tests it counteracts a prior `with_actor_bypass_context`
+    // call that elevated to `nosdesk_admin` inside a savepoint
+    // (savepoint commit promotes the SET LOCAL into the outer
+    // txn's scope, so without this reset the role would persist
+    // until the test's begin_test_transaction unwinds). This is
+    // the substitute for the old `app.bypass_workspace_check`
+    // reset, which Phase 3h.4 removed when bypass moved from a
+    // GUC flag to a separate BYPASSRLS role.
+    diesel::sql_query("SET LOCAL ROLE nosdesk_app").execute(conn)?;
     Ok(())
 }
 
@@ -130,8 +137,8 @@ where
 }
 
 /// Run a closure inside a transaction with the actor GUCs primed AND
-/// `app.bypass_workspace_check = 'true'`, so RLS policies that read
-/// the bypass flag let the query through regardless of workspace_id.
+/// elevated to the `nosdesk_admin` BYPASSRLS role, so every RLS
+/// policy is skipped for the txn.
 ///
 /// Reserved for legitimately cross-workspace operations: registry
 /// sync, partition rotation, super-admin tools, the workspace
@@ -139,8 +146,15 @@ where
 /// is greppable and audit-reviewable; ordinary handlers must use
 /// `with_actor_context` instead.
 ///
-/// The bypass flag is txn-scoped via `set_config(_, _, true)`, so it
-/// can't leak between checkouts even if the surrounding code panics.
+/// Bypass is enforced by Postgres role membership, not by a GUC
+/// flag the application code could trip on accidentally (Phase
+/// 3h.4 moved off the GUC scheme because placeholder `app.*` GUCs
+/// are write-by-any-role and the bypass was therefore convention-
+/// enforced, not DB-enforced). `SET LOCAL ROLE` is txn-scoped, so
+/// the elevation evaporates at commit / rollback. Set-actor's
+/// baseline reset (`SET LOCAL ROLE nosdesk_app`) at the start of
+/// every actor-context txn defends against role-leak across
+/// sequential savepoints in tests.
 pub fn with_actor_bypass_context<T, E>(
     conn: &mut DbConnection,
     actor: &ActorContext,
@@ -152,8 +166,13 @@ where
     use diesel::Connection;
 
     conn.transaction(|conn| {
+        // set_actor runs first; it includes the baseline-role
+        // reset (`SET LOCAL ROLE nosdesk_app`). Then we elevate.
+        // Order matters: if we SET ROLE before set_actor, the
+        // baseline reset inside set_actor would undo the
+        // elevation.
         set_actor(conn, actor)?;
-        set_config(conn, "app.bypass_workspace_check", "true")?;
+        diesel::sql_query("SET LOCAL ROLE nosdesk_admin").execute(conn)?;
         f(conn)
     })
 }

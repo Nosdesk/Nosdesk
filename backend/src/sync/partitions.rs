@@ -197,10 +197,8 @@ fn ensure_one_partition(
         .execute(conn)?;
         diesel::sql_query(format!(
             "CREATE POLICY {policy_name} ON {child} \
-             USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
-                    OR NULLIF(current_setting('app.bypass_workspace_check', true), '') = 'true') \
-             WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
-                         OR NULLIF(current_setting('app.bypass_workspace_check', true), '') = 'true')"
+             USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int) \
+             WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int)"
         ))
         .execute(conn)?;
 

@@ -73,6 +73,21 @@ impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for TestTransaction {
     fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), r2d2::Error> {
         conn.begin_test_transaction()
             .map_err(r2d2::Error::QueryError)?;
+        // Mirror setup_test_connection: drop to nosdesk_app so RLS
+        // policies apply in handler-level tests too (the connection
+        // auths as nosdesk superuser which bypasses RLS), and
+        // default the workspace GUC to the bootstrap workspace so
+        // every tenant query and insert sees a populated value.
+        // Without this, post-3h.4 handler tests fail because
+        // set_actor's baseline `SET LOCAL ROLE nosdesk_app` drops
+        // privileges on a connection that has no workspace pin,
+        // and every tenant insert trips the strict WITH CHECK.
+        diesel::sql_query("SET LOCAL ROLE nosdesk_app")
+            .execute(conn)
+            .map_err(r2d2::Error::QueryError)?;
+        diesel::sql_query("SELECT set_config('app.workspace_id', '1', false)")
+            .execute(conn)
+            .map_err(r2d2::Error::QueryError)?;
         Ok(())
     }
 }
