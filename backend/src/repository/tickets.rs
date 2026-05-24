@@ -910,4 +910,214 @@ mod tests {
         let result = find_by_lookup_token(&mut conn, Uuid::new_v4());
         assert!(matches!(result, Err(diesel::result::Error::NotFound)));
     }
+
+    // ---- Phase 3a: workspace isolation matrix ----
+    //
+    // Verifies the `tickets_workspace_isolation` RLS policy against
+    // the GUC-driven session state. Every Phase 3c policy will reuse
+    // the same template, but the matrix runs only here for now; once
+    // 3c lands and 3f adds the per-table sweep, the shared isolation
+    // harness can subsume this.
+
+    use crate::sync::session::{with_actor_bypass_context, with_actor_context};
+
+    /// Seed a second workspace + one ticket per workspace. Returns
+    /// (ws1_ticket_id, ws2_ticket_id). Setup uses `bypass_context` so
+    /// the seed crosses workspaces deliberately.
+    fn seed_two_workspaces(conn: &mut DbConnection) -> (i32, i32) {
+        let admin = ActorContext::system("rls.test");
+
+        with_actor_bypass_context(conn, &admin, |c| {
+            // Workspace 2 (workspace 1 already exists from the
+            // bootstrap migration).
+            diesel::sql_query(
+                "INSERT INTO workspaces (id, slug, name) \
+                 VALUES (2, 'other', 'Other Workspace')",
+            )
+            .execute(c)?;
+
+            // Reset the workspaces sequence so subsequent inserts
+            // don't collide with the explicit id=2. Postgres sequences
+            // don't auto-advance on explicit inserts.
+            diesel::sql_query("SELECT setval('workspaces_id_seq', 2, true)").execute(c)?;
+
+            Ok::<(), diesel::result::Error>(())
+        })
+        .expect("seed workspace 2");
+
+        let state = crate::repository::workflow_states::default_state(conn)
+            .expect("default workflow state seeded");
+
+        // Bootstrap workspace 1 ticket via the column default.
+        let t1: Ticket = with_actor_context(conn, &admin.clone().with_workspace(1), |c| {
+            let new = NewTicket {
+                title: "ws1 ticket".into(),
+                workflow_state_id: state.id,
+                ..Default::default()
+            };
+            diesel::insert_into(tickets::table)
+                .values(&new)
+                .get_result::<Ticket>(c)
+        })
+        .expect("insert ws1 ticket");
+
+        // Workspace 2 ticket needs an explicit workspace_id; raw SQL
+        // because NewTicket doesn't carry workspace_id yet (the
+        // column-default-from-GUC swap lands in 3c).
+        let t2_id: i32 = with_actor_bypass_context(conn, &admin, |c| {
+            #[derive(diesel::QueryableByName)]
+            struct IdRow {
+                #[diesel(sql_type = diesel::sql_types::Integer)]
+                id: i32,
+            }
+            let row: IdRow = diesel::sql_query(
+                "INSERT INTO tickets (title, workflow_state_id, priority, workspace_id) \
+                 VALUES ('ws2 ticket', $1, 'medium', 2) RETURNING id",
+            )
+            .bind::<diesel::sql_types::Integer, _>(state.id)
+            .get_result(c)?;
+            Ok::<i32, diesel::result::Error>(row.id)
+        })
+        .expect("insert ws2 ticket");
+
+        (t1.id, t2_id)
+    }
+
+    fn count_visible_tickets(conn: &mut DbConnection) -> i64 {
+        tickets::table
+            .count()
+            .get_result::<i64>(conn)
+            .expect("count tickets")
+    }
+
+    #[test]
+    fn rls_workspace_1_sees_only_workspace_1_tickets() {
+        let mut conn = setup_test_connection();
+        let (t1, t2) = seed_two_workspaces(&mut conn);
+        let actor = ActorContext::system("rls.test").with_workspace(1);
+
+        let visible: Vec<i32> = with_actor_context(&mut conn, &actor, |c| {
+            tickets::table.select(tickets::id).load::<i32>(c)
+        })
+        .expect("query tickets");
+
+        assert!(visible.contains(&t1), "workspace 1 should see ws1 ticket");
+        assert!(
+            !visible.contains(&t2),
+            "workspace 1 must NOT see ws2 ticket"
+        );
+    }
+
+    #[test]
+    fn rls_workspace_2_sees_only_workspace_2_tickets() {
+        let mut conn = setup_test_connection();
+        let (t1, t2) = seed_two_workspaces(&mut conn);
+        let actor = ActorContext::system("rls.test").with_workspace(2);
+
+        let visible: Vec<i32> = with_actor_context(&mut conn, &actor, |c| {
+            tickets::table.select(tickets::id).load::<i32>(c)
+        })
+        .expect("query tickets");
+
+        assert!(visible.contains(&t2), "workspace 2 should see ws2 ticket");
+        assert!(
+            !visible.contains(&t1),
+            "workspace 2 must NOT see ws1 ticket"
+        );
+    }
+
+    #[test]
+    fn rls_unset_workspace_returns_no_rows() {
+        let mut conn = setup_test_connection();
+        let _ = seed_two_workspaces(&mut conn);
+        // Explicitly clear the ambient workspace GUC: simulates the
+        // production failure mode where neither the request middleware
+        // nor a background-job operator pinned a workspace. Strict
+        // policy returns zero rows rather than silently leaking.
+        diesel::sql_query("SELECT set_config('app.workspace_id', '', false)")
+            .execute(&mut conn)
+            .expect("clear workspace GUC");
+        let actor = ActorContext::system("rls.test");
+
+        let count = with_actor_context(&mut conn, &actor, |c| {
+            Ok::<i64, diesel::result::Error>(count_visible_tickets(c))
+        })
+        .expect("query tickets");
+
+        assert_eq!(count, 0, "unset workspace must surface zero rows");
+    }
+
+    #[test]
+    fn rls_bypass_context_sees_all_workspaces() {
+        let mut conn = setup_test_connection();
+        let (t1, t2) = seed_two_workspaces(&mut conn);
+        let actor = ActorContext::system("rls.test");
+
+        let visible: Vec<i32> = with_actor_bypass_context(&mut conn, &actor, |c| {
+            tickets::table.select(tickets::id).load::<i32>(c)
+        })
+        .expect("query tickets");
+
+        assert!(visible.contains(&t1));
+        assert!(visible.contains(&t2));
+    }
+
+    #[test]
+    fn rls_insert_with_mismatched_workspace_is_rejected() {
+        let mut conn = setup_test_connection();
+        let _ = seed_two_workspaces(&mut conn);
+        let state = crate::repository::workflow_states::default_state(&mut conn)
+            .expect("default workflow state seeded");
+        let actor = ActorContext::system("rls.test").with_workspace(1);
+
+        // While pinned to workspace 1, attempt to insert a row that
+        // claims workspace 2. RLS WITH CHECK rejects as a policy
+        // violation surfaced through Diesel as a generic db error.
+        let result = with_actor_context(&mut conn, &actor, |c| {
+            diesel::sql_query(
+                "INSERT INTO tickets (title, workflow_state_id, priority, workspace_id) \
+                 VALUES ('forbidden', $1, 'medium', 2)",
+            )
+            .bind::<diesel::sql_types::Integer, _>(state.id)
+            .execute(c)
+        });
+
+        assert!(
+            result.is_err(),
+            "cross-workspace insert must fail the WITH CHECK"
+        );
+    }
+
+    #[test]
+    fn rls_update_cannot_reach_other_workspace_row() {
+        let mut conn = setup_test_connection();
+        let (_, t2) = seed_two_workspaces(&mut conn);
+        let actor = ActorContext::system("rls.test").with_workspace(1);
+
+        // A workspace 1 actor running UPDATE against a workspace 2
+        // row sees the row filtered out by the USING clause, so the
+        // UPDATE affects zero rows (silent no-op, by design of RLS).
+        let affected = with_actor_context(&mut conn, &actor, |c| {
+            diesel::update(tickets::table.filter(tickets::id.eq(t2)))
+                .set(tickets::title.eq("tampered"))
+                .execute(c)
+        })
+        .expect("update returns");
+
+        assert_eq!(
+            affected, 0,
+            "workspace 1 actor must not be able to update workspace 2 rows"
+        );
+
+        // Verify the row wasn't touched (read via bypass).
+        let admin = ActorContext::system("rls.test");
+        let title: String = with_actor_bypass_context(&mut conn, &admin, |c| {
+            tickets::table
+                .filter(tickets::id.eq(t2))
+                .select(tickets::title)
+                .first::<String>(c)
+        })
+        .expect("read ws2 ticket via bypass");
+        assert_eq!(title, "ws2 ticket");
+    }
 }

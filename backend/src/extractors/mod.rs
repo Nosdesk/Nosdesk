@@ -4,10 +4,13 @@
 
 pub mod auth_context;
 mod sync_context;
+mod tenant_conn;
 mod ticket_access;
 pub mod workspace_context;
 
 pub use auth_context::AuthContext;
 pub use sync_context::SyncContext;
+#[allow(unused_imports)]
+pub use tenant_conn::TenantConn;
 pub use ticket_access::TicketAccess;
 pub use workspace_context::WorkspaceContext;

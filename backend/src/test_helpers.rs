@@ -104,6 +104,22 @@ pub fn setup_test_connection() -> DbConnection {
     let mut conn = pool.get().expect("Failed to get test connection");
     conn.begin_test_transaction()
         .expect("Failed to begin test transaction");
+    // Drop down to the non-superuser app role so RLS policies apply
+    // to the test connection the same way they do in production.
+    // Superusers (which the migration role is in dev) bypass RLS
+    // unconditionally, even with FORCE RLS on the table; without
+    // this SET ROLE every RLS test would silently pass nothing. The
+    // `nosdesk_app` role is provisioned in the Phase 3a migration.
+    diesel::sql_query("SET LOCAL ROLE nosdesk_app")
+        .execute(&mut conn)
+        .expect("Failed to drop to nosdesk_app role");
+    // Default the workspace GUC to the bootstrap workspace so every
+    // existing test that touches an RLS-enabled tenant table (Phase
+    // 3a onwards) sees rows. Tests exercising cross-workspace
+    // isolation override the GUC explicitly via with_actor_context.
+    diesel::sql_query("SELECT set_config('app.workspace_id', '1', false)")
+        .execute(&mut conn)
+        .expect("Failed to set default workspace GUC");
     conn
 }
 

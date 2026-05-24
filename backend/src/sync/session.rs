@@ -56,10 +56,6 @@ pub fn set_actor(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<(
         .correlation_id
         .map(|u| u.to_string())
         .unwrap_or_default();
-    let workspace_id = actor
-        .workspace_id
-        .map(|i| i.to_string())
-        .unwrap_or_default();
 
     set_config(conn, "app.actor_uuid", &actor_uuid)?;
     set_config(conn, "app.actor_kind", actor.kind.as_str())?;
@@ -74,13 +70,27 @@ pub fn set_actor(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<(
         "app.client_tx_id",
         actor.client_tx_id.as_deref().unwrap_or(""),
     )?;
-    // app.workspace_id is read by the Phase 4 RLS policies via
-    // `(SELECT NULLIF(current_setting('app.workspace_id', true), '')::int)`.
-    // Empty string -> NULL -> RLS sees "no workspace pinned"
-    // (super-admin / platform path); a real workspace id -> the
-    // policy filters tenant rows accordingly. Phase 2b only
-    // lands the writer side; no policy reads it until Phase 4.
-    set_config(conn, "app.workspace_id", &workspace_id)?;
+    // `app.workspace_id` only gets overwritten when the actor
+    // explicitly carries a workspace. If it doesn't (system jobs
+    // built via `ActorContext::system(...)` that haven't been
+    // pinned via `.with_workspace(...)`), we leave whatever the
+    // surrounding context set. In production, the surrounding
+    // context is the request's workspace middleware which sets
+    // the GUC at outer-txn level; in tests, it's the bootstrap
+    // workspace defaulted in `setup_test_connection`. Genuinely
+    // cross-workspace background work uses
+    // `with_actor_bypass_context` instead of relying on an unset
+    // GUC, so the worst-case outcome here is the strict policy
+    // returns zero rows when no ambient workspace exists (an
+    // obvious empty-result bug, not a silent breach).
+    if let Some(ws) = actor.workspace_id {
+        set_config(conn, "app.workspace_id", &ws.to_string())?;
+    }
+    // Always reset the bypass flag on entry so a stale value can't
+    // ride from a prior leaky txn (defensive; set_config with the
+    // local flag is already txn-scoped). The bypass-context helper
+    // sets this to "true" after calling set_actor.
+    set_config(conn, "app.bypass_workspace_check", "")?;
     Ok(())
 }
 
@@ -115,6 +125,35 @@ where
 
     conn.transaction(|conn| {
         set_actor(conn, actor)?;
+        f(conn)
+    })
+}
+
+/// Run a closure inside a transaction with the actor GUCs primed AND
+/// `app.bypass_workspace_check = 'true'`, so RLS policies that read
+/// the bypass flag let the query through regardless of workspace_id.
+///
+/// Reserved for legitimately cross-workspace operations: registry
+/// sync, partition rotation, super-admin tools, the workspace
+/// lifecycle handlers themselves. Every call site of this function
+/// is greppable and audit-reviewable; ordinary handlers must use
+/// `with_actor_context` instead.
+///
+/// The bypass flag is txn-scoped via `set_config(_, _, true)`, so it
+/// can't leak between checkouts even if the surrounding code panics.
+pub fn with_actor_bypass_context<T, E>(
+    conn: &mut DbConnection,
+    actor: &ActorContext,
+    f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<diesel::result::Error>,
+{
+    use diesel::Connection;
+
+    conn.transaction(|conn| {
+        set_actor(conn, actor)?;
+        set_config(conn, "app.bypass_workspace_check", "true")?;
         f(conn)
     })
 }
