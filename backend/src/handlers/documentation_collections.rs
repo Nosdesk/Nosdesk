@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder};
 use chrono::Utc;
 use diesel::result::Error;
 use serde::Deserialize;
@@ -6,42 +6,26 @@ use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::db::Pool;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{
     DocumentationCollectionUpdate, NewDocumentationCollection, NewDocumentationCollectionPage,
 };
 use crate::repository;
-use crate::utils::rbac::{require_admin, require_auth, require_technician_or_admin};
 
 // ============================================================================
 // Collection Endpoints
 // ============================================================================
 
 /// List collections visible to the current user
-pub async fn get_collections(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
-    let claims = match require_auth(&req) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+pub async fn get_collections(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    let user_uuid = auth.user_uuid;
+    let is_admin = auth.is_admin();
 
-    let user_uuid = match Uuid::parse_str(&claims.sub) {
-        Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
-    };
-
-    let is_admin = claims.role == "admin";
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::documentation_collections::get_collections_for_user(
-        &mut conn, &user_uuid, is_admin,
-    ) {
+    match tc.run(|conn| {
+        repository::documentation_collections::get_collections_for_user(conn, &user_uuid, is_admin)
+    }) {
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
             error!(error = ?e, "Failed to get collections");
@@ -50,59 +34,70 @@ pub async fn get_collections(req: HttpRequest, pool: web::Data<Pool>) -> impl Re
     }
 }
 
+/// Outcome of fetching a collection plus its render payload.
+enum CollectionFetchOutcome {
+    Ok(serde_json::Value),
+    NotFound,
+    Failed,
+}
+
 /// Get a single collection by ID with its page list. The
 /// collection owns its rich description directly via
 /// `description_yjs`; the FE binds the editor to the
 /// `collection-${id}` Yjs room rather than to a sentinel page.
 pub async fn get_collection(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
+    _auth: AuthContext,
 ) -> impl Responder {
-    if let Err(e) = require_auth(&req) {
-        return e;
-    }
-
     let collection_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    let collection =
-        match repository::documentation_collections::get_collection(&mut conn, collection_id) {
-            Ok(c) => c,
-            Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
-            Err(_) => return errors::internal("Failed to get collection"),
-        };
+    let outcome = tc.run(|conn| {
+        let collection =
+            match repository::documentation_collections::get_collection(conn, collection_id) {
+                Ok(c) => c,
+                Err(Error::NotFound) => return Ok(CollectionFetchOutcome::NotFound),
+                Err(_) => return Ok(CollectionFetchOutcome::Failed),
+            };
+        Ok::<_, diesel::result::Error>(CollectionFetchOutcome::Ok(collection_response(
+            conn, collection,
+        )))
+    });
 
-    HttpResponse::Ok().json(collection_response(&mut conn, collection))
+    match outcome {
+        Ok(CollectionFetchOutcome::Ok(payload)) => HttpResponse::Ok().json(payload),
+        Ok(CollectionFetchOutcome::NotFound) => errors::not_found_msg("Collection not found"),
+        Ok(CollectionFetchOutcome::Failed) => errors::internal("Failed to get collection"),
+        Err(_) => errors::internal("Failed to get collection"),
+    }
 }
 
 /// Get a single collection by slug.
 pub async fn get_collection_by_slug(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
+    _auth: AuthContext,
 ) -> impl Responder {
-    if let Err(e) = require_auth(&req) {
-        return e;
-    }
-
     let slug = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    let collection =
-        match repository::documentation_collections::get_collection_by_slug(&mut conn, &slug) {
-            Ok(c) => c,
-            Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
-            Err(_) => return errors::internal("Failed to get collection"),
-        };
+    let outcome = tc.run(|conn| {
+        let collection =
+            match repository::documentation_collections::get_collection_by_slug(conn, &slug) {
+                Ok(c) => c,
+                Err(Error::NotFound) => return Ok(CollectionFetchOutcome::NotFound),
+                Err(_) => return Ok(CollectionFetchOutcome::Failed),
+            };
+        Ok::<_, diesel::result::Error>(CollectionFetchOutcome::Ok(collection_response(
+            conn, collection,
+        )))
+    });
 
-    HttpResponse::Ok().json(collection_response(&mut conn, collection))
+    match outcome {
+        Ok(CollectionFetchOutcome::Ok(payload)) => HttpResponse::Ok().json(payload),
+        Ok(CollectionFetchOutcome::NotFound) => errors::not_found_msg("Collection not found"),
+        Ok(CollectionFetchOutcome::Failed) => errors::internal("Failed to get collection"),
+        Err(_) => errors::internal("Failed to get collection"),
+    }
 }
 
 /// Build the JSON shape the FE expects. Pulls pages, visibility,
@@ -151,17 +146,8 @@ fn collection_response(
 }
 
 /// Get pages that don't belong to any collection
-pub async fn get_uncollected_pages(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
-    if let Err(e) = require_auth(&req) {
-        return e;
-    }
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::documentation_collections::get_uncollected_pages(&mut conn) {
+pub async fn get_uncollected_pages(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
+    match tc.run(|conn| repository::documentation_collections::get_uncollected_pages(conn)) {
         Ok(pages) => HttpResponse::Ok().json(pages),
         Err(e) => {
             error!(error = ?e, "Failed to get uncollected pages");
@@ -186,21 +172,15 @@ pub struct CreateCollectionRequest {
 
 /// Create a new collection (technician+)
 pub async fn create_collection(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<CreateCollectionRequest>,
+    auth: AuthContext,
 ) -> impl Responder {
-    let claims = match require_technician_or_admin(&req) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let created_by = Uuid::parse_str(&claims.sub).ok();
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if !auth.is_technician_or_admin() {
+        return errors::forbidden("Forbidden");
+    }
+    let created_by = Some(auth.user_uuid);
+    let body = body.into_inner();
 
     // Generate slug from name if not provided
     let slug = body
@@ -219,24 +199,28 @@ pub async fn create_collection(
         created_by,
     };
 
-    match repository::documentation_collections::create_collection(&mut conn, new_collection) {
-        Ok(collection) => {
-            if let Some(ref group_ids) = body.visible_to_group_ids {
-                if !group_ids.is_empty() {
-                    if let Err(e) = repository::documentation_collections::set_collection_visibility(
-                        &mut conn,
-                        collection.id,
-                        group_ids.clone(),
-                        Vec::new(),
-                        created_by,
-                    ) {
-                        error!(error = ?e, "Failed to set collection visibility");
-                    }
+    let result = tc.run(|conn| {
+        let collection =
+            repository::documentation_collections::create_collection(conn, new_collection)?;
+        if let Some(ref group_ids) = body.visible_to_group_ids {
+            if !group_ids.is_empty() {
+                if let Err(e) = repository::documentation_collections::set_collection_visibility(
+                    conn,
+                    collection.id,
+                    group_ids.clone(),
+                    Vec::new(),
+                    created_by,
+                ) {
+                    error!(error = ?e, "Failed to set collection visibility");
                 }
             }
-
-            HttpResponse::Created().json(collection_response(&mut conn, collection))
         }
+        let payload = collection_response(conn, collection);
+        Ok::<_, diesel::result::Error>(payload)
+    });
+
+    match result {
+        Ok(payload) => HttpResponse::Created().json(payload),
         Err(e) => {
             error!(error = ?e, "Failed to create collection");
             errors::internal("Failed to create collection")
@@ -254,59 +238,81 @@ pub struct UpdateCollectionRequest {
     pub hide_titles_from_non_members: Option<bool>,
 }
 
+/// Outcome of the update_collection transaction.
+enum UpdateCollectionOutcome {
+    Ok(crate::models::DocumentationCollection),
+    NotFound,
+    SystemRenameBlocked,
+    UpdateFailed,
+}
+
 /// Update a collection (technician+, blocks system collection rename)
 pub async fn update_collection(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateCollectionRequest>,
     sse_state: web::Data<SseState>,
+    auth: AuthContext,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
-        return e;
+    if !auth.is_technician_or_admin() {
+        return errors::forbidden("Forbidden");
     }
 
     let collection_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let body = body.into_inner();
 
-    // Check if system collection
-    let collection =
-        match repository::documentation_collections::get_collection(&mut conn, collection_id) {
-            Ok(c) => c,
-            Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
-            Err(_) => return errors::internal("Failed to get collection"),
+    let body_name = body.name.clone();
+    let body_icon = body.icon.clone();
+    let body_description = body.description.clone();
+
+    let outcome = tc.run(|conn| {
+        let collection =
+            match repository::documentation_collections::get_collection(conn, collection_id) {
+                Ok(c) => c,
+                Err(Error::NotFound) => return Ok(UpdateCollectionOutcome::NotFound),
+                Err(_) => return Ok(UpdateCollectionOutcome::UpdateFailed),
+            };
+
+        if collection.is_system && (body.name.is_some() || body.slug.is_some()) {
+            return Ok(UpdateCollectionOutcome::SystemRenameBlocked);
+        }
+
+        let update = DocumentationCollectionUpdate {
+            name: body.name.clone(),
+            slug: body.slug.clone(),
+            description: body.description.clone(),
+            icon: body.icon.clone(),
+            color: body.color.clone(),
+            updated_at: Some(Utc::now().naive_utc()),
+            hide_titles_from_non_members: body.hide_titles_from_non_members,
+            ..Default::default()
         };
 
-    if collection.is_system && (body.name.is_some() || body.slug.is_some()) {
-        return errors::forbidden("Cannot rename system collections");
-    }
+        match repository::documentation_collections::update_collection(
+            conn,
+            collection_id,
+            update,
+        ) {
+            Ok(updated) => Ok::<_, diesel::result::Error>(UpdateCollectionOutcome::Ok(updated)),
+            Err(Error::NotFound) => Ok(UpdateCollectionOutcome::NotFound),
+            Err(e) => {
+                error!(error = ?e, "Failed to update collection");
+                Ok(UpdateCollectionOutcome::UpdateFailed)
+            }
+        }
+    });
 
-    let update = DocumentationCollectionUpdate {
-        name: body.name.clone(),
-        slug: body.slug.clone(),
-        description: body.description.clone(),
-        icon: body.icon.clone(),
-        color: body.color.clone(),
-        updated_at: Some(Utc::now().naive_utc()),
-        hide_titles_from_non_members: body.hide_titles_from_non_members,
-        ..Default::default()
-    };
-
-    match repository::documentation_collections::update_collection(&mut conn, collection_id, update)
-    {
-        Ok(updated) => {
+    match outcome {
+        Ok(UpdateCollectionOutcome::Ok(updated)) => {
             // Broadcast SSE events for each updated field. One event
             // per field so the frontend can apply the change at field
             // granularity.
             let updates: [(&str, Option<serde_json::Value>); 3] = [
-                ("name", body.name.as_ref().map(|v| serde_json::json!(v))),
-                ("icon", body.icon.as_ref().map(|v| serde_json::json!(v))),
+                ("name", body_name.as_ref().map(|v| serde_json::json!(v))),
+                ("icon", body_icon.as_ref().map(|v| serde_json::json!(v))),
                 (
                     "description",
-                    body.description.as_ref().map(|v| serde_json::json!(v)),
+                    body_description.as_ref().map(|v| serde_json::json!(v)),
                 ),
             ];
             for (field, value) in updates.into_iter().filter_map(|(f, v)| v.map(|v| (f, v))) {
@@ -321,67 +327,84 @@ pub async fn update_collection(
             }
             HttpResponse::Ok().json(updated)
         }
-        Err(Error::NotFound) => errors::not_found_msg("Collection not found"),
-        Err(e) => {
-            error!(error = ?e, "Failed to update collection");
-            errors::internal("Failed to update collection")
+        Ok(UpdateCollectionOutcome::NotFound) => errors::not_found_msg("Collection not found"),
+        Ok(UpdateCollectionOutcome::SystemRenameBlocked) => {
+            errors::forbidden("Cannot rename system collections")
         }
+        Ok(UpdateCollectionOutcome::UpdateFailed) => errors::internal("Failed to update collection"),
+        Err(_) => errors::internal("Failed to update collection"),
     }
+}
+
+/// Outcome of the delete_collection transaction.
+enum DeleteCollectionOutcome {
+    Ok { pages_trashed: usize },
+    NotFound,
+    SystemDeleteBlocked,
+    Failed,
 }
 
 /// Delete a collection (admin only, blocks system collections)
 pub async fn delete_collection(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
+    auth: AuthContext,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
-        return e;
+    if !auth.is_admin() {
+        return errors::forbidden("Admin required");
     }
 
     let collection_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    // Check if system collection
-    match repository::documentation_collections::get_collection(&mut conn, collection_id) {
-        Ok(c) if c.is_system => {
-            return errors::forbidden("Cannot delete system collections");
+    let outcome = tc.run(|conn| {
+        match repository::documentation_collections::get_collection(conn, collection_id) {
+            Ok(c) if c.is_system => return Ok(DeleteCollectionOutcome::SystemDeleteBlocked),
+            Ok(_) => {}
+            Err(Error::NotFound) => return Ok(DeleteCollectionOutcome::NotFound),
+            Err(_) => return Ok(DeleteCollectionOutcome::Failed),
         }
-        Ok(_) => {}
-        Err(Error::NotFound) => return errors::not_found_msg("Collection not found"),
-        Err(_) => return errors::internal("Failed to get collection"),
-    }
 
-    // Soft-delete the collection's pages first so they remain
-    // restorable from the trash, then drop the collection row
-    // itself. The junction rows cascade via FK on collection
-    // delete; the soft-delete pass turns the pages into trash
-    // entries rather than orphaned/visible rows.
-    let soft_deleted = match repository::documentation_collections::soft_delete_pages_in_collection(
-        &mut conn,
-        collection_id,
-    ) {
-        Ok(n) => n,
-        Err(e) => {
-            error!(error = ?e, "Failed to soft-delete pages in collection");
-            return errors::internal("Failed to delete collection");
+        // Soft-delete the collection's pages first so they remain
+        // restorable from the trash, then drop the collection row
+        // itself. The junction rows cascade via FK on collection
+        // delete; the soft-delete pass turns the pages into trash
+        // entries rather than orphaned/visible rows.
+        let soft_deleted =
+            match repository::documentation_collections::soft_delete_pages_in_collection(
+                conn,
+                collection_id,
+            ) {
+                Ok(n) => n,
+                Err(e) => {
+                    error!(error = ?e, "Failed to soft-delete pages in collection");
+                    return Ok(DeleteCollectionOutcome::Failed);
+                }
+            };
+
+        match repository::documentation_collections::delete_collection(conn, collection_id) {
+            Ok(0) => Ok::<_, diesel::result::Error>(DeleteCollectionOutcome::NotFound),
+            Ok(_) => Ok(DeleteCollectionOutcome::Ok {
+                pages_trashed: soft_deleted,
+            }),
+            Err(e) => {
+                error!(error = ?e, "Failed to delete collection");
+                Ok(DeleteCollectionOutcome::Failed)
+            }
         }
-    };
+    });
 
-    match repository::documentation_collections::delete_collection(&mut conn, collection_id) {
-        Ok(0) => errors::not_found_msg("Collection not found"),
-        Ok(_) => HttpResponse::Ok().json(json!({
+    match outcome {
+        Ok(DeleteCollectionOutcome::Ok { pages_trashed }) => HttpResponse::Ok().json(json!({
             "success": true,
             "message": "Collection deleted",
-            "pages_trashed": soft_deleted,
+            "pages_trashed": pages_trashed,
         })),
-        Err(e) => {
-            error!(error = ?e, "Failed to delete collection");
-            errors::internal("Failed to delete collection")
+        Ok(DeleteCollectionOutcome::NotFound) => errors::not_found_msg("Collection not found"),
+        Ok(DeleteCollectionOutcome::SystemDeleteBlocked) => {
+            errors::forbidden("Cannot delete system collections")
         }
+        Ok(DeleteCollectionOutcome::Failed) => errors::internal("Failed to delete collection"),
+        Err(_) => errors::internal("Failed to delete collection"),
     }
 }
 
@@ -396,23 +419,17 @@ pub struct AddPageRequest {
 
 /// Add a page to a collection (technician+)
 pub async fn add_page_to_collection(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<AddPageRequest>,
+    auth: AuthContext,
 ) -> impl Responder {
-    let claims = match require_technician_or_admin(&req) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if !auth.is_technician_or_admin() {
+        return errors::forbidden("Forbidden");
+    }
 
     let collection_id = path.into_inner();
-    let created_by = Uuid::parse_str(&claims.sub).ok();
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let created_by = Some(auth.user_uuid);
 
     let new_entry = NewDocumentationCollectionPage {
         collection_id,
@@ -424,9 +441,9 @@ pub async fn add_page_to_collection(
     // membership AND nulls parent_id so the page anchors at the
     // new collection's root instead of dangling under a parent
     // that's now in a different collection.
-    match repository::documentation_collections::add_page_to_collection_at_root(
-        &mut conn, new_entry,
-    ) {
+    match tc.run(|conn| {
+        repository::documentation_collections::add_page_to_collection_at_root(conn, new_entry)
+    }) {
         Ok(entry) => HttpResponse::Created().json(entry),
         Err(e) => {
             error!(error = ?e, "Failed to add page to collection");
@@ -437,25 +454,23 @@ pub async fn add_page_to_collection(
 
 /// Remove a page from a collection (technician+)
 pub async fn remove_page_from_collection(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
+    auth: AuthContext,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
-        return e;
+    if !auth.is_technician_or_admin() {
+        return errors::forbidden("Forbidden");
     }
 
     let (collection_id, page_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::documentation_collections::remove_page_from_collection(
-        &mut conn,
-        collection_id,
-        page_id,
-    ) {
+    match tc.run(|conn| {
+        repository::documentation_collections::remove_page_from_collection(
+            conn,
+            collection_id,
+            page_id,
+        )
+    }) {
         Ok(0) => errors::not_found_msg("Page not in collection"),
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
@@ -467,21 +482,15 @@ pub async fn remove_page_from_collection(
 
 /// Get collections for a specific page
 pub async fn get_collections_for_page(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
+    _auth: AuthContext,
 ) -> impl Responder {
-    if let Err(e) = require_auth(&req) {
-        return e;
-    }
-
     let page_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::documentation_collections::get_collections_for_page(&mut conn, page_id) {
+    match tc
+        .run(|conn| repository::documentation_collections::get_collections_for_page(conn, page_id))
+    {
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
             error!(error = ?e, "Failed to get collections for page");
@@ -496,24 +505,22 @@ pub async fn get_collections_for_page(
 
 /// Get visibility groups for a collection (technician+)
 pub async fn get_collection_visibility(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
+    auth: AuthContext,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
-        return e;
+    if !auth.is_technician_or_admin() {
+        return errors::forbidden("Forbidden");
     }
 
     let collection_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::documentation_collections::get_visible_groups_for_collection(
-        &mut conn,
-        collection_id,
-    ) {
+    match tc.run(|conn| {
+        repository::documentation_collections::get_visible_groups_for_collection(
+            conn,
+            collection_id,
+        )
+    }) {
         Ok(groups) => HttpResponse::Ok().json(groups),
         Err(e) => {
             error!(error = ?e, "Failed to get collection visibility");
@@ -530,23 +537,18 @@ pub struct SetVisibilityRequest {
 
 /// Set visibility groups for a collection (admin only)
 pub async fn set_collection_visibility(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SetVisibilityRequest>,
+    auth: AuthContext,
 ) -> impl Responder {
-    let claims = match require_admin(&req) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if !auth.is_admin() {
+        return errors::forbidden("Admin required");
+    }
 
     let collection_id = path.into_inner();
-    let created_by = Uuid::parse_str(&claims.sub).ok();
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let created_by = Some(auth.user_uuid);
+    let body = body.into_inner();
 
     // Parse user UUIDs
     let user_uuids: Vec<Uuid> = body
@@ -560,13 +562,15 @@ pub async fn set_collection_visibility(
         })
         .unwrap_or_default();
 
-    match repository::documentation_collections::set_collection_visibility(
-        &mut conn,
-        collection_id,
-        body.group_ids.clone(),
-        user_uuids,
-        created_by,
-    ) {
+    match tc.run(|conn| {
+        repository::documentation_collections::set_collection_visibility(
+            conn,
+            collection_id,
+            body.group_ids.clone(),
+            user_uuids.clone(),
+            created_by,
+        )
+    }) {
         Ok(entries) => HttpResponse::Ok().json(entries),
         Err(e) => {
             error!(error = ?e, "Failed to set collection visibility");
@@ -575,102 +579,109 @@ pub async fn set_collection_visibility(
     }
 }
 
+/// Outcome of the page-overrides aggregation.
+enum PageOverridesOutcome {
+    Ok(Vec<serde_json::Value>),
+    PagesFailed,
+    OverridesFailed,
+}
+
 /// Get page-level visibility overrides for all pages in a collection (technician+)
 pub async fn get_page_overrides_in_collection(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
+    auth: AuthContext,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
-        return e;
+    if !auth.is_technician_or_admin() {
+        return errors::forbidden("Forbidden");
     }
 
     let collection_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    // Get all pages in the collection
-    let pages = match repository::documentation_collections::get_pages_in_collection(
-        &mut conn,
-        collection_id,
-    ) {
-        Ok(p) => p,
-        Err(e) => {
-            error!(error = ?e, "Failed to get pages in collection");
-            return errors::internal("Failed to get pages");
+    let outcome = tc.run(|conn| {
+        let pages = match repository::documentation_collections::get_pages_in_collection(
+            conn,
+            collection_id,
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                error!(error = ?e, "Failed to get pages in collection");
+                return Ok(PageOverridesOutcome::PagesFailed);
+            }
+        };
+
+        if pages.is_empty() {
+            return Ok(PageOverridesOutcome::Ok(Vec::new()));
         }
-    };
 
-    if pages.is_empty() {
-        return HttpResponse::Ok().json(serde_json::Value::Array(vec![]));
-    }
+        let page_ids: Vec<i32> = pages.iter().map(|p| p.id).collect();
 
-    let page_ids: Vec<i32> = pages.iter().map(|p| p.id).collect();
+        let group_overrides = match repository::documentation::get_page_visibility_overrides_batch(
+            conn, &page_ids,
+        ) {
+            Ok(o) => o,
+            Err(e) => {
+                error!(error = ?e, "Failed to get page visibility overrides");
+                return Ok(PageOverridesOutcome::OverridesFailed);
+            }
+        };
 
-    // Batch-fetch all page-level overrides (groups and users)
-    let group_overrides = match repository::documentation::get_page_visibility_overrides_batch(
-        &mut conn, &page_ids,
-    ) {
-        Ok(o) => o,
-        Err(e) => {
-            error!(error = ?e, "Failed to get page visibility overrides");
-            return errors::internal("Failed to get page overrides");
+        let user_overrides =
+            match repository::documentation::get_page_user_visibility_overrides_batch(
+                conn, &page_ids,
+            ) {
+                Ok(o) => o,
+                Err(e) => {
+                    error!(error = ?e, "Failed to get page user visibility overrides");
+                    return Ok(PageOverridesOutcome::OverridesFailed);
+                }
+            };
+
+        use std::collections::HashMap;
+        let mut page_groups: HashMap<i32, Vec<serde_json::Value>> = HashMap::new();
+        for (page_id, group_id, group_name) in &group_overrides {
+            page_groups.entry(*page_id).or_default().push(json!({
+                "id": group_id,
+                "name": group_name,
+            }));
         }
-    };
 
-    let user_overrides = match repository::documentation::get_page_user_visibility_overrides_batch(
-        &mut conn, &page_ids,
-    ) {
-        Ok(o) => o,
-        Err(e) => {
-            error!(error = ?e, "Failed to get page user visibility overrides");
-            return errors::internal("Failed to get page overrides");
+        let mut page_users: HashMap<i32, Vec<serde_json::Value>> = HashMap::new();
+        for (page_id, user_uuid, user_name) in &user_overrides {
+            page_users.entry(*page_id).or_default().push(json!({
+                "uuid": user_uuid,
+                "name": user_name,
+            }));
         }
-    };
 
-    // Group by page_id
-    use std::collections::HashMap;
-    let mut page_groups: HashMap<i32, Vec<serde_json::Value>> = HashMap::new();
-    for (page_id, group_id, group_name) in &group_overrides {
-        page_groups.entry(*page_id).or_default().push(json!({
-            "id": group_id,
-            "name": group_name,
-        }));
-    }
+        let mut pages_with_overrides: std::collections::HashSet<i32> =
+            page_groups.keys().copied().collect();
+        pages_with_overrides.extend(page_users.keys());
 
-    let mut page_users: HashMap<i32, Vec<serde_json::Value>> = HashMap::new();
-    for (page_id, user_uuid, user_name) in &user_overrides {
-        page_users.entry(*page_id).or_default().push(json!({
-            "uuid": user_uuid,
-            "name": user_name,
-        }));
-    }
-
-    // Combine page_ids that have any override
-    let mut pages_with_overrides: std::collections::HashSet<i32> =
-        page_groups.keys().copied().collect();
-    pages_with_overrides.extend(page_users.keys());
-
-    // Build response — only include pages that have overrides
-    let page_map: HashMap<i32, _> = pages.iter().map(|p| (p.id, p)).collect();
-    let result: Vec<serde_json::Value> = pages_with_overrides
-        .into_iter()
-        .filter_map(|pid| {
-            page_map.get(&pid).map(|page| {
-                json!({
-                    "page_id": pid,
-                    "page_title": page.title,
-                    "page_icon": page.icon,
-                    "groups": page_groups.get(&pid).cloned().unwrap_or_default(),
-                    "users": page_users.get(&pid).cloned().unwrap_or_default(),
+        let page_map: HashMap<i32, _> = pages.iter().map(|p| (p.id, p)).collect();
+        let result: Vec<serde_json::Value> = pages_with_overrides
+            .into_iter()
+            .filter_map(|pid| {
+                page_map.get(&pid).map(|page| {
+                    json!({
+                        "page_id": pid,
+                        "page_title": page.title,
+                        "page_icon": page.icon,
+                        "groups": page_groups.get(&pid).cloned().unwrap_or_default(),
+                        "users": page_users.get(&pid).cloned().unwrap_or_default(),
+                    })
                 })
             })
-        })
-        .collect();
+            .collect();
+        Ok::<_, diesel::result::Error>(PageOverridesOutcome::Ok(result))
+    });
 
-    HttpResponse::Ok().json(result)
+    match outcome {
+        Ok(PageOverridesOutcome::Ok(payload)) => HttpResponse::Ok().json(payload),
+        Ok(PageOverridesOutcome::PagesFailed) => errors::internal("Failed to get pages"),
+        Ok(PageOverridesOutcome::OverridesFailed) => errors::internal("Failed to get page overrides"),
+        Err(_) => errors::internal("Failed to get page overrides"),
+    }
 }
 
 // ============================================================================
@@ -684,23 +695,18 @@ pub struct ReorderCollectionsRequest {
 
 /// Reorder collections (technician+)
 pub async fn reorder_collections(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<ReorderCollectionsRequest>,
+    auth: AuthContext,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
-        return e;
+    if !auth.is_technician_or_admin() {
+        return errors::forbidden("Forbidden");
     }
+    let body = body.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::documentation_collections::reorder_collections(
-        &mut conn,
-        &body.collection_orders,
-    ) {
+    match tc.run(|conn| {
+        repository::documentation_collections::reorder_collections(conn, &body.collection_orders)
+    }) {
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
             error!(error = ?e, "Failed to reorder collections");
@@ -717,62 +723,59 @@ pub struct SetPageCollectionsRequest {
 }
 
 pub async fn set_page_collections(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SetPageCollectionsRequest>,
+    auth: AuthContext,
 ) -> impl Responder {
-    let claims = match require_technician_or_admin(&req) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if !auth.is_technician_or_admin() {
+        return errors::forbidden("Forbidden");
+    }
 
     let page_id = path.into_inner();
-    let created_by = Uuid::parse_str(&claims.sub).ok();
+    let created_by = Some(auth.user_uuid);
+    let body = body.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Get current collections for this page
-    let current_collections =
-        match repository::documentation_collections::get_collections_for_page(&mut conn, page_id) {
-            Ok(c) => c,
-            Err(e) => {
-                error!(error = ?e, "Failed to get current collections");
-                return errors::internal("Failed to update page collections");
-            }
-        };
-
-    let current_ids: Vec<i32> = current_collections.iter().map(|c| c.id).collect();
-
-    // Remove from collections not in the new list
-    for id in &current_ids {
-        if !body.collection_ids.contains(id) {
-            let _ = repository::documentation_collections::remove_page_from_collection(
-                &mut conn, *id, page_id,
-            );
-        }
-    }
-
-    // Add to collections not in the current list
-    for id in &body.collection_ids {
-        if !current_ids.contains(id) {
-            let entry = NewDocumentationCollectionPage {
-                collection_id: *id,
-                page_id,
-                created_by,
+    let result = tc.run(|conn| {
+        let current_collections =
+            match repository::documentation_collections::get_collections_for_page(conn, page_id) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!(error = ?e, "Failed to get current collections");
+                    return Err(e);
+                }
             };
-            let _ = repository::documentation_collections::add_page_to_collection(&mut conn, entry);
-        }
-    }
 
-    // Return updated list
-    match repository::documentation_collections::get_collections_for_page(&mut conn, page_id) {
+        let current_ids: Vec<i32> = current_collections.iter().map(|c| c.id).collect();
+
+        // Remove from collections not in the new list
+        for id in &current_ids {
+            if !body.collection_ids.contains(id) {
+                let _ = repository::documentation_collections::remove_page_from_collection(
+                    conn, *id, page_id,
+                );
+            }
+        }
+
+        // Add to collections not in the current list
+        for id in &body.collection_ids {
+            if !current_ids.contains(id) {
+                let entry = NewDocumentationCollectionPage {
+                    collection_id: *id,
+                    page_id,
+                    created_by,
+                };
+                let _ = repository::documentation_collections::add_page_to_collection(conn, entry);
+            }
+        }
+
+        repository::documentation_collections::get_collections_for_page(conn, page_id)
+    });
+
+    match result {
         Ok(collections) => HttpResponse::Ok().json(collections),
         Err(e) => {
-            error!(error = ?e, "Failed to get updated collections");
+            error!(error = ?e, "Failed to update page collections");
             errors::internal("Failed to update page collections")
         }
     }
