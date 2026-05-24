@@ -168,19 +168,14 @@ fn truncate_preview(text: &str, max_len: usize) -> String {
 // Ticket comments and attachments
 pub async fn get_comments_by_ticket_id(
     access: crate::extractors::TicketAccess,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: crate::extractors::TenantConn,
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
     debug!(ticket_id, "Getting comments for ticket");
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match crate::repository::comments::get_comments_with_attachments_by_ticket_id(
-        &mut conn, ticket_id,
-    ) {
+    match tc.run(|conn| {
+        crate::repository::comments::get_comments_with_attachments_by_ticket_id(conn, ticket_id)
+    }) {
         Ok(comments) => {
             // Serialize through serde so every field on
             // `CommentWithAttachments` (including `content_format`,
@@ -236,6 +231,7 @@ pub async fn add_comment_to_ticket(
     access: crate::extractors::TicketAccess,
     comment_data: web::Json<crate::models::NewCommentWithAttachments>,
     pool: web::Data<crate::db::Pool>,
+    mut tc: crate::extractors::TenantConn,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     notification_service: web::Data<NotificationService>,
@@ -258,11 +254,6 @@ pub async fn add_comment_to_ticket(
         "Attachments count"
     );
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Still need the raw `Claims` for actor logging on the
     // notification path; the extractor's `auth.claims` carries
     // them but is private. Pull from request extensions, where
@@ -280,23 +271,21 @@ pub async fn add_comment_to_ticket(
     };
 
     // Get the authenticated user's full information for notifications
-    let commenter_user = match crate::repository::users::get_user_by_uuid(
-        &user_uuid_parsed,
-        &mut conn,
-    ) {
-        Ok(user) => {
-            debug!(user_name = %user.name, user_uuid = %user.uuid, "Authenticated user");
-            user
-        }
-        Err(e) => {
-            error!(user_uuid = %claims.sub, error = ?e, "Authenticated user UUID not found in database");
-            return json_error(
-                &request_locale(&req),
-                "backend-error-user-not-found",
-                StatusCode::INTERNAL_SERVER_ERROR,
-            );
-        }
-    };
+    let commenter_user =
+        match tc.run(|conn| crate::repository::users::get_user_by_uuid(&user_uuid_parsed, conn)) {
+            Ok(user) => {
+                debug!(user_name = %user.name, user_uuid = %user.uuid, "Authenticated user");
+                user
+            }
+            Err(e) => {
+                error!(user_uuid = %claims.sub, error = ?e, "Authenticated user UUID not found in database");
+                return json_error(
+                    &request_locale(&req),
+                    "backend-error-user-not-found",
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                );
+            }
+        };
 
     // Extract user info for the response
     let user_info = Some(crate::models::UserInfoWithAvatar {
@@ -307,7 +296,14 @@ pub async fn add_comment_to_ticket(
     });
 
     // Get ticket info for notifications
-    let ticket = crate::repository::get_ticket_by_id(&mut conn, ticket_id).ok();
+    let ticket = tc
+        .run(|conn| {
+            crate::repository::get_ticket_by_id(conn, ticket_id)
+                .map(Some)
+                .or_else(|_| Ok::<_, diesel::result::Error>(None))
+        })
+        .ok()
+        .flatten();
 
     // Create the new comment using the authenticated user's UUID
     let new_comment = crate::models::NewComment {
@@ -325,18 +321,16 @@ pub async fn add_comment_to_ticket(
     };
 
     // Insert the comment, attributed to the authenticated user.
-    let actor = crate::sync::actor::ActorContext::user(user_uuid_parsed, None);
-    let create_result = {
-        use diesel::Connection;
-        conn.transaction::<crate::models::Comment, diesel::result::Error, _>(|conn| {
-            crate::sync::session::set_actor(conn, &actor)?;
-            crate::repository::comments::create_comment(
-                conn,
-                new_comment,
-                Some(search_service.get_ref()),
-            )
-        })
-    };
+    // TenantConn primes the actor and workspace GUCs around the
+    // repo's own transaction, so observers and RLS both see the
+    // request context.
+    let create_result = tc.run(|conn| {
+        crate::repository::comments::create_comment(
+            conn,
+            new_comment,
+            Some(search_service.get_ref()),
+        )
+    });
     match create_result {
         Ok(comment) => {
             debug!(comment_id = comment.id, "Created comment");
@@ -349,12 +343,14 @@ pub async fn add_comment_to_ticket(
             // "stop auto-watching" preference can drop only the
             // implicit ones. Errors here are non-fatal: a failed
             // watch insert shouldn't fail the comment write.
-            if let Err(e) = crate::repository::ticket_watchers::add_watcher(
-                &mut conn,
-                ticket_id,
-                user_uuid_parsed,
-                true,
-            ) {
+            if let Err(e) = tc.run(|conn| {
+                crate::repository::ticket_watchers::add_watcher(
+                    conn,
+                    ticket_id,
+                    user_uuid_parsed,
+                    true,
+                )
+            }) {
                 debug!(error = %e, "auto-watch on comment failed (non-fatal)");
             }
 
@@ -367,7 +363,9 @@ pub async fn add_comment_to_ticket(
                 // Find the existing attachment (uploaded to temp) by ID if available
                 if let Some(id) = attachment_data.id {
                     debug!(attachment_id = id, "Looking up attachment");
-                    match crate::repository::comments::get_attachment_by_id(&mut conn, id) {
+                    match tc
+                        .run(|conn| crate::repository::comments::get_attachment_by_id(conn, id))
+                    {
                         Ok(mut attachment) => {
                             debug!(attachment = ?attachment, "Found attachment");
                             // Update the attachment with the comment_id
@@ -509,13 +507,15 @@ pub async fn add_comment_to_ticket(
                             );
 
                             // Fix the diesel update query
-                            use diesel::prelude::*;
-                            match diesel::update(
-                                crate::schema::attachments::table.find(attachment.id),
-                            )
-                            .set(&updated_attachment)
-                            .execute(&mut conn)
-                            {
+                            let update_result = tc.run(|conn| {
+                                use diesel::prelude::*;
+                                diesel::update(
+                                    crate::schema::attachments::table.find(attachment.id),
+                                )
+                                .set(&updated_attachment)
+                                .execute(conn)
+                            });
+                            match update_result {
                                 Ok(_) => {
                                     debug!(attachment_id = attachment.id, "Updated attachment");
                                     attachments.push(attachment);
@@ -652,122 +652,117 @@ pub async fn add_comment_to_ticket(
                 debug!(mentioned_users = ?mentioned_users, "Parsed @mentions from comment");
 
                 let notification_service = notification_service.clone();
-                // Cloned pool for the watchers lookup inside the
-                // spawned notification task. The outer `pool` is a
-                // web::Data Arc so the clone is cheap.
-                let pool_for_watchers = pool.clone();
+
+                // Collect recipients for CommentAdded.
+                // Three sources, deduped + filtered to exclude the
+                // commenter and anyone already getting a Mention
+                // notification from this same comment:
+                //   1. Requester  — original ticket reporter.
+                //   2. Assignee   — currently responsible.
+                //   3. Watchers   — explicit subscribers via the
+                //      bell toggle, plus any past commenter who
+                //      was auto-watched.
+                // Watchers ship in Phase C4 — this is the
+                // notification fan-out that closes the feature
+                // loop ("subscribe and get notified").
+                let mut comment_recipients = Vec::new();
+                if let Some(requester) = ticket_requester {
+                    if requester != commenter_uuid && !mentioned_users.contains(&requester) {
+                        comment_recipients.push(requester);
+                    }
+                }
+                if let Some(assignee) = ticket_assignee {
+                    if assignee != commenter_uuid
+                        && !comment_recipients.contains(&assignee)
+                        && !mentioned_users.contains(&assignee)
+                    {
+                        comment_recipients.push(assignee);
+                    }
+                }
+                // Watcher fan-out source depends on the comment's
+                // visibility. For an internal note we use the
+                // notify-on-internal-only variant so per-watch
+                // mute-internal preferences are honoured.
+                //
+                // Resolve the watcher list synchronously inside the
+                // request's TenantConn so the workspace GUC scopes the
+                // query — RLS on `ticket_watchers` would otherwise
+                // return zero rows in a spawned task that has no
+                // workspace context. Failure downgrades to "no watcher
+                // notifications this round" rather than blocking the
+                // comment.
+                let watchers: Vec<Uuid> = tc
+                    .run(|conn| {
+                        if comment_is_internal {
+                            crate::repository::ticket_watchers::watcher_uuids_for_internal_notify(
+                                conn, ticket_id,
+                            )
+                        } else {
+                            crate::repository::ticket_watchers::watcher_uuids(conn, ticket_id)
+                        }
+                    })
+                    .unwrap_or_default();
+                for watcher in watchers {
+                    if watcher == commenter_uuid {
+                        continue;
+                    }
+                    if comment_recipients.contains(&watcher) {
+                        continue;
+                    }
+                    if mentioned_users.contains(&watcher) {
+                        continue;
+                    }
+                    comment_recipients.push(watcher);
+                }
+
+                // Strip non-staff recipients from internal-note
+                // notifications. Without this gate a requester
+                // mentioned in an internal note would receive a
+                // notification (and email) about a comment they
+                // can't view, leaking the existence of the note
+                // and confusing the recipient. The relay layer
+                // already drops the outbound email body, but the
+                // notification fan-out runs independently.
+                let mut mentioned_users = mentioned_users;
+                if comment_is_internal {
+                    let mut all_candidates: Vec<Uuid> = comment_recipients
+                        .iter()
+                        .chain(mentioned_users.iter())
+                        .copied()
+                        .collect();
+                    all_candidates.sort();
+                    all_candidates.dedup();
+
+                    let staff_uuids: std::collections::HashSet<Uuid> = tc
+                        .run(|conn| {
+                            crate::repository::users::get_users_by_uuids(&all_candidates, conn).map(
+                                |users| {
+                                    users
+                                        .into_iter()
+                                        .filter(|u| {
+                                            matches!(
+                                                u.role,
+                                                crate::models::UserRole::Admin
+                                                    | crate::models::UserRole::Technician
+                                            )
+                                        })
+                                        .map(|u| u.uuid)
+                                        .collect()
+                                },
+                            )
+                        })
+                        .unwrap_or_default();
+
+                    comment_recipients.retain(|u| staff_uuids.contains(u));
+                    mentioned_users.retain(|u| staff_uuids.contains(u));
+                }
+
                 tokio::spawn(async move {
                     let actor = NotificationActor {
                         uuid: commenter_uuid,
                         name: commenter_name,
                         avatar_thumb: commenter_avatar,
                     };
-
-                    // Collect recipients for CommentAdded.
-                    // Three sources, deduped + filtered to exclude the
-                    // commenter and anyone already getting a Mention
-                    // notification from this same comment:
-                    //   1. Requester  — original ticket reporter.
-                    //   2. Assignee   — currently responsible.
-                    //   3. Watchers   — explicit subscribers via the
-                    //      bell toggle, plus any past commenter who
-                    //      was auto-watched.
-                    // Watchers ship in Phase C4 — this is the
-                    // notification fan-out that closes the feature
-                    // loop ("subscribe and get notified").
-                    let mut comment_recipients = Vec::new();
-                    if let Some(requester) = ticket_requester {
-                        if requester != commenter_uuid && !mentioned_users.contains(&requester) {
-                            comment_recipients.push(requester);
-                        }
-                    }
-                    if let Some(assignee) = ticket_assignee {
-                        if assignee != commenter_uuid
-                            && !comment_recipients.contains(&assignee)
-                            && !mentioned_users.contains(&assignee)
-                        {
-                            comment_recipients.push(assignee);
-                        }
-                    }
-                    // Watchers — fan-out target for the bell-toggle
-                    // feature. Open a short-lived connection inside
-                    // the spawned task to keep the synchronous handler
-                    // path cheap. Failure here downgrades to "no
-                    // watcher notifications this round" rather than
-                    // blocking the comment.
-                    // Watcher fan-out source depends on the comment's
-                    // visibility. For an internal note we use the
-                    // notify-on-internal-only variant so per-watch
-                    // mute-internal preferences are honoured.
-                    let watchers: Vec<Uuid> = (|| -> Result<Vec<Uuid>, ()> {
-                        let mut conn = pool_for_watchers.get().map_err(|_| ())?;
-                        if comment_is_internal {
-                            crate::repository::ticket_watchers::watcher_uuids_for_internal_notify(
-                                &mut conn, ticket_id,
-                            )
-                        } else {
-                            crate::repository::ticket_watchers::watcher_uuids(&mut conn, ticket_id)
-                        }
-                        .map_err(|_| ())
-                    })()
-                    .unwrap_or_default();
-                    for watcher in watchers {
-                        if watcher == commenter_uuid {
-                            continue;
-                        }
-                        if comment_recipients.contains(&watcher) {
-                            continue;
-                        }
-                        if mentioned_users.contains(&watcher) {
-                            continue;
-                        }
-                        comment_recipients.push(watcher);
-                    }
-
-                    // Strip non-staff recipients from internal-note
-                    // notifications. Without this gate a requester
-                    // mentioned in an internal note would receive a
-                    // notification (and email) about a comment they
-                    // can't view, leaking the existence of the note
-                    // and confusing the recipient. The relay layer
-                    // already drops the outbound email body, but the
-                    // notification fan-out runs independently.
-                    let (mut comment_recipients, mut mentioned_users) =
-                        (comment_recipients, mentioned_users);
-                    if comment_is_internal {
-                        let mut all_candidates: Vec<Uuid> = comment_recipients
-                            .iter()
-                            .chain(mentioned_users.iter())
-                            .copied()
-                            .collect();
-                        all_candidates.sort();
-                        all_candidates.dedup();
-
-                        let staff_uuids: std::collections::HashSet<Uuid> =
-                            (|| -> Result<std::collections::HashSet<Uuid>, ()> {
-                                let mut conn = pool_for_watchers.get().map_err(|_| ())?;
-                                let users = crate::repository::users::get_users_by_uuids(
-                                    &all_candidates,
-                                    &mut conn,
-                                )
-                                .map_err(|_| ())?;
-                                Ok(users
-                                    .into_iter()
-                                    .filter(|u| {
-                                        matches!(
-                                            u.role,
-                                            crate::models::UserRole::Admin
-                                                | crate::models::UserRole::Technician
-                                        )
-                                    })
-                                    .map(|u| u.uuid)
-                                    .collect())
-                            })()
-                            .unwrap_or_default();
-
-                        comment_recipients.retain(|u| staff_uuids.contains(u));
-                        mentioned_users.retain(|u| staff_uuids.contains(u));
-                    }
 
                     // Send CommentAdded notification to requester/assignee
                     for recipient in comment_recipients {
@@ -828,7 +823,7 @@ pub async fn add_comment_to_ticket(
 pub async fn delete_comment(
     req: actix_web::HttpRequest,
     path: web::Path<i32>,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: crate::extractors::TenantConn,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
@@ -840,45 +835,22 @@ pub async fn delete_comment(
         .map(|s| s.to_string());
     debug!(comment_id, "Deleting comment");
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Get the comment first to find the ticket_id for SSE broadcasting
-    let ticket_id = match crate::repository::comments::get_comment_by_id(&mut conn, comment_id) {
-        Ok(comment) => comment.ticket_id,
-        Err(_) => {
-            return json_error(
-                &request_locale(&req),
-                "backend-error-comment-not-found",
-                StatusCode::NOT_FOUND,
-            );
-        }
-    };
+    let ticket_id =
+        match tc.run(|conn| crate::repository::comments::get_comment_by_id(conn, comment_id)) {
+            Ok(comment) => comment.ticket_id,
+            Err(_) => {
+                return json_error(
+                    &request_locale(&req),
+                    "backend-error-comment-not-found",
+                    StatusCode::NOT_FOUND,
+                );
+            }
+        };
 
-    let actor = {
-        use actix_web::HttpMessage;
-        let uuid = req
-            .extensions()
-            .get::<crate::models::Claims>()
-            .and_then(|c| uuid::Uuid::parse_str(&c.sub).ok());
-        match uuid {
-            Some(u) => crate::sync::actor::ActorContext::user(u, None),
-            None => crate::sync::actor::ActorContext::system("handler:delete_comment"),
-        }
-    };
-    let delete_result = {
-        use diesel::Connection;
-        conn.transaction::<usize, diesel::result::Error, _>(|conn| {
-            crate::sync::session::set_actor(conn, &actor)?;
-            crate::repository::comments::delete_comment(
-                conn,
-                comment_id,
-                Some(search_service.get_ref()),
-            )
-        })
-    };
+    let delete_result = tc.run(|conn| {
+        crate::repository::comments::delete_comment(conn, comment_id, Some(search_service.get_ref()))
+    });
     match delete_result {
         Ok(deleted) => {
             if deleted > 0 {
@@ -944,24 +916,21 @@ pub async fn add_attachment_to_comment(
 pub async fn get_comment_raw_eml(
     auth: crate::extractors::AuthContext,
     path: web::Path<i32>,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: crate::extractors::TenantConn,
     storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
 ) -> impl Responder {
     let comment_id = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let comment = match crate::repository::comments::get_comment_by_id(&mut conn, comment_id) {
-        Ok(c) => c,
-        Err(_) => return HttpResponse::NotFound().finish(),
-    };
+    let comment =
+        match tc.run(|conn| crate::repository::comments::get_comment_by_id(conn, comment_id)) {
+            Ok(c) => c,
+            Err(_) => return HttpResponse::NotFound().finish(),
+        };
 
     let vis = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
-    match crate::repository::ticket_visibility::can_view_ticket(&mut conn, &vis, comment.ticket_id)
-    {
+    match tc.run(|conn| {
+        crate::repository::ticket_visibility::can_view_ticket(conn, &vis, comment.ticket_id)
+    }) {
         Ok(true) => {}
         // 404 on deny (not 403): an attacker iterating comment ids
         // mustn't learn which exist on other users' tickets.
@@ -1000,19 +969,14 @@ pub async fn get_comment_raw_eml(
 pub async fn delete_attachment(
     req: actix_web::HttpRequest,
     path: web::Path<i32>,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: crate::extractors::TenantConn,
     storage: Arc<dyn crate::utils::storage::Storage>,
 ) -> impl Responder {
     let attachment_id = path.into_inner();
     debug!(attachment_id, "Deleting attachment");
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // First, get the attachment to find the file path
-    match crate::repository::comments::get_attachment_by_id(&mut conn, attachment_id) {
+    match tc.run(|conn| crate::repository::comments::get_attachment_by_id(conn, attachment_id)) {
         Ok(attachment) => {
             debug!(attachment = ?attachment, "Found attachment");
 
@@ -1037,20 +1001,12 @@ pub async fn delete_attachment(
                 }
             }
 
-            // Delete the database record. The handler's signature
-            // doesn't include an HttpRequest, so we have no JWT
-            // context to attribute the emit to — record under a
-            // system actor instead. (Adding `req: HttpRequest` to
-            // the signature is a follow-up that ripples to the
-            // route registration in main.rs.)
-            let actor = crate::sync::actor::ActorContext::system("handler:delete_attachment");
-            let delete_result = {
-                use diesel::Connection;
-                conn.transaction::<usize, diesel::result::Error, _>(|conn| {
-                    crate::sync::session::set_actor(conn, &actor)?;
-                    crate::repository::comments::delete_attachment(conn, attachment_id)
-                })
-            };
+            // Delete the database record. Actor attribution comes
+            // from the request's RequestContext via TenantConn —
+            // both the actor GUC and workspace GUC are set for the
+            // delete inside the same transaction.
+            let delete_result =
+                tc.run(|conn| crate::repository::comments::delete_attachment(conn, attachment_id));
             match delete_result {
                 Ok(deleted) => {
                     if deleted > 0 {
