@@ -71,27 +71,29 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
+        // notification_preferences is RLS-enabled (Phase 3c.2);
+        // this service is a background dispatcher. background_run
+        // wraps the lookup chain in a bypass-elevated txn.
+        let (type_info, prefs) = crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_pref_load",
+            |conn| {
+                let type_info: (i32, serde_json::Value) = notification_types::table
+                    .filter(notification_types::code.eq(type_code))
+                    .select((notification_types::id, notification_types::default_channels))
+                    .first(conn)?;
+                let prefs: Vec<(String, bool)> = notification_preferences
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .filter(notification_type_id.eq(type_info.0))
+                    .select((channel, enabled))
+                    .load(conn)
+                    .unwrap_or_default();
+                Ok::<_, diesel::result::Error>((type_info, prefs))
+            },
+        )
+        .map_err(|e| format!("Failed to load notification preferences: {e}"))?;
 
-        // Get notification type ID and defaults
-        let type_info: (i32, serde_json::Value) = notification_types::table
-            .filter(notification_types::code.eq(type_code))
-            .select((notification_types::id, notification_types::default_channels))
-            .first(&mut conn)
-            .map_err(|e| format!("Notification type not found: {e}"))?;
-
-        let (type_id, default_channels) = type_info;
-
-        // Get user preferences for this type
-        let prefs: Vec<(String, bool)> = notification_preferences
-            .filter(user_uuid.eq(user_uuid_val))
-            .filter(notification_type_id.eq(type_id))
-            .select((channel, enabled))
-            .load(&mut conn)
-            .unwrap_or_default();
+        let (_type_id, default_channels) = type_info;
 
         // If no preferences, use defaults from notification_types table
         if prefs.is_empty() {
@@ -128,36 +130,34 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        // Get notification type ID
-        let type_id: i32 = notification_types::table
-            .filter(notification_types::code.eq(notification_type.as_str()))
-            .select(notification_types::id)
-            .first(&mut conn)
-            .map_err(|e| format!("Notification type not found: {e}"))?;
-
-        // Upsert preference
-        diesel::insert_into(notification_preferences)
-            .values((
-                user_uuid.eq(user_uuid_val),
-                notification_type_id.eq(type_id),
-                channel.eq(channel_val.as_str()),
-                enabled.eq(enabled_val),
-                created_at.eq(Utc::now().naive_utc()),
-                updated_at.eq(Utc::now().naive_utc()),
-            ))
-            .on_conflict((user_uuid, notification_type_id, channel))
-            .do_update()
-            .set((
-                enabled.eq(enabled_val),
-                updated_at.eq(Utc::now().naive_utc()),
-            ))
-            .execute(&mut conn)
-            .map_err(|e| format!("Failed to update preference: {e}"))?;
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_pref_set",
+            |conn| {
+                let type_id: i32 = notification_types::table
+                    .filter(notification_types::code.eq(notification_type.as_str()))
+                    .select(notification_types::id)
+                    .first(conn)?;
+                diesel::insert_into(notification_preferences)
+                    .values((
+                        user_uuid.eq(user_uuid_val),
+                        notification_type_id.eq(type_id),
+                        channel.eq(channel_val.as_str()),
+                        enabled.eq(enabled_val),
+                        created_at.eq(Utc::now().naive_utc()),
+                        updated_at.eq(Utc::now().naive_utc()),
+                    ))
+                    .on_conflict((user_uuid, notification_type_id, channel))
+                    .do_update()
+                    .set((
+                        enabled.eq(enabled_val),
+                        updated_at.eq(Utc::now().naive_utc()),
+                    ))
+                    .execute(conn)?;
+                Ok::<_, diesel::result::Error>(())
+            },
+        )
+        .map_err(|e| format!("Failed to update preference: {e}"))?;
 
         // Invalidate cache for this user
         {
@@ -176,23 +176,24 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        // Get all notification types
-        let types: Vec<NotificationTypeModel> = notification_types::table
-            .order(notification_types::id)
-            .load(&mut conn)
-            .map_err(|e| format!("Failed to load notification types: {e}"))?;
-
-        // Get all user preferences
-        let user_prefs: Vec<(i32, String, bool)> = notification_preferences
-            .filter(user_uuid.eq(user_uuid_val))
-            .select((notification_type_id, channel, enabled))
-            .load(&mut conn)
-            .unwrap_or_default();
+        // notification_preferences is RLS-enabled; wrap in
+        // background_run for bypass.
+        let (types, user_prefs) = crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_pref_get_all",
+            |conn| {
+                let types: Vec<NotificationTypeModel> = notification_types::table
+                    .order(notification_types::id)
+                    .load(conn)?;
+                let user_prefs: Vec<(i32, String, bool)> = notification_preferences
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .select((notification_type_id, channel, enabled))
+                    .load(conn)
+                    .unwrap_or_default();
+                Ok::<_, diesel::result::Error>((types, user_prefs))
+            },
+        )
+        .map_err(|e| format!("Failed to load notification preferences: {e}"))?;
 
         // Build response grouped by notification type
         let mut responses = Vec::new();

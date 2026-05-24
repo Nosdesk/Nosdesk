@@ -98,9 +98,19 @@ impl WebhookService {
     ) -> Result<(), String> {
         let event_type_str = event_type.as_str();
 
-        // Get enabled webhooks subscribed to this event
-        let mut conn = pool.get().map_err(|e| format!("DB error: {e}"))?;
-        let webhooks = webhook_repo::get_webhooks_for_event(&mut conn, event_type_str)?;
+        // Get enabled webhooks subscribed to this event. webhooks
+        // is RLS-enabled; the dispatcher fans out across every
+        // workspace's subscriptions so cross-workspace bypass is
+        // correct.
+        let webhooks = crate::sync::session::background_run(
+            &pool,
+            "background:webhook_dispatch_query",
+            |conn| {
+                webhook_repo::get_webhooks_for_event(conn, event_type_str)
+                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.into()))
+            },
+        )
+        .map_err(|e| format!("DB error: {e}"))?;
 
         if webhooks.is_empty() {
             return Ok(());
@@ -163,56 +173,65 @@ impl WebhookService {
         pool: &Pool,
         delivery_tx: &mpsc::Sender<DeliveryTask>,
     ) -> Result<(), String> {
-        let mut conn = pool.get().map_err(|e| format!("DB error: {e}"))?;
+        // webhook_deliveries + webhooks are RLS-enabled; the retry
+        // worker runs cross-workspace. Fetch pending + their
+        // webhook rows in one bypass txn.
+        let tasks: Vec<DeliveryTask> = crate::sync::session::background_run(
+            pool,
+            "background:webhook_process_retries",
+            |conn| {
+                let pending = webhook_repo::get_pending_retries(conn)
+                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.into()))?;
+                let mut out = Vec::with_capacity(pending.len());
+                for delivery in pending {
+                    match webhook_repo::get_webhook_by_id(conn, delivery.webhook_id) {
+                        Ok(webhook) if webhook.enabled => {
+                            out.push(DeliveryTask {
+                                webhook_id: webhook.id,
+                                webhook_url: webhook.url,
+                                webhook_secret: webhook.secret,
+                                webhook_headers: webhook.headers,
+                                payload: WebhookPayload {
+                                    id: delivery.uuid,
+                                    event_type: delivery.event_type,
+                                    timestamp: Utc::now(),
+                                    data: delivery.payload,
+                                },
+                                attempt: delivery.attempt_number + 1,
+                            });
+                        }
+                        Ok(_) => {
+                            // Webhook is now disabled; skip.
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                delivery_id = delivery.id,
+                                webhook_id = delivery.webhook_id,
+                                error = %e,
+                                "Webhook not found for retry"
+                            );
+                        }
+                    }
+                }
+                Ok::<_, diesel::result::Error>(out)
+            },
+        )
+        .map_err(|e| format!("DB error: {e}"))?;
 
-        // Get deliveries ready for retry
-        let pending = webhook_repo::get_pending_retries(&mut conn)?;
-
-        if pending.is_empty() {
+        if tasks.is_empty() {
             return Ok(());
         }
 
-        tracing::debug!(count = pending.len(), "Processing pending webhook retries");
+        tracing::debug!(count = tasks.len(), "Processing pending webhook retries");
 
-        for delivery in pending {
-            // Get the webhook
-            match webhook_repo::get_webhook_by_id(&mut conn, delivery.webhook_id) {
-                Ok(webhook) => {
-                    // Skip if webhook is now disabled
-                    if !webhook.enabled {
-                        continue;
-                    }
-
-                    let task = DeliveryTask {
-                        webhook_id: webhook.id,
-                        webhook_url: webhook.url,
-                        webhook_secret: webhook.secret,
-                        webhook_headers: webhook.headers,
-                        payload: WebhookPayload {
-                            id: delivery.uuid,
-                            event_type: delivery.event_type,
-                            timestamp: Utc::now(),
-                            data: delivery.payload,
-                        },
-                        attempt: delivery.attempt_number + 1,
-                    };
-
-                    if let Err(e) = delivery_tx.send(task).await {
-                        tracing::error!(
-                            delivery_id = delivery.id,
-                            error = %e,
-                            "Failed to queue retry"
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        delivery_id = delivery.id,
-                        webhook_id = delivery.webhook_id,
-                        error = %e,
-                        "Webhook not found for retry"
-                    );
-                }
+        for task in tasks {
+            let delivery_id_for_log = task.webhook_id;
+            if let Err(e) = delivery_tx.send(task).await {
+                tracing::error!(
+                    webhook_id = delivery_id_for_log,
+                    error = %e,
+                    "Failed to queue retry"
+                );
             }
         }
 
@@ -221,8 +240,15 @@ impl WebhookService {
 
     /// Send a test event to a webhook
     pub async fn send_test_event(&self, webhook_id: i32) -> Result<(), String> {
-        let mut conn = self.pool.get().map_err(|e| format!("DB error: {e}"))?;
-        let webhook = webhook_repo::get_webhook_by_id(&mut conn, webhook_id)?;
+        let webhook = crate::sync::session::background_run(
+            &self.pool,
+            "background:webhook_test_event_lookup",
+            |conn| {
+                webhook_repo::get_webhook_by_id(conn, webhook_id)
+                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.into()))
+            },
+        )
+        .map_err(|e| format!("DB error: {e}"))?;
 
         let payload = WebhookPayload {
             id: Uuid::now_v7(),
