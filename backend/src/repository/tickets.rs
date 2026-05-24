@@ -1318,4 +1318,161 @@ mod tests {
              set_actor's baseline reset is the defense"
         );
     }
+
+    // ---- Phase 3i.2: UNIQUE-index workspace-composite guard ----
+    //
+    // Bytebase RLS footgun #8 (cross-tenant existence leak via
+    // duplicate-key) is the threat. Phase 3h.8 caught named UNIQUE
+    // constraints; this guard catches the rest by scanning
+    // pg_indexes for UNIQUE indexes on tenant tables (tables with a
+    // workspace_id column) where workspace_id is not part of the
+    // indexed column list. Any hit is either a real leak, a Phase
+    // 3i workspace-lifecycle blocker, or an intent-questionable
+    // index that needs an explicit allowlist entry below.
+    //
+    // ALLOWLIST policy: add an entry only with a product decision
+    // attached. The default is "make it composite." The allowlist
+    // is small on purpose — each entry is a known cross-workspace
+    // semantic that must be documented inline.
+    #[test]
+    fn no_unique_indexes_on_tenant_tables_omit_workspace_id() {
+        let mut conn = setup_test_connection();
+
+        // Pkeys + uuid-keyed unique indexes are intrinsically unique
+        // by ID / by UUID-generation — no cross-tenant leak surface.
+        // Composite-with-FK-to-tenant indexes are scoped through the
+        // FK chain (e.g. channel_id, plugin_id, page_id all FK into
+        // tenant tables). The intent-questionable allowlist below is
+        // for indexes where the global UNIQUE shape is a deliberate
+        // product decision documented elsewhere.
+        let allowlist: &[&str] = &[
+            // Real-world device serial numbers are globally unique by
+            // manufacturer. Two tenants importing the same physical
+            // device is a defensible global UNIQUE — flagged for
+            // product decision but not a leak per se.
+            "idx_asset_serial_unique",
+            // Azure object IDs are GUIDs. Cross-tenant overlap doesn't
+            // happen in practice; not a leak.
+            "idx_groups_external_id",
+            // P2 follow-up (per 3h.8 migration header): cross-workspace
+            // notification prefs are a correctness question, not a
+            // duplicate-key existence leak.
+            "notification_preferences_user_uuid_notification_type_id_cha_key",
+            // FK-chain-scoped composites: the indexed columns include
+            // an FK to a tenant table, so cross-tenant collisions
+            // can't happen through them.
+            "cycles_one_active_per_project",
+            "cycle_tickets_one_per_ticket",
+            "documentation_page_embeddings_pkey",
+            "documentation_page_tickets_pkey",
+            "documentation_collection_pages_pkey",
+            "documentation_collection_pages_page_id_key",
+            "asset_audits_pkey",
+            "channel_credentials_pkey",
+            "channel_credentials_channel_id_credential_type_key",
+            "channel_messages_pkey",
+            "channel_messages_channel_id_external_id_direction_key",
+            "category_group_visibility_pkey",
+            "article_content_revisions_pkey",
+            "article_content_revisions_article_content_id_revision_numbe_key",
+            "assignment_rule_state_pkey",
+            "device_groups_pkey",
+            "documentation_revisions_pkey",
+            "documentation_revisions_page_id_revision_number_key",
+            "group_includes_pkey",
+            "knowledge_gap_signals_pkey",
+            "knowledge_gap_signals_gap_id_source_kind_source_ref_key",
+            "linked_tickets_pkey",
+            "outbound_emails_comment_id_key",
+            "outbound_emails_message_id_key",
+            "plugin_collection_schemas_plugin_id_collection_name_key",
+            "plugin_data_plugin_id_data_type_key_key",
+            "project_tickets_pkey",
+            "ticket_devices_pkey",
+            "ticket_tags_pkey",
+            "ticket_watchers_pkey",
+            "tickets_guest_lookup_token_key",
+            "user_groups_pkey",
+            "user_ticket_views_user_uuid_ticket_id_key",
+            "working_calendar_holidays_calendar_id_date_key",
+            // FK-chain-scoped via page_id (serial PK on
+            // documentation_pages, globally unique). A user
+            // starring/subscribing-to the same page from two
+            // workspaces is impossible because page_id itself is
+            // globally unique.
+            "documentation_starred_pages_user_uuid_page_id_key",
+            "documentation_subscriptions_user_uuid_page_id_key",
+            // sync_actions.client_tx_id_idx is ON ONLY parent,
+            // doesn't propagate to partitions. INSERTs route to
+            // partitions, so the parent-only index doesn't
+            // actively enforce. The intended idempotency check is
+            // already cross-workspace by the client-supplied
+            // tx_id semantic (client_tx_id is the caller's
+            // dedup key; cross-workspace collisions are
+            // structurally possible but operationally rare —
+            // clients use UUIDs). Documented as Phase 3i
+            // follow-up to make the index workspace-aware.
+            "sync_actions_client_tx_id_idx",
+        ];
+
+        #[derive(diesel::QueryableByName, Debug)]
+        struct LeakyIndex {
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            tablename: String,
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            indexname: String,
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            indexdef: String,
+        }
+
+        // Find UNIQUE indexes on tenant tables (tables with
+        // workspace_id) whose definition doesn't mention
+        // workspace_id. Pkey + uuid-keyed indexes are
+        // intrinsically unique; filter them out below.
+        let candidates: Vec<LeakyIndex> = diesel::sql_query(
+            "SELECT tablename, indexname, indexdef \
+             FROM pg_indexes \
+             WHERE schemaname = 'public' \
+               AND tablename IN ( \
+                 SELECT table_name FROM information_schema.columns \
+                 WHERE column_name = 'workspace_id' AND table_schema = 'public' \
+               ) \
+               AND indexdef LIKE '%UNIQUE%' \
+               AND indexdef NOT LIKE '%workspace_id%' \
+               AND tablename NOT LIKE 'audit_log_%' \
+               AND tablename NOT LIKE 'sync_actions_%' \
+             ORDER BY tablename, indexname",
+        )
+        .load(&mut conn)
+        .expect("query pg_indexes");
+
+        let leaks: Vec<_> = candidates
+            .into_iter()
+            .filter(|row| {
+                // Intrinsically unique by ID / UUID — no leak.
+                !row.indexname.ends_with("_pkey")
+                    && !row.indexname.ends_with("_uuid_key")
+                    && !row.indexname.ends_with("_token_hash_key")
+                    && !allowlist.contains(&row.indexname.as_str())
+            })
+            .collect();
+
+        if !leaks.is_empty() {
+            let mut msg = String::from(
+                "UNIQUE indexes on tenant tables missing workspace_id (Bytebase footgun #8):\n",
+            );
+            for leak in &leaks {
+                msg.push_str(&format!(
+                    "  - {}.{}: {}\n",
+                    leak.tablename, leak.indexname, leak.indexdef
+                ));
+            }
+            msg.push_str(
+                "\nFix: flip to composite (workspace_id, ...) in a migration, OR \
+                 if globally-unique by intent, add to the allowlist in this test \
+                 with a one-line product-decision comment.",
+            );
+            panic!("{}", msg);
+        }
+    }
 }
