@@ -172,6 +172,38 @@ fn ensure_one_partition(
         diesel::sql_query(format!("ALTER TABLE {child} DROP CONSTRAINT {constraint}"))
             .execute(conn)?;
 
+        // 6. CREATE TABLE LIKE INCLUDING ALL does NOT copy RLS
+        //    state. Without these, a direct query against the
+        //    child bypasses the parent's workspace-isolation
+        //    policy entirely (a non-superuser nosdesk_app role
+        //    with blanket SELECT can read everything in the
+        //    child). Mirror the parent's policy here so the
+        //    child is fail-closed for direct queries and
+        //    transparent for parent-routed queries (which is the
+        //    normal path; partitions are an implementation
+        //    detail of audit_log / sync_actions).
+        let policy_name = format!("{child}_workspace_isolation");
+        diesel::sql_query(format!(
+            "ALTER TABLE {child} ENABLE ROW LEVEL SECURITY"
+        ))
+        .execute(conn)?;
+        diesel::sql_query(format!(
+            "ALTER TABLE {child} FORCE ROW LEVEL SECURITY"
+        ))
+        .execute(conn)?;
+        diesel::sql_query(format!(
+            "DROP POLICY IF EXISTS {policy_name} ON {child}"
+        ))
+        .execute(conn)?;
+        diesel::sql_query(format!(
+            "CREATE POLICY {policy_name} ON {child} \
+             USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
+                    OR NULLIF(current_setting('app.bypass_workspace_check', true), '') = 'true') \
+             WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
+                         OR NULLIF(current_setting('app.bypass_workspace_check', true), '') = 'true')"
+        ))
+        .execute(conn)?;
+
         Ok(())
     })
 }
