@@ -51,6 +51,25 @@ pub struct PlatformConn {
 }
 
 impl PlatformConn {
+    /// Override the actor attached to this extractor.
+    ///
+    /// Useful for public unauth handlers that need to pin a
+    /// fallback workspace_id (so an RLS-enabled table whose
+    /// `workspace_id` column has a `current_setting('app.workspace_id')`
+    /// default still satisfies its NOT NULL constraint). The
+    /// canonical case is `csp_reports`: the report intake is
+    /// public, the table NOT-NULLs workspace_id with a GUC-driven
+    /// default, so the handler needs to seed the GUC via an actor
+    /// even though RLS itself is bypassed.
+    ///
+    /// For workspace-lifecycle handlers and other authenticated
+    /// platform endpoints, the inherited RequestContext actor is
+    /// the right answer and this method is unneeded.
+    pub fn with_actor(mut self, actor: ActorContext) -> Self {
+        self.actor = actor;
+        self
+    }
+
     /// Run a closure inside a transaction with actor GUCs set and
     /// the role elevated to `nosdesk_admin` for the txn. Every
     /// query inside the closure bypasses RLS via the BYPASSRLS

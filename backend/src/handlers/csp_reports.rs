@@ -22,12 +22,10 @@
 //! `blockedURL` etc). Normalisation collapses both to a single
 //! internal `ParsedReport` shape before hashing and persisting.
 
-use crate::db::Pool;
-use crate::extractors::TenantConn;
+use crate::extractors::{PlatformConn, TenantConn};
 #[allow(unused_imports)]
 use crate::handlers; // keep helpers reachable for tests
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::models::{Claims, NewCspReport};
 use crate::repository::csp_reports as repo;
 use crate::utils::rbac;
@@ -159,8 +157,8 @@ fn truncate(s: &str, max: usize) -> String {
 /// reporter gets is the HTTP status, which is always success.
 pub async fn report_violation(
     req: HttpRequest,
-    db_pool: web::Data<Pool>,
     body: web::Bytes,
+    pc: PlatformConn,
 ) -> impl Responder {
     let content_type = req
         .headers()
@@ -230,29 +228,25 @@ pub async fn report_violation(
         return HttpResponse::NoContent().finish();
     }
 
-    // Persist asynchronously — we don't want a slow DB write
-    // blocking the response. Browsers don't care about the
-    // response anyway. The endpoint is unauthenticated (browsers
-    // don't include cookies on CSP reports by default), so we
-    // can't extract TenantConn here. Use with_actor_bypass_context
-    // to elevate to nosdesk_admin for the writes — csp_reports
-    // is RLS-enabled but the report shape (per-document_uri,
-    // dedup_hash) is intrinsically scoped to a workspace via
-    // the report's own dedup_hash; the workspace_id column gets
-    // its default from the GUC, which is empty here (apex /
-    // unauth path), so we pin a stable workspace_id=1 fallback.
+    // Persist via PlatformConn — the endpoint is public
+    // (browsers don't send cookies on CSP reports by default), so
+    // TenantConn isn't reachable. PlatformConn elevates to the
+    // nosdesk_admin BYPASSRLS role for the txn. csp_reports is
+    // RLS-enabled, so a tenant-scoped write would fail without
+    // bypass. The report shape (per-document_uri + dedup_hash) is
+    // intrinsically per-workspace once 3f.2 lands, but for now
+    // the table NOT-NULLs workspace_id with a default that reads
+    // from the actor's GUC, so we override the inherited
+    // "platform:unauth" actor with a system actor pinned to
+    // workspace_id=1 as a stable fallback.
     // TODO Phase 3f.2: read workspace from
     // WorkspaceContextMiddleware (which DOES run for the apex
     // path in hosted mode and attaches a WorkspaceContext) so
     // CSP reports get scoped to the originating workspace.
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(_) => return HttpResponse::NoContent().finish(),
-    };
-
-    let bypass_actor =
-        crate::sync::actor::ActorContext::system("handler:csp_report").with_workspace(1);
-    let _ = crate::sync::session::with_actor_bypass_context(&mut conn, &bypass_actor, |conn| {
+    let mut pc = pc.with_actor(
+        crate::sync::actor::ActorContext::system("handler:csp_report").with_workspace(1),
+    );
+    let _ = pc.run(|conn| {
         for r in parsed_reports {
             if r.effective_directive.is_empty() {
                 continue;
