@@ -516,27 +516,25 @@ pub async fn get_ticket(
 
 // Create a new ticket
 pub async fn create_ticket(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     auth: AuthContext,
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
     let new_ticket = ticket.into_inner();
 
     // Validate category visibility if category_id is set
     if let Some(category_id) = new_ticket.category_id {
-        match crate::repository::categories::can_user_see_category(
-            &mut conn,
-            &auth.user_uuid,
-            category_id,
-            auth.is_admin(),
-        ) {
+        match tc.run(|conn| {
+            crate::repository::categories::can_user_see_category(
+                conn,
+                &auth.user_uuid,
+                category_id,
+                auth.is_admin(),
+            )
+        }) {
             Ok(true) => {}
             Ok(false) => {
                 return errors::forbidden(
@@ -551,30 +549,38 @@ pub async fn create_ticket(
 
     // Validate assignee role if assignee is set
     if let Some(assignee_uuid) = new_ticket.assignee_uuid {
-        if let Err(e) = validate_assignee_role(&assignee_uuid, &mut conn) {
-            return e;
+        let validation: Result<Result<(), HttpResponse>, diesel::result::Error> =
+            tc.run(|conn| Ok(validate_assignee_role(&assignee_uuid, conn)));
+        match validation {
+            Ok(Ok(())) => {}
+            Ok(Err(resp)) => return resp,
+            Err(_) => return errors::internal("Failed to validate assignee"),
         }
     }
 
-    let actor_ctx = ActorContext::user(auth.user_uuid, None);
-    match with_actor(&mut conn, &actor_ctx, |conn| {
-        repository::create_ticket(conn, new_ticket)
-    }) {
+    match tc.run(|conn| repository::create_ticket(conn, new_ticket)) {
         Ok(mut ticket) => {
             // Run automatic assignment rules if no assignee
             if ticket.assignee_uuid.is_none() {
-                if let Some(result) = AssignmentEngine::evaluate_rules(
-                    &mut conn,
-                    &ticket,
-                    AssignmentTrigger::TicketCreated,
-                ) {
+                let rules_result = tc
+                    .run(|conn| {
+                        Ok::<_, diesel::result::Error>(AssignmentEngine::evaluate_rules(
+                            conn,
+                            &ticket,
+                            AssignmentTrigger::TicketCreated,
+                        ))
+                    })
+                    .ok()
+                    .flatten();
+
+                if let Some(result) = rules_result {
                     if let Some(assigned_uuid) = result.assigned_user_uuid {
                         let assign_update = TicketUpdate {
                             assignee_uuid: Some(Some(assigned_uuid)),
                             updated_at: Some(chrono::Utc::now().naive_utc()),
                             ..Default::default()
                         };
-                        if let Ok(updated) = with_actor(&mut conn, &actor_ctx, |conn| {
+                        if let Ok(updated) = tc.run(|conn| {
                             repository::update_ticket_partial(
                                 conn,
                                 ticket.id,
@@ -649,30 +655,25 @@ pub async fn create_ticket(
 // Update a ticket. The extractor gates visibility; this body
 // only runs for callers who can see the ticket.
 pub async fn update_ticket(
-    req: HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     access: TicketAccess,
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let new_ticket = ticket.into_inner();
 
     // Validate assignee role if assignee is set
     if let Some(assignee_uuid) = new_ticket.assignee_uuid {
-        if let Err(e) = validate_assignee_role(&assignee_uuid, &mut conn) {
-            return e;
+        let validation: Result<Result<(), HttpResponse>, diesel::result::Error> =
+            tc.run(|conn| Ok(validate_assignee_role(&assignee_uuid, conn)));
+        match validation {
+            Ok(Ok(())) => {}
+            Ok(Err(resp)) => return resp,
+            Err(_) => return errors::internal("Failed to validate assignee"),
         }
     }
 
-    let actor_ctx = actor_for(&req);
-    match with_actor(&mut conn, &actor_ctx, |conn| {
-        repository::update_ticket(conn, ticket_id, new_ticket)
-    }) {
+    match tc.run(|conn| repository::update_ticket(conn, ticket_id, new_ticket)) {
         Ok(ticket) => HttpResponse::Ok().json(ticket),
         Err(e) => errors::internal(format!("Failed to update ticket: {e}")),
     }
@@ -744,7 +745,7 @@ pub async fn delete_ticket(
 // Import tickets from JSON file
 pub async fn import_tickets_from_json(
     req: HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     json_path: web::Path<String>,
 ) -> impl Responder {
     // Extract claims and check role
@@ -773,17 +774,15 @@ pub async fn import_tickets_from_json(
         Err(_) => return errors::bad_request("Failed to parse JSON"),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Import each ticket
+    // Import each ticket — one txn per row so a malformed row in
+    // the middle of the import doesn't roll back the others. Matches
+    // the existing semantics (the prior code didn't open a txn at
+    // all).
     let mut imported_count = 0;
     let mut failed_count = 0;
 
     for ticket_json in tickets_json.tickets {
-        match repository::import_ticket_from_json(&mut conn, &ticket_json) {
+        match tc.run(|conn| repository::import_ticket_from_json(conn, &ticket_json)) {
             Ok(_) => imported_count += 1,
             Err(_) => failed_count += 1,
         }
@@ -798,7 +797,7 @@ pub async fn import_tickets_from_json(
 // Import tickets from JSON string
 pub async fn import_tickets_from_json_string(
     req: HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     tickets_json: web::Json<TicketsJson>,
 ) -> impl Responder {
     // Extract claims and check role
@@ -811,17 +810,11 @@ pub async fn import_tickets_from_json_string(
         return errors::forbidden("Forbidden: Only administrators can import tickets");
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Import each ticket
     let mut imported_count = 0;
     let mut failed_count = 0;
 
     for ticket_json in tickets_json.tickets.iter() {
-        match repository::import_ticket_from_json(&mut conn, ticket_json) {
+        match tc.run(|conn| repository::import_ticket_from_json(conn, ticket_json)) {
             Ok(_) => imported_count += 1,
             Err(_) => failed_count += 1,
         }
@@ -835,16 +828,11 @@ pub async fn import_tickets_from_json_string(
 
 // Create an empty ticket with default values
 pub async fn create_empty_ticket(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Extract claims from request extensions (set by cookie_auth_middleware)
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
@@ -858,7 +846,7 @@ pub async fn create_empty_ticket(
     };
 
     // Create a new ticket with default values using the authenticated user's UUID
-    let default_state = match repository::workflow_states::default_state(&mut conn) {
+    let default_state = match tc.run(|conn| repository::workflow_states::default_state(conn)) {
         Ok(s) => s,
         Err(e) => {
             error!(error = ?e, "Failed to resolve default workflow state");
@@ -873,10 +861,7 @@ pub async fn create_empty_ticket(
     };
 
     // Create the ticket and then add empty article content
-    let actor_ctx = actor_for(&req);
-    let mut ticket = match with_actor(&mut conn, &actor_ctx, |conn| {
-        repository::create_ticket(conn, empty_ticket)
-    }) {
+    let mut ticket = match tc.run(|conn| repository::create_ticket(conn, empty_ticket)) {
         Ok(ticket) => ticket,
         Err(e) => {
             error!(error = ?e, "Failed to create empty ticket");
@@ -886,9 +871,18 @@ pub async fn create_empty_ticket(
 
     // Run automatic assignment rules if no assignee
     if ticket.assignee_uuid.is_none() {
-        if let Some(result) =
-            AssignmentEngine::evaluate_rules(&mut conn, &ticket, AssignmentTrigger::TicketCreated)
-        {
+        let rules_result = tc
+            .run(|conn| {
+                Ok::<_, diesel::result::Error>(AssignmentEngine::evaluate_rules(
+                    conn,
+                    &ticket,
+                    AssignmentTrigger::TicketCreated,
+                ))
+            })
+            .ok()
+            .flatten();
+
+        if let Some(result) = rules_result {
             // Update ticket with auto-assigned user
             if let Some(assigned_uuid) = result.assigned_user_uuid {
                 let assign_update = TicketUpdate {
@@ -896,7 +890,7 @@ pub async fn create_empty_ticket(
                     updated_at: Some(chrono::Utc::now().naive_utc()),
                     ..Default::default()
                 };
-                if let Ok(updated) = with_actor(&mut conn, &actor_ctx, |conn| {
+                if let Ok(updated) = tc.run(|conn| {
                     repository::update_ticket_partial(
                         conn,
                         ticket.id,
@@ -955,7 +949,9 @@ pub async fn create_empty_ticket(
     };
 
     // Try to create article content, but don't fail if it doesn't work
-    let article_content = repository::create_article_content(&mut conn, new_article_content).ok();
+    let article_content = tc
+        .run(|conn| repository::create_article_content(conn, new_article_content))
+        .ok();
 
     // Index the new ticket in search
     indexing_tasks::spawn_index_ticket(
@@ -965,7 +961,7 @@ pub async fn create_empty_ticket(
     );
 
     // Return the complete ticket with article content
-    match repository::get_complete_ticket(&mut conn, ticket.id) {
+    match tc.run(|conn| repository::get_complete_ticket(conn, ticket.id)) {
         Ok(complete_ticket) => HttpResponse::Created().json(complete_ticket),
         Err(_) => HttpResponse::Created().json(ticket), // Fallback to just the ticket if getting complete ticket fails
     }
@@ -1508,7 +1504,7 @@ pub async fn update_ticket_partial(
 // Link tickets
 pub async fn link_tickets(
     req: HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
@@ -1527,12 +1523,8 @@ pub async fn link_tickets(
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::link_tickets(&mut conn, ticket_id, linked_ticket_id) {
+    match tc.run(|conn| repository::link_tickets(conn, ticket_id, linked_ticket_id)) {
         Ok(_) => {
             debug!(
                 ticket_id = ticket_id,
@@ -1564,7 +1556,7 @@ pub async fn link_tickets(
 // Unlink tickets
 pub async fn unlink_tickets(
     req: HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
@@ -1583,12 +1575,8 @@ pub async fn unlink_tickets(
     }
 
     let (ticket_id, linked_ticket_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::unlink_tickets(&mut conn, ticket_id, linked_ticket_id) {
+    match tc.run(|conn| repository::unlink_tickets(conn, ticket_id, linked_ticket_id)) {
         Ok(_) => {
             debug!(
                 ticket_id = ticket_id,
@@ -1620,7 +1608,7 @@ pub async fn unlink_tickets(
 // Add device to ticket
 pub async fn add_device_to_ticket(
     req: HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
@@ -1639,12 +1627,8 @@ pub async fn add_device_to_ticket(
     }
 
     let (ticket_id, device_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::add_device_to_ticket(&mut conn, ticket_id, device_id) {
+    match tc.run(|conn| repository::add_device_to_ticket(conn, ticket_id, device_id)) {
         Ok(_) => {
             debug!(
                 ticket_id = ticket_id,
@@ -1676,7 +1660,7 @@ pub async fn add_device_to_ticket(
 // Remove device from ticket
 pub async fn remove_device_from_ticket(
     req: HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
@@ -1695,12 +1679,8 @@ pub async fn remove_device_from_ticket(
     }
 
     let (ticket_id, device_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::remove_device_from_ticket(&mut conn, ticket_id, device_id) {
+    match tc.run(|conn| repository::remove_device_from_ticket(conn, ticket_id, device_id)) {
         Ok(rows_affected) => {
             if rows_affected > 0 {
                 debug!(

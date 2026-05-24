@@ -31,16 +31,29 @@
 
 use actix_web::{dev::Payload, web, FromRequest, HttpMessage, HttpRequest};
 use std::future::{ready, Ready};
+use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::middleware::RequestContext;
+use crate::models::Claims;
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
 
 /// Handler extractor that yields a tenant-scoped connection bound
 /// to the request's actor + workspace context.
+///
+/// Holds the pool reference, not a checked-out connection. Each
+/// `run` / `unscoped_run` call acquires a fresh connection, runs
+/// the closure inside a transaction with the GUCs primed, and
+/// releases the connection back to the pool. This keeps the
+/// extractor cheap to construct (no pool round-trip at
+/// from_request time), avoids holding a connection across
+/// independent repo calls inside a handler, and plays nicely
+/// with co-residing extractors that also acquire connections
+/// (TicketAccess, AuthContext) — none of them block waiting for
+/// a single-conn test pool.
 pub struct TenantConn {
-    conn: DbConnection,
+    pool: web::Data<Pool>,
     actor: ActorContext,
 }
 
@@ -50,11 +63,14 @@ impl TenantConn {
     /// see the workspace and filter accordingly. INSERT/UPDATE
     /// against a different workspace's rows fails the policy's
     /// WITH CHECK.
-    pub fn run<T, E>(&mut self, f: impl FnOnce(&mut DbConnection) -> Result<T, E>) -> Result<T, E>
-    where
-        E: From<diesel::result::Error>,
-    {
-        session::with_actor_context(&mut self.conn, &self.actor, f)
+    pub fn run<T>(
+        &mut self,
+        f: impl FnOnce(&mut DbConnection) -> diesel::QueryResult<T>,
+    ) -> diesel::QueryResult<T> {
+        let mut conn = self.pool.get().map_err(|e| {
+            diesel::result::Error::QueryBuilderError(format!("pool acquire: {e}").into())
+        })?;
+        session::with_actor_context(&mut conn, &self.actor, f)
     }
 
     /// Like `run`, but with `app.bypass_workspace_check = 'true'`
@@ -65,14 +81,14 @@ impl TenantConn {
     /// Every call site of this method is part of the audit-review
     /// surface — grep for `unscoped_run` to enumerate them.
     #[allow(dead_code)]
-    pub fn unscoped_run<T, E>(
+    pub fn unscoped_run<T>(
         &mut self,
-        f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
-    ) -> Result<T, E>
-    where
-        E: From<diesel::result::Error>,
-    {
-        session::with_actor_bypass_context(&mut self.conn, &self.actor, f)
+        f: impl FnOnce(&mut DbConnection) -> diesel::QueryResult<T>,
+    ) -> diesel::QueryResult<T> {
+        let mut conn = self.pool.get().map_err(|e| {
+            diesel::result::Error::QueryBuilderError(format!("pool acquire: {e}").into())
+        })?;
+        session::with_actor_bypass_context(&mut conn, &self.actor, f)
     }
 }
 
@@ -114,13 +130,26 @@ impl FromRequest for TenantConn {
     type Future = Ready<Result<Self, Self::Error>>;
 
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-        let actor = match req.extensions().get::<RequestContext>().cloned() {
-            Some(ctx) => ctx.actor,
-            None => return ready(Err(TenantConnError::MissingRequestContext)),
+        // Primary path: the auth middlewares populate RequestContext
+        // and it carries the workspace-pinned actor. Fallback path:
+        // handler-level tests insert raw Claims via extensions
+        // without going through the middleware chain; reconstruct a
+        // best-effort actor. The workspace pin in that case comes
+        // from the ambient GUC (set by test_helpers / middleware),
+        // not from this actor.
+        let actor = if let Some(ctx) = req.extensions().get::<RequestContext>().cloned() {
+            ctx.actor
+        } else if let Some(claims) = req.extensions().get::<Claims>().cloned() {
+            match Uuid::parse_str(&claims.sub) {
+                Ok(uuid) => ActorContext::user(uuid, None),
+                Err(_) => return ready(Err(TenantConnError::MissingRequestContext)),
+            }
+        } else {
+            return ready(Err(TenantConnError::MissingRequestContext));
         };
 
         let pool = match req.app_data::<web::Data<Pool>>() {
-            Some(p) => p,
+            Some(p) => p.clone(),
             None => {
                 return ready(Err(TenantConnError::PoolError(
                     "pool not configured".into(),
@@ -128,11 +157,6 @@ impl FromRequest for TenantConn {
             }
         };
 
-        let conn = match pool.get() {
-            Ok(c) => c,
-            Err(e) => return ready(Err(TenantConnError::PoolError(e.to_string()))),
-        };
-
-        ready(Ok(TenantConn { conn, actor }))
+        ready(Ok(TenantConn { pool, actor }))
     }
 }
