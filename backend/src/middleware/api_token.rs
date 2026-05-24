@@ -86,13 +86,11 @@ pub fn try_bearer_auth(
     let lookup_result = session::with_actor_bypass_context(&mut conn, &bypass_actor, |conn| {
         let api_token = get_valid_api_token(conn, &token_hash)?;
         let user = crate::repository::get_user_by_uuid(&api_token.user_uuid, conn)?;
-        let email = crate::repository::user_emails::get_user_emails_by_uuid(
-            conn,
-            &api_token.user_uuid,
-        )
-        .ok()
-        .and_then(|emails| emails.into_iter().find(|e| e.is_primary).map(|e| e.email))
-        .unwrap_or_else(|| "unknown@example.com".to_string());
+        let email =
+            crate::repository::user_emails::get_user_emails_by_uuid(conn, &api_token.user_uuid)
+                .ok()
+                .and_then(|emails| emails.into_iter().find(|e| e.is_primary).map(|e| e.email))
+                .unwrap_or_else(|| "unknown@example.com".to_string());
 
         // Update last_used_at inside the same bypass txn so the
         // policy doesn't reject the UPDATE.

@@ -105,9 +105,12 @@ async fn send_auto_ack(
         crate::sync::session::background_run(pool, "background:auto_ack_prep", |conn| {
             let settings = site_settings_repo::get_site_settings(conn)
                 .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
-            let email = user_helpers::get_primary_email(&requester_uuid, conn).ok_or_else(|| {
-                diesel::result::Error::QueryBuilderError("requester has no primary email".into())
-            })?;
+            let email =
+                user_helpers::get_primary_email(&requester_uuid, conn).ok_or_else(|| {
+                    diesel::result::Error::QueryBuilderError(
+                        "requester has no primary email".into(),
+                    )
+                })?;
             let name = crate::repository::users::get_user_by_uuid(&requester_uuid, conn)
                 .map(|u| u.name)
                 .unwrap_or_else(|_| email.clone());

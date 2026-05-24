@@ -73,14 +73,15 @@ pub async fn run_one_drain(
     // (Phase 3c.2) and the worker is a platform-level scheduler
     // that drains across whatever rows are ready; no request-bound
     // workspace pin exists here.
-    let claimed = crate::sync::session::background_run(
-        &pool,
-        "background:email_queue_claim",
-        |conn| Ok::<_, diesel::result::Error>(
-            repo::claim_batch(conn, repo::DEFAULT_BATCH_SIZE, LEASE_SECONDS)?
-        ),
-    )
-    .map_err(|e| anyhow::anyhow!("claim_batch failed: {e}"))?;
+    let claimed =
+        crate::sync::session::background_run(&pool, "background:email_queue_claim", |conn| {
+            Ok::<_, diesel::result::Error>(repo::claim_batch(
+                conn,
+                repo::DEFAULT_BATCH_SIZE,
+                LEASE_SECONDS,
+            )?)
+        })
+        .map_err(|e| anyhow::anyhow!("claim_batch failed: {e}"))?;
     stats.claimed = claimed.len();
     if claimed.is_empty() {
         return Ok(stats);

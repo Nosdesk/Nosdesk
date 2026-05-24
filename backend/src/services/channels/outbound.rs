@@ -226,11 +226,8 @@ pub fn enqueue_for_comment(
                             return Ok(None);
                         }
                     };
-                let message_id = format_outbound_message_id(
-                    thread.ticket_id,
-                    comment.id,
-                    &config.reply_domain,
-                );
+                let message_id =
+                    format_outbound_message_id(thread.ticket_id, comment.id, &config.reply_domain);
                 let subject = super::threading::format_outbound_subject(
                     thread.ticket_id,
                     thread.subject.as_deref().unwrap_or(""),

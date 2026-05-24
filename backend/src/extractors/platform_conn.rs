@@ -137,9 +137,7 @@ impl FromRequest for PlatformConn {
             .extensions()
             .get::<RequestContext>()
             .map(|ctx| ctx.actor.clone())
-            .unwrap_or_else(|| {
-                ActorContext::system(format!("platform:fallback:{}", req.path()))
-            });
+            .unwrap_or_else(|| ActorContext::system(format!("platform:fallback:{}", req.path())));
 
         let pool = match req.app_data::<web::Data<Pool>>() {
             Some(p) => p.clone(),

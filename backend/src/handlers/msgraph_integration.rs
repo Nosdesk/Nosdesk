@@ -867,19 +867,16 @@ pub async fn get_connection_status(
     // status endpoint reads the most-recent sync row across all
     // workspaces (admin view), so background_run with bypass is
     // correct here.
-    let last_sync = crate::sync::session::background_run(
-        &db_pool,
-        "background:msgraph_status",
-        |conn| {
+    let last_sync =
+        crate::sync::session::background_run(&db_pool, "background:msgraph_status", |conn| {
             crate::repository::sync_history::get_last_completed_sync(conn).map(|h| {
                 h.completed_at.map(|naive| {
                     chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc)
                 })
             })
-        },
-    )
-    .ok()
-    .flatten();
+        })
+        .ok()
+        .flatten();
 
     HttpResponse::Ok().json(ConnectionStatus {
         status: "connected".to_string(),

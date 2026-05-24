@@ -151,10 +151,7 @@ impl DocumentType {
 }
 
 // Simple handler to get article content by ticket ID or documentation page ID
-pub async fn get_article_content(
-    mut tc: TenantConn,
-    doc_id: web::Path<String>,
-) -> impl Responder {
+pub async fn get_article_content(mut tc: TenantConn, doc_id: web::Path<String>) -> impl Responder {
     let doc_id = doc_id.into_inner();
     let clean_doc_id = doc_id.replace("/", "_");
 
@@ -1263,11 +1260,18 @@ impl YjsAppState {
                                     content,
                                 )
                             }) {
-                                Ok(_) => debug!(collection_id, "Saved Yjs state for collection description"),
-                                Err(e) => error!(collection_id, error = ?e, "Failed to save Yjs state for collection description"),
+                                Ok(_) => debug!(
+                                    collection_id,
+                                    "Saved Yjs state for collection description"
+                                ),
+                                Err(e) => {
+                                    error!(collection_id, error = ?e, "Failed to save Yjs state for collection description")
+                                }
                             }
                         }
-                        Err(e) => error!(collection_id, error = ?e, "Database connection error when saving collection"),
+                        Err(e) => {
+                            error!(collection_id, error = ?e, "Database connection error when saving collection")
+                        }
                     }
                 });
             }
@@ -1962,16 +1966,13 @@ pub async fn ws_handler(
 // ============= Revision History API Endpoints =============
 
 /// GET /tickets/:id/revisions - List all revisions for a ticket
-pub async fn get_ticket_revisions(
-    ticket_id: web::Path<i32>,
-    mut tc: TenantConn,
-) -> HttpResponse {
+pub async fn get_ticket_revisions(ticket_id: web::Path<i32>, mut tc: TenantConn) -> HttpResponse {
     let ticket_id = ticket_id.into_inner();
 
     // Get article content for this ticket
-    let article_content = match tc
-        .run(|conn| crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id))
-    {
+    let article_content = match tc.run(|conn| {
+        crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
+    }) {
         Ok(content) => content,
         Err(_) => return errors::not_found_msg("No article content found for this ticket"),
     };
@@ -1990,16 +1991,13 @@ pub async fn get_ticket_revisions(
 }
 
 /// GET /tickets/:id/revisions/:revision_number - Get a specific revision
-pub async fn get_ticket_revision(
-    path: web::Path<(i32, i32)>,
-    mut tc: TenantConn,
-) -> HttpResponse {
+pub async fn get_ticket_revision(path: web::Path<(i32, i32)>, mut tc: TenantConn) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
 
     // Get article content for this ticket
-    let article_content = match tc
-        .run(|conn| crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id))
-    {
+    let article_content = match tc.run(|conn| {
+        crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
+    }) {
         Ok(content) => content,
         Err(_) => return errors::not_found_msg("No article content found for this ticket"),
     };
@@ -2038,9 +2036,9 @@ pub async fn restore_ticket_revision(
     let (ticket_id, revision_number) = path.into_inner();
 
     // Get article content for this ticket
-    let article_content = match tc
-        .run(|conn| crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id))
-    {
+    let article_content = match tc.run(|conn| {
+        crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
+    }) {
         Ok(content) => content,
         Err(_) => return errors::not_found_msg("No article content found for this ticket"),
     };
@@ -2132,10 +2130,7 @@ pub async fn restore_ticket_revision(
 // ============= Documentation Revision History API Endpoints =============
 
 /// GET /docs/:id/revisions - List all revisions for a documentation page
-pub async fn get_doc_revisions(
-    doc_id: web::Path<i32>,
-    mut tc: TenantConn,
-) -> HttpResponse {
+pub async fn get_doc_revisions(doc_id: web::Path<i32>, mut tc: TenantConn) -> HttpResponse {
     let doc_id = doc_id.into_inner();
 
     // Get all revisions
@@ -2147,10 +2142,7 @@ pub async fn get_doc_revisions(
 }
 
 /// GET /docs/:id/revisions/:revision_number - Get a specific revision
-pub async fn get_doc_revision(
-    path: web::Path<(i32, i32)>,
-    mut tc: TenantConn,
-) -> HttpResponse {
+pub async fn get_doc_revision(path: web::Path<(i32, i32)>, mut tc: TenantConn) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
 
     // Get the specific revision

@@ -161,9 +161,7 @@ async fn reconcile(id: i32, registry: &mut ChannelRegistry, deps: &RegistryDeps)
         |conn| channels_repo::find(conn, id),
     ) {
         Ok(c) => c,
-        Err(crate::sync::session::BackgroundRunError::Db(
-            diesel::result::Error::NotFound,
-        )) => {
+        Err(crate::sync::session::BackgroundRunError::Db(diesel::result::Error::NotFound)) => {
             debug!(
                 channel_id = id,
                 "channel supervisor: row deleted; no worker to start"

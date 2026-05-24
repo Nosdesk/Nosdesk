@@ -140,15 +140,12 @@ fn initial_watermark(pool: &Pool) -> Result<i64, anyhow::Error> {
     // sync_actions is RLS-enabled (Phase 3c.2); the outbox SSE
     // broadcaster is a platform-level reader fanning out across
     // every workspace, so it bypasses via background_run.
-    let max_id: Option<i64> = crate::sync::session::background_run(
-        pool,
-        "background:sync_outbox_watermark",
-        |conn| {
+    let max_id: Option<i64> =
+        crate::sync::session::background_run(pool, "background:sync_outbox_watermark", |conn| {
             sync_actions::table
                 .select(diesel::dsl::max(sync_actions::sync_id))
                 .first(conn)
-        },
-    )?;
+        })?;
     Ok(max_id.unwrap_or(0))
 }
 

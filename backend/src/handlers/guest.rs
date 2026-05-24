@@ -781,8 +781,8 @@ pub async fn get_public_doc(
     });
 
     match result {
-        Ok(Ok(Some((pid, puuid, ptitle, pslug, picon, pdoc, pupdated)))) => {
-            HttpResponse::Ok().json(json!({
+        Ok(Ok(Some((pid, puuid, ptitle, pslug, picon, pdoc, pupdated)))) => HttpResponse::Ok()
+            .json(json!({
                 "id": pid,
                 "uuid": puuid,
                 "title": ptitle,
@@ -790,8 +790,7 @@ pub async fn get_public_doc(
                 "icon": picon,
                 "yjs_document": pdoc,
                 "updated_at": pupdated,
-            }))
-        }
+            })),
         Ok(Ok(None)) => HttpResponse::NotFound().finish(),
         Ok(Err("unavailable")) => HttpResponse::ServiceUnavailable().finish(),
         Ok(Err(_)) => errors::forbidden("Public documentation is disabled"),

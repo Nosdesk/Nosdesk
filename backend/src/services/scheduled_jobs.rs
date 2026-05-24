@@ -89,12 +89,11 @@ pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
     // workspace (scheduler is platform-level). Elevate via
     // background_run so the DELETE isn't filtered to zero rows
     // post-DSN-flip.
-    let removed = crate::sync::session::background_run(
-        &pool,
-        "scheduler:prune_csp_reports",
-        |conn| crate::repository::csp_reports::prune_older_than(conn, days),
-    )
-    .map_err(|e| anyhow::anyhow!("prune CSP reports: {e}"))?;
+    let removed =
+        crate::sync::session::background_run(&pool, "scheduler:prune_csp_reports", |conn| {
+            crate::repository::csp_reports::prune_older_than(conn, days)
+        })
+        .map_err(|e| anyhow::anyhow!("prune CSP reports: {e}"))?;
     if removed > 0 {
         info!(
             count = removed,
@@ -131,12 +130,11 @@ pub async fn prune_security_events(pool: Pool) -> Result<()> {
 pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
     let days = retention_days("WEBHOOK_DELIVERY_RETENTION_DAYS", 30);
     // webhook_deliveries is RLS-enabled; cross-tenant prune.
-    let removed = crate::sync::session::background_run(
-        &pool,
-        "scheduler:prune_webhook_deliveries",
-        |conn| crate::repository::webhooks::prune_deliveries_older_than(conn, days),
-    )
-    .map_err(|e| anyhow::anyhow!("prune webhook deliveries: {e}"))?;
+    let removed =
+        crate::sync::session::background_run(&pool, "scheduler:prune_webhook_deliveries", |conn| {
+            crate::repository::webhooks::prune_deliveries_older_than(conn, days)
+        })
+        .map_err(|e| anyhow::anyhow!("prune webhook deliveries: {e}"))?;
     if removed > 0 {
         info!(
             count = removed,

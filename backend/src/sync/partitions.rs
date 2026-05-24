@@ -149,8 +149,7 @@ fn ensure_one_partition(
         //     drift away from the parent's `nosdesk_admin` ownership
         //     and the partition rotator silently regains its
         //     superuser dependency for the DDL below.
-        diesel::sql_query(format!("ALTER TABLE {child} OWNER TO nosdesk_admin"))
-            .execute(conn)?;
+        diesel::sql_query(format!("ALTER TABLE {child} OWNER TO nosdesk_admin")).execute(conn)?;
 
         // 2. Make sure no leftover constraint from a prior partial
         //    run trips the ADD below. DROP IF EXISTS is idempotent.

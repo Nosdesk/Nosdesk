@@ -84,18 +84,16 @@ pub async fn start_export(
         // is sealed and sensitive fields are included. Without,
         // the zip is plaintext and sensitive fields are stripped.
         let _ = include_sensitive;
-        let bypass_actor =
-            crate::sync::actor::ActorContext::system("background:backup_export");
+        let bypass_actor = crate::sync::actor::ActorContext::system("background:backup_export");
         let result =
             crate::sync::session::with_actor_bypass_context(&mut conn, &bypass_actor, |conn| {
-                backup_service::create_backup(conn, job_id, password.as_deref())
-                    .map_err(|e| {
-                        // Translate the backup service's error into a
-                        // diesel error so the closure's signature fits;
-                        // we lose error specificity but the wrapping
-                        // log statement preserves it.
-                        diesel::result::Error::QueryBuilderError(e.to_string().into())
-                    })
+                backup_service::create_backup(conn, job_id, password.as_deref()).map_err(|e| {
+                    // Translate the backup service's error into a
+                    // diesel error so the closure's signature fits;
+                    // we lose error specificity but the wrapping
+                    // log statement preserves it.
+                    diesel::result::Error::QueryBuilderError(e.to_string().into())
+                })
             });
 
         match result {

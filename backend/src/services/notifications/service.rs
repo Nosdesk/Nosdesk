@@ -518,18 +518,14 @@ impl NotificationService {
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(
-            &self.pool,
-            "background:notification_delete",
-            |conn| {
-                diesel::delete(
-                    notifications
-                        .filter(user_uuid.eq(user_uuid_val))
-                        .filter(id.eq_any(notification_ids)),
-                )
-                .execute(conn)
-            },
-        )
+        crate::sync::session::background_run(&self.pool, "background:notification_delete", |conn| {
+            diesel::delete(
+                notifications
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .filter(id.eq_any(notification_ids)),
+            )
+            .execute(conn)
+        })
         .map_err(|e| format!("Delete failed: {e}"))
     }
 }
