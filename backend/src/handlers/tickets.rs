@@ -996,9 +996,9 @@ pub async fn update_ticket_partial(
     // compatibility and translate to a workflow_state_id.
     if let Some(status_str) = body.get("status").and_then(|v| v.as_str()) {
         if matches!(status_str, "open" | "in-progress" | "closed") {
-            match tc.run(|conn| {
-                repository::workflow_states::state_for_legacy_status(conn, status_str)
-            }) {
+            match tc
+                .run(|conn| repository::workflow_states::state_for_legacy_status(conn, status_str))
+            {
                 Ok(state) => {
                     ticket_update.workflow_state_id = Some(state.id);
                     let cat = state.category;
@@ -1389,12 +1389,11 @@ pub async fn update_ticket_partial(
 
             // Now fetch the complete ticket for the response
             // This happens after SSE broadcast so it doesn't delay real-time updates
-            let updated_ticket = match tc
-                .run(|conn| repository::get_complete_ticket(conn, ticket_id))
-            {
-                Ok(ticket) => ticket,
-                Err(_) => return errors::internal("Failed to fetch updated ticket"),
-            };
+            let updated_ticket =
+                match tc.run(|conn| repository::get_complete_ticket(conn, ticket_id)) {
+                    Ok(ticket) => ticket,
+                    Err(_) => return errors::internal("Failed to fetch updated ticket"),
+                };
 
             // Trigger notifications for relevant changes (runs async, doesn't block response)
             if let Some(ref old) = old_ticket {
@@ -1762,13 +1761,14 @@ pub async fn get_recent_tickets(
     // fetches so the sidebar can't surface titles for tickets the
     // user can no longer read.
     let candidate_ids: Vec<i32> = recent.iter().map(|r| r.id).collect();
-    let visible = match tc.run(|conn| ticket_visibility::visible_ticket_ids(conn, &vis, &candidate_ids)) {
-        Ok(ids) => ids,
-        Err(e) => {
-            error!(error = ?e, "Failed to filter recent tickets by visibility");
-            return errors::internal("Failed to fetch recent tickets");
-        }
-    };
+    let visible =
+        match tc.run(|conn| ticket_visibility::visible_ticket_ids(conn, &vis, &candidate_ids)) {
+            Ok(ids) => ids,
+            Err(e) => {
+                error!(error = ?e, "Failed to filter recent tickets by visibility");
+                return errors::internal("Failed to fetch recent tickets");
+            }
+        };
     let filtered: Vec<_> = recent
         .into_iter()
         .filter(|t| visible.contains(&t.id))
@@ -1924,9 +1924,9 @@ pub async fn bulk_tickets(
                 return errors::bad_request("Bad Request: Invalid status value");
             }
 
-            let target_state = match tc.run(|conn| {
-                repository::workflow_states::state_for_legacy_status(conn, status_str)
-            }) {
+            let target_state = match tc
+                .run(|conn| repository::workflow_states::state_for_legacy_status(conn, status_str))
+            {
                 Ok(s) => s,
                 Err(e) => {
                     error!(error = ?e, "Failed to resolve workflow state");

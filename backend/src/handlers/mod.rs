@@ -271,21 +271,22 @@ pub async fn add_comment_to_ticket(
     };
 
     // Get the authenticated user's full information for notifications
-    let commenter_user =
-        match tc.run(|conn| crate::repository::users::get_user_by_uuid(&user_uuid_parsed, conn)) {
-            Ok(user) => {
-                debug!(user_name = %user.name, user_uuid = %user.uuid, "Authenticated user");
-                user
-            }
-            Err(e) => {
-                error!(user_uuid = %claims.sub, error = ?e, "Authenticated user UUID not found in database");
-                return json_error(
-                    &request_locale(&req),
-                    "backend-error-user-not-found",
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                );
-            }
-        };
+    let commenter_user = match tc
+        .run(|conn| crate::repository::users::get_user_by_uuid(&user_uuid_parsed, conn))
+    {
+        Ok(user) => {
+            debug!(user_name = %user.name, user_uuid = %user.uuid, "Authenticated user");
+            user
+        }
+        Err(e) => {
+            error!(user_uuid = %claims.sub, error = ?e, "Authenticated user UUID not found in database");
+            return json_error(
+                &request_locale(&req),
+                "backend-error-user-not-found",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            );
+        }
+    };
 
     // Extract user info for the response
     let user_info = Some(crate::models::UserInfoWithAvatar {
@@ -363,8 +364,7 @@ pub async fn add_comment_to_ticket(
                 // Find the existing attachment (uploaded to temp) by ID if available
                 if let Some(id) = attachment_data.id {
                     debug!(attachment_id = id, "Looking up attachment");
-                    match tc
-                        .run(|conn| crate::repository::comments::get_attachment_by_id(conn, id))
+                    match tc.run(|conn| crate::repository::comments::get_attachment_by_id(conn, id))
                     {
                         Ok(mut attachment) => {
                             debug!(attachment = ?attachment, "Found attachment");
@@ -849,7 +849,11 @@ pub async fn delete_comment(
         };
 
     let delete_result = tc.run(|conn| {
-        crate::repository::comments::delete_comment(conn, comment_id, Some(search_service.get_ref()))
+        crate::repository::comments::delete_comment(
+            conn,
+            comment_id,
+            Some(search_service.get_ref()),
+        )
     });
     match delete_result {
         Ok(deleted) => {

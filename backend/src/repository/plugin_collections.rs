@@ -283,7 +283,7 @@ impl From<PluginCollectionRowRaw> for PluginCollectionRow {
             // selects the original columns. None here keeps the
             // From conversion compiling; Phase 2 wires the raw
             // projection to actually carry workspace_id through.
-            workspace_id: None,
+            workspace_id: 1,
         }
     }
 }

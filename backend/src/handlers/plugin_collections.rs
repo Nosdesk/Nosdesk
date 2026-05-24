@@ -90,8 +90,7 @@ pub async fn list_collections(
         let responses: Vec<CollectionSchemaResponse> = schemas
             .into_iter()
             .map(|s| {
-                let row_count =
-                    collection_repo::count_rows_by_schema(conn, s.id).unwrap_or(0);
+                let row_count = collection_repo::count_rows_by_schema(conn, s.id).unwrap_or(0);
                 CollectionSchemaResponse {
                     uuid: s.uuid,
                     collection_name: s.collection_name,
@@ -275,9 +274,9 @@ pub async fn create_collection_row(
         };
 
         // Parse the collection definition from the schema for validation
-        if let Ok(definition) = serde_json::from_value::<crate::models::CollectionDefinition>(
-            schema.schema.clone(),
-        ) {
+        if let Ok(definition) =
+            serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone())
+        {
             if let Err(e) = validation::validate_row_data(&body_data, &definition) {
                 return Ok(CreateOutcome::ValidationError(e));
             }
@@ -393,9 +392,9 @@ pub async fn update_collection_row(
         };
 
         // Validate updated data
-        if let Ok(definition) = serde_json::from_value::<crate::models::CollectionDefinition>(
-            schema.schema.clone(),
-        ) {
+        if let Ok(definition) =
+            serde_json::from_value::<crate::models::CollectionDefinition>(schema.schema.clone())
+        {
             if let Err(e) = validation::validate_row_data(&body_data, &definition) {
                 return Ok(UpdateOutcome::ValidationError(e));
             }

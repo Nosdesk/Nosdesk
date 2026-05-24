@@ -100,7 +100,7 @@ mod tests {
             new_content: None,
             quoted_content: None,
             raw_source_uri: None,
-            workspace_id: None,
+            workspace_id: 1,
         }
     }
 

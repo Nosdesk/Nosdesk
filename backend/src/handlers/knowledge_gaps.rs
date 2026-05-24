@@ -370,9 +370,9 @@ pub async fn detect_clusters(
     let days = req_body.days.unwrap_or(30);
     let min_size = req_body.min_size.unwrap_or(2).max(2);
 
-    match tc.run(|conn| {
-        knowledge_gaps::run_cluster_detection(conn, Some(user_uuid), days, min_size)
-    }) {
+    match tc
+        .run(|conn| knowledge_gaps::run_cluster_detection(conn, Some(user_uuid), days, min_size))
+    {
         Ok(stats) => {
             for gap_id in &stats.new_gap_ids {
                 sse_state

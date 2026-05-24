@@ -220,11 +220,13 @@ pub async fn update_plugin(
     // Confirm the plugin exists; the lifecycle dispatch below
     // also looks it up, but failing fast here gives a 404 instead
     // of a generic InternalServerError if it's missing.
-    let exists = tc.run(|conn| match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
-        Ok(_) => Ok::<bool, DieselError>(true),
-        Err(DieselError::NotFound) => Ok(false),
-        Err(e) => Err(e),
-    });
+    let exists = tc.run(
+        |conn| match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(_) => Ok::<bool, DieselError>(true),
+            Err(DieselError::NotFound) => Ok(false),
+            Err(e) => Err(e),
+        },
+    );
     match exists {
         Ok(true) => {}
         Ok(false) => return errors::not_found_msg("Plugin not found"),
@@ -529,9 +531,9 @@ pub async fn set_plugin_setting(
             HttpResponse::Ok().json(PluginSettingResponse::from(setting))
         }
         Ok(SetOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
-        Ok(SetOutcome::EncryptionFailed) => errors::internal(
-            "Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.",
-        ),
+        Ok(SetOutcome::EncryptionFailed) => {
+            errors::internal("Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.")
+        }
         Ok(SetOutcome::NonStringSecret) => {
             errors::bad_request("Secret settings must be string values")
         }
@@ -624,7 +626,9 @@ pub async fn get_plugin_storage(
     });
 
     match outcome {
-        Ok(StorageOutcome::Ok(entry)) => HttpResponse::Ok().json(PluginStorageResponse::from(entry)),
+        Ok(StorageOutcome::Ok(entry)) => {
+            HttpResponse::Ok().json(PluginStorageResponse::from(entry))
+        }
         Ok(StorageOutcome::Empty) => HttpResponse::Ok().json(serde_json::json!({
             "key": key,
             "value": null
@@ -674,7 +678,9 @@ pub async fn set_plugin_storage(
     });
 
     match outcome {
-        Ok(StorageOutcome::Ok(entry)) => HttpResponse::Ok().json(PluginStorageResponse::from(entry)),
+        Ok(StorageOutcome::Ok(entry)) => {
+            HttpResponse::Ok().json(PluginStorageResponse::from(entry))
+        }
         Ok(StorageOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
         Ok(StorageOutcome::PluginDisabled) => errors::forbidden("Plugin is disabled"),
         Err(e) => {
@@ -793,10 +799,7 @@ pub async fn proxy_plugin_request(
     let plugin_uuid = path.into_inner();
 
     enum ProxyOutcome {
-        Ok(
-            crate::models::Plugin,
-            Vec<crate::models::PluginData>,
-        ),
+        Ok(crate::models::Plugin, Vec<crate::models::PluginData>),
         NotFound,
         Disabled,
     }

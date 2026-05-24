@@ -76,12 +76,11 @@ pub async fn send_test_email(
     // so the lookup rides on TenantConn's RLS-primed transaction.
     let base_url =
         std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
-    let branding = match tc.run(|conn| {
-        Ok::<_, diesel::result::Error>(get_email_branding(conn, &base_url))
-    }) {
-        Ok(b) => b,
-        Err(e) => return errors::internal(format!("Failed to load email branding: {}", e)),
-    };
+    let branding =
+        match tc.run(|conn| Ok::<_, diesel::result::Error>(get_email_branding(conn, &base_url))) {
+            Ok(b) => b,
+            Err(e) => return errors::internal(format!("Failed to load email branding: {}", e)),
+        };
 
     // Send test email
     match email_service.send_test_email(&request.to, &branding).await {

@@ -213,11 +213,7 @@ pub async fn retry_now(
 }
 
 /// `POST /api/admin/email-queue/{id}/cancel` — mark suppressed.
-pub async fn cancel(
-    req: HttpRequest,
-    mut tc: TenantConn,
-    path: web::Path<i64>,
-) -> impl Responder {
+pub async fn cancel(req: HttpRequest, mut tc: TenantConn, path: web::Path<i64>) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
         return resp;
     }

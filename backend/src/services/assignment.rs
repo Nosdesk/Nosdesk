@@ -346,7 +346,7 @@ mod tests {
             created_at: now,
             updated_at: now,
             created_by: None,
-            workspace_id: None,
+            workspace_id: 1,
         };
         overrides(&mut rule);
         rule
@@ -379,7 +379,7 @@ mod tests {
             recurrence_rule: None,
             recurrence_template_id: None,
             resolution_notes: None,
-            workspace_id: None,
+            workspace_id: 1,
         };
         overrides(&mut ticket);
         ticket

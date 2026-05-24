@@ -282,9 +282,7 @@ fn stream_bootstrap_inner(
     let want_all = granted.iter().any(|g| g == "workspace:1");
 
     let project_ids: Vec<i32> = if want_all {
-        projects::table
-            .select(projects::id)
-            .load::<i32>(conn)?
+        projects::table.select(projects::id).load::<i32>(conn)?
     } else {
         let mut ids: HashSet<i32> = HashSet::new();
         for g in granted {
@@ -376,8 +374,7 @@ fn stream_bootstrap_inner(
         crate::repository::knowledge_gaps::open_signal_counts_for_tickets(conn, &ticket_ids)?;
     let device_summaries =
         crate::repository::tickets::devices_summary_for_tickets(conn, &ticket_ids)?;
-    let cycle_membership =
-        crate::repository::cycles::cycle_ids_for_tickets(conn, &ticket_ids)?;
+    let cycle_membership = crate::repository::cycles::cycle_ids_for_tickets(conn, &ticket_ids)?;
     // Tag id list per ticket. Same batched-lookup pattern the
     // cycle membership uses; empty Vec when a ticket has no tags.
     let tag_membership = crate::repository::tags::tag_ids_for_tickets(conn, &ticket_ids)?;

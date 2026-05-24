@@ -199,11 +199,7 @@ pub async fn patch(
 }
 
 /// DELETE /api/admin/workflow-states/{id}
-pub async fn archive(
-    mut tc: TenantConn,
-    path: web::Path<i32>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn archive(mut tc: TenantConn, path: web::Path<i32>, req: HttpRequest) -> impl Responder {
     let id = path.into_inner();
     if let Err(e) = require_admin(&req) {
         return e;

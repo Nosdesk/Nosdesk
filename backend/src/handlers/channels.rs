@@ -162,13 +162,12 @@ pub async fn get_channel(
         return resp;
     }
     let id = path.into_inner();
-    let result: diesel::QueryResult<Option<ChannelResponse>> = tc.run(|conn| {
-        match channels_repo::find(conn, id) {
+    let result: diesel::QueryResult<Option<ChannelResponse>> =
+        tc.run(|conn| match channels_repo::find(conn, id) {
             Ok(channel) => ChannelResponse::build(channel, conn).map(Some),
             Err(diesel::result::Error::NotFound) => Ok(None),
             Err(e) => Err(e),
-        }
-    });
+        });
     match result {
         Ok(Some(body)) => HttpResponse::Ok().json(body),
         Ok(None) => HttpResponse::NotFound().finish(),
@@ -382,9 +381,9 @@ pub async fn clear_credential(
         return resp;
     }
     let channel_id = path.into_inner();
-    if let Err(e) = tc.run(|conn| {
-        channels_repo::delete_credential(conn, channel_id, CRED_TYPE_IMAP_PASSWORD)
-    }) {
+    if let Err(e) =
+        tc.run(|conn| channels_repo::delete_credential(conn, channel_id, CRED_TYPE_IMAP_PASSWORD))
+    {
         error!(error = %e, "failed to clear channel credential");
         return server_error("Failed to clear credential");
     }
@@ -452,12 +451,8 @@ pub async fn test_connection(
         // dedicated DELETE endpoint.
         let password = match candidate {
             Some(p) => p,
-            None => match channels_repo::get_credential(
-                conn,
-                channel_id,
-                CRED_TYPE_IMAP_PASSWORD,
-            )
-            .map_err(cred_to_diesel)?
+            None => match channels_repo::get_credential(conn, channel_id, CRED_TYPE_IMAP_PASSWORD)
+                .map_err(cred_to_diesel)?
             {
                 Some(p) => p,
                 None => {

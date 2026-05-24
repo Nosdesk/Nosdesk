@@ -50,9 +50,7 @@ pub struct ActorContext {
     /// `middleware::workspace_context`); `None` for super-admin /
     /// platform-level paths that legitimately operate across
     /// workspaces. Drives the `app.workspace_id` Postgres GUC the
-    /// Phase 4 RLS policies will read. Phase 2 wires the plumbing;
-    /// no policy reads the value yet, so it's a no-op at the
-    /// query layer until then.
+    /// Phase 3 RLS policies read.
     pub workspace_id: Option<i32>,
 }
 

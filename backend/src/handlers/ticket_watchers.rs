@@ -109,7 +109,8 @@ pub async fn update_my_watch_preferences(
     let Some(notify) = body.notify_on_internal_notes else {
         return errors::bad_request("notify_on_internal_notes is required");
     };
-    match tc.run(|conn| repo::set_notify_on_internal_notes(conn, ticket_id, &auth.user_uuid, notify))
+    match tc
+        .run(|conn| repo::set_notify_on_internal_notes(conn, ticket_id, &auth.user_uuid, notify))
     {
         Ok(true) => HttpResponse::Ok().json(serde_json::json!({
             "notify_on_internal_notes": notify,

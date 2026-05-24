@@ -6,9 +6,7 @@ use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::models::{
-    AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, NewAssignmentRule,
-};
+use crate::models::{AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, NewAssignmentRule};
 use crate::repository;
 use crate::services::assignment::AssignmentEngine;
 use crate::utils::rbac::require_admin;
@@ -254,11 +252,9 @@ pub async fn update_rule(
         // Check for duplicate name if name is being changed
         if let Some(ref new_name) = body.name {
             if new_name != &existing.name {
-                if let Ok(true) = repository::assignment_rules::rule_name_exists(
-                    conn,
-                    new_name,
-                    Some(rule_id),
-                ) {
+                if let Ok(true) =
+                    repository::assignment_rules::rule_name_exists(conn, new_name, Some(rule_id))
+                {
                     return Ok(UpdateOutcome::Conflict);
                 }
             }

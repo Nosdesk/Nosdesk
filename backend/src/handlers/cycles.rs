@@ -54,11 +54,7 @@ pub struct PatchBody {
     pub state: Option<String>,
 }
 
-pub async fn list(
-    mut tc: TenantConn,
-    path: web::Path<i32>,
-    _auth: AuthContext,
-) -> impl Responder {
+pub async fn list(mut tc: TenantConn, path: web::Path<i32>, _auth: AuthContext) -> impl Responder {
     let project_id = path.into_inner();
     match tc.run(|conn| repo::list_for_project(conn, project_id)) {
         Ok(rows) => HttpResponse::Ok().json(rows),

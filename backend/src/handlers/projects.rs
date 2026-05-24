@@ -48,11 +48,12 @@ pub async fn get_project(
         .map(|s| s.split(',').map(str::trim).any(|t| t == "tickets"))
         .unwrap_or(false);
 
-    let mut project = match tc.run(|conn| repository::get_project_with_ticket_count(conn, project_id)) {
-        Ok(p) => p,
-        Err(Error::NotFound) => return errors::not_found_msg("Project not found"),
-        Err(_) => return errors::internal("Failed to get project"),
-    };
+    let mut project =
+        match tc.run(|conn| repository::get_project_with_ticket_count(conn, project_id)) {
+            Ok(p) => p,
+            Err(Error::NotFound) => return errors::not_found_msg("Project not found"),
+            Err(_) => return errors::internal("Failed to get project"),
+        };
 
     if want_tickets {
         match tc.run(|conn| repository::get_project_tickets(conn, project_id)) {
@@ -133,10 +134,7 @@ pub async fn get_project_tickets(mut tc: TenantConn, path: web::Path<i32>) -> im
 /// project. The Gantt renders `blocks` arrows; other link kinds
 /// round-trip so the renderer can switch them on without a
 /// backend change.
-pub async fn get_project_dependencies(
-    mut tc: TenantConn,
-    path: web::Path<i32>,
-) -> impl Responder {
+pub async fn get_project_dependencies(mut tc: TenantConn, path: web::Path<i32>) -> impl Responder {
     let project_id = path.into_inner();
     match tc.run(|conn| repository::linked_tickets::dependencies_for_project(conn, project_id)) {
         Ok(rows) => {

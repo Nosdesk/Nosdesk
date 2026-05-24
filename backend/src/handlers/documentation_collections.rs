@@ -288,11 +288,8 @@ pub async fn update_collection(
             ..Default::default()
         };
 
-        match repository::documentation_collections::update_collection(
-            conn,
-            collection_id,
-            update,
-        ) {
+        match repository::documentation_collections::update_collection(conn, collection_id, update)
+        {
             Ok(updated) => Ok::<_, diesel::result::Error>(UpdateCollectionOutcome::Ok(updated)),
             Err(Error::NotFound) => Ok(UpdateCollectionOutcome::NotFound),
             Err(e) => {
@@ -331,7 +328,9 @@ pub async fn update_collection(
         Ok(UpdateCollectionOutcome::SystemRenameBlocked) => {
             errors::forbidden("Cannot rename system collections")
         }
-        Ok(UpdateCollectionOutcome::UpdateFailed) => errors::internal("Failed to update collection"),
+        Ok(UpdateCollectionOutcome::UpdateFailed) => {
+            errors::internal("Failed to update collection")
+        }
         Err(_) => errors::internal("Failed to update collection"),
     }
 }
@@ -616,15 +615,14 @@ pub async fn get_page_overrides_in_collection(
 
         let page_ids: Vec<i32> = pages.iter().map(|p| p.id).collect();
 
-        let group_overrides = match repository::documentation::get_page_visibility_overrides_batch(
-            conn, &page_ids,
-        ) {
-            Ok(o) => o,
-            Err(e) => {
-                error!(error = ?e, "Failed to get page visibility overrides");
-                return Ok(PageOverridesOutcome::OverridesFailed);
-            }
-        };
+        let group_overrides =
+            match repository::documentation::get_page_visibility_overrides_batch(conn, &page_ids) {
+                Ok(o) => o,
+                Err(e) => {
+                    error!(error = ?e, "Failed to get page visibility overrides");
+                    return Ok(PageOverridesOutcome::OverridesFailed);
+                }
+            };
 
         let user_overrides =
             match repository::documentation::get_page_user_visibility_overrides_batch(
@@ -679,7 +677,9 @@ pub async fn get_page_overrides_in_collection(
     match outcome {
         Ok(PageOverridesOutcome::Ok(payload)) => HttpResponse::Ok().json(payload),
         Ok(PageOverridesOutcome::PagesFailed) => errors::internal("Failed to get pages"),
-        Ok(PageOverridesOutcome::OverridesFailed) => errors::internal("Failed to get page overrides"),
+        Ok(PageOverridesOutcome::OverridesFailed) => {
+            errors::internal("Failed to get page overrides")
+        }
         Err(_) => errors::internal("Failed to get page overrides"),
     }
 }

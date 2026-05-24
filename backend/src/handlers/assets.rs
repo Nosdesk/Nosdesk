@@ -398,10 +398,7 @@ fn classify_warranty(end: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -
 /// `GET /api/assets/planner` — returns every device shaped for the
 /// asset rollout planner view. Bucketing happens server-side so
 /// the renderer doesn't repeat the OS-string heuristics.
-pub async fn asset_planner(
-    mut tc: TenantConn,
-    _auth: AuthContext,
-) -> impl Responder {
+pub async fn asset_planner(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
     use crate::services::assets::it_attrs;
 
     // The planner's axes (OS family, warranty bucket, compliance)
@@ -556,7 +553,9 @@ pub async fn get_device_by_id(
             group_count = groups.len(),
             "Fetched groups for device"
         );
-        Ok(AssetResponse::from_device_and_user(device, user, groups, conn))
+        Ok(AssetResponse::from_device_and_user(
+            device, user, groups, conn,
+        ))
     });
 
     match result {
@@ -722,8 +721,14 @@ pub async fn update_device(
             .attributes
             .clone()
             .unwrap_or_else(|| existing_device.attributes.clone());
-        let validation: Result<Result<(), AssetValidationError>, diesel::result::Error> = tc
-            .run(|conn| Ok(validate_for_kind(conn, &effective_kind, &effective_attributes)));
+        let validation: Result<Result<(), AssetValidationError>, diesel::result::Error> =
+            tc.run(|conn| {
+                Ok(validate_for_kind(
+                    conn,
+                    &effective_kind,
+                    &effective_attributes,
+                ))
+            });
         match validation {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return asset_validation_response(e),
@@ -801,7 +806,8 @@ pub async fn delete_device(
 
     let device_id = path.into_inner();
 
-    match tc.run(|conn| repository::delete_device(conn, device_id, Some(search_service.get_ref()))) {
+    match tc.run(|conn| repository::delete_device(conn, device_id, Some(search_service.get_ref())))
+    {
         Ok(rows_affected) => {
             if rows_affected > 0 {
                 // Search index removal is fired by the
@@ -884,7 +890,9 @@ pub async fn unmanage_device(
             .as_ref()
             .and_then(|uuid| get_user_by_uuid(conn, uuid));
         let groups = groups_repo::get_groups_for_device(conn, device_id).unwrap_or_default();
-        Ok(AssetResponse::from_device_and_user(device, user, groups, conn))
+        Ok(AssetResponse::from_device_and_user(
+            device, user, groups, conn,
+        ))
     });
 
     match result {
@@ -920,13 +928,14 @@ pub async fn get_paginated_devices_excluding(
     let search = query.search.clone();
 
     let result = tc.run(|conn| {
-        let (devices, total_count) = crate::repository::assets::get_paginated_devices_excluding_ids(
-            conn,
-            page,
-            page_size,
-            search.as_deref(),
-            &exclude_ids,
-        )?;
+        let (devices, total_count) =
+            crate::repository::assets::get_paginated_devices_excluding_ids(
+                conn,
+                page,
+                page_size,
+                search.as_deref(),
+                &exclude_ids,
+            )?;
         let device_responses = devices_to_responses(conn, devices);
         Ok((device_responses, total_count))
     });

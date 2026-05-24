@@ -183,18 +183,11 @@ fn ensure_one_partition(
         //    normal path; partitions are an implementation
         //    detail of audit_log / sync_actions).
         let policy_name = format!("{child}_workspace_isolation");
-        diesel::sql_query(format!(
-            "ALTER TABLE {child} ENABLE ROW LEVEL SECURITY"
-        ))
-        .execute(conn)?;
-        diesel::sql_query(format!(
-            "ALTER TABLE {child} FORCE ROW LEVEL SECURITY"
-        ))
-        .execute(conn)?;
-        diesel::sql_query(format!(
-            "DROP POLICY IF EXISTS {policy_name} ON {child}"
-        ))
-        .execute(conn)?;
+        diesel::sql_query(format!("ALTER TABLE {child} ENABLE ROW LEVEL SECURITY"))
+            .execute(conn)?;
+        diesel::sql_query(format!("ALTER TABLE {child} FORCE ROW LEVEL SECURITY")).execute(conn)?;
+        diesel::sql_query(format!("DROP POLICY IF EXISTS {policy_name} ON {child}"))
+            .execute(conn)?;
         diesel::sql_query(format!(
             "CREATE POLICY {policy_name} ON {child} \
              USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int) \

@@ -292,11 +292,7 @@ pub async fn update(
     }
 }
 
-pub async fn delete(
-    mut tc: TenantConn,
-    path: web::Path<i32>,
-    auth: AuthContext,
-) -> impl Responder {
+pub async fn delete(mut tc: TenantConn, path: web::Path<i32>, auth: AuthContext) -> impl Responder {
     if !auth.is_admin() {
         return errors::forbidden("Admin required");
     }

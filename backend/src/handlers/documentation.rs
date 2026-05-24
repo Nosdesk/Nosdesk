@@ -818,7 +818,10 @@ pub async fn update_documentation_page(
     // field so the frontend can apply the change at field
     // granularity rather than re-fetching the whole page.
     let updates: [(&str, Option<serde_json::Value>); 4] = [
-        ("title", request_title.as_ref().map(|v| serde_json::json!(v))),
+        (
+            "title",
+            request_title.as_ref().map(|v| serde_json::json!(v)),
+        ),
         ("slug", request_slug.as_ref().map(|v| serde_json::json!(v))),
         ("icon", request_icon.as_ref().map(|v| serde_json::json!(v))),
         (
@@ -852,8 +855,7 @@ pub async fn update_documentation_page(
                 Ok(conn) => conn,
                 Err(_) => return,
             };
-            let subscribers =
-                documentation_subscriptions::get_page_subscribers(&mut conn, page_id);
+            let subscribers = documentation_subscriptions::get_page_subscribers(&mut conn, page_id);
             let actor = NotificationActor {
                 uuid: user_uuid,
                 name: actor_name,
@@ -939,10 +941,7 @@ pub async fn delete_documentation_page(
     match outcome {
         Ok(DeletePageOutcome::Ok) => {
             // Remove documentation from search index (trashed pages shouldn't appear in search)
-            indexing_tasks::spawn_delete_documentation(
-                search_service.get_ref().clone(),
-                page_id,
-            );
+            indexing_tasks::spawn_delete_documentation(search_service.get_ref().clone(), page_id);
 
             // Broadcast SSE event for status change to deleted
             let source_client_id = req
@@ -967,7 +966,9 @@ pub async fn delete_documentation_page(
             HttpResponse::NoContent().finish()
         }
         Ok(DeletePageOutcome::NotFound) => errors::not_found_msg("Documentation page not found"),
-        Ok(DeletePageOutcome::UpdateFailed) => errors::internal("Failed to delete documentation page"),
+        Ok(DeletePageOutcome::UpdateFailed) => {
+            errors::internal("Failed to delete documentation page")
+        }
         Err(_) => errors::internal("Failed to delete documentation page"),
     }
 }
@@ -1093,7 +1094,9 @@ pub async fn get_page_with_children_by_parent_id(
         Ok(PageWithChildrenOutcome::VisibilityCheckFailed) => {
             errors::internal("Failed to check page visibility")
         }
-        Ok(PageWithChildrenOutcome::ChildrenFetchFailed) => errors::internal("Failed to fetch children"),
+        Ok(PageWithChildrenOutcome::ChildrenFetchFailed) => {
+            errors::internal("Failed to fetch children")
+        }
         Err(_) => errors::internal("Failed to load page"),
     }
 }
@@ -1109,11 +1112,11 @@ pub async fn get_page_with_ordered_children(
     let is_admin_user = auth.is_admin();
 
     let outcome = tc.run(|conn| {
-        let mut page_with_children =
-            match repository::get_page_with_ordered_children(conn, page_id) {
-                Ok(p) => p,
-                Err(_) => return Ok(PageWithChildrenOutcome::NotFound),
-            };
+        let mut page_with_children = match repository::get_page_with_ordered_children(conn, page_id)
+        {
+            Ok(p) => p,
+            Err(_) => return Ok(PageWithChildrenOutcome::NotFound),
+        };
         match repository::can_user_access_page(
             conn,
             page_with_children.page.id,
@@ -1144,7 +1147,9 @@ pub async fn get_page_with_ordered_children(
         Ok(PageWithChildrenOutcome::VisibilityCheckFailed) => {
             errors::internal("Failed to check page visibility")
         }
-        Ok(PageWithChildrenOutcome::ChildrenFetchFailed) => errors::internal("Failed to fetch children"),
+        Ok(PageWithChildrenOutcome::ChildrenFetchFailed) => {
+            errors::internal("Failed to fetch children")
+        }
         Err(_) => errors::not_found_msg("Page not found or error fetching children"),
     }
 }
@@ -1222,9 +1227,9 @@ pub async fn move_page_to_parent(
     let page_id = request.page_id;
     let new_parent_id = request.new_parent_id;
 
-    match tc.run(|conn| {
-        repository::move_page_to_parent(conn, page_id, new_parent_id, display_order)
-    }) {
+    match tc
+        .run(|conn| repository::move_page_to_parent(conn, page_id, new_parent_id, display_order))
+    {
         Ok(page) => HttpResponse::Ok().json(page),
         Err(diesel::result::Error::RollbackTransaction) => errors::bad_request(
             "Circular reference: Cannot move a page to be a child of its own descendant",
@@ -1237,10 +1242,7 @@ pub async fn move_page_to_parent(
 }
 
 // Get top-level pages (with ordering)
-pub async fn get_ordered_top_level_pages(
-    mut tc: TenantConn,
-    auth: AuthContext,
-) -> impl Responder {
+pub async fn get_ordered_top_level_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_admin(), |conn| {
         repository::get_ordered_top_level_pages(conn)
     });
@@ -1289,7 +1291,9 @@ pub async fn get_documentation_page_by_slug_with_children(
         Ok(PageWithChildrenOutcome::VisibilityCheckFailed) => {
             errors::internal("Failed to check page visibility")
         }
-        Ok(PageWithChildrenOutcome::ChildrenFetchFailed) => errors::internal("Failed to fetch children"),
+        Ok(PageWithChildrenOutcome::ChildrenFetchFailed) => {
+            errors::internal("Failed to fetch children")
+        }
         Err(_) => errors::internal("Failed to load page"),
     }
 }
@@ -1802,10 +1806,7 @@ pub async fn permanently_delete_page(
 
     match outcome {
         Ok(HardDeleteOutcome::Ok) => {
-            indexing_tasks::spawn_delete_documentation(
-                search_service.get_ref().clone(),
-                page_id,
-            );
+            indexing_tasks::spawn_delete_documentation(search_service.get_ref().clone(), page_id);
             info!(page_id = page_id, deleted_by = %actor_name, "Documentation page permanently deleted");
             HttpResponse::NoContent().finish()
         }
@@ -2131,7 +2132,8 @@ pub async fn delete_page_ticket_link(
         return errors::forbidden("Forbidden");
     }
     let (page_id, ticket_id) = path.into_inner();
-    match tc.run(|conn| repository::documentation_page_tickets::delete_link(conn, page_id, ticket_id))
+    match tc
+        .run(|conn| repository::documentation_page_tickets::delete_link(conn, page_id, ticket_id))
     {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
@@ -2186,11 +2188,11 @@ pub async fn list_ticket_doc_links(
         // Apply per-user visibility filtering — the same page_visibility
         // rules that gate page reads must gate this list, otherwise the
         // ticket panel would leak doc titles past their group boundary.
-        let pages =
-            match repository::filter_pages_for_user(conn, pages, &user_uuid, is_admin_user) {
-                Ok(p) => p,
-                Err(_) => return Ok(TicketDocLinksOutcome::FilterFailed),
-            };
+        let pages = match repository::filter_pages_for_user(conn, pages, &user_uuid, is_admin_user)
+        {
+            Ok(p) => p,
+            Err(_) => return Ok(TicketDocLinksOutcome::FilterFailed),
+        };
         let pages_by_id: std::collections::HashMap<i32, DocumentationPage> =
             pages.into_iter().map(|p| (p.id, p)).collect();
 
@@ -2274,9 +2276,9 @@ pub async fn verify_page(
         // Re-verifying a page closes the editorial loop on
         // any open stale_doc gap that flagged it. Best-effort
         // — a failure here doesn't roll back the verification.
-        if let Err(e) = repository::knowledge_gaps::dismiss_stale_doc_gaps_for_page(
-            conn, page_id, user_uuid,
-        ) {
+        if let Err(e) =
+            repository::knowledge_gaps::dismiss_stale_doc_gaps_for_page(conn, page_id, user_uuid)
+        {
             error!(error = ?e, page_id, "Failed to auto-dismiss stale_doc gaps after re-verify");
         }
         let response = match to_page_response(updated.clone(), conn) {

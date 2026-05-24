@@ -234,7 +234,7 @@ mod tests {
             actor_uuid: None,
             correlation_id: None,
             occurred_at: Utc::now(),
-            workspace_id: None,
+            workspace_id: 1,
         };
 
         let diff = flatten_diff(&row);
@@ -257,7 +257,7 @@ mod tests {
             actor_uuid: None,
             correlation_id: None,
             occurred_at: Utc::now(),
-            workspace_id: None,
+            workspace_id: 1,
         };
 
         let diff = flatten_diff(&row);

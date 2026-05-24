@@ -70,7 +70,7 @@ diesel::table! {
         revoked_at -> Nullable<Timestamptz>,
         last_used_at -> Nullable<Timestamptz>,
         last_used_ip -> Nullable<Inet>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -83,7 +83,7 @@ diesel::table! {
         yjs_document_content -> Bytea,
         contributed_by -> Array<Nullable<Uuid>>,
         created_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -99,7 +99,7 @@ diesel::table! {
         yjs_state_vector -> Nullable<Bytea>,
         yjs_document -> Nullable<Bytea>,
         yjs_client_id -> Nullable<Int8>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -113,7 +113,7 @@ diesel::table! {
         notes -> Nullable<Text>,
         recorded_by -> Nullable<Uuid>,
         recorded_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -125,7 +125,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         #[max_length = 50]
         external_source -> Nullable<Varchar>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -147,7 +147,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         #[max_length = 16]
         category -> Varchar,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -164,7 +164,7 @@ diesel::table! {
         notes -> Nullable<Text>,
         #[max_length = 16]
         event_kind -> Varchar,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -198,7 +198,7 @@ diesel::table! {
         #[max_length = 32]
         external_sync_source -> Nullable<Varchar>,
         low_stock_threshold -> Nullable<Numeric>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -217,7 +217,7 @@ diesel::table! {
         method -> AssignmentMethod,
         context -> Nullable<Jsonb>,
         assigned_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -228,7 +228,7 @@ diesel::table! {
         total_assignments -> Int4,
         last_assigned_at -> Nullable<Timestamptz>,
         last_assigned_user_uuid -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -254,7 +254,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -274,7 +274,7 @@ diesel::table! {
         uploaded_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
         transcription -> Nullable<Text>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -291,7 +291,7 @@ diesel::table! {
         actor_uuid -> Nullable<Uuid>,
         correlation_id -> Nullable<Uuid>,
         occurred_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -308,7 +308,7 @@ diesel::table! {
         actor_uuid -> Nullable<Uuid>,
         correlation_id -> Nullable<Uuid>,
         occurred_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -326,7 +326,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
         completed_at -> Nullable<Timestamptz>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -339,7 +339,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -349,7 +349,7 @@ diesel::table! {
         group_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -362,7 +362,7 @@ diesel::table! {
         encrypted_value -> Text,
         expires_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -383,7 +383,7 @@ diesel::table! {
         author_user_uuid -> Nullable<Uuid>,
         raw_metadata -> Nullable<Jsonb>,
         received_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -400,7 +400,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         last_polled_at -> Nullable<Timestamptz>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -424,7 +424,7 @@ diesel::table! {
         new_content -> Nullable<Text>,
         quoted_content -> Nullable<Text>,
         raw_source_uri -> Nullable<Text>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -451,7 +451,7 @@ diesel::table! {
         occurrence_count -> Int4,
         first_seen_at -> Timestamptz,
         last_seen_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -461,7 +461,7 @@ diesel::table! {
         ticket_id -> Int4,
         added_at -> Timestamptz,
         added_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -482,7 +482,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         archived_at -> Nullable<Timestamptz>,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -492,7 +492,7 @@ diesel::table! {
         page_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -504,7 +504,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         id -> Int4,
         user_uuid -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -530,7 +530,7 @@ diesel::table! {
         description_state_vector -> Nullable<Bytea>,
         description_text -> Nullable<Text>,
         hide_titles_from_non_members -> Bool,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -539,7 +539,7 @@ diesel::table! {
         source_page_id -> Int4,
         target_page_id -> Int4,
         created_at -> Timestamp,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -551,7 +551,7 @@ diesel::table! {
         link_type -> Varchar,
         created_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -563,7 +563,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         id -> Int4,
         user_uuid -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -600,7 +600,7 @@ diesel::table! {
         verified_by -> Nullable<Uuid>,
         verified_at -> Nullable<Timestamptz>,
         verify_interval_days -> Nullable<Int4>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -616,7 +616,7 @@ diesel::table! {
         created_at -> Timestamptz,
         created_by -> Uuid,
         change_summary -> Nullable<Text>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -626,7 +626,7 @@ diesel::table! {
         user_uuid -> Uuid,
         page_id -> Int4,
         created_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -636,7 +636,7 @@ diesel::table! {
         user_uuid -> Uuid,
         page_id -> Int4,
         created_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -658,7 +658,7 @@ diesel::table! {
         child_group_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -684,7 +684,7 @@ diesel::table! {
         security_enabled -> Bool,
         last_synced_at -> Nullable<Timestamptz>,
         sync_enabled -> Bool,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -705,7 +705,7 @@ diesel::table! {
         summary -> Nullable<Jsonb>,
         records_committed -> Nullable<Int4>,
         error_message -> Nullable<Text>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -724,7 +724,7 @@ diesel::table! {
         detected_at -> Timestamptz,
         dismissed_at -> Nullable<Timestamptz>,
         dismissed_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -746,7 +746,7 @@ diesel::table! {
         dismissed_at -> Nullable<Timestamptz>,
         dismissed_by -> Nullable<Uuid>,
         resolved_at -> Nullable<Timestamptz>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -759,7 +759,7 @@ diesel::table! {
         description -> Nullable<Text>,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -773,7 +773,7 @@ diesel::table! {
         enabled -> Bool,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -821,7 +821,7 @@ diesel::table! {
         is_read -> Bool,
         read_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -854,7 +854,7 @@ diesel::table! {
         bounce_recipient -> Nullable<Text>,
         bounce_diagnostic -> Nullable<Text>,
         idempotency_key -> Nullable<Text>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -884,7 +884,7 @@ diesel::table! {
         details -> Nullable<Jsonb>,
         user_uuid -> Nullable<Uuid>,
         created_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -898,7 +898,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -913,7 +913,7 @@ diesel::table! {
         version -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -930,7 +930,7 @@ diesel::table! {
         is_secret -> Bool,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1001,7 +1001,7 @@ diesel::table! {
         #[max_length = 32]
         state -> Varchar,
         bundle_js -> Nullable<Bytea>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1012,7 +1012,7 @@ diesel::table! {
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         display_order -> Int4,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1032,7 +1032,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         owner_uuid -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1088,7 +1088,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         #[max_length = 20]
         dataset -> Varchar,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1114,7 +1114,7 @@ diesel::table! {
         query_norm -> Text,
         result_count -> Int4,
         searched_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1168,7 +1168,7 @@ diesel::table! {
         feature_flags -> Jsonb,
         default_locale -> Text,
         default_timezone -> Text,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1187,7 +1187,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1216,7 +1216,7 @@ diesel::table! {
         client_tx_id -> Nullable<Text>,
         occurred_at -> Timestamptz,
         recorded_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1245,7 +1245,7 @@ diesel::table! {
         client_tx_id -> Nullable<Text>,
         occurred_at -> Timestamptz,
         recorded_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1259,7 +1259,7 @@ diesel::table! {
         delta_link -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1281,7 +1281,7 @@ diesel::table! {
         tenant_id -> Nullable<Varchar>,
         initiated_by -> Nullable<Uuid>,
         is_delta -> Bool,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1304,7 +1304,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         archived_at -> Nullable<Timestamptz>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1314,7 +1314,7 @@ diesel::table! {
         asset_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1334,7 +1334,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1344,7 +1344,7 @@ diesel::table! {
         tag_id -> Int4,
         created_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1355,7 +1355,7 @@ diesel::table! {
         created_at -> Timestamptz,
         auto_added -> Bool,
         notify_on_internal_notes -> Bool,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1389,7 +1389,7 @@ diesel::table! {
         recurrence_rule -> Nullable<Text>,
         recurrence_template_id -> Nullable<Int4>,
         resolution_notes -> Nullable<Text>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1436,7 +1436,7 @@ diesel::table! {
         group_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1462,7 +1462,7 @@ diesel::table! {
         first_viewed_at -> Timestamptz,
         last_viewed_at -> Timestamptz,
         view_count -> Int4,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1514,7 +1514,7 @@ diesel::table! {
         delivered_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         next_retry_at -> Nullable<Timestamptz>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1536,7 +1536,7 @@ diesel::table! {
         last_triggered_at -> Nullable<Timestamptz>,
         failure_count -> Int4,
         disabled_reason -> Nullable<Text>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1556,7 +1556,7 @@ diesel::table! {
         archived_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1567,7 +1567,7 @@ diesel::table! {
         date -> Date,
         #[max_length = 120]
         label -> Nullable<Varchar>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1583,7 +1583,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
-        workspace_id -> Nullable<Int4>,
+        workspace_id -> Int4,
     }
 }
 
@@ -1616,118 +1616,189 @@ diesel::table! {
 }
 
 diesel::joinable!(active_sessions -> users (user_uuid));
+diesel::joinable!(api_tokens -> workspaces (workspace_id));
 diesel::joinable!(article_content_revisions -> article_contents (article_content_id));
+diesel::joinable!(article_content_revisions -> workspaces (workspace_id));
 diesel::joinable!(article_contents -> tickets (ticket_id));
+diesel::joinable!(article_contents -> workspaces (workspace_id));
 diesel::joinable!(asset_audits -> assets (asset_id));
 diesel::joinable!(asset_audits -> users (recorded_by));
+diesel::joinable!(asset_audits -> workspaces (workspace_id));
 diesel::joinable!(asset_groups -> assets (asset_id));
 diesel::joinable!(asset_groups -> groups (group_id));
 diesel::joinable!(asset_groups -> users (created_by));
+diesel::joinable!(asset_groups -> workspaces (workspace_id));
 diesel::joinable!(asset_kinds -> users (created_by));
+diesel::joinable!(asset_kinds -> workspaces (workspace_id));
 diesel::joinable!(asset_usage_log -> assets (asset_id));
 diesel::joinable!(asset_usage_log -> tickets (ticket_id));
 diesel::joinable!(asset_usage_log -> users (recorded_by));
+diesel::joinable!(asset_usage_log -> workspaces (workspace_id));
+diesel::joinable!(assets -> workspaces (workspace_id));
 diesel::joinable!(assignment_log -> assignment_rules (rule_id));
 diesel::joinable!(assignment_log -> tickets (ticket_id));
+diesel::joinable!(assignment_log -> workspaces (workspace_id));
 diesel::joinable!(assignment_rule_state -> assignment_rules (rule_id));
 diesel::joinable!(assignment_rule_state -> users (last_assigned_user_uuid));
+diesel::joinable!(assignment_rule_state -> workspaces (workspace_id));
 diesel::joinable!(assignment_rules -> groups (target_group_id));
 diesel::joinable!(assignment_rules -> ticket_categories (category_id));
+diesel::joinable!(assignment_rules -> workspaces (workspace_id));
 diesel::joinable!(attachments -> comments (comment_id));
 diesel::joinable!(attachments -> users (uploaded_by));
+diesel::joinable!(attachments -> workspaces (workspace_id));
+diesel::joinable!(audit_log -> workspaces (workspace_id));
+diesel::joinable!(audit_log_default -> workspaces (workspace_id));
 diesel::joinable!(backup_jobs -> users (created_by));
+diesel::joinable!(backup_jobs -> workspaces (workspace_id));
 diesel::joinable!(canned_responses -> users (created_by));
+diesel::joinable!(canned_responses -> workspaces (workspace_id));
 diesel::joinable!(category_group_visibility -> groups (group_id));
 diesel::joinable!(category_group_visibility -> ticket_categories (category_id));
 diesel::joinable!(category_group_visibility -> users (created_by));
+diesel::joinable!(category_group_visibility -> workspaces (workspace_id));
 diesel::joinable!(channel_credentials -> channels (channel_id));
+diesel::joinable!(channel_credentials -> workspaces (workspace_id));
 diesel::joinable!(channel_messages -> channels (channel_id));
 diesel::joinable!(channel_messages -> comments (comment_id));
 diesel::joinable!(channel_messages -> tickets (ticket_id));
 diesel::joinable!(channel_messages -> users (author_user_uuid));
+diesel::joinable!(channel_messages -> workspaces (workspace_id));
+diesel::joinable!(channels -> workspaces (workspace_id));
 diesel::joinable!(comments -> tickets (ticket_id));
 diesel::joinable!(comments -> users (user_uuid));
+diesel::joinable!(comments -> workspaces (workspace_id));
 diesel::joinable!(csp_reports -> users (user_uuid));
+diesel::joinable!(csp_reports -> workspaces (workspace_id));
 diesel::joinable!(cycle_tickets -> cycles (cycle_id));
 diesel::joinable!(cycle_tickets -> tickets (ticket_id));
 diesel::joinable!(cycle_tickets -> users (added_by));
+diesel::joinable!(cycle_tickets -> workspaces (workspace_id));
 diesel::joinable!(cycles -> projects (project_id));
 diesel::joinable!(cycles -> users (created_by));
+diesel::joinable!(cycles -> workspaces (workspace_id));
 diesel::joinable!(documentation_collection_pages -> documentation_collections (collection_id));
 diesel::joinable!(documentation_collection_pages -> documentation_pages (page_id));
 diesel::joinable!(documentation_collection_pages -> users (created_by));
+diesel::joinable!(documentation_collection_pages -> workspaces (workspace_id));
 diesel::joinable!(documentation_collection_visibility -> documentation_collections (collection_id));
 diesel::joinable!(documentation_collection_visibility -> groups (group_id));
+diesel::joinable!(documentation_collection_visibility -> workspaces (workspace_id));
 diesel::joinable!(documentation_collections -> users (created_by));
+diesel::joinable!(documentation_collections -> workspaces (workspace_id));
+diesel::joinable!(documentation_page_embeddings -> workspaces (workspace_id));
 diesel::joinable!(documentation_page_tickets -> documentation_pages (page_id));
 diesel::joinable!(documentation_page_tickets -> tickets (ticket_id));
 diesel::joinable!(documentation_page_tickets -> users (created_by));
+diesel::joinable!(documentation_page_tickets -> workspaces (workspace_id));
 diesel::joinable!(documentation_page_visibility -> documentation_pages (page_id));
 diesel::joinable!(documentation_page_visibility -> groups (group_id));
+diesel::joinable!(documentation_page_visibility -> workspaces (workspace_id));
+diesel::joinable!(documentation_pages -> workspaces (workspace_id));
 diesel::joinable!(documentation_revisions -> documentation_pages (page_id));
 diesel::joinable!(documentation_revisions -> users (created_by));
+diesel::joinable!(documentation_revisions -> workspaces (workspace_id));
 diesel::joinable!(documentation_starred_pages -> documentation_pages (page_id));
 diesel::joinable!(documentation_starred_pages -> users (user_uuid));
+diesel::joinable!(documentation_starred_pages -> workspaces (workspace_id));
 diesel::joinable!(documentation_subscriptions -> documentation_pages (page_id));
 diesel::joinable!(documentation_subscriptions -> users (user_uuid));
+diesel::joinable!(documentation_subscriptions -> workspaces (workspace_id));
 diesel::joinable!(group_includes -> users (created_by));
+diesel::joinable!(group_includes -> workspaces (workspace_id));
 diesel::joinable!(groups -> users (created_by));
+diesel::joinable!(groups -> workspaces (workspace_id));
 diesel::joinable!(import_jobs -> users (created_by));
+diesel::joinable!(import_jobs -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gap_signals -> knowledge_gaps (gap_id));
+diesel::joinable!(knowledge_gap_signals -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gaps -> documentation_pages (resolved_page_id));
+diesel::joinable!(knowledge_gaps -> workspaces (workspace_id));
 diesel::joinable!(linked_tickets -> users (created_by));
+diesel::joinable!(linked_tickets -> workspaces (workspace_id));
 diesel::joinable!(notification_preferences -> notification_types (notification_type_id));
 diesel::joinable!(notification_preferences -> users (user_uuid));
+diesel::joinable!(notification_preferences -> workspaces (workspace_id));
 diesel::joinable!(notification_rate_limits -> notification_types (notification_type_id));
 diesel::joinable!(notification_rate_limits -> users (user_uuid));
 diesel::joinable!(notifications -> notification_types (notification_type_id));
 diesel::joinable!(notifications -> users (user_uuid));
+diesel::joinable!(notifications -> workspaces (workspace_id));
 diesel::joinable!(outbound_emails -> channels (channel_id));
 diesel::joinable!(outbound_emails -> comments (comment_id));
 diesel::joinable!(outbound_emails -> tickets (ticket_id));
+diesel::joinable!(outbound_emails -> workspaces (workspace_id));
 diesel::joinable!(passkey_credentials -> users (user_uuid));
 diesel::joinable!(plugin_activity -> plugins (plugin_id));
 diesel::joinable!(plugin_activity -> users (user_uuid));
+diesel::joinable!(plugin_activity -> workspaces (workspace_id));
 diesel::joinable!(plugin_collection_rows -> plugin_collection_schemas (schema_id));
 diesel::joinable!(plugin_collection_rows -> plugins (plugin_id));
 diesel::joinable!(plugin_collection_rows -> users (created_by));
+diesel::joinable!(plugin_collection_rows -> workspaces (workspace_id));
 diesel::joinable!(plugin_collection_schemas -> plugins (plugin_id));
+diesel::joinable!(plugin_collection_schemas -> workspaces (workspace_id));
 diesel::joinable!(plugin_data -> plugins (plugin_id));
+diesel::joinable!(plugin_data -> workspaces (workspace_id));
 diesel::joinable!(plugins -> users (installed_by));
+diesel::joinable!(plugins -> workspaces (workspace_id));
 diesel::joinable!(project_tickets -> projects (project_id));
 diesel::joinable!(project_tickets -> tickets (ticket_id));
 diesel::joinable!(project_tickets -> users (created_by));
+diesel::joinable!(project_tickets -> workspaces (workspace_id));
+diesel::joinable!(projects -> workspaces (workspace_id));
 diesel::joinable!(refresh_tokens -> users (user_uuid));
 diesel::joinable!(reset_tokens -> users (user_uuid));
 diesel::joinable!(saved_views -> users (created_by));
+diesel::joinable!(saved_views -> workspaces (workspace_id));
+diesel::joinable!(search_query_log -> workspaces (workspace_id));
 diesel::joinable!(security_events -> active_sessions (session_id));
 diesel::joinable!(security_events -> users (user_uuid));
 diesel::joinable!(site_settings -> users (updated_by));
+diesel::joinable!(site_settings -> workspaces (workspace_id));
 diesel::joinable!(sla_policies -> ticket_categories (category_id_filter));
 diesel::joinable!(sla_policies -> users (created_by));
 diesel::joinable!(sla_policies -> working_calendars (working_calendar_id));
+diesel::joinable!(sla_policies -> workspaces (workspace_id));
+diesel::joinable!(sync_actions -> workspaces (workspace_id));
+diesel::joinable!(sync_actions_default -> workspaces (workspace_id));
+diesel::joinable!(sync_delta_tokens -> workspaces (workspace_id));
 diesel::joinable!(sync_history -> users (initiated_by));
+diesel::joinable!(sync_history -> workspaces (workspace_id));
+diesel::joinable!(tags -> workspaces (workspace_id));
 diesel::joinable!(ticket_assets -> assets (asset_id));
 diesel::joinable!(ticket_assets -> tickets (ticket_id));
 diesel::joinable!(ticket_assets -> users (created_by));
+diesel::joinable!(ticket_assets -> workspaces (workspace_id));
 diesel::joinable!(ticket_categories -> users (created_by));
+diesel::joinable!(ticket_categories -> workspaces (workspace_id));
 diesel::joinable!(ticket_tags -> tags (tag_id));
 diesel::joinable!(ticket_tags -> tickets (ticket_id));
 diesel::joinable!(ticket_tags -> users (created_by));
+diesel::joinable!(ticket_tags -> workspaces (workspace_id));
 diesel::joinable!(ticket_watchers -> tickets (ticket_id));
 diesel::joinable!(ticket_watchers -> users (user_uuid));
+diesel::joinable!(ticket_watchers -> workspaces (workspace_id));
 diesel::joinable!(tickets -> channels (origin_channel_id));
 diesel::joinable!(tickets -> ticket_categories (category_id));
 diesel::joinable!(tickets -> workflow_states (workflow_state_id));
+diesel::joinable!(tickets -> workspaces (workspace_id));
 diesel::joinable!(user_groups -> groups (group_id));
+diesel::joinable!(user_groups -> workspaces (workspace_id));
 diesel::joinable!(user_preferences -> users (user_uuid));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
+diesel::joinable!(user_ticket_views -> workspaces (workspace_id));
 diesel::joinable!(webhook_deliveries -> webhooks (webhook_id));
+diesel::joinable!(webhook_deliveries -> workspaces (workspace_id));
 diesel::joinable!(webhooks -> users (created_by));
+diesel::joinable!(webhooks -> workspaces (workspace_id));
 diesel::joinable!(workflow_states -> users (created_by));
+diesel::joinable!(workflow_states -> workspaces (workspace_id));
 diesel::joinable!(working_calendar_holidays -> working_calendars (calendar_id));
+diesel::joinable!(working_calendar_holidays -> workspaces (workspace_id));
 diesel::joinable!(working_calendars -> users (created_by));
+diesel::joinable!(working_calendars -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
 diesel::joinable!(workspace_members -> workspaces (workspace_id));
 

@@ -134,10 +134,8 @@ pub async fn emit_plugin_event(
     // mechanism `TenantConn::run` uses internally; we call it
     // directly here because the actor is a Plugin actor, not the
     // User actor TenantConn would synthesize.
-    let result = session::with_actor_context::<_, diesel::result::Error>(
-        &mut conn,
-        &actor,
-        |conn| {
+    let result =
+        session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
             emit::record(
                 conn,
                 SyncEmit {
@@ -150,8 +148,7 @@ pub async fn emit_plugin_event(
                     causation_id: body.causation_id,
                 },
             )
-        },
-    );
+        });
 
     match result {
         Ok(sync_id) => {

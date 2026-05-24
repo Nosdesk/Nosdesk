@@ -231,9 +231,7 @@ pub async fn commit(
         Ok(CommitOutcome::Ok(job)) | Ok(CommitOutcome::AlreadyDone(job)) => {
             HttpResponse::Ok().json(job)
         }
-        Ok(CommitOutcome::NotFound) => {
-            errors::not_found_msg(format!("import job {id} not found"))
-        }
+        Ok(CommitOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
         Ok(CommitOutcome::BadRequest(msg)) => errors::bad_request(msg),
         Err(e) => {
             error!(job_id = %id, error = ?e, "commit failed");

@@ -421,7 +421,9 @@ pub async fn set_group_includes(
         match repository::groups::set_group_includes(conn, group_id, child_group_ids, created_by) {
             Ok(_) => {}
             Err(Error::DatabaseError(diesel::result::DatabaseErrorKind::CheckViolation, info)) => {
-                return Ok(SetIncludesOutcome::CheckViolation(info.message().to_string()));
+                return Ok(SetIncludesOutcome::CheckViolation(
+                    info.message().to_string(),
+                ));
             }
             Err(e) => return Err(e),
         }

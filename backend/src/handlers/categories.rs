@@ -17,9 +17,8 @@ pub async fn get_categories(mut tc: TenantConn, auth: AuthContext) -> impl Respo
     let user_uuid = auth.user_uuid;
     let is_admin = auth.is_admin();
 
-    match tc.run(|conn| {
-        repository::categories::get_categories_for_user(conn, &user_uuid, is_admin)
-    }) {
+    match tc.run(|conn| repository::categories::get_categories_for_user(conn, &user_uuid, is_admin))
+    {
         Ok(categories) => HttpResponse::Ok().json(categories),
         Err(_) => errors::internal("Failed to get categories"),
     }
@@ -131,9 +130,9 @@ pub async fn create_category(
             // read fails we still return the base category — the row
             // was inserted and the operator can re-fetch — but log so
             // a persistent visibility-fetch bug doesn't hide.
-            match tc.run(|conn| {
-                repository::categories::get_category_with_visibility(conn, category.id)
-            }) {
+            match tc
+                .run(|conn| repository::categories::get_category_with_visibility(conn, category.id))
+            {
                 Ok(category_with_vis) => HttpResponse::Created().json(category_with_vis),
                 Err(e) => {
                     tracing::warn!(
@@ -214,9 +213,9 @@ pub async fn update_category(
             }
 
             // Return updated category with visibility info
-            match tc.run(|conn| {
-                repository::categories::get_category_with_visibility(conn, category_id)
-            }) {
+            match tc
+                .run(|conn| repository::categories::get_category_with_visibility(conn, category_id))
+            {
                 Ok(category) => HttpResponse::Ok().json(category),
                 Err(e) => {
                     tracing::error!(
@@ -333,9 +332,9 @@ pub async fn set_category_visibility(
     }) {
         Ok(_) => {
             // Return updated category with visibility info
-            match tc.run(|conn| {
-                repository::categories::get_category_with_visibility(conn, category_id)
-            }) {
+            match tc
+                .run(|conn| repository::categories::get_category_with_visibility(conn, category_id))
+            {
                 Ok(category) => HttpResponse::Ok().json(category),
                 Err(_) => errors::internal("Failed to get updated category"),
             }

@@ -1183,10 +1183,11 @@ mod tests {
             #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
             current_setting: Option<String>,
         }
-        let row: GucReadback =
-            diesel::sql_query("SELECT current_setting('app.workspace_id', true) AS current_setting")
-                .get_result(&mut conn)
-                .expect("read GUC");
+        let row: GucReadback = diesel::sql_query(
+            "SELECT current_setting('app.workspace_id', true) AS current_setting",
+        )
+        .get_result(&mut conn)
+        .expect("read GUC");
         assert_eq!(
             row.current_setting.as_deref(),
             Some("1"),
@@ -1217,10 +1218,7 @@ mod tests {
             .execute(&mut conn)
             .expect("clear GUC");
 
-        let count: i64 = tickets::table
-            .count()
-            .get_result(&mut conn)
-            .expect("count");
+        let count: i64 = tickets::table.count().get_result(&mut conn).expect("count");
         assert_eq!(
             count, 0,
             "no workspace GUC must surface zero rows; \
@@ -1267,8 +1265,8 @@ mod tests {
         // than SELECT): this case is the original 6-case
         // matrix's INSERT-rejection test in slightly different
         // form.
-        let state = crate::repository::workflow_states::default_state(&mut conn)
-            .expect("default state");
+        let state =
+            crate::repository::workflow_states::default_state(&mut conn).expect("default state");
         let direct_attempt = with_actor_context(&mut conn, &actor, |c| {
             diesel::sql_query(format!(
                 "INSERT INTO tickets (title, workflow_state_id, priority, workspace_id) \

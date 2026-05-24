@@ -305,8 +305,7 @@ pub async fn get_deliveries(
             Err(DieselError::NotFound) => return Ok(DeliveriesOutcome::NotFound),
             Err(e) => return Err(e),
         };
-        let deliveries =
-            webhook_repo::get_deliveries_for_webhook(conn, webhook.id, limit, offset)?;
+        let deliveries = webhook_repo::get_deliveries_for_webhook(conn, webhook.id, limit, offset)?;
         Ok(DeliveriesOutcome::Ok(deliveries))
     });
 
@@ -354,11 +353,13 @@ pub async fn test_webhook(
 
     let webhook_uuid = path.into_inner();
 
-    let lookup = tc.run(|conn| match webhook_repo::get_webhook_by_uuid(conn, webhook_uuid) {
-        Ok(w) => Ok(TestLookupOutcome::Ok(w)),
-        Err(DieselError::NotFound) => Ok(TestLookupOutcome::NotFound),
-        Err(e) => Err(e),
-    });
+    let lookup = tc.run(
+        |conn| match webhook_repo::get_webhook_by_uuid(conn, webhook_uuid) {
+            Ok(w) => Ok(TestLookupOutcome::Ok(w)),
+            Err(DieselError::NotFound) => Ok(TestLookupOutcome::NotFound),
+            Err(e) => Err(e),
+        },
+    );
 
     let webhook = match lookup {
         Ok(TestLookupOutcome::Ok(w)) => w,
