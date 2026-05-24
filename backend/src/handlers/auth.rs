@@ -887,12 +887,23 @@ pub async fn get_current_user(
     // chain: user pref -> site default -> hardcoded fallback. A
     // failed site_settings read shouldn't sink the response; the
     // resolver treats an empty string as "no site default" and
-    // falls through cleanly.
-    let (default_locale, default_timezone) =
-        match crate::repository::site_settings::get_site_settings(&mut conn) {
+    // falls through cleanly. site_settings is RLS-enabled
+    // (Phase 3c.2); the /me handler is authenticated (auth conn
+    // is in scope) but uses helpers::auth_conn which returns a
+    // raw pool conn without setting the workspace GUC. Until
+    // /me is migrated to TenantConn (a bigger refactor — many
+    // other repo calls in this handler share the same conn),
+    // read site_settings through with_actor_context with a
+    // workspace pin from the request's RequestContext.
+    let (default_locale, default_timezone) = {
+        let actor = crate::handlers::helpers::actor_for(&req, "handler:auth_me");
+        match crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+            crate::repository::site_settings::get_site_settings(c)
+        }) {
             Ok(s) => (s.default_locale, s.default_timezone),
             Err(_) => (String::new(), String::new()),
-        };
+        }
+    };
     let eff_locale =
         crate::utils::locale::effective_locale(response.locale.as_deref(), &default_locale);
     let eff_timezone =

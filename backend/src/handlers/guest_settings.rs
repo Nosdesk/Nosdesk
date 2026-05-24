@@ -5,9 +5,8 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use tracing::error;
 
-use crate::db::Pool;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::models::{Claims, SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
@@ -29,13 +28,8 @@ pub struct UpdateGuestSettingsRequest {
     pub guest_ticket_intro_message: Option<Option<String>>,
 }
 
-pub async fn get_guest_settings(pool: web::Data<Pool>) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match site_settings::get_site_settings(&mut conn) {
+pub async fn get_guest_settings(mut tc: TenantConn) -> impl Responder {
+    match tc.run(|conn| site_settings::get_site_settings(conn)) {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
             HttpResponse::Ok().json(response)
@@ -48,15 +42,10 @@ pub async fn get_guest_settings(pool: web::Data<Pool>) -> impl Responder {
 }
 
 pub async fn update_guest_settings(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     req: HttpRequest,
     body: web::Json<UpdateGuestSettingsRequest>,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
         None => return HttpResponse::Unauthorized().finish(),
@@ -120,7 +109,7 @@ pub async fn update_guest_settings(
         ..Default::default()
     };
 
-    match site_settings::update_site_settings(&mut conn, update) {
+    match tc.run(|conn| site_settings::update_site_settings(conn, update)) {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
             HttpResponse::Ok().json(response)
