@@ -174,7 +174,7 @@ pub fn seed_defaults_if_empty(
 
     diesel::insert_into(ticket_categories::table)
         .values(&rows)
-        .on_conflict(ticket_categories::name)
+        .on_conflict((ticket_categories::workspace_id, ticket_categories::name))
         .do_nothing()
         .execute(conn)
 }
