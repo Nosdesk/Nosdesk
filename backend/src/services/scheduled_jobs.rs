@@ -85,9 +85,16 @@ pub async fn msgraph_delta_sync(pool: Pool) -> Result<()> {
 /// audit / compliance requirements can dial it up or down.
 pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
     let days = retention_days("CSP_REPORT_RETENTION_DAYS", 30);
-    let mut conn = pool.get().context("db pool")?;
-    let removed = crate::repository::csp_reports::prune_older_than(&mut conn, days)
-        .context("prune CSP reports")?;
+    // csp_reports is RLS-enabled and this prune crosses every
+    // workspace (scheduler is platform-level). Elevate via
+    // background_run so the DELETE isn't filtered to zero rows
+    // post-DSN-flip.
+    let removed = crate::sync::session::background_run(
+        &pool,
+        "scheduler:prune_csp_reports",
+        |conn| crate::repository::csp_reports::prune_older_than(conn, days),
+    )
+    .map_err(|e| anyhow::anyhow!("prune CSP reports: {e}"))?;
     if removed > 0 {
         info!(
             count = removed,
@@ -123,9 +130,13 @@ pub async fn prune_security_events(pool: Pool) -> Result<()> {
 /// `WEBHOOK_DELIVERY_RETENTION_DAYS`; default 30 days.
 pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
     let days = retention_days("WEBHOOK_DELIVERY_RETENTION_DAYS", 30);
-    let mut conn = pool.get().context("db pool")?;
-    let removed = crate::repository::webhooks::prune_deliveries_older_than(&mut conn, days)
-        .context("prune webhook deliveries")?;
+    // webhook_deliveries is RLS-enabled; cross-tenant prune.
+    let removed = crate::sync::session::background_run(
+        &pool,
+        "scheduler:prune_webhook_deliveries",
+        |conn| crate::repository::webhooks::prune_deliveries_older_than(conn, days),
+    )
+    .map_err(|e| anyhow::anyhow!("prune webhook deliveries: {e}"))?;
     if removed > 0 {
         info!(
             count = removed,
@@ -199,9 +210,13 @@ async fn drop_old_event_partitions(
 /// `outbound_emails_lease_idx` keeps the scan tiny). Default cadence:
 /// 60s.
 pub async fn sweep_outbound_email_leases(pool: Pool) -> Result<()> {
-    let mut conn = pool.get().context("db pool")?;
-    let swept = crate::repository::outbound_emails::sweep_expired_leases(&mut conn)
-        .context("sweep_expired_leases")?;
+    // outbound_emails is RLS-enabled; cross-workspace sweep.
+    let swept = crate::sync::session::background_run(
+        &pool,
+        "scheduler:sweep_outbound_email_leases",
+        |conn| crate::repository::outbound_emails::sweep_expired_leases(conn),
+    )
+    .map_err(|e| anyhow::anyhow!("sweep_expired_leases: {e}"))?;
     if swept > 0 {
         info!(
             count = swept,

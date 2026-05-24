@@ -69,11 +69,18 @@ pub async fn run_one_drain(
         return Ok(stats);
     }
 
-    let claimed = {
-        let mut conn = pool.get().context("db pool")?;
-        repo::claim_batch(&mut conn, repo::DEFAULT_BATCH_SIZE, LEASE_SECONDS)
-            .context("claim_batch failed")?
-    };
+    // Claim batch under bypass — outbound_emails is RLS-enabled
+    // (Phase 3c.2) and the worker is a platform-level scheduler
+    // that drains across whatever rows are ready; no request-bound
+    // workspace pin exists here.
+    let claimed = crate::sync::session::background_run(
+        &pool,
+        "background:email_queue_claim",
+        |conn| Ok::<_, diesel::result::Error>(
+            repo::claim_batch(conn, repo::DEFAULT_BATCH_SIZE, LEASE_SECONDS)?
+        ),
+    )
+    .map_err(|e| anyhow::anyhow!("claim_batch failed: {e}"))?;
     stats.claimed = claimed.len();
     if claimed.is_empty() {
         return Ok(stats);
@@ -96,14 +103,19 @@ pub async fn run_one_drain(
         let breaker = breaker.clone();
         async move {
             let outcome = dispatch(&row, email, breaker.clone()).await;
-            let mut conn = match pool.get() {
-                Ok(c) => c,
-                Err(e) => {
-                    warn!(error = %e, "could not obtain conn to terminate row");
-                    return;
-                }
-            };
-            terminate_row(&mut conn, &row, outcome, &mut stats);
+            // Terminate (update outbound_emails row status) under
+            // bypass for the same RLS reason.
+            let term_result = crate::sync::session::background_run(
+                &pool,
+                "background:email_queue_terminate",
+                |conn| {
+                    terminate_row(conn, &row, outcome, &mut stats);
+                    Ok::<_, diesel::result::Error>(())
+                },
+            );
+            if let Err(e) = term_result {
+                warn!(error = %e, "could not terminate row");
+            }
         }
         .instrument(span)
         .await;
