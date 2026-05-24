@@ -16,9 +16,25 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, GetString, ReadTxn, StateVector, Transact, Update, WriteTxn, XmlFragment};
 
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::repository;
+use crate::sync::actor::ActorContext as DbActor;
+use crate::sync::session;
+
+/// System actor used by the Yjs WebSocket session for its
+/// background DB writes (snapshot saves, revision creates,
+/// content updates). The session has been authenticated at
+/// WebSocket-upgrade time and is constrained to a single
+/// document for its lifetime; until the WebSocket session
+/// resolves the document's workspace_id and pins the actor
+/// properly (Phase 3e.2 follow-up), the bypass keeps the
+/// save / snapshot writes working under nosdesk_app via the
+/// nosdesk_admin role-elevation in
+/// session::with_actor_bypass_context.
+fn yjs_session_actor() -> DbActor {
+    DbActor::system("yjs-collab")
+}
 
 /// Safely get string content from a Yjs XmlFragment
 /// Returns None if the fragment contains invalid UTF-8 data (which can cause yrs to panic)
@@ -136,7 +152,7 @@ impl DocumentType {
 
 // Simple handler to get article content by ticket ID or documentation page ID
 pub async fn get_article_content(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     doc_id: web::Path<String>,
 ) -> impl Responder {
     let doc_id = doc_id.into_inner();
@@ -153,15 +169,10 @@ pub async fn get_article_content(
         }
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     match doc_type {
         DocumentType::Ticket(ticket_id) => {
             // Load Yjs document snapshot from article_contents table (snapshot-based persistence)
-            match repository::get_article_content_by_ticket_id(&mut conn, ticket_id) {
+            match tc.run(|conn| repository::get_article_content_by_ticket_id(conn, ticket_id)) {
                 Ok(article_content) => {
                     debug!(ticket_id, "Retrieved article content");
 
@@ -198,7 +209,7 @@ pub async fn get_article_content(
             }
         }
         DocumentType::Documentation(doc_id) => {
-            match repository::get_documentation_page(doc_id, &mut conn) {
+            match tc.run(|conn| repository::get_documentation_page(doc_id, conn)) {
                 Ok(doc_page) => {
                     debug!(doc_id, "Retrieved documentation page");
 
@@ -224,7 +235,9 @@ pub async fn get_article_content(
             }
         }
         DocumentType::Collection(collection_id) => {
-            match repository::documentation_collections::get_collection(&mut conn, collection_id) {
+            match tc.run(|conn| {
+                repository::documentation_collections::get_collection(conn, collection_id)
+            }) {
                 Ok(c) => {
                     let content_base64 = c
                         .description_yjs
@@ -605,12 +618,24 @@ impl YjsAppState {
                     trace!(doc_id = %doc_id, "Parsed doc_type successfully");
                     match self.pool.get() {
                         Ok(mut conn) => {
-                            // PHASE 2: Load from PostgreSQL
+                            // PHASE 2: Load from PostgreSQL. Each repo
+                            // read goes through with_actor_bypass_context
+                            // so it bypasses RLS under nosdesk_app once
+                            // the DSN flips. Long-term fix is a per-
+                            // document workspace lookup at session open
+                            // (Phase 3e.2 follow-up).
+                            let bypass_actor = yjs_session_actor();
                             match doc_type {
                                 DocumentType::Ticket(ticket_id) => {
                                     // Load Yjs document snapshot from article_contents table (snapshot-based persistence)
-                                    match repository::get_article_content_by_ticket_id(
-                                        &mut conn, ticket_id,
+                                    match session::with_actor_bypass_context(
+                                        &mut conn,
+                                        &bypass_actor,
+                                        |conn| {
+                                            repository::get_article_content_by_ticket_id(
+                                                conn, ticket_id,
+                                            )
+                                        },
                                     ) {
                                         Ok(article_content) => {
                                             if let Some(yjs_doc) = article_content.yjs_document {
@@ -669,8 +694,13 @@ impl YjsAppState {
                                 }
                                 DocumentType::Documentation(doc_page_id) => {
                                     // Load Yjs document snapshot from documentation_pages table (snapshot-based persistence)
-                                    match repository::get_documentation_page(doc_page_id, &mut conn)
-                                    {
+                                    match session::with_actor_bypass_context(
+                                        &mut conn,
+                                        &bypass_actor,
+                                        |conn| {
+                                            repository::get_documentation_page(doc_page_id, conn)
+                                        },
+                                    ) {
                                         Ok(doc_page) => {
                                             if let Some(yjs_doc) = doc_page.yjs_document {
                                                 if !yjs_doc.is_empty() {
@@ -722,9 +752,15 @@ impl YjsAppState {
                                 }
                                 DocumentType::Collection(collection_id) => {
                                     // Load Yjs snapshot from documentation_collections.description_yjs.
-                                    match repository::documentation_collections::get_collection(
+                                    match session::with_actor_bypass_context(
                                         &mut conn,
-                                        collection_id,
+                                        &bypass_actor,
+                                        |conn| {
+                                            repository::documentation_collections::get_collection(
+                                                conn,
+                                                collection_id,
+                                            )
+                                        },
                                     ) {
                                         Ok(c) => {
                                             if let Some(yjs_doc) = c.description_yjs {
@@ -1162,12 +1198,15 @@ impl YjsAppState {
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
-                            match repository::update_article_yjs_state(
-                                &mut conn,
-                                ticket_id,
-                                content,
-                                Some(&search),
-                            ) {
+                            let actor = yjs_session_actor();
+                            match session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+                                repository::update_article_yjs_state(
+                                    conn,
+                                    ticket_id,
+                                    content,
+                                    Some(&search),
+                                )
+                            }) {
                                 Ok(_) => {
                                     debug!(ticket_id, "Successfully saved Yjs snapshot for ticket");
                                 }
@@ -1187,13 +1226,15 @@ impl YjsAppState {
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
-                            // Update only the Yjs-related fields
-                            match repository::update_documentation_yjs_state(
-                                &mut conn,
-                                doc_page_id,
-                                content,
-                                Some(&search),
-                            ) {
+                            let actor = yjs_session_actor();
+                            match session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+                                repository::update_documentation_yjs_state(
+                                    conn,
+                                    doc_page_id,
+                                    content,
+                                    Some(&search),
+                                )
+                            }) {
                                 Ok(_) => debug!(
                                     doc_page_id,
                                     "Successfully saved Yjs state for documentation page"
@@ -1214,11 +1255,14 @@ impl YjsAppState {
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
-                            match repository::documentation_collections::update_collection_description_yjs(
-                                &mut conn,
-                                collection_id,
-                                content,
-                            ) {
+                            let actor = yjs_session_actor();
+                            match session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+                                repository::documentation_collections::update_collection_description_yjs(
+                                    conn,
+                                    collection_id,
+                                    content,
+                                )
+                            }) {
                                 Ok(_) => debug!(collection_id, "Saved Yjs state for collection description"),
                                 Err(e) => error!(collection_id, error = ?e, "Failed to save Yjs state for collection description"),
                             }
@@ -1905,28 +1949,22 @@ pub async fn ws_handler(
 /// GET /tickets/:id/revisions - List all revisions for a ticket
 pub async fn get_ticket_revisions(
     ticket_id: web::Path<i32>,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
 ) -> HttpResponse {
     let ticket_id = ticket_id.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Get article content for this ticket
-    let article_content = match crate::repository::article_content::get_article_content_by_ticket_id(
-        &mut conn, ticket_id,
-    ) {
+    let article_content = match tc
+        .run(|conn| crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id))
+    {
         Ok(content) => content,
         Err(_) => return errors::not_found_msg("No article content found for this ticket"),
     };
 
     // Get all revisions
-    match crate::repository::article_content::get_article_content_revisions(
-        &mut conn,
-        article_content.id,
-    ) {
+    match tc.run(|conn| {
+        crate::repository::article_content::get_article_content_revisions(conn, article_content.id)
+    }) {
         Ok(revisions) => {
             let responses: Vec<crate::models::ArticleContentRevisionResponse> =
                 revisions.into_iter().map(Into::into).collect();
@@ -1939,29 +1977,26 @@ pub async fn get_ticket_revisions(
 /// GET /tickets/:id/revisions/:revision_number - Get a specific revision
 pub async fn get_ticket_revision(
     path: web::Path<(i32, i32)>,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
 ) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Get article content for this ticket
-    let article_content = match crate::repository::article_content::get_article_content_by_ticket_id(
-        &mut conn, ticket_id,
-    ) {
+    let article_content = match tc
+        .run(|conn| crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id))
+    {
         Ok(content) => content,
         Err(_) => return errors::not_found_msg("No article content found for this ticket"),
     };
 
     // Get the specific revision
-    match crate::repository::article_content::get_article_content_revision(
-        &mut conn,
-        article_content.id,
-        revision_number,
-    ) {
+    match tc.run(|conn| {
+        crate::repository::article_content::get_article_content_revision(
+            conn,
+            article_content.id,
+            revision_number,
+        )
+    }) {
         Ok(revision) => {
             // Encode the Yjs document content as base64 for frontend
             let content_base64 = general_purpose::STANDARD.encode(&revision.yjs_document_content);
@@ -1982,30 +2017,27 @@ pub async fn get_ticket_revision(
 /// POST /tickets/:id/restore/:revision_number - Restore ticket to a specific revision
 pub async fn restore_ticket_revision(
     path: web::Path<(i32, i32)>,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     app_state: web::Data<YjsAppState>,
 ) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Get article content for this ticket
-    let article_content = match crate::repository::article_content::get_article_content_by_ticket_id(
-        &mut conn, ticket_id,
-    ) {
+    let article_content = match tc
+        .run(|conn| crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id))
+    {
         Ok(content) => content,
         Err(_) => return errors::not_found_msg("No article content found for this ticket"),
     };
 
     // Get the revision to restore
-    let revision = match crate::repository::article_content::get_article_content_revision(
-        &mut conn,
-        article_content.id,
-        revision_number,
-    ) {
+    let revision = match tc.run(|conn| {
+        crate::repository::article_content::get_article_content_revision(
+            conn,
+            article_content.id,
+            revision_number,
+        )
+    }) {
         Ok(rev) => rev,
         Err(_) => return errors::not_found_msg("Revision not found"),
     };
@@ -2087,17 +2119,13 @@ pub async fn restore_ticket_revision(
 /// GET /docs/:id/revisions - List all revisions for a documentation page
 pub async fn get_doc_revisions(
     doc_id: web::Path<i32>,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
 ) -> HttpResponse {
     let doc_id = doc_id.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Get all revisions
-    match crate::repository::documentation::get_documentation_revisions(&mut conn, doc_id) {
+    match tc.run(|conn| crate::repository::documentation::get_documentation_revisions(conn, doc_id))
+    {
         Ok(revisions) => HttpResponse::Ok().json(revisions),
         Err(_) => errors::internal("Error retrieving revisions"),
     }
@@ -2106,21 +2134,14 @@ pub async fn get_doc_revisions(
 /// GET /docs/:id/revisions/:revision_number - Get a specific revision
 pub async fn get_doc_revision(
     path: web::Path<(i32, i32)>,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
 ) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Get the specific revision
-    match crate::repository::documentation::get_documentation_revision(
-        &mut conn,
-        doc_id,
-        revision_number,
-    ) {
+    match tc.run(|conn| {
+        crate::repository::documentation::get_documentation_revision(conn, doc_id, revision_number)
+    }) {
         Ok(revision) => {
             // Encode the Yjs document snapshot as base64 for frontend
             let content_base64 = general_purpose::STANDARD.encode(&revision.yjs_document_snapshot);
@@ -2143,22 +2164,15 @@ pub async fn get_doc_revision(
 /// POST /docs/:id/restore/:revision_number - Restore documentation page to a specific revision
 pub async fn restore_doc_revision(
     path: web::Path<(i32, i32)>,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     app_state: web::Data<YjsAppState>,
 ) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Get the revision to restore
-    let revision = match crate::repository::documentation::get_documentation_revision(
-        &mut conn,
-        doc_id,
-        revision_number,
-    ) {
+    let revision = match tc.run(|conn| {
+        crate::repository::documentation::get_documentation_revision(conn, doc_id, revision_number)
+    }) {
         Ok(rev) => rev,
         Err(_) => return errors::not_found_msg("Revision not found"),
     };
