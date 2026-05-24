@@ -45,8 +45,12 @@ pub struct PlatformConn {
     /// Audit attribution. Inherited from `RequestContext.actor`
     /// when present so workspace-lifecycle handlers carry the
     /// admin user's UUID; otherwise a `system` actor labelled
-    /// `"platform:<reason>"` so public endpoints (csp_reports,
-    /// guest paths) still attribute to something.
+    /// `"platform:fallback:<route-path>"` so any cross-tenant
+    /// write that didn't go through middleware is still
+    /// traceable to a specific endpoint via the audit_log.
+    /// Public endpoints (csp_reports, guest paths) should
+    /// override via `with_actor` with a stable
+    /// `"handler:<name>"` label.
     actor: ActorContext,
 }
 
@@ -121,12 +125,21 @@ impl FromRequest for PlatformConn {
         // Attribution: prefer the user actor from RequestContext
         // (workspace pin doesn't matter here because we'll elevate
         // to BYPASSRLS anyway, but audit_log gets the user UUID).
-        // Fall back to a system actor for public unauth endpoints.
+        // Fall back to a route-stamped system actor for handlers
+        // that ran before middleware attached a RequestContext
+        // (public unauth endpoints, certain test paths). Embedding
+        // the route makes the fallback row debuggable in audit_log
+        // instead of all collapsing into a single anonymous bucket.
+        // Handlers with a stable identity should still override via
+        // `with_actor` so the reference doesn't drift if the route
+        // path is renamed.
         let actor = req
             .extensions()
             .get::<RequestContext>()
             .map(|ctx| ctx.actor.clone())
-            .unwrap_or_else(|| ActorContext::system("platform:unauth"));
+            .unwrap_or_else(|| {
+                ActorContext::system(format!("platform:fallback:{}", req.path()))
+            });
 
         let pool = match req.app_data::<web::Data<Pool>>() {
             Some(p) => p.clone(),

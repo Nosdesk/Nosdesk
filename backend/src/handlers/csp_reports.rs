@@ -237,8 +237,8 @@ pub async fn report_violation(
     // intrinsically per-workspace once 3f.2 lands, but for now
     // the table NOT-NULLs workspace_id with a default that reads
     // from the actor's GUC, so we override the inherited
-    // "platform:unauth" actor with a system actor pinned to
-    // workspace_id=1 as a stable fallback.
+    // "platform:fallback:<route>" actor with a stable
+    // "handler:csp_report" actor pinned to workspace_id=1.
     // TODO Phase 3f.2: read workspace from
     // WorkspaceContextMiddleware (which DOES run for the apex
     // path in hosted mode and attaches a WorkspaceContext) so
