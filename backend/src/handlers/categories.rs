@@ -2,9 +2,8 @@ use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
 use serde::Deserialize;
 
-use crate::db::Pool;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::models::{NewTicketCategory, TicketCategoryUpdate};
 use crate::repository;
 use crate::utils::rbac::require_admin;
@@ -14,15 +13,13 @@ use crate::utils::rbac::require_admin;
 // ============================================================================
 
 /// Get categories visible to the current user
-pub async fn get_categories(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
+pub async fn get_categories(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    let user_uuid = auth.user_uuid;
+    let is_admin = auth.is_admin();
 
-    let is_admin = claims.role == "admin";
-
-    match repository::categories::get_categories_for_user(&mut conn, &user_uuid, is_admin) {
+    match tc.run(|conn| {
+        repository::categories::get_categories_for_user(conn, &user_uuid, is_admin)
+    }) {
         Ok(categories) => HttpResponse::Ok().json(categories),
         Err(_) => errors::internal("Failed to get categories"),
     }
@@ -33,17 +30,12 @@ pub async fn get_categories(req: HttpRequest, pool: web::Data<Pool>) -> impl Res
 // ============================================================================
 
 /// Get all categories with visibility info (admin only)
-pub async fn get_all_categories_admin(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+pub async fn get_all_categories_admin(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::categories::get_all_categories_with_visibility(&mut conn) {
+    match tc.run(|conn| repository::categories::get_all_categories_with_visibility(conn)) {
         Ok(categories) => HttpResponse::Ok().json(categories),
         Err(_) => errors::internal("Failed to get categories"),
     }
@@ -52,7 +44,7 @@ pub async fn get_all_categories_admin(req: HttpRequest, pool: web::Data<Pool>) -
 /// Get a single category with visibility info (admin only)
 pub async fn get_category_admin(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -60,12 +52,7 @@ pub async fn get_category_admin(
     }
 
     let category_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::categories::get_category_with_visibility(&mut conn, category_id) {
+    match tc.run(|conn| repository::categories::get_category_with_visibility(conn, category_id)) {
         Ok(category) => HttpResponse::Ok().json(category),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Category not found"),
@@ -87,23 +74,24 @@ pub struct CreateCategoryRequest {
 /// Create a new category (admin only)
 pub async fn create_category(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     body: web::Json<CreateCategoryRequest>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-
-    let created_by = Some(user_uuid);
+    let created_by = Some(auth.user_uuid);
 
     // Get next display order
-    let display_order =
-        repository::categories::get_next_display_order(&mut conn).unwrap_or_default();
+    let display_order = tc
+        .run(|conn| {
+            Ok::<_, diesel::result::Error>(
+                repository::categories::get_next_display_order(conn).unwrap_or_default(),
+            )
+        })
+        .unwrap_or_default();
 
     let new_category = NewTicketCategory {
         name: body.name.clone(),
@@ -115,17 +103,20 @@ pub async fn create_category(
         created_by,
     };
 
-    match repository::categories::create_category(&mut conn, new_category) {
+    let group_ids = body.visible_to_group_ids.clone();
+
+    match tc.run(|conn| repository::categories::create_category(conn, new_category)) {
         Ok(category) => {
             // Set visibility if specified
-            if let Some(ref group_ids) = body.visible_to_group_ids {
+            if let Some(ref group_ids) = group_ids {
                 if !group_ids.is_empty() {
-                    if let Err(e) = repository::categories::set_category_visibility(
-                        &mut conn,
-                        category.id,
-                        group_ids.clone(),
-                        created_by,
-                    ) {
+                    let cat_id = category.id;
+                    let gids = group_ids.clone();
+                    if let Err(e) = tc.run(|conn| {
+                        repository::categories::set_category_visibility(
+                            conn, cat_id, gids, created_by,
+                        )
+                    }) {
                         tracing::error!(
                             error = ?e,
                             category_id = category.id,
@@ -140,7 +131,9 @@ pub async fn create_category(
             // read fails we still return the base category — the row
             // was inserted and the operator can re-fetch — but log so
             // a persistent visibility-fetch bug doesn't hide.
-            match repository::categories::get_category_with_visibility(&mut conn, category.id) {
+            match tc.run(|conn| {
+                repository::categories::get_category_with_visibility(conn, category.id)
+            }) {
                 Ok(category_with_vis) => HttpResponse::Created().json(category_with_vis),
                 Err(e) => {
                     tracing::warn!(
@@ -173,7 +166,8 @@ pub struct UpdateCategoryRequest {
 /// Update an existing category (admin only)
 pub async fn update_category(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     path: web::Path<i32>,
     body: web::Json<UpdateCategoryRequest>,
 ) -> impl Responder {
@@ -181,12 +175,7 @@ pub async fn update_category(
         return e;
     }
 
-    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-
-    let updated_by = Some(user_uuid);
+    let updated_by = Some(auth.user_uuid);
     let category_id = path.into_inner();
 
     let category_update = TicketCategoryUpdate {
@@ -199,16 +188,22 @@ pub async fn update_category(
         updated_at: None,
     };
 
-    match repository::categories::update_category(&mut conn, category_id, category_update) {
+    let group_ids = body.visible_to_group_ids.clone();
+
+    match tc.run(|conn| repository::categories::update_category(conn, category_id, category_update))
+    {
         Ok(_) => {
             // Update visibility if specified
-            if let Some(ref group_ids) = body.visible_to_group_ids {
-                if let Err(e) = repository::categories::set_category_visibility(
-                    &mut conn,
-                    category_id,
-                    group_ids.clone(),
-                    updated_by,
-                ) {
+            if let Some(ref group_ids) = group_ids {
+                let gids = group_ids.clone();
+                if let Err(e) = tc.run(|conn| {
+                    repository::categories::set_category_visibility(
+                        conn,
+                        category_id,
+                        gids,
+                        updated_by,
+                    )
+                }) {
                     tracing::error!(
                         error = ?e,
                         category_id,
@@ -219,7 +214,9 @@ pub async fn update_category(
             }
 
             // Return updated category with visibility info
-            match repository::categories::get_category_with_visibility(&mut conn, category_id) {
+            match tc.run(|conn| {
+                repository::categories::get_category_with_visibility(conn, category_id)
+            }) {
                 Ok(category) => HttpResponse::Ok().json(category),
                 Err(e) => {
                     tracing::error!(
@@ -244,7 +241,7 @@ pub async fn update_category(
 /// Delete (soft) a category (admin only)
 pub async fn delete_category(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -252,12 +249,7 @@ pub async fn delete_category(
     }
 
     let category_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::categories::delete_category(&mut conn, category_id) {
+    match tc.run(|conn| repository::categories::delete_category(conn, category_id)) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Category not found"),
@@ -285,17 +277,12 @@ pub struct CategoryOrder {
 /// Reorder categories (admin only)
 pub async fn reorder_categories(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<ReorderCategoriesRequest>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     let orders: Vec<(i32, i32)> = body
         .orders
@@ -303,10 +290,10 @@ pub async fn reorder_categories(
         .map(|o| (o.id, o.display_order))
         .collect();
 
-    match repository::categories::update_category_orders(&mut conn, orders) {
+    match tc.run(|conn| repository::categories::update_category_orders(conn, orders)) {
         Ok(_) => {
             // Return all categories with updated order
-            match repository::categories::get_all_categories_with_visibility(&mut conn) {
+            match tc.run(|conn| repository::categories::get_all_categories_with_visibility(conn)) {
                 Ok(categories) => HttpResponse::Ok().json(categories),
                 Err(_) => errors::internal("Failed to get updated categories"),
             }
@@ -328,7 +315,8 @@ pub struct SetCategoryVisibilityRequest {
 /// Set category visibility (admin only)
 pub async fn set_category_visibility(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     path: web::Path<i32>,
     body: web::Json<SetCategoryVisibilityRequest>,
 ) -> impl Responder {
@@ -336,23 +324,18 @@ pub async fn set_category_visibility(
         return e;
     }
 
-    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-
-    let created_by = Some(user_uuid);
+    let created_by = Some(auth.user_uuid);
     let category_id = path.into_inner();
+    let group_ids = body.group_ids.clone();
 
-    match repository::categories::set_category_visibility(
-        &mut conn,
-        category_id,
-        body.group_ids.clone(),
-        created_by,
-    ) {
+    match tc.run(|conn| {
+        repository::categories::set_category_visibility(conn, category_id, group_ids, created_by)
+    }) {
         Ok(_) => {
             // Return updated category with visibility info
-            match repository::categories::get_category_with_visibility(&mut conn, category_id) {
+            match tc.run(|conn| {
+                repository::categories::get_category_with_visibility(conn, category_id)
+            }) {
                 Ok(category) => HttpResponse::Ok().json(category),
                 Err(_) => errors::internal("Failed to get updated category"),
             }

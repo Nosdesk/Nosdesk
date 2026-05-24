@@ -14,14 +14,13 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::db::Pool;
-use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
-use crate::handlers::{errors, helpers};
+use crate::extractors::TenantConn;
+use crate::handlers::errors;
 use crate::models::{
     Claims, NewWorkflowState, WorkflowState, WorkflowStateCategory, WorkflowStateUpdate,
 };
 use crate::repository::workflow_states as repo;
-use crate::sync::actor::ActorContext;
+use crate::utils::rbac::require_admin;
 
 #[derive(Debug, Serialize)]
 pub struct WorkflowStatesResponse {
@@ -48,26 +47,16 @@ pub struct PatchBody {
 
 /// Pull the JWT subject UUID off the request, used for the
 /// info!(actor=...) logging breadcrumbs alongside the structured
-/// `ActorContext` we hand to `with_actor`.
+/// `ActorContext` TenantConn injects.
 fn actor_uuid(req: &HttpRequest) -> Option<Uuid> {
     req.extensions()
         .get::<Claims>()
         .and_then(|c| Uuid::parse_str(&c.sub).ok())
 }
 
-#[inline]
-fn actor_for(req: &HttpRequest) -> ActorContext {
-    helper_actor_for(req, "handler:workflow_states")
-}
-
 /// GET /api/workflow-states
-pub async fn list(pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
-    let (_claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-
-    match repo::list_all(&mut conn) {
+pub async fn list(mut tc: TenantConn, _req: HttpRequest) -> impl Responder {
+    match tc.run(|conn| repo::list_all(conn)) {
         Ok(states) => {
             let active = states
                 .into_iter()
@@ -84,14 +73,13 @@ pub async fn list(pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
 
 /// POST /api/admin/workflow-states
 pub async fn create(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<CreateBody>,
     req: HttpRequest,
 ) -> impl Responder {
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
 
     let trimmed = body.name.trim();
     if trimmed.is_empty() || trimmed.len() > 64 {
@@ -105,7 +93,7 @@ pub async fn create(
 
     // Pick the next position inside the category so the new state
     // lands at the bottom of its column.
-    let next_position: i32 = match repo::list_all(&mut conn) {
+    let next_position: i32 = match tc.run(|conn| repo::list_all(conn)) {
         Ok(rows) => rows
             .iter()
             .filter(|s| s.category == body.category && s.archived_at.is_none())
@@ -128,8 +116,7 @@ pub async fn create(
         created_by: actor,
     };
 
-    let actor_ctx = actor_for(&req);
-    let created = with_actor(&mut conn, &actor_ctx, |conn| repo::create(conn, new));
+    let created = tc.run(|conn| repo::create(conn, new));
     match created {
         Ok(state) => {
             info!(
@@ -150,16 +137,15 @@ pub async fn create(
 
 /// PATCH /api/admin/workflow-states/{id}
 pub async fn patch(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<PatchBody>,
     req: HttpRequest,
 ) -> impl Responder {
     let id = path.into_inner();
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
 
     if let Some(ref n) = body.name {
         let t = n.trim();
@@ -174,7 +160,6 @@ pub async fn patch(
     }
 
     let actor = actor_uuid(&req);
-    let actor_ctx = actor_for(&req);
 
     let patch = WorkflowStateUpdate {
         name: body.name.as_ref().map(|s| s.trim().to_string()),
@@ -186,8 +171,9 @@ pub async fn patch(
         is_default: None,
         archived_at: None,
     };
-    let result = with_actor(&mut conn, &actor_ctx, |conn| {
-        if matches!(body.is_default, Some(true)) {
+    let promote = matches!(body.is_default, Some(true));
+    let result = tc.run(|conn| {
+        if promote {
             repo::promote_default(conn, id, patch)
         } else {
             repo::update(conn, id, patch)
@@ -214,19 +200,18 @@ pub async fn patch(
 
 /// DELETE /api/admin/workflow-states/{id}
 pub async fn archive(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     req: HttpRequest,
 ) -> impl Responder {
     let id = path.into_inner();
-    let mut conn = match helpers::admin_conn(&req, &pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    if let Err(e) = require_admin(&req) {
+        return e;
+    }
 
     // Refuse to archive the workspace default — a default must always
     // exist for new tickets to land somewhere sensible.
-    match repo::find_by_id(&mut conn, id) {
+    match tc.run(|conn| repo::find_by_id(conn, id)) {
         Ok(Some(s)) if s.is_default => {
             return errors::bad_request(
                 "Cannot archive the default state; promote a different state first",
@@ -241,8 +226,7 @@ pub async fn archive(
     }
 
     let actor = actor_uuid(&req);
-    let actor_ctx = actor_for(&req);
-    let archived = with_actor(&mut conn, &actor_ctx, |conn| repo::archive(conn, id));
+    let archived = tc.run(|conn| repo::archive(conn, id));
     match archived {
         Ok(state) => {
             info!(actor = ?actor, state_id = state.id, "workflow state archived");

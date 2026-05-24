@@ -9,12 +9,10 @@ use actix_web::{web, HttpResponse, Responder};
 use serde::Deserialize;
 use tracing::error;
 
-use crate::extractors::{AuthContext, TicketAccess};
-use crate::handlers::helpers::with_actor;
-use crate::handlers::{errors, helpers};
+use crate::extractors::{AuthContext, TenantConn, TicketAccess};
+use crate::handlers::errors;
 use crate::models::{NewTag, TagUpdate};
 use crate::repository::tags as repo;
-use crate::sync::actor::ActorContext;
 
 #[derive(Debug, Deserialize)]
 pub struct ListTagsQuery {
@@ -27,15 +25,12 @@ pub struct ListTagsQuery {
 }
 
 pub async fn list_tags(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     query: web::Query<ListTagsQuery>,
     _auth: AuthContext,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repo::list_tags(&mut conn, query.include_archived) {
+    let include_archived = query.include_archived;
+    match tc.run(|conn| repo::list_tags(conn, include_archived)) {
         Ok(tags) => HttpResponse::Ok().json(tags),
         Err(e) => {
             error!(error = %e, "list_tags failed");
@@ -45,21 +40,14 @@ pub async fn list_tags(
 }
 
 pub async fn create_tag(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     body: web::Json<NewTag>,
     auth: AuthContext,
 ) -> impl Responder {
     if !auth.is_admin() {
         return errors::forbidden("Only admins can create tags");
     }
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let actor_ctx = ActorContext::user(auth.user_uuid, None);
-    match with_actor(&mut conn, &actor_ctx, |conn| {
-        repo::create_tag(conn, body.into_inner())
-    }) {
+    match tc.run(|conn| repo::create_tag(conn, body.into_inner())) {
         Ok(tag) => HttpResponse::Ok().json(tag),
         Err(e) => {
             error!(error = %e, "create_tag failed");
@@ -69,7 +57,7 @@ pub async fn create_tag(
 }
 
 pub async fn update_tag(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     params: web::Path<i32>,
     body: web::Json<TagUpdate>,
     auth: AuthContext,
@@ -78,14 +66,7 @@ pub async fn update_tag(
         return errors::forbidden("Only admins can update tags");
     }
     let id = params.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let actor_ctx = ActorContext::user(auth.user_uuid, None);
-    match with_actor(&mut conn, &actor_ctx, |conn| {
-        repo::update_tag(conn, id, body.into_inner())
-    }) {
+    match tc.run(|conn| repo::update_tag(conn, id, body.into_inner())) {
         Ok(tag) => HttpResponse::Ok().json(tag),
         Err(e) => {
             error!(error = %e, "update_tag failed");
@@ -95,7 +76,7 @@ pub async fn update_tag(
 }
 
 pub async fn archive_tag(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     params: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -103,12 +84,7 @@ pub async fn archive_tag(
         return errors::forbidden("Only admins can archive tags");
     }
     let id = params.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let actor_ctx = ActorContext::user(auth.user_uuid, None);
-    match with_actor(&mut conn, &actor_ctx, |conn| repo::archive_tag(conn, id)) {
+    match tc.run(|conn| repo::archive_tag(conn, id)) {
         Ok(tag) => HttpResponse::Ok().json(tag),
         Err(e) => {
             error!(error = %e, "archive_tag failed");
@@ -127,19 +103,14 @@ pub struct SetTicketTagsBody {
 }
 
 pub async fn set_ticket_tags(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     access: TicketAccess,
     body: web::Json<SetTicketTagsBody>,
 ) -> impl Responder {
     let TicketAccess { ticket_id, auth } = access;
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let actor_ctx = ActorContext::user(auth.user_uuid, None);
-    match with_actor(&mut conn, &actor_ctx, |conn| {
-        repo::set_tags_for_ticket(conn, ticket_id, &body.tag_ids, Some(auth.user_uuid))
-    }) {
+    let tag_ids = body.tag_ids.clone();
+    let actor_uuid = auth.user_uuid;
+    match tc.run(|conn| repo::set_tags_for_ticket(conn, ticket_id, &tag_ids, Some(actor_uuid))) {
         Ok(tag_ids) => HttpResponse::Ok().json(serde_json::json!({ "tag_ids": tag_ids })),
         Err(e) => {
             error!(error = %e, ticket_id, "set_ticket_tags failed");

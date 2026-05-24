@@ -3,20 +3,12 @@ use diesel::result::Error;
 use serde::Deserialize;
 use tracing::debug;
 
-use crate::db::Pool;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::handlers::helpers;
-use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{NewProject, ProjectUpdate};
 use crate::repository;
-use crate::sync::actor::ActorContext;
 use crate::utils::rbac::{require_admin, require_technician_or_admin};
-
-#[inline]
-fn actor_for(req: &HttpRequest) -> ActorContext {
-    helper_actor_for(req, "handler:projects")
-}
 
 #[derive(Deserialize)]
 pub struct GetProjectQuery {
@@ -35,13 +27,8 @@ fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
 }
 
 // Get all projects with ticket counts
-pub async fn get_all_projects(pool: web::Data<Pool>) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::get_projects_with_ticket_count(&mut conn) {
+pub async fn get_all_projects(mut tc: TenantConn) -> impl Responder {
+    match tc.run(|conn| repository::get_projects_with_ticket_count(conn)) {
         Ok(projects) => HttpResponse::Ok().json(projects),
         Err(_) => errors::internal("Failed to get projects"),
     }
@@ -50,7 +37,7 @@ pub async fn get_all_projects(pool: web::Data<Pool>) -> impl Responder {
 // Get a single project by ID with ticket count, optionally with the
 // full ticket list embedded (`?embed=tickets`).
 pub async fn get_project(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     query: web::Query<GetProjectQuery>,
 ) -> impl Responder {
@@ -61,19 +48,14 @@ pub async fn get_project(
         .map(|s| s.split(',').map(str::trim).any(|t| t == "tickets"))
         .unwrap_or(false);
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let mut project = match repository::get_project_with_ticket_count(&mut conn, project_id) {
+    let mut project = match tc.run(|conn| repository::get_project_with_ticket_count(conn, project_id)) {
         Ok(p) => p,
         Err(Error::NotFound) => return errors::not_found_msg("Project not found"),
         Err(_) => return errors::internal("Failed to get project"),
     };
 
     if want_tickets {
-        match repository::get_project_tickets(&mut conn, project_id) {
+        match tc.run(|conn| repository::get_project_tickets(conn, project_id)) {
             Ok(tickets) => project.tickets = Some(tickets),
             Err(_) => return errors::internal("Failed to embed project tickets"),
         }
@@ -85,22 +67,14 @@ pub async fn get_project(
 // Create a new project (technician or admin only)
 pub async fn create_project(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     project: web::Json<NewProject>,
 ) -> impl Responder {
     if let Err(e) = require_technician_or_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::create_project(conn, project.into_inner())
-    }) {
+    match tc.run(|conn| repository::create_project(conn, project.into_inner())) {
         Ok(project) => HttpResponse::Created().json(project),
         Err(_) => errors::internal("Failed to create project"),
     }
@@ -109,7 +83,7 @@ pub async fn create_project(
 // Update an existing project (technician or admin only)
 pub async fn update_project(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     project_update: web::Json<ProjectUpdate>,
 ) -> impl Responder {
@@ -118,15 +92,7 @@ pub async fn update_project(
     }
 
     let project_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::update_project(conn, project_id, project_update.into_inner())
-    }) {
+    match tc.run(|conn| repository::update_project(conn, project_id, project_update.into_inner())) {
         Ok(project) => HttpResponse::Ok().json(project),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Project not found"),
@@ -138,7 +104,7 @@ pub async fn update_project(
 // Delete a project (admin only)
 pub async fn delete_project(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -146,15 +112,7 @@ pub async fn delete_project(
     }
 
     let project_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::delete_project(conn, project_id)
-    }) {
+    match tc.run(|conn| repository::delete_project(conn, project_id)) {
         Ok(0) => errors::not_found_msg("Project not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(_) => errors::internal("Failed to delete project"),
@@ -162,14 +120,9 @@ pub async fn delete_project(
 }
 
 // Get all tickets in a project
-pub async fn get_project_tickets(pool: web::Data<Pool>, path: web::Path<i32>) -> impl Responder {
+pub async fn get_project_tickets(mut tc: TenantConn, path: web::Path<i32>) -> impl Responder {
     let project_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::get_project_tickets(&mut conn, project_id) {
+    match tc.run(|conn| repository::get_project_tickets(conn, project_id)) {
         Ok(tickets) => HttpResponse::Ok().json(tickets),
         Err(_) => errors::internal("Failed to get project tickets"),
     }
@@ -181,15 +134,11 @@ pub async fn get_project_tickets(pool: web::Data<Pool>, path: web::Path<i32>) ->
 /// round-trip so the renderer can switch them on without a
 /// backend change.
 pub async fn get_project_dependencies(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     let project_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repository::linked_tickets::dependencies_for_project(&mut conn, project_id) {
+    match tc.run(|conn| repository::linked_tickets::dependencies_for_project(conn, project_id)) {
         Ok(rows) => {
             let payload: Vec<serde_json::Value> = rows
                 .into_iter()
@@ -210,7 +159,7 @@ pub async fn get_project_dependencies(
 // Add a ticket to a project (technician or admin only)
 pub async fn add_ticket_to_project(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<SseState>,
 ) -> impl Responder {
@@ -220,15 +169,8 @@ pub async fn add_ticket_to_project(
 
     let source_client_id = extract_sse_client_id(&req);
     let (project_id, ticket_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::add_ticket_to_project(conn, project_id, ticket_id)
-    }) {
+    match tc.run(|conn| repository::add_ticket_to_project(conn, project_id, ticket_id)) {
         Ok(association) => {
             debug!(
                 ticket_id = ticket_id,
@@ -255,7 +197,7 @@ pub async fn add_ticket_to_project(
 // Remove a ticket from a project (technician or admin only)
 pub async fn remove_ticket_from_project(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<SseState>,
 ) -> impl Responder {
@@ -265,15 +207,8 @@ pub async fn remove_ticket_from_project(
 
     let source_client_id = extract_sse_client_id(&req);
     let (project_id, ticket_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::remove_ticket_from_project(conn, project_id, ticket_id)
-    }) {
+    match tc.run(|conn| repository::remove_ticket_from_project(conn, project_id, ticket_id)) {
         Ok(0) => errors::not_found_msg("Association not found"),
         Ok(_) => {
             debug!(
@@ -308,7 +243,7 @@ pub struct UpdateTicketOrderRequest {
 // Update the order of tickets within a project (technician or admin only)
 pub async fn update_ticket_order(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateTicketOrderRequest>,
 ) -> impl Responder {
@@ -317,10 +252,6 @@ pub async fn update_ticket_order(
     }
 
     let project_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     // Convert ticket_ids to (ticket_id, display_order) pairs
     let orders: Vec<(i32, i32)> = body
@@ -332,10 +263,7 @@ pub async fn update_ticket_order(
 
     debug!(project_id, count = orders.len(), "Updating ticket order");
 
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::update_project_ticket_orders(conn, project_id, orders)
-    }) {
+    match tc.run(|conn| repository::update_project_ticket_orders(conn, project_id, orders)) {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({"success": true})),
         Err(_) => errors::internal("Failed to update ticket order"),
     }
