@@ -142,6 +142,16 @@ fn ensure_one_partition(
         ))
         .execute(conn)?;
 
+        // 1a. Match the parent's owner (Phase 3i.4: nosdesk_admin).
+        //     CREATE TABLE sets owner = current session role, which
+        //     here is the migration / scheduler login role (usually
+        //     `nosdesk` superuser). Without this step, new children
+        //     drift away from the parent's `nosdesk_admin` ownership
+        //     and the partition rotator silently regains its
+        //     superuser dependency for the DDL below.
+        diesel::sql_query(format!("ALTER TABLE {child} OWNER TO nosdesk_admin"))
+            .execute(conn)?;
+
         // 2. Make sure no leftover constraint from a prior partial
         //    run trips the ADD below. DROP IF EXISTS is idempotent.
         diesel::sql_query(format!(
