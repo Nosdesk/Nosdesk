@@ -203,11 +203,6 @@ impl NotificationService {
     ) -> Result<i32, String> {
         use crate::schema::notifications;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
         let type_id = self
             .get_notification_type_id(payload.notification_type.as_str())
             .await?;
@@ -265,10 +260,20 @@ impl NotificationService {
             channels_delivered: serde_json::json!([]),
         };
 
-        let notification: Notification = diesel::insert_into(notifications::table)
-            .values(&new_notification)
-            .get_result(&mut conn)
-            .map_err(|e| format!("Failed to persist notification: {e}"))?;
+        // notifications is RLS-enabled; the service is a
+        // background dispatcher with no request-bound workspace
+        // pin, so wrap the insert in background_run which elevates
+        // to nosdesk_admin for the txn.
+        let notification: Notification = crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_persist",
+            |conn| {
+                diesel::insert_into(notifications::table)
+                    .values(&new_notification)
+                    .get_result(conn)
+            },
+        )
+        .map_err(|e| format!("Failed to persist notification: {e}"))?;
 
         Ok(notification.id)
     }
@@ -281,36 +286,34 @@ impl NotificationService {
     ) -> Result<(), String> {
         use crate::schema::notifications::dsl::*;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_channel_delivered",
+            |conn| {
+                // Get current channels_delivered
+                let current: Notification = notifications.find(notification_id).first(conn)?;
 
-        // Get current channels_delivered
-        let current: Notification = notifications
-            .find(notification_id)
-            .first(&mut conn)
-            .map_err(|e| format!("Notification not found: {e}"))?;
+                // Add new channel to the array
+                let mut delivered: Vec<String> = current
+                    .channels_delivered
+                    .as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
 
-        // Add new channel to the array
-        let mut delivered: Vec<String> = current
-            .channels_delivered
-            .as_array()
-            .unwrap_or(&vec![])
-            .iter()
-            .filter_map(|v| v.as_str().map(String::from))
-            .collect();
+                let channel_str = channel.as_str().to_string();
+                if !delivered.contains(&channel_str) {
+                    delivered.push(channel_str);
+                }
 
-        let channel_str = channel.as_str().to_string();
-        if !delivered.contains(&channel_str) {
-            delivered.push(channel_str);
-        }
-
-        // Update
-        diesel::update(notifications.find(notification_id))
-            .set(channels_delivered.eq(serde_json::json!(delivered)))
-            .execute(&mut conn)
-            .map_err(|e| format!("Failed to update channels_delivered: {e}"))?;
+                diesel::update(notifications.find(notification_id))
+                    .set(channels_delivered.eq(serde_json::json!(delivered)))
+                    .execute(conn)?;
+                Ok::<_, diesel::result::Error>(())
+            },
+        )
+        .map_err(|e| format!("Failed to update channels_delivered: {e}"))?;
 
         Ok(())
     }
@@ -328,16 +331,22 @@ impl NotificationService {
         // Query database
         use crate::schema::notification_types::dsl::{code, id as id_col, notification_types};
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        let type_id: i32 = notification_types
-            .filter(code.eq(type_code))
-            .select(id_col)
-            .first(&mut conn)
-            .map_err(|e| format!("Notification type '{type_code}' not found: {e}"))?;
+        // notification_types is non-tenant (system catalog) so a
+        // straight pool.get + query would work without bypass —
+        // but routing through background_run keeps every method
+        // here uniform and the role baseline reset that set_actor
+        // performs is harmless for non-tenant reads.
+        let type_id: i32 = crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_type_lookup",
+            |conn| {
+                notification_types
+                    .filter(code.eq(type_code))
+                    .select(id_col)
+                    .first(conn)
+            },
+        )
+        .map_err(|e| format!("Notification type '{type_code}' not found: {e}"))?;
 
         // Update cache
         {
@@ -357,23 +366,24 @@ impl NotificationService {
         use crate::schema::notification_types;
         use crate::schema::notifications::dsl::*;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        let results: Vec<(Notification, String)> = notifications
-            .inner_join(notification_types::table)
-            .filter(user_uuid.eq(user_uuid_val))
-            .filter(is_read.eq(false))
-            .order(created_at.desc())
-            .limit(limit)
-            .select((
-                crate::schema::notifications::all_columns,
-                notification_types::code,
-            ))
-            .load(&mut conn)
-            .map_err(|e| format!("Query failed: {e}"))?;
+        let results: Vec<(Notification, String)> = crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_get_unread",
+            |conn| {
+                notifications
+                    .inner_join(notification_types::table)
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .filter(is_read.eq(false))
+                    .order(created_at.desc())
+                    .limit(limit)
+                    .select((
+                        crate::schema::notifications::all_columns,
+                        notification_types::code,
+                    ))
+                    .load(conn)
+            },
+        )
+        .map_err(|e| format!("Query failed: {e}"))?;
 
         Ok(results
             .into_iter()
@@ -402,23 +412,24 @@ impl NotificationService {
         use crate::schema::notification_types;
         use crate::schema::notifications::dsl::*;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        let results: Vec<(Notification, String)> = notifications
-            .inner_join(notification_types::table)
-            .filter(user_uuid.eq(user_uuid_val))
-            .order(created_at.desc())
-            .limit(limit)
-            .offset(offset)
-            .select((
-                crate::schema::notifications::all_columns,
-                notification_types::code,
-            ))
-            .load(&mut conn)
-            .map_err(|e| format!("Query failed: {e}"))?;
+        let results: Vec<(Notification, String)> = crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_get_all",
+            |conn| {
+                notifications
+                    .inner_join(notification_types::table)
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .order(created_at.desc())
+                    .limit(limit)
+                    .offset(offset)
+                    .select((
+                        crate::schema::notifications::all_columns,
+                        notification_types::code,
+                    ))
+                    .load(conn)
+            },
+        )
+        .map_err(|e| format!("Query failed: {e}"))?;
 
         Ok(results
             .into_iter()
@@ -441,17 +452,18 @@ impl NotificationService {
     pub async fn get_unread_count(&self, user_uuid_val: &Uuid) -> Result<i64, String> {
         use crate::schema::notifications::dsl::*;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        notifications
-            .filter(user_uuid.eq(user_uuid_val))
-            .filter(is_read.eq(false))
-            .count()
-            .get_result(&mut conn)
-            .map_err(|e| format!("Query failed: {e}"))
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_unread_count",
+            |conn| {
+                notifications
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .filter(is_read.eq(false))
+                    .count()
+                    .get_result(conn)
+            },
+        )
+        .map_err(|e| format!("Query failed: {e}"))
     }
 
     /// Mark notifications as read
@@ -462,42 +474,40 @@ impl NotificationService {
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        let count = diesel::update(
-            notifications
-                .filter(user_uuid.eq(user_uuid_val))
-                .filter(id.eq_any(notification_ids)),
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_mark_read",
+            |conn| {
+                diesel::update(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(id.eq_any(notification_ids)),
+                )
+                .set((is_read.eq(true), read_at.eq(Some(Utc::now().naive_utc()))))
+                .execute(conn)
+            },
         )
-        .set((is_read.eq(true), read_at.eq(Some(Utc::now().naive_utc()))))
-        .execute(&mut conn)
-        .map_err(|e| format!("Update failed: {e}"))?;
-
-        Ok(count)
+        .map_err(|e| format!("Update failed: {e}"))
     }
 
     /// Mark all notifications as read for a user
     pub async fn mark_all_read(&self, user_uuid_val: &Uuid) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        let count = diesel::update(
-            notifications
-                .filter(user_uuid.eq(user_uuid_val))
-                .filter(is_read.eq(false)),
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_mark_all_read",
+            |conn| {
+                diesel::update(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(is_read.eq(false)),
+                )
+                .set((is_read.eq(true), read_at.eq(Some(Utc::now().naive_utc()))))
+                .execute(conn)
+            },
         )
-        .set((is_read.eq(true), read_at.eq(Some(Utc::now().naive_utc()))))
-        .execute(&mut conn)
-        .map_err(|e| format!("Update failed: {e}"))?;
-
-        Ok(count)
+        .map_err(|e| format!("Update failed: {e}"))
     }
 
     /// Delete multiple notifications for a user
@@ -508,19 +518,18 @@ impl NotificationService {
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("Database error: {e}"))?;
-
-        let count = diesel::delete(
-            notifications
-                .filter(user_uuid.eq(user_uuid_val))
-                .filter(id.eq_any(notification_ids)),
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_delete",
+            |conn| {
+                diesel::delete(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(id.eq_any(notification_ids)),
+                )
+                .execute(conn)
+            },
         )
-        .execute(&mut conn)
-        .map_err(|e| format!("Delete failed: {e}"))?;
-
-        Ok(count)
+        .map_err(|e| format!("Delete failed: {e}"))
     }
 }

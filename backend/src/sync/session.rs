@@ -177,6 +177,53 @@ where
     })
 }
 
+/// Convenience wrapper for background-task DB work: acquire a
+/// pooled connection, elevate to `nosdesk_admin` (BYPASSRLS) for
+/// the closure's duration, run the closure inside one
+/// transaction, return the result.
+///
+/// Used by schedulers, spawned workers, webhook / notification
+/// dispatchers, and similar code that runs outside any HTTP
+/// request context. The `reference` string is captured on every
+/// emitted sync_actions row, giving operators a grep target to
+/// distinguish background traffic from request traffic — pick a
+/// stable label like `"background:notify_send"` or
+/// `"scheduler:partition_rotation"`.
+///
+/// For request-context handler code, use `TenantConn` (or
+/// `PlatformConn` for cross-tenant ops) — those extractors do
+/// the same acquire-and-wrap dance with a request-bound actor
+/// and visible-in-signature audit surface. `background_run` is
+/// for the spawn-task surface where neither extractor reaches.
+pub fn background_run<T>(
+    pool: &crate::db::Pool,
+    reference: &'static str,
+    f: impl FnOnce(&mut DbConnection) -> QueryResult<T>,
+) -> Result<T, BackgroundRunError> {
+    let mut conn = pool.get().map_err(BackgroundRunError::Pool)?;
+    let actor = crate::sync::actor::ActorContext::system(reference);
+    with_actor_bypass_context(&mut conn, &actor, f).map_err(BackgroundRunError::Db)
+}
+
+/// Error type returned by `background_run`. Distinguishes "couldn't
+/// get a connection from the pool" from "the closure errored".
+#[derive(Debug)]
+pub enum BackgroundRunError {
+    Pool(r2d2::Error),
+    Db(diesel::result::Error),
+}
+
+impl std::fmt::Display for BackgroundRunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pool(e) => write!(f, "pool acquire failed: {e}"),
+            Self::Db(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for BackgroundRunError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
