@@ -102,15 +102,32 @@ pub fn admin_user_conn(
 /// that wandered into a write path, etc.) — this guarantees every
 /// emit gets attributed to *something* rather than producing rows
 /// with nil-UUID actors that pollute audit queries.
+///
+/// The actor's `workspace_id` is sourced from the `RequestContext`
+/// that the auth middleware populates, which carries the pin set
+/// by `WorkspaceContextMiddleware` ahead of auth. Without this,
+/// downstream `with_actor_context` calls leave `app.workspace_id`
+/// unset and the strict RLS policy returns zero rows (the failure
+/// mode that hit the user-purge handlers before this fix). Tests
+/// that inject `Claims` directly without `RequestContext` get the
+/// ambient workspace GUC set by `setup_test_connection` instead.
 pub fn actor_for(req: &HttpRequest, system_ref: &'static str) -> ActorContext {
     let uuid = req
         .extensions()
         .get::<Claims>()
         .and_then(|c| Uuid::parse_str(&c.sub).ok());
-    match uuid {
+    let workspace_id = req
+        .extensions()
+        .get::<crate::middleware::RequestContext>()
+        .and_then(|ctx| ctx.actor.workspace_id);
+    let mut actor = match uuid {
         Some(u) => ActorContext::user(u, None),
         None => ActorContext::system(system_ref),
+    };
+    if let Some(ws) = workspace_id {
+        actor = actor.with_workspace(ws);
     }
+    actor
 }
 
 /// Run a repository write inside a transaction with the actor GUCs
