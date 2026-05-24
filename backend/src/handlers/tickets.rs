@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::extractors::{AuthContext, TicketAccess};
+use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
@@ -227,18 +227,13 @@ pub struct PaginatedResponse<T> {
 }
 
 // Get all tickets (technicians and admins only)
-pub async fn get_tickets(pool: web::Data<crate::db::Pool>, auth: AuthContext) -> impl Responder {
+pub async fn get_tickets(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     // Only technicians and admins can see all tickets via this endpoint
     if !auth.is_technician_or_admin() {
         return errors::forbidden("Forbidden: Only technicians and admins can access all tickets");
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::get_all_tickets(&mut conn) {
+    match tc.run(|conn| repository::get_all_tickets(conn)) {
         Ok(tickets) => HttpResponse::Ok().json(tickets),
         Err(_) => errors::internal("Failed to get tickets"),
     }
@@ -246,33 +241,31 @@ pub async fn get_tickets(pool: web::Data<crate::db::Pool>, auth: AuthContext) ->
 
 // Get paginated tickets
 pub async fn get_paginated_tickets(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     query: web::Query<PaginationParams>,
     auth: AuthContext,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
+    let query = query.into_inner();
     // Build query with automatic permission filtering via AuthContext
-    let result = TicketQuery::new()
-        .visible_to(&auth)
-        .search(query.search.clone())
-        .status(query.status.clone())
-        .priority(query.priority.clone())
-        .category(query.category.clone())
-        .assignee(query.assignee.clone())
-        .requester(query.requester.clone())
-        .created_between(query.created_after.clone(), query.created_before.clone())
-        .created_on(query.created_on.clone())
-        .modified_between(query.modified_after.clone(), query.modified_before.clone())
-        .modified_on(query.modified_on.clone())
-        .closed_between(query.closed_after.clone(), query.closed_before.clone())
-        .closed_on(query.closed_on.clone())
-        .paginate(query.page.unwrap_or(1), query.page_size.unwrap_or(10))
-        .sort(query.sort_field.clone(), query.sort_direction.clone())
-        .execute_with_users(&mut conn);
+    let result = tc.run(|conn| {
+        TicketQuery::new()
+            .visible_to(&auth)
+            .search(query.search.clone())
+            .status(query.status.clone())
+            .priority(query.priority.clone())
+            .category(query.category.clone())
+            .assignee(query.assignee.clone())
+            .requester(query.requester.clone())
+            .created_between(query.created_after.clone(), query.created_before.clone())
+            .created_on(query.created_on.clone())
+            .modified_between(query.modified_after.clone(), query.modified_before.clone())
+            .modified_on(query.modified_on.clone())
+            .closed_between(query.closed_after.clone(), query.closed_before.clone())
+            .closed_on(query.closed_on.clone())
+            .paginate(query.page.unwrap_or(1), query.page_size.unwrap_or(10))
+            .sort(query.sort_field.clone(), query.sort_direction.clone())
+            .execute_with_users(conn)
+    });
 
     match result {
         Ok(paginated) => HttpResponse::Ok().json(paginated),
@@ -335,52 +328,52 @@ const DEFAULT_ACTIVITY_LIMIT: i64 = 50;
 const MAX_ACTIVITY_LIMIT: i64 = 200;
 
 pub async fn get_ticket_activity(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     access: TicketAccess,
     query: web::Query<TicketActivityQuery>,
 ) -> impl Responder {
     use crate::schema::sync_actions;
 
     let ticket_id = access.ticket_id;
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let limit = query
         .limit
         .unwrap_or(DEFAULT_ACTIVITY_LIMIT)
         .clamp(1, MAX_ACTIVITY_LIMIT);
     let group_marker = format!("ticket:{}", ticket_id);
+    let before = query.before;
 
-    // Fetch limit + 1 so we can detect the boundary without a
-    // separate count query — same trick `delta` uses.
-    let mut q = sync_actions::table
-        .filter(sync_actions::groups.contains(vec![Some(group_marker)]))
-        .order((
-            sync_actions::occurred_at.desc(),
-            sync_actions::sync_id.desc(),
-        ))
-        .limit(limit + 1)
-        .select((
-            sync_actions::sync_id,
-            sync_actions::aggregate,
-            sync_actions::aggregate_id,
-            sync_actions::op,
-            sync_actions::event_type,
-            sync_actions::data,
-            sync_actions::actor_uuid,
-            sync_actions::actor_kind,
-            sync_actions::actor_ref,
-            sync_actions::occurred_at,
-        ))
-        .into_boxed();
+    let load_result = tc.run(|conn| {
+        // Fetch limit + 1 so we can detect the boundary without a
+        // separate count query — same trick `delta` uses.
+        let mut q = sync_actions::table
+            .filter(sync_actions::groups.contains(vec![Some(group_marker)]))
+            .order((
+                sync_actions::occurred_at.desc(),
+                sync_actions::sync_id.desc(),
+            ))
+            .limit(limit + 1)
+            .select((
+                sync_actions::sync_id,
+                sync_actions::aggregate,
+                sync_actions::aggregate_id,
+                sync_actions::op,
+                sync_actions::event_type,
+                sync_actions::data,
+                sync_actions::actor_uuid,
+                sync_actions::actor_kind,
+                sync_actions::actor_ref,
+                sync_actions::occurred_at,
+            ))
+            .into_boxed();
 
-    if let Some(before) = query.before {
-        q = q.filter(sync_actions::sync_id.lt(before));
-    }
+        if let Some(b) = before {
+            q = q.filter(sync_actions::sync_id.lt(b));
+        }
 
-    let mut events: Vec<TicketActivityRow> = match q.load(&mut conn) {
+        q.load::<TicketActivityRow>(conn)
+    });
+
+    let mut events = match load_result {
         Ok(rows) => rows,
         Err(e) => {
             error!(error = %e, ticket_id, "ticket activity query failed");
@@ -493,24 +486,26 @@ pub async fn preview_ticket_field(
 // reaching this body means the caller is allowed to read the
 // ticket. 404 (not 403) on deny is enforced inside the extractor,
 // per the OWASP IDOR Cheatsheet.
-pub async fn get_ticket(pool: web::Data<crate::db::Pool>, access: TicketAccess) -> impl Responder {
+pub async fn get_ticket(
+    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
+    access: TicketAccess,
+) -> impl Responder {
     use crate::repository::user_ticket_views::UserTicketViewsRepository;
 
     let TicketAccess { ticket_id, auth } = access;
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // A `not_found` here is a genuine "deleted between extraction
     // and load" race, which we still want to surface as 404.
-    let complete_ticket = match repository::get_complete_ticket(&mut conn, ticket_id) {
+    let complete_ticket = match tc.run(|conn| repository::get_complete_ticket(conn, ticket_id)) {
         Ok(ticket) => ticket,
         Err(_) => return errors::not_found_msg("Ticket not found"),
     };
 
-    // Record the view (don't fail the request if this fails).
+    // Record the view (don't fail the request if this fails). The
+    // view repo wraps the pool with its own connection acquisition;
+    // it's not a tenant table yet so it stays on the legacy path
+    // until Phase 3c sweeps user_ticket_views into RLS.
     let view_repo = UserTicketViewsRepository::new(pool.get_ref().clone());
     if let Err(e) = view_repo.record_view(auth.user_uuid, ticket_id) {
         warn!(user_uuid = %auth.user_uuid, error = ?e, "Failed to record ticket view");
@@ -1741,6 +1736,7 @@ pub async fn remove_device_from_ticket(
 // Get recent tickets for the authenticated user
 pub async fn get_recent_tickets(
     pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     claims: web::ReqData<Claims>,
 ) -> impl Responder {
     use crate::repository::ticket_visibility::{self, VisibilityContext};
@@ -1752,6 +1748,10 @@ pub async fn get_recent_tickets(
     };
     let user_uuid = vis.user_uuid;
 
+    // user_ticket_views isn't RLS-yet (Phase 3c sweeps it), so it
+    // stays on the legacy pool wrapper. The ticket visibility check
+    // below queries the RLS-enabled tickets table and goes through
+    // TenantConn.
     let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
 
     let recent = match repo.get_recent_tickets(
@@ -1772,12 +1772,8 @@ pub async fn get_recent_tickets(
     // Filter against the same primitive that gates single-record
     // fetches so the sidebar can't surface titles for tickets the
     // user can no longer read.
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
     let candidate_ids: Vec<i32> = recent.iter().map(|r| r.id).collect();
-    let visible = match ticket_visibility::visible_ticket_ids(&mut conn, &vis, &candidate_ids) {
+    let visible = match tc.run(|conn| ticket_visibility::visible_ticket_ids(conn, &vis, &candidate_ids)) {
         Ok(ids) => ids,
         Err(e) => {
             error!(error = ?e, "Failed to filter recent tickets by visibility");
