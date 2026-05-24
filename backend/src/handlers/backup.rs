@@ -63,7 +63,12 @@ pub async fn start_export(
     let include_sensitive = body.include_sensitive;
     let password = body.password.clone();
 
-    // Run backup in background
+    // Run backup in background. The spawn has no RequestContext
+    // and no workspace pin — backup is a platform-level operation
+    // that may need to read across workspaces depending on
+    // configuration. Elevate to nosdesk_admin via
+    // with_actor_bypass_context so backup_service::create_backup's
+    // reads/writes to backup_jobs (RLS-enabled) succeed.
     let pool_clone = pool.clone();
     tokio::spawn(async move {
         let mut conn = match pool_clone.get() {
@@ -79,22 +84,43 @@ pub async fn start_export(
         // is sealed and sensitive fields are included. Without,
         // the zip is plaintext and sensitive fields are stripped.
         let _ = include_sensitive;
-        match backup_service::create_backup(&mut conn, job_id, password.as_deref()) {
+        let bypass_actor =
+            crate::sync::actor::ActorContext::system("background:backup_export");
+        let result =
+            crate::sync::session::with_actor_bypass_context(&mut conn, &bypass_actor, |conn| {
+                backup_service::create_backup(conn, job_id, password.as_deref())
+                    .map_err(|e| {
+                        // Translate the backup service's error into a
+                        // diesel error so the closure's signature fits;
+                        // we lose error specificity but the wrapping
+                        // log statement preserves it.
+                        diesel::result::Error::QueryBuilderError(e.to_string().into())
+                    })
+            });
+
+        match result {
             Ok(path) => {
                 log::info!("Backup completed successfully: {path:?}");
             }
             Err(e) => {
                 log::error!("Backup failed: {e}");
-                // Update job with error
-                let _ = backup_repo::update_backup_job(
+                // Update job with error, also under bypass so the
+                // backup_jobs UPDATE passes the policy WITH CHECK.
+                let _ = crate::sync::session::with_actor_bypass_context(
                     &mut conn,
-                    job_id,
-                    BackupJobUpdate {
-                        status: Some("failed".to_string()),
-                        file_path: None,
-                        file_size: None,
-                        error_message: Some(e.to_string()),
-                        completed_at: Some(chrono::Utc::now().naive_utc()),
+                    &bypass_actor,
+                    |conn| {
+                        backup_repo::update_backup_job(
+                            conn,
+                            job_id,
+                            BackupJobUpdate {
+                                status: Some("failed".to_string()),
+                                file_path: None,
+                                file_size: None,
+                                error_message: Some(e.to_string()),
+                                completed_at: Some(chrono::Utc::now().naive_utc()),
+                            },
+                        )
                     },
                 );
             }

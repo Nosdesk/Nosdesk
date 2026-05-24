@@ -232,44 +232,61 @@ pub async fn report_violation(
 
     // Persist asynchronously — we don't want a slow DB write
     // blocking the response. Browsers don't care about the
-    // response anyway.
+    // response anyway. The endpoint is unauthenticated (browsers
+    // don't include cookies on CSP reports by default), so we
+    // can't extract TenantConn here. Use with_actor_bypass_context
+    // to elevate to nosdesk_admin for the writes — csp_reports
+    // is RLS-enabled but the report shape (per-document_uri,
+    // dedup_hash) is intrinsically scoped to a workspace via
+    // the report's own dedup_hash; the workspace_id column gets
+    // its default from the GUC, which is empty here (apex /
+    // unauth path), so we pin a stable workspace_id=1 fallback.
+    // TODO Phase 3f.2: read workspace from
+    // WorkspaceContextMiddleware (which DOES run for the apex
+    // path in hosted mode and attaches a WorkspaceContext) so
+    // CSP reports get scoped to the originating workspace.
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
         Err(_) => return HttpResponse::NoContent().finish(),
     };
 
-    for r in parsed_reports {
-        if r.effective_directive.is_empty() {
-            continue;
+    let bypass_actor =
+        crate::sync::actor::ActorContext::system("handler:csp_report").with_workspace(1);
+    let _ = crate::sync::session::with_actor_bypass_context(&mut conn, &bypass_actor, |conn| {
+        for r in parsed_reports {
+            if r.effective_directive.is_empty() {
+                continue;
+            }
+
+            let dedup = repo::dedup_hash(
+                &r.effective_directive,
+                r.blocked_uri.as_deref(),
+                r.source_file.as_deref(),
+                r.line_number,
+            );
+
+            let new_report = NewCspReport {
+                dedup_hash: dedup,
+                effective_directive: r.effective_directive,
+                blocked_uri: r.blocked_uri,
+                source_file: r.source_file,
+                line_number: r.line_number,
+                column_number: r.column_number,
+                document_uri: r.document_uri,
+                referrer: r.referrer,
+                violated_directive: r.violated_directive,
+                original_policy: r.original_policy,
+                disposition: r.disposition,
+                user_agent: user_agent.clone(),
+                user_uuid,
+            };
+
+            if let Err(e) = repo::upsert(conn, new_report) {
+                warn!(error = ?e, "Failed to upsert CSP report");
+            }
         }
-
-        let dedup = repo::dedup_hash(
-            &r.effective_directive,
-            r.blocked_uri.as_deref(),
-            r.source_file.as_deref(),
-            r.line_number,
-        );
-
-        let new_report = NewCspReport {
-            dedup_hash: dedup,
-            effective_directive: r.effective_directive,
-            blocked_uri: r.blocked_uri,
-            source_file: r.source_file,
-            line_number: r.line_number,
-            column_number: r.column_number,
-            document_uri: r.document_uri,
-            referrer: r.referrer,
-            violated_directive: r.violated_directive,
-            original_policy: r.original_policy,
-            disposition: r.disposition,
-            user_agent: user_agent.clone(),
-            user_uuid,
-        };
-
-        if let Err(e) = repo::upsert(&mut conn, new_report) {
-            warn!(error = ?e, "Failed to upsert CSP report");
-        }
-    }
+        Ok::<_, diesel::result::Error>(())
+    });
 
     HttpResponse::NoContent().finish()
 }

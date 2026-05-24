@@ -144,8 +144,18 @@ pub async fn search(
                             return;
                         }
                     };
-                    if let Err(e) = search_query_log::log_query(&mut conn, &logged_query, doc_hits)
-                    {
+                    // The spawn has no RequestContext so no workspace
+                    // pin. search_query_log is RLS-enabled
+                    // (Phase 3c.2 sync/audit/system migration).
+                    // Elevate to nosdesk_admin for the write.
+                    let bypass_actor =
+                        crate::sync::actor::ActorContext::system("background:search_query_log");
+                    let result = crate::sync::session::with_actor_bypass_context(
+                        &mut conn,
+                        &bypass_actor,
+                        |conn| search_query_log::log_query(conn, &logged_query, doc_hits),
+                    );
+                    if let Err(e) = result {
                         warn!(error = ?e, "Search log write failed");
                     }
                 });

@@ -11,6 +11,8 @@ use crate::db::Pool;
 use crate::middleware::request_context;
 use crate::models::Claims;
 use crate::repository::api_tokens::{get_valid_api_token, hash_token, update_token_last_used};
+use crate::sync::actor::ActorContext;
+use crate::sync::session;
 
 /// Marker struct to indicate request was authenticated via API token
 /// This is used by CSRF middleware to skip validation for API token requests
@@ -68,10 +70,49 @@ pub fn try_bearer_auth(
         actix_web::error::ErrorInternalServerError("Database connection failed")
     })?;
 
-    // Hash token and look up
+    // Bearer-token auth runs after the workspace-context middleware
+    // but before the request has any user-actor context, so the
+    // api_tokens lookup (RLS-enabled) needs an explicit bypass: a
+    // request to subdomain X with a token belonging to workspace Y
+    // shouldn't silently fail with "invalid token" — we want the
+    // token-not-found and the cross-workspace cases to share one
+    // 401 response. with_actor_bypass_context elevates to
+    // nosdesk_admin (BYPASSRLS) for the duration of the lookup;
+    // the user/email reads are non-RLS but are wrapped here too
+    // for atomicity and so the bypass auto-clears at txn commit.
     let token_hash = hash_token(&token);
-    let api_token = match get_valid_api_token(&mut conn, &token_hash) {
-        Ok(t) => t,
+    let bypass_actor = ActorContext::system("middleware:api_token");
+
+    let lookup_result = session::with_actor_bypass_context(&mut conn, &bypass_actor, |conn| {
+        let api_token = get_valid_api_token(conn, &token_hash)?;
+        let user = crate::repository::get_user_by_uuid(&api_token.user_uuid, conn)?;
+        let email = crate::repository::user_emails::get_user_emails_by_uuid(
+            conn,
+            &api_token.user_uuid,
+        )
+        .ok()
+        .and_then(|emails| emails.into_iter().find(|e| e.is_primary).map(|e| e.email))
+        .unwrap_or_else(|| "unknown@example.com".to_string());
+
+        // Update last_used_at inside the same bypass txn so the
+        // policy doesn't reject the UPDATE.
+        let client_ip = extract_client_ip(req);
+        let ip_network = client_ip.map(|ip| {
+            use ipnetwork::IpNetwork;
+            match ip {
+                IpAddr::V4(v4) => IpNetwork::V4(ipnetwork::Ipv4Network::from(v4)),
+                IpAddr::V6(v6) => IpNetwork::V6(ipnetwork::Ipv6Network::from(v6)),
+            }
+        });
+        if let Err(e) = update_token_last_used(conn, api_token.id, ip_network) {
+            warn!("Failed to update token last_used_at: {}", e);
+        }
+
+        Ok::<_, diesel::result::Error>((api_token, user, email))
+    });
+
+    let (api_token, user, email) = match lookup_result {
+        Ok(triple) => triple,
         Err(diesel::result::Error::NotFound) => {
             warn!(path = %req.path(), "API token not found or expired");
             return Err(actix_web::error::ErrorUnauthorized(
@@ -85,38 +126,6 @@ pub fn try_bearer_auth(
             ));
         }
     };
-
-    // Get user information
-    let user = match crate::repository::get_user_by_uuid(&api_token.user_uuid, &mut conn) {
-        Ok(u) => u,
-        Err(e) => {
-            error!("Failed to get user for API token: {}", e);
-            return Err(actix_web::error::ErrorInternalServerError(
-                "Authentication error",
-            ));
-        }
-    };
-
-    // Get user's primary email
-    let email =
-        crate::repository::user_emails::get_user_emails_by_uuid(&mut conn, &api_token.user_uuid)
-            .ok()
-            .and_then(|emails| emails.into_iter().find(|e| e.is_primary).map(|e| e.email))
-            .unwrap_or_else(|| "unknown@example.com".to_string());
-
-    // Update last_used_at
-    let client_ip = extract_client_ip(req);
-    let ip_network = client_ip.map(|ip| {
-        use ipnetwork::IpNetwork;
-        match ip {
-            IpAddr::V4(v4) => IpNetwork::V4(ipnetwork::Ipv4Network::from(v4)),
-            IpAddr::V6(v6) => IpNetwork::V6(ipnetwork::Ipv6Network::from(v6)),
-        }
-    });
-
-    if let Err(e) = update_token_last_used(&mut conn, api_token.id, ip_network) {
-        warn!("Failed to update token last_used_at: {}", e);
-    }
 
     // Project the token's stored scopes into a single space-
     // separated `scope` string (OAuth2 / RFC 6749 convention) so
