@@ -24,10 +24,11 @@
 //! ```
 //!
 //! Cross-workspace operations (registry sync, partition rotation,
-//! workspace lifecycle handlers) use [`TenantConn::unscoped_run`]
-//! which sets `app.bypass_workspace_check = 'true'` so the RLS
-//! policy's bypass disjunct lets the query through. Every
-//! `unscoped_run` call site is greppable and audit-reviewable.
+//! workspace lifecycle handlers, public unauth writes) use a
+//! distinct extractor [`PlatformConn`](super::PlatformConn) that
+//! elevates to the `nosdesk_admin` BYPASSRLS role. The cross-
+//! tenant audit surface is the **extractor name in the handler
+//! signature**, not a method on this one.
 
 use actix_web::{dev::Payload, web, FromRequest, HttpMessage, HttpRequest};
 use std::future::{ready, Ready};
@@ -77,24 +78,6 @@ impl TenantConn {
             diesel::result::Error::QueryBuilderError(format!("pool acquire: {e}").into())
         })?;
         session::with_actor_context(&mut conn, &self.actor, f)
-    }
-
-    /// Like `run`, but with `app.bypass_workspace_check = 'true'`
-    /// set in the same transaction. Reserved for legitimately
-    /// cross-workspace operations: workspace lifecycle handlers,
-    /// background jobs that span tenants, super-admin tools.
-    ///
-    /// Every call site of this method is part of the audit-review
-    /// surface — grep for `unscoped_run` to enumerate them.
-    #[allow(dead_code)]
-    pub fn unscoped_run<T>(
-        &mut self,
-        f: impl FnOnce(&mut DbConnection) -> diesel::QueryResult<T>,
-    ) -> diesel::QueryResult<T> {
-        let mut conn = self.pool.get().map_err(|e| {
-            diesel::result::Error::QueryBuilderError(format!("pool acquire: {e}").into())
-        })?;
-        session::with_actor_bypass_context(&mut conn, &self.actor, f)
     }
 }
 
