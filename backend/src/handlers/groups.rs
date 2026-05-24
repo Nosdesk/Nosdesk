@@ -3,21 +3,13 @@ use diesel::result::Error;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::db::Pool;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::handlers::helpers;
-use crate::handlers::helpers::{actor_for as helper_actor_for, with_actor};
 use crate::models::{Claims, GroupUpdate, NewGroup};
 use crate::repository;
-use crate::sync::actor::ActorContext;
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
 use crate::utils::rbac::require_admin;
-
-#[inline]
-fn actor_for(req: &HttpRequest) -> ActorContext {
-    helper_actor_for(req, "handler:groups")
-}
 
 // ============================================================================
 // Group Detail Endpoint (All authenticated users)
@@ -26,7 +18,7 @@ fn actor_for(req: &HttpRequest) -> ActorContext {
 /// Get group details by UUID (accessible to all authenticated users)
 pub async fn get_group_details(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
 ) -> impl Responder {
     // Verify user is authenticated (but not admin required)
@@ -40,12 +32,7 @@ pub async fn get_group_details(
         Err(_) => return errors::bad_request("Invalid group UUID"),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::groups::get_group_details(&mut conn, &group_uuid) {
+    match tc.run(|conn| repository::groups::get_group_details(conn, &group_uuid)) {
         Ok(details) => HttpResponse::Ok().json(details),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Group not found"),
@@ -59,17 +46,12 @@ pub async fn get_group_details(
 // ============================================================================
 
 /// Get all groups with member counts
-pub async fn get_all_groups(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+pub async fn get_all_groups(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::groups::get_groups_with_member_counts(&mut conn) {
+    match tc.run(|conn| repository::groups::get_groups_with_member_counts(conn)) {
         Ok(groups) => HttpResponse::Ok().json(groups),
         Err(_) => errors::internal("Failed to get groups"),
     }
@@ -78,7 +60,7 @@ pub async fn get_all_groups(req: HttpRequest, pool: web::Data<Pool>) -> impl Res
 /// Get a single group by ID with members
 pub async fn get_group(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -86,12 +68,8 @@ pub async fn get_group(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::groups::get_group_with_members(&mut conn, group_id) {
+    match tc.run(|conn| repository::groups::get_group_with_members(conn, group_id)) {
         Ok(group) => HttpResponse::Ok().json(group),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Group not found"),
@@ -111,16 +89,20 @@ pub struct CreateGroupRequest {
 /// Create a new group (admin only)
 pub async fn create_group(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<CreateGroupRequest>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::internal("Invalid user UUID"),
     };
 
     let created_by = Some(user_uuid);
@@ -132,10 +114,7 @@ pub async fn create_group(
         created_by,
     };
 
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::groups::create_group(conn, new_group)
-    }) {
+    match tc.run(|conn| repository::groups::create_group(conn, new_group)) {
         Ok(group) => HttpResponse::Created().json(group),
         Err(_) => errors::internal("Failed to create group"),
     }
@@ -144,7 +123,7 @@ pub async fn create_group(
 /// Update an existing group (admin only)
 pub async fn update_group(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<GroupUpdate>,
 ) -> impl Responder {
@@ -153,15 +132,9 @@ pub async fn update_group(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let update = body.into_inner();
 
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::groups::update_group(conn, group_id, body.into_inner())
-    }) {
+    match tc.run(|conn| repository::groups::update_group(conn, group_id, update)) {
         Ok(group) => HttpResponse::Ok().json(group),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Group not found"),
@@ -173,7 +146,7 @@ pub async fn update_group(
 /// Delete a group (admin only)
 pub async fn delete_group(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -181,25 +154,25 @@ pub async fn delete_group(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::groups::delete_group(conn, group_id)
-    }) {
+    match tc.run(|conn| repository::groups::delete_group(conn, group_id)) {
         Ok(0) => errors::not_found_msg("Group not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(_) => errors::internal("Failed to delete group"),
     }
 }
 
+/// Outcome enum for unmanage_group so HttpResponse branches stay outside the txn closure.
+enum UnmanageOutcome {
+    Updated(crate::models::Group),
+    NotFound,
+    NotExternallyManaged,
+}
+
 /// Unmanage a group (remove external source to make it fully editable) - admin only
 pub async fn unmanage_group(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -207,28 +180,28 @@ pub async fn unmanage_group(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    // Check if group exists and is externally synced
-    let group = match repository::groups::get_group_by_id(&mut conn, group_id) {
-        Ok(group) => group,
-        Err(Error::NotFound) => return errors::not_found_msg("Group not found"),
-        Err(_) => return errors::internal("Failed to get group"),
-    };
+    let outcome = tc.run(|conn| {
+        let group = match repository::groups::get_group_by_id(conn, group_id) {
+            Ok(g) => g,
+            Err(Error::NotFound) => return Ok(UnmanageOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
 
-    if group.external_source.is_none() {
-        return errors::bad_request("Group is not externally managed: This group is already manually managed and doesn't need to be unmanaged.");
-    }
+        if group.external_source.is_none() {
+            return Ok(UnmanageOutcome::NotExternallyManaged);
+        }
 
-    // Clear external management fields
-    let actor = actor_for(&req);
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::groups::unmanage_group(conn, group_id)
-    }) {
-        Ok(updated_group) => HttpResponse::Ok().json(updated_group),
+        let updated = repository::groups::unmanage_group(conn, group_id)?;
+        Ok::<_, diesel::result::Error>(UnmanageOutcome::Updated(updated))
+    });
+
+    match outcome {
+        Ok(UnmanageOutcome::Updated(g)) => HttpResponse::Ok().json(g),
+        Ok(UnmanageOutcome::NotFound) => errors::not_found_msg("Group not found"),
+        Ok(UnmanageOutcome::NotExternallyManaged) => errors::bad_request(
+            "Group is not externally managed: This group is already manually managed and doesn't need to be unmanaged.",
+        ),
         Err(_) => errors::internal("Failed to unmanage group"),
     }
 }
@@ -243,11 +216,18 @@ pub struct SetGroupMembersRequest {
     pub member_uuids: Vec<Uuid>,
 }
 
+/// Outcome of set_group_members so HttpResponse branches stay outside the txn closure.
+enum SetMembersOutcome {
+    Ok(crate::models::GroupWithMembers),
+    NotFound,
+    ExternallyManaged,
+}
+
 /// Set members of a group (replaces existing members)
 /// Note: Externally synced groups (e.g., from Microsoft) cannot have their membership modified
 pub async fn set_group_members(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SetGroupMembersRequest>,
 ) -> impl Responder {
@@ -255,37 +235,41 @@ pub async fn set_group_members(
         return e;
     }
 
-    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::internal("Invalid user UUID"),
     };
 
     let created_by = Some(user_uuid);
     let group_id = path.into_inner();
-
-    // Check if group is externally synced - membership cannot be modified
-    match repository::groups::get_group_by_id(&mut conn, group_id) {
-        Ok(group) => {
-            if group.external_source.is_some() {
-                return errors::bad_request("Cannot modify membership: This group is synced from an external source. Membership is managed externally and updated during sync.");
-            }
-        }
-        Err(Error::NotFound) => return errors::not_found_msg("Group not found"),
-        Err(_) => return errors::internal("Failed to get group"),
-    }
-
-    let actor = actor_for(&req);
     let member_uuids = body.member_uuids.clone();
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::groups::set_group_members(conn, group_id, member_uuids, created_by)
-    }) {
-        Ok(_) => {
-            // Return the updated group with members
-            match repository::groups::get_group_with_members(&mut conn, group_id) {
-                Ok(group) => HttpResponse::Ok().json(group),
-                Err(_) => errors::internal("Failed to get updated group"),
-            }
+
+    let outcome = tc.run(|conn| {
+        let group = match repository::groups::get_group_by_id(conn, group_id) {
+            Ok(g) => g,
+            Err(Error::NotFound) => return Ok(SetMembersOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+
+        if group.external_source.is_some() {
+            return Ok(SetMembersOutcome::ExternallyManaged);
         }
+
+        repository::groups::set_group_members(conn, group_id, member_uuids, created_by)?;
+        let updated = repository::groups::get_group_with_members(conn, group_id)?;
+        Ok::<_, diesel::result::Error>(SetMembersOutcome::Ok(updated))
+    });
+
+    match outcome {
+        Ok(SetMembersOutcome::Ok(g)) => HttpResponse::Ok().json(g),
+        Ok(SetMembersOutcome::NotFound) => errors::not_found_msg("Group not found"),
+        Ok(SetMembersOutcome::ExternallyManaged) => errors::bad_request(
+            "Cannot modify membership: This group is synced from an external source. Membership is managed externally and updated during sync.",
+        ),
         Err(_) => errors::internal("Failed to set group members"),
     }
 }
@@ -293,7 +277,7 @@ pub async fn set_group_members(
 /// Get groups for a specific user (self or admin)
 pub async fn get_user_groups(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
 ) -> impl Responder {
     let user_uuid_str = path.into_inner();
@@ -313,12 +297,7 @@ pub async fn get_user_groups(
         return errors::forbidden("Not authorized to access this resource");
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::groups::get_groups_for_user(&mut conn, &user_uuid) {
+    match tc.run(|conn| repository::groups::get_groups_for_user(conn, &user_uuid)) {
         Ok(groups) => HttpResponse::Ok().json(groups),
         Err(_) => errors::internal("Failed to get user groups"),
     }
@@ -333,7 +312,7 @@ pub struct SetUserGroupsRequest {
 /// Set groups for a specific user (replaces existing memberships)
 pub async fn set_user_groups(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
     body: web::Json<SetUserGroupsRequest>,
 ) -> impl Responder {
@@ -341,29 +320,31 @@ pub async fn set_user_groups(
         return e;
     }
 
-    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+    let actor_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::internal("Invalid user UUID"),
     };
 
-    let created_by = Some(user_uuid);
+    let created_by = Some(actor_uuid);
     let user_uuid = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
-    let actor = actor_for(&req);
     let group_ids = body.group_ids.clone();
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::groups::set_user_groups(conn, user_uuid, group_ids, created_by)
-    }) {
-        Ok(_) => {
-            // Return the updated groups for this user
-            match repository::groups::get_groups_for_user(&mut conn, &user_uuid) {
-                Ok(groups) => HttpResponse::Ok().json(groups),
-                Err(_) => errors::internal("Failed to get updated user groups"),
-            }
-        }
+
+    let result = tc.run(|conn| {
+        repository::groups::set_user_groups(conn, user_uuid, group_ids, created_by)?;
+        let updated = repository::groups::get_groups_for_user(conn, &user_uuid)?;
+        Ok::<_, diesel::result::Error>(updated)
+    });
+
+    match result {
+        Ok(groups) => HttpResponse::Ok().json(groups),
         Err(_) => errors::internal("Failed to set user groups"),
     }
 }
@@ -375,7 +356,7 @@ pub async fn set_user_groups(
 /// Get included (child) groups for a parent group
 pub async fn get_group_includes(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -383,12 +364,8 @@ pub async fn get_group_includes(
     }
 
     let group_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
-    match repository::groups::get_included_groups(&mut conn, group_id) {
+    match tc.run(|conn| repository::groups::get_included_groups(conn, group_id)) {
         Ok(groups) => HttpResponse::Ok().json(groups),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Group not found"),
@@ -403,10 +380,17 @@ pub struct SetGroupIncludesRequest {
     pub child_group_ids: Vec<i32>,
 }
 
+/// Outcome of set_group_includes so HttpResponse branches stay outside the txn closure.
+enum SetIncludesOutcome {
+    Ok(crate::models::GroupDetails),
+    NotFound,
+    CheckViolation(String),
+}
+
 /// Set included groups for a parent group (replaces existing includes)
 pub async fn set_group_includes(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SetGroupIncludesRequest>,
 ) -> impl Responder {
@@ -414,38 +398,46 @@ pub async fn set_group_includes(
         return e;
     }
 
-    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::internal("Invalid user UUID"),
     };
 
     let created_by = Some(user_uuid);
     let group_id = path.into_inner();
-
-    // Verify group exists
-    let group = match repository::groups::get_group_by_id(&mut conn, group_id) {
-        Ok(group) => group,
-        Err(Error::NotFound) => return errors::not_found_msg("Group not found"),
-        Err(_) => return errors::internal("Failed to get group"),
-    };
-
-    let actor = actor_for(&req);
     let child_group_ids = body.child_group_ids.clone();
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::groups::set_group_includes(conn, group_id, child_group_ids, created_by)
-    }) {
-        Ok(_) => {
-            // Return updated group details
-            match repository::groups::get_group_details(&mut conn, &group.uuid) {
-                Ok(details) => HttpResponse::Ok().json(details),
-                Err(_) => errors::internal("Failed to get updated group details"),
+
+    let outcome = tc.run(|conn| {
+        let group = match repository::groups::get_group_by_id(conn, group_id) {
+            Ok(g) => g,
+            Err(Error::NotFound) => return Ok(SetIncludesOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+
+        match repository::groups::set_group_includes(conn, group_id, child_group_ids, created_by) {
+            Ok(_) => {}
+            Err(Error::DatabaseError(diesel::result::DatabaseErrorKind::CheckViolation, info)) => {
+                return Ok(SetIncludesOutcome::CheckViolation(info.message().to_string()));
             }
+            Err(e) => return Err(e),
         }
-        Err(Error::DatabaseError(diesel::result::DatabaseErrorKind::CheckViolation, info)) => {
+
+        let details = repository::groups::get_group_details(conn, &group.uuid)?;
+        Ok::<_, diesel::result::Error>(SetIncludesOutcome::Ok(details))
+    });
+
+    match outcome {
+        Ok(SetIncludesOutcome::Ok(d)) => HttpResponse::Ok().json(d),
+        Ok(SetIncludesOutcome::NotFound) => errors::not_found_msg("Group not found"),
+        Ok(SetIncludesOutcome::CheckViolation(msg)) => {
             HttpResponse::BadRequest().json(serde_json::json!({
                 "error": i18n::tr(&request_locale(&req), "backend-error-validation"),
                 "code": "backend-error-validation",
-                "message": info.message().to_string()
+                "message": msg,
             }))
         }
         Err(_) => errors::internal("Failed to set group includes"),
@@ -462,11 +454,18 @@ pub struct SetGroupDevicesRequest {
     pub device_ids: Vec<i32>,
 }
 
+/// Outcome of set_group_devices so HttpResponse branches stay outside the txn closure.
+enum SetDevicesOutcome {
+    Ok(crate::models::GroupDetails),
+    NotFound,
+    ExternallyManaged,
+}
+
 /// Set devices of a group (replaces existing manually-added devices, preserves synced ones)
 /// Note: Externally synced groups (e.g., from Microsoft) cannot have their device membership modified
 pub async fn set_group_devices(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SetGroupDevicesRequest>,
 ) -> impl Responder {
@@ -474,40 +473,41 @@ pub async fn set_group_devices(
         return e;
     }
 
-    let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::internal("Invalid user UUID"),
     };
 
     let created_by = Some(user_uuid);
     let group_id = path.into_inner();
-
-    // Check if group is externally synced - membership cannot be modified
-    match repository::groups::get_group_by_id(&mut conn, group_id) {
-        Ok(group) => {
-            if group.external_source.is_some() {
-                return errors::bad_request("Cannot modify membership: This group is synced from an external source. Asset membership is managed externally and updated during sync.");
-            }
-        }
-        Err(Error::NotFound) => return errors::not_found_msg("Group not found"),
-        Err(_) => return errors::internal("Failed to get group"),
-    }
-
-    let actor = actor_for(&req);
     let device_ids = body.device_ids.clone();
-    match with_actor(&mut conn, &actor, |conn| {
-        repository::groups::set_group_devices(conn, group_id, device_ids, created_by)
-    }) {
-        Ok(_) => {
-            // Return the updated group details
-            match repository::groups::get_group_by_id(&mut conn, group_id) {
-                Ok(group) => match repository::groups::get_group_details(&mut conn, &group.uuid) {
-                    Ok(details) => HttpResponse::Ok().json(details),
-                    Err(_) => errors::internal("Failed to get updated group details"),
-                },
-                Err(_) => errors::internal("Failed to get group"),
-            }
+
+    let outcome = tc.run(|conn| {
+        let group = match repository::groups::get_group_by_id(conn, group_id) {
+            Ok(g) => g,
+            Err(Error::NotFound) => return Ok(SetDevicesOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+
+        if group.external_source.is_some() {
+            return Ok(SetDevicesOutcome::ExternallyManaged);
         }
+
+        repository::groups::set_group_devices(conn, group_id, device_ids, created_by)?;
+        let details = repository::groups::get_group_details(conn, &group.uuid)?;
+        Ok::<_, diesel::result::Error>(SetDevicesOutcome::Ok(details))
+    });
+
+    match outcome {
+        Ok(SetDevicesOutcome::Ok(d)) => HttpResponse::Ok().json(d),
+        Ok(SetDevicesOutcome::NotFound) => errors::not_found_msg("Group not found"),
+        Ok(SetDevicesOutcome::ExternallyManaged) => errors::bad_request(
+            "Cannot modify membership: This group is synced from an external source. Asset membership is managed externally and updated during sync.",
+        ),
         Err(_) => errors::internal("Failed to set group devices"),
     }
 }
@@ -521,7 +521,7 @@ mod tests {
     use crate::models::UserRole;
     use crate::test_helpers::{claims_for, setup_test_pool};
     use actix_web::test as actix_test;
-    use actix_web::{http::StatusCode, App, HttpMessage};
+    use actix_web::{http::StatusCode, web, App, HttpMessage};
 
     fn test_app(
         pool: crate::db::Pool,

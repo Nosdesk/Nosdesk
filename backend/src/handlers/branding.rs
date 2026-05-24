@@ -6,6 +6,7 @@ use serde_json::json;
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
@@ -58,15 +59,10 @@ pub async fn get_public_branding(pool: web::Data<Pool>) -> impl Responder {
 
 // PATCH /api/admin/branding/config - Update branding settings
 pub async fn update_branding_config(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     req: HttpRequest,
     body: web::Json<UpdateBrandingRequest>,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Get authenticated user from request
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
@@ -101,7 +97,7 @@ pub async fn update_branding_config(
         ..Default::default()
     };
 
-    match site_settings::update_site_settings(&mut conn, update) {
+    match tc.run(|conn| site_settings::update_site_settings(conn, update)) {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
             HttpResponse::Ok().json(response)
@@ -116,7 +112,7 @@ pub async fn update_branding_config(
 // POST /api/admin/branding/image - Upload branding image (logo or favicon)
 pub async fn upload_branding_image(
     mut payload: Multipart,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     req: HttpRequest,
     type_query: web::Query<BrandingImageTypeQuery>,
 ) -> impl Responder {
@@ -128,11 +124,6 @@ pub async fn upload_branding_image(
             "Invalid image type. Must be 'logo', 'logo_light', or 'favicon'",
         );
     }
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     // Get authenticated user from request
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -242,14 +233,14 @@ pub async fn upload_branding_image(
         info!(file_path = %file_path, "Saved branding image");
 
         // Update the database with the new URL
-        let result = match image_type.as_str() {
-            "logo" => site_settings::update_logo_url(&mut conn, Some(url.clone()), user_uuid),
-            "logo_light" => {
-                site_settings::update_logo_light_url(&mut conn, Some(url.clone()), user_uuid)
-            }
-            "favicon" => site_settings::update_favicon_url(&mut conn, Some(url.clone()), user_uuid),
+        let url_for_db = url.clone();
+        let image_type_owned = image_type.clone();
+        let result = tc.run(|conn| match image_type_owned.as_str() {
+            "logo" => site_settings::update_logo_url(conn, Some(url_for_db), user_uuid),
+            "logo_light" => site_settings::update_logo_light_url(conn, Some(url_for_db), user_uuid),
+            "favicon" => site_settings::update_favicon_url(conn, Some(url_for_db), user_uuid),
             _ => unreachable!(),
-        };
+        });
 
         match result {
             Ok(settings) => {
@@ -272,7 +263,7 @@ pub async fn upload_branding_image(
 
 // DELETE /api/admin/branding/image - Remove branding image
 pub async fn delete_branding_image(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     req: HttpRequest,
     type_query: web::Query<BrandingImageTypeQuery>,
 ) -> impl Responder {
@@ -283,11 +274,6 @@ pub async fn delete_branding_image(
             "Invalid image type. Must be 'logo', 'logo_light', or 'favicon'",
         );
     }
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     // Get authenticated user
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -305,7 +291,7 @@ pub async fn delete_branding_image(
     };
 
     // Get current settings to find the file to delete
-    let current_settings = match site_settings::get_site_settings(&mut conn) {
+    let current_settings = match tc.run(|conn| site_settings::get_site_settings(conn)) {
         Ok(settings) => settings,
         Err(e) => {
             error!(error = ?e, "Error fetching current settings");
@@ -330,12 +316,13 @@ pub async fn delete_branding_image(
     }
 
     // Update the database to remove the URL
-    let result = match image_type.as_str() {
-        "logo" => site_settings::update_logo_url(&mut conn, None, user_uuid),
-        "logo_light" => site_settings::update_logo_light_url(&mut conn, None, user_uuid),
-        "favicon" => site_settings::update_favicon_url(&mut conn, None, user_uuid),
+    let image_type_owned = image_type.clone();
+    let result = tc.run(|conn| match image_type_owned.as_str() {
+        "logo" => site_settings::update_logo_url(conn, None, user_uuid),
+        "logo_light" => site_settings::update_logo_light_url(conn, None, user_uuid),
+        "favicon" => site_settings::update_favicon_url(conn, None, user_uuid),
         _ => unreachable!(),
-    };
+    });
 
     match result {
         Ok(settings) => {
