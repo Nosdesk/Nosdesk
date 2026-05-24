@@ -1310,6 +1310,17 @@ impl YjsAppState {
 
         match doc_type {
             DocumentType::Ticket(ticket_id) => {
+                // Phase 3e.2 follow-up (task #563): this spawn
+                // block needs `session::with_actor_bypass_context`
+                // wrapping. Five interleaved repo calls
+                // (get_article_content_by_ticket_id, optional
+                // create, get_latest_article_content_revision,
+                // create_article_content_revision,
+                // increment_article_content_revision,
+                // update_ticket_modified_timestamp) — all touch
+                // RLS-enabled tables. Refactor to a single
+                // background_run closure that returns Result<()>
+                // and uses ? to short-circuit on early returns.
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
@@ -1407,6 +1418,10 @@ impl YjsAppState {
                 });
             }
             DocumentType::Documentation(doc_page_id) => {
+                // Phase 3e.2 follow-up (task #563): same as the
+                // Ticket arm above — interleaved repo calls
+                // touching documentation_revisions / documentation_pages
+                // need background_run wrapping. Defer until 3e.2.
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {

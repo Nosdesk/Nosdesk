@@ -361,6 +361,17 @@ pub async fn run_one_poll(
     }
 
     let ctx = deps.pipeline_context();
+    // Phase 3g.7 follow-up (task #565): this conn is held across
+    // many async pipeline::process_event calls (each one writes
+    // to channel_messages / comments / tickets / attachments —
+    // all RLS-enabled). Post-DSN-flip the ingest will silently
+    // produce zero-row INSERTs because pipeline::set_actor uses
+    // an unpinned system actor and the new 3h.4 baseline
+    // `SET LOCAL ROLE nosdesk_app` strips any inherited bypass.
+    // Fix shape: refactor pipeline::process_event to take a Pool
+    // and call background_run per event so each event runs in
+    // its own bypass-elevated txn. The current shape (conn-
+    // across-await) blocks the simpler in-place wrap.
     let mut conn = match deps.pool.get_timeout(POOL_ACQUIRE_TIMEOUT) {
         Ok(c) => c,
         Err(e) => {

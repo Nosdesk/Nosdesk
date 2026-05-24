@@ -62,6 +62,22 @@ pub async fn request_password_reset(
 }
 
 /// The actual work, off the response path.
+///
+/// Phase 3g.7 follow-up (task #565): every repo call below
+/// (get_user_by_email, count_recent_tokens, create_reset_token,
+/// user_helpers::get_primary_email) touches RLS-enabled tables
+/// before any TenantConn-style workspace pin exists. The current
+/// shape works only because (a) password-reset email is pre-auth
+/// so the actor is unauthenticated, and (b) the 3h.4 SET LOCAL
+/// ROLE nosdesk_app baseline isn't yet reached on this code path.
+/// Once the cross-workspace email lookup design from task #564
+/// (guest workspace pin) lands, refactor to:
+///   - get_user_by_email → cross-tenant lookup via PlatformConn,
+///     returning (user, workspace_id);
+///   - everything downstream → background_run closure pinned to
+///     that workspace_id with a synthetic actor.
+/// Until then, this function must NOT be called from inside any
+/// request that already has a SET LOCAL ROLE nosdesk_app baseline.
 async fn issue_password_reset(
     pool: web::Data<crate::db::Pool>,
     email: String,
