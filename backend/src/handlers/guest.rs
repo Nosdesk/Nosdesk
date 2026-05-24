@@ -18,6 +18,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
+use crate::extractors::WorkspaceContext;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{
@@ -28,11 +29,24 @@ use crate::repository::user_helpers::GuestUserResult;
 use crate::repository::{self, site_settings, user_helpers};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
+use crate::sync::actor::ActorContext;
+use crate::sync::session;
 use crate::utils::file_validation::{
     FileValidator, GUEST_ATTACHMENT_TTL_MINUTES, GUEST_MAX_FILES_PER_TICKET, GUEST_MAX_FILE_SIZE_MB,
 };
 use crate::utils::rate_limit::{self, RateLimiter};
 use crate::utils::storage::Storage;
+
+/// Build a workspace-pinned system actor for guest paths. The
+/// `WorkspaceContextMiddleware` runs ahead of auth and attaches
+/// `WorkspaceContext` to every request (apex / subdomain
+/// resolution), so the guest paths can pin a real workspace
+/// without needing a logged-in user. Guests are scoped to a
+/// tenant — same as authenticated requests — they just don't
+/// have a User actor attribution.
+fn guest_actor(ws: &WorkspaceContext, reference: &'static str) -> ActorContext {
+    ActorContext::system(reference).with_workspace(ws.workspace_id)
+}
 
 // ---------- Constants ----------
 
@@ -245,13 +259,14 @@ fn log_guest_event(
 // ---------- Public settings ----------
 
 /// GET /api/public/settings — branding + which guest features are enabled.
-pub async fn get_public_settings(pool: web::Data<Pool>) -> impl Responder {
+pub async fn get_public_settings(pool: web::Data<Pool>, ws: WorkspaceContext) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    match site_settings::get_site_settings(&mut conn) {
+    let actor = guest_actor(&ws, "guest:public_settings");
+    match session::with_actor_context(&mut conn, &actor, |c| site_settings::get_site_settings(c)) {
         Ok(s) => HttpResponse::Ok().json(PublicSiteSettings::from(&s)),
         Err(e) => {
             warn!(error = ?e, "Failed to load site_settings for public endpoint");
@@ -666,36 +681,40 @@ pub async fn get_guest_ticket_status(
 // ---------- Public documentation ----------
 
 /// GET /api/public/docs
-pub async fn list_public_docs(pool: web::Data<Pool>) -> impl Responder {
+pub async fn list_public_docs(pool: web::Data<Pool>, ws: WorkspaceContext) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    let settings = match get_settings(&mut conn) {
-        Some(s) => s,
-        None => return HttpResponse::ServiceUnavailable().finish(),
-    };
-    if !settings.guest_public_docs_enabled {
-        return errors::forbidden("Public documentation is disabled");
-    }
+    let actor = guest_actor(&ws, "guest:public_docs");
+    let result = session::with_actor_context(&mut conn, &actor, |conn| {
+        let settings = match get_settings(conn) {
+            Some(s) => s,
+            None => return Ok(Err("unavailable")),
+        };
+        if !settings.guest_public_docs_enabled {
+            return Ok(Err("disabled"));
+        }
 
-    use crate::schema::documentation_pages::dsl::*;
-    let rows = documentation_pages
-        .filter(is_public.eq(true))
-        .filter(deleted_at.is_null())
-        .select((id, uuid, title, slug, icon, updated_at))
-        .load::<(
-            i32,
-            Uuid,
-            String,
-            String,
-            Option<String>,
-            chrono::NaiveDateTime,
-        )>(&mut conn);
+        use crate::schema::documentation_pages::dsl::*;
+        let rows = documentation_pages
+            .filter(is_public.eq(true))
+            .filter(deleted_at.is_null())
+            .select((id, uuid, title, slug, icon, updated_at))
+            .load::<(
+                i32,
+                Uuid,
+                String,
+                String,
+                Option<String>,
+                chrono::NaiveDateTime,
+            )>(conn)?;
+        Ok::<_, diesel::result::Error>(Ok(rows))
+    });
 
-    match rows {
-        Ok(list) => {
+    match result {
+        Ok(Ok(list)) => {
             let items: Vec<_> = list
                 .into_iter()
                 .map(|(pid, puuid, ptitle, pslug, picon, pupdated)| {
@@ -711,6 +730,8 @@ pub async fn list_public_docs(pool: web::Data<Pool>) -> impl Responder {
                 .collect();
             HttpResponse::Ok().json(items)
         }
+        Ok(Err("unavailable")) => HttpResponse::ServiceUnavailable().finish(),
+        Ok(Err(_)) => errors::forbidden("Public documentation is disabled"),
         Err(e) => {
             error!(error = %e, "Failed to list public docs");
             HttpResponse::InternalServerError().finish()
@@ -719,41 +740,48 @@ pub async fn list_public_docs(pool: web::Data<Pool>) -> impl Responder {
 }
 
 /// GET /api/public/docs/{slug}
-pub async fn get_public_doc(pool: web::Data<Pool>, path: web::Path<String>) -> impl Responder {
+pub async fn get_public_doc(
+    pool: web::Data<Pool>,
+    ws: WorkspaceContext,
+    path: web::Path<String>,
+) -> impl Responder {
     let slug_param = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    let settings = match get_settings(&mut conn) {
-        Some(s) => s,
-        None => return HttpResponse::ServiceUnavailable().finish(),
-    };
-    if !settings.guest_public_docs_enabled {
-        return errors::forbidden("Public documentation is disabled");
-    }
+    let actor = guest_actor(&ws, "guest:public_doc");
+    let result = session::with_actor_context(&mut conn, &actor, |conn| {
+        let settings = match get_settings(conn) {
+            Some(s) => s,
+            None => return Ok(Err("unavailable")),
+        };
+        if !settings.guest_public_docs_enabled {
+            return Ok(Err("disabled"));
+        }
 
-    use crate::schema::documentation_pages::dsl::*;
-    let page: Option<(
-        i32,
-        Uuid,
-        String,
-        String,
-        Option<String>,
-        Option<Vec<u8>>,
-        chrono::NaiveDateTime,
-    )> = documentation_pages
-        .filter(is_public.eq(true))
-        .filter(deleted_at.is_null())
-        .filter(slug.eq(&slug_param))
-        .select((id, uuid, title, slug, icon, yjs_document, updated_at))
-        .first(&mut conn)
-        .optional()
-        .unwrap_or(None);
+        use crate::schema::documentation_pages::dsl::*;
+        let page = documentation_pages
+            .filter(is_public.eq(true))
+            .filter(deleted_at.is_null())
+            .filter(slug.eq(&slug_param))
+            .select((id, uuid, title, slug, icon, yjs_document, updated_at))
+            .first::<(
+                i32,
+                Uuid,
+                String,
+                String,
+                Option<String>,
+                Option<Vec<u8>>,
+                chrono::NaiveDateTime,
+            )>(conn)
+            .optional()?;
+        Ok::<_, diesel::result::Error>(Ok(page))
+    });
 
-    match page {
-        Some((pid, puuid, ptitle, pslug, picon, pdoc, pupdated)) => {
+    match result {
+        Ok(Ok(Some((pid, puuid, ptitle, pslug, picon, pdoc, pupdated)))) => {
             HttpResponse::Ok().json(json!({
                 "id": pid,
                 "uuid": puuid,
@@ -764,7 +792,13 @@ pub async fn get_public_doc(pool: web::Data<Pool>, path: web::Path<String>) -> i
                 "updated_at": pupdated,
             }))
         }
-        None => HttpResponse::NotFound().finish(),
+        Ok(Ok(None)) => HttpResponse::NotFound().finish(),
+        Ok(Err("unavailable")) => HttpResponse::ServiceUnavailable().finish(),
+        Ok(Err(_)) => errors::forbidden("Public documentation is disabled"),
+        Err(e) => {
+            error!(error = %e, "Failed to load public doc");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -777,44 +811,50 @@ pub struct PublicDocsSearchQuery {
 /// GET /api/public/docs/search?q=...
 pub async fn search_public_docs(
     pool: web::Data<Pool>,
+    ws: WorkspaceContext,
     query: web::Query<PublicDocsSearchQuery>,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let settings = match get_settings(&mut conn) {
-        Some(s) => s,
-        None => return HttpResponse::ServiceUnavailable().finish(),
-    };
-    if !settings.guest_kb_search_enabled || !settings.guest_public_docs_enabled {
-        return errors::forbidden("Public documentation search is disabled");
-    }
-
-    let q = query.q.trim();
+    let q = query.q.trim().to_string();
     if q.is_empty() || q.len() > GUEST_DOC_SEARCH_MAX_QUERY_LENGTH {
         return errors::bad_request("Invalid query");
     }
 
-    use crate::schema::documentation_pages::dsl::*;
-    let pattern = format!("%{}%", escape_like(q));
-    let rows = documentation_pages
-        .filter(is_public.eq(true))
-        .filter(deleted_at.is_null())
-        .filter(title.ilike(&pattern))
-        .select((id, uuid, title, slug, icon, updated_at))
-        .limit(GUEST_DOC_SEARCH_RESULT_LIMIT)
-        .load::<(
-            i32,
-            Uuid,
-            String,
-            String,
-            Option<String>,
-            chrono::NaiveDateTime,
-        )>(&mut conn);
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
 
-    match rows {
-        Ok(list) => {
+    let actor = guest_actor(&ws, "guest:public_docs_search");
+    let result = session::with_actor_context(&mut conn, &actor, |conn| {
+        let settings = match get_settings(conn) {
+            Some(s) => s,
+            None => return Ok(Err("unavailable")),
+        };
+        if !settings.guest_kb_search_enabled || !settings.guest_public_docs_enabled {
+            return Ok(Err("disabled"));
+        }
+
+        use crate::schema::documentation_pages::dsl::*;
+        let pattern = format!("%{}%", escape_like(&q));
+        let rows = documentation_pages
+            .filter(is_public.eq(true))
+            .filter(deleted_at.is_null())
+            .filter(title.ilike(&pattern))
+            .select((id, uuid, title, slug, icon, updated_at))
+            .limit(GUEST_DOC_SEARCH_RESULT_LIMIT)
+            .load::<(
+                i32,
+                Uuid,
+                String,
+                String,
+                Option<String>,
+                chrono::NaiveDateTime,
+            )>(conn)?;
+        Ok::<_, diesel::result::Error>(Ok(rows))
+    });
+
+    match result {
+        Ok(Ok(list)) => {
             let items: Vec<_> = list
                 .into_iter()
                 .map(|(pid, puuid, ptitle, pslug, picon, pupdated)| {
@@ -831,6 +871,8 @@ pub async fn search_public_docs(
             debug!(count = items.len(), q = %q, "Public doc search");
             HttpResponse::Ok().json(items)
         }
+        Ok(Err("unavailable")) => HttpResponse::ServiceUnavailable().finish(),
+        Ok(Err(_)) => errors::forbidden("Public documentation search is disabled"),
         Err(e) => {
             error!(error = %e, "Public doc search failed");
             HttpResponse::InternalServerError().finish()
