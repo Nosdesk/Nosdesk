@@ -1,3 +1,4 @@
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use actix_multipart::Multipart;
@@ -20,6 +21,7 @@ use crate::utils::image::generate_user_avatar_thumbnail;
 /// POST /api/admin/backup/export
 pub async fn start_export(
     pool: web::Data<Pool>,
+    mut tc: TenantConn,
     req: actix_web::HttpRequest,
     body: web::Json<StartBackupExportRequest>,
 ) -> impl Responder {
@@ -44,11 +46,6 @@ pub async fn start_export(
         return errors::bad_request("Password is required when including sensitive data");
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Create backup job
     let new_job = NewBackupJob {
         job_type: "export".to_string(),
@@ -57,7 +54,7 @@ pub async fn start_export(
         created_by: Some(user_uuid),
     };
 
-    let job = match backup_repo::create_backup_job(&mut conn, new_job) {
+    let job = match tc.run(|conn| backup_repo::create_backup_job(conn, new_job)) {
         Ok(job) => job,
         Err(e) => return errors::internal(format!("Failed to create job: {}", e)),
     };
@@ -109,7 +106,7 @@ pub async fn start_export(
 
 /// Get all backup/restore jobs
 /// GET /api/admin/backup/jobs
-pub async fn get_jobs(pool: web::Data<Pool>, req: actix_web::HttpRequest) -> impl Responder {
+pub async fn get_jobs(mut tc: TenantConn, req: actix_web::HttpRequest) -> impl Responder {
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
@@ -121,12 +118,7 @@ pub async fn get_jobs(pool: web::Data<Pool>, req: actix_web::HttpRequest) -> imp
         return errors::forbidden("Admin access required");
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match backup_repo::get_all_backup_jobs(&mut conn) {
+    match tc.run(|conn| backup_repo::get_all_backup_jobs(conn)) {
         Ok(jobs) => {
             let responses: Vec<BackupJobResponse> =
                 jobs.into_iter().map(BackupJobResponse::from).collect();
@@ -139,7 +131,7 @@ pub async fn get_jobs(pool: web::Data<Pool>, req: actix_web::HttpRequest) -> imp
 /// Get a specific backup job
 /// GET /api/admin/backup/jobs/{id}
 pub async fn get_job(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
@@ -159,12 +151,7 @@ pub async fn get_job(
         Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match backup_repo::get_backup_job(&mut conn, job_id) {
+    match tc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
         Ok(job) => HttpResponse::Ok().json(BackupJobResponse::from(job)),
         Err(diesel::result::Error::NotFound) => errors::not_found_msg("Job not found"),
         Err(e) => errors::internal(format!("Failed to get job: {}", e)),
@@ -174,7 +161,7 @@ pub async fn get_job(
 /// Download a completed backup
 /// GET /api/admin/backup/download/{id}
 pub async fn download_backup(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
@@ -194,12 +181,7 @@ pub async fn download_backup(
         Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let job = match backup_repo::get_backup_job(&mut conn, job_id) {
+    let job = match tc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
         Ok(job) => job,
         Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
         Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
@@ -237,7 +219,7 @@ pub async fn download_backup(
 /// Upload a backup for restore
 /// POST /api/admin/backup/restore/upload
 pub async fn upload_restore(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     req: actix_web::HttpRequest,
     mut payload: Multipart,
 ) -> impl Responder {
@@ -311,42 +293,36 @@ pub async fn upload_restore(
     // can't be parsed without the password (which we don't have
     // here). The restore endpoint validates with the password.
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Create restore job
+    // Create restore job and update with file metadata in one
+    // tenant-scoped transaction so RLS sees a consistent
+    // workspace pin across both writes.
     let new_job = NewBackupJob {
         job_type: "restore".to_string(),
         status: "pending".to_string(),
         include_sensitive: false, // Will be updated after preview
         created_by: Some(user_uuid),
     };
+    let filepath_string = filepath.to_string_lossy().to_string();
+    let file_size = std::fs::metadata(&filepath)
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
 
-    let job = match backup_repo::create_backup_job(&mut conn, new_job) {
+    let job = match tc.run(|conn| {
+        let job = backup_repo::create_backup_job(conn, new_job)?;
+        backup_repo::update_backup_job(
+            conn,
+            job.id,
+            BackupJobUpdate {
+                status: None,
+                file_path: Some(filepath_string),
+                file_size: Some(file_size),
+                error_message: None,
+                completed_at: None,
+            },
+        )
+    }) {
         Ok(job) => job,
         Err(e) => return errors::internal(format!("Failed to create job: {}", e)),
-    };
-
-    // Update job with file path
-    let job = match backup_repo::update_backup_job(
-        &mut conn,
-        job.id,
-        BackupJobUpdate {
-            status: None,
-            file_path: Some(filepath.to_string_lossy().to_string()),
-            file_size: Some(
-                std::fs::metadata(&filepath)
-                    .map(|m| m.len() as i64)
-                    .unwrap_or(0),
-            ),
-            error_message: None,
-            completed_at: None,
-        },
-    ) {
-        Ok(job) => job,
-        Err(e) => return errors::internal(format!("Failed to update job: {}", e)),
     };
 
     HttpResponse::Created().json(BackupJobResponse::from(job))
@@ -355,7 +331,7 @@ pub async fn upload_restore(
 /// Preview restore contents
 /// GET /api/admin/backup/restore/{id}/preview
 pub async fn preview_restore(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
@@ -375,12 +351,7 @@ pub async fn preview_restore(
         Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let job = match backup_repo::get_backup_job(&mut conn, job_id) {
+    let job = match tc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
         Ok(job) => job,
         Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
         Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
@@ -403,8 +374,19 @@ pub async fn preview_restore(
 
 /// Execute restore
 /// POST /api/admin/backup/restore/{id}/execute
+///
+/// Restore is structurally a cross-workspace operation: the service
+/// layer truncates and reloads every tenant table. The job-status
+/// update calls go through `tc.run` so RLS sees the workspace pin,
+/// but the actual `restore_database` and post-restore thumbnail
+/// regen still need a raw pool connection — the service signature
+/// hand-rolls its own transactions and tools, and Phase 3g will
+/// either bridge that through `unscoped_run` or carve it out as a
+/// dedicated cross-tenant entrypoint. Until then the raw pool path
+/// stays here.
 pub async fn execute_restore(
     pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
     body: web::Json<ExecuteRestoreRequest>,
@@ -425,12 +407,7 @@ pub async fn execute_restore(
         Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let job = match backup_repo::get_backup_job(&mut conn, job_id) {
+    let job = match tc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
         Ok(job) => job,
         Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
         Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
@@ -455,17 +432,29 @@ pub async fn execute_restore(
     }
 
     // Update job status
-    let _ = backup_repo::update_backup_job(
-        &mut conn,
-        job_id,
-        BackupJobUpdate {
-            status: Some("processing".to_string()),
-            file_path: None,
-            file_size: None,
-            error_message: None,
-            completed_at: None,
-        },
-    );
+    let _ = tc.run(|conn| {
+        backup_repo::update_backup_job(
+            conn,
+            job_id,
+            BackupJobUpdate {
+                status: Some("processing".to_string()),
+                file_path: None,
+                file_size: None,
+                error_message: None,
+                completed_at: None,
+            },
+        )
+    });
+
+    // Raw pool acquire for the destructive restore: the service
+    // rewrites every tenant table and hand-rolls its own savepoints,
+    // so it can't run inside a single tenant-scoped tx. Phase 3g
+    // owns bridging this through `unscoped_run` or a dedicated
+    // cross-tenant entrypoint.
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
 
     // Restore database first, then files. Mirrors the onboarding-only
     // `setup_restore_execute` flow below — the two paths now share the
@@ -484,17 +473,19 @@ pub async fn execute_restore(
     ) {
         Ok(s) => s,
         Err(e) => {
-            let _ = backup_repo::update_backup_job(
-                &mut conn,
-                job_id,
-                BackupJobUpdate {
-                    status: Some("failed".to_string()),
-                    file_path: None,
-                    file_size: None,
-                    error_message: Some(format!("database restore failed: {e}")),
-                    completed_at: Some(chrono::Utc::now().naive_utc()),
-                },
-            );
+            let _ = tc.run(|conn| {
+                backup_repo::update_backup_job(
+                    conn,
+                    job_id,
+                    BackupJobUpdate {
+                        status: Some("failed".to_string()),
+                        file_path: None,
+                        file_size: None,
+                        error_message: Some(format!("database restore failed: {e}")),
+                        completed_at: Some(chrono::Utc::now().naive_utc()),
+                    },
+                )
+            });
             return errors::internal(format!("Database restore failed: {e}"));
         }
     };
@@ -512,17 +503,19 @@ pub async fn execute_restore(
 
     let thumbnails_regenerated = regenerate_user_thumbnails(&mut conn).await;
 
-    let _ = backup_repo::update_backup_job(
-        &mut conn,
-        job_id,
-        BackupJobUpdate {
-            status: Some("completed".to_string()),
-            file_path: None,
-            file_size: None,
-            error_message: None,
-            completed_at: Some(chrono::Utc::now().naive_utc()),
-        },
-    );
+    let _ = tc.run(|conn| {
+        backup_repo::update_backup_job(
+            conn,
+            job_id,
+            BackupJobUpdate {
+                status: Some("completed".to_string()),
+                file_path: None,
+                file_size: None,
+                error_message: None,
+                completed_at: Some(chrono::Utc::now().naive_utc()),
+            },
+        )
+    });
 
     HttpResponse::Ok().json(json!({
         "success": true,
@@ -536,7 +529,7 @@ pub async fn execute_restore(
 /// Delete a backup job and its associated file
 /// DELETE /api/admin/backup/jobs/{id}
 pub async fn delete_job(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
@@ -556,13 +549,8 @@ pub async fn delete_job(
         Err(_) => return errors::bad_request("Invalid job ID"),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Get job first to delete associated file
-    let job = match backup_repo::get_backup_job(&mut conn, job_id) {
+    let job = match tc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
         Ok(job) => job,
         Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
         Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
@@ -576,7 +564,7 @@ pub async fn delete_job(
     }
 
     // Delete job from database
-    match backup_repo::delete_backup_job(&mut conn, job_id) {
+    match tc.run(|conn| backup_repo::delete_backup_job(conn, job_id)) {
         Ok(_) => HttpResponse::Ok().json(json!({"success": true, "message": "Job deleted"})),
         Err(e) => errors::internal(format!("Failed to delete job: {}", e)),
     }

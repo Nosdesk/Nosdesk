@@ -8,8 +8,8 @@
 //! Each row in the response carries a flattened `diff` so the
 //! frontend doesn't need to know the trigger schema.
 
-use crate::db::Pool;
-use crate::handlers::{errors, helpers};
+use crate::extractors::TenantConn;
+use crate::handlers::errors;
 use crate::repository::audit_log as repo;
 use crate::utils::rbac;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
@@ -52,7 +52,7 @@ pub struct RowResponse {
 /// `GET /api/admin/audit-log` — admin-gated. See module docs.
 pub async fn list(
     req: HttpRequest,
-    db_pool: web::Data<Pool>,
+    mut tc: TenantConn,
     query: web::Query<ListQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
@@ -84,13 +84,8 @@ pub async fn list(
         until: query.until,
     };
 
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let limit = query.limit.unwrap_or(50);
-    let page = match repo::list(&mut conn, &filter, cursor, limit) {
+    let page = match tc.run(|conn| repo::list(conn, &filter, cursor, limit)) {
         Ok(p) => p,
         Err(e) => {
             warn!(error = ?e, "Failed to list audit log");

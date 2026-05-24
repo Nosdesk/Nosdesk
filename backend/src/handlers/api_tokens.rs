@@ -7,32 +7,25 @@ use diesel::result::Error;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::db::Pool;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::models::{Claims, CreateApiTokenRequest};
 use crate::repository::api_tokens;
 use crate::utils::rbac::require_admin;
 
 /// List all API tokens (admin only)
-pub async fn list_api_tokens(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+pub async fn list_api_tokens(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let result = tc.run(|conn| {
+        let tokens = api_tokens::list_all_api_tokens(conn)?;
+        api_tokens::enrich_tokens_with_users(conn, tokens)
+    });
 
-    match api_tokens::list_all_api_tokens(&mut conn) {
-        Ok(tokens) => match api_tokens::enrich_tokens_with_users(&mut conn, tokens) {
-            Ok(enriched) => HttpResponse::Ok().json(enriched),
-            Err(e) => {
-                error!("Failed to enrich tokens: {}", e);
-                errors::internal("Failed to get tokens")
-            }
-        },
+    match result {
+        Ok(enriched) => HttpResponse::Ok().json(enriched),
         Err(e) => {
             error!("Failed to list tokens: {}", e);
             errors::internal("Failed to list tokens")
@@ -43,7 +36,7 @@ pub async fn list_api_tokens(req: HttpRequest, pool: web::Data<Pool>) -> impl Re
 /// Create a new API token (admin only)
 pub async fn create_api_token(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<CreateApiTokenRequest>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -69,38 +62,44 @@ pub async fn create_api_token(
         return errors::bad_request("Token name must be 255 characters or less");
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Verify the target user exists
-    match crate::repository::get_user_by_uuid(&body.user_uuid, &mut conn) {
-        Ok(_) => {}
-        Err(Error::NotFound) => {
-            return errors::not_found_msg("Target user not found");
-        }
-        Err(e) => {
-            error!("Failed to verify user: {}", e);
-            return errors::internal("Failed to verify user");
-        }
+    // Outcome: verify-user step can branch on NotFound; collapse to a
+    // single tc.run so both queries share one tenant-scoped tx.
+    enum Outcome {
+        Created(crate::models::ApiTokenCreatedResponse),
+        TargetUserNotFound,
     }
 
-    match api_tokens::create_api_token(
-        &mut conn,
-        body.user_uuid,
-        body.name.trim().to_string(),
-        created_by,
-        body.expires_in_days,
-        body.scopes.clone(),
-    ) {
-        Ok(created) => {
+    let user_uuid = body.user_uuid;
+    let name = body.name.trim().to_string();
+    let expires_in_days = body.expires_in_days;
+    let scopes = body.scopes.clone();
+
+    let result = tc.run(|conn| {
+        match crate::repository::get_user_by_uuid(&user_uuid, conn) {
+            Ok(_) => {}
+            Err(Error::NotFound) => return Ok(Outcome::TargetUserNotFound),
+            Err(e) => return Err(e),
+        }
+        let created = api_tokens::create_api_token(
+            conn,
+            user_uuid,
+            name,
+            created_by,
+            expires_in_days,
+            scopes,
+        )?;
+        Ok(Outcome::Created(created))
+    });
+
+    match result {
+        Ok(Outcome::Created(created)) => {
             info!(
                 "API token created: {} for user {} by admin {}",
                 created.uuid, body.user_uuid, created_by
             );
             HttpResponse::Created().json(created)
         }
+        Ok(Outcome::TargetUserNotFound) => errors::not_found_msg("Target user not found"),
         Err(e) => {
             error!("Failed to create token: {}", e);
             errors::internal("Failed to create token")
@@ -111,7 +110,7 @@ pub async fn create_api_token(
 /// Get a single API token by UUID (admin only)
 pub async fn get_api_token(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -120,26 +119,27 @@ pub async fn get_api_token(
 
     let token_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    enum Outcome {
+        Found(crate::models::ApiTokenInfo),
+        NotFound,
+    }
 
-    match api_tokens::get_api_token_by_uuid(&mut conn, token_uuid) {
-        Ok(token) => match api_tokens::enrich_tokens_with_users(&mut conn, vec![token]) {
-            Ok(mut enriched) => {
-                if let Some(token_info) = enriched.pop() {
-                    HttpResponse::Ok().json(token_info)
-                } else {
-                    errors::not_found_msg("Token not found")
-                }
-            }
-            Err(e) => {
-                error!("Failed to enrich token: {}", e);
-                errors::internal("Failed to get token")
-            }
-        },
-        Err(Error::NotFound) => errors::not_found_msg("Token not found"),
+    let result = tc.run(|conn| {
+        let token = match api_tokens::get_api_token_by_uuid(conn, token_uuid) {
+            Ok(t) => t,
+            Err(Error::NotFound) => return Ok(Outcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        let mut enriched = api_tokens::enrich_tokens_with_users(conn, vec![token])?;
+        match enriched.pop() {
+            Some(info) => Ok(Outcome::Found(info)),
+            None => Ok(Outcome::NotFound),
+        }
+    });
+
+    match result {
+        Ok(Outcome::Found(info)) => HttpResponse::Ok().json(info),
+        Ok(Outcome::NotFound) => errors::not_found_msg("Token not found"),
         Err(e) => {
             error!("Failed to get token: {}", e);
             errors::internal("Failed to get token")
@@ -150,7 +150,7 @@ pub async fn get_api_token(
 /// Revoke an API token (admin only)
 pub async fn revoke_api_token(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -165,33 +165,38 @@ pub async fn revoke_api_token(
     let admin_uuid = Uuid::parse_str(&claims.sub).ok();
     let token_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Verify token exists before revoking
-    match api_tokens::get_api_token_by_uuid(&mut conn, token_uuid) {
-        Ok(token) => {
-            if token.revoked_at.is_some() {
-                return errors::bad_request("Token is already revoked");
-            }
-        }
-        Err(Error::NotFound) => {
-            return errors::not_found_msg("Token not found");
-        }
-        Err(e) => {
-            error!("Failed to get token: {}", e);
-            return errors::internal("Failed to get token");
-        }
+    enum Outcome {
+        Revoked,
+        AlreadyRevoked,
+        NotFound,
     }
 
-    match api_tokens::revoke_api_token(&mut conn, token_uuid) {
-        Ok(count) if count > 0 => {
+    let result = tc.run(|conn| {
+        match api_tokens::get_api_token_by_uuid(conn, token_uuid) {
+            Ok(token) => {
+                if token.revoked_at.is_some() {
+                    return Ok(Outcome::AlreadyRevoked);
+                }
+            }
+            Err(Error::NotFound) => return Ok(Outcome::NotFound),
+            Err(e) => return Err(e),
+        }
+
+        let count = api_tokens::revoke_api_token(conn, token_uuid)?;
+        if count > 0 {
+            Ok(Outcome::Revoked)
+        } else {
+            Ok(Outcome::NotFound)
+        }
+    });
+
+    match result {
+        Ok(Outcome::Revoked) => {
             info!("API token {} revoked by admin {:?}", token_uuid, admin_uuid);
             HttpResponse::NoContent().finish()
         }
-        Ok(_) => errors::not_found_msg("Token not found"),
+        Ok(Outcome::AlreadyRevoked) => errors::bad_request("Token is already revoked"),
+        Ok(Outcome::NotFound) => errors::not_found_msg("Token not found"),
         Err(e) => {
             error!("Failed to revoke token: {}", e);
             errors::internal("Failed to revoke token")

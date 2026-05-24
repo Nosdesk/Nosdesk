@@ -15,9 +15,8 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
-use crate::db::Pool;
-use crate::extractors::SyncContext;
-use crate::handlers::{errors, helpers};
+use crate::extractors::{SyncContext, TenantConn};
+use crate::handlers::errors;
 use crate::schema::sync_actions;
 
 #[derive(Debug, Deserialize)]
@@ -65,15 +64,10 @@ pub struct DeltaResponse {
 }
 
 pub async fn delta(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     query: web::Query<DeltaQuery>,
     ctx: SyncContext,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let granted = intersect_groups(&query.groups, &ctx.allowed_groups);
     if granted.is_empty() {
         // No groups in common between request and permission set;
@@ -91,28 +85,31 @@ pub async fn delta(
     // Fetch limit + 1 so we can detect the "has_more" boundary
     // without an extra count query.
     let granted_pg: Vec<Option<String>> = granted.iter().map(|g| Some(g.clone())).collect();
-    let rows = sync_actions::table
-        .filter(sync_actions::sync_id.gt(query.from))
-        .filter(sync_actions::groups.overlaps_with(granted_pg))
-        .order(sync_actions::sync_id.asc())
-        .limit(limit + 1)
-        .select((
-            sync_actions::sync_id,
-            sync_actions::aggregate,
-            sync_actions::aggregate_id,
-            sync_actions::op,
-            sync_actions::event_type,
-            sync_actions::schema_version,
-            sync_actions::data,
-            sync_actions::groups,
-            sync_actions::actor_uuid,
-            sync_actions::actor_kind,
-            sync_actions::actor_ref,
-            sync_actions::correlation_id,
-            sync_actions::causation_id,
-            sync_actions::occurred_at,
-        ))
-        .load::<ActionRow>(&mut conn);
+    let from = query.from;
+    let rows = tc.run(|conn| {
+        sync_actions::table
+            .filter(sync_actions::sync_id.gt(from))
+            .filter(sync_actions::groups.overlaps_with(granted_pg))
+            .order(sync_actions::sync_id.asc())
+            .limit(limit + 1)
+            .select((
+                sync_actions::sync_id,
+                sync_actions::aggregate,
+                sync_actions::aggregate_id,
+                sync_actions::op,
+                sync_actions::event_type,
+                sync_actions::schema_version,
+                sync_actions::data,
+                sync_actions::groups,
+                sync_actions::actor_uuid,
+                sync_actions::actor_kind,
+                sync_actions::actor_ref,
+                sync_actions::correlation_id,
+                sync_actions::causation_id,
+                sync_actions::occurred_at,
+            ))
+            .load::<ActionRow>(conn)
+    });
 
     let mut actions = match rows {
         Ok(r) => r,

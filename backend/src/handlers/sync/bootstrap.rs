@@ -14,7 +14,7 @@
 //! through `useReference` so the bootstrap stays under 1MB even on
 //! enterprise-scale workspaces.
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use bytes::Bytes;
 use diesel::prelude::*;
 use futures::stream::StreamExt;
@@ -26,10 +26,13 @@ use tracing::error;
 
 use crate::db::Pool;
 use crate::extractors::SyncContext;
+use crate::middleware::RequestContext;
 use crate::models::{Asset, Project, ProjectTicket, Ticket, User, WorkflowState};
 use crate::schema::{
     assets, project_tickets, projects, tickets, user_emails, users, workflow_states,
 };
+use crate::sync::actor::ActorContext;
+use crate::sync::session;
 
 #[derive(Debug, Deserialize)]
 pub struct BootstrapQuery {
@@ -48,6 +51,7 @@ pub struct BootstrapQuery {
 const SERVER_SCHEMA_HASH: &str = env!("NOSDESK_SCHEMA_HASH");
 
 pub async fn bootstrap(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     query: web::Query<BootstrapQuery>,
     ctx: SyncContext,
@@ -60,12 +64,23 @@ pub async fn bootstrap(
 
     let pool_clone = pool.clone();
     let granted_clone = granted.clone();
+    // Snapshot the actor (carries the workspace pin) so the
+    // spawn_blocking worker can wrap its connection in
+    // `with_actor_context` and satisfy the workspace-isolation RLS
+    // policies on tickets / sync_actions / workflow_states etc.
+    // TenantConn isn't usable here because the streaming path runs
+    // off the actix request future on a blocking thread.
+    let actor = req
+        .extensions()
+        .get::<RequestContext>()
+        .map(|rc| rc.actor.clone())
+        .unwrap_or_else(|| ActorContext::user(ctx.user.uuid, Some(ctx.correlation_id)));
 
     // Diesel is sync; do the work on a blocking thread and ferry
     // bytes back through the channel so the Actix response future
     // can stay async-friendly.
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = stream_bootstrap(&pool_clone, &granted_clone, &tx) {
+        if let Err(e) = stream_bootstrap(&pool_clone, &actor, &granted_clone, &tx) {
             error!(error = %e, "bootstrap streaming failed");
             // Best-effort: ship an `__error__` line so the client
             // can surface a useful message instead of just seeing
@@ -86,14 +101,33 @@ pub async fn bootstrap(
 
 fn stream_bootstrap(
     pool: &web::Data<Pool>,
+    actor: &ActorContext,
     granted: &[String],
     tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut conn = pool.get()?;
 
+    // Wrap the entire streaming workload in one actor/workspace-
+    // scoped transaction. Bootstrap is a consistent point-in-time
+    // snapshot: doing it in a single tx pins `app.workspace_id`
+    // for every query the streamer runs (incl. RLS-protected reads
+    // on tickets, sync_actions, workflow_states), and gives the
+    // client a snapshot-isolated read view of every aggregate.
+    session::with_actor_context::<(), Box<dyn std::error::Error + Send + Sync>>(
+        &mut conn,
+        actor,
+        |c| stream_bootstrap_inner(c, granted, tx),
+    )
+}
+
+fn stream_bootstrap_inner(
+    conn: &mut crate::db::DbConnection,
+    granted: &[String],
+    tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let last_sync_id: Option<i64> = crate::schema::sync_actions::table
         .select(diesel::dsl::max(crate::schema::sync_actions::sync_id))
-        .first(&mut conn)?;
+        .first(conn)?;
     let last_sync_id = last_sync_id.unwrap_or(0);
 
     // Workspace capability flags. These are simple booleans the
@@ -109,7 +143,7 @@ fn stream_bootstrap(
         use diesel::dsl::count_star;
         let n: i64 = crate::schema::sla_policies::table
             .select(count_star())
-            .first(&mut conn)
+            .first(conn)
             .unwrap_or(0);
         n > 0
     };
@@ -136,7 +170,7 @@ fn stream_bootstrap(
     // each ticket's workflow_state inline without a per-row query.
     let states: Vec<WorkflowState> = workflow_states::table
         .order((workflow_states::category, workflow_states::position))
-        .load(&mut conn)?;
+        .load(conn)?;
     let mut states_by_id: std::collections::HashMap<i32, WorkflowState> =
         std::collections::HashMap::with_capacity(states.len());
     for state in &states {
@@ -176,11 +210,11 @@ fn stream_bootstrap(
     // table once into a HashMap rather than joining per-row, since
     // the `User` model is `Queryable` but not `Selectable` and tuple
     // joins would force a refactor.
-    let user_rows: Vec<User> = users::table.order(users::name.asc()).load(&mut conn)?;
+    let user_rows: Vec<User> = users::table.order(users::name.asc()).load(conn)?;
     let primary_email_rows: Vec<(uuid::Uuid, String)> = user_emails::table
         .filter(user_emails::is_primary.eq(true))
         .select((user_emails::user_uuid, user_emails::email))
-        .load(&mut conn)?;
+        .load(conn)?;
     let primary_email_by_uuid: std::collections::HashMap<uuid::Uuid, String> =
         primary_email_rows.into_iter().collect();
     for user in user_rows {
@@ -207,7 +241,7 @@ fn stream_bootstrap(
     // `repository::assets::asset_sync_payload` so frontend pool
     // deserialisation handles bootstrap and incremental updates
     // through one path.
-    let asset_rows: Vec<Asset> = assets::table.order(assets::name.asc()).load(&mut conn)?;
+    let asset_rows: Vec<Asset> = assets::table.order(assets::name.asc()).load(conn)?;
     for asset in asset_rows {
         send(
             tx,
@@ -250,7 +284,7 @@ fn stream_bootstrap(
     let project_ids: Vec<i32> = if want_all {
         projects::table
             .select(projects::id)
-            .load::<i32>(&mut conn)?
+            .load::<i32>(conn)?
     } else {
         let mut ids: HashSet<i32> = HashSet::new();
         for g in granted {
@@ -266,7 +300,7 @@ fn stream_bootstrap(
     if !project_ids.is_empty() {
         let projects: Vec<Project> = projects::table
             .filter(projects::id.eq_any(&project_ids))
-            .load(&mut conn)?;
+            .load(conn)?;
         for p in projects {
             send(
                 tx,
@@ -285,7 +319,7 @@ fn stream_bootstrap(
 
         let assocs: Vec<ProjectTicket> = project_tickets::table
             .filter(project_tickets::project_id.eq_any(&project_ids))
-            .load(&mut conn)?;
+            .load(conn)?;
         for a in assocs {
             send(
                 tx,
@@ -321,7 +355,7 @@ fn stream_bootstrap(
         let scoped_ids: Vec<i32> = project_tickets::table
             .filter(project_tickets::project_id.eq_any(&project_ids))
             .select(project_tickets::ticket_id)
-            .load(&mut conn)?;
+            .load(conn)?;
         tickets::table
             .filter(tickets::id.eq_any(scoped_ids))
             .into_boxed()
@@ -331,7 +365,7 @@ fn stream_bootstrap(
         return finish(tx, last_sync_id);
     };
 
-    let ticket_rows: Vec<Ticket> = ticket_query.load(&mut conn)?;
+    let ticket_rows: Vec<Ticket> = ticket_query.load(conn)?;
 
     // Per-ticket pill data computed in one batch each so the
     // bootstrap stays O(n) rather than N round-trips. Empty maps
@@ -339,20 +373,20 @@ fn stream_bootstrap(
     // those to 'none' / null.
     let ticket_ids: Vec<i32> = ticket_rows.iter().map(|t| t.id).collect();
     let kb_gap_counts =
-        crate::repository::knowledge_gaps::open_signal_counts_for_tickets(&mut conn, &ticket_ids)?;
+        crate::repository::knowledge_gaps::open_signal_counts_for_tickets(conn, &ticket_ids)?;
     let device_summaries =
-        crate::repository::tickets::devices_summary_for_tickets(&mut conn, &ticket_ids)?;
+        crate::repository::tickets::devices_summary_for_tickets(conn, &ticket_ids)?;
     let cycle_membership =
-        crate::repository::cycles::cycle_ids_for_tickets(&mut conn, &ticket_ids)?;
+        crate::repository::cycles::cycle_ids_for_tickets(conn, &ticket_ids)?;
     // Tag id list per ticket. Same batched-lookup pattern the
     // cycle membership uses; empty Vec when a ticket has no tags.
-    let tag_membership = crate::repository::tags::tag_ids_for_tickets(&mut conn, &ticket_ids)?;
+    let tag_membership = crate::repository::tags::tag_ids_for_tickets(conn, &ticket_ids)?;
     let watcher_membership =
-        crate::repository::ticket_watchers::watcher_uuids_for_tickets(&mut conn, &ticket_ids)?;
+        crate::repository::ticket_watchers::watcher_uuids_for_tickets(conn, &ticket_ids)?;
     // Load every SLA policy + working calendar once; the
     // pill-computation loop below resolves each ticket against
     // them in memory.
-    let sla_ctx = crate::repository::sla::load_for_pill_computation(&mut conn)?;
+    let sla_ctx = crate::repository::sla::load_for_pill_computation(conn)?;
     let now = chrono::Utc::now();
 
     for t in ticket_rows {

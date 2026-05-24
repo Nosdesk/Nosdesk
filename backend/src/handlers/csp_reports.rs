@@ -23,6 +23,7 @@
 //! internal `ParsedReport` shape before hashing and persisting.
 
 use crate::db::Pool;
+use crate::extractors::TenantConn;
 #[allow(unused_imports)]
 use crate::handlers; // keep helpers reachable for tests
 use crate::handlers::errors;
@@ -274,17 +275,12 @@ pub async fn report_violation(
 }
 
 /// Admin: list recent aggregated violations.
-pub async fn list_violations(req: HttpRequest, db_pool: web::Data<Pool>) -> impl Responder {
+pub async fn list_violations(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
         return resp;
     }
 
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repo::list_recent(&mut conn, 200) {
+    match tc.run(|conn| repo::list_recent(conn, 200)) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             warn!(error = ?e, "Failed to list CSP reports");

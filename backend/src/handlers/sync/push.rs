@@ -12,7 +12,7 @@
 //! through. Adding a new aggregate is one match arm + one
 //! `apply_<aggregate>` helper.
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::prelude::*;
 use diesel::Connection;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ use uuid::Uuid;
 use crate::db::{DbConnection, Pool};
 use crate::extractors::SyncContext;
 use crate::handlers::{errors, helpers};
+use crate::middleware::RequestContext;
 use crate::models::{Project, ProjectUpdate, SyncAggregate, SyncOp, TicketUpdate};
 use crate::sync::actor::{ActorContext, ActorKind};
 use crate::sync::session;
@@ -65,6 +66,7 @@ pub struct RejectedTx {
 }
 
 pub async fn push(
+    req: HttpRequest,
     pool: web::Data<Pool>,
     body: web::Json<Vec<PushTransaction>>,
     ctx: SyncContext,
@@ -73,6 +75,18 @@ pub async fn push(
     if body.len() > MAX_BATCH {
         return errors::bad_request(&format!("Batch exceeds the {MAX_BATCH}-transaction limit"));
     }
+
+    // Pull the workspace pin from RequestContext (populated by the
+    // auth middleware after WorkspaceContextMiddleware resolves the
+    // tenant). Required post-RLS: sync_actions inserts now go
+    // through the workspace-isolation policy, so every push tx
+    // needs `app.workspace_id` set on the same tx the emit happens
+    // in. None is only ever the case for pre-workspace-middleware
+    // requests (which the auth chain rejects upstream anyway).
+    let workspace_id = req
+        .extensions()
+        .get::<RequestContext>()
+        .and_then(|rc| rc.actor.workspace_id);
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -91,14 +105,11 @@ pub async fn push(
             reference: None,
             correlation_id: Some(ctx.correlation_id),
             client_tx_id: Some(tx_id.clone()),
-            // Phase 2b: the SyncContext currently doesn't carry
-            // a workspace; the sync push surface predates the
-            // multi-tenant work. Phase 2d will plumb the
-            // resolved WorkspaceContext through SyncContext so
-            // every sync action attributes to its tenant. For
-            // now the GUC stays empty here, which is safe
-            // because Phase 4 RLS isn't on yet.
-            workspace_id: None,
+            // Phase 3c.2 (wave 2): pinned from the RequestContext
+            // populated by the auth middleware, so emit::record
+            // writes sync_actions with `app.workspace_id` set and
+            // satisfies the workspace-isolation RLS policy.
+            workspace_id,
         };
 
         match apply_transaction(&mut conn, &tx, &actor) {
