@@ -21,7 +21,7 @@ use crate::repository::outbound_emails as repo;
 use crate::services::email_queue::circuit::{BreakerState, CircuitBreaker};
 use crate::services::email_queue::retry::{classify, next_attempt_at, RetryDecision, MAX_ATTEMPTS};
 use crate::utils::email::{EmailService, OutboundEmailMessage};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::sync::Arc;
 use tracing::{debug, info, info_span, warn, Instrument};
 

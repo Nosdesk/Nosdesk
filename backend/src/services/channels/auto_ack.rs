@@ -95,10 +95,27 @@ async fn send_auto_ack(
     in_reply_to: &str,
     inbound_locale: Option<&str>,
 ) -> Result<(), String> {
-    let mut conn = pool.get().map_err(|e| format!("db pool: {e}"))?;
+    // Load site_settings (RLS) + recipient lookup in one bypass
+    // txn. The auto-ack runs from the channel pipeline which has
+    // no request-bound workspace pin.
+    let (settings, recipient_email, customer_name) = {
+        let requester_uuid = ticket
+            .requester_uuid
+            .ok_or_else(|| "ticket has no requester".to_string())?;
+        crate::sync::session::background_run(pool, "background:auto_ack_prep", |conn| {
+            let settings = site_settings_repo::get_site_settings(conn)
+                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
+            let email = user_helpers::get_primary_email(&requester_uuid, conn).ok_or_else(|| {
+                diesel::result::Error::QueryBuilderError("requester has no primary email".into())
+            })?;
+            let name = crate::repository::users::get_user_by_uuid(&requester_uuid, conn)
+                .map(|u| u.name)
+                .unwrap_or_else(|_| email.clone());
+            Ok::<_, diesel::result::Error>((settings, email, name))
+        })
+        .map_err(|e| format!("auto-ack prep: {e}"))?
+    };
 
-    let settings = site_settings_repo::get_site_settings(&mut conn)
-        .map_err(|e| format!("load site_settings: {e}"))?;
     if !settings.channel_auto_ack_enabled {
         debug!(
             ticket_id = ticket.id,
@@ -112,17 +129,6 @@ async fn send_auto_ack(
         debug!(provider = %channel.provider, "auto-ack not supported for this provider");
         return Ok(());
     }
-
-    // Resolve recipient: the ticket's requester's primary email.
-    // Fall back to skipping rather than guessing.
-    let requester_uuid = ticket
-        .requester_uuid
-        .ok_or_else(|| "ticket has no requester".to_string())?;
-    let recipient_email = user_helpers::get_primary_email(&requester_uuid, &mut conn)
-        .ok_or_else(|| "requester has no primary email".to_string())?;
-    let customer_name = crate::repository::users::get_user_by_uuid(&requester_uuid, &mut conn)
-        .map(|u| u.name)
-        .unwrap_or_else(|_| recipient_email.clone());
 
     // Render template. Admin-customised wording wins outright;
     // the inbound's Content-Language only drives the *default*
@@ -183,21 +189,23 @@ async fn send_auto_ack(
 
     // Record the outbound so a customer reply threads back. Comment_id
     // is NULL by design — auto-ack is system-authored, not a ticket
-    // comment.
-    channels_repo::record_message(
-        &mut conn,
-        NewChannelMessage {
-            channel_id: channel.id,
-            external_id: format!("<{message_id}>"),
-            direction: CHANNEL_DIRECTION_OUTBOUND.to_string(),
-            ticket_id: Some(ticket.id),
-            comment_id: None,
-            in_reply_to: Some(in_reply_to.to_string()),
-            from_address: None,
-            author_user_uuid: None,
-            raw_metadata: Some(serde_json::json!({ "auto_ack": true })),
-        },
-    )
+    // comment. channel_messages is RLS-enabled; same bypass story.
+    crate::sync::session::background_run(pool, "background:auto_ack_record", |conn| {
+        channels_repo::record_message(
+            conn,
+            NewChannelMessage {
+                channel_id: channel.id,
+                external_id: format!("<{message_id}>"),
+                direction: CHANNEL_DIRECTION_OUTBOUND.to_string(),
+                ticket_id: Some(ticket.id),
+                comment_id: None,
+                in_reply_to: Some(in_reply_to.to_string()),
+                from_address: None,
+                author_user_uuid: None,
+                raw_metadata: Some(serde_json::json!({ "auto_ack": true })),
+            },
+        )
+    })
     .map_err(|e| format!("record channel_messages: {e}"))?;
 
     info!(
