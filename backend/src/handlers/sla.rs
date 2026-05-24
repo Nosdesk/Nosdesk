@@ -15,9 +15,8 @@
 use actix_web::{web, HttpResponse, Responder};
 use tracing::error;
 
-use crate::db::Pool;
-use crate::extractors::AuthContext;
-use crate::handlers::{errors, helpers};
+use crate::extractors::{AuthContext, TenantConn};
+use crate::handlers::errors;
 use crate::repository::sla_admin::{self, SlaPolicyBody, WorkingCalendarBody};
 
 fn require_admin(auth: &AuthContext) -> Option<HttpResponse> {
@@ -30,12 +29,8 @@ fn require_admin(auth: &AuthContext) -> Option<HttpResponse> {
 
 // ---- Policies ----
 
-pub async fn list_policies(pool: web::Data<Pool>, _auth: AuthContext) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match sla_admin::list_policies(&mut conn) {
+pub async fn list_policies(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
+    match tc.run(|conn| sla_admin::list_policies(conn)) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(error = %e, "list sla policies failed");
@@ -45,18 +40,15 @@ pub async fn list_policies(pool: web::Data<Pool>, _auth: AuthContext) -> impl Re
 }
 
 pub async fn create_policy(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<SlaPolicyBody>,
     auth: AuthContext,
 ) -> impl Responder {
     if let Some(resp) = require_admin(&auth) {
         return resp;
     }
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match sla_admin::create_policy(&mut conn, body.into_inner(), Some(auth.user_uuid)) {
+    let actor_uuid = auth.user_uuid;
+    match tc.run(|conn| sla_admin::create_policy(conn, body.into_inner(), Some(actor_uuid))) {
         Ok(policy) => HttpResponse::Created().json(policy),
         Err(e) => {
             error!(error = %e, "create sla policy failed");
@@ -66,7 +58,7 @@ pub async fn create_policy(
 }
 
 pub async fn update_policy(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SlaPolicyBody>,
     auth: AuthContext,
@@ -75,11 +67,7 @@ pub async fn update_policy(
         return resp;
     }
     let id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match sla_admin::update_policy(&mut conn, id, body.into_inner()) {
+    match tc.run(|conn| sla_admin::update_policy(conn, id, body.into_inner())) {
         Ok(policy) => HttpResponse::Ok().json(policy),
         Err(e) => {
             error!(error = %e, id, "update sla policy failed");
@@ -89,7 +77,7 @@ pub async fn update_policy(
 }
 
 pub async fn delete_policy(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -97,11 +85,7 @@ pub async fn delete_policy(
         return resp;
     }
     let id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match sla_admin::delete_policy(&mut conn, id) {
+    match tc.run(|conn| sla_admin::delete_policy(conn, id)) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = %e, id, "delete sla policy failed");
@@ -112,12 +96,8 @@ pub async fn delete_policy(
 
 // ---- Calendars ----
 
-pub async fn list_calendars(pool: web::Data<Pool>, _auth: AuthContext) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match sla_admin::list_calendars(&mut conn) {
+pub async fn list_calendars(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
+    match tc.run(|conn| sla_admin::list_calendars(conn)) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(error = %e, "list calendars failed");
@@ -127,18 +107,15 @@ pub async fn list_calendars(pool: web::Data<Pool>, _auth: AuthContext) -> impl R
 }
 
 pub async fn create_calendar(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<WorkingCalendarBody>,
     auth: AuthContext,
 ) -> impl Responder {
     if let Some(resp) = require_admin(&auth) {
         return resp;
     }
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match sla_admin::create_calendar(&mut conn, body.into_inner(), Some(auth.user_uuid)) {
+    let actor_uuid = auth.user_uuid;
+    match tc.run(|conn| sla_admin::create_calendar(conn, body.into_inner(), Some(actor_uuid))) {
         Ok(cal) => HttpResponse::Created().json(cal),
         Err(e) => {
             error!(error = %e, "create calendar failed");
@@ -148,7 +125,7 @@ pub async fn create_calendar(
 }
 
 pub async fn update_calendar(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<WorkingCalendarBody>,
     auth: AuthContext,
@@ -157,11 +134,7 @@ pub async fn update_calendar(
         return resp;
     }
     let id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match sla_admin::update_calendar(&mut conn, id, body.into_inner()) {
+    match tc.run(|conn| sla_admin::update_calendar(conn, id, body.into_inner())) {
         Ok(cal) => HttpResponse::Ok().json(cal),
         Err(e) => {
             error!(error = %e, id, "update calendar failed");
@@ -171,7 +144,7 @@ pub async fn update_calendar(
 }
 
 pub async fn delete_calendar(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -179,11 +152,7 @@ pub async fn delete_calendar(
         return resp;
     }
     let id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match sla_admin::delete_calendar(&mut conn, id) {
+    match tc.run(|conn| sla_admin::delete_calendar(conn, id)) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = %e, id, "delete calendar failed");

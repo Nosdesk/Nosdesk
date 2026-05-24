@@ -12,19 +12,17 @@
 //!   row the admin can fill in.
 
 use actix_multipart::Multipart;
-use actix_web::{http::header, web, HttpMessage, HttpRequest, HttpResponse, Responder};
-use diesel::prelude::*;
+use actix_web::{http::header, web, HttpResponse, Responder};
 use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::db::Pool;
-use crate::handlers::{errors, helpers};
-use crate::models::{ImportJobUpdate, NewImportJob};
+use crate::extractors::{AuthContext, TenantConn};
+use crate::handlers::errors;
+use crate::models::{ImportJob, ImportJobUpdate, NewImportJob};
 use crate::repository::imports as repo;
 use crate::services::imports::{self, csv_parser, ImportType};
-use crate::utils;
 
 #[derive(Debug, Deserialize)]
 pub struct UploadQuery {
@@ -32,21 +30,20 @@ pub struct UploadQuery {
     pub job_type: String,
 }
 
+/// Result variants for the upload-dry-run flow.
+enum UploadOutcome {
+    Ok(ImportJob),
+    BadRequest(String),
+}
+
 /// Upload + parse + dry-run.
 pub async fn upload(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     query: web::Query<UploadQuery>,
     mut payload: Multipart,
 ) -> impl Responder {
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(c) => c.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-    let user_uuid = match utils::parse_uuid(&claims.sub) {
-        Ok(u) => u,
-        Err(_) => return errors::bad_request("invalid user UUID"),
-    };
+    let user_uuid = auth.user_uuid;
 
     let job_type = match ImportType::from_str(query.job_type.as_str()) {
         Some(t) => t,
@@ -56,10 +53,6 @@ pub async fn upload(
                 query.job_type
             ));
         }
-    };
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
     };
 
     // Pull the first file field. Like the branding upload we
@@ -85,177 +78,177 @@ pub async fn upload(
         }
     };
 
-    let job = match repo::create(
-        &mut conn,
-        NewImportJob {
-            job_type: job_type.as_str().to_string(),
-            filename: filename.clone(),
-            file_path: stored_path.to_string_lossy().to_string(),
-            created_by: Some(user_uuid),
-        },
-    ) {
-        Ok(j) => j,
-        Err(e) => {
-            error!(error = ?e, "failed to create import_jobs row");
-            return errors::internal("failed to start import");
-        }
-    };
+    let job_type_str = job_type.as_str().to_string();
+    let stored_path_str = stored_path.to_string_lossy().to_string();
+    let result = tc.run(|conn| {
+        let job = repo::create(
+            conn,
+            NewImportJob {
+                job_type: job_type_str,
+                filename: filename.clone(),
+                file_path: stored_path_str,
+                created_by: Some(user_uuid),
+            },
+        )?;
 
-    // Parse + dry-run.
-    let parsed = match csv_parser::parse_file(&stored_path) {
-        Ok(p) => p,
-        Err(e) => {
-            let message = e.to_string();
-            mark_failed(&mut conn, job.id, &message);
-            return errors::bad_request(message);
-        }
-    };
+        // Parse + dry-run.
+        let parsed = match csv_parser::parse_file(&stored_path) {
+            Ok(p) => p,
+            Err(e) => {
+                let message = e.to_string();
+                mark_failed(conn, job.id, &message);
+                return Ok(UploadOutcome::BadRequest(message));
+            }
+        };
 
-    let summary = match imports::dry_run(&mut conn, job_type, &parsed) {
-        Ok(s) => s,
-        Err(e) => {
-            error!(job_id = %job.id, error = ?e, "dry-run failed");
-            mark_failed(&mut conn, job.id, "dry-run failed; see server logs");
-            return errors::internal("dry-run failed");
-        }
-    };
+        let summary = match imports::dry_run(conn, job_type, &parsed) {
+            Ok(s) => s,
+            Err(e) => {
+                error!(job_id = %job.id, error = ?e, "dry-run failed");
+                mark_failed(conn, job.id, "dry-run failed; see server logs");
+                return Err(e);
+            }
+        };
 
-    let summary_value = serde_json::to_value(&summary).unwrap_or(serde_json::Value::Null);
-    match repo::update(
-        &mut conn,
-        job.id,
-        ImportJobUpdate {
-            status: Some("dry_run_done".to_string()),
-            summary: Some(Some(summary_value)),
-            ..Default::default()
-        },
-    ) {
-        Ok(updated) => {
-            info!(
-                job_id = %updated.id,
-                rows = summary.row_count,
-                errors = summary.errors.len(),
-                "import dry-run complete"
-            );
-            HttpResponse::Ok().json(updated)
-        }
+        let summary_value = serde_json::to_value(&summary).unwrap_or(serde_json::Value::Null);
+        let updated = repo::update(
+            conn,
+            job.id,
+            ImportJobUpdate {
+                status: Some("dry_run_done".to_string()),
+                summary: Some(Some(summary_value)),
+                ..Default::default()
+            },
+        )?;
+        info!(
+            job_id = %updated.id,
+            rows = summary.row_count,
+            errors = summary.errors.len(),
+            "import dry-run complete"
+        );
+        Ok(UploadOutcome::Ok(updated))
+    });
+
+    match result {
+        Ok(UploadOutcome::Ok(job)) => HttpResponse::Ok().json(job),
+        Ok(UploadOutcome::BadRequest(msg)) => errors::bad_request(msg),
         Err(e) => {
-            error!(job_id = %job.id, error = ?e, "failed to save dry-run summary");
-            errors::internal("failed to save dry-run summary")
+            error!(error = ?e, "import upload failed");
+            errors::internal("failed to start import")
         }
     }
+}
+
+/// Result variants for the commit flow.
+enum CommitOutcome {
+    Ok(ImportJob),
+    AlreadyDone(ImportJob),
+    NotFound,
+    BadRequest(String),
 }
 
 /// Apply a previously dry-run'd job. Idempotent on status: a
 /// job already in `done` returns the existing row unchanged.
 pub async fn commit(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    _auth: AuthContext,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(c) => c.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let id = path.into_inner();
-    let job = match repo::get(&mut conn, id) {
-        Ok(j) => j,
-        Err(diesel::result::Error::NotFound) => {
-            return errors::not_found_msg(format!("import job {id} not found"));
-        }
-        Err(e) => {
-            error!(error = ?e, "failed to load import job");
-            return errors::internal("failed to load import job");
-        }
-    };
-    if job.status == "done" {
-        return HttpResponse::Ok().json(job);
-    }
-    if job.status != "dry_run_done" {
-        return errors::bad_request(format!(
-            "job is in status '{}'; commit requires 'dry_run_done'",
-            job.status
-        ));
-    }
 
-    let job_type = match ImportType::from_str(&job.job_type) {
-        Some(t) => t,
-        None => {
-            return errors::internal(format!("import job has unknown type '{}'", job.job_type));
+    let result = tc.run(|conn| {
+        let job = match repo::get(conn, id) {
+            Ok(j) => j,
+            Err(diesel::result::Error::NotFound) => return Ok(CommitOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        if job.status == "done" {
+            return Ok(CommitOutcome::AlreadyDone(job));
         }
-    };
-
-    // Mark committing first so a parallel commit attempt fails
-    // the precondition above instead of double-applying.
-    if let Err(e) = repo::update(
-        &mut conn,
-        job.id,
-        ImportJobUpdate {
-            status: Some("committing".to_string()),
-            ..Default::default()
-        },
-    ) {
-        error!(error = ?e, "failed to mark job committing");
-        return errors::internal("failed to start commit");
-    }
-
-    let parsed = match csv_parser::parse_file(std::path::Path::new(&job.file_path)) {
-        Ok(p) => p,
-        Err(e) => {
-            mark_failed(&mut conn, job.id, &e.to_string());
-            return errors::bad_request(e.to_string());
+        if job.status != "dry_run_done" {
+            return Ok(CommitOutcome::BadRequest(format!(
+                "job is in status '{}'; commit requires 'dry_run_done'",
+                job.status
+            )));
         }
-    };
 
-    let committed = conn
-        .transaction::<i32, diesel::result::Error, _>(|c| imports::commit(c, job_type, &parsed));
-    match committed {
-        Ok(count) => {
-            match repo::update(
-                &mut conn,
-                job.id,
-                ImportJobUpdate {
-                    status: Some("done".to_string()),
-                    records_committed: Some(Some(count)),
-                    completed_at: Some(Some(chrono::Utc::now())),
-                    ..Default::default()
-                },
-            ) {
-                Ok(updated) => HttpResponse::Ok().json(updated),
-                Err(e) => {
-                    error!(error = ?e, "failed to finalise import job");
-                    errors::internal("failed to finalise import job")
-                }
+        let job_type = match ImportType::from_str(&job.job_type) {
+            Some(t) => t,
+            None => {
+                return Ok(CommitOutcome::BadRequest(format!(
+                    "import job has unknown type '{}'",
+                    job.job_type
+                )));
             }
+        };
+
+        // Mark committing first so a parallel commit attempt fails
+        // the precondition above instead of double-applying.
+        repo::update(
+            conn,
+            job.id,
+            ImportJobUpdate {
+                status: Some("committing".to_string()),
+                ..Default::default()
+            },
+        )?;
+
+        let parsed = match csv_parser::parse_file(std::path::Path::new(&job.file_path)) {
+            Ok(p) => p,
+            Err(e) => {
+                let msg = e.to_string();
+                mark_failed(conn, job.id, &msg);
+                return Ok(CommitOutcome::BadRequest(msg));
+            }
+        };
+
+        // The repo + commit imports run inside this transaction.
+        // Postgres `SET LOCAL` propagates into the nested savepoint
+        // so the workspace GUC is still active for the commit path.
+        let committed = match imports::commit(conn, job_type, &parsed) {
+            Ok(count) => count,
+            Err(e) => {
+                let msg = format!("commit failed: {e}");
+                mark_failed(conn, job.id, &msg);
+                return Err(e);
+            }
+        };
+
+        let updated = repo::update(
+            conn,
+            job.id,
+            ImportJobUpdate {
+                status: Some("done".to_string()),
+                records_committed: Some(Some(committed)),
+                completed_at: Some(Some(chrono::Utc::now())),
+                ..Default::default()
+            },
+        )?;
+        Ok(CommitOutcome::Ok(updated))
+    });
+
+    match result {
+        Ok(CommitOutcome::Ok(job)) | Ok(CommitOutcome::AlreadyDone(job)) => {
+            HttpResponse::Ok().json(job)
         }
+        Ok(CommitOutcome::NotFound) => {
+            errors::not_found_msg(format!("import job {id} not found"))
+        }
+        Ok(CommitOutcome::BadRequest(msg)) => errors::bad_request(msg),
         Err(e) => {
-            error!(job_id = %job.id, error = ?e, "commit failed");
-            mark_failed(&mut conn, job.id, &format!("commit failed: {e}"));
+            error!(job_id = %id, error = ?e, "commit failed");
             errors::internal("commit failed")
         }
     }
 }
 
 pub async fn get_job(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    _auth: AuthContext,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(c) => c.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
     let id = path.into_inner();
-    match repo::get(&mut conn, id) {
+    match tc.run(|conn| repo::get(conn, id)) {
         Ok(j) => HttpResponse::Ok().json(j),
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("import job {id} not found"))

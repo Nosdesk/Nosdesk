@@ -14,18 +14,18 @@
 //! richer data straight from the source rows; the HTTP surface
 //! only carries what the queue UI actually shows.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
-use crate::db::{DbConnection, Pool};
+use crate::db::DbConnection;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{KnowledgeGap, KnowledgeGapSignal, UserInfoWithAvatar};
 use crate::repository::{self, knowledge_gaps};
-use crate::utils::rbac::is_technician_or_admin;
 
 // ---------------------------------------------------------------
 // Response DTOs
@@ -116,52 +116,64 @@ pub struct FlagTicketBody {
     pub reason: Option<String>,
 }
 
+/// Result variants for the flag-as-gap flow so we can pull the
+/// HTTP boundary back out of the transaction.
+enum FlagOutcome {
+    Created(KnowledgeGap),
+    Updated(KnowledgeGap),
+    TicketNotFound,
+}
+
 pub async fn flag_ticket_as_gap(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     sse_state: web::Data<SseState>,
     path: web::Path<i32>,
     body: web::Json<FlagTicketBody>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden("Technician or admin role required");
     }
     let ticket_id = path.into_inner();
+    let user_uuid = auth.user_uuid;
+    let reason = body.into_inner().reason;
 
-    // Need the ticket title for the gap headline. Cheap join.
-    use crate::schema::tickets;
-    let ticket_title: String = match tickets::table
-        .find(ticket_id)
-        .select(tickets::title)
-        .first(&mut conn)
-    {
-        Ok(t) => t,
-        Err(_) => return errors::not_found("Ticket"),
-    };
+    let outcome = tc.run(|conn| {
+        // Need the ticket title for the gap headline. Cheap join.
+        use crate::schema::tickets;
+        let ticket_title: String = match tickets::table
+            .find(ticket_id)
+            .select(tickets::title)
+            .first(conn)
+            .optional()?
+        {
+            Some(t) => t,
+            None => return Ok(FlagOutcome::TicketNotFound),
+        };
+        let (gap, _signal, was_created) =
+            knowledge_gaps::flag_ticket(conn, ticket_id, &ticket_title, user_uuid, reason)?;
+        Ok(if was_created {
+            FlagOutcome::Created(gap)
+        } else {
+            FlagOutcome::Updated(gap)
+        })
+    });
 
-    match knowledge_gaps::flag_ticket(
-        &mut conn,
-        ticket_id,
-        &ticket_title,
-        user_uuid,
-        body.into_inner().reason,
-    ) {
-        Ok((gap, _signal, was_created)) => {
-            if was_created {
-                sse_state
-                    .broadcast_event(SseEvent::KnowledgeGapDetected {
-                        gap_id: gap.id,
-                        signal_type: knowledge_gaps::SIGNAL_MANUAL_FLAG.to_string(),
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
-            }
+    match outcome {
+        Ok(FlagOutcome::Created(gap)) => {
+            sse_state
+                .broadcast_event(SseEvent::KnowledgeGapDetected {
+                    gap_id: gap.id,
+                    signal_type: knowledge_gaps::SIGNAL_MANUAL_FLAG.to_string(),
+                    timestamp: chrono::Utc::now(),
+                })
+                .await;
             HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None })
         }
+        Ok(FlagOutcome::Updated(gap)) => {
+            HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None })
+        }
+        Ok(FlagOutcome::TicketNotFound) => errors::not_found("Ticket"),
         Err(e) => {
             error!(error = ?e, ticket_id, "Failed to flag ticket as gap");
             errors::internal("Failed to flag ticket")
@@ -170,20 +182,17 @@ pub async fn flag_ticket_as_gap(
 }
 
 pub async fn unflag_ticket_as_gap(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden("Technician or admin role required");
     }
     let ticket_id = path.into_inner();
+    let user_uuid = auth.user_uuid;
 
-    match knowledge_gaps::unflag_ticket(&mut conn, ticket_id, user_uuid) {
+    match tc.run(|conn| knowledge_gaps::unflag_ticket(conn, ticket_id, user_uuid)) {
         Ok(Some(gap)) => HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None }),
         Ok(None) => HttpResponse::NoContent().finish(),
         Err(e) => {
@@ -206,15 +215,11 @@ pub struct ListGapsQuery {
 }
 
 pub async fn list_knowledge_gaps(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     query: web::Query<ListGapsQuery>,
 ) -> impl Responder {
-    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden("Technician or admin role required");
     }
 
@@ -229,15 +234,13 @@ pub async fn list_knowledge_gaps(
                 .collect()
         })
         .unwrap_or_default();
+    let filter = knowledge_gaps::GapListFilter {
+        statuses,
+        limit: helpers::clamp_limit(q.limit),
+        offset: helpers::clamp_offset(q.offset),
+    };
 
-    match knowledge_gaps::list_gaps(
-        &mut conn,
-        knowledge_gaps::GapListFilter {
-            statuses,
-            limit: helpers::clamp_limit(q.limit),
-            offset: helpers::clamp_offset(q.offset),
-        },
-    ) {
+    match tc.run(|conn| knowledge_gaps::list_gaps(conn, filter)) {
         Ok(gaps) => HttpResponse::Ok().json(
             gaps.into_iter()
                 .map(|g| KnowledgeGapResponse {
@@ -257,46 +260,47 @@ pub async fn list_knowledge_gaps(
 // GET /api/knowledge-gaps/{id}
 // ---------------------------------------------------------------
 
+/// Result variants for the gap detail load.
+enum GapDetailOutcome {
+    Ok(KnowledgeGapResponse),
+    NotFound,
+}
+
 pub async fn get_knowledge_gap(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     path: web::Path<i64>,
 ) -> impl Responder {
-    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();
 
-    let gap = match knowledge_gaps::get_gap(&mut conn, gap_id) {
-        Ok(g) => g,
-        Err(diesel::result::Error::NotFound) => return errors::not_found("Gap"),
+    let outcome = tc.run(|conn| {
+        let gap = match knowledge_gaps::get_gap(conn, gap_id) {
+            Ok(g) => g,
+            Err(diesel::result::Error::NotFound) => return Ok(GapDetailOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        let signals = knowledge_gaps::list_signals_for_gap(conn, gap.id)?;
+        let hydrated: Vec<KnowledgeGapSignalResponse> = signals
+            .into_iter()
+            .map(|s| hydrate_signal(conn, s))
+            .collect();
+        Ok(GapDetailOutcome::Ok(KnowledgeGapResponse {
+            gap,
+            signals: Some(hydrated),
+        }))
+    });
+
+    match outcome {
+        Ok(GapDetailOutcome::Ok(resp)) => HttpResponse::Ok().json(resp),
+        Ok(GapDetailOutcome::NotFound) => errors::not_found("Gap"),
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to load gap");
-            return errors::db_error(&e);
+            errors::db_error(&e)
         }
-    };
-
-    let signals = match knowledge_gaps::list_signals_for_gap(&mut conn, gap.id) {
-        Ok(s) => s,
-        Err(e) => {
-            error!(error = ?e, gap_id, "Failed to load signals");
-            return errors::internal("Failed to load signals");
-        }
-    };
-
-    let hydrated: Vec<KnowledgeGapSignalResponse> = signals
-        .into_iter()
-        .map(|s| hydrate_signal(&mut conn, s))
-        .collect();
-
-    HttpResponse::Ok().json(KnowledgeGapResponse {
-        gap,
-        signals: Some(hydrated),
-    })
+    }
 }
 
 // ---------------------------------------------------------------
@@ -304,21 +308,18 @@ pub async fn get_knowledge_gap(
 // ---------------------------------------------------------------
 
 pub async fn dismiss_knowledge_gap(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     sse_state: web::Data<SseState>,
     path: web::Path<i64>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();
+    let user_uuid = auth.user_uuid;
 
-    match knowledge_gaps::dismiss_gap(&mut conn, gap_id, user_uuid) {
+    match tc.run(|conn| knowledge_gaps::dismiss_gap(conn, gap_id, user_uuid)) {
         Ok(gap) => {
             sse_state
                 .broadcast_event(SseEvent::KnowledgeGapResolved {
@@ -356,23 +357,22 @@ pub struct DetectClustersResponse {
 }
 
 pub async fn detect_clusters(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     sse_state: web::Data<SseState>,
     body: web::Json<DetectClustersBody>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden("Technician or admin role required");
     }
     let req_body = body.into_inner();
+    let user_uuid = auth.user_uuid;
     let days = req_body.days.unwrap_or(30);
     let min_size = req_body.min_size.unwrap_or(2).max(2);
 
-    match knowledge_gaps::run_cluster_detection(&mut conn, Some(user_uuid), days, min_size) {
+    match tc.run(|conn| {
+        knowledge_gaps::run_cluster_detection(conn, Some(user_uuid), days, min_size)
+    }) {
         Ok(stats) => {
             for gap_id in &stats.new_gap_ids {
                 sse_state
@@ -407,23 +407,22 @@ pub struct DetectFailedSearchesBody {
 }
 
 pub async fn detect_failed_searches(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     sse_state: web::Data<SseState>,
     body: web::Json<DetectFailedSearchesBody>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden("Technician or admin role required");
     }
     let req_body = body.into_inner();
+    let user_uuid = auth.user_uuid;
     let days = req_body.days.unwrap_or(30);
     let min_count = req_body.min_count.unwrap_or(2).max(1);
 
-    match knowledge_gaps::run_failed_search_detection(&mut conn, Some(user_uuid), days, min_count) {
+    match tc.run(|conn| {
+        knowledge_gaps::run_failed_search_detection(conn, Some(user_uuid), days, min_count)
+    }) {
         Ok(stats) => {
             for gap_id in &stats.new_gap_ids {
                 sse_state
@@ -462,28 +461,27 @@ pub struct DetectStaleDocsBody {
 }
 
 pub async fn detect_stale_docs(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     sse_state: web::Data<SseState>,
     body: web::Json<DetectStaleDocsBody>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden("Technician or admin role required");
     }
     let req_body = body.into_inner();
+    let user_uuid = auth.user_uuid;
     let recent_ticket_days = req_body.recent_ticket_days.unwrap_or(30);
     let min_recent_tickets = req_body.min_recent_tickets.unwrap_or(1).max(1);
 
-    match knowledge_gaps::run_stale_doc_detection(
-        &mut conn,
-        Some(user_uuid),
-        recent_ticket_days,
-        min_recent_tickets,
-    ) {
+    match tc.run(|conn| {
+        knowledge_gaps::run_stale_doc_detection(
+            conn,
+            Some(user_uuid),
+            recent_ticket_days,
+            min_recent_tickets,
+        )
+    }) {
         Ok(stats) => {
             for gap_id in &stats.new_gap_ids {
                 sse_state
@@ -517,28 +515,26 @@ pub struct ResolveGapBody {
 }
 
 pub async fn resolve_knowledge_gap(
-    req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     sse_state: web::Data<SseState>,
     path: web::Path<i64>,
     body: web::Json<ResolveGapBody>,
 ) -> impl Responder {
-    let (claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if !is_technician_or_admin(&claims) {
+    if !auth.is_technician_or_admin() {
         return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();
     let req_body = body.into_inner();
+    let user_uuid = auth.user_uuid;
+    let page_id = req_body.page_id;
 
-    match knowledge_gaps::resolve_gap(&mut conn, gap_id, req_body.page_id, user_uuid) {
+    match tc.run(|conn| knowledge_gaps::resolve_gap(conn, gap_id, page_id, user_uuid)) {
         Ok(gap) => {
             sse_state
                 .broadcast_event(SseEvent::KnowledgeGapResolved {
                     gap_id: gap.id,
-                    resolved_page_id: Some(req_body.page_id),
+                    resolved_page_id: Some(page_id),
                     timestamp: chrono::Utc::now(),
                 })
                 .await;

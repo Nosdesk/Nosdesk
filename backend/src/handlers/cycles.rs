@@ -24,9 +24,8 @@ use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::db::Pool;
-use crate::extractors::AuthContext;
-use crate::handlers::{errors, helpers};
+use crate::extractors::{AuthContext, TenantConn};
+use crate::handlers::errors;
 use crate::models::{CycleUpdate, NewCycle};
 use crate::repository::cycles as repo;
 
@@ -56,16 +55,12 @@ pub struct PatchBody {
 }
 
 pub async fn list(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     _auth: AuthContext,
 ) -> impl Responder {
     let project_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repo::list_for_project(&mut conn, project_id) {
+    match tc.run(|conn| repo::list_for_project(conn, project_id)) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(error = %e, project_id, "failed to list cycles");
@@ -88,30 +83,29 @@ pub struct WorkspaceListQuery {
 /// /cycles overview can render an "active across the workspace"
 /// view without N round-trips.
 pub async fn list_workspace(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     query: web::Query<WorkspaceListQuery>,
     _auth: AuthContext,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
     let states_owned: Option<Vec<String>> = query.state.as_deref().map(|s| {
         s.split(',')
             .map(|x| x.trim().to_string())
             .filter(|x| !x.is_empty())
             .collect()
     });
-    let states_ref: Option<Vec<&str>> = states_owned
-        .as_ref()
-        .map(|v| v.iter().map(|s| s.as_str()).collect());
-    let states_slice: Option<&[&str]> = states_ref.as_deref();
-    let filter = if states_slice.is_some() {
-        states_slice
-    } else {
-        Some(&["planned", "active"][..])
-    };
-    match repo::list_for_workspace(&mut conn, filter) {
+    let result = tc.run(|conn| {
+        let states_ref: Option<Vec<&str>> = states_owned
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect());
+        let states_slice: Option<&[&str]> = states_ref.as_deref();
+        let filter = if states_slice.is_some() {
+            states_slice
+        } else {
+            Some(&["planned", "active"][..])
+        };
+        repo::list_for_workspace(conn, filter)
+    });
+    match result {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(error = %e, "failed to list workspace cycles");
@@ -121,16 +115,12 @@ pub async fn list_workspace(
 }
 
 pub async fn get_one(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     _auth: AuthContext,
 ) -> impl Responder {
     let uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repo::find_by_uuid(&mut conn, uuid) {
+    match tc.run(|conn| repo::find_by_uuid(conn, uuid)) {
         Ok(Some(cycle)) => HttpResponse::Ok().json(cycle),
         Ok(None) => errors::not_found_msg("Cycle not found"),
         Err(e) => {
@@ -141,7 +131,7 @@ pub async fn get_one(
 }
 
 pub async fn create(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<CreateBody>,
     auth: AuthContext,
@@ -158,10 +148,6 @@ pub async fn create(
     if !is_valid_state(&state) {
         return errors::bad_request("state must be one of: planned, active");
     }
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
     let new = NewCycle {
         project_id,
         name: body.name.trim().to_string(),
@@ -170,7 +156,7 @@ pub async fn create(
         state,
         created_by: Some(auth.user_uuid),
     };
-    match repo::create(&mut conn, new) {
+    match tc.run(|conn| repo::create(conn, new)) {
         Ok(cycle) => {
             info!(uuid = %cycle.uuid, project_id, "cycle created");
             HttpResponse::Created().json(cycle)
@@ -183,7 +169,7 @@ pub async fn create(
 }
 
 pub async fn patch(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<PatchBody>,
     auth: AuthContext,
@@ -205,10 +191,6 @@ pub async fn patch(
             );
         }
     }
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
     let patch = CycleUpdate {
         name: body.name.map(|s| s.trim().to_string()),
         start_at: body.start_at,
@@ -218,7 +200,7 @@ pub async fn patch(
         completed_at: None,
         archived_at: None,
     };
-    match repo::update(&mut conn, uuid, patch) {
+    match tc.run(|conn| repo::update(conn, uuid, patch)) {
         Ok(cycle) => HttpResponse::Ok().json(cycle),
         Err(e) => {
             error!(error = %e, %uuid, "failed to update cycle");
@@ -231,25 +213,18 @@ pub async fn patch(
 /// this to scope its kanban to "tickets in this cycle" without
 /// pulling the cycle_tickets aggregate into the sync engine.
 pub async fn tickets(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     _auth: AuthContext,
 ) -> impl Responder {
     let uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let cycle = match repo::find_by_uuid(&mut conn, uuid) {
-        Ok(Some(c)) => c,
-        Ok(None) => return errors::not_found_msg("Cycle not found"),
-        Err(e) => {
-            error!(error = %e, %uuid, "tickets: cycle lookup failed");
-            return errors::internal("Failed to fetch cycle tickets");
-        }
-    };
-    match repo::ticket_ids_for_cycle(&mut conn, cycle.id) {
-        Ok(ids) => actix_web::HttpResponse::Ok().json(ids),
+    let result = tc.run(|conn| match repo::find_by_uuid(conn, uuid)? {
+        Some(cycle) => repo::ticket_ids_for_cycle(conn, cycle.id).map(Some),
+        None => Ok(None),
+    });
+    match result {
+        Ok(Some(ids)) => actix_web::HttpResponse::Ok().json(ids),
+        Ok(None) => errors::not_found_msg("Cycle not found"),
         Err(e) => {
             error!(error = %e, %uuid, "tickets: load failed");
             errors::internal("Failed to fetch cycle tickets")
@@ -262,37 +237,40 @@ pub async fn tickets(
 /// shape on the fly. The frontend Burndown widget renders both
 /// through the same code path.
 pub async fn stats(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     _auth: AuthContext,
 ) -> impl Responder {
     let uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let cycle = match repo::find_by_uuid(&mut conn, uuid) {
-        Ok(Some(c)) => c,
-        Ok(None) => return errors::not_found_msg("Cycle not found"),
-        Err(e) => {
-            error!(error = %e, %uuid, "stats: cycle lookup failed");
-            return errors::internal("Failed to fetch cycle stats");
+    let result = tc.run(|conn| match repo::find_by_uuid(conn, uuid)? {
+        Some(cycle) => {
+            if let Some(snap) = cycle.completion_snapshot.clone() {
+                Ok(Some(snap))
+            } else {
+                repo::build_completion_snapshot(conn, cycle.id).map(Some)
+            }
         }
-    };
-    if let Some(snap) = cycle.completion_snapshot.clone() {
-        return HttpResponse::Ok().json(snap);
-    }
-    match repo::build_completion_snapshot(&mut conn, cycle.id) {
-        Ok(s) => HttpResponse::Ok().json(s),
+        None => Ok(None),
+    });
+    match result {
+        Ok(Some(snap)) => HttpResponse::Ok().json(snap),
+        Ok(None) => errors::not_found_msg("Cycle not found"),
         Err(e) => {
-            error!(error = %e, %uuid, "stats: snapshot build failed");
-            errors::internal("Failed to build cycle stats")
+            error!(error = %e, %uuid, "stats: load failed");
+            errors::internal("Failed to fetch cycle stats")
         }
     }
 }
 
+/// Result variants for the cycle complete flow.
+enum CompleteOutcome {
+    Completed(crate::models::Cycle),
+    NotFound,
+    AlreadyCompleted,
+}
+
 pub async fn complete(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -300,42 +278,33 @@ pub async fn complete(
         return errors::forbidden("Only technicians and admins can complete cycles");
     }
     let uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let cycle = match repo::find_by_uuid(&mut conn, uuid) {
-        Ok(Some(c)) => c,
-        Ok(None) => return errors::not_found_msg("Cycle not found"),
-        Err(e) => {
-            error!(error = %e, %uuid, "failed to fetch cycle for complete");
-            return errors::internal("Failed to complete cycle");
+    let result = tc.run(|conn| match repo::find_by_uuid(conn, uuid)? {
+        Some(cycle) => {
+            if cycle.state == "completed" {
+                return Ok(CompleteOutcome::AlreadyCompleted);
+            }
+            let snapshot = repo::build_completion_snapshot(conn, cycle.id)?;
+            let updated = repo::complete(conn, uuid, snapshot)?;
+            Ok(CompleteOutcome::Completed(updated))
         }
-    };
-    if cycle.state == "completed" {
-        return errors::bad_request("Cycle is already completed");
-    }
-    let snapshot = match repo::build_completion_snapshot(&mut conn, cycle.id) {
-        Ok(s) => s,
-        Err(e) => {
-            error!(error = %e, %uuid, "failed to build completion snapshot");
-            return errors::internal("Failed to complete cycle");
-        }
-    };
-    match repo::complete(&mut conn, uuid, snapshot) {
-        Ok(updated) => {
+        None => Ok(CompleteOutcome::NotFound),
+    });
+    match result {
+        Ok(CompleteOutcome::Completed(updated)) => {
             info!(uuid = %updated.uuid, "cycle completed");
             HttpResponse::Ok().json(updated)
         }
+        Ok(CompleteOutcome::NotFound) => errors::not_found_msg("Cycle not found"),
+        Ok(CompleteOutcome::AlreadyCompleted) => errors::bad_request("Cycle is already completed"),
         Err(e) => {
-            error!(error = %e, %uuid, "failed to mark cycle complete");
+            error!(error = %e, %uuid, "failed to complete cycle");
             errors::internal("Failed to complete cycle")
         }
     }
 }
 
 pub async fn archive(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -343,11 +312,7 @@ pub async fn archive(
         return errors::forbidden("Only technicians and admins can archive cycles");
     }
     let uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repo::archive(&mut conn, uuid) {
+    match tc.run(|conn| repo::archive(conn, uuid)) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = %e, %uuid, "failed to archive cycle");
@@ -356,8 +321,14 @@ pub async fn archive(
     }
 }
 
+/// Result variants for adding a ticket to a cycle.
+enum AddTicketOutcome {
+    Added(crate::models::CycleTicket),
+    NotFound,
+}
+
 pub async fn add_ticket(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<(Uuid, i32)>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -365,29 +336,26 @@ pub async fn add_ticket(
         return errors::forbidden("Only technicians and admins can move tickets between cycles");
     }
     let (cycle_uuid, ticket_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let cycle = match repo::find_by_uuid(&mut conn, cycle_uuid) {
-        Ok(Some(c)) => c,
-        Ok(None) => return errors::not_found_msg("Cycle not found"),
-        Err(e) => {
-            error!(error = %e, %cycle_uuid, "cycle lookup failed");
-            return errors::internal("Failed to add ticket to cycle");
+    let actor_uuid = auth.user_uuid;
+    let result = tc.run(|conn| match repo::find_by_uuid(conn, cycle_uuid)? {
+        Some(cycle) => {
+            let membership = repo::add_ticket(conn, cycle.id, ticket_id, Some(actor_uuid))?;
+            Ok(AddTicketOutcome::Added(membership))
         }
-    };
-    match repo::add_ticket(&mut conn, cycle.id, ticket_id, Some(auth.user_uuid)) {
-        Ok(membership) => HttpResponse::Created().json(membership),
+        None => Ok(AddTicketOutcome::NotFound),
+    });
+    match result {
+        Ok(AddTicketOutcome::Added(membership)) => HttpResponse::Created().json(membership),
+        Ok(AddTicketOutcome::NotFound) => errors::not_found_msg("Cycle not found"),
         Err(e) => {
-            error!(error = %e, cycle_id = cycle.id, ticket_id, "add_ticket failed");
+            error!(error = %e, %cycle_uuid, ticket_id, "add_ticket failed");
             errors::internal("Failed to add ticket to cycle")
         }
     }
 }
 
 pub async fn remove_ticket(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<(Uuid, i32)>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -395,11 +363,7 @@ pub async fn remove_ticket(
         return errors::forbidden("Only technicians and admins can move tickets between cycles");
     }
     let (_cycle_uuid, ticket_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repo::remove_ticket(&mut conn, ticket_id) {
+    match tc.run(|conn| repo::remove_ticket(conn, ticket_id)) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = %e, ticket_id, "remove_ticket failed");

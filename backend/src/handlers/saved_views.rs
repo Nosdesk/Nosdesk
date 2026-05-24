@@ -23,18 +23,16 @@
 //! handler refuses any other scope on create so the per-dataset
 //! visibility story stays simple ("my saved views, only mine").
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::db::{DbConnection, Pool};
-use crate::extractors::AuthContext;
-use crate::handlers::{errors, helpers};
-use crate::models::{Claims, NewSavedView, SavedView, SavedViewUpdate};
+use crate::extractors::{AuthContext, TenantConn};
+use crate::handlers::errors;
+use crate::models::{NewSavedView, SavedView, SavedViewUpdate};
 use crate::repository::saved_views as repo;
-use crate::utils::rbac::is_admin;
 
 const NAME_MIN: usize = 1;
 const NAME_MAX: usize = 120;
@@ -75,15 +73,10 @@ pub struct PatchBody {
 }
 
 pub async fn list(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     query: web::Query<ListQuery>,
     auth: AuthContext,
 ) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Non-ticket dataset path: private-only, single dataset. The
     // ticket scope-merging branches below don't apply because
     // workspace / project scopes are ticket-specific.
@@ -96,7 +89,10 @@ pub async fn list(
             return errors::bad_request(msg);
         }
         let user_id = auth.user_uuid.to_string();
-        return match repo::list_for_scope_dataset(&mut conn, "private", Some(&user_id), dataset) {
+        let dataset_owned = dataset.to_string();
+        return match tc.run(|conn| {
+            repo::list_for_scope_dataset(conn, "private", Some(&user_id), &dataset_owned)
+        }) {
             Ok(rows) => HttpResponse::Ok().json(rows),
             Err(e) => {
                 error!(error = %e, dataset, "failed to load dataset saved views");
@@ -105,53 +101,37 @@ pub async fn list(
         };
     }
 
-    let mut out: Vec<SavedView> = Vec::new();
-
-    // Workspace-scoped views: every authenticated user can see.
-    match repo::list_for_scope(&mut conn, "workspace", None) {
-        Ok(rows) => out.extend(rows),
-        Err(e) => {
-            error!(error = %e, "failed to load workspace saved views");
-            return errors::internal("Failed to load saved views");
-        }
-    }
-
-    // Project-scoped views: only when a project context is supplied.
-    if let Some(project_id) = query.project_id {
-        let scope_id = project_id.to_string();
-        match repo::list_for_scope(&mut conn, "project", Some(&scope_id)) {
-            Ok(rows) => out.extend(rows),
-            Err(e) => {
-                error!(error = %e, project_id, "failed to load project saved views");
-                return errors::internal("Failed to load saved views");
-            }
-        }
-    }
-
-    // Private views: only the caller's own.
+    let project_id = query.project_id;
     let user_id = auth.user_uuid.to_string();
-    match repo::list_for_scope(&mut conn, "private", Some(&user_id)) {
-        Ok(rows) => out.extend(rows),
+    let result = tc.run(|conn| {
+        let mut out: Vec<SavedView> = Vec::new();
+        // Workspace-scoped views: every authenticated user can see.
+        out.extend(repo::list_for_scope(conn, "workspace", None)?);
+        // Project-scoped views: only when a project context is supplied.
+        if let Some(project_id) = project_id {
+            let scope_id = project_id.to_string();
+            out.extend(repo::list_for_scope(conn, "project", Some(&scope_id))?);
+        }
+        // Private views: only the caller's own.
+        out.extend(repo::list_for_scope(conn, "private", Some(&user_id))?);
+        Ok(out)
+    });
+    match result {
+        Ok(out) => HttpResponse::Ok().json(out),
         Err(e) => {
-            error!(error = %e, "failed to load private saved views");
-            return errors::internal("Failed to load saved views");
+            error!(error = %e, "failed to load saved views");
+            errors::internal("Failed to load saved views")
         }
     }
-
-    HttpResponse::Ok().json(out)
 }
 
 pub async fn get_one(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     auth: AuthContext,
 ) -> impl Responder {
     let uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repo::find_by_uuid(&mut conn, uuid) {
+    match tc.run(|conn| repo::find_by_uuid(conn, uuid)) {
         Ok(Some(view)) => {
             if !user_can_read(&view, &auth) {
                 return errors::forbidden("You don't have access to this saved view");
@@ -167,10 +147,9 @@ pub async fn get_one(
 }
 
 pub async fn create(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<CreateBody>,
     auth: AuthContext,
-    req: HttpRequest,
 ) -> impl Responder {
     let body = body.into_inner();
     if let Err(msg) = validate_name(&body.name) {
@@ -193,15 +172,9 @@ pub async fn create(
     if let Err(msg) = validate_scope_pair(&body.scope, &body.scope_id, &auth) {
         return errors::bad_request(msg);
     }
-    let claims = req.extensions().get::<Claims>().cloned();
-    if !user_can_write_scope(&body.scope, &claims, &auth) {
+    if !user_can_write_scope(&body.scope, &auth) {
         return errors::forbidden(write_denied_message(&body.scope));
     }
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     let new = NewSavedView {
         scope: body.scope,
@@ -213,7 +186,7 @@ pub async fn create(
         dataset: dataset.to_string(),
     };
 
-    match repo::create(&mut conn, new) {
+    match tc.run(|conn| repo::create(conn, new)) {
         Ok(view) => {
             info!(uuid = %view.uuid, scope = %view.scope, "saved view created");
             HttpResponse::Created().json(view)
@@ -225,12 +198,19 @@ pub async fn create(
     }
 }
 
+/// Result variants for the patch flow so permission/notfound checks
+/// happen inside the transaction without doubling up calls.
+enum PatchOutcome {
+    Ok(SavedView),
+    NotFound,
+    Forbidden(&'static str),
+}
+
 pub async fn patch(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<PatchBody>,
     auth: AuthContext,
-    req: HttpRequest,
 ) -> impl Responder {
     let uuid = path.into_inner();
     let body = body.into_inner();
@@ -240,31 +220,28 @@ pub async fn patch(
         }
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    let view = match repo::find_by_uuid(&mut conn, uuid) {
-        Ok(Some(v)) => v,
-        Ok(None) => return errors::not_found_msg("Saved view not found"),
-        Err(e) => {
-            error!(error = %e, %uuid, "failed to look up saved view for patch");
-            return errors::internal("Failed to update saved view");
-        }
-    };
-    let claims = req.extensions().get::<Claims>().cloned();
-    if !user_can_write_view(&view, &claims, &auth) {
-        return errors::forbidden(write_denied_message(&view.scope));
-    }
-
     let patch = SavedViewUpdate {
         name: body.name.map(|s| s.trim().to_string()),
         shape: body.shape,
         filter: body.filter,
     };
-    match repo::update(&mut conn, uuid, patch) {
-        Ok(updated) => HttpResponse::Ok().json(updated),
+
+    let result = tc.run(|conn| {
+        let view = match repo::find_by_uuid(conn, uuid)? {
+            Some(v) => v,
+            None => return Ok(PatchOutcome::NotFound),
+        };
+        if !user_can_write_view(&view, &auth) {
+            return Ok(PatchOutcome::Forbidden(write_denied_message(&view.scope)));
+        }
+        let updated = repo::update(conn, uuid, patch)?;
+        Ok(PatchOutcome::Ok(updated))
+    });
+
+    match result {
+        Ok(PatchOutcome::Ok(updated)) => HttpResponse::Ok().json(updated),
+        Ok(PatchOutcome::NotFound) => errors::not_found_msg("Saved view not found"),
+        Ok(PatchOutcome::Forbidden(msg)) => errors::forbidden(msg),
         Err(e) => {
             error!(error = %e, %uuid, "failed to update saved view");
             errors::internal("Failed to update saved view")
@@ -272,31 +249,34 @@ pub async fn patch(
     }
 }
 
+/// Result variants for the delete flow, mirroring `PatchOutcome`.
+enum DeleteOutcome {
+    Ok,
+    NotFound,
+    Forbidden(&'static str),
+}
+
 pub async fn delete(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     auth: AuthContext,
-    req: HttpRequest,
 ) -> impl Responder {
     let uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let view = match repo::find_by_uuid(&mut conn, uuid) {
-        Ok(Some(v)) => v,
-        Ok(None) => return errors::not_found_msg("Saved view not found"),
-        Err(e) => {
-            error!(error = %e, %uuid, "failed to look up saved view for delete");
-            return errors::internal("Failed to delete saved view");
+    let result = tc.run(|conn| {
+        let view = match repo::find_by_uuid(conn, uuid)? {
+            Some(v) => v,
+            None => return Ok(DeleteOutcome::NotFound),
+        };
+        if !user_can_write_view(&view, &auth) {
+            return Ok(DeleteOutcome::Forbidden(write_denied_message(&view.scope)));
         }
-    };
-    let claims = req.extensions().get::<Claims>().cloned();
-    if !user_can_write_view(&view, &claims, &auth) {
-        return errors::forbidden(write_denied_message(&view.scope));
-    }
-    match repo::delete(&mut conn, uuid) {
-        Ok(_) => HttpResponse::NoContent().finish(),
+        repo::delete(conn, uuid)?;
+        Ok(DeleteOutcome::Ok)
+    });
+    match result {
+        Ok(DeleteOutcome::Ok) => HttpResponse::NoContent().finish(),
+        Ok(DeleteOutcome::NotFound) => errors::not_found_msg("Saved view not found"),
+        Ok(DeleteOutcome::Forbidden(msg)) => errors::forbidden(msg),
         Err(e) => {
             error!(error = %e, %uuid, "failed to delete saved view");
             errors::internal("Failed to delete saved view")
@@ -366,20 +346,20 @@ fn user_can_read(view: &SavedView, auth: &AuthContext) -> bool {
     }
 }
 
-fn user_can_write_scope(scope: &str, claims: &Option<Claims>, auth: &AuthContext) -> bool {
+fn user_can_write_scope(scope: &str, auth: &AuthContext) -> bool {
     match scope {
-        "workspace" => claims.as_ref().map(is_admin).unwrap_or(false),
+        "workspace" => auth.is_admin(),
         "project" => auth.is_technician_or_admin(),
         "private" => true,
         _ => false,
     }
 }
 
-fn user_can_write_view(view: &SavedView, claims: &Option<Claims>, auth: &AuthContext) -> bool {
+fn user_can_write_view(view: &SavedView, auth: &AuthContext) -> bool {
     if view.scope == "private" {
         return view.scope_id.as_deref() == Some(auth.user_uuid.to_string().as_str());
     }
-    user_can_write_scope(&view.scope, claims, auth)
+    user_can_write_scope(&view.scope, auth)
 }
 
 fn write_denied_message(scope: &str) -> &'static str {
@@ -390,8 +370,3 @@ fn write_denied_message(scope: &str) -> &'static str {
         _ => "You don't have permission to edit this saved view",
     }
 }
-
-// Suppress unused-import warnings for items only referenced inside
-// permission checks.
-#[allow(dead_code)]
-fn _keepalive(_: &DbConnection) {}

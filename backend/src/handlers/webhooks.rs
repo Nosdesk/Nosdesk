@@ -2,17 +2,17 @@
 //!
 //! Admin endpoints for managing webhooks for external integrations.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error as DieselError;
 use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::db::Pool;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{
-    Claims, CreateWebhookRequest, UpdateWebhookRequest, WebhookCreatedResponse,
+    CreateWebhookRequest, UpdateWebhookRequest, Webhook, WebhookCreatedResponse,
     WebhookDeliveryResponse, WebhookResponse, WebhookUpdate,
 };
 use crate::repository::webhooks as webhook_repo;
@@ -73,17 +73,12 @@ fn validate_events(events: &[String]) -> Result<(), HttpResponse> {
 // =============================================================================
 
 /// List all webhooks (admin only)
-pub async fn list_webhooks(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+pub async fn list_webhooks(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match webhook_repo::list_all_webhooks(&mut conn) {
+    match tc.run(|conn| webhook_repo::list_all_webhooks(conn)) {
         Ok(webhooks) => {
             let response: Vec<WebhookResponse> = webhooks.into_iter().map(Into::into).collect();
             HttpResponse::Ok().json(response)
@@ -98,19 +93,15 @@ pub async fn list_webhooks(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
 /// Create a new webhook (admin only)
 pub async fn create_webhook(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     body: web::Json<CreateWebhookRequest>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-
-    let created_by = Uuid::parse_str(&claims.sub).ok();
+    let created_by = Some(auth.user_uuid);
 
     // Validate inputs
     let name = match validate_name(&body.name) {
@@ -124,22 +115,23 @@ pub async fn create_webhook(
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let secret = generate_secret();
+    let url = body.url.clone();
+    let events = body.events.clone();
+    let headers = body.headers.clone();
+    let secret_for_repo = secret.clone();
 
-    match webhook_repo::create_webhook(
-        &mut conn,
-        name,
-        body.url.clone(),
-        secret.clone(),
-        body.events.clone(),
-        body.headers.clone(),
-        created_by,
-    ) {
+    match tc.run(|conn| {
+        webhook_repo::create_webhook(
+            conn,
+            name,
+            url,
+            secret_for_repo,
+            events,
+            headers,
+            created_by,
+        )
+    }) {
         Ok(webhook) => {
             info!(
                 "Webhook created: {} ({}) by {:?}",
@@ -172,7 +164,7 @@ pub async fn get_event_types(req: HttpRequest) -> impl Responder {
 /// Get a single webhook by UUID (admin only)
 pub async fn get_webhook(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -181,12 +173,7 @@ pub async fn get_webhook(
 
     let webhook_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match webhook_repo::get_webhook_by_uuid(&mut conn, webhook_uuid) {
+    match tc.run(|conn| webhook_repo::get_webhook_by_uuid(conn, webhook_uuid)) {
         Ok(webhook) => HttpResponse::Ok().json(WebhookResponse::from(webhook)),
         Err(DieselError::NotFound) => errors::not_found_msg("Webhook not found"),
         Err(e) => {
@@ -199,7 +186,7 @@ pub async fn get_webhook(
 /// Update a webhook (admin only)
 pub async fn update_webhook(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<UpdateWebhookRequest>,
 ) -> impl Responder {
@@ -231,11 +218,6 @@ pub async fn update_webhook(
         }
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Build update
     let mut update = WebhookUpdate::default();
     update.name = validated_name;
@@ -258,7 +240,7 @@ pub async fn update_webhook(
         update.disabled_reason = Some(None);
     }
 
-    match webhook_repo::update_webhook_by_uuid(&mut conn, webhook_uuid, update) {
+    match tc.run(|conn| webhook_repo::update_webhook_by_uuid(conn, webhook_uuid, update)) {
         Ok(webhook) => {
             info!("Webhook updated: {} ({})", webhook.uuid, webhook.name);
             HttpResponse::Ok().json(WebhookResponse::from(webhook))
@@ -274,7 +256,7 @@ pub async fn update_webhook(
 /// Delete a webhook (admin only)
 pub async fn delete_webhook(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -283,12 +265,7 @@ pub async fn delete_webhook(
 
     let webhook_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match webhook_repo::delete_webhook_by_uuid(&mut conn, webhook_uuid) {
+    match tc.run(|conn| webhook_repo::delete_webhook_by_uuid(conn, webhook_uuid)) {
         Ok(count) if count > 0 => {
             info!("Webhook deleted: {}", webhook_uuid);
             HttpResponse::NoContent().finish()
@@ -301,10 +278,16 @@ pub async fn delete_webhook(
     }
 }
 
+/// Result variants for the get-deliveries flow.
+enum DeliveriesOutcome {
+    Ok(Vec<crate::models::WebhookDelivery>),
+    NotFound,
+}
+
 /// Get delivery history for a webhook (admin only)
 pub async fn get_deliveries(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<Uuid>,
     query: web::Query<PaginationQuery>,
 ) -> impl Responder {
@@ -316,23 +299,19 @@ pub async fn get_deliveries(
     let limit = helpers::clamp_limit(query.limit);
     let offset = helpers::clamp_offset(query.offset);
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let outcome = tc.run(|conn| {
+        let webhook = match webhook_repo::get_webhook_by_uuid(conn, webhook_uuid) {
+            Ok(w) => w,
+            Err(DieselError::NotFound) => return Ok(DeliveriesOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        let deliveries =
+            webhook_repo::get_deliveries_for_webhook(conn, webhook.id, limit, offset)?;
+        Ok(DeliveriesOutcome::Ok(deliveries))
+    });
 
-    // Get webhook by UUID first
-    let webhook = match webhook_repo::get_webhook_by_uuid(&mut conn, webhook_uuid) {
-        Ok(w) => w,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Webhook not found"),
-        Err(e) => {
-            error!("Failed to get webhook: {}", e);
-            return errors::internal("Failed to get webhook");
-        }
-    };
-
-    match webhook_repo::get_deliveries_for_webhook(&mut conn, webhook.id, limit, offset) {
-        Ok(deliveries) => {
+    match outcome {
+        Ok(DeliveriesOutcome::Ok(deliveries)) => {
             let response: Vec<WebhookDeliveryResponse> = deliveries
                 .into_iter()
                 .map(|d| WebhookDeliveryResponse {
@@ -348,6 +327,7 @@ pub async fn get_deliveries(
                 .collect();
             HttpResponse::Ok().json(response)
         }
+        Ok(DeliveriesOutcome::NotFound) => errors::not_found_msg("Webhook not found"),
         Err(e) => {
             error!("Failed to get deliveries: {}", e);
             errors::internal("Failed to get deliveries")
@@ -355,10 +335,16 @@ pub async fn get_deliveries(
     }
 }
 
+/// Result variants for the test-webhook flow's lookup-then-dispatch.
+enum TestLookupOutcome {
+    Ok(Webhook),
+    NotFound,
+}
+
 /// Send a test event to a webhook (admin only)
 pub async fn test_webhook(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     webhook_service: web::Data<WebhookService>,
     path: web::Path<Uuid>,
 ) -> impl Responder {
@@ -368,15 +354,15 @@ pub async fn test_webhook(
 
     let webhook_uuid = path.into_inner();
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let lookup = tc.run(|conn| match webhook_repo::get_webhook_by_uuid(conn, webhook_uuid) {
+        Ok(w) => Ok(TestLookupOutcome::Ok(w)),
+        Err(DieselError::NotFound) => Ok(TestLookupOutcome::NotFound),
+        Err(e) => Err(e),
+    });
 
-    // Get webhook by UUID first
-    let webhook = match webhook_repo::get_webhook_by_uuid(&mut conn, webhook_uuid) {
-        Ok(w) => w,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Webhook not found"),
+    let webhook = match lookup {
+        Ok(TestLookupOutcome::Ok(w)) => w,
+        Ok(TestLookupOutcome::NotFound) => return errors::not_found_msg("Webhook not found"),
         Err(e) => {
             error!("Failed to get webhook: {}", e);
             return errors::internal("Failed to get webhook");
@@ -411,7 +397,7 @@ mod tests {
     use crate::models::UserRole;
     use crate::test_helpers::{claims_for, setup_test_pool};
     use actix_web::test as actix_test;
-    use actix_web::{http::StatusCode, App};
+    use actix_web::{http::StatusCode, App, HttpMessage};
 
     fn test_app(
         pool: crate::db::Pool,

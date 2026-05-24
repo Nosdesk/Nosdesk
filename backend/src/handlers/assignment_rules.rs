@@ -1,14 +1,13 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::db::Pool;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::models::{
-    AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, Claims, NewAssignmentRule,
+    AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, NewAssignmentRule,
 };
 use crate::repository;
 use crate::services::assignment::AssignmentEngine;
@@ -19,17 +18,12 @@ use crate::utils::rbac::require_admin;
 // ============================================================================
 
 /// Get all assignment rules with details (admin only)
-pub async fn get_all_rules(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+pub async fn get_all_rules(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::assignment_rules::get_all_rules_with_details(&mut conn) {
+    match tc.run(|conn| repository::assignment_rules::get_all_rules_with_details(conn)) {
         Ok(rules) => HttpResponse::Ok().json(rules),
         Err(_) => errors::internal("Failed to get assignment rules"),
     }
@@ -42,7 +36,7 @@ pub async fn get_all_rules(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
 /// Get a single rule by ID (admin only)
 pub async fn get_rule(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -50,12 +44,7 @@ pub async fn get_rule(
     }
 
     let rule_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::assignment_rules::get_rule_with_details(&mut conn, rule_id) {
+    match tc.run(|conn| repository::assignment_rules::get_rule_with_details(conn, rule_id)) {
         Ok(rule) => HttpResponse::Ok().json(rule),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Assignment rule not found"),
@@ -84,27 +73,26 @@ pub struct CreateAssignmentRuleRequest {
     pub conditions: Option<Value>,
 }
 
+/// Result variants for the create-rule flow so we can pull HTTP
+/// distinctions (conflict, bad-request returned via repo errors)
+/// back out of the transaction.
+enum CreateOutcome {
+    Created(serde_json::Value),
+    Conflict,
+}
+
 /// Create a new assignment rule (admin only)
 pub async fn create_rule(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     body: web::Json<CreateAssignmentRuleRequest>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-
-    let created_by = Uuid::parse_str(&claims.sub).ok();
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
+    let created_by = Some(auth.user_uuid);
 
     // Parse method
     let method = match body.method.as_str() {
@@ -144,40 +132,47 @@ pub async fn create_rule(
         }
     }
 
-    // Get next priority if not provided
-    let priority = match body.priority {
-        Some(p) => p,
-        None => repository::assignment_rules::get_next_priority(&mut conn).unwrap_or(100),
-    };
+    let body = body.into_inner();
 
-    // Check for duplicate name
-    if let Ok(true) = repository::assignment_rules::rule_name_exists(&mut conn, &body.name, None) {
-        return errors::conflict("A rule with this name already exists");
-    }
+    let result = tc.run(|conn| {
+        // Get next priority if not provided
+        let priority = match body.priority {
+            Some(p) => p,
+            None => repository::assignment_rules::get_next_priority(conn).unwrap_or(100),
+        };
 
-    let new_rule = NewAssignmentRule {
-        name: body.name.clone(),
-        description: body.description.clone(),
-        priority,
-        is_active: body.is_active.unwrap_or(true),
-        method,
-        target_user_uuid: body.target_user_uuid,
-        target_group_id: body.target_group_id,
-        trigger_on_create: body.trigger_on_create.unwrap_or(true),
-        trigger_on_category_change: body.trigger_on_category_change.unwrap_or(true),
-        category_id: body.category_id,
-        conditions: body.conditions.clone(),
-        created_by,
-    };
-
-    match repository::assignment_rules::create_rule(&mut conn, new_rule) {
-        Ok(rule) => {
-            // Return with full details
-            match repository::assignment_rules::get_rule_with_details(&mut conn, rule.id) {
-                Ok(details) => HttpResponse::Created().json(details),
-                Err(_) => HttpResponse::Created().json(rule),
-            }
+        // Check for duplicate name
+        if let Ok(true) = repository::assignment_rules::rule_name_exists(conn, &body.name, None) {
+            return Ok(CreateOutcome::Conflict);
         }
+
+        let new_rule = NewAssignmentRule {
+            name: body.name.clone(),
+            description: body.description.clone(),
+            priority,
+            is_active: body.is_active.unwrap_or(true),
+            method,
+            target_user_uuid: body.target_user_uuid,
+            target_group_id: body.target_group_id,
+            trigger_on_create: body.trigger_on_create.unwrap_or(true),
+            trigger_on_category_change: body.trigger_on_category_change.unwrap_or(true),
+            category_id: body.category_id,
+            conditions: body.conditions.clone(),
+            created_by,
+        };
+
+        let rule = repository::assignment_rules::create_rule(conn, new_rule)?;
+        // Return with full details
+        let body = match repository::assignment_rules::get_rule_with_details(conn, rule.id) {
+            Ok(details) => serde_json::to_value(details).unwrap_or(serde_json::Value::Null),
+            Err(_) => serde_json::to_value(rule).unwrap_or(serde_json::Value::Null),
+        };
+        Ok(CreateOutcome::Created(body))
+    });
+
+    match result {
+        Ok(CreateOutcome::Created(body)) => HttpResponse::Created().json(body),
+        Ok(CreateOutcome::Conflict) => errors::conflict("A rule with this name already exists"),
         Err(_) => errors::internal("Failed to create assignment rule"),
     }
 }
@@ -202,10 +197,17 @@ pub struct UpdateAssignmentRuleRequest {
     pub conditions: Option<Value>,
 }
 
+/// Result variants for update-rule, mirroring `CreateOutcome`.
+enum UpdateOutcome {
+    Ok(serde_json::Value),
+    NotFound,
+    Conflict,
+}
+
 /// Update an assignment rule (admin only)
 pub async fn update_rule(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateAssignmentRuleRequest>,
 ) -> impl Responder {
@@ -214,17 +216,6 @@ pub async fn update_rule(
     }
 
     let rule_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Check if rule exists
-    let existing = match repository::assignment_rules::get_rule_by_id(&mut conn, rule_id) {
-        Ok(r) => r,
-        Err(Error::NotFound) => return errors::not_found_msg("Assignment rule not found"),
-        Err(_) => return errors::internal("Database error"),
-    };
 
     // Parse method if provided
     let method = match &body.method {
@@ -238,17 +229,6 @@ pub async fn update_rule(
         None => None,
     };
 
-    // Check for duplicate name if name is being changed
-    if let Some(ref new_name) = body.name {
-        if new_name != &existing.name {
-            if let Ok(true) =
-                repository::assignment_rules::rule_name_exists(&mut conn, new_name, Some(rule_id))
-            {
-                return errors::conflict("A rule with this name already exists");
-            }
-        }
-    }
-
     // Validate conditions JSON size and depth to prevent DoS
     if let Some(ref conditions) = body.conditions {
         let json_str = conditions.to_string();
@@ -261,30 +241,60 @@ pub async fn update_rule(
         }
     }
 
-    let rule_update = AssignmentRuleUpdate {
-        name: body.name.clone(),
-        description: body.description.clone(),
-        priority: body.priority,
-        is_active: body.is_active,
-        method,
-        target_user_uuid: body.target_user_uuid,
-        target_group_id: body.target_group_id,
-        trigger_on_create: body.trigger_on_create,
-        trigger_on_category_change: body.trigger_on_category_change,
-        category_id: body.category_id,
-        conditions: body.conditions.clone(),
-        updated_at: None,
-    };
+    let body = body.into_inner();
 
-    match repository::assignment_rules::update_rule(&mut conn, rule_id, rule_update) {
-        Ok(_) => {
-            // Return with full details
-            match repository::assignment_rules::get_rule_with_details(&mut conn, rule_id) {
-                Ok(details) => HttpResponse::Ok().json(details),
-                Err(_) => errors::internal("Failed to get updated rule"),
+    let result = tc.run(|conn| {
+        // Check if rule exists
+        let existing = match repository::assignment_rules::get_rule_by_id(conn, rule_id) {
+            Ok(r) => r,
+            Err(Error::NotFound) => return Ok(UpdateOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+
+        // Check for duplicate name if name is being changed
+        if let Some(ref new_name) = body.name {
+            if new_name != &existing.name {
+                if let Ok(true) = repository::assignment_rules::rule_name_exists(
+                    conn,
+                    new_name,
+                    Some(rule_id),
+                ) {
+                    return Ok(UpdateOutcome::Conflict);
+                }
             }
         }
-        Err(Error::NotFound) => errors::not_found_msg("Assignment rule not found"),
+
+        let rule_update = AssignmentRuleUpdate {
+            name: body.name.clone(),
+            description: body.description.clone(),
+            priority: body.priority,
+            is_active: body.is_active,
+            method,
+            target_user_uuid: body.target_user_uuid,
+            target_group_id: body.target_group_id,
+            trigger_on_create: body.trigger_on_create,
+            trigger_on_category_change: body.trigger_on_category_change,
+            category_id: body.category_id,
+            conditions: body.conditions.clone(),
+            updated_at: None,
+        };
+
+        match repository::assignment_rules::update_rule(conn, rule_id, rule_update) {
+            Ok(_) => {
+                let details = repository::assignment_rules::get_rule_with_details(conn, rule_id)?;
+                Ok(UpdateOutcome::Ok(
+                    serde_json::to_value(details).unwrap_or(serde_json::Value::Null),
+                ))
+            }
+            Err(Error::NotFound) => Ok(UpdateOutcome::NotFound),
+            Err(e) => Err(e),
+        }
+    });
+
+    match result {
+        Ok(UpdateOutcome::Ok(body)) => HttpResponse::Ok().json(body),
+        Ok(UpdateOutcome::NotFound) => errors::not_found_msg("Assignment rule not found"),
+        Ok(UpdateOutcome::Conflict) => errors::conflict("A rule with this name already exists"),
         Err(_) => errors::internal("Failed to update assignment rule"),
     }
 }
@@ -296,7 +306,7 @@ pub async fn update_rule(
 /// Delete an assignment rule (admin only)
 pub async fn delete_rule(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
@@ -304,12 +314,7 @@ pub async fn delete_rule(
     }
 
     let rule_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::assignment_rules::delete_rule(&mut conn, rule_id) {
+    match tc.run(|conn| repository::assignment_rules::delete_rule(conn, rule_id)) {
         Ok(0) => errors::not_found_msg("Assignment rule not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(_) => errors::internal("Failed to delete assignment rule"),
@@ -335,28 +340,21 @@ pub struct RuleOrder {
 /// Reorder rules by priority (admin only)
 pub async fn reorder_rules(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<ReorderRulesRequest>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let orders: Vec<(i32, i32)> = body.orders.iter().map(|o| (o.id, o.priority)).collect();
 
-    match repository::assignment_rules::reorder_rules(&mut conn, orders) {
-        Ok(_) => {
-            // Return all rules with updated order
-            match repository::assignment_rules::get_all_rules_with_details(&mut conn) {
-                Ok(rules) => HttpResponse::Ok().json(rules),
-                Err(_) => errors::internal("Failed to get updated rules"),
-            }
-        }
+    let result = tc.run(|conn| {
+        repository::assignment_rules::reorder_rules(conn, orders)?;
+        repository::assignment_rules::get_all_rules_with_details(conn)
+    });
+    match result {
+        Ok(rules) => HttpResponse::Ok().json(rules),
         Err(_) => errors::internal("Failed to reorder rules"),
     }
 }
@@ -383,20 +381,23 @@ pub struct PreviewAssignmentResponse {
     pub message: String,
 }
 
+/// Result variants for the preview flow.
+enum PreviewOutcome {
+    Assigned(PreviewAssignmentResponse),
+    NoMatch,
+    AlreadyAssigned,
+    TicketNotFound,
+}
+
 /// Preview what assignment would happen for a ticket (admin only)
 pub async fn preview_assignment(
     req: HttpRequest,
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<PreviewAssignmentRequest>,
 ) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     // Parse trigger
     let trigger = match body.trigger.as_str() {
@@ -405,35 +406,41 @@ pub async fn preview_assignment(
         _ => return errors::bad_request("Invalid trigger type"),
     };
 
-    // Get the ticket
-    let ticket = match repository::get_ticket_by_id(&mut conn, body.ticket_id) {
-        Ok(t) => t,
-        Err(_) => return errors::not_found_msg("Ticket not found"),
-    };
+    let ticket_id = body.ticket_id;
 
-    // Check if ticket already has assignee
-    if ticket.assignee_uuid.is_some() {
-        return HttpResponse::Ok().json(PreviewAssignmentResponse {
-            would_assign: false,
-            rule_id: None,
-            rule_name: None,
-            assigned_user_uuid: None,
-            method: None,
-            message: "Ticket already has an assignee".to_string(),
-        });
-    }
+    let result = tc.run(|conn| {
+        // Get the ticket
+        let ticket = match repository::get_ticket_by_id(conn, ticket_id) {
+            Ok(t) => t,
+            Err(Error::NotFound) => return Ok(PreviewOutcome::TicketNotFound),
+            Err(e) => return Err(e),
+        };
 
-    // Evaluate rules
-    match AssignmentEngine::evaluate_rules(&mut conn, &ticket, trigger) {
-        Some(result) => HttpResponse::Ok().json(PreviewAssignmentResponse {
-            would_assign: true,
-            rule_id: Some(result.rule_id),
-            rule_name: Some(result.rule_name),
-            assigned_user_uuid: result.assigned_user_uuid,
-            method: Some(result.method.to_string()),
-            message: "Assignment would be made".to_string(),
-        }),
-        None => HttpResponse::Ok().json(PreviewAssignmentResponse {
+        // Check if ticket already has assignee
+        if ticket.assignee_uuid.is_some() {
+            return Ok(PreviewOutcome::AlreadyAssigned);
+        }
+
+        // Evaluate rules — same call site as the production handlers,
+        // already wired through TenantConn there.
+        Ok::<_, diesel::result::Error>(
+            match AssignmentEngine::evaluate_rules(conn, &ticket, trigger) {
+                Some(eval) => PreviewOutcome::Assigned(PreviewAssignmentResponse {
+                    would_assign: true,
+                    rule_id: Some(eval.rule_id),
+                    rule_name: Some(eval.rule_name),
+                    assigned_user_uuid: eval.assigned_user_uuid,
+                    method: Some(eval.method.to_string()),
+                    message: "Assignment would be made".to_string(),
+                }),
+                None => PreviewOutcome::NoMatch,
+            },
+        )
+    });
+
+    match result {
+        Ok(PreviewOutcome::Assigned(resp)) => HttpResponse::Ok().json(resp),
+        Ok(PreviewOutcome::NoMatch) => HttpResponse::Ok().json(PreviewAssignmentResponse {
             would_assign: false,
             rule_id: None,
             rule_name: None,
@@ -441,6 +448,16 @@ pub async fn preview_assignment(
             method: None,
             message: "No matching assignment rule found".to_string(),
         }),
+        Ok(PreviewOutcome::AlreadyAssigned) => HttpResponse::Ok().json(PreviewAssignmentResponse {
+            would_assign: false,
+            rule_id: None,
+            rule_name: None,
+            assigned_user_uuid: None,
+            method: None,
+            message: "Ticket already has an assignee".to_string(),
+        }),
+        Ok(PreviewOutcome::TicketNotFound) => errors::not_found_msg("Ticket not found"),
+        Err(_) => errors::internal("Failed to preview assignment"),
     }
 }
 
@@ -449,17 +466,12 @@ pub async fn preview_assignment(
 // ============================================================================
 
 /// Get recent assignment logs (admin only)
-pub async fn get_assignment_logs(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+pub async fn get_assignment_logs(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_admin(&req) {
         return e;
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    match repository::assignment_rules::get_recent_logs(&mut conn, 100) {
+    match tc.run(|conn| repository::assignment_rules::get_recent_logs(conn, 100)) {
         Ok(logs) => HttpResponse::Ok().json(logs),
         Err(_) => errors::internal("Failed to get assignment logs"),
     }
