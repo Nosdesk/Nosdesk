@@ -9,10 +9,8 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::*;
-use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
-use crate::sync::session;
 use crate::utils::storage::Storage;
 
 /// Observer fired after `update_ticket_partial` commits a change.
@@ -279,133 +277,151 @@ pub fn update_ticket_partial(
 }
 
 /// Comprehensive ticket deletion that cleans up all associated data and files
-pub async fn delete_ticket_with_cleanup(
+/// Result of `delete_ticket_with_cleanup`: how many ticket rows
+/// the delete affected (0 or 1), plus the list of storage paths
+/// the caller should clean up asynchronously after the txn commits.
+/// Splitting the DB and storage halves lets the handler run the
+/// DB part inside `TenantConn::run` (one txn, RLS-pinned) and do
+/// the storage I/O afterwards without holding the connection.
+pub struct DeletedTicket {
+    pub rows_affected: usize,
+    pub attachment_paths: Vec<String>,
+}
+
+/// Delete a ticket and all its dependent rows in a single
+/// transaction. Returns the affected row count plus the attachment
+/// storage paths the caller should sweep after commit.
+///
+/// The function is intentionally sync and does NOT open its own
+/// `conn.transaction(...)` / call `session::set_actor` — callers
+/// are expected to wrap via `TenantConn::run` (or
+/// `session::with_actor_context`) so the actor + workspace GUCs
+/// land on the surrounding transaction and the RLS policies see
+/// them. The async storage cleanup and the search observer
+/// notification happen at the call site, after commit.
+pub fn delete_ticket_with_cleanup(
     conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<DeletedTicket> {
+    // 0. Capture the row + sync groups BEFORE we start deleting children,
+    // so the emitted ticket.deleted event has the correct group fan-out
+    // (project memberships are about to be cascade-removed) and still
+    // resolves on a row that exists.
+    let pre_delete = tickets::table
+        .find(ticket_id)
+        .first::<Ticket>(conn)
+        .optional()?;
+    let pre_groups = match pre_delete.as_ref() {
+        Some(t) => groups::for_ticket(conn, t)?,
+        None => Vec::new(),
+    };
+
+    // 1. First, get all comments for this ticket to find attachments
+    let comments = crate::repository::comments::get_comments_by_ticket_id(conn, ticket_id)?;
+
+    // 2. Collect all attachment paths for file cleanup
+    let mut attachment_paths = Vec::new();
+    for comment in &comments {
+        let attachments =
+            crate::repository::comments::get_attachments_by_comment_id(conn, comment.id)?;
+        for attachment in &attachments {
+            // Extract the storage path from the URL
+            if let Some(storage_path) = extract_storage_path_from_url(&attachment.url) {
+                attachment_paths.push(storage_path);
+            }
+            // Delete the attachment record
+            diesel::delete(crate::schema::attachments::table.find(attachment.id)).execute(conn)?;
+        }
+    }
+
+    // 3. Delete all comments for this ticket
+    diesel::delete(
+        crate::schema::comments::table.filter(crate::schema::comments::ticket_id.eq(ticket_id)),
+    )
+    .execute(conn)?;
+
+    // 4. Delete linked tickets relationships
+    diesel::delete(
+        crate::schema::linked_tickets::table.filter(
+            crate::schema::linked_tickets::ticket_id
+                .eq(ticket_id)
+                .or(crate::schema::linked_tickets::linked_ticket_id.eq(ticket_id)),
+        ),
+    )
+    .execute(conn)?;
+
+    // 5. Delete ticket-device relationships
+    diesel::delete(
+        crate::schema::ticket_assets::table
+            .filter(crate::schema::ticket_assets::ticket_id.eq(ticket_id)),
+    )
+    .execute(conn)?;
+
+    // 6. Delete ticket-project relationships
+    diesel::delete(
+        crate::schema::project_tickets::table
+            .filter(crate::schema::project_tickets::ticket_id.eq(ticket_id)),
+    )
+    .execute(conn)?;
+
+    // 7. Delete article content
+    diesel::delete(
+        crate::schema::article_contents::table
+            .filter(crate::schema::article_contents::ticket_id.eq(ticket_id)),
+    )
+    .execute(conn)?;
+
+    // 8. Finally, delete the ticket itself
+    let result = diesel::delete(tickets::table.find(ticket_id)).execute(conn)?;
+
+    if result > 0 {
+        // Emit only when the row actually existed; pre_delete is None
+        // for repeated DELETE calls, in which case the result is 0
+        // and we'd be emitting a phantom event.
+        if pre_delete.is_some() {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::Ticket,
+                    aggregate_id: ticket_id.to_string(),
+                    op: SyncOp::Delete,
+                    event_type: "ticket.deleted",
+                    data: json!({ "id": ticket_id }),
+                    groups: pre_groups,
+                    causation_id: None,
+                },
+            )?;
+        }
+    }
+
+    Ok(DeletedTicket {
+        rows_affected: result,
+        attachment_paths,
+    })
+}
+
+/// Spawn the post-commit cleanup that ticket deletion needs: file
+/// removal in storage and a search-index observer notification.
+/// Fire-and-forget; failures are logged but don't propagate.
+pub fn spawn_delete_cleanup(
+    deleted: DeletedTicket,
     ticket_id: i32,
     storage: Arc<dyn Storage>,
     observer: Option<&dyn TicketDeletedObserver>,
-    actor: &ActorContext,
-) -> Result<usize, Error> {
-    // Start a transaction to ensure all operations succeed or fail together
-    conn.transaction(|conn| {
-        // Set the session-local actor GUC so the delete event below
-        // (and any cascade triggers) carry the right attribution.
-        session::set_actor(conn, actor)?;
-        // 0. Capture the row + sync groups BEFORE we start deleting children,
-        // so the emitted ticket.deleted event has the correct group fan-out
-        // (project memberships are about to be cascade-removed) and still
-        // resolves on a row that exists.
-        let pre_delete = tickets::table
-            .find(ticket_id)
-            .first::<Ticket>(conn)
-            .optional()?;
-        let pre_groups = match pre_delete.as_ref() {
-            Some(t) => groups::for_ticket(conn, t)?,
-            None => Vec::new(),
-        };
+) {
+    if deleted.rows_affected > 0 {
+        if let Some(observer) = observer {
+            observer.ticket_deleted(ticket_id);
+        }
+    }
 
-        // 1. First, get all comments for this ticket to find attachments
-        let comments = crate::repository::comments::get_comments_by_ticket_id(conn, ticket_id)?;
-
-        // 2. Collect all attachment paths for file cleanup
-        let mut attachment_paths = Vec::new();
-        for comment in &comments {
-            let attachments =
-                crate::repository::comments::get_attachments_by_comment_id(conn, comment.id)?;
-            for attachment in &attachments {
-                // Extract the storage path from the URL
-                if let Some(storage_path) = extract_storage_path_from_url(&attachment.url) {
-                    attachment_paths.push(storage_path);
-                }
-                // Delete the attachment record
-                diesel::delete(crate::schema::attachments::table.find(attachment.id))
-                    .execute(conn)?;
+    tokio::spawn(async move {
+        for path in deleted.attachment_paths {
+            if let Err(e) = storage.delete_file(&path).await {
+                warn!(path, error = ?e, "Failed to delete file during ticket cleanup");
             }
         }
-
-        // 3. Delete all comments for this ticket
-        diesel::delete(
-            crate::schema::comments::table.filter(crate::schema::comments::ticket_id.eq(ticket_id)),
-        )
-        .execute(conn)?;
-
-        // 4. Delete linked tickets relationships
-        diesel::delete(
-            crate::schema::linked_tickets::table.filter(
-                crate::schema::linked_tickets::ticket_id
-                    .eq(ticket_id)
-                    .or(crate::schema::linked_tickets::linked_ticket_id.eq(ticket_id)),
-            ),
-        )
-        .execute(conn)?;
-
-        // 5. Delete ticket-device relationships
-        diesel::delete(
-            crate::schema::ticket_assets::table
-                .filter(crate::schema::ticket_assets::ticket_id.eq(ticket_id)),
-        )
-        .execute(conn)?;
-
-        // 6. Delete ticket-project relationships
-        diesel::delete(
-            crate::schema::project_tickets::table
-                .filter(crate::schema::project_tickets::ticket_id.eq(ticket_id)),
-        )
-        .execute(conn)?;
-
-        // 7. Delete article content
-        diesel::delete(
-            crate::schema::article_contents::table
-                .filter(crate::schema::article_contents::ticket_id.eq(ticket_id)),
-        )
-        .execute(conn)?;
-
-        // 8. Finally, delete the ticket itself
-        let result = diesel::delete(tickets::table.find(ticket_id)).execute(conn)?;
-
-        if result > 0 {
-            // Emit only when the row actually existed; pre_delete is None
-            // for repeated DELETE calls, in which case the result is 0
-            // and we'd be emitting a phantom event.
-            if let Some(_t) = pre_delete.as_ref() {
-                emit::record(
-                    conn,
-                    SyncEmit {
-                        aggregate: SyncAggregate::Ticket,
-                        aggregate_id: ticket_id.to_string(),
-                        op: SyncOp::Delete,
-                        event_type: "ticket.deleted",
-                        data: json!({ "id": ticket_id }),
-                        groups: pre_groups,
-                        causation_id: None,
-                    },
-                )?;
-            }
-        }
-
-        // Return the attachment paths for file cleanup (outside transaction)
-        Ok((result, attachment_paths))
-    })
-    .map(|(result, attachment_paths)| {
-        // Clean up files after successful database transaction
-        // This is done outside the transaction to avoid blocking the database
-        tokio::spawn(async move {
-            for path in attachment_paths {
-                if let Err(e) = storage.delete_file(&path).await {
-                    warn!(path, error = ?e, "Failed to delete file during ticket cleanup");
-                }
-            }
-        });
-        // Notify the search observer once the row is gone. Skipped on
-        // result == 0 (ticket didn't exist) so we don't drop a
-        // phantom delete into the index.
-        if result > 0 {
-            if let Some(observer) = observer {
-                observer.ticket_deleted(ticket_id);
-            }
-        }
-        result
-    })
+    });
 }
 
 /// Extract storage path from attachment URL
@@ -919,6 +935,7 @@ mod tests {
     // 3c lands and 3f adds the per-table sweep, the shared isolation
     // harness can subsume this.
 
+    use crate::sync::actor::ActorContext;
     use crate::sync::session::{with_actor_bypass_context, with_actor_context};
 
     /// Seed a second workspace + one ticket per workspace. Returns
