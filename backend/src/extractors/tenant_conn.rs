@@ -31,13 +31,19 @@
 
 use actix_web::{dev::Payload, web, FromRequest, HttpMessage, HttpRequest};
 use std::future::{ready, Ready};
-use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::middleware::RequestContext;
-use crate::models::Claims;
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
+
+// `Claims` and `Uuid` are only needed for the test-only fallback in
+// `from_request` that reconstructs an actor from raw Claims when
+// handler-level unit tests bypass the middleware chain.
+#[cfg(test)]
+use crate::models::Claims;
+#[cfg(test)]
+use uuid::Uuid;
 
 /// Handler extractor that yields a tenant-scoped connection bound
 /// to the request's actor + workspace context.
@@ -130,22 +136,40 @@ impl FromRequest for TenantConn {
     type Future = Ready<Result<Self, Self::Error>>;
 
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-        // Primary path: the auth middlewares populate RequestContext
-        // and it carries the workspace-pinned actor. Fallback path:
-        // handler-level tests insert raw Claims via extensions
-        // without going through the middleware chain; reconstruct a
-        // best-effort actor. The workspace pin in that case comes
-        // from the ambient GUC (set by test_helpers / middleware),
-        // not from this actor.
+        // Primary path (production + integration tests): the auth
+        // middlewares populate RequestContext and it carries the
+        // workspace-pinned actor.
+        //
+        // Fallback path (handler-level unit tests only): some tests
+        // insert raw Claims into request extensions without going
+        // through the middleware chain. The fallback reconstructs a
+        // best-effort actor; the workspace pin comes from the
+        // ambient GUC that setup_test_connection pre-sets. The
+        // fallback is gated behind cfg(test) so it cannot execute
+        // in a release build — if a production route is ever wired
+        // with an auth middleware but without
+        // WorkspaceContextMiddleware, the request fails fast with
+        // 401 rather than silently degrading to a None-workspace
+        // actor that returns empty results from every tenant
+        // query.
         let actor = if let Some(ctx) = req.extensions().get::<RequestContext>().cloned() {
             ctx.actor
-        } else if let Some(claims) = req.extensions().get::<Claims>().cloned() {
-            match Uuid::parse_str(&claims.sub) {
-                Ok(uuid) => ActorContext::user(uuid, None),
-                Err(_) => return ready(Err(TenantConnError::MissingRequestContext)),
-            }
         } else {
-            return ready(Err(TenantConnError::MissingRequestContext));
+            #[cfg(test)]
+            {
+                if let Some(claims) = req.extensions().get::<Claims>().cloned() {
+                    match Uuid::parse_str(&claims.sub) {
+                        Ok(uuid) => ActorContext::user(uuid, None),
+                        Err(_) => return ready(Err(TenantConnError::MissingRequestContext)),
+                    }
+                } else {
+                    return ready(Err(TenantConnError::MissingRequestContext));
+                }
+            }
+            #[cfg(not(test))]
+            {
+                return ready(Err(TenantConnError::MissingRequestContext));
+            }
         };
 
         let pool = match req.app_data::<web::Data<Pool>>() {
