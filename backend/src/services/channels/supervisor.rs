@@ -109,17 +109,21 @@ async fn run(mut rx: mpsc::Receiver<ChannelCmd>, deps: RegistryDeps) {
     let mut registry = ChannelRegistry::new(deps.clone());
 
     // Hydrate from the DB so enabled channels at startup get a worker
-    // without a synthetic Upsert storm from the caller.
-    match deps.pool.get() {
-        Ok(mut conn) => match channels_repo::list_enabled(&mut conn) {
-            Ok(channels) => {
-                let count = channels.len();
-                registry.start_many(channels);
-                info!(count, "channel supervisor: hydrated from DB");
-            }
-            Err(e) => error!(error = %e, "channel supervisor: list_enabled failed"),
-        },
-        Err(e) => error!(error = %e, "channel supervisor: pool.get failed at startup"),
+    // without a synthetic Upsert storm from the caller. channels is
+    // RLS-enabled; the supervisor is platform-level (manages every
+    // workspace's enabled channels), so background_run with bypass
+    // is correct.
+    match crate::sync::session::background_run(
+        &deps.pool,
+        "background:channel_supervisor_hydrate",
+        |conn| channels_repo::list_enabled(conn),
+    ) {
+        Ok(channels) => {
+            let count = channels.len();
+            registry.start_many(channels);
+            info!(count, "channel supervisor: hydrated from DB");
+        }
+        Err(e) => error!(error = %e, "channel supervisor: list_enabled failed"),
     }
 
     info!("channel supervisor: ready");
@@ -149,17 +153,17 @@ async fn handle(cmd: ChannelCmd, registry: &mut ChannelRegistry, deps: &Registry
 async fn reconcile(id: i32, registry: &mut ChannelRegistry, deps: &RegistryDeps) {
     registry.stop(id).await;
 
-    let mut conn = match deps.pool.get() {
+    // channels is RLS-enabled; reconcile is cross-tenant
+    // (supervisor manages every workspace's channels).
+    let channel = match crate::sync::session::background_run(
+        &deps.pool,
+        "background:channel_supervisor_reconcile",
+        |conn| channels_repo::find(conn, id),
+    ) {
         Ok(c) => c,
-        Err(e) => {
-            warn!(channel_id = id, error = %e, "channel supervisor: pool.get failed; skip reconcile");
-            return;
-        }
-    };
-
-    let channel = match channels_repo::find(&mut conn, id) {
-        Ok(c) => c,
-        Err(diesel::result::Error::NotFound) => {
+        Err(crate::sync::session::BackgroundRunError::Db(
+            diesel::result::Error::NotFound,
+        )) => {
             debug!(
                 channel_id = id,
                 "channel supervisor: row deleted; no worker to start"
@@ -179,9 +183,6 @@ async fn reconcile(id: i32, registry: &mut ChannelRegistry, deps: &RegistryDeps)
         );
         return;
     }
-
-    // Drop the connection before the start path touches the pool.
-    drop(conn);
 
     if let Err(e) = registry.start(channel) {
         error!(channel_id = id, error = %e, "channel supervisor: start failed");

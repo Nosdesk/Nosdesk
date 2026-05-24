@@ -181,101 +181,105 @@ pub fn enqueue_for_comment(
     pool: crate::db::Pool,
 ) {
     tokio::spawn(async move {
-        let mut conn = match pool.get() {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(error = %e, "channel relay: could not obtain db connection");
-                return;
-            }
-        };
-        let decision = match super::relay::decide_relay(&mut conn, &ticket, &comment) {
-            Ok(d) => d,
-            Err(e) => {
-                warn!(error = %e, "channel relay: decision failed");
-                return;
-            }
-        };
-        let (channel, thread) = match decision {
-            super::relay::RelayDecision::Relay { channel, thread } => (channel, thread),
-            other => {
-                tracing::debug!(decision = ?other, "channel relay: skipped");
-                return;
-            }
-        };
+        // Everything inside this spawn is sync DB work — no awaits
+        // between pool.get and the enqueue write — so the whole
+        // body fits inside a single background_run. channels,
+        // tickets, signatures (user prefs), outbound_emails are
+        // all RLS-enabled; the relay runs from the comment handler
+        // spawn with no request-bound workspace pin.
+        let result = crate::sync::session::background_run(
+            &pool,
+            "background:channel_relay_enqueue",
+            |conn| {
+                let decision = super::relay::decide_relay(conn, &ticket, &comment)
+                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
+                let (channel, thread) = match decision {
+                    super::relay::RelayDecision::Relay { channel, thread } => (channel, thread),
+                    other => {
+                        tracing::debug!(decision = ?other, "channel relay: skipped");
+                        return Ok(None);
+                    }
+                };
 
-        // Compose the reply in both HTML and plaintext form so the
-        // email worker can ship a real `multipart/alternative` message.
-        // Final wire order in either form:
-        //   <tech's new reply>
-        //   <signature>
-        //   <quoted prior message>
-        let body = super::reply_body::ReplyBody::from_comment(&comment);
-        let body = super::signature::append_signature_for_user(&mut conn, comment.user_uuid, body);
-        let body = super::quote_previous::maybe_prepend_quote(&mut conn, &channel, &ticket, body);
+                // Compose the reply in both HTML and plaintext form
+                // so the email worker can ship a real
+                // multipart/alternative message. Final wire order
+                // in either form:
+                //   <tech's new reply>
+                //   <signature>
+                //   <quoted prior message>
+                let body = super::reply_body::ReplyBody::from_comment(&comment);
+                let body =
+                    super::signature::append_signature_for_user(conn, comment.user_uuid, body);
+                let body =
+                    super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body);
 
-        // Stamp the Message-ID *once*, here, and persist it on the
-        // queue row. Retries reuse the same ID; receiving MTAs and
-        // customer MUAs deduplicate on it. This is the primary defense
-        // against crash-mid-send duplicates.
-        let config: super::email_imap::ImapChannelConfig =
-            match serde_json::from_value(channel.config.clone()) {
-                Ok(c) => c,
-                Err(e) => {
-                    warn!(
-                        channel_id = channel.id,
-                        error = %e,
-                        "channel relay: bad channel config; skipping enqueue"
-                    );
-                    return;
-                }
-            };
-        let message_id =
-            format_outbound_message_id(thread.ticket_id, comment.id, &config.reply_domain);
-        let subject = super::threading::format_outbound_subject(
-            thread.ticket_id,
-            thread.subject.as_deref().unwrap_or(""),
+                let config: super::email_imap::ImapChannelConfig =
+                    match serde_json::from_value(channel.config.clone()) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            warn!(
+                                channel_id = channel.id,
+                                error = %e,
+                                "channel relay: bad channel config; skipping enqueue"
+                            );
+                            return Ok(None);
+                        }
+                    };
+                let message_id = format_outbound_message_id(
+                    thread.ticket_id,
+                    comment.id,
+                    &config.reply_domain,
+                );
+                let subject = super::threading::format_outbound_subject(
+                    thread.ticket_id,
+                    thread.subject.as_deref().unwrap_or(""),
+                );
+                let recipient = thread
+                    .recipient
+                    .known_email
+                    .clone()
+                    .unwrap_or_else(|| thread.recipient.external_id.clone());
+
+                let new_row = crate::models::NewOutboundEmail {
+                    channel_id: Some(channel.id),
+                    ticket_id: Some(thread.ticket_id),
+                    comment_id: Some(comment.id),
+                    recipient,
+                    subject,
+                    body_text: body.text,
+                    body_html: Some(body.html),
+                    message_id,
+                    in_reply_to: thread.external_thread_id,
+                    references_list: thread.references.into_iter().map(Some).collect(),
+                    headers_json: serde_json::json!({}),
+                    // Item S correlation_id flows in once the per-
+                    // request context propagates through this far.
+                    correlation_id: None,
+                    idempotency_key: None,
+                };
+
+                let row = crate::repository::outbound_emails::enqueue_or_suppress(conn, new_row)
+                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
+                Ok::<_, diesel::result::Error>(Some((row.id, thread.ticket_id)))
+            },
         );
-        let recipient = thread
-            .recipient
-            .known_email
-            .clone()
-            .unwrap_or_else(|| thread.recipient.external_id.clone());
 
-        let new_row = crate::models::NewOutboundEmail {
-            channel_id: Some(channel.id),
-            ticket_id: Some(thread.ticket_id),
-            comment_id: Some(comment.id),
-            recipient,
-            subject,
-            body_text: body.text,
-            body_html: Some(body.html),
-            message_id,
-            in_reply_to: thread.external_thread_id,
-            references_list: thread.references.into_iter().map(Some).collect(),
-            headers_json: serde_json::json!({}),
-            // Item S correlation_id flows in once the per-request
-            // context propagates through this far. Pass 1 ships
-            // None and the audit row will lack the cross-request
-            // join; Pass 2's bounce work picks this back up.
-            correlation_id: None,
-            // Channel-reply rows dedupe via stable Message-ID at the
-            // handler layer; no enqueue-level idempotency key needed.
-            idempotency_key: None,
-        };
-
-        match crate::repository::outbound_emails::enqueue_or_suppress(&mut conn, new_row) {
-            Ok(row) => {
+        match result {
+            Ok(Some((queue_id, ticket_id))) => {
                 tracing::debug!(
-                    queue_id = row.id,
-                    ticket_id = thread.ticket_id,
+                    queue_id,
+                    ticket_id,
                     comment_id = comment.id,
                     "channel relay: enqueued for outbound dispatch"
                 );
             }
+            Ok(None) => {
+                // skipped or bad-config — already logged inside the closure
+            }
             Err(e) => {
                 warn!(
                     error = %e,
-                    ticket_id = thread.ticket_id,
                     comment_id = comment.id,
                     "channel relay: enqueue failed; comment saved but no reply sent"
                 );

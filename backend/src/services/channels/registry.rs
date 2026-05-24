@@ -427,10 +427,13 @@ async fn classify_error(channel: &Channel, err: &ChannelError, deps: &RegistryDe
 }
 
 async fn record_last_error(channel: &Channel, msg: &str, deps: &RegistryDeps) {
-    let Ok(mut conn) = deps.pool.get_timeout(POOL_ACQUIRE_TIMEOUT) else {
-        return;
-    };
-    if let Err(e) = write_last_error(&mut conn, channel, Some(msg)) {
+    // channels is RLS-enabled; channel supervisor is platform-
+    // level (manages every workspace's channels), so bypass.
+    if let Err(e) = crate::sync::session::background_run(
+        &deps.pool,
+        "background:channel_record_last_error",
+        |conn| write_last_error(conn, channel, Some(msg)),
+    ) {
         warn!(channel = channel.id, error = %e, "failed to persist last_error");
     }
 }
