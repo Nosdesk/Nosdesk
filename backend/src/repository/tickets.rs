@@ -1137,4 +1137,187 @@ mod tests {
         .expect("read ws2 ticket via bypass");
         assert_eq!(title, "ws2 ticket");
     }
+
+    // ---- Phase 3h.7: substrate-hardening regression tests ----
+    //
+    // Four cases the external review identified as missing from
+    // the original 6-case matrix:
+    //   1. stale-GUC-after-error — txn rollback must clear GUCs
+    //      so a subsequent operation on the same conn doesn't
+    //      inherit them.
+    //   2. forgot-the-wrapper — a raw conn under nosdesk_app
+    //      with no GUC set must see zero rows on every tenant
+    //      table. Proves the strict-policy fail-closed
+    //      guarantee in regression form.
+    //   3. subquery-bypass attempt — `INSERT ... SELECT FROM ...`
+    //      that tries to copy across workspaces must fail the
+    //      WITH CHECK.
+    //   4. bypass-context leak resistance — after a
+    //      with_actor_bypass_context txn, the next
+    //      with_actor_context call must NOT still see bypass /
+    //      admin role. Proves the baseline-role-reset in
+    //      set_actor works under savepoint nesting.
+
+    #[test]
+    fn rls_workspace_guc_clears_on_txn_rollback() {
+        // The substrate uses txn-scoped set_config (the SET LOCAL
+        // form). When the txn rolls back, the GUC must revert to
+        // its pre-txn value. Without this guarantee, a panic
+        // inside tc.run could leak the workspace context into the
+        // next pool checkout.
+        let mut conn = setup_test_connection();
+        let actor = ActorContext::system("rls.test").with_workspace(2);
+
+        // Run a closure that errors, forcing the savepoint to
+        // roll back. with_actor_context inside this would have
+        // set app.workspace_id = '2'; we want to confirm the
+        // rollback reverts it.
+        let _ = with_actor_context(&mut conn, &actor, |_c| {
+            Err::<(), diesel::result::Error>(diesel::result::Error::RollbackTransaction)
+        });
+
+        // After rollback, the workspace GUC should be back at
+        // the ambient '1' that setup_test_connection seeded.
+        #[derive(diesel::QueryableByName)]
+        struct GucReadback {
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+            current_setting: Option<String>,
+        }
+        let row: GucReadback =
+            diesel::sql_query("SELECT current_setting('app.workspace_id', true) AS current_setting")
+                .get_result(&mut conn)
+                .expect("read GUC");
+        assert_eq!(
+            row.current_setting.as_deref(),
+            Some("1"),
+            "workspace GUC must revert to ambient on txn rollback"
+        );
+    }
+
+    #[test]
+    fn rls_forgot_the_wrapper_returns_zero_rows() {
+        // The contract: a code path that touches a tenant table
+        // without going through TenantConn / with_actor_context
+        // gets the strict policy's fail-closed empty result. This
+        // is what guarantees that "forgot to wrap" surfaces as a
+        // zero-row bug in staging rather than a silent cross-
+        // tenant leak.
+        let mut conn = setup_test_connection();
+        let _ = seed_two_workspaces(&mut conn);
+
+        // After seed_two_workspaces (which uses bypass internally
+        // and leaves the role elevated to nosdesk_admin at the
+        // outer-txn level), restore the production role baseline
+        // and clear the ambient GUC. This is "fresh production
+        // pool checkout": nosdesk_app + no workspace pinned.
+        diesel::sql_query("SET LOCAL ROLE nosdesk_app")
+            .execute(&mut conn)
+            .expect("reset role");
+        diesel::sql_query("SELECT set_config('app.workspace_id', '', false)")
+            .execute(&mut conn)
+            .expect("clear GUC");
+
+        let count: i64 = tickets::table
+            .count()
+            .get_result(&mut conn)
+            .expect("count");
+        assert_eq!(
+            count, 0,
+            "no workspace GUC must surface zero rows; \
+             if you weakened the policy to default-permit, this assert catches it"
+        );
+    }
+
+    #[test]
+    fn rls_insert_select_cross_workspace_is_rejected() {
+        // Subquery bypass attempt: pinned to workspace 1, try
+        // to INSERT a copy of a workspace 2 row by reading it
+        // via SELECT inside the INSERT. The SELECT side returns
+        // zero rows under the strict policy (USING clause), so
+        // the INSERT inserts nothing — fail-closed. Even if the
+        // SELECT side somehow leaked the workspace 2 row, the
+        // WITH CHECK would reject the workspace_id = 2 insert
+        // while pinned to 1. This is the belt-and-braces test.
+        let mut conn = setup_test_connection();
+        let (_, t2) = seed_two_workspaces(&mut conn);
+        let actor = ActorContext::system("rls.test").with_workspace(1);
+
+        let result = with_actor_context(&mut conn, &actor, |c| {
+            // Try to copy the ws2 ticket as a new ws2 ticket
+            // while pinned to ws1.
+            diesel::sql_query(format!(
+                "INSERT INTO tickets (title, workflow_state_id, priority, workspace_id) \
+                 SELECT title, workflow_state_id, priority, 2 FROM tickets WHERE id = {}",
+                t2
+            ))
+            .execute(c)
+        });
+
+        // The SELECT side filters to zero rows under workspace
+        // 1's policy, so INSERT 0. That's fail-closed (no leak).
+        // The result is Ok(0), not an error.
+        let affected = result.expect("insert returns");
+        assert_eq!(
+            affected, 0,
+            "subquery against another workspace's row must surface as zero-row insert"
+        );
+
+        // Also verify the policy rejects the explicit cross-
+        // workspace INSERT (the same INSERT with VALUES rather
+        // than SELECT): this case is the original 6-case
+        // matrix's INSERT-rejection test in slightly different
+        // form.
+        let state = crate::repository::workflow_states::default_state(&mut conn)
+            .expect("default state");
+        let direct_attempt = with_actor_context(&mut conn, &actor, |c| {
+            diesel::sql_query(format!(
+                "INSERT INTO tickets (title, workflow_state_id, priority, workspace_id) \
+                 VALUES ('hop', {}, 'medium', 2)",
+                state.id
+            ))
+            .execute(c)
+        });
+        assert!(
+            direct_attempt.is_err(),
+            "explicit cross-workspace INSERT must fail WITH CHECK"
+        );
+    }
+
+    #[test]
+    fn rls_bypass_does_not_leak_into_subsequent_actor_context() {
+        // The bypass primitive elevates to nosdesk_admin via
+        // SET LOCAL ROLE. Savepoint commit propagates SET LOCAL
+        // to the outer txn (Postgres semantics), so without the
+        // baseline-role reset in set_actor, a sequence of
+        // (with_actor_bypass_context, with_actor_context) would
+        // leave the second call still elevated, silently
+        // bypassing RLS. Regression test for set_actor's
+        // `SET LOCAL ROLE nosdesk_app` baseline.
+        let mut conn = setup_test_connection();
+        let (t1, t2) = seed_two_workspaces(&mut conn);
+
+        // First, do a bypass — sees all rows.
+        let admin = ActorContext::system("rls.test");
+        let all_visible: Vec<i32> = with_actor_bypass_context(&mut conn, &admin, |c| {
+            tickets::table.select(tickets::id).load::<i32>(c)
+        })
+        .expect("bypass query");
+        assert!(all_visible.contains(&t1));
+        assert!(all_visible.contains(&t2));
+
+        // Now do a non-bypass call pinned to workspace 1. If
+        // the bypass role leaked, this would see both tickets;
+        // it must see only ws1.
+        let actor = ActorContext::system("rls.test").with_workspace(1);
+        let scoped_visible: Vec<i32> = with_actor_context(&mut conn, &actor, |c| {
+            tickets::table.select(tickets::id).load::<i32>(c)
+        })
+        .expect("scoped query");
+        assert!(scoped_visible.contains(&t1));
+        assert!(
+            !scoped_visible.contains(&t2),
+            "bypass role must not leak into a subsequent scoped call; \
+             set_actor's baseline reset is the defense"
+        );
+    }
 }
