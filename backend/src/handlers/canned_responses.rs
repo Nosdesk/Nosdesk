@@ -6,11 +6,11 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use tracing::{error, info};
 
-use crate::db::Pool;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::models::{CannedResponse, CannedResponseUpdate, NewCannedResponse};
 use crate::repository::canned_responses as repo;
+use crate::utils::rbac::require_admin;
 
 /// Body for `POST /api/canned-responses`. Validation is trivial —
 /// title + body both required and non-empty — and happens inline.
@@ -26,13 +26,7 @@ pub struct UpdateRequest {
     pub body: Option<String>,
 }
 
-// ---------- Small response helpers (mirrors handlers/channels.rs) ----------
-
-fn collapse(r: Result<HttpResponse, HttpResponse>) -> HttpResponse {
-    match r {
-        Ok(r) | Err(r) => r,
-    }
-}
+// ---------- Small response helpers ----------
 
 fn server_error(msg: &str) -> HttpResponse {
     errors::internal(msg)
@@ -46,36 +40,29 @@ fn bad_request(msg: impl Into<String>) -> HttpResponse {
 
 /// GET /api/canned-responses — available to any authenticated user so
 /// the reply composer can show the picker.
-pub async fn list_canned(pool: web::Data<Pool>, req: HttpRequest) -> HttpResponse {
-    collapse(list_impl(pool, req).await)
-}
-
-async fn list_impl(pool: web::Data<Pool>, req: HttpRequest) -> Result<HttpResponse, HttpResponse> {
-    // auth_conn requires any authenticated user — read is open to
-    // all techs / admins. We only care that the caller is logged in.
-    let (_claims, _uuid, mut conn) = helpers::auth_conn(&req, &pool)?;
-    let rows = repo::list(&mut conn).map_err(|e| {
-        error!(error = %e, "failed to list canned_responses");
-        server_error("Failed to list canned responses")
-    })?;
-    Ok(HttpResponse::Ok().json(rows))
+pub async fn list_canned(mut tc: TenantConn, _req: HttpRequest) -> HttpResponse {
+    // Auth is enforced upstream by the JWT middleware that populates
+    // RequestContext; TenantConn's extractor refuses without it. Read
+    // is open to all techs / admins so the reply composer's picker
+    // works for any logged-in user.
+    match tc.run(|conn| repo::list(conn)) {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => {
+            error!(error = %e, "failed to list canned_responses");
+            server_error("Failed to list canned responses")
+        }
+    }
 }
 
 /// POST /api/admin/canned-responses — admin only.
 pub async fn create_canned(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<CreateRequest>,
     req: HttpRequest,
 ) -> HttpResponse {
-    collapse(create_impl(pool, body, req).await)
-}
-
-async fn create_impl(
-    pool: web::Data<Pool>,
-    body: web::Json<CreateRequest>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
+    if let Err(resp) = require_admin(&req) {
+        return resp;
+    }
     let creator = req
         .extensions()
         .get::<crate::models::Claims>()
@@ -84,56 +71,50 @@ async fn create_impl(
     let title = body.title.trim();
     let content = body.body.trim();
     if title.is_empty() {
-        return Err(bad_request("Title is required"));
+        return bad_request("Title is required");
     }
     if content.is_empty() {
-        return Err(bad_request("Body is required"));
+        return bad_request("Body is required");
     }
 
-    let created = repo::create(
-        &mut conn,
-        NewCannedResponse {
-            title: title.to_string(),
-            body: content.to_string(),
-            created_by: creator,
-        },
-    )
-    .map_err(|e| {
-        error!(error = %e, "failed to create canned_response");
-        server_error("Failed to create canned response")
-    })?;
+    let new = NewCannedResponse {
+        title: title.to_string(),
+        body: content.to_string(),
+        created_by: creator,
+    };
 
-    info!(id = created.id, "canned response created");
-    Ok(HttpResponse::Created().json(created))
+    match tc.run(|conn| repo::create(conn, new)) {
+        Ok(created) => {
+            info!(id = created.id, "canned response created");
+            HttpResponse::Created().json(created)
+        }
+        Err(e) => {
+            error!(error = %e, "failed to create canned_response");
+            server_error("Failed to create canned response")
+        }
+    }
 }
 
 /// PATCH /api/admin/canned-responses/{id} — admin only.
 pub async fn update_canned(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateRequest>,
     req: HttpRequest,
 ) -> HttpResponse {
-    collapse(update_impl(pool, path, body, req).await)
-}
-
-async fn update_impl(
-    pool: web::Data<Pool>,
-    path: web::Path<i32>,
-    body: web::Json<UpdateRequest>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
+    if let Err(resp) = require_admin(&req) {
+        return resp;
+    }
     let id = path.into_inner();
 
     if let Some(t) = body.title.as_deref() {
         if t.trim().is_empty() {
-            return Err(bad_request("Title must not be empty"));
+            return bad_request("Title must not be empty");
         }
     }
     if let Some(b) = body.body.as_deref() {
         if b.trim().is_empty() {
-            return Err(bad_request("Body must not be empty"));
+            return bad_request("Body must not be empty");
         }
     }
 
@@ -143,39 +124,38 @@ async fn update_impl(
         ..Default::default()
     };
 
-    let updated: CannedResponse = repo::update(&mut conn, id, change).map_err(|e| {
-        error!(error = %e, "failed to update canned_response");
-        match e {
-            diesel::result::Error::NotFound => HttpResponse::NotFound().finish(),
-            _ => server_error("Failed to update canned response"),
+    match tc.run(|conn| repo::update(conn, id, change)) {
+        Ok(updated) => {
+            let updated: CannedResponse = updated;
+            HttpResponse::Ok().json(updated)
         }
-    })?;
-    Ok(HttpResponse::Ok().json(updated))
+        Err(diesel::result::Error::NotFound) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            error!(error = %e, "failed to update canned_response");
+            server_error("Failed to update canned response")
+        }
+    }
 }
 
 /// DELETE /api/admin/canned-responses/{id} — admin only.
 pub async fn delete_canned(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     req: HttpRequest,
 ) -> HttpResponse {
-    collapse(delete_impl(pool, path, req).await)
-}
-
-async fn delete_impl(
-    pool: web::Data<Pool>,
-    path: web::Path<i32>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
-    let id = path.into_inner();
-    let removed = repo::delete(&mut conn, id).map_err(|e| {
-        error!(error = %e, "failed to delete canned_response");
-        server_error("Failed to delete canned response")
-    })?;
-    if removed == 0 {
-        return Ok(HttpResponse::NotFound().finish());
+    if let Err(resp) = require_admin(&req) {
+        return resp;
     }
-    info!(id, "canned response deleted");
-    Ok(HttpResponse::NoContent().finish())
+    let id = path.into_inner();
+    match tc.run(|conn| repo::delete(conn, id)) {
+        Ok(0) => HttpResponse::NotFound().finish(),
+        Ok(_) => {
+            info!(id, "canned response deleted");
+            HttpResponse::NoContent().finish()
+        }
+        Err(e) => {
+            error!(error = %e, "failed to delete canned_response");
+            server_error("Failed to delete canned response")
+        }
+    }
 }

@@ -5,24 +5,25 @@
 //! `role = admin`. Credentials never ride back out to the client — the
 //! response only reports whether a credential is stored.
 //!
-//! Each `pub async fn` is a thin shim around an `_impl` that returns
-//! `Result<HttpResponse, HttpResponse>`, so the bodies stay linear
-//! with `?` rather than a tower of `match` blocks. The `Err` branch is
-//! the already-built error response; the shim just collapses the
-//! `Result` back into a single `HttpResponse`.
+//! Each handler folds its DB work into a single `tc.run(..)` so the
+//! channel row, its credential probe, and any updates all share one
+//! RLS-scoped transaction. Validation that needs the loaded row (e.g.
+//! provider-specific config check) lives inside the closure and rides
+//! back out via a small local outcome enum.
 
 use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use tracing::{error, info, warn};
 
-use crate::db::{DbConnection, Pool};
+use crate::db::DbConnection;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::models::{Channel, ChannelUpdate, NewChannel, CRED_TYPE_IMAP_PASSWORD};
 use crate::repository::channels as channels_repo;
 use crate::services::channels::email_imap::{test_imap_connection, ImapChannelConfig};
 use crate::services::channels::supervisor::ChannelControl;
+use crate::utils::rbac::require_admin;
 
 // ---------- Response / request DTOs ----------
 
@@ -37,20 +38,33 @@ pub struct ChannelResponse {
 }
 
 impl ChannelResponse {
-    fn build(channel: Channel, conn: &mut DbConnection) -> Result<Self, HttpResponse> {
+    /// Build the response shape inside an open DB transaction. Returns
+    /// the diesel error verbatim so the caller (which is doing the
+    /// `tc.run` wrap) can map it to an HttpResponse uniformly.
+    fn build(channel: Channel, conn: &mut DbConnection) -> diesel::QueryResult<Self> {
         // For phase-1 `email_imap` the only credential type is the
         // password. When other providers arrive they'll need their own
         // flag shape.
         let has = channels_repo::get_credential(conn, channel.id, CRED_TYPE_IMAP_PASSWORD)
-            .map_err(|e| {
-                error!(error = %e, "failed to check credential presence");
-                server_error("Failed to read channel credentials")
-            })?
+            .map_err(cred_to_diesel)?
             .is_some();
         Ok(Self {
             channel,
             has_credential: has,
         })
+    }
+}
+
+/// Map a credential repo error into a diesel error so the closure can
+/// surface it through `tc.run`. The handler logs the error before
+/// returning 500, so flattening the variant here doesn't lose any
+/// information the caller acts on.
+fn cred_to_diesel(e: channels_repo::CredentialError) -> diesel::result::Error {
+    match e {
+        channels_repo::CredentialError::Db(d) => d,
+        channels_repo::CredentialError::Crypto(m) => {
+            diesel::result::Error::QueryBuilderError(format!("credential crypto: {m}").into())
+        }
     }
 }
 
@@ -102,25 +116,6 @@ fn bad_request(msg: impl Into<String>) -> HttpResponse {
     errors::bad_request(msg)
 }
 
-/// `None` is treated as 404; other DB errors log + return 500. Callers
-/// that already hold a connection use this to distinguish the "row
-/// doesn't exist" path from transport errors.
-fn load_channel(conn: &mut DbConnection, id: i32) -> Result<Channel, HttpResponse> {
-    channels_repo::find(conn, id).map_err(|e| match e {
-        diesel::result::Error::NotFound => HttpResponse::NotFound().finish(),
-        other => {
-            error!(error = %other, "failed to load channel");
-            server_error("Failed to load channel")
-        }
-    })
-}
-
-fn collapse(r: Result<HttpResponse, HttpResponse>) -> HttpResponse {
-    match r {
-        Ok(r) | Err(r) => r,
-    }
-}
-
 /// Validate provider-specific config JSON. Adding a new provider means
 /// adding a branch here — keeps bad config from reaching the adapter
 /// and blowing up at poll time.
@@ -136,178 +131,210 @@ fn validate_config(provider: &str, config: &JsonValue) -> Result<(), String> {
 // ---------- Routes ----------
 
 /// GET /api/admin/channels
-pub async fn list_channels(pool: web::Data<Pool>, req: HttpRequest) -> HttpResponse {
-    collapse(list_channels_impl(pool, req).await)
-}
-
-async fn list_channels_impl(
-    pool: web::Data<Pool>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
-    let rows = channels_repo::list_channels(&mut conn).map_err(|e| {
-        error!(error = %e, "failed to list channels");
-        server_error("Failed to list channels")
-    })?;
-    let out: Vec<ChannelResponse> = rows
-        .into_iter()
-        .map(|ch| ChannelResponse::build(ch, &mut conn))
-        .collect::<Result<_, _>>()?;
-    Ok(HttpResponse::Ok().json(out))
+pub async fn list_channels(mut tc: TenantConn, req: HttpRequest) -> HttpResponse {
+    if let Err(resp) = require_admin(&req) {
+        return resp;
+    }
+    // Fold list + per-row credential probe into one transaction so
+    // every read goes through the same RLS-scoped session.
+    let result: diesel::QueryResult<Vec<ChannelResponse>> = tc.run(|conn| {
+        let rows = channels_repo::list_channels(conn)?;
+        rows.into_iter()
+            .map(|ch| ChannelResponse::build(ch, conn))
+            .collect()
+    });
+    match result {
+        Ok(out) => HttpResponse::Ok().json(out),
+        Err(e) => {
+            error!(error = %e, "failed to list channels");
+            server_error("Failed to list channels")
+        }
+    }
 }
 
 /// GET /api/admin/channels/{id}
 pub async fn get_channel(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     req: HttpRequest,
 ) -> HttpResponse {
-    collapse(get_channel_impl(pool, path, req).await)
-}
-
-async fn get_channel_impl(
-    pool: web::Data<Pool>,
-    path: web::Path<i32>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
-    let channel = load_channel(&mut conn, path.into_inner())?;
-    let body = ChannelResponse::build(channel, &mut conn)?;
-    Ok(HttpResponse::Ok().json(body))
+    if let Err(resp) = require_admin(&req) {
+        return resp;
+    }
+    let id = path.into_inner();
+    let result: diesel::QueryResult<Option<ChannelResponse>> = tc.run(|conn| {
+        match channels_repo::find(conn, id) {
+            Ok(channel) => ChannelResponse::build(channel, conn).map(Some),
+            Err(diesel::result::Error::NotFound) => Ok(None),
+            Err(e) => Err(e),
+        }
+    });
+    match result {
+        Ok(Some(body)) => HttpResponse::Ok().json(body),
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            error!(error = %e, "failed to load channel");
+            server_error("Failed to load channel")
+        }
+    }
 }
 
 /// POST /api/admin/channels
 pub async fn create_channel(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<CreateChannelRequest>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
 ) -> HttpResponse {
-    collapse(create_channel_impl(pool, body, control, req).await)
-}
-
-async fn create_channel_impl(
-    pool: web::Data<Pool>,
-    body: web::Json<CreateChannelRequest>,
-    control: web::Data<ChannelControl>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
+    if let Err(resp) = require_admin(&req) {
+        return resp;
+    }
 
     if body.name.trim().is_empty() {
-        return Err(bad_request("Name is required"));
+        return bad_request("Name is required");
     }
-    validate_config(&body.provider, &body.config).map_err(bad_request)?;
+    if let Err(msg) = validate_config(&body.provider, &body.config) {
+        return bad_request(msg);
+    }
+    if matches!(body.password.as_deref(), Some("")) {
+        return bad_request("Password, if provided, must not be empty");
+    }
 
-    let channel = channels_repo::create(
-        &mut conn,
-        NewChannel {
-            provider: body.provider.clone(),
-            name: body.name.trim().to_string(),
-            enabled: body.enabled,
-            config: body.config.clone(),
-        },
-    )
-    .map_err(|e| {
-        error!(error = %e, "failed to create channel");
-        server_error("Failed to create channel")
-    })?;
+    let provider = body.provider.clone();
+    let name = body.name.trim().to_string();
+    let enabled = body.enabled;
+    let config = body.config.clone();
+    let password = body.password.clone();
 
-    if let Some(password) = body.password.as_deref() {
-        if password.is_empty() {
-            return Err(bad_request("Password, if provided, must not be empty"));
+    let result: diesel::QueryResult<(ChannelResponse, i32)> = tc.run(|conn| {
+        let channel = channels_repo::create(
+            conn,
+            NewChannel {
+                provider,
+                name,
+                enabled,
+                config,
+            },
+        )?;
+        if let Some(password) = password.as_deref() {
+            channels_repo::put_credential(
+                conn,
+                channel.id,
+                CRED_TYPE_IMAP_PASSWORD,
+                password,
+                None,
+            )
+            .map_err(cred_to_diesel)?;
         }
-        channels_repo::put_credential(
-            &mut conn,
-            channel.id,
-            CRED_TYPE_IMAP_PASSWORD,
-            password,
-            None,
-        )
-        .map_err(|e| {
-            error!(error = %e, "failed to store channel credential");
-            server_error("Failed to store credential")
-        })?;
-    }
+        let id = channel.id;
+        let response = ChannelResponse::build(channel, conn)?;
+        Ok((response, id))
+    });
 
-    info!(channel_id = channel.id, provider = %channel.provider, "channel created");
-    // Ask the supervisor to spin up a worker. Upsert is idempotent —
-    // if the channel is `enabled = false` (admin wanted to add creds
-    // before going live) the supervisor will just leave it stopped.
-    control.upsert(channel.id).await;
-    let body = ChannelResponse::build(channel, &mut conn)?;
-    Ok(HttpResponse::Created().json(body))
+    match result {
+        Ok((response, channel_id)) => {
+            info!(channel_id, provider = %response.channel.provider, "channel created");
+            // Ask the supervisor to spin up a worker. Upsert is
+            // idempotent — if the channel is `enabled = false` (admin
+            // wanted to add creds before going live) the supervisor
+            // will just leave it stopped.
+            control.upsert(channel_id).await;
+            HttpResponse::Created().json(response)
+        }
+        Err(e) => {
+            error!(error = %e, "failed to create channel");
+            server_error("Failed to create channel")
+        }
+    }
+}
+
+/// Possible outcomes when updating a channel: success, missing row,
+/// or post-load validation failure (e.g. config invalid for the
+/// existing provider).
+enum UpdateOutcome {
+    Updated(ChannelResponse),
+    NotFound,
+    Validation(HttpResponse),
 }
 
 /// PATCH /api/admin/channels/{id}
 pub async fn update_channel(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateChannelRequest>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
 ) -> HttpResponse {
-    collapse(update_channel_impl(pool, path, body, control, req).await)
-}
-
-async fn update_channel_impl(
-    pool: web::Data<Pool>,
-    path: web::Path<i32>,
-    body: web::Json<UpdateChannelRequest>,
-    control: web::Data<ChannelControl>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
-    let channel_id = path.into_inner();
-    let existing = load_channel(&mut conn, channel_id)?;
-
-    if let Some(ref cfg) = body.config {
-        validate_config(&existing.provider, cfg).map_err(bad_request)?;
+    if let Err(resp) = require_admin(&req) {
+        return resp;
     }
+    let channel_id = path.into_inner();
+
+    // Cheap pre-DB validations.
     if let Some(ref name) = body.name {
         if name.trim().is_empty() {
-            return Err(bad_request("Name must not be empty"));
+            return bad_request("Name must not be empty");
         }
     }
-
-    let change = ChannelUpdate {
-        name: body.name.clone().map(|n| n.trim().to_string()),
-        enabled: body.enabled,
-        config: body.config.clone(),
-        ..Default::default()
-    };
-    let updated = channels_repo::update(&mut conn, channel_id, change).map_err(|e| {
-        error!(error = %e, "failed to update channel");
-        server_error("Failed to update channel")
-    })?;
-
-    if let Some(ref new_password) = body.password {
-        if new_password.is_empty() {
-            return Err(bad_request(
-                "Password must not be empty — use DELETE credentials to clear",
-            ));
-        }
-        channels_repo::put_credential(
-            &mut conn,
-            channel_id,
-            CRED_TYPE_IMAP_PASSWORD,
-            new_password,
-            None,
-        )
-        .map_err(|e| {
-            error!(error = %e, "failed to rotate channel credential");
-            server_error("Failed to rotate credential")
-        })?;
+    if matches!(body.password.as_deref(), Some("")) {
+        return bad_request("Password must not be empty — use DELETE credentials to clear");
     }
 
-    info!(channel_id, "channel updated");
-    // Reconcile: stops any running worker and, if the row is still
-    // enabled, starts a fresh one with the new config/credentials.
-    // Disabling via this PATCH converges cleanly — the supervisor
-    // stops the worker and leaves it stopped.
-    control.upsert(channel_id).await;
-    let body = ChannelResponse::build(updated, &mut conn)?;
-    Ok(HttpResponse::Ok().json(body))
+    let name = body.name.clone().map(|n| n.trim().to_string());
+    let enabled = body.enabled;
+    let config = body.config.clone();
+    let password = body.password.clone();
+
+    let result: diesel::QueryResult<UpdateOutcome> = tc.run(|conn| {
+        let existing = match channels_repo::find(conn, channel_id) {
+            Ok(c) => c,
+            Err(diesel::result::Error::NotFound) => return Ok(UpdateOutcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        if let Some(ref cfg) = config {
+            if let Err(msg) = validate_config(&existing.provider, cfg) {
+                return Ok(UpdateOutcome::Validation(bad_request(msg)));
+            }
+        }
+        let change = ChannelUpdate {
+            name,
+            enabled,
+            config,
+            ..Default::default()
+        };
+        let updated = channels_repo::update(conn, channel_id, change)?;
+        if let Some(ref new_password) = password {
+            channels_repo::put_credential(
+                conn,
+                channel_id,
+                CRED_TYPE_IMAP_PASSWORD,
+                new_password,
+                None,
+            )
+            .map_err(cred_to_diesel)?;
+        }
+        let response = ChannelResponse::build(updated, conn)?;
+        Ok(UpdateOutcome::Updated(response))
+    });
+
+    match result {
+        Ok(UpdateOutcome::Updated(response)) => {
+            info!(channel_id, "channel updated");
+            // Reconcile: stops any running worker and, if the row is
+            // still enabled, starts a fresh one with the new
+            // config/credentials. Disabling via this PATCH converges
+            // cleanly — the supervisor stops the worker and leaves it
+            // stopped.
+            control.upsert(channel_id).await;
+            HttpResponse::Ok().json(response)
+        }
+        Ok(UpdateOutcome::NotFound) => HttpResponse::NotFound().finish(),
+        Ok(UpdateOutcome::Validation(resp)) => resp,
+        Err(e) => {
+            error!(error = %e, "failed to update channel");
+            server_error("Failed to update channel")
+        }
+    }
 }
 
 /// DELETE /api/admin/channels/{id}
@@ -317,67 +344,66 @@ async fn update_channel_impl(
 /// pointing here remain (the FK is `ON DELETE SET NULL`); they stay
 /// usable but future outbound relay is skipped.
 pub async fn delete_channel(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
 ) -> HttpResponse {
-    collapse(delete_channel_impl(pool, path, control, req).await)
-}
-
-async fn delete_channel_impl(
-    pool: web::Data<Pool>,
-    path: web::Path<i32>,
-    control: web::Data<ChannelControl>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
+    if let Err(resp) = require_admin(&req) {
+        return resp;
+    }
     let channel_id = path.into_inner();
-    let rows = channels_repo::delete(&mut conn, channel_id).map_err(|e| {
-        error!(error = %e, "failed to delete channel");
-        server_error("Failed to delete channel")
-    })?;
+    let rows = match tc.run(|conn| channels_repo::delete(conn, channel_id)) {
+        Ok(n) => n,
+        Err(e) => {
+            error!(error = %e, "failed to delete channel");
+            return server_error("Failed to delete channel");
+        }
+    };
     if rows == 0 {
-        return Ok(HttpResponse::NotFound().finish());
+        return HttpResponse::NotFound().finish();
     }
     // Tell the supervisor to stop the worker. Delete is idempotent,
     // so ordering with the DB commit doesn't matter — in the worst
     // case the worker gets told to stop twice.
     control.delete(channel_id).await;
     info!(channel_id, "channel deleted");
-    Ok(HttpResponse::NoContent().finish())
+    HttpResponse::NoContent().finish()
 }
 
 /// DELETE /api/admin/channels/{id}/credentials
 pub async fn clear_credential(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
 ) -> HttpResponse {
-    collapse(clear_credential_impl(pool, path, control, req).await)
-}
-
-async fn clear_credential_impl(
-    pool: web::Data<Pool>,
-    path: web::Path<i32>,
-    control: web::Data<ChannelControl>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
+    if let Err(resp) = require_admin(&req) {
+        return resp;
+    }
     let channel_id = path.into_inner();
-    channels_repo::delete_credential(&mut conn, channel_id, CRED_TYPE_IMAP_PASSWORD).map_err(
-        |e| {
-            error!(error = %e, "failed to clear channel credential");
-            server_error("Failed to clear credential")
-        },
-    )?;
+    if let Err(e) = tc.run(|conn| {
+        channels_repo::delete_credential(conn, channel_id, CRED_TYPE_IMAP_PASSWORD)
+    }) {
+        error!(error = %e, "failed to clear channel credential");
+        return server_error("Failed to clear credential");
+    }
     // Reconcile so the running worker (if any) observes the missing
     // credential on its next start attempt; it'll fail with a
     // Configuration error and settle into a stopped state rather than
     // continuing to hit auth failures with the cached password.
     control.upsert(channel_id).await;
-    Ok(HttpResponse::NoContent().finish())
+    HttpResponse::NoContent().finish()
+}
+
+/// Possible outcomes when preparing a test-connection: load the
+/// channel + its stored credential, surfacing validation / not-found
+/// branches without taking the cheaper happy path through a separate
+/// error type.
+enum TestPrep {
+    Ready(ImapChannelConfig, String),
+    NotFound,
+    Validation(HttpResponse),
 }
 
 /// POST /api/admin/channels/{id}/test-connection
@@ -386,55 +412,82 @@ async fn clear_credential_impl(
 /// caller-supplied candidate password or the stored one. Does not
 /// persist anything. Body field `password` is optional.
 pub async fn test_connection(
-    pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<TestConnectionRequest>,
     req: HttpRequest,
 ) -> HttpResponse {
-    collapse(test_connection_impl(pool, path, body, req).await)
-}
-
-async fn test_connection_impl(
-    pool: web::Data<Pool>,
-    path: web::Path<i32>,
-    body: web::Json<TestConnectionRequest>,
-    req: HttpRequest,
-) -> Result<HttpResponse, HttpResponse> {
-    let mut conn = helpers::admin_conn(&req, &pool)?;
-    let channel_id = path.into_inner();
-    let channel = load_channel(&mut conn, channel_id)?;
-
-    if channel.provider != "email_imap" {
-        return Err(bad_request(
-            "test-connection is only supported for email_imap",
-        ));
+    if let Err(resp) = require_admin(&req) {
+        return resp;
     }
+    let channel_id = path.into_inner();
+    let candidate = body
+        .password
+        .as_deref()
+        .filter(|p| !p.is_empty())
+        .map(|p| p.to_string());
 
-    let config: ImapChannelConfig = serde_json::from_value(channel.config.clone())
-        .map_err(|e| bad_request(format!("Invalid channel config: {e}")))?;
+    let result: diesel::QueryResult<TestPrep> = tc.run(|conn| {
+        let channel = match channels_repo::find(conn, channel_id) {
+            Ok(c) => c,
+            Err(diesel::result::Error::NotFound) => return Ok(TestPrep::NotFound),
+            Err(e) => return Err(e),
+        };
+        if channel.provider != "email_imap" {
+            return Ok(TestPrep::Validation(bad_request(
+                "test-connection is only supported for email_imap",
+            )));
+        }
+        let config: ImapChannelConfig = match serde_json::from_value(channel.config.clone()) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(TestPrep::Validation(bad_request(format!(
+                    "Invalid channel config: {e}"
+                ))))
+            }
+        };
+        // Prefer a candidate password from the body; fall back to the
+        // stored one. An empty string in the body is treated as "use
+        // stored" rather than "clear" — clearing goes through the
+        // dedicated DELETE endpoint.
+        let password = match candidate {
+            Some(p) => p,
+            None => match channels_repo::get_credential(
+                conn,
+                channel_id,
+                CRED_TYPE_IMAP_PASSWORD,
+            )
+            .map_err(cred_to_diesel)?
+            {
+                Some(p) => p,
+                None => {
+                    return Ok(TestPrep::Validation(bad_request(
+                        "No stored password — provide one in the request body",
+                    )))
+                }
+            },
+        };
+        Ok(TestPrep::Ready(config, password))
+    });
 
-    // Prefer a candidate password from the body; fall back to the
-    // stored one. An empty string in the body is treated as "use
-    // stored" rather than "clear" — clearing goes through the
-    // dedicated DELETE endpoint.
-    let password = match body.password.as_deref().filter(|p| !p.is_empty()) {
-        Some(p) => p.to_string(),
-        None => channels_repo::get_credential(&mut conn, channel_id, CRED_TYPE_IMAP_PASSWORD)
-            .map_err(|e| {
-                error!(error = %e, "failed to read channel credential");
-                server_error("Failed to read stored credential")
-            })?
-            .ok_or_else(|| bad_request("No stored password — provide one in the request body"))?,
+    let (config, password) = match result {
+        Ok(TestPrep::Ready(c, p)) => (c, p),
+        Ok(TestPrep::NotFound) => return HttpResponse::NotFound().finish(),
+        Ok(TestPrep::Validation(resp)) => return resp,
+        Err(e) => {
+            error!(error = %e, "failed to load channel for test-connection");
+            return server_error("Failed to load channel");
+        }
     };
 
     match test_imap_connection(&config, &password).await {
         Ok(()) => {
             info!(channel_id, "test-connection succeeded");
-            Ok(HttpResponse::Ok().json(json!({ "ok": true })))
+            HttpResponse::Ok().json(json!({ "ok": true }))
         }
         Err(e) => {
             warn!(channel_id, error = %e, "test-connection failed");
-            Ok(HttpResponse::Ok().json(json!({ "ok": false, "error": e })))
+            HttpResponse::Ok().json(json!({ "ok": false, "error": e }))
         }
     }
 }
@@ -458,6 +511,7 @@ mod tests {
     //! `tests/channels_email_imap_integration.rs`.
 
     use super::*;
+    use crate::db::Pool;
     use crate::models::{Claims, UserRole};
     use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
     use actix_web::{test as actix_test, web, App, HttpMessage};

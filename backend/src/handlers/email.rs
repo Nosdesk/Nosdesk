@@ -2,9 +2,8 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::db::Pool;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::handlers::helpers;
 use crate::utils::email::{EmailConfig, EmailService};
 use crate::utils::email_branding::get_email_branding;
 
@@ -15,13 +14,7 @@ pub struct TestEmailRequest {
 }
 
 /// Get email configuration status (admin only, read-only)
-pub async fn get_email_config(db_pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
-    // Get database connection
-    let _conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
+pub async fn get_email_config(_tc: TenantConn, req: HttpRequest) -> impl Responder {
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
@@ -58,16 +51,10 @@ pub async fn get_email_config(db_pool: web::Data<Pool>, req: HttpRequest) -> imp
 
 /// Send a test email (admin only)
 pub async fn send_test_email(
-    db_pool: web::Data<Pool>,
+    mut tc: TenantConn,
     req: HttpRequest,
     request: web::Json<TestEmailRequest>,
 ) -> impl Responder {
-    // Get database connection
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
@@ -85,10 +72,16 @@ pub async fn send_test_email(
         Err(e) => return errors::bad_request(format!("Email is not configured: {}", e)),
     };
 
-    // Get branding for test email
+    // Get branding for test email. site_settings is workspace-scoped,
+    // so the lookup rides on TenantConn's RLS-primed transaction.
     let base_url =
         std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
-    let branding = get_email_branding(&mut conn, &base_url);
+    let branding = match tc.run(|conn| {
+        Ok::<_, diesel::result::Error>(get_email_branding(conn, &base_url))
+    }) {
+        Ok(b) => b,
+        Err(e) => return errors::internal(format!("Failed to load email branding: {}", e)),
+    };
 
     // Send test email
     match email_service.send_test_email(&request.to, &branding).await {

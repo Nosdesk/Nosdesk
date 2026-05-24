@@ -14,8 +14,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::db::Pool;
-use crate::handlers::{errors, helpers};
+use crate::extractors::TenantConn;
+use crate::handlers::errors;
 use crate::models::{email_suppression_reason, EmailSuppression, NewEmailSuppression};
 use crate::repository::email_suppressions as repo;
 use crate::utils::rbac;
@@ -62,29 +62,28 @@ impl From<EmailSuppression> for RowResponse {
 
 pub async fn list(
     req: HttpRequest,
-    db_pool: web::Data<Pool>,
+    mut tc: TenantConn,
     query: web::Query<ListQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
         return resp;
     }
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
-    let rows = match repo::list(&mut conn, limit, query.before) {
-        Ok(r) => r,
+    let before = query.before;
+    // `email_suppressions` is a platform-global table (no
+    // `workspace_id`), so the RLS GUC TenantConn primes is a no-op
+    // for it. Wrapping it in `tc.run` still gives us the transaction
+    // boundary that pairs the list + count counters consistently.
+    let result: diesel::QueryResult<(Vec<EmailSuppression>, i64)> = tc.run(|conn| {
+        let rows = repo::list(conn, limit, before)?;
+        let total = repo::count(conn)?;
+        Ok((rows, total))
+    });
+    let (rows, total) = match result {
+        Ok(t) => t,
         Err(e) => {
-            warn!(error = ?e, "Failed to list email suppressions");
-            return errors::internal("Failed to list email suppressions");
-        }
-    };
-    let total = match repo::count(&mut conn) {
-        Ok(n) => n,
-        Err(e) => {
-            warn!(error = ?e, "Failed to count email suppressions");
-            return errors::internal("Failed to count email suppressions");
+            warn!(error = ?e, "Failed to read email suppressions");
+            return errors::internal("Failed to read email suppressions");
         }
     };
     // The next cursor is the created_at of the last row returned;
@@ -112,7 +111,7 @@ pub struct CreateBody {
 
 pub async fn create(
     req: HttpRequest,
-    db_pool: web::Data<Pool>,
+    mut tc: TenantConn,
     body: web::Json<CreateBody>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
@@ -122,16 +121,12 @@ pub async fn create(
     if email.is_empty() || !email.contains('@') {
         return errors::bad_request("Email must look like an address");
     }
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
     let new = NewEmailSuppression {
         email,
         reason: email_suppression_reason::MANUAL.to_string(),
         bounce_diagnostic: body.note.clone(),
     };
-    match repo::upsert(&mut conn, new) {
+    match tc.run(|conn| repo::upsert(conn, new)) {
         Ok(row) => HttpResponse::Ok().json(RowResponse::from(row)),
         Err(e) => {
             warn!(error = ?e, "Failed to add email suppression");
@@ -142,18 +137,14 @@ pub async fn create(
 
 pub async fn delete(
     req: HttpRequest,
-    db_pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<String>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
         return resp;
     }
     let email = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repo::remove(&mut conn, &email) {
+    match tc.run(|conn| repo::remove(conn, &email)) {
         Ok(0) => errors::not_found_msg("Address is not on the suppression list"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {

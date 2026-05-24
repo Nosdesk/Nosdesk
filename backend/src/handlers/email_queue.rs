@@ -10,8 +10,8 @@
 //!
 //! All admin-gated via the standard `require_admin` flow.
 
-use crate::db::Pool;
-use crate::handlers::{errors, helpers};
+use crate::extractors::TenantConn;
+use crate::handlers::errors;
 use crate::repository::outbound_emails as repo;
 use crate::utils::rbac;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
@@ -96,7 +96,7 @@ impl From<crate::models::OutboundEmail> for RowResponse {
 /// `GET /api/admin/email-queue` — admin-gated.
 pub async fn list(
     req: HttpRequest,
-    db_pool: web::Data<Pool>,
+    mut tc: TenantConn,
     query: web::Query<ListQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
@@ -129,13 +129,8 @@ pub async fn list(
         until: query.until,
     };
 
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
     let limit = query.limit.unwrap_or(50);
-    let page = match repo::list(&mut conn, &filter, cursor, limit) {
+    let page = match tc.run(|conn| repo::list(conn, &filter, cursor, limit)) {
         Ok(p) => p,
         Err(e) => {
             warn!(error = ?e, "Failed to list outbound email queue");
@@ -167,26 +162,23 @@ pub struct StatusCount {
 }
 
 /// `GET /api/admin/email-queue/stats` — top stats card data.
-pub async fn stats(req: HttpRequest, db_pool: web::Data<Pool>) -> impl Responder {
+pub async fn stats(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
         return resp;
     }
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    let by_status = match repo::count_by_status(&mut conn) {
-        Ok(c) => c,
+    // Fold both counts into one tc.run so they ride a single RLS
+    // transaction; the second call won't observe writes that landed
+    // between them.
+    let result: diesel::QueryResult<(Vec<(String, i64)>, (i64, Option<i64>))> = tc.run(|conn| {
+        let by_status = repo::count_by_status(conn)?;
+        let health = repo::pending_health(conn).unwrap_or((0, None));
+        Ok((by_status, health))
+    });
+    let (by_status, (pending_total, oldest_age)) = match result {
+        Ok(t) => t,
         Err(e) => {
             warn!(error = ?e, "Failed to count outbound email queue by status");
             return errors::internal("Failed to count queue rows");
-        }
-    };
-    let (pending_total, oldest_age) = match repo::pending_health(&mut conn) {
-        Ok(h) => h,
-        Err(e) => {
-            warn!(error = ?e, "Failed to read queue health");
-            (0, None)
         }
     };
     HttpResponse::Ok().json(StatsResponse {
@@ -203,18 +195,14 @@ pub async fn stats(req: HttpRequest, db_pool: web::Data<Pool>) -> impl Responder
 /// reset attempts if the row was dead.
 pub async fn retry_now(
     req: HttpRequest,
-    db_pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i64>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
         return resp;
     }
     let id = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repo::retry_now(&mut conn, id) {
+    match tc.run(|conn| repo::retry_now(conn, id)) {
         Ok(0) => errors::not_found_msg("queue row not found, or not in a retryable state"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
@@ -227,18 +215,14 @@ pub async fn retry_now(
 /// `POST /api/admin/email-queue/{id}/cancel` — mark suppressed.
 pub async fn cancel(
     req: HttpRequest,
-    db_pool: web::Data<Pool>,
+    mut tc: TenantConn,
     path: web::Path<i64>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_admin(&req) {
         return resp;
     }
     let id = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-    match repo::cancel(&mut conn, id) {
+    match tc.run(|conn| repo::cancel(conn, id)) {
         Ok(0) => errors::not_found_msg("queue row not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
