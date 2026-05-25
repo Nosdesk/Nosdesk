@@ -1314,48 +1314,38 @@ impl YjsAppState {
 
         match doc_type {
             DocumentType::Ticket(ticket_id) => {
-                // Phase 3e.2 follow-up (task #563): this spawn
-                // block needs `session::with_actor_bypass_context`
-                // wrapping. Five interleaved repo calls
-                // (get_article_content_by_ticket_id, optional
-                // create, get_latest_article_content_revision,
-                // create_article_content_revision,
-                // increment_article_content_revision,
-                // update_ticket_modified_timestamp) — all touch
-                // RLS-enabled tables. Refactor to a single
-                // background_run closure that returns Result<()>
-                // and uses ? to short-circuit on early returns.
+                let contributor_count = contributor_vec.len();
                 actix::spawn(async move {
-                    match pool.get() {
-                        Ok(mut conn) => {
-                            // Get or create article_content record
-                            let article_content = match repository::get_article_content_by_ticket_id(
-                                &mut conn, ticket_id,
-                            ) {
-                                Ok(ac) => ac,
-                                Err(_) => {
-                                    // Create if doesn't exist
-                                    let new_content = NewArticleContent {
-                                        ticket_id,
-                                        yjs_state_vector: None,
-                                        yjs_document: None,
-                                        yjs_client_id: None,
-                                    };
-                                    match repository::create_article_content(&mut conn, new_content)
-                                    {
-                                        Ok(ac) => ac,
-                                        Err(e) => {
-                                            error!(ticket_id, error = ?e, "Failed to create article_content for snapshot");
-                                            return;
-                                        }
+                    // Six interleaved repo calls against RLS-enabled
+                    // tables (article_contents, article_content_revisions,
+                    // tickets). Wrap them in a single background_run
+                    // txn so they share one bypass elevation and any
+                    // early return propagates without leaking a
+                    // partial commit.
+                    let outcome = crate::sync::session::background_run(
+                        &pool,
+                        "background:yjs_snapshot_ticket",
+                        |conn| {
+                            // Get or create article_content record.
+                            let article_content =
+                                match repository::get_article_content_by_ticket_id(conn, ticket_id)
+                                {
+                                    Ok(ac) => ac,
+                                    Err(_) => {
+                                        let new_content = NewArticleContent {
+                                            ticket_id,
+                                            yjs_state_vector: None,
+                                            yjs_document: None,
+                                            yjs_client_id: None,
+                                        };
+                                        repository::create_article_content(conn, new_content)?
                                     }
-                                }
-                            };
+                                };
 
-                            // Check if content is the same as the last revision
+                            // Skip if content matches the last revision.
                             if let Ok(last_revision) =
                                 repository::get_latest_article_content_revision(
-                                    &mut conn,
+                                    conn,
                                     article_content.id,
                                 )
                             {
@@ -1365,108 +1355,90 @@ impl YjsAppState {
                                         revision = last_revision.revision_number,
                                         "Skipping revision - content unchanged"
                                     );
-                                    return;
+                                    return Ok(None);
                                 }
                             }
 
-                            // Create new revision with simplified schema (no redundant snapshot field!)
                             let new_revision = NewArticleContentRevision {
                                 article_content_id: article_content.id,
                                 revision_number: article_content.current_revision_number,
                                 yjs_state_vector: state_vector_bytes,
                                 yjs_document_content: full_update_bytes,
-                                contributed_by: contributor_vec.clone(),
+                                contributed_by: contributor_vec,
                             };
 
-                            match repository::create_article_content_revision(
-                                &mut conn,
-                                new_revision,
-                            ) {
-                                Ok(revision) => {
-                                    // Increment revision number in article_content
-                                    match repository::increment_article_content_revision(
-                                        &mut conn,
-                                        article_content.id,
-                                    ) {
-                                        Ok(_) => {
-                                            info!(
-                                                ticket_id,
-                                                revision = revision.revision_number,
-                                                contributors = contributor_vec.len(),
-                                                "Snapshot created for ticket"
-                                            );
-
-                                            // Update ticket's modified timestamp since content actually changed
-                                            if let Err(e) =
-                                                repository::update_ticket_modified_timestamp(
-                                                    &mut conn, ticket_id,
-                                                )
-                                            {
-                                                warn!(ticket_id, error = ?e, "Failed to update ticket modified timestamp");
-                                            }
-                                        }
-                                        Err(e) => {
-                                            error!(ticket_id, error = ?e, "Failed to increment revision number")
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!(ticket_id, error = ?e, "Failed to create revision")
-                                }
+                            let revision =
+                                repository::create_article_content_revision(conn, new_revision)?;
+                            repository::increment_article_content_revision(
+                                conn,
+                                article_content.id,
+                            )?;
+                            // Best-effort: a failure here is logged
+                            // but doesn't abort the snapshot.
+                            if let Err(e) =
+                                repository::update_ticket_modified_timestamp(conn, ticket_id)
+                            {
+                                warn!(ticket_id, error = ?e, "Failed to update ticket modified timestamp");
                             }
-                        }
+                            Ok(Some(revision.revision_number))
+                        },
+                    );
+
+                    match outcome {
+                        Ok(Some(rev_num)) => info!(
+                            ticket_id,
+                            revision = rev_num,
+                            contributors = contributor_count,
+                            "Snapshot created for ticket"
+                        ),
+                        Ok(None) => {} // Skip already logged inside the closure.
                         Err(e) => {
-                            error!(ticket_id, error = ?e, "Database connection error during snapshot")
+                            error!(ticket_id, error = %e, "Snapshot creation failed for ticket")
                         }
                     }
                 });
             }
             DocumentType::Documentation(doc_page_id) => {
-                // Phase 3e.2 follow-up (task #563): same as the
-                // Ticket arm above — interleaved repo calls
-                // touching documentation_revisions / documentation_pages
-                // need background_run wrapping. Defer until 3e.2.
+                let contributor_count = contributor_vec.len();
                 actix::spawn(async move {
-                    match pool.get() {
-                        Ok(mut conn) => {
-                            // Check if content is the same as the last revision
-                            if let Ok(last_revision) = repository::get_latest_documentation_revision(
-                                &mut conn,
-                                doc_page_id,
-                            ) {
+                    let outcome = crate::sync::session::background_run(
+                        &pool,
+                        "background:yjs_snapshot_documentation",
+                        |conn| {
+                            if let Ok(last_revision) =
+                                repository::get_latest_documentation_revision(conn, doc_page_id)
+                            {
                                 if last_revision.yjs_document_snapshot == full_update_bytes {
                                     debug!(
                                         doc_page_id,
                                         revision = last_revision.revision_number,
                                         "Skipping revision - content unchanged"
                                     );
-                                    return;
+                                    return Ok(None);
                                 }
                             }
 
-                            // Create documentation revision snapshot
-                            match repository::create_documentation_revision(
-                                &mut conn,
+                            let revision_number = repository::create_documentation_revision(
+                                conn,
                                 doc_page_id,
                                 state_vector_bytes,
                                 full_update_bytes,
-                                contributor_vec.clone(),
-                            ) {
-                                Ok(revision_number) => {
-                                    info!(
-                                        doc_page_id,
-                                        revision = revision_number,
-                                        contributors = contributor_vec.len(),
-                                        "Snapshot created for documentation page"
-                                    );
-                                }
-                                Err(e) => {
-                                    error!(doc_page_id, error = ?e, "Failed to create documentation revision")
-                                }
-                            }
-                        }
+                                contributor_vec,
+                            )?;
+                            Ok(Some(revision_number))
+                        },
+                    );
+
+                    match outcome {
+                        Ok(Some(rev_num)) => info!(
+                            doc_page_id,
+                            revision = rev_num,
+                            contributors = contributor_count,
+                            "Snapshot created for documentation page"
+                        ),
+                        Ok(None) => {}
                         Err(e) => {
-                            error!(doc_page_id, error = ?e, "Database connection error during snapshot")
+                            error!(doc_page_id, error = %e, "Snapshot creation failed for documentation page")
                         }
                     }
                 });
