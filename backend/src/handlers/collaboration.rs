@@ -22,18 +22,15 @@ use crate::repository;
 use crate::sync::actor::ActorContext as DbActor;
 use crate::sync::session;
 
-/// System actor used by the Yjs WebSocket session for its
+/// Workspace-pinned system actor for the Yjs WebSocket session's
 /// background DB writes (snapshot saves, revision creates,
-/// content updates). The session has been authenticated at
-/// WebSocket-upgrade time and is constrained to a single
-/// document for its lifetime; until the WebSocket session
-/// resolves the document's workspace_id and pins the actor
-/// properly (Phase 3e.2 follow-up), the bypass keeps the
-/// save / snapshot writes working under nosdesk_app via the
-/// nosdesk_admin role-elevation in
-/// session::with_actor_bypass_context.
-fn yjs_session_actor() -> DbActor {
-    DbActor::system("yjs-collab")
+/// content updates). The workspace_id is resolved at WebSocket
+/// handshake from `WorkspaceContext` (subdomain routing) and
+/// threaded through `YjsWebSocket` / `DocumentState` so every
+/// per-document write runs under a workspace-pinned actor via
+/// `session::with_actor_context` instead of bypassing RLS.
+fn yjs_session_actor(workspace_id: i32) -> DbActor {
+    DbActor::system("yjs-collab").with_workspace(workspace_id)
 }
 
 /// Safely get string content from a Yjs XmlFragment
@@ -274,10 +271,16 @@ struct DocumentState {
     update_counter: u32,   // Total updates since document creation
     last_snapshot_at: u32, // Update count when last snapshot created
     contributors: std::collections::HashSet<Uuid>, // Contributors since last snapshot (only added on actual content changes)
+    /// Workspace that owns this document. Set at session open
+    /// from the requesting user's `WorkspaceContext` (subdomain
+    /// routing). The background save / snapshot loop reads this
+    /// to pin the per-doc actor so RLS-enforced writes hit the
+    /// correct workspace's rows.
+    workspace_id: i32,
 }
 
 impl DocumentState {
-    fn new(awareness: Arc<Awareness>) -> Self {
+    fn new(awareness: Arc<Awareness>, workspace_id: i32) -> Self {
         Self {
             awareness,
             last_saved: Instant::now(),
@@ -290,6 +293,7 @@ impl DocumentState {
             update_counter: 0,
             last_snapshot_at: 0,
             contributors: std::collections::HashSet::new(),
+            workspace_id,
         }
     }
 
@@ -470,10 +474,11 @@ impl YjsAppState {
         let mut snapshot_count = 0;
 
         for (doc_id, doc_state) in documents.iter_mut() {
+            let workspace_id = doc_state.workspace_id;
             // Regular saves for active documents
             if doc_state.should_save() {
                 debug!(doc_id = %doc_id, "Saving document with pending changes");
-                self.save_document_internal(doc_id, &doc_state.awareness);
+                self.save_document_internal(doc_id, &doc_state.awareness, workspace_id);
                 doc_state.mark_saved();
                 saved_count += 1;
             }
@@ -485,7 +490,12 @@ impl YjsAppState {
 
                 // Clone contributors before passing to async function
                 let contributors = doc_state.contributors.clone();
-                self.create_snapshot_revision(doc_id, &doc_state.awareness, contributors);
+                self.create_snapshot_revision(
+                    doc_id,
+                    &doc_state.awareness,
+                    contributors,
+                    workspace_id,
+                );
                 doc_state.reset_snapshot_tracking();
                 snapshot_count += 1;
             }
@@ -493,7 +503,7 @@ impl YjsAppState {
             // Final save for empty rooms
             if doc_state.should_do_final_save() {
                 debug!(doc_id = %doc_id, "Performing final save for empty room");
-                self.save_document_internal(doc_id, &doc_state.awareness);
+                self.save_document_internal(doc_id, &doc_state.awareness, workspace_id);
                 doc_state.mark_saved();
                 doc_state.mark_final_save_completed();
                 final_saved_count += 1;
@@ -502,7 +512,12 @@ impl YjsAppState {
                 if !doc_state.contributors.is_empty() {
                     debug!(doc_id = %doc_id, "Creating session-end revision");
                     let contributors = doc_state.contributors.clone();
-                    self.create_snapshot_revision(doc_id, &doc_state.awareness, contributors);
+                    self.create_snapshot_revision(
+                        doc_id,
+                        &doc_state.awareness,
+                        contributors,
+                        workspace_id,
+                    );
                     doc_state.reset_snapshot_tracking();
                     snapshot_count += 1;
                 }
@@ -526,7 +541,7 @@ impl YjsAppState {
     }
 
     // Get or create awareness for a document
-    async fn get_or_create_awareness(&self, doc_id: &str) -> Arc<Awareness> {
+    async fn get_or_create_awareness(&self, doc_id: &str, workspace_id: i32) -> Arc<Awareness> {
         let mut documents = self.documents.write().await;
 
         if let Some(doc_state) = documents.get_mut(doc_id) {
@@ -615,19 +630,19 @@ impl YjsAppState {
                     trace!(doc_id = %doc_id, "Parsed doc_type successfully");
                     match self.pool.get() {
                         Ok(mut conn) => {
-                            // PHASE 2: Load from PostgreSQL. Each repo
-                            // read goes through with_actor_bypass_context
-                            // so it bypasses RLS under nosdesk_app once
-                            // the DSN flips. Long-term fix is a per-
-                            // document workspace lookup at session open
-                            // (Phase 3e.2 follow-up).
-                            let bypass_actor = yjs_session_actor();
+                            // Per-doc reads run RLS-enforced under the
+                            // workspace-pinned session actor resolved
+                            // at WebSocket open. If the user's
+                            // WorkspaceContext doesn't grant access to
+                            // the doc, RLS returns NotFound and we
+                            // fall through to the "new document" path.
+                            let session_actor = yjs_session_actor(workspace_id);
                             match doc_type {
                                 DocumentType::Ticket(ticket_id) => {
                                     // Load Yjs document snapshot from article_contents table (snapshot-based persistence)
-                                    match session::with_actor_bypass_context(
+                                    match session::with_actor_context(
                                         &mut conn,
-                                        &bypass_actor,
+                                        &session_actor,
                                         |conn| {
                                             repository::get_article_content_by_ticket_id(
                                                 conn, ticket_id,
@@ -691,9 +706,9 @@ impl YjsAppState {
                                 }
                                 DocumentType::Documentation(doc_page_id) => {
                                     // Load Yjs document snapshot from documentation_pages table (snapshot-based persistence)
-                                    match session::with_actor_bypass_context(
+                                    match session::with_actor_context(
                                         &mut conn,
-                                        &bypass_actor,
+                                        &session_actor,
                                         |conn| {
                                             repository::get_documentation_page(doc_page_id, conn)
                                         },
@@ -749,9 +764,9 @@ impl YjsAppState {
                                 }
                                 DocumentType::Collection(collection_id) => {
                                     // Load Yjs snapshot from documentation_collections.description_yjs.
-                                    match session::with_actor_bypass_context(
+                                    match session::with_actor_context(
                                         &mut conn,
-                                        &bypass_actor,
+                                        &session_actor,
                                         |conn| {
                                             repository::documentation_collections::get_collection(
                                                 conn,
@@ -818,7 +833,7 @@ impl YjsAppState {
             }
 
             let awareness_arc = Arc::new(awareness);
-            let doc_state = DocumentState::new(Arc::clone(&awareness_arc));
+            let doc_state = DocumentState::new(Arc::clone(&awareness_arc), workspace_id);
             documents.insert(doc_id.to_string(), doc_state);
             awareness_arc
         }
@@ -834,7 +849,7 @@ impl YjsAppState {
 
     /// Replace the document with a new one (used for restoring revisions)
     /// This creates a new Awareness with the new Doc and replaces the existing one
-    async fn replace_document(&self, doc_id: &str, new_doc: Doc) {
+    async fn replace_document(&self, doc_id: &str, new_doc: Doc, workspace_id: i32) {
         let mut documents = self.documents.write().await;
 
         // Create new Awareness with the new Doc
@@ -853,7 +868,7 @@ impl YjsAppState {
             info!(doc_id = %doc_id, "Replaced document with restored revision");
         } else {
             // Document doesn't exist in memory, create it
-            let doc_state = DocumentState::new(Arc::clone(&awareness));
+            let doc_state = DocumentState::new(Arc::clone(&awareness), workspace_id);
             documents.insert(doc_id.to_string(), doc_state);
             info!(doc_id = %doc_id, "Created new document from restored revision");
         }
@@ -1080,8 +1095,9 @@ impl YjsAppState {
     async fn force_save_document(&self, doc_id: &str) {
         let mut documents = self.documents.write().await;
         if let Some(doc_state) = documents.get_mut(doc_id) {
+            let workspace_id = doc_state.workspace_id;
             debug!(doc_id = %doc_id, "Force saving document on disconnect");
-            self.save_document_internal(doc_id, &doc_state.awareness);
+            self.save_document_internal(doc_id, &doc_state.awareness, workspace_id);
             doc_state.mark_saved();
 
             // Create revision at end of editing session if there were actual content changes
@@ -1090,7 +1106,12 @@ impl YjsAppState {
                 info!(doc_id = %doc_id, contributors = doc_state.contributors.len(),
                     "Creating session-end revision");
                 let contributors = doc_state.contributors.clone();
-                self.create_snapshot_revision(doc_id, &doc_state.awareness, contributors);
+                self.create_snapshot_revision(
+                    doc_id,
+                    &doc_state.awareness,
+                    contributors,
+                    workspace_id,
+                );
                 doc_state.reset_snapshot_tracking();
             } else {
                 debug!(doc_id = %doc_id, "Skipping revision - no content changes in session");
@@ -1129,7 +1150,7 @@ impl YjsAppState {
     }
 
     // Save document state to the database from awareness
-    fn save_document_internal(&self, doc_id: &str, awareness: &Awareness) {
+    fn save_document_internal(&self, doc_id: &str, awareness: &Awareness, workspace_id: i32) {
         // Parse document type
         let doc_type = match DocumentType::from_doc_id(doc_id) {
             Some(dt) => dt,
@@ -1195,8 +1216,8 @@ impl YjsAppState {
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
-                            let actor = yjs_session_actor();
-                            match session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+                            let actor = yjs_session_actor(workspace_id);
+                            match session::with_actor_context(&mut conn, &actor, |conn| {
                                 repository::update_article_yjs_state(
                                     conn,
                                     ticket_id,
@@ -1223,8 +1244,8 @@ impl YjsAppState {
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
-                            let actor = yjs_session_actor();
-                            match session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+                            let actor = yjs_session_actor(workspace_id);
+                            match session::with_actor_context(&mut conn, &actor, |conn| {
                                 repository::update_documentation_yjs_state(
                                     conn,
                                     doc_page_id,
@@ -1252,8 +1273,8 @@ impl YjsAppState {
                 actix::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
-                            let actor = yjs_session_actor();
-                            match session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+                            let actor = yjs_session_actor(workspace_id);
+                            match session::with_actor_context(&mut conn, &actor, |conn| {
                                 repository::documentation_collections::update_collection_description_yjs(
                                     conn,
                                     collection_id,
@@ -1284,6 +1305,7 @@ impl YjsAppState {
         doc_id: &str,
         awareness: &Awareness,
         contributors: HashSet<Uuid>,
+        workspace_id: i32,
     ) {
         // Parse document type
         let doc_type = match DocumentType::from_doc_id(doc_id) {
@@ -1315,17 +1337,19 @@ impl YjsAppState {
         match doc_type {
             DocumentType::Ticket(ticket_id) => {
                 let contributor_count = contributor_vec.len();
+                let actor = yjs_session_actor(workspace_id);
                 actix::spawn(async move {
                     // Six interleaved repo calls against RLS-enabled
                     // tables (article_contents, article_content_revisions,
-                    // tickets). Wrap them in a single background_run
-                    // txn so they share one bypass elevation and any
-                    // early return propagates without leaking a
-                    // partial commit.
-                    let outcome = crate::sync::session::background_run(
-                        &pool,
-                        "background:yjs_snapshot_ticket",
-                        |conn| {
+                    // tickets). Run them in one workspace-pinned txn
+                    // so they share one elevation, RLS enforces the
+                    // workspace boundary on every write, and a
+                    // partial failure rolls back cleanly.
+                    let outcome = match pool.get() {
+                        Ok(mut conn) => crate::sync::session::with_actor_context::<
+                            _,
+                            diesel::result::Error,
+                        >(&mut conn, &actor, |conn| {
                             // Get or create article_content record.
                             let article_content =
                                 match repository::get_article_content_by_ticket_id(conn, ticket_id)
@@ -1381,8 +1405,12 @@ impl YjsAppState {
                                 warn!(ticket_id, error = ?e, "Failed to update ticket modified timestamp");
                             }
                             Ok(Some(revision.revision_number))
-                        },
-                    );
+                        }),
+                        Err(e) => {
+                            error!(ticket_id, error = %e, "Database connection error during snapshot");
+                            return;
+                        }
+                    };
 
                     match outcome {
                         Ok(Some(rev_num)) => info!(
@@ -1400,11 +1428,13 @@ impl YjsAppState {
             }
             DocumentType::Documentation(doc_page_id) => {
                 let contributor_count = contributor_vec.len();
+                let actor = yjs_session_actor(workspace_id);
                 actix::spawn(async move {
-                    let outcome = crate::sync::session::background_run(
-                        &pool,
-                        "background:yjs_snapshot_documentation",
-                        |conn| {
+                    let outcome = match pool.get() {
+                        Ok(mut conn) => crate::sync::session::with_actor_context::<
+                            _,
+                            diesel::result::Error,
+                        >(&mut conn, &actor, |conn| {
                             if let Ok(last_revision) =
                                 repository::get_latest_documentation_revision(conn, doc_page_id)
                             {
@@ -1426,8 +1456,12 @@ impl YjsAppState {
                                 contributor_vec,
                             )?;
                             Ok(Some(revision_number))
-                        },
-                    );
+                        }),
+                        Err(e) => {
+                            error!(doc_page_id, error = %e, "Database connection error during snapshot");
+                            return;
+                        }
+                    };
 
                     match outcome {
                         Ok(Some(rev_num)) => info!(
@@ -1477,6 +1511,12 @@ struct YjsWebSocket {
     hb: Instant,
     user_uuid: Uuid,            // User UUID for contributor tracking
     yjs_client_id: Option<u64>, // Yjs clientID from awareness, used for cleanup on disconnect
+    /// Workspace the requesting user is scoped to (resolved from
+    /// `WorkspaceContext` at handshake). Threaded into every DB
+    /// touch so per-doc writes run RLS-enforced under
+    /// `with_actor_context` rather than the legacy
+    /// `with_actor_bypass_context`.
+    workspace_id: i32,
     // Statistics for debugging
     messages_received: u32,
     pings_sent: u32,
@@ -1485,7 +1525,7 @@ struct YjsWebSocket {
 }
 
 impl YjsWebSocket {
-    fn new(doc_id: String, app_state: YjsAppState, user_uuid: Uuid) -> Self {
+    fn new(doc_id: String, app_state: YjsAppState, user_uuid: Uuid, workspace_id: i32) -> Self {
         let id = Uuid::now_v7().to_string();
         let now = Instant::now();
 
@@ -1496,6 +1536,7 @@ impl YjsWebSocket {
             hb: now,
             user_uuid,
             yjs_client_id: None,
+            workspace_id,
             messages_received: 0,
             pings_sent: 0,
             pongs_received: 0,
@@ -1560,6 +1601,7 @@ impl YjsWebSocket {
         let msg_vec = msg.to_vec();
         let is_sync_message = msg.first() == Some(&0); // MESSAGE_SYNC
         let user_uuid = self.user_uuid; // Capture for contributor tracking
+        let workspace_id = self.workspace_id;
 
         // Spawn async work
         let addr = ctx.address();
@@ -1570,7 +1612,9 @@ impl YjsWebSocket {
                 .await;
 
             // Get the awareness for this document
-            let awareness = app_state.get_or_create_awareness(&doc_id).await;
+            let awareness = app_state
+                .get_or_create_awareness(&doc_id, workspace_id)
+                .await;
 
             // DIAGNOSTIC: Check content BEFORE processing message
             let content_before = {
@@ -1685,6 +1729,7 @@ impl Actor for YjsWebSocket {
         let doc_id = self.doc_id.clone();
         let session_id = self.id.clone();
         let user_uuid = self.user_uuid;
+        let workspace_id = self.workspace_id;
         let addr = ctx.address();
         actix::spawn(async move {
             app_state
@@ -1699,7 +1744,9 @@ impl Actor for YjsWebSocket {
             // y-websocket's readMessage() parses one message per frame, so packing
             // multiple messages into a single buffer (as Protocol::start() does)
             // would cause only the first message to be read.
-            let awareness = app_state.get_or_create_awareness(&doc_id).await;
+            let awareness = app_state
+                .get_or_create_awareness(&doc_id, workspace_id)
+                .await;
             use yrs::sync::{Message, SyncMessage};
 
             // 1. Send SyncStep1 with the server's state vector
@@ -1740,6 +1787,7 @@ impl Actor for YjsWebSocket {
         let doc_id = self.doc_id.clone();
         let session_id = self.id.clone();
         let yjs_client_id = self.yjs_client_id;
+        let workspace_id = self.workspace_id;
 
         actix::spawn(async move {
             // Remove the session first
@@ -1750,7 +1798,9 @@ impl Actor for YjsWebSocket {
             // On abrupt disconnects (refresh, network loss), the client can't send this itself,
             // so the server must do it.
             if let Some(client_id) = yjs_client_id {
-                let awareness = app_state.get_or_create_awareness(&doc_id).await;
+                let awareness = app_state
+                    .get_or_create_awareness(&doc_id, workspace_id)
+                    .await;
                 let yrs_client_id = yrs::ClientID::new(client_id);
                 awareness.remove_state(yrs_client_id);
 
@@ -1864,6 +1914,7 @@ pub async fn ws_handler(
     req: HttpRequest,
     stream: web::Payload,
     app_state: web::Data<YjsAppState>,
+    ws: crate::extractors::WorkspaceContext,
     path: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
     let doc_id = path.into_inner();
@@ -1925,8 +1976,13 @@ pub async fn ws_handler(
         ));
     };
 
-    debug!(doc_id = %doc_id, user_uuid = %user_uuid, "WebSocket authentication successful");
-    let actor = YjsWebSocket::new(doc_id, app_state.get_ref().clone(), user_uuid);
+    debug!(doc_id = %doc_id, user_uuid = %user_uuid, workspace_id = ws.workspace_id, "WebSocket authentication successful");
+    let actor = YjsWebSocket::new(
+        doc_id,
+        app_state.get_ref().clone(),
+        user_uuid,
+        ws.workspace_id,
+    );
 
     // Use WsResponseBuilder to configure larger frame size for Yjs documents
     // Default is 64KB, but Yjs documents with history can grow larger
@@ -2003,6 +2059,7 @@ pub async fn get_ticket_revision(path: web::Path<(i32, i32)>, mut tc: TenantConn
 pub async fn restore_ticket_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
+    ws: crate::extractors::WorkspaceContext,
     app_state: web::Data<YjsAppState>,
 ) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
@@ -2080,7 +2137,9 @@ pub async fn restore_ticket_revision(
 
     // Replace the document in app_state with the new one
     // This creates a new Awareness with the restored document
-    app_state.replace_document(&doc_id, new_doc).await;
+    app_state
+        .replace_document(&doc_id, new_doc, ws.workspace_id)
+        .await;
 
     // Mark document as changed to trigger save
     app_state.mark_document_changed(&doc_id).await;
@@ -2144,6 +2203,7 @@ pub async fn get_doc_revision(path: web::Path<(i32, i32)>, mut tc: TenantConn) -
 pub async fn restore_doc_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
+    ws: crate::extractors::WorkspaceContext,
     app_state: web::Data<YjsAppState>,
 ) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
@@ -2208,7 +2268,9 @@ pub async fn restore_doc_revision(
     };
 
     // Replace the document in app_state with the new one
-    app_state.replace_document(&doc_id_str, new_doc).await;
+    app_state
+        .replace_document(&doc_id_str, new_doc, ws.workspace_id)
+        .await;
 
     // Mark document as changed to trigger save
     app_state.mark_document_changed(&doc_id_str).await;
