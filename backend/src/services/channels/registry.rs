@@ -361,24 +361,27 @@ pub async fn run_one_poll(
     }
 
     let ctx = deps.pipeline_context();
-    // Phase 3g.7 follow-up (task #565): this conn is held across
-    // many async pipeline::process_event calls (each one writes
-    // to channel_messages / comments / tickets / attachments —
-    // all RLS-enabled). Post-DSN-flip the ingest will silently
-    // produce zero-row INSERTs because pipeline::set_actor uses
-    // an unpinned system actor and the new 3h.4 baseline
-    // `SET LOCAL ROLE nosdesk_app` strips any inherited bypass.
-    // Fix shape: refactor pipeline::process_event to take a Pool
-    // and call background_run per event so each event runs in
-    // its own bypass-elevated txn. The current shape (conn-
-    // across-await) blocks the simpler in-place wrap.
     let mut conn = match deps.pool.get_timeout(POOL_ACQUIRE_TIMEOUT) {
         Ok(c) => c,
         Err(e) => {
-            warn!(channel = channel.id, error = %e, "pool exhausted — treating as transient");
+            warn!(channel = channel.id, error = %e, "pool exhausted; treating as transient");
             return PollOutcome::Transient;
         }
     };
+
+    // pipeline::process_event holds this conn across many .await
+    // points (adapter.resolve_thread / send_reply, store_raw_eml,
+    // persist_attachments) interleaved with sync writes to RLS-
+    // enabled tables (channel_messages, comments, tickets,
+    // attachments). background_run won't fit (sync-only closure),
+    // so we elevate the conn at session level for the whole event
+    // batch and explicitly reset before returning it to the pool.
+    let actor = crate::sync::actor::ActorContext::system("channels:inbound")
+        .with_workspace(channel.workspace_id);
+    if let Err(e) = crate::sync::session::elevate_session_role(&mut conn, &actor) {
+        warn!(channel = channel.id, error = %e, "failed to elevate session for poll loop");
+        return PollOutcome::Transient;
+    }
 
     for event in events {
         // `&mut dyn PullAdapter` upcasts to `&mut dyn ChannelAdapter`
@@ -412,6 +415,10 @@ pub async fn run_one_poll(
     if let Err(e) = clear_last_error(&mut conn, channel) {
         warn!(channel = channel.id, error = %e, "failed to clear last_error");
     }
+
+    // Always reset before the conn drops back into the pool so the
+    // elevated role + actor GUCs don't leak to the next checkout.
+    crate::sync::session::reset_session_role(&mut conn);
 
     PollOutcome::Ok
 }

@@ -136,6 +136,96 @@ where
     })
 }
 
+/// Set up the connection for an async-friendly elevated session:
+/// session-scoped `SET ROLE nosdesk_admin` plus session-scoped
+/// actor + workspace GUCs.
+///
+/// Companion to [`reset_session_role`]. Use this pair when the
+/// caller is async code that mixes DB ops with `.await` points
+/// (channels poll loop, msgraph perform_sync) and therefore can
+/// neither fit inside [`background_run`]'s sync-closure boundary
+/// nor inside [`with_actor_bypass_context`]'s txn boundary.
+///
+/// Trade-off vs `background_run`: these settings persist for the
+/// connection's lifetime, not just one txn. The caller MUST invoke
+/// `reset_session_role` before releasing the connection back to
+/// the pool; otherwise the elevation leaks across requests. If
+/// the async block panics, the leaked state is the cost of doing
+/// business — pair this helper with an actix `spawn` that catches
+/// panics, or a guard struct, to recover.
+///
+/// Reserved for the small set of call sites that genuinely need
+/// the session shape. Handlers should use `TenantConn` /
+/// `PlatformConn`; sync-closure spawn tasks should use
+/// `background_run`.
+pub fn elevate_session_role(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<()> {
+    // SET ROLE (without LOCAL) persists for the connection's
+    // session. The companion reset_session_role calls RESET ROLE.
+    diesel::sql_query("SET ROLE nosdesk_admin").execute(conn)?;
+    set_actor_session_scoped(conn, actor)
+}
+
+/// Inverse of [`elevate_session_role`]: returns the role to the
+/// connection's login role (typically `nosdesk_app`) and clears
+/// every actor / workspace GUC the elevation set. Best-effort —
+/// each failure is logged so the caller can still release the
+/// connection without bubbling up an error.
+pub fn reset_session_role(conn: &mut DbConnection) {
+    if let Err(e) = diesel::sql_query("RESET ROLE").execute(conn) {
+        tracing::warn!(error = %e, "RESET ROLE failed in reset_session_role");
+    }
+    const KEYS: &[&str] = &[
+        "app.actor_uuid",
+        "app.actor_kind",
+        "app.actor_ref",
+        "app.correlation_id",
+        "app.client_tx_id",
+        "app.workspace_id",
+    ];
+    for key in KEYS {
+        if let Err(e) = diesel::sql_query("SELECT set_config($1, '', false) AS set_config")
+            .bind::<Text, _>(*key)
+            .get_result::<DiscardSetConfig>(conn)
+        {
+            tracing::warn!(key = %key, error = %e, "clearing GUC failed in reset_session_role");
+        }
+    }
+}
+
+fn set_actor_session_scoped(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<()> {
+    let actor_uuid = actor.uuid.map(|u| u.to_string()).unwrap_or_default();
+    let correlation_id = actor
+        .correlation_id
+        .map(|u| u.to_string())
+        .unwrap_or_default();
+
+    set_config_session(conn, "app.actor_uuid", &actor_uuid)?;
+    set_config_session(conn, "app.actor_kind", actor.kind.as_str())?;
+    set_config_session(
+        conn,
+        "app.actor_ref",
+        actor.reference.as_deref().unwrap_or(""),
+    )?;
+    set_config_session(conn, "app.correlation_id", &correlation_id)?;
+    set_config_session(
+        conn,
+        "app.client_tx_id",
+        actor.client_tx_id.as_deref().unwrap_or(""),
+    )?;
+    if let Some(ws) = actor.workspace_id {
+        set_config_session(conn, "app.workspace_id", &ws.to_string())?;
+    }
+    Ok(())
+}
+
+fn set_config_session(conn: &mut DbConnection, key: &str, value: &str) -> QueryResult<()> {
+    diesel::sql_query("SELECT set_config($1, $2, false) AS set_config")
+        .bind::<Text, _>(key)
+        .bind::<Text, _>(value)
+        .get_result::<DiscardSetConfig>(conn)?;
+    Ok(())
+}
+
 /// Run a closure inside a transaction with the actor GUCs primed AND
 /// elevated to the `nosdesk_admin` BYPASSRLS role, so every RLS
 /// policy is skipped for the txn.

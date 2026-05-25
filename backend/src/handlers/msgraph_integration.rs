@@ -918,10 +918,11 @@ pub async fn test_connection(req: actix_web::HttpRequest) -> impl Responder {
 }
 
 /// Sync data from Microsoft Graph
-#[instrument(level = "info", skip(req, db_pool, request), fields(entities = ?request.entities))]
+#[instrument(level = "info", skip(req, db_pool, request, ws), fields(entities = ?request.entities))]
 pub async fn sync_data(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
+    ws: crate::extractors::WorkspaceContext,
     request: web::Json<SyncDataRequest>,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
@@ -1011,18 +1012,15 @@ pub async fn sync_data(
     // Start the sync process in the background
     let provider_id = provider.id;
     let session_id_clone = session_id.clone();
+    let sync_workspace_id = ws.workspace_id;
 
-    // Phase 3g.7 follow-up (task #565): perform_sync holds this
-    // conn across many async Microsoft Graph fetches and writes
-    // to sync_history + users + groups + devices (mix of RLS
-    // and non-RLS tables, depending on which Phase-3 wave covered
-    // each). Same shape problem as services/channels/registry.rs:
-    // we can't wrap the conn-held-across-await loop in
-    // background_run (which requires a sync closure). Right fix
-    // is to refactor perform_sync to take Pool and acquire one
-    // background_run conn per sync stage (users, groups, devices,
-    // photos), each stage scoped to the provider's workspace.
-    // Defer until the channels-pipeline pattern is established.
+    // perform_sync holds the conn across many async Microsoft Graph
+    // fetches and writes to sync_history (RLS-enabled) plus users
+    // / groups / devices (mix of RLS and non-RLS). Same async-mixed-
+    // with-DB shape as the channels poll loop, so we use the same
+    // session-level elevation pattern: SET ROLE nosdesk_admin +
+    // pin app.workspace_id for the spawn's lifetime, RESET ROLE
+    // and clear the GUCs before the conn drops back into the pool.
     tokio::spawn(async move {
         let mut conn = match db_pool.get() {
             Ok(conn) => conn,
@@ -1038,6 +1036,21 @@ pub async fn sync_data(
                 return;
             }
         };
+
+        let actor = crate::sync::actor::ActorContext::system("background:msgraph_sync")
+            .with_workspace(sync_workspace_id);
+        if let Err(e) = crate::sync::session::elevate_session_role(&mut conn, &actor) {
+            error!("Failed to elevate session for msgraph sync: {}", e);
+            update_sync_progress(
+                &session_id_clone,
+                "error",
+                0,
+                0,
+                "error",
+                "Session elevation failed",
+            );
+            return;
+        }
 
         match perform_sync(
             &mut conn,
@@ -1196,6 +1209,12 @@ pub async fn sync_data(
                 }
             }
         }
+
+        // Always RESET ROLE + clear actor GUCs before the conn
+        // drops back into the pool so the elevated state from
+        // elevate_session_role above doesn't leak to the next
+        // checkout.
+        crate::sync::session::reset_session_role(&mut conn);
     });
 
     // Return the session ID immediately
