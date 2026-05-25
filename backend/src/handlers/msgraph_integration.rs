@@ -1012,6 +1012,17 @@ pub async fn sync_data(
     let provider_id = provider.id;
     let session_id_clone = session_id.clone();
 
+    // Phase 3g.7 follow-up (task #565): perform_sync holds this
+    // conn across many async Microsoft Graph fetches and writes
+    // to sync_history + users + groups + devices (mix of RLS
+    // and non-RLS tables, depending on which Phase-3 wave covered
+    // each). Same shape problem as services/channels/registry.rs:
+    // we can't wrap the conn-held-across-await loop in
+    // background_run (which requires a sync closure). Right fix
+    // is to refactor perform_sync to take Pool and acquire one
+    // background_run conn per sync stage (users, groups, devices,
+    // photos), each stage scoped to the provider's workspace.
+    // Defer until the channels-pipeline pattern is established.
     tokio::spawn(async move {
         let mut conn = match db_pool.get() {
             Ok(conn) => conn,
