@@ -88,7 +88,7 @@ async fn log_password_change_event(
     record_security_event(
         conn,
         SecurityEventInput {
-            user_uuid: *user_uuid,
+            user_uuid: Some(*user_uuid),
             event_type: "password_changed",
             severity: "info",
             details: Some(json!({
@@ -175,6 +175,21 @@ pub(crate) fn complete_login(
     };
     let family_id = Uuid::new_v4();
 
+    // W2: record the successful authentication. Covers the no-MFA
+    // local-login path and the OAuth/OIDC path (both finish here);
+    // the MFA path records via complete_mfa_login.
+    let _ = crate::utils::security_events::record_security_event(
+        conn,
+        crate::utils::security_events::SecurityEventInput {
+            user_uuid: Some(user_uuid),
+            event_type: "login_success",
+            severity: "info",
+            details: None,
+            request: Some(request),
+            session_id: None,
+        },
+    );
+
     match jwt_helpers::create_login_response(user, &session.session_id, &family_id, conn) {
         Ok((response, tokens)) => build_auth_cookie_response(response, &tokens),
         Err(error_response) => error_response,
@@ -200,6 +215,20 @@ fn complete_mfa_login(
         }
     };
     let family_id = Uuid::new_v4();
+
+    // W2: the MFA path's successful-authentication record (the no-MFA
+    // path records in complete_login).
+    let _ = crate::utils::security_events::record_security_event(
+        conn,
+        crate::utils::security_events::SecurityEventInput {
+            user_uuid: Some(user_uuid),
+            event_type: "login_success",
+            severity: "info",
+            details: Some(json!({ "via": "mfa" })),
+            request: Some(request),
+            session_id: None,
+        },
+    );
 
     match jwt_helpers::create_mfa_login_response(
         user,
@@ -290,6 +319,13 @@ pub async fn login(
     ) {
         Some(u) => u,
         None => {
+            // W2: persist the failed attempt. user_uuid is None — the
+            // AUD-007 equal-work verify deliberately can't tell us
+            // whether the email matched an account, so we attribute by
+            // the attempted identifier in `details` instead. PCI 10.2.4
+            // / NIST AU-2(3) want invalid access attempts recorded
+            // regardless of whether the account exists.
+            let mut locked = false;
             match RateLimiter::record_failed_attempt(
                 &redis_url,
                 &lockout_key,
@@ -301,14 +337,39 @@ pub async fn login(
                     let remaining = MAX_LOGIN_ATTEMPTS.saturating_sub(attempts);
                     if remaining == 0 {
                         warn!(email = %login_data.email, "Account locked after {} failed attempts", MAX_LOGIN_ATTEMPTS);
-                        return errors::too_many_requests(
-                            format!("Account locked after too many failed attempts. Try again in {} minutes.", LOCKOUT_DURATION_SECONDS / 60),
-                            LOCKOUT_DURATION_SECONDS as u64,
-                        );
+                        locked = true;
+                    } else {
+                        debug!(email = %login_data.email, attempts, remaining, "Failed login attempt");
                     }
-                    debug!(email = %login_data.email, attempts, remaining, "Failed login attempt");
                 }
                 Err(e) => warn!(error = %e, "Failed to record login attempt"),
+            }
+            let _ = crate::utils::security_events::record_security_event(
+                &mut conn,
+                crate::utils::security_events::SecurityEventInput {
+                    user_uuid: None,
+                    event_type: if locked {
+                        "account_locked"
+                    } else {
+                        "login_failed"
+                    },
+                    severity: if locked { "warning" } else { "info" },
+                    details: Some(json!({
+                        "attempted_email": login_data.email,
+                        "reason": "invalid_credentials",
+                    })),
+                    request: Some(&request),
+                    session_id: None,
+                },
+            );
+            if locked {
+                return errors::too_many_requests(
+                    format!(
+                        "Account locked after too many failed attempts. Try again in {} minutes.",
+                        LOCKOUT_DURATION_SECONDS / 60
+                    ),
+                    LOCKOUT_DURATION_SECONDS as u64,
+                );
             }
             return errors::unauthorized("Invalid email or password");
         }
@@ -370,27 +431,44 @@ pub async fn mfa_login(
         return errors::too_many_requests("Too many MFA attempts. Please try again later.", 60);
     }
 
+    // W2: helper to persist an MFA outcome to security_events. The
+    // existing mfa::log_mfa_attempt only emits tracing; this is the
+    // durable record (event types match SecurityEventType::MfaFailed /
+    // MfaSuccess).
+    let record_mfa = |conn: &mut DbConnection, success: bool| {
+        let _ = crate::utils::security_events::record_security_event(
+            conn,
+            crate::utils::security_events::SecurityEventInput {
+                user_uuid: Some(user.uuid),
+                event_type: if success { "mfa_success" } else { "mfa_failed" },
+                severity: if success { "info" } else { "warning" },
+                details: Some(json!({ "method": "totp_or_backup", "context": "login" })),
+                request: Some(&request),
+                session_id: None,
+            },
+        );
+    };
+
     // Verify MFA token (TOTP or backup code)
     let mfa_result = match mfa::verify_mfa_token(&user.uuid, &login_data.mfa_token, &mut conn).await
     {
         Ok(result) => result,
         Err(e) => {
-            // Log failed MFA attempt for security monitoring
             mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
-
+            record_mfa(&mut conn, false);
             return errors::bad_request(format!("MFA verification failed: {}", e));
         }
     };
 
     if !mfa_result.is_valid {
-        // Log failed MFA attempt
         mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
-
+        record_mfa(&mut conn, false);
         return errors::bad_request("Invalid MFA token");
     }
 
     // Log successful MFA attempt
     mfa::log_mfa_attempt(&user.uuid, true, "login", &request).await;
+    record_mfa(&mut conn, true);
 
     complete_mfa_login(
         user,
@@ -525,6 +603,20 @@ pub async fn logout(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> im
                 Ok(n) => tracing::info!("Logout: revoked {n} session(s) for sid {sid}"),
                 Err(e) => tracing::warn!("Logout: failed to revoke session {sid}: {e}"),
             }
+            // W2: record the logout / session revocation. user_uuid
+            // resolves from the JWT subject when it parses.
+            let user_uuid = Uuid::parse_str(&claims.sub).ok();
+            let _ = crate::utils::security_events::record_security_event(
+                &mut conn,
+                crate::utils::security_events::SecurityEventInput {
+                    user_uuid,
+                    event_type: "session_revoked",
+                    severity: "info",
+                    details: Some(json!({ "reason": "logout" })),
+                    request: Some(&req),
+                    session_id: None,
+                },
+            );
         }
     }
 

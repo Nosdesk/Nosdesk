@@ -310,7 +310,7 @@ async fn log_password_reset_event(
     record_security_event(
         conn,
         SecurityEventInput {
-            user_uuid: *user_uuid,
+            user_uuid: Some(*user_uuid),
             event_type: "password_reset",
             severity: "info",
             details: Some(json!({

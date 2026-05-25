@@ -2949,7 +2949,10 @@ impl From<ActiveSession> for ActiveSessionResponse {
 #[diesel(table_name = crate::schema::security_events)]
 pub struct SecurityEvent {
     pub id: i32,
-    pub user_uuid: Uuid,
+    /// `None` for events not tied to a known account (e.g. a failed
+    /// login against an unrecognised email; see C/W2). The attempted
+    /// identifier is carried in `details` for those rows.
+    pub user_uuid: Option<Uuid>,
     pub event_type: String,
     pub ip_address: Option<ipnetwork::IpNetwork>,
     pub user_agent: Option<String>,
@@ -2964,7 +2967,7 @@ pub struct SecurityEvent {
 #[derive(Debug, Serialize, Deserialize, Insertable)]
 #[diesel(table_name = crate::schema::security_events)]
 pub struct NewSecurityEvent {
-    pub user_uuid: Uuid,
+    pub user_uuid: Option<Uuid>,
     pub event_type: String,
     pub ip_address: Option<ipnetwork::IpNetwork>,
     pub user_agent: Option<String>,

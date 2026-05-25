@@ -244,7 +244,7 @@ fn log_guest_event(
     if let Err(e) = record_security_event(
         conn,
         SecurityEventInput {
-            user_uuid,
+            user_uuid: Some(user_uuid),
             event_type,
             severity: "info",
             details: Some(details),

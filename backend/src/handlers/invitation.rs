@@ -323,7 +323,7 @@ async fn log_invitation_acceptance_event(
     record_security_event(
         conn,
         SecurityEventInput {
-            user_uuid: *user_uuid,
+            user_uuid: Some(*user_uuid),
             event_type: "invitation_accepted",
             severity: "info",
             details: Some(json!({

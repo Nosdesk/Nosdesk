@@ -1121,7 +1121,7 @@ diesel::table! {
 diesel::table! {
     security_events (id) {
         id -> Int4,
-        user_uuid -> Uuid,
+        user_uuid -> Nullable<Uuid>,
         #[max_length = 50]
         event_type -> Varchar,
         ip_address -> Nullable<Inet>,

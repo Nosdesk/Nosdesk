@@ -23,7 +23,7 @@ use crate::db::DbConnection;
 #[derive(diesel::Insertable)]
 #[diesel(table_name = crate::schema::security_events)]
 pub struct NewSecurityEvent {
-    pub user_uuid: Uuid,
+    pub user_uuid: Option<Uuid>,
     pub event_type: String,
     pub ip_address: Option<IpNetwork>,
     pub user_agent: Option<String>,
@@ -38,7 +38,10 @@ pub struct NewSecurityEvent {
 /// while still allowing every field that made sense before — the only
 /// thing we derive automatically is `created_at` (always "now").
 pub struct SecurityEventInput<'a> {
-    pub user_uuid: Uuid,
+    /// `None` for events not tied to a known account — e.g. a failed
+    /// login against an email that doesn't resolve to a user (C/W2).
+    /// Put the attempted identifier in `details` for those rows.
+    pub user_uuid: Option<Uuid>,
     pub event_type: &'a str,
     /// Conventional values: `"info"`, `"warning"`, `"error"`.
     pub severity: &'a str,
@@ -128,7 +131,7 @@ mod tests {
         let inserted = record_security_event(
             &mut conn,
             SecurityEventInput {
-                user_uuid: user.uuid,
+                user_uuid: Some(user.uuid),
                 event_type: "test_event",
                 severity: "info",
                 details: Some(serde_json::json!({ "k": "v" })),
@@ -150,5 +153,40 @@ mod tests {
         // Without a request in scope, IP and UA must be null.
         assert!(rows[0].1.is_none());
         assert!(rows[0].2.is_none());
+    }
+
+    #[test]
+    fn records_anonymous_event_with_null_user_uuid() {
+        // W2: a failed login against an unknown email has no
+        // user_uuid. The nullable column + None input must round-trip,
+        // carrying the attempted identifier in `details`.
+        use crate::schema::security_events::dsl as se;
+
+        let mut conn = setup_test_connection();
+
+        let inserted = record_security_event(
+            &mut conn,
+            SecurityEventInput {
+                user_uuid: None,
+                event_type: "login_failed",
+                severity: "info",
+                details: Some(serde_json::json!({
+                    "attempted_email": "nobody@example.com",
+                    "reason": "invalid_credentials",
+                })),
+                request: None,
+                session_id: None,
+            },
+        )
+        .expect("anonymous insert succeeds");
+        assert_eq!(inserted, 1);
+
+        let rows: Vec<(Option<Uuid>, String)> = se::security_events
+            .filter(se::event_type.eq("login_failed"))
+            .select((se::user_uuid, se::event_type))
+            .load(&mut conn)
+            .expect("load");
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].0.is_none(), "anonymous event has NULL user_uuid");
     }
 }

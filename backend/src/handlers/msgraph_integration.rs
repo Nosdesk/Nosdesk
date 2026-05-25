@@ -1600,7 +1600,7 @@ async fn sync_users(
             if let Err(e) = crate::utils::security_events::record_security_event(
                 conn,
                 crate::utils::security_events::SecurityEventInput {
-                    user_uuid: identity.user_uuid,
+                    user_uuid: Some(identity.user_uuid),
                     event_type: "user_removed_via_msgraph",
                     severity: "warning",
                     details: Some(serde_json::json!({

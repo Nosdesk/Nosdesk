@@ -337,6 +337,19 @@ pub async fn finish_passkey_registration(
         return errors::internal("Failed to save passkey");
     }
 
+    // W2: record passkey registration to security_events.
+    let _ = crate::utils::security_events::record_security_event(
+        &mut conn,
+        crate::utils::security_events::SecurityEventInput {
+            user_uuid: Some(user_uuid),
+            event_type: "passkey_registered",
+            severity: "info",
+            details: Some(json!({ "credential_id": credential_id, "name": passkey_name })),
+            request: Some(&req),
+            session_id: None,
+        },
+    );
+
     info!(
         "Passkey registered for user {}: {}",
         user_uuid, passkey_name
@@ -779,6 +792,19 @@ pub async fn delete_passkey(
             return errors::internal("Failed to delete passkey");
         }
     }
+
+    // W2: record passkey deletion to security_events.
+    let _ = crate::utils::security_events::record_security_event(
+        &mut conn,
+        crate::utils::security_events::SecurityEventInput {
+            user_uuid: Some(user_uuid),
+            event_type: "passkey_deleted",
+            severity: "warning",
+            details: Some(json!({ "credential_id": credential_id })),
+            request: Some(&req),
+            session_id: None,
+        },
+    );
 
     info!("Passkey {} deleted for user {}", credential_id, user_uuid);
 
