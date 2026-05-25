@@ -24,6 +24,30 @@ use uuid::Uuid;
 
 use backend::db::MIGRATIONS;
 
+/// Customizer that seeds `app.workspace_id` on every fresh
+/// connection. After the Phase 3d NOT-NULL flip, the
+/// `workspace_id` column on every tenant table defaults to
+/// `NULLIF(current_setting('app.workspace_id', true), '')::int`.
+/// Integration tests connect outside the request middleware
+/// chain, so without this seed every INSERT against a tenant
+/// table fails the NOT-NULL check before the test body even
+/// runs. The customizer sets the GUC to the bootstrap workspace
+/// (id=1, present in every fresh template) so existing
+/// fixtures keep working without per-test ceremony. Tests that
+/// need to exercise multi-workspace behaviour can override the
+/// GUC explicitly inside their own with_actor_context wrap.
+#[derive(Debug)]
+struct WorkspaceGucCustomizer;
+
+impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for WorkspaceGucCustomizer {
+    fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), r2d2::Error> {
+        diesel::sql_query("SELECT set_config('app.workspace_id', '1', false)")
+            .execute(conn)
+            .map_err(r2d2::Error::QueryError)?;
+        Ok(())
+    }
+}
+
 pub type TestPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type TestPooledConn = PooledConnection<ConnectionManager<PgConnection>>;
 
@@ -138,6 +162,7 @@ impl TestDb {
         let manager = ConnectionManager::<PgConnection>::new(&self.url);
         r2d2::Pool::builder()
             .max_size(1)
+            .connection_customizer(Box::new(WorkspaceGucCustomizer))
             .build(manager)
             .expect("build sandbox pool")
     }
