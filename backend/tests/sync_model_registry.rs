@@ -61,6 +61,7 @@ fn all_aggregates() -> Vec<SyncAggregate> {
         Asset,
         Webhook,
         Channel,
+        KnowledgeGap,
     ]
 }
 

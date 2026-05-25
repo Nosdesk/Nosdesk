@@ -1,0 +1,29 @@
+{
+  "name": "knowledge_gap",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i64", "ts": "number", "primary": true },
+    "title": { "rust": "String", "ts": "string" },
+    "description": { "rust": "Option<String>", "ts": "string | null" },
+    "status": { "rust": "String", "ts": "string" },
+    "assignee_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "resolved_page_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "evidence_count": { "rust": "i32", "ts": "number" },
+    "impact_score": { "rust": "i32", "ts": "number" },
+    "last_evidence_at": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
+    "created_at": { "rust": "NaiveDateTime", "ts": "string" },
+    "updated_at": { "rust": "NaiveDateTime", "ts": "string" }
+  },
+  "notes": "Signal events (signal_received / signal_dismissed) reference the parent gap by aggregate_id; the knowledge_gap_signals child rows are not a separate aggregate. status-changing updates emit knowledge_gap.resolved / .dismissed; other field updates emit .updated.",
+  "events": [
+    { "type": "knowledge_gap.created", "op": "I" },
+    { "type": "knowledge_gap.updated", "op": "U" },
+    { "type": "knowledge_gap.resolved", "op": "U" },
+    { "type": "knowledge_gap.dismissed", "op": "U" },
+    { "type": "knowledge_gap.signal_received", "op": "I" },
+    { "type": "knowledge_gap.signal_dismissed", "op": "U" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}

@@ -18,12 +18,35 @@
 use crate::db::DbConnection;
 use crate::models::{
     KnowledgeGap, KnowledgeGapSignal, KnowledgeGapUpdate, NewKnowledgeGap, NewKnowledgeGapSignal,
+    SyncAggregate, SyncOp,
 };
 use crate::schema::{knowledge_gap_signals, knowledge_gaps};
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel::result::Error;
+use serde_json::json;
 use uuid::Uuid;
+
+/// Sync-event payload for a knowledge gap. Carries the editorial
+/// state + ranking metadata; child signal rows aren't inlined
+/// (signal events reference the gap by aggregate_id).
+fn gap_sync_payload(g: &KnowledgeGap) -> serde_json::Value {
+    json!({
+        "id": g.id,
+        "title": g.title,
+        "description": g.description,
+        "status": g.status,
+        "assignee_uuid": g.assignee_uuid,
+        "resolved_page_id": g.resolved_page_id,
+        "evidence_count": g.evidence_count,
+        "impact_score": g.impact_score,
+        "last_evidence_at": g.last_evidence_at,
+        "created_at": g.created_at,
+        "updated_at": g.updated_at,
+    })
+}
 
 // -----------------------------------------------------------------
 // Constants — kept here so handlers don't sprinkle string literals.
@@ -178,52 +201,107 @@ pub fn list_gaps(
 // Mutations
 // -----------------------------------------------------------------
 
-// sync-pending-wire: needs sync aggregate wiring
 /// Insert a new gap. Caller is responsible for attaching at least
 /// one signal afterwards via `attach_signal_to_gap`.
 pub fn create_gap(
     conn: &mut DbConnection,
     new_gap: NewKnowledgeGap,
 ) -> Result<KnowledgeGap, Error> {
-    diesel::insert_into(knowledge_gaps::table)
-        .values(&new_gap)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let gap: KnowledgeGap = diesel::insert_into(knowledge_gaps::table)
+            .values(&new_gap)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::KnowledgeGap,
+                aggregate_id: gap.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "knowledge_gap.created",
+                data: gap_sync_payload(&gap),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(gap)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn update_gap(
     conn: &mut DbConnection,
     gap_id: i64,
     update: KnowledgeGapUpdate,
 ) -> Result<KnowledgeGap, Error> {
-    diesel::update(knowledge_gaps::table.find(gap_id))
-        .set(update)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let gap: KnowledgeGap = diesel::update(knowledge_gaps::table.find(gap_id))
+            .set(update)
+            .get_result(conn)?;
+        // Pick the event from the resulting lifecycle state so
+        // dismiss_gap / resolve_gap (which both route through here)
+        // surface as the distinct events the tier classification
+        // names, rather than a generic .updated.
+        let event_type = if gap.status == STATUS_RESOLVED {
+            "knowledge_gap.resolved"
+        } else if gap.status == STATUS_DISMISSED {
+            "knowledge_gap.dismissed"
+        } else {
+            "knowledge_gap.updated"
+        };
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::KnowledgeGap,
+                aggregate_id: gap.id.to_string(),
+                op: SyncOp::Update,
+                event_type,
+                data: gap_sync_payload(&gap),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(gap)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn attach_signal(
     conn: &mut DbConnection,
     new_signal: NewKnowledgeGapSignal,
 ) -> Result<KnowledgeGapSignal, Error> {
-    diesel::insert_into(knowledge_gap_signals::table)
-        .values(&new_signal)
-        .on_conflict((
-            knowledge_gap_signals::gap_id,
-            knowledge_gap_signals::source_kind,
-            knowledge_gap_signals::source_ref,
-        ))
-        .do_update()
-        .set((
-            knowledge_gap_signals::dismissed_at.eq(None::<chrono::NaiveDateTime>),
-            knowledge_gap_signals::dismissed_by.eq(None::<Uuid>),
-            knowledge_gap_signals::confidence.eq(new_signal.confidence),
-            knowledge_gap_signals::payload.eq(new_signal.payload.clone()),
-        ))
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let signal: KnowledgeGapSignal = diesel::insert_into(knowledge_gap_signals::table)
+            .values(&new_signal)
+            .on_conflict((
+                knowledge_gap_signals::gap_id,
+                knowledge_gap_signals::source_kind,
+                knowledge_gap_signals::source_ref,
+            ))
+            .do_update()
+            .set((
+                knowledge_gap_signals::dismissed_at.eq(None::<chrono::NaiveDateTime>),
+                knowledge_gap_signals::dismissed_by.eq(None::<Uuid>),
+                knowledge_gap_signals::confidence.eq(new_signal.confidence),
+                knowledge_gap_signals::payload.eq(new_signal.payload.clone()),
+            ))
+            .get_result(conn)?;
+        // Signal events reference the parent gap; aggregate_id is the
+        // gap_id, not the signal_id. The child row itself is evidence,
+        // not a tier-1 aggregate.
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::KnowledgeGap,
+                aggregate_id: signal.gap_id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "knowledge_gap.signal_received",
+                data: json!({ "gap_id": signal.gap_id, "signal_id": signal.id }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(signal)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 /// Dismiss a single signal (e.g. user unflags one ticket). Returns
 /// the count of *live* signals remaining on the gap so callers can
 /// decide whether to dismiss the whole gap.
@@ -232,19 +310,34 @@ pub fn dismiss_signal(
     signal_id: i64,
     by_user: Option<Uuid>,
 ) -> Result<i64, Error> {
-    let gap_id: i64 = diesel::update(knowledge_gap_signals::table.find(signal_id))
-        .set((
-            knowledge_gap_signals::dismissed_at.eq(Some(Utc::now().naive_utc())),
-            knowledge_gap_signals::dismissed_by.eq(by_user),
-        ))
-        .returning(knowledge_gap_signals::gap_id)
-        .get_result(conn)?;
+    conn.transaction(|conn| {
+        let gap_id: i64 = diesel::update(knowledge_gap_signals::table.find(signal_id))
+            .set((
+                knowledge_gap_signals::dismissed_at.eq(Some(Utc::now().naive_utc())),
+                knowledge_gap_signals::dismissed_by.eq(by_user),
+            ))
+            .returning(knowledge_gap_signals::gap_id)
+            .get_result(conn)?;
 
-    knowledge_gap_signals::table
-        .filter(knowledge_gap_signals::gap_id.eq(gap_id))
-        .filter(knowledge_gap_signals::dismissed_at.is_null())
-        .count()
-        .get_result(conn)
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::KnowledgeGap,
+                aggregate_id: gap_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "knowledge_gap.signal_dismissed",
+                data: json!({ "gap_id": gap_id, "signal_id": signal_id }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+
+        knowledge_gap_signals::table
+            .filter(knowledge_gap_signals::gap_id.eq(gap_id))
+            .filter(knowledge_gap_signals::dismissed_at.is_null())
+            .count()
+            .get_result(conn)
+    })
 }
 
 /// Recompute and persist `evidence_count`, `last_evidence_at`,
