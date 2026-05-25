@@ -522,6 +522,21 @@ async fn main() -> std::io::Result<()> {
         ));
     }
 
+    // W6c: eagerly provision sync_actions / audit_log partitions
+    // at startup, before binding the listener. The daily scheduler
+    // job below keeps the runway rolling forward, but a deployment
+    // that's been offline past its last provisioned month would
+    // reject the first INSERT into either partitioned table on the
+    // very first request. Doing it synchronously here self-heals
+    // that gap. Fail loud — refuse to bind the listener rather than
+    // serve a process that will 500 on the first audit write.
+    if let Err(e) = services::scheduled_jobs::ensure_sync_partitions(pool.clone()).await {
+        error!(error = %e, "Startup partition provisioning failed");
+        return Err(std::io::Error::other(format!(
+            "Startup partition provisioning failed: {e}"
+        )));
+    }
+
     // Create uploads directory structure if it doesn't exist
     let uploads_dir = "/app/uploads";
     let directories = [
@@ -655,10 +670,25 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    // Run startup seeds (idempotent - only creates content if missing)
+    // Run startup seeds (idempotent - only creates content if missing).
+    // Pin the seed connection to the bootstrap workspace: post-3d
+    // every tenant table NOT-NULLs workspace_id from the
+    // app.workspace_id GUC default, so seeding the welcome doc page /
+    // Getting Started collection with an unset GUC trips the
+    // NOT-NULL constraint. with_actor_context sets the GUC for the
+    // seed transaction; run_seeds keeps its own warn-on-failure
+    // handling, so the closure just returns Ok.
     {
         let mut conn = pool.get().expect("Failed to get connection for seeding");
-        services::seed::run_seeds(&mut conn);
+        let actor = backend::sync::actor::ActorContext::system("startup:seed").with_workspace(1);
+        let _ = backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |conn| {
+                services::seed::run_seeds(conn);
+                Ok(())
+            },
+        );
     }
 
     // Initialize Redis cache for Yjs documents (survives backend restarts)
