@@ -68,6 +68,27 @@ pub fn create_user_with_email(
             .values(&new_user)
             .get_result(conn)?;
 
+        // Add the workspace_members row that the Item U 403 gate
+        // checks. workspace_id comes from the app.workspace_id GUC
+        // via the column default - so callers must invoke this
+        // function under `with_actor_context` (request handlers do
+        // this automatically; bootstrap admin sets the GUC
+        // explicitly first). Maps the global user role onto the
+        // workspace membership role using the same shape the
+        // 2026-05-23 migration backfill used.
+        let workspace_role = match new_user.role {
+            UserRole::Admin => "admin",
+            _ => "member",
+        };
+        diesel::sql_query(
+            "INSERT INTO workspace_members (user_uuid, role) \
+             VALUES ($1, $2) \
+             ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(user.uuid)
+        .bind::<diesel::sql_types::Text, _>(workspace_role)
+        .execute(conn)?;
+
         // Then create primary email
         let new_email = crate::models::NewUserEmail {
             user_uuid: user.uuid,

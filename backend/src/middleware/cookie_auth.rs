@@ -16,10 +16,62 @@ use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::{web, Error};
 use tracing::{debug, error, info, warn};
 
-use crate::db::Pool;
+use crate::db::{DbConnection, Pool};
 use crate::middleware::request_context;
+use crate::models::Claims;
 use crate::utils::jwt::JwtUtils;
 use actix_web::HttpMessage;
+
+/// Item U: workspace membership 403 gate.
+///
+/// If the request has a `WorkspaceContext` (hosted mode with the
+/// subdomain resolved) and the authenticated user has no
+/// `workspace_members` row for that workspace, return
+/// `403 Forbidden` instead of letting the request fall through
+/// into the app with RLS-filtered-to-empty queries.
+///
+/// Skipped when no `WorkspaceContext` is present (apex domain,
+/// unrecognised subdomain) - those routes shouldn't touch tenant
+/// tables anyway, and the strict RLS policy is the secondary
+/// guard there.
+///
+/// Used by every authentication middleware (cookie auth + dual
+/// auth) so the gate fires on every authenticated entry path.
+pub(crate) fn enforce_workspace_membership(
+    req: &ServiceRequest,
+    conn: &mut DbConnection,
+    claims: &Claims,
+) -> Result<(), Error> {
+    let Some(workspace_id) = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|w| w.workspace_id)
+    else {
+        return Ok(());
+    };
+    let Ok(user_uuid) = uuid::Uuid::parse_str(&claims.sub) else {
+        return Ok(());
+    };
+    match crate::repository::workspaces::membership(conn, workspace_id, user_uuid) {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => {
+            warn!(
+                user = %claims.sub,
+                workspace_id,
+                "Workspace membership 403 gate: user is not a member; denying"
+            );
+            Err(actix_web::error::ErrorForbidden(
+                "Not a member of this workspace",
+            ))
+        }
+        Err(e) => {
+            error!(error = ?e, "Workspace membership lookup failed");
+            Err(actix_web::error::ErrorInternalServerError(
+                "Workspace membership check failed",
+            ))
+        }
+    }
+}
 
 pub async fn cookie_auth_middleware(
     req: ServiceRequest,
@@ -60,6 +112,8 @@ pub async fn cookie_auth_middleware(
         })?;
 
     info!(user = %claims.sub, "Cookie auth: user authenticated successfully");
+
+    enforce_workspace_membership(&req, &mut conn, &claims)?;
 
     request_context::populate(&req, &claims);
     req.extensions_mut().insert(claims);

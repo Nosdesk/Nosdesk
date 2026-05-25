@@ -608,8 +608,14 @@ pub async fn oauth_callback(
                 } else {
                     // Regular login/signup flow
                     // Find or create user based on OAuth identity
+                    let workspace_id = request
+                        .extensions()
+                        .get::<crate::extractors::WorkspaceContext>()
+                        .map(|w| w.workspace_id)
+                        .unwrap_or(1);
                     let user_result =
-                        find_or_create_oauth_user(&user_info, &provider, &mut conn).await;
+                        find_or_create_oauth_user(&user_info, &provider, &mut conn, workspace_id)
+                            .await;
 
                     match user_result {
                         Ok(user) => {
@@ -788,8 +794,18 @@ pub async fn oauth_callback(
                         "surname": user_info.family_name,
                     });
 
-                    let user_result =
-                        find_or_create_oauth_user(&oidc_user_info, &provider, &mut conn).await;
+                    let workspace_id = request
+                        .extensions()
+                        .get::<crate::extractors::WorkspaceContext>()
+                        .map(|w| w.workspace_id)
+                        .unwrap_or(1);
+                    let user_result = find_or_create_oauth_user(
+                        &oidc_user_info,
+                        &provider,
+                        &mut conn,
+                        workspace_id,
+                    )
+                    .await;
 
                     match user_result {
                         Ok(user) => {
@@ -1106,6 +1122,7 @@ async fn find_or_create_oauth_user(
     user_info: &serde_json::Value,
     provider: &AuthProvider,
     conn: &mut DbConnection,
+    workspace_id: i32,
 ) -> Result<crate::models::User, String> {
     // Extract email from user info
     let email = match user_info
@@ -1259,6 +1276,21 @@ async fn find_or_create_oauth_user(
 
     match crate::repository::create_user(new_user, conn) {
         Ok(user) => {
+            // Item U: add membership for the resolved workspace
+            // so the cookie auth gate finds the user on their
+            // first login. OAuth-created users always start as
+            // workspace 'member' (global role mapping is the
+            // separate UserRole::User assignment above).
+            if let Err(e) = crate::repository::workspaces::add_membership(
+                conn,
+                workspace_id,
+                user.uuid,
+                "member",
+            ) {
+                return Err(format!(
+                    "User created but failed to add workspace membership: {e:?}"
+                ));
+            }
             // Create an identity for the new user
             let new_identity = NewUserAuthIdentity {
                 user_uuid: user.uuid,

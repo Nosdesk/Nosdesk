@@ -98,6 +98,20 @@ pub fn create_initial_admin(
             .values(&new_user)
             .get_result(c)?;
 
+        // Item U: add bootstrap admin to the bootstrap workspace
+        // (id=1) so the 403 gate in cookie_auth_middleware finds
+        // a membership row on first login. Hard-coded to workspace
+        // 1 because this is the bootstrap path — no request
+        // context exists yet, so the GUC-driven column default
+        // wouldn't fire.
+        sql_query(
+            "INSERT INTO workspace_members (workspace_id, user_uuid, role) \
+             VALUES (1, $1, 'admin') \
+             ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(user.uuid)
+        .execute(c)?;
+
         let user_email: UserEmail = diesel::insert_into(crate::schema::user_emails::table)
             .values(&crate::models::NewUserEmail {
                 user_uuid: user.uuid,

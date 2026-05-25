@@ -188,6 +188,14 @@ pub async fn dual_auth_middleware(
     // Try Bearer token authentication first
     match try_bearer_auth(&req, &pool)? {
         Some(claims) => {
+            // Item U: workspace membership 403 gate. Bearer-token
+            // requests go through the same check as cookie-auth so
+            // an API token issued in workspace A can't be used to
+            // probe workspace B's subdomain.
+            let mut conn = pool.get().map_err(|_| {
+                actix_web::error::ErrorInternalServerError("Database connection failed")
+            })?;
+            crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
             // Mark this request as authenticated via API token
             req.extensions_mut().insert(ApiTokenAuth {
                 token_uuid: uuid::Uuid::parse_str(&claims.sub).unwrap_or_default(),
@@ -223,6 +231,8 @@ pub async fn dual_auth_middleware(
         })?;
 
     info!(user = %claims.sub, "Cookie auth: user authenticated successfully");
+
+    crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
 
     request_context::populate(&req, &claims);
     req.extensions_mut().insert(claims);
