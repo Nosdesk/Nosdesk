@@ -131,4 +131,88 @@ mod tests {
         // accidental Some("") vs None split doesn't fragment dedup.
         assert_eq!(a, b);
     }
+
+    // ---- Phase 3i.7: composite UNIQUE invariant ----
+
+    #[test]
+    fn unique_index_allows_cross_tenant_collision_blocks_intra_tenant() {
+        // The 3i.2 migration flipped csp_reports_dedup_hash_idx
+        // from UNIQUE (dedup_hash) to UNIQUE (workspace_id,
+        // dedup_hash). Two tenants reporting the same browser-
+        // computed dedup_hash must coexist (cross-tenant
+        // collisions are silent under the old shape and corrupt
+        // one tenant's row into the other via upsert). Inside one
+        // tenant the constraint must still prevent duplicate rows.
+        // This test exercises both halves of the invariant
+        // directly via raw SQL so it fails loudly if a future
+        // migration narrows the index back.
+        use crate::sync::actor::ActorContext;
+        use crate::sync::session::with_actor_bypass_context;
+        use crate::test_helpers::setup_test_connection;
+
+        let mut conn = setup_test_connection();
+        let admin = ActorContext::system("rls.test");
+
+        // Seed workspace 2 (workspace 1 already exists).
+        with_actor_bypass_context(&mut conn, &admin, |c| {
+            diesel::sql_query(
+                "INSERT INTO workspaces (id, slug, name) \
+                 VALUES (2, 'csp-other', 'CSP Other Workspace') \
+                 ON CONFLICT (id) DO NOTHING",
+            )
+            .execute(c)?;
+            diesel::sql_query("SELECT setval('workspaces_id_seq', GREATEST(2, last_value), true) FROM workspaces_id_seq")
+                .execute(c)?;
+            Ok::<(), diesel::result::Error>(())
+        })
+        .expect("seed workspace 2");
+
+        let hash_a = "a".repeat(64);
+
+        // Insert ws1, hash_a — first occurrence in workspace 1.
+        let cross_results = with_actor_bypass_context(&mut conn, &admin, |c| {
+            diesel::sql_query(
+                "INSERT INTO csp_reports \
+                    (workspace_id, dedup_hash, effective_directive, \
+                     document_uri, disposition) \
+                 VALUES (1, $1, 'script-src', 'https://a.example/', 'enforce')",
+            )
+            .bind::<diesel::sql_types::Text, _>(&hash_a)
+            .execute(c)?;
+
+            // Same hash in workspace 2 — must succeed under the
+            // composite shape, fail under the narrow shape.
+            diesel::sql_query(
+                "INSERT INTO csp_reports \
+                    (workspace_id, dedup_hash, effective_directive, \
+                     document_uri, disposition) \
+                 VALUES (2, $1, 'script-src', 'https://b.example/', 'enforce')",
+            )
+            .bind::<diesel::sql_types::Text, _>(&hash_a)
+            .execute(c)
+        });
+
+        assert!(
+            cross_results.is_ok(),
+            "cross-tenant duplicate dedup_hash must be permitted by the composite UNIQUE; \
+             if this fails, the index was narrowed back to (dedup_hash) only"
+        );
+
+        // Intra-tenant duplicate must still error.
+        let intra_result = with_actor_bypass_context(&mut conn, &admin, |c| {
+            diesel::sql_query(
+                "INSERT INTO csp_reports \
+                    (workspace_id, dedup_hash, effective_directive, \
+                     document_uri, disposition) \
+                 VALUES (1, $1, 'script-src', 'https://a.example/again', 'enforce')",
+            )
+            .bind::<diesel::sql_types::Text, _>(&hash_a)
+            .execute(c)
+        });
+
+        assert!(
+            intra_result.is_err(),
+            "intra-tenant duplicate (workspace_id, dedup_hash) must violate the UNIQUE index"
+        );
+    }
 }

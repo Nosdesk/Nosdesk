@@ -301,4 +301,63 @@ mod tests {
 
         assert!(matches!(result, Err(diesel::result::Error::NotFound)));
     }
+
+    // ---- Phase 3i.7: background_run substrate coverage ----
+
+    #[test]
+    fn background_run_elevates_role_and_seeds_actor_gucs() {
+        // background_run is the canonical entry point for any
+        // spawn-task DB work. It must (a) acquire a pool
+        // connection, (b) elevate to nosdesk_admin so cross-tenant
+        // queries bypass RLS, and (c) set the actor GUCs so the
+        // audit_log trigger and sync_actions rows attribute the
+        // write to the "system:<reference>" actor. Without all
+        // three, schedulers silently produce zero-row reads / writes
+        // post-3h.4.
+        let pool = crate::test_helpers::setup_test_pool();
+
+        background_run(&pool, "test:background_run_smoke", |conn| {
+            // BYPASSRLS role active for the txn.
+            let current_role: String =
+                diesel::sql_query("SELECT current_user::text AS current_setting")
+                    .get_result::<GucReadback>(conn)
+                    .map(|r| r.current_setting.unwrap_or_default())
+                    .unwrap_or_default();
+            assert_eq!(
+                current_role, "nosdesk_admin",
+                "background_run must SET LOCAL ROLE nosdesk_admin"
+            );
+
+            assert_eq!(
+                read_guc(conn, "app.actor_kind"),
+                Some("system".to_string()),
+                "system actor kind"
+            );
+            assert_eq!(
+                read_guc(conn, "app.actor_ref"),
+                Some("test:background_run_smoke".to_string()),
+                "reference label passes through to GUC"
+            );
+
+            Ok::<(), diesel::result::Error>(())
+        })
+        .expect("background_run succeeded");
+    }
+
+    #[test]
+    fn background_run_propagates_closure_errors() {
+        // background_run wraps the closure in a transaction; the
+        // closure's error should surface through BackgroundRunError::Db
+        // (not silently swallowed) so a scheduled-job tick logs and
+        // counts the failure instead of looking like success.
+        let pool = crate::test_helpers::setup_test_pool();
+        let result: Result<(), BackgroundRunError> =
+            background_run(&pool, "test:background_run_err", |_| {
+                Err::<(), diesel::result::Error>(diesel::result::Error::NotFound)
+            });
+        assert!(matches!(
+            result,
+            Err(BackgroundRunError::Db(diesel::result::Error::NotFound))
+        ));
+    }
 }

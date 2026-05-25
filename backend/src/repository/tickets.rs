@@ -1475,4 +1475,96 @@ mod tests {
             panic!("{}", msg);
         }
     }
+
+    // ---- Phase 3i.7: substrate hardening regression tests ----
+
+    #[test]
+    fn nosdesk_app_grant_of_nosdesk_admin_has_inherit_option_false() {
+        // The 3h.6 migration set the explicit INHERIT FALSE on the
+        // GRANT nosdesk_admin TO nosdesk_app because Postgres 16+
+        // tracks the inherit option on the membership row, not
+        // just the role attribute. Without INHERIT FALSE on the
+        // grant, nosdesk_app silently inherits BYPASSRLS via
+        // membership and every RLS policy becomes optional. This
+        // test reads the grant row directly so any future
+        // migration that re-grants without INHERIT FALSE fails CI
+        // before it ships.
+        let mut conn = setup_test_connection();
+
+        #[derive(diesel::QueryableByName)]
+        struct InheritRow {
+            #[diesel(sql_type = diesel::sql_types::Bool)]
+            inherit_option: bool,
+        }
+        let row: InheritRow = diesel::sql_query(
+            "SELECT m.inherit_option \
+             FROM pg_auth_members m \
+             JOIN pg_roles r ON r.oid = m.roleid \
+             JOIN pg_roles g ON g.oid = m.member \
+             WHERE r.rolname = 'nosdesk_admin' AND g.rolname = 'nosdesk_app'",
+        )
+        .get_result(&mut conn)
+        .expect("nosdesk_app must be a member of nosdesk_admin");
+
+        assert!(
+            !row.inherit_option,
+            "GRANT nosdesk_admin TO nosdesk_app must carry INHERIT FALSE; \
+             without it, nosdesk_app picks up BYPASSRLS via membership and \
+             every RLS policy becomes opt-in"
+        );
+    }
+
+    #[test]
+    fn audit_log_trigger_stamps_actor_uuid_from_guc() {
+        // The substrate's audit_log_trigger reads the actor UUID
+        // from app.actor_uuid (set by with_actor_context /
+        // with_actor_bypass_context) and writes it into the
+        // audit_log row. This is the only mechanism that ties an
+        // INSERT/UPDATE/DELETE back to a specific user; if the
+        // trigger ever stops reading the GUC, the audit trail
+        // silently goes anonymous. Insert a ticket via
+        // with_actor_context with a known user UUID, then read
+        // audit_log via bypass and confirm the actor_uuid column
+        // matches.
+        let mut conn = setup_test_connection();
+        let user_uuid = uuid::Uuid::now_v7();
+        let state = crate::repository::workflow_states::default_state(&mut conn)
+            .expect("default workflow state");
+
+        let actor = ActorContext::user(user_uuid, None).with_workspace(1);
+        let ticket = with_actor_context(&mut conn, &actor, |c| {
+            let new = NewTicket {
+                title: "audit trigger probe".into(),
+                workflow_state_id: state.id,
+                ..Default::default()
+            };
+            diesel::insert_into(tickets::table)
+                .values(&new)
+                .get_result::<Ticket>(c)
+        })
+        .expect("insert ticket under user actor");
+
+        #[derive(diesel::QueryableByName)]
+        struct AuditRow {
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Uuid>)]
+            actor_uuid: Option<uuid::Uuid>,
+        }
+        let admin = ActorContext::system("rls.test");
+        let row: AuditRow = with_actor_bypass_context(&mut conn, &admin, |c| {
+            diesel::sql_query(
+                "SELECT actor_uuid FROM audit_log \
+                 WHERE table_name = 'tickets' AND op = 'I' AND pk_text = $1 \
+                 ORDER BY occurred_at DESC LIMIT 1",
+            )
+            .bind::<diesel::sql_types::Text, _>(ticket.id.to_string())
+            .get_result(c)
+        })
+        .expect("read audit_log row");
+
+        assert_eq!(
+            row.actor_uuid,
+            Some(user_uuid),
+            "audit_log trigger must stamp actor_uuid from the app.actor_uuid GUC"
+        );
+    }
 }

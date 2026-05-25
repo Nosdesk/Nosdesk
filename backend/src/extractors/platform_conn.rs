@@ -151,3 +151,81 @@ impl FromRequest for PlatformConn {
         ready(Ok(PlatformConn { pool, actor }))
     }
 }
+
+// ---- Phase 3i.7: PlatformConn extractor coverage ----
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sync::actor::ActorKind;
+    use actix_web::test::TestRequest;
+    use uuid::Uuid;
+
+    /// Mirror the real handler-extraction shape: build a test
+    /// HttpRequest with the test pool attached, call from_request,
+    /// return the extracted PlatformConn. Centralises the pool
+    /// plumbing so the tests can stay focused on actor attribution.
+    async fn extract(req_builder: TestRequest) -> PlatformConn {
+        let pool = crate::test_helpers::setup_test_pool();
+        let req = req_builder.app_data(web::Data::new(pool)).to_http_request();
+        PlatformConn::from_request(&req, &mut Payload::None)
+            .await
+            .expect("PlatformConn extraction succeeded")
+    }
+
+    #[actix_web::test]
+    async fn fallback_actor_embeds_route_path() {
+        // Without a RequestContext in extensions (the public-unauth
+        // path), the actor falls back to a system actor whose
+        // reference is the request path. Catches a regression where
+        // the fallback collapses every unauthenticated cross-tenant
+        // write into a single anonymous "platform:unauth" bucket.
+        let pc = extract(TestRequest::default().uri("/api/csp-report")).await;
+        assert_eq!(pc.actor.kind, ActorKind::System);
+        assert_eq!(
+            pc.actor.reference.as_deref(),
+            Some("platform:fallback:/api/csp-report")
+        );
+    }
+
+    #[actix_web::test]
+    async fn inherits_request_context_actor_when_present() {
+        // Authenticated platform handlers (workspace lifecycle,
+        // admin sync dispatchers) inherit the user actor from
+        // RequestContext so audit_log records who initiated the
+        // cross-tenant op rather than an anonymous fallback.
+        let user_uuid = Uuid::now_v7();
+        let ctx_actor = ActorContext::user(user_uuid, None);
+        let req_ctx = RequestContext::new(Uuid::now_v7(), ctx_actor);
+
+        let req = TestRequest::default()
+            .uri("/api/admin/workspaces/42/archive")
+            .app_data(web::Data::new(crate::test_helpers::setup_test_pool()))
+            .to_http_request();
+        req.extensions_mut().insert(req_ctx);
+
+        let pc = PlatformConn::from_request(&req, &mut Payload::None)
+            .await
+            .expect("extract");
+        assert_eq!(pc.actor.kind, ActorKind::User);
+        assert_eq!(pc.actor.uuid, Some(user_uuid));
+    }
+
+    #[actix_web::test]
+    async fn with_actor_overrides_inherited_actor() {
+        // Public unauth handlers should override the fallback with
+        // a stable "handler:<name>" label so the audit trail
+        // doesn't drift if a route path is renamed. Verifies the
+        // builder swaps the actor without rebuilding the whole
+        // extractor.
+        let pc = extract(TestRequest::default().uri("/api/csp-report")).await;
+        let pinned = ActorContext::system("handler:csp_report").with_workspace(1);
+        let pc = pc.with_actor(pinned);
+        assert_eq!(
+            pc.actor.reference.as_deref(),
+            Some("handler:csp_report"),
+            "with_actor must replace the fallback reference"
+        );
+        assert_eq!(pc.actor.workspace_id, Some(1));
+    }
+}
