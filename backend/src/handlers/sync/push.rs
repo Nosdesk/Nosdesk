@@ -199,7 +199,8 @@ fn apply_transaction(
         | SyncAggregate::CycleTicket
         | SyncAggregate::User
         | SyncAggregate::Asset
-        | SyncAggregate::Webhook => Err(TxReject(
+        | SyncAggregate::Webhook
+        | SyncAggregate::Channel => Err(TxReject(
             "unsupported_aggregate",
             format!(
                 "push for aggregate `{}` is not yet wired",

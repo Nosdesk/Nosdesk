@@ -440,6 +440,8 @@ pub enum SyncAggregate {
     Asset,
     #[serde(rename = "webhook")]
     Webhook,
+    #[serde(rename = "channel")]
+    Channel,
 }
 
 impl SyncAggregate {
@@ -459,6 +461,7 @@ impl SyncAggregate {
             Self::User => "user",
             Self::Asset => "asset",
             Self::Webhook => "webhook",
+            Self::Channel => "channel",
         }
     }
 }
@@ -487,6 +490,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"user" => Ok(Self::User),
             b"asset" => Ok(Self::Asset),
             b"webhook" => Ok(Self::Webhook),
+            b"channel" => Ok(Self::Channel),
             other => {
                 Err(format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into())
             }

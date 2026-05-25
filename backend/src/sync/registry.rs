@@ -30,5 +30,6 @@ pub fn schema_version_for(aggregate: SyncAggregate) -> i16 {
         SyncAggregate::User => 1,
         SyncAggregate::Asset => 1,
         SyncAggregate::Webhook => 1,
+        SyncAggregate::Channel => 1,
     }
 }

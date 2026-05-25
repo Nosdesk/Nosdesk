@@ -1,0 +1,22 @@
+{
+  "name": "channel",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "provider": { "rust": "String", "ts": "string" },
+    "name": { "rust": "String", "ts": "string" },
+    "enabled": { "rust": "bool", "ts": "boolean" },
+    "config": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },
+    "created_at": { "rust": "NaiveDateTime", "ts": "string" },
+    "updated_at": { "rust": "NaiveDateTime", "ts": "string" }
+  },
+  "notes": "Credentials live in the separate channel_credentials table (AES-256-GCM encrypted) and never appear in the channel row or this payload. runtime_state + last_polled_at are operational poll churn and are deliberately excluded.",
+  "events": [
+    { "type": "channel.created", "op": "I" },
+    { "type": "channel.configured", "op": "U" },
+    { "type": "channel.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}

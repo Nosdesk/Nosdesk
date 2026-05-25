@@ -11,13 +11,32 @@
 
 use diesel::prelude::*;
 use diesel::QueryResult;
+use serde_json::json;
 
 use crate::db::DbConnection;
 use crate::models::{
     Channel, ChannelCredential, ChannelMessage, ChannelUpdate, NewChannel, NewChannelCredential,
-    NewChannelMessage,
+    NewChannelMessage, SyncAggregate, SyncOp,
 };
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 use crate::utils::encryption;
+
+/// Sync-event payload for a channel. Excludes `runtime_state` +
+/// `last_polled_at` (operational poll churn) and carries no
+/// credentials — those live encrypted in channel_credentials and
+/// never touch the channel row.
+fn channel_sync_payload(c: &Channel) -> serde_json::Value {
+    json!({
+        "id": c.id,
+        "provider": c.provider,
+        "name": c.name,
+        "enabled": c.enabled,
+        "config": c.config,
+        "created_at": c.created_at,
+        "updated_at": c.updated_at,
+    })
+}
 
 // ---------- channels table ----------
 
@@ -51,31 +70,81 @@ pub fn find_by_provider(
         .optional()
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn create(conn: &mut DbConnection, new: NewChannel) -> QueryResult<Channel> {
     use crate::schema::channels::dsl::*;
-    diesel::insert_into(channels).values(&new).get_result(conn)
+    conn.transaction(|conn| {
+        let channel: Channel = diesel::insert_into(channels).values(&new).get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Channel,
+                aggregate_id: channel.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "channel.created",
+                data: channel_sync_payload(&channel),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(channel)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn update(
     conn: &mut DbConnection,
     channel_id: i32,
     change: ChannelUpdate,
 ) -> QueryResult<Channel> {
     use crate::schema::channels::dsl::*;
-    diesel::update(channels.find(channel_id))
-        .set(&change)
-        .get_result(conn)
+    // `channel.configured` covers config / credential-pointer /
+    // enabled changes uniformly; the payload carries the resulting
+    // `enabled` so consumers can read the on/off state without a
+    // separate enabled/disabled event variant.
+    conn.transaction(|conn| {
+        let channel: Channel = diesel::update(channels.find(channel_id))
+            .set(&change)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Channel,
+                aggregate_id: channel.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "channel.configured",
+                data: channel_sync_payload(&channel),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(channel)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn delete(conn: &mut DbConnection, channel_id: i32) -> QueryResult<usize> {
     use crate::schema::channels::dsl::*;
-    diesel::delete(channels.find(channel_id)).execute(conn)
+    conn.transaction(|conn| {
+        let channel: Option<Channel> = channels.find(channel_id).first::<Channel>(conn).optional()?;
+        let Some(channel) = channel else {
+            return Ok(0);
+        };
+        let deleted = diesel::delete(channels.find(channel_id)).execute(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Channel,
+                aggregate_id: channel.id.to_string(),
+                op: SyncOp::Delete,
+                event_type: "channel.deleted",
+                data: channel_sync_payload(&channel),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(deleted)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
+// sync-audit-only: runtime_state + last_polled_at are written on every poll tick (IMAP UID cursors, last-poll timestamps) — high-volume operational churn, not a config change. Emitting a sync event per poll would flood the stream; the user-facing config changes go through update() as channel.configured.
 /// Persist the adapter's runtime state (e.g. last IMAP UID). Narrower than
 /// `update()` so adapters don't accidentally touch the user-editable
 /// config on every poll tick.
@@ -120,7 +189,7 @@ impl From<diesel::result::Error> for CredentialError {
     }
 }
 
-// sync-pending-wire: needs sync aggregate wiring
+// sync-audit-only: channel credential lifecycle. The encrypted value must never reach the sync stream; credential changes are observable via the channel_credentials audit trigger (W4) and the parent channel.configured event when the channel row itself changes.
 /// Store (or replace) an encrypted credential for a channel. Upserts on
 /// the `(channel_id, credential_type)` unique index so rotating a password
 /// is a single call.
@@ -183,7 +252,7 @@ pub fn get_credential(
     }
 }
 
-// sync-pending-wire: needs sync aggregate wiring
+// sync-audit-only: channel credential lifecycle; same rationale as put_credential — never emit credential values, covered by the channel_credentials audit trigger (W4).
 pub fn delete_credential(
     conn: &mut DbConnection,
     channel_id: i32,
@@ -200,7 +269,7 @@ pub fn delete_credential(
 
 // ---------- channel_messages table ----------
 
-// sync-pending-wire: needs sync aggregate wiring
+// sync-audit-only: channel_messages is the high-volume dedup/threading ledger (one row per inbound + outbound message). The business event is the ticket/comment the message produces, which emits via the ticket/comment aggregates; the raw message row is operational and not a tier-1 aggregate.
 /// Record a message we processed (inbound or outbound). Idempotent on the
 /// `(channel_id, external_id, direction)` unique index — if we somehow
 /// process the same message twice we get the existing row back.
