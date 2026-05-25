@@ -57,6 +57,7 @@ pub fn membership(
         .optional()
 }
 
+// sync-pending-wire: emit a WorkspaceMember sync_action when that aggregate + the Phase 4 W3 membership lifecycle handlers land; today no aggregate variant exists and workspace_members has no audit_log trigger, so the grant rides along with the user.created emit in the same create_user_with_email txn
 /// Add a user to the given workspace. Called from every user-
 /// creation flow (admin invite, guest portal, channels ingest,
 /// OAuth provisioning, setup_initial_admin bootstrap) so newly-
