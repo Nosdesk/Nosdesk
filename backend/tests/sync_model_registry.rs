@@ -62,6 +62,7 @@ fn all_aggregates() -> Vec<SyncAggregate> {
         Webhook,
         Channel,
         KnowledgeGap,
+        DocumentationPage,
     ]
 }
 

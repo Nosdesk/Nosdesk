@@ -1,0 +1,38 @@
+{
+  "name": "documentation_page",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "uuid": { "rust": "Uuid", "ts": "string" },
+    "title": { "rust": "String", "ts": "string" },
+    "slug": { "rust": "String", "ts": "string" },
+    "icon": { "rust": "Option<String>", "ts": "string | null" },
+    "cover_image": { "rust": "Option<String>", "ts": "string | null" },
+    "status": { "rust": "DocumentationStatus", "ts": "string" },
+    "parent_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "display_order": { "rust": "Option<i32>", "ts": "number | null" },
+    "is_public": { "rust": "bool", "ts": "boolean" },
+    "is_template": { "rust": "bool", "ts": "boolean" },
+    "archived_at": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
+    "deleted_at": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
+    "created_by": { "rust": "Uuid", "ts": "string" },
+    "last_edited_by": { "rust": "Uuid", "ts": "string" },
+    "verified_by": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "verified_at": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
+    "verify_interval_days": { "rust": "Option<i32>", "ts": "number | null" },
+    "created_at": { "rust": "NaiveDateTime", "ts": "string" },
+    "updated_at": { "rust": "NaiveDateTime", "ts": "string" }
+  },
+  "redacted_fields": ["yjs_state_vector", "yjs_document", "yjs_client_id", "has_unsaved_changes"],
+  "notes": "The Yjs CRDT body columns are excluded: the document body flows through the collaborative-editor WebSocket channel, not the sync_actions stream. Auto-save (update_documentation_yjs_state), revision snapshots, and ML link embeddings are sync-audit-only and emit no events. visibility_changed carries the page-level override sets (group_ids / user_uuids), not the row itself; clearing the override still emits it. verified is the distinct event for a verify action (verified_at set to a timestamp); all other field edits are metadata_changed.",
+  "events": [
+    { "type": "documentation_page.created", "op": "I" },
+    { "type": "documentation_page.metadata_changed", "op": "U" },
+    { "type": "documentation_page.verified", "op": "U" },
+    { "type": "documentation_page.visibility_changed", "op": "U" },
+    { "type": "documentation_page.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}

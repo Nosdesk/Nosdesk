@@ -1,13 +1,50 @@
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::sql_types::{Integer, Nullable};
+use serde_json::json;
 
 use crate::db::DbConnection;
 use crate::models::{
     DocumentationPage, DocumentationPageUpdate, DocumentationPageWithChildren, DocumentationStatus,
-    NewDocumentationPage, PageOrder,
+    NewDocumentationPage, PageOrder, SyncAggregate, SyncOp,
 };
 use crate::schema::documentation_pages;
+use crate::sync::emit::{self, SyncEmit};
+// NB: `groups` is fully-qualified at the emit sites as
+// `crate::sync::groups::workspace()` because `use crate::schema::{..,
+// groups}` lower in this module already binds the `groups` name to
+// the Diesel table for the visibility joins.
+
+/// Sync-event payload for a documentation page. Excludes the Yjs
+/// binary columns (`yjs_document` / `yjs_state_vector`) and the
+/// `has_unsaved_changes` flag — those are collaborative-editor
+/// state churned on every keystroke-batch, not metadata a sync
+/// consumer wants. The document body flows through the Yjs
+/// WebSocket channel, not the sync_actions stream.
+fn page_sync_payload(p: &DocumentationPage) -> serde_json::Value {
+    json!({
+        "id": p.id,
+        "uuid": p.uuid,
+        "title": p.title,
+        "slug": p.slug,
+        "icon": p.icon,
+        "cover_image": p.cover_image,
+        "status": p.status,
+        "parent_id": p.parent_id,
+        "display_order": p.display_order,
+        "is_public": p.is_public,
+        "is_template": p.is_template,
+        "archived_at": p.archived_at,
+        "deleted_at": p.deleted_at,
+        "created_by": p.created_by,
+        "last_edited_by": p.last_edited_by,
+        "verified_by": p.verified_by,
+        "verified_at": p.verified_at,
+        "verify_interval_days": p.verify_interval_days,
+        "created_at": p.created_at,
+        "updated_at": p.updated_at,
+    })
+}
 
 /// Observer fired after a documentation page's Yjs blob is
 /// successfully saved by the collaborative editor. Mirrors
@@ -67,36 +104,89 @@ pub fn get_documentation_page_by_slug(
 }
 
 // Create a new documentation page
-// sync-pending-wire: needs sync aggregate wiring
 pub fn create_documentation_page(
     page: NewDocumentationPage,
     conn: &mut DbConnection,
 ) -> Result<DocumentationPage, Error> {
-    diesel::insert_into(documentation_pages::table)
-        .values(page)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let page: DocumentationPage = diesel::insert_into(documentation_pages::table)
+            .values(page)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationPage,
+                aggregate_id: page.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "documentation_page.created",
+                data: page_sync_payload(&page),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(page)
+    })
 }
 
 // Update an existing documentation page
-// sync-pending-wire: needs sync aggregate wiring
 pub fn update_documentation_page(
     conn: &mut DbConnection,
     page_id: i32,
     page_update: &DocumentationPageUpdate,
 ) -> Result<DocumentationPage, Error> {
-    diesel::update(documentation_pages::table.find(page_id))
-        .set(page_update)
-        .get_result(conn)
+    // A verify action (setting verified_at to a timestamp) surfaces
+    // as the distinct documentation_page.verified event the tier
+    // classification names; every other field change is
+    // metadata_changed.
+    let is_verify = matches!(page_update.verified_at, Some(Some(_)));
+    conn.transaction(|conn| {
+        let page: DocumentationPage = diesel::update(documentation_pages::table.find(page_id))
+            .set(page_update)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationPage,
+                aggregate_id: page.id.to_string(),
+                op: SyncOp::Update,
+                event_type: if is_verify {
+                    "documentation_page.verified"
+                } else {
+                    "documentation_page.metadata_changed"
+                },
+                data: page_sync_payload(&page),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(page)
+    })
 }
 
 // Delete a documentation page
-// sync-pending-wire: needs sync aggregate wiring
 pub fn delete_documentation_page(
     id: i32,
     conn: &mut DbConnection,
     observer: Option<&dyn DocumentationDeletedObserver>,
 ) -> Result<usize, Error> {
-    let count = diesel::delete(documentation_pages::table.find(id)).execute(conn)?;
+    let count = conn.transaction(|conn| {
+        let count = diesel::delete(documentation_pages::table.find(id)).execute(conn)?;
+        if count > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::DocumentationPage,
+                    aggregate_id: id.to_string(),
+                    op: SyncOp::Delete,
+                    event_type: "documentation_page.deleted",
+                    data: json!({ "id": id }),
+                    groups: crate::sync::groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok::<usize, Error>(count)
+    })?;
     if count > 0 {
         if let Some(observer) = observer {
             observer.documentation_deleted(id);
@@ -180,7 +270,6 @@ pub fn get_ordered_pages_by_parent_id(
 }
 
 // Reorder documentation pages
-// sync-pending-wire: needs sync aggregate wiring
 pub fn reorder_pages(
     conn: &mut DbConnection,
     parent_id: Option<i32>,
@@ -198,6 +287,19 @@ pub fn reorder_pages(
                     documentation_pages::parent_id.eq(parent_id),
                 ))
                 .get_result::<DocumentationPage>(conn)?;
+
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::DocumentationPage,
+                    aggregate_id: updated_page.id.to_string(),
+                    op: SyncOp::Update,
+                    event_type: "documentation_page.metadata_changed",
+                    data: page_sync_payload(&updated_page),
+                    groups: crate::sync::groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
 
             updated_pages.push(updated_page);
         }
@@ -240,7 +342,6 @@ fn get_all_descendant_ids(conn: &mut DbConnection, page_id: i32) -> Result<Vec<i
 }
 
 // Move a page to a new parent
-// sync-pending-wire: needs sync aggregate wiring
 pub fn move_page_to_parent(
     conn: &mut DbConnection,
     page_id: i32,
@@ -269,6 +370,19 @@ pub fn move_page_to_parent(
                 documentation_pages::display_order.eq(display_order),
             ))
             .get_result::<DocumentationPage>(conn)?;
+
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationPage,
+                aggregate_id: updated_page.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "documentation_page.metadata_changed",
+                data: page_sync_payload(&updated_page),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
 
         // Re-parenting under a page in a different collection
         // pulls this page (and only this page; descendants are
@@ -299,7 +413,7 @@ pub fn get_page_with_ordered_children(
 // ============= Yjs Collaboration Methods =============
 
 // Update documentation page Yjs state (for WebSocket sync auto-save)
-// sync-pending-wire: needs sync aggregate wiring
+// sync-audit-only: collaborative-editor CRDT auto-save fires on every keystroke-batch; the document body flows through the Yjs WebSocket channel, not the sync_actions stream
 pub fn update_documentation_yjs_state(
     conn: &mut DbConnection,
     page_id: i32,
@@ -325,7 +439,7 @@ pub fn update_documentation_yjs_state(
 // Create a documentation revision snapshot
 // Note: This is simplified - the schema doesn't have a revision number or contributed_by
 // Creates a basic revision with just the snapshot and metadata
-// sync-pending-wire: needs sync aggregate wiring
+// sync-audit-only: revision snapshots are derived versioning state holding Yjs binary blobs, not page metadata a sync consumer projects
 pub fn create_documentation_revision(
     conn: &mut DbConnection,
     page_id: i32,
@@ -413,7 +527,7 @@ pub fn get_latest_documentation_revision(
 
 // ===== Documentation Page Embeddings =====
 
-// sync-pending-wire: needs sync aggregate wiring
+// sync-audit-only: ML link-suggestion projection; the documentation_page_embeddings table is excluded from the sync tier by design
 /// Sync the embedding relationships for a source page.
 /// Deletes existing embeddings and replaces with the new set.
 pub fn sync_page_embeddings(
@@ -541,9 +655,25 @@ pub fn get_pages_by_status(
 }
 
 // Permanently delete a documentation page (hard delete for trash emptying)
-// sync-pending-wire: needs sync aggregate wiring
 pub fn permanently_delete_page(id: i32, conn: &mut DbConnection) -> Result<usize, Error> {
-    diesel::delete(documentation_pages::table.find(id)).execute(conn)
+    conn.transaction(|conn| {
+        let count = diesel::delete(documentation_pages::table.find(id)).execute(conn)?;
+        if count > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::DocumentationPage,
+                    aggregate_id: id.to_string(),
+                    op: SyncOp::Delete,
+                    event_type: "documentation_page.deleted",
+                    data: json!({ "id": id }),
+                    groups: crate::sync::groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(count)
+    })
 }
 
 // ===== Page Visibility (Access Control) =====
@@ -609,7 +739,6 @@ pub fn get_visible_users_for_page(
         })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 /// Set page-level visibility (delete-all + re-insert).
 /// Empty group_ids and user_uuids clears the override (page inherits from collections).
 pub fn set_page_visibility(
@@ -619,40 +748,66 @@ pub fn set_page_visibility(
     user_uuids: Vec<uuid::Uuid>,
     created_by: Option<uuid::Uuid>,
 ) -> Result<Vec<DocumentationPageVisibility>, Error> {
-    // Delete all existing page-level visibility entries
-    diesel::delete(
-        documentation_page_visibility::table
-            .filter(documentation_page_visibility::page_id.eq(page_id)),
-    )
-    .execute(conn)?;
+    conn.transaction(|conn| {
+        // Delete all existing page-level visibility entries
+        diesel::delete(
+            documentation_page_visibility::table
+                .filter(documentation_page_visibility::page_id.eq(page_id)),
+        )
+        .execute(conn)?;
 
-    if group_ids.is_empty() && user_uuids.is_empty() {
-        return Ok(Vec::new());
-    }
+        let entries: Vec<DocumentationPageVisibility> = if group_ids.is_empty()
+            && user_uuids.is_empty()
+        {
+            // Clearing the override is itself a visibility change
+            // (page reverts to inheriting from its collections), so it
+            // still emits below.
+            Vec::new()
+        } else {
+            let mut new_entries: Vec<NewDocumentationPageVisibility> = Vec::new();
 
-    let mut new_entries: Vec<NewDocumentationPageVisibility> = Vec::new();
+            for gid in &group_ids {
+                new_entries.push(NewDocumentationPageVisibility {
+                    page_id,
+                    group_id: Some(*gid),
+                    created_by,
+                    user_uuid: None,
+                });
+            }
 
-    for gid in &group_ids {
-        new_entries.push(NewDocumentationPageVisibility {
-            page_id,
-            group_id: Some(*gid),
-            created_by,
-            user_uuid: None,
-        });
-    }
+            for uid in &user_uuids {
+                new_entries.push(NewDocumentationPageVisibility {
+                    page_id,
+                    group_id: None,
+                    created_by,
+                    user_uuid: Some(*uid),
+                });
+            }
 
-    for uid in &user_uuids {
-        new_entries.push(NewDocumentationPageVisibility {
-            page_id,
-            group_id: None,
-            created_by,
-            user_uuid: Some(*uid),
-        });
-    }
+            diesel::insert_into(documentation_page_visibility::table)
+                .values(&new_entries)
+                .get_results(conn)?
+        };
 
-    diesel::insert_into(documentation_page_visibility::table)
-        .values(&new_entries)
-        .get_results(conn)
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationPage,
+                aggregate_id: page_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "documentation_page.visibility_changed",
+                data: json!({
+                    "page_id": page_id,
+                    "group_ids": group_ids,
+                    "user_uuids": user_uuids,
+                }),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+
+        Ok(entries)
+    })
 }
 
 /// Check whether a single user can access a page.

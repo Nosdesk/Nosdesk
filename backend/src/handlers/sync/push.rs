@@ -201,7 +201,8 @@ fn apply_transaction(
         | SyncAggregate::Asset
         | SyncAggregate::Webhook
         | SyncAggregate::Channel
-        | SyncAggregate::KnowledgeGap => Err(TxReject(
+        | SyncAggregate::KnowledgeGap
+        | SyncAggregate::DocumentationPage => Err(TxReject(
             "unsupported_aggregate",
             format!(
                 "push for aggregate `{}` is not yet wired",
