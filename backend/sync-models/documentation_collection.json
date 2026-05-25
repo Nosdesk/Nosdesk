@@ -1,0 +1,33 @@
+{
+  "name": "documentation_collection",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "uuid": { "rust": "Uuid", "ts": "string" },
+    "name": { "rust": "String", "ts": "string" },
+    "slug": { "rust": "String", "ts": "string" },
+    "description": { "rust": "Option<String>", "ts": "string | null" },
+    "icon": { "rust": "Option<String>", "ts": "string | null" },
+    "color": { "rust": "Option<String>", "ts": "string | null" },
+    "is_system": { "rust": "bool", "ts": "boolean" },
+    "created_by": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "display_order": { "rust": "i32", "ts": "number" },
+    "description_text": { "rust": "Option<String>", "ts": "string | null" },
+    "hide_titles_from_non_members": { "rust": "bool", "ts": "boolean" },
+    "created_at": { "rust": "NaiveDateTime", "ts": "string" },
+    "updated_at": { "rust": "NaiveDateTime", "ts": "string" }
+  },
+  "redacted_fields": ["description_yjs", "description_state_vector"],
+  "notes": "The Yjs CRDT columns for the rich description are excluded; the body flows through the collaborative-editor WebSocket channel. description_text (the plain-text projection) is included. page_added / page_removed reference the collection by aggregate_id and carry the page_id; the documentation_collection_pages junction is not a separate aggregate. A cross-collection move emits page_removed on the old collection and page_added on the new. update_collection_description_yjs (Yjs auto-save) and soft_delete_pages_in_collection (bulk cascade on teardown) are sync-audit-only and emit no events.",
+  "events": [
+    { "type": "documentation_collection.created", "op": "I" },
+    { "type": "documentation_collection.updated", "op": "U" },
+    { "type": "documentation_collection.visibility_changed", "op": "U" },
+    { "type": "documentation_collection.page_added", "op": "U" },
+    { "type": "documentation_collection.page_removed", "op": "U" },
+    { "type": "documentation_collection.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}

@@ -1,25 +1,70 @@
 use diesel::prelude::*;
 use diesel::result::Error;
 use diesel::QueryResult;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::*;
 use crate::schema::documentation_collection_visibility;
 use crate::schema::*;
+use crate::sync::emit::{self, SyncEmit};
+// NB: `groups` is fully-qualified at the emit sites as
+// `crate::sync::groups::workspace()` because `use crate::schema::*`
+// already brings the `groups` Diesel table into scope under that name.
+
+/// Sync-event payload for a documentation collection. Excludes the
+/// Yjs binary columns (`description_yjs` / `description_state_vector`)
+/// — the rich description body flows through the collaborative-editor
+/// WebSocket channel, not the sync_actions stream. The plain-text
+/// projection (`description_text`) is included so consumers have the
+/// searchable overview without the CRDT blob.
+fn collection_sync_payload(c: &DocumentationCollection) -> serde_json::Value {
+    json!({
+        "id": c.id,
+        "uuid": c.uuid,
+        "name": c.name,
+        "slug": c.slug,
+        "description": c.description,
+        "icon": c.icon,
+        "color": c.color,
+        "is_system": c.is_system,
+        "created_by": c.created_by,
+        "display_order": c.display_order,
+        "description_text": c.description_text,
+        "hide_titles_from_non_members": c.hide_titles_from_non_members,
+        "created_at": c.created_at,
+        "updated_at": c.updated_at,
+    })
+}
 
 // ============================================================================
 // Collection CRUD Operations
 // ============================================================================
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn create_collection(
     conn: &mut DbConnection,
     new_collection: NewDocumentationCollection,
 ) -> QueryResult<DocumentationCollection> {
-    diesel::insert_into(documentation_collections::table)
-        .values(&new_collection)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let collection: DocumentationCollection =
+            diesel::insert_into(documentation_collections::table)
+                .values(&new_collection)
+                .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationCollection,
+                aggregate_id: collection.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "documentation_collection.created",
+                data: collection_sync_payload(&collection),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(collection)
+    })
 }
 
 pub fn get_collection(
@@ -49,38 +94,82 @@ pub fn get_all_collections(conn: &mut DbConnection) -> QueryResult<Vec<Documenta
         .load(conn)
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn reorder_collections(
     conn: &mut DbConnection,
     orders: &[CollectionOrder],
 ) -> Result<Vec<DocumentationCollection>, Error> {
     conn.transaction(|conn| {
         for order in orders {
-            diesel::update(documentation_collections::table.find(order.collection_id))
-                .set(documentation_collections::display_order.eq(order.display_order))
-                .execute(conn)?;
+            let collection: DocumentationCollection =
+                diesel::update(documentation_collections::table.find(order.collection_id))
+                    .set(documentation_collections::display_order.eq(order.display_order))
+                    .get_result(conn)?;
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::DocumentationCollection,
+                    aggregate_id: collection.id.to_string(),
+                    op: SyncOp::Update,
+                    event_type: "documentation_collection.updated",
+                    data: collection_sync_payload(&collection),
+                    groups: crate::sync::groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
         }
         get_all_collections(conn)
     })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn update_collection(
     conn: &mut DbConnection,
     collection_id: i32,
     update: DocumentationCollectionUpdate,
 ) -> QueryResult<DocumentationCollection> {
-    diesel::update(documentation_collections::table.find(collection_id))
-        .set(&update)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let collection: DocumentationCollection =
+            diesel::update(documentation_collections::table.find(collection_id))
+                .set(&update)
+                .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationCollection,
+                aggregate_id: collection.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "documentation_collection.updated",
+                data: collection_sync_payload(&collection),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(collection)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn delete_collection(conn: &mut DbConnection, collection_id: i32) -> QueryResult<usize> {
-    diesel::delete(documentation_collections::table.find(collection_id)).execute(conn)
+    conn.transaction(|conn| {
+        let count =
+            diesel::delete(documentation_collections::table.find(collection_id)).execute(conn)?;
+        if count > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::DocumentationCollection,
+                    aggregate_id: collection_id.to_string(),
+                    op: SyncOp::Delete,
+                    event_type: "documentation_collection.deleted",
+                    data: json!({ "id": collection_id }),
+                    groups: crate::sync::groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(count)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
+// sync-audit-only: bulk cascade run as part of collection teardown; the documentation_collection.deleted event captures the operation and per-page deleted events would require a fan-out fetch of every member page id
 /// Soft-delete every page that lives in this collection. Called
 /// before `delete_collection` so the page rows survive (preserving
 /// authorship + revision history) but vanish from every tree
@@ -111,7 +200,7 @@ pub fn soft_delete_pages_in_collection(
     .execute(conn)
 }
 
-// sync-pending-wire: needs sync aggregate wiring
+// sync-audit-only: collaborative-editor CRDT auto-save for the collection's rich description; the body flows through the Yjs WebSocket channel, not the sync_actions stream
 /// Update the Yjs binary state for a collection's rich
 /// description. Called from the collaboration handler when the
 /// `collection-${id}` editor saves.
@@ -134,18 +223,32 @@ pub fn update_collection_description_yjs(
 // Collection-Page Operations
 // ============================================================================
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn add_page_to_collection(
     conn: &mut DbConnection,
     new_entry: NewDocumentationCollectionPage,
 ) -> QueryResult<DocumentationCollectionPage> {
-    diesel::insert_into(documentation_collection_pages::table)
-        .values(&new_entry)
-        .on_conflict_do_nothing()
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let entry: DocumentationCollectionPage =
+            diesel::insert_into(documentation_collection_pages::table)
+                .values(&new_entry)
+                .on_conflict_do_nothing()
+                .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationCollection,
+                aggregate_id: entry.collection_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "documentation_collection.page_added",
+                data: json!({ "collection_id": entry.collection_id, "page_id": entry.page_id }),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(entry)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 /// Add a page to a collection AND null its parent_id so it lands
 /// at the collection's root. The pre-redesign `add_page_to_collection`
 /// only wrote the junction row; pages whose parent_id pointed at
@@ -176,13 +279,26 @@ pub fn add_page_to_collection_at_root(
         diesel::update(documentation_pages::table.find(page_id))
             .set(documentation_pages::parent_id.eq::<Option<i32>>(None))
             .execute(tx)?;
-        diesel::insert_into(documentation_collection_pages::table)
-            .values(&new_entry)
-            .get_result(tx)
+        let entry: DocumentationCollectionPage =
+            diesel::insert_into(documentation_collection_pages::table)
+                .values(&new_entry)
+                .get_result(tx)?;
+        emit::record(
+            tx,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationCollection,
+                aggregate_id: entry.collection_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "documentation_collection.page_added",
+                data: json!({ "collection_id": entry.collection_id, "page_id": entry.page_id }),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(entry)
     })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 /// Ensure a child page belongs to the same collection as its
 /// new parent. Called from `move_page_to_parent` so re-parenting
 /// across collection boundaries automatically pulls the child
@@ -216,6 +332,22 @@ pub fn cascade_collection_membership(
             .filter(documentation_collection_pages::page_id.eq(child_page_id)),
     )
     .execute(conn)?;
+    // The page leaves its previous collection (if it had one) and
+    // joins the parent's, so both sides of the move emit.
+    if let Some(old_collection_id) = child_collection {
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationCollection,
+                aggregate_id: old_collection_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "documentation_collection.page_removed",
+                data: json!({ "collection_id": old_collection_id, "page_id": child_page_id }),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+    }
     diesel::insert_into(documentation_collection_pages::table)
         .values(NewDocumentationCollectionPage {
             collection_id: parent_collection_id,
@@ -223,21 +355,49 @@ pub fn cascade_collection_membership(
             created_by,
         })
         .execute(conn)?;
+    emit::record(
+        conn,
+        SyncEmit {
+            aggregate: SyncAggregate::DocumentationCollection,
+            aggregate_id: parent_collection_id.to_string(),
+            op: SyncOp::Update,
+            event_type: "documentation_collection.page_added",
+            data: json!({ "collection_id": parent_collection_id, "page_id": child_page_id }),
+            groups: crate::sync::groups::workspace(),
+            causation_id: None,
+        },
+    )?;
     Ok(())
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn remove_page_from_collection(
     conn: &mut DbConnection,
     collection_id: i32,
     page_id: i32,
 ) -> QueryResult<usize> {
-    diesel::delete(
-        documentation_collection_pages::table
-            .filter(documentation_collection_pages::collection_id.eq(collection_id))
-            .filter(documentation_collection_pages::page_id.eq(page_id)),
-    )
-    .execute(conn)
+    conn.transaction(|conn| {
+        let count = diesel::delete(
+            documentation_collection_pages::table
+                .filter(documentation_collection_pages::collection_id.eq(collection_id))
+                .filter(documentation_collection_pages::page_id.eq(page_id)),
+        )
+        .execute(conn)?;
+        if count > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::DocumentationCollection,
+                    aggregate_id: collection_id.to_string(),
+                    op: SyncOp::Update,
+                    event_type: "documentation_collection.page_removed",
+                    data: json!({ "collection_id": collection_id, "page_id": page_id }),
+                    groups: crate::sync::groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(count)
+    })
 }
 
 pub fn get_pages_in_collection(
@@ -350,7 +510,6 @@ pub fn get_visible_users_for_collection(
         })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn set_collection_visibility(
     conn: &mut DbConnection,
     collection_id: i32,
@@ -358,43 +517,67 @@ pub fn set_collection_visibility(
     user_uuids: Vec<Uuid>,
     created_by: Option<Uuid>,
 ) -> QueryResult<Vec<DocumentationCollectionVisibility>> {
-    // Delete all existing visibility entries
-    diesel::delete(
-        documentation_collection_visibility::table
-            .filter(documentation_collection_visibility::collection_id.eq(collection_id)),
-    )
-    .execute(conn)?;
+    conn.transaction(|conn| {
+        // Delete all existing visibility entries
+        diesel::delete(
+            documentation_collection_visibility::table
+                .filter(documentation_collection_visibility::collection_id.eq(collection_id)),
+        )
+        .execute(conn)?;
 
-    // If no groups or users specified, the collection becomes public (visible to all)
-    if group_ids.is_empty() && user_uuids.is_empty() {
-        return Ok(Vec::new());
-    }
+        let entries: Vec<DocumentationCollectionVisibility> = if group_ids.is_empty()
+            && user_uuids.is_empty()
+        {
+            // Clearing all entries makes the collection public; this is
+            // still a visibility change and emits below.
+            Vec::new()
+        } else {
+            let mut new_entries: Vec<NewDocumentationCollectionVisibility> = Vec::new();
 
-    let mut new_entries: Vec<NewDocumentationCollectionVisibility> = Vec::new();
+            // Add group entries
+            for group_id in &group_ids {
+                new_entries.push(NewDocumentationCollectionVisibility {
+                    collection_id,
+                    group_id: Some(*group_id),
+                    created_by,
+                    user_uuid: None,
+                });
+            }
 
-    // Add group entries
-    for group_id in &group_ids {
-        new_entries.push(NewDocumentationCollectionVisibility {
-            collection_id,
-            group_id: Some(*group_id),
-            created_by,
-            user_uuid: None,
-        });
-    }
+            // Add user entries
+            for user_uuid in &user_uuids {
+                new_entries.push(NewDocumentationCollectionVisibility {
+                    collection_id,
+                    group_id: None,
+                    created_by,
+                    user_uuid: Some(*user_uuid),
+                });
+            }
 
-    // Add user entries
-    for user_uuid in &user_uuids {
-        new_entries.push(NewDocumentationCollectionVisibility {
-            collection_id,
-            group_id: None,
-            created_by,
-            user_uuid: Some(*user_uuid),
-        });
-    }
+            diesel::insert_into(documentation_collection_visibility::table)
+                .values(&new_entries)
+                .get_results(conn)?
+        };
 
-    diesel::insert_into(documentation_collection_visibility::table)
-        .values(&new_entries)
-        .get_results(conn)
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::DocumentationCollection,
+                aggregate_id: collection_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "documentation_collection.visibility_changed",
+                data: json!({
+                    "collection_id": collection_id,
+                    "group_ids": group_ids,
+                    "user_uuids": user_uuids,
+                }),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+
+        Ok(entries)
+    })
 }
 
 /// Get collections visible to a user based on their group memberships or direct user grants
