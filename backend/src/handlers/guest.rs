@@ -295,6 +295,7 @@ pub async fn submit_guest_ticket(
     search_service: web::Data<Arc<SearchService>>,
     storage: web::Data<Arc<dyn Storage>>,
     req: HttpRequest,
+    ws: WorkspaceContext,
     body: web::Json<SubmitGuestTicketRequest>,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
@@ -302,9 +303,18 @@ pub async fn submit_guest_ticket(
         Err(e) => return e,
     };
 
-    let settings = match get_settings(&mut conn) {
-        Some(s) => s,
-        None => {
+    // Workspace-pinned actor: every subsequent DB call goes through
+    // `with_actor_context` so RLS-protected tenant tables
+    // (site_settings, workflow_states, tickets, comments,
+    // attachments) read the workspace GUC and the workspace_id
+    // column default fires for every INSERT.
+    let actor = guest_actor(&ws, "guest:ticket_create");
+
+    let settings = match session::with_actor_context(&mut conn, &actor, |c| {
+        Ok::<_, diesel::result::Error>(get_settings(c))
+    }) {
+        Ok(Some(s)) => s,
+        Ok(None) | Err(_) => {
             return errors::service_unavailable("Settings unavailable");
         }
     };
@@ -395,130 +405,137 @@ pub async fn submit_guest_ticket(
         }
     }
 
-    // Find or provision the requester user. If the email is already attached
-    // to a real account we refuse the submission rather than silently
-    // attaching the ticket to someone else's identity.
-    let (user, is_new_guest) = match user_helpers::find_or_create_guest_user(
-        email,
-        name,
-        &mut conn,
-        Some(search_service.get_ref()),
-    ) {
-        Ok(GuestUserResult::Created(u)) => (u, true),
-        Ok(GuestUserResult::Existing(u)) => (u, false),
-        Ok(GuestUserResult::EmailClaimed) => {
-            return errors::conflict("Please sign in to submit a ticket with this email address.");
-        }
-        Err(e) => {
-            error!(error = %e, "Failed to provision guest user");
-            return errors::internal("Failed to create ticket");
-        }
-    };
-
     // When email verification is enabled, tickets start in a `pending` state
     // invisible to techs (see ticket_query::apply_filters). The verification
     // link in the invitation email flips them to `verified` atomically in
     // accept_invitation::verify_pending_tickets_for_user.
     let verification_required = settings.guest_ticket_email_verification;
     let lookup_token = Uuid::new_v4();
-    let default_state = match repository::workflow_states::default_state(&mut conn) {
-        Ok(s) => s,
-        Err(e) => {
-            error!(error = %e, "Failed to resolve default workflow state");
-            return errors::internal("Failed to resolve workflow state");
+
+    // Provision-or-find user, resolve default workflow state, create
+    // the ticket, and persist the initial comment in a single
+    // workspace-pinned txn so the workspace_id column default fires
+    // for every INSERT and a partial failure rolls back cleanly.
+    enum CreateError {
+        EmailClaimed,
+        Internal,
+    }
+    impl From<diesel::result::Error> for CreateError {
+        fn from(_: diesel::result::Error) -> Self {
+            Self::Internal
         }
-    };
-    let new_ticket = NewTicket {
-        title: title.to_string(),
-        workflow_state_id: default_state.id,
-        priority,
-        requester_uuid: Some(user.uuid),
-        submitted_via: Some("guest".to_string()),
-        guest_lookup_token: Some(lookup_token),
-        verification_state: if verification_required {
-            Some("pending".to_string())
-        } else {
-            None
-        },
-        ..Default::default()
-    };
+    }
 
-    // Tag the activity row so the renderer can phrase the entry as
-    // "Created via public portal by <name> <<email>>" instead of the
-    // generic "System created this ticket". Same shape as inbound
-    // email tickets; the renderer switches on `source`.
-    let creation_annotation = repository::tickets::TicketCreationAnnotation {
-        source: Some("guest_portal".to_string()),
-        from_email: Some(email.to_string()),
-        from_name: if name.is_empty() {
-            None
-        } else {
-            Some(name.to_string())
-        },
-        subject: Some(title.to_string()),
-    };
+    let create_result = session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
+        let (user, is_new_guest) = match user_helpers::find_or_create_guest_user(
+            email,
+            name,
+            conn,
+            Some(search_service.get_ref()),
+        ) {
+            Ok(GuestUserResult::Created(u)) => (u, true),
+            Ok(GuestUserResult::Existing(u)) => (u, false),
+            Ok(GuestUserResult::EmailClaimed) => return Err(CreateError::EmailClaimed),
+            Err(e) => {
+                error!(error = %e, "Failed to provision guest user");
+                return Err(CreateError::Internal);
+            }
+        };
 
-    let ticket = match repository::tickets::create_ticket_with_annotation(
-        &mut conn,
-        new_ticket,
-        creation_annotation,
-    ) {
-        Ok(t) => t,
-        Err(e) => {
+        let default_state = repository::workflow_states::default_state(conn).map_err(|e| {
+            error!(error = %e, "Failed to resolve default workflow state");
+            CreateError::Internal
+        })?;
+
+        let new_ticket = NewTicket {
+            title: title.to_string(),
+            workflow_state_id: default_state.id,
+            priority,
+            requester_uuid: Some(user.uuid),
+            submitted_via: Some("guest".to_string()),
+            guest_lookup_token: Some(lookup_token),
+            verification_state: if verification_required {
+                Some("pending".to_string())
+            } else {
+                None
+            },
+            ..Default::default()
+        };
+
+        // Tag the activity row so the renderer can phrase the entry as
+        // "Created via public portal by <name> <<email>>" instead of the
+        // generic "System created this ticket". Same shape as inbound
+        // email tickets; the renderer switches on `source`.
+        let creation_annotation = repository::tickets::TicketCreationAnnotation {
+            source: Some("guest_portal".to_string()),
+            from_email: Some(email.to_string()),
+            from_name: if name.is_empty() {
+                None
+            } else {
+                Some(name.to_string())
+            },
+            subject: Some(title.to_string()),
+        };
+
+        let ticket = repository::tickets::create_ticket_with_annotation(
+            conn,
+            new_ticket,
+            creation_annotation,
+        )
+        .map_err(|e| {
             error!(error = %e, "Failed to create guest ticket");
+            CreateError::Internal
+        })?;
+
+        // Persist the description as the initial comment from the
+        // guest user so techs see the reported issue in the normal
+        // ticket timeline. A comment-write failure is non-fatal —
+        // the ticket itself is the primary artefact — so we log
+        // and continue with comment_id = None.
+        let new_comment = crate::models::NewComment {
+            content: description.to_string(),
+            user_uuid: user.uuid,
+            ticket_id: ticket.id,
+            content_format: crate::models::ContentFormat::Plaintext,
+            ..Default::default()
+        };
+        let comment_annotation = repository::comments::CommentCreationAnnotation {
+            source: Some("guest_portal".to_string()),
+            from_email: Some(email.to_string()),
+            from_name: if name.is_empty() {
+                None
+            } else {
+                Some(name.to_string())
+            },
+        };
+        let first_comment_id = match repository::comments::create_comment_with_annotation(
+            conn,
+            new_comment,
+            comment_annotation,
+            Some(search_service.get_ref()),
+        ) {
+            Ok(c) => Some(c.id),
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    ticket_id = ticket.id,
+                    "Failed to persist guest-ticket description as comment"
+                );
+                None
+            }
+        };
+
+        Ok((user, is_new_guest, ticket, first_comment_id))
+    });
+
+    let (user, is_new_guest, ticket, first_comment_id) = match create_result {
+        Ok(t) => t,
+        Err(CreateError::EmailClaimed) => {
+            return errors::conflict("Please sign in to submit a ticket with this email address.");
+        }
+        Err(CreateError::Internal) => {
             return errors::internal("Failed to create ticket");
         }
-    };
-
-    // Persist the description as the initial comment from the guest user so
-    // techs see the reported issue in the normal ticket timeline.
-    let new_comment = crate::models::NewComment {
-        content: description.to_string(),
-        user_uuid: user.uuid,
-        ticket_id: ticket.id,
-        // Guest portal currently posts plaintext into the description.
-        // (When the guest form moves to a rich editor, change this to
-        // match what the editor produces.)
-        content_format: crate::models::ContentFormat::Plaintext,
-        // Email-specific body parts only apply to inbound channel
-        // comments; the guest portal isn't an email channel.
-        ..Default::default()
-    };
-    // Guest comments don't have a JWT actor; record under a system
-    // actor so the sync substrate has a clear attribution chain.
-    let guest_actor = crate::sync::actor::ActorContext::system("guest:ticket_create");
-    // Mirror the ticket-side annotation: the renderer reads
-    // `created_via.source` and surfaces the submitter's identity
-    // in the activity feed.
-    let comment_annotation = repository::comments::CommentCreationAnnotation {
-        source: Some("guest_portal".to_string()),
-        from_email: Some(email.to_string()),
-        from_name: if name.is_empty() {
-            None
-        } else {
-            Some(name.to_string())
-        },
-    };
-    let first_comment_id = {
-        use diesel::Connection;
-        conn.transaction::<Option<i32>, diesel::result::Error, _>(|conn| {
-            crate::sync::session::set_actor(conn, &guest_actor)?;
-            let c = repository::comments::create_comment_with_annotation(
-                conn,
-                new_comment,
-                comment_annotation,
-                Some(search_service.get_ref()),
-            )?;
-            Ok(Some(c.id))
-        })
-        .unwrap_or_else(|e| {
-            warn!(
-                error = %e,
-                ticket_id = ticket.id,
-                "Failed to persist guest-ticket description as comment"
-            );
-            None
-        })
     };
 
     // Claim any referenced attachments. Cap at GUEST_MAX_FILES_PER_TICKET —
@@ -538,22 +555,26 @@ pub async fn submit_guest_ticket(
                 ticket.id,
                 comment_id,
                 user.uuid,
+                &actor,
             )
             .await;
         }
     }
 
-    log_guest_event(
-        &mut conn,
-        user.uuid,
-        "guest_ticket_submitted",
-        &req,
-        json!({
-            "ticket_id": ticket.id,
-            "email_domain": email.rsplit('@').next().unwrap_or(""),
-            "new_account": is_new_guest,
-        }),
-    );
+    let _ = session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+        log_guest_event(
+            c,
+            user.uuid,
+            "guest_ticket_submitted",
+            &req,
+            json!({
+                "ticket_id": ticket.id,
+                "email_domain": email.rsplit('@').next().unwrap_or(""),
+                "new_account": is_new_guest,
+            }),
+        );
+        Ok(())
+    });
 
     // Email dispatch:
     //   - verification on  → send confirmation every time (the link is also
@@ -630,6 +651,7 @@ pub async fn submit_guest_ticket(
 /// GET /api/public/tickets/{token}
 pub async fn get_guest_ticket_status(
     pool: web::Data<Pool>,
+    ws: WorkspaceContext,
     path: web::Path<String>,
 ) -> impl Responder {
     let token_str = path.into_inner();
@@ -643,39 +665,58 @@ pub async fn get_guest_ticket_status(
         Err(e) => return e,
     };
 
-    let settings = match get_settings(&mut conn) {
-        Some(s) => s,
-        None => return HttpResponse::ServiceUnavailable().finish(),
-    };
+    // Workspace-pinned actor: the lookup token is a UUID generated
+    // per ticket, but RLS confines the find_by_lookup_token query
+    // to the current workspace so a token issued on workspace A
+    // can't be probed from workspace B's subdomain.
+    let actor = guest_actor(&ws, "guest:ticket_lookup");
 
-    if !settings.guest_ticket_lookup_enabled {
-        return errors::forbidden("Guest ticket status lookup is disabled");
-    }
-
-    match repository::tickets::find_by_lookup_token(&mut conn, token) {
-        Ok(t) => {
-            // Derive the legacy status string the public lookup widget
-            // expects from the workflow state's category.
-            let cat = repository::workflow_states::category_of(&mut conn, t.workflow_state_id)
-                .ok()
-                .flatten()
-                .unwrap_or(WorkflowStateCategory::Backlog);
-            HttpResponse::Ok().json(json!({
-                "ticket_id": t.id,
-                "title": t.title,
-                "status": cat.legacy_status(),
-                "priority": t.priority,
-                "created_at": t.created_at,
-                "updated_at": t.updated_at,
-                "closed_at": t.closed_at,
-            }))
+    let outcome = session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+        let settings = match get_settings(c) {
+            Some(s) => s,
+            None => return Ok(LookupOutcome::SettingsUnavailable),
+        };
+        if !settings.guest_ticket_lookup_enabled {
+            return Ok(LookupOutcome::Disabled);
         }
-        Err(diesel::result::Error::NotFound) => HttpResponse::NotFound().finish(),
+        match repository::tickets::find_by_lookup_token(c, token) {
+            Ok(t) => {
+                let cat = repository::workflow_states::category_of(c, t.workflow_state_id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(WorkflowStateCategory::Backlog);
+                Ok(LookupOutcome::Found(t, cat))
+            }
+            Err(diesel::result::Error::NotFound) => Ok(LookupOutcome::NotFound),
+            Err(e) => Err(e),
+        }
+    });
+
+    match outcome {
+        Ok(LookupOutcome::Found(t, cat)) => HttpResponse::Ok().json(json!({
+            "ticket_id": t.id,
+            "title": t.title,
+            "status": cat.legacy_status(),
+            "priority": t.priority,
+            "created_at": t.created_at,
+            "updated_at": t.updated_at,
+            "closed_at": t.closed_at,
+        })),
+        Ok(LookupOutcome::NotFound) => HttpResponse::NotFound().finish(),
+        Ok(LookupOutcome::Disabled) => errors::forbidden("Guest ticket status lookup is disabled"),
+        Ok(LookupOutcome::SettingsUnavailable) => HttpResponse::ServiceUnavailable().finish(),
         Err(e) => {
             error!(error = %e, "Error looking up guest ticket");
             HttpResponse::InternalServerError().finish()
         }
     }
+}
+
+enum LookupOutcome {
+    Found(crate::models::Ticket, WorkflowStateCategory),
+    NotFound,
+    Disabled,
+    SettingsUnavailable,
 }
 
 // ---------- Public documentation ----------
@@ -1081,6 +1122,7 @@ async fn claim_guest_attachments(
     ticket_id: i32,
     comment_id: i32,
     requester_uuid: Uuid,
+    actor: &ActorContext,
 ) {
     use crate::schema::attachments;
 
@@ -1089,19 +1131,21 @@ async fn claim_guest_attachments(
     // Load + filter in one query: only rows that are still eligible to be
     // claimed. The IN list is already capped by the caller at
     // GUEST_MAX_FILES_PER_TICKET, so this scales fine.
-    let candidates: Vec<crate::models::Attachment> = match attachments::table
-        .filter(attachments::id.eq_any(attachment_ids))
-        .filter(attachments::comment_id.is_null())
-        .filter(attachments::uploaded_by.is_null())
-        .filter(attachments::created_at.ge(cutoff))
-        .load(conn)
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            warn!(error = %e, ticket_id, "Failed to load guest attachments for claim");
-            return;
-        }
-    };
+    let candidates: Vec<crate::models::Attachment> =
+        match session::with_actor_context(conn, actor, |c| {
+            attachments::table
+                .filter(attachments::id.eq_any(attachment_ids))
+                .filter(attachments::comment_id.is_null())
+                .filter(attachments::uploaded_by.is_null())
+                .filter(attachments::created_at.ge(cutoff))
+                .load(c)
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!(error = %e, ticket_id, "Failed to load guest attachments for claim");
+                return;
+            }
+        };
 
     for mut att in candidates {
         // URL looks like "/uploads/temp/<uuid>_<name>" — the storage path
@@ -1119,14 +1163,17 @@ async fn claim_guest_attachments(
                 att.comment_id = Some(comment_id);
                 att.uploaded_by = Some(requester_uuid);
 
-                if let Err(e) = diesel::update(attachments::table.find(att.id))
-                    .set((
-                        attachments::url.eq(&att.url),
-                        attachments::comment_id.eq(Some(comment_id)),
-                        attachments::uploaded_by.eq(Some(requester_uuid)),
-                    ))
-                    .execute(conn)
-                {
+                let new_url = att.url.clone();
+                let update_result = session::with_actor_context(conn, actor, |c| {
+                    diesel::update(attachments::table.find(att.id))
+                        .set((
+                            attachments::url.eq(&new_url),
+                            attachments::comment_id.eq(Some(comment_id)),
+                            attachments::uploaded_by.eq(Some(requester_uuid)),
+                        ))
+                        .execute(c)
+                });
+                if let Err(e) = update_result {
                     warn!(error = %e, attachment_id = att.id, "Failed to update claimed attachment");
                 }
             }
