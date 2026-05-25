@@ -282,10 +282,10 @@ fn provision_zip(conn: &mut DbConnection, zip_path: &Path, label: &str) -> Provi
     };
 
     // System actor so the audit_log row carries an attribution
-    // ("plugin_provisioner") rather than a NULL actor_uuid. The
-    // install_verified transaction becomes a savepoint that
-    // inherits the GUCs set by with_actor_context.
-    let actor = ActorContext::system("plugin_provisioner");
+    // rather than a NULL actor_uuid. The install_verified
+    // transaction becomes a savepoint that inherits the GUCs set
+    // by with_actor_context.
+    let actor = ActorContext::system("background:plugin_provisioner");
     let result =
         actor_session::with_actor_context::<_, install::InstallError>(conn, &actor, |conn| {
             install::install_verified(conn, &files, signer, tier, options)

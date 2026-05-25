@@ -354,7 +354,7 @@ pub async fn sync_once(
         // audit_log_trigger on plugin_trusted_publishers attributes
         // every publisher INSERT/UPDATE/DELETE to a named system
         // actor instead of NULL.
-        let actor = ActorContext::system("plugin_registry_sync");
+        let actor = ActorContext::system("scheduler:plugin_registry_sync");
         actor_session::with_actor_context::<_, RegistryError>(&mut conn, &actor, |tx| {
             reconcile(tx, &publishers, &index)?;
             plugin_publishers::update_registry_state(

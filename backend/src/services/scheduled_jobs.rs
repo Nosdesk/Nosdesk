@@ -232,7 +232,7 @@ pub async fn sweep_outbound_email_leases(pool: Pool) -> Result<()> {
 ///
 /// Each purge gets its own savepoint via `with_actor_context` so an
 /// FK violation on one user doesn't abort the whole sweep. The
-/// "user_purge_worker" system actor lands in the audit_log for
+/// "scheduler:user_purge" system actor lands in the audit_log for
 /// every purged row so the eventual hard-delete is traceable.
 ///
 /// Search-index removal flows through the same
@@ -262,7 +262,7 @@ pub async fn purge_soft_deleted_users(
     // and leaves orphans in every other workspace, causing the
     // next purge to fail the FK check. with_actor_bypass_context
     // (nosdesk_admin role, BYPASSRLS) is the correct shape.
-    let actor = crate::sync::actor::ActorContext::system("user_purge_worker");
+    let actor = crate::sync::actor::ActorContext::system("scheduler:user_purge");
     let mut purged = 0usize;
     let mut failed = 0usize;
     for user in pending {
@@ -278,7 +278,7 @@ pub async fn purge_soft_deleted_users(
                     user_uuid = %user.uuid,
                     name = %user.name,
                     deleted_at = ?user.deleted_at,
-                    "user_purge_worker: purged"
+                    "scheduler:user_purge: purged"
                 );
                 sse_state
                     .broadcast_event(crate::handlers::sse::SseEvent::UserPurged {
@@ -292,7 +292,7 @@ pub async fn purge_soft_deleted_users(
                 warn!(
                     user_uuid = %user.uuid,
                     error = ?e,
-                    "user_purge_worker: purge failed (will retry next tick)"
+                    "scheduler:user_purge: purge failed (will retry next tick)"
                 );
             }
         }

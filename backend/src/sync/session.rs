@@ -185,16 +185,51 @@ where
 /// Used by schedulers, spawned workers, webhook / notification
 /// dispatchers, and similar code that runs outside any HTTP
 /// request context. The `reference` string is captured on every
-/// emitted sync_actions row, giving operators a grep target to
-/// distinguish background traffic from request traffic — pick a
-/// stable label like `"background:notify_send"` or
-/// `"scheduler:partition_rotation"`.
+/// emitted sync_actions row and (via the actor GUC) on every
+/// audit_log row, giving operators a grep target to distinguish
+/// background traffic from request traffic.
+///
+/// # Reference prefix convention
+///
+/// Pick the prefix that matches the call site, not the table
+/// being written. The prefix tells an on-call investigator
+/// *where* a row came from when they're staring at
+/// `SELECT actor_ref FROM audit_log WHERE ...`:
+///
+/// | Prefix              | Source                                              | Example                            |
+/// |---------------------|-----------------------------------------------------|------------------------------------|
+/// | `scheduler:<job>`   | Cron-like recurring jobs in `services::scheduled_jobs` | `scheduler:partition_provisioner` |
+/// | `background:<task>` | Fire-and-forget spawns from handlers / services     | `background:notification_delete`   |
+/// | `channels:<phase>`  | Channels pipeline (poll, deliver, ack) workers      | `channels:inbound`                 |
+/// | `handler:<name>`    | A `PlatformConn` handler overriding its fallback    | `handler:csp_report`               |
+/// | `middleware:<name>` | A pre-request middleware that writes audit rows     | `middleware:api_token`             |
+/// | `guest:<action>`    | Public unauth guest-token paths                     | `guest:ticket_create`              |
+/// | `platform:fallback:<route>` | PlatformConn auto-stamped fallback (means a handler forgot `with_actor`) | `platform:fallback:/api/csp-report` |
+/// | `test:<name>`       | Test fixtures and substrate probes                  | `test:background_run_smoke`        |
+///
+/// Use a stable static string. Don't compose it from runtime data
+/// (workspace id, user uuid, ticket id) — that's what the actor's
+/// other GUCs are for, and a runtime-composed reference defeats
+/// grep-based bucketing. The `&'static str` parameter type is the
+/// foreclosure.
+///
+/// New prefixes are fine as long as they group the same way:
+/// a single, descriptive bucket name that tells you *which class
+/// of code* emitted the row. Avoid bare nouns like
+/// `"plugin_provisioner"` — without a prefix they don't sort or
+/// filter cleanly alongside the others.
+///
+/// # When NOT to use this
 ///
 /// For request-context handler code, use `TenantConn` (or
-/// `PlatformConn` for cross-tenant ops) — those extractors do
-/// the same acquire-and-wrap dance with a request-bound actor
-/// and visible-in-signature audit surface. `background_run` is
-/// for the spawn-task surface where neither extractor reaches.
+/// `PlatformConn` for cross-tenant ops). Those extractors do the
+/// same acquire-and-wrap dance with a request-bound actor that
+/// already carries the user UUID + correlation id; bypassing them
+/// in favour of `background_run` loses that attribution.
+/// `background_run` is the right answer only when the call site
+/// genuinely has no request to attribute to (schedulers, post-
+/// response spawn tasks, channel adapters running off their own
+/// loops).
 pub fn background_run<T>(
     pool: &crate::db::Pool,
     reference: &'static str,
