@@ -17,7 +17,7 @@ use crate::sync::emit::{self, SyncEmit};
 
 /// Sync-event payload for a documentation page. Excludes the Yjs
 /// binary columns (`yjs_document` / `yjs_state_vector`) and the
-/// `has_unsaved_changes` flag — those are collaborative-editor
+/// `has_unsaved_changes` flag, all of which are collaborative-editor
 /// state churned on every keystroke-batch, not metadata a sync
 /// consumer wants. The document body flows through the Yjs
 /// WebSocket channel, not the sync_actions stream.
@@ -756,38 +756,37 @@ pub fn set_page_visibility(
         )
         .execute(conn)?;
 
-        let entries: Vec<DocumentationPageVisibility> = if group_ids.is_empty()
-            && user_uuids.is_empty()
-        {
-            // Clearing the override is itself a visibility change
-            // (page reverts to inheriting from its collections), so it
-            // still emits below.
-            Vec::new()
-        } else {
-            let mut new_entries: Vec<NewDocumentationPageVisibility> = Vec::new();
+        let entries: Vec<DocumentationPageVisibility> =
+            if group_ids.is_empty() && user_uuids.is_empty() {
+                // Clearing the override is itself a visibility change
+                // (page reverts to inheriting from its collections), so it
+                // still emits below.
+                Vec::new()
+            } else {
+                let mut new_entries: Vec<NewDocumentationPageVisibility> = Vec::new();
 
-            for gid in &group_ids {
-                new_entries.push(NewDocumentationPageVisibility {
-                    page_id,
-                    group_id: Some(*gid),
-                    created_by,
-                    user_uuid: None,
-                });
-            }
+                for gid in &group_ids {
+                    new_entries.push(NewDocumentationPageVisibility {
+                        page_id,
+                        group_id: Some(*gid),
+                        created_by,
+                        user_uuid: None,
+                    });
+                }
 
-            for uid in &user_uuids {
-                new_entries.push(NewDocumentationPageVisibility {
-                    page_id,
-                    group_id: None,
-                    created_by,
-                    user_uuid: Some(*uid),
-                });
-            }
+                for uid in &user_uuids {
+                    new_entries.push(NewDocumentationPageVisibility {
+                        page_id,
+                        group_id: None,
+                        created_by,
+                        user_uuid: Some(*uid),
+                    });
+                }
 
-            diesel::insert_into(documentation_page_visibility::table)
-                .values(&new_entries)
-                .get_results(conn)?
-        };
+                diesel::insert_into(documentation_page_visibility::table)
+                    .values(&new_entries)
+                    .get_results(conn)?
+            };
 
         emit::record(
             conn,

@@ -14,8 +14,8 @@ use crate::sync::emit::{self, SyncEmit};
 // already brings the `groups` Diesel table into scope under that name.
 
 /// Sync-event payload for a documentation collection. Excludes the
-/// Yjs binary columns (`description_yjs` / `description_state_vector`)
-/// — the rich description body flows through the collaborative-editor
+/// Yjs binary columns (`description_yjs` / `description_state_vector`).
+/// The rich description body flows through the collaborative-editor
 /// WebSocket channel, not the sync_actions stream. The plain-text
 /// projection (`description_text`) is included so consumers have the
 /// searchable overview without the CRDT blob.
@@ -525,39 +525,38 @@ pub fn set_collection_visibility(
         )
         .execute(conn)?;
 
-        let entries: Vec<DocumentationCollectionVisibility> = if group_ids.is_empty()
-            && user_uuids.is_empty()
-        {
-            // Clearing all entries makes the collection public; this is
-            // still a visibility change and emits below.
-            Vec::new()
-        } else {
-            let mut new_entries: Vec<NewDocumentationCollectionVisibility> = Vec::new();
+        let entries: Vec<DocumentationCollectionVisibility> =
+            if group_ids.is_empty() && user_uuids.is_empty() {
+                // Clearing all entries makes the collection public; this is
+                // still a visibility change and emits below.
+                Vec::new()
+            } else {
+                let mut new_entries: Vec<NewDocumentationCollectionVisibility> = Vec::new();
 
-            // Add group entries
-            for group_id in &group_ids {
-                new_entries.push(NewDocumentationCollectionVisibility {
-                    collection_id,
-                    group_id: Some(*group_id),
-                    created_by,
-                    user_uuid: None,
-                });
-            }
+                // Add group entries
+                for group_id in &group_ids {
+                    new_entries.push(NewDocumentationCollectionVisibility {
+                        collection_id,
+                        group_id: Some(*group_id),
+                        created_by,
+                        user_uuid: None,
+                    });
+                }
 
-            // Add user entries
-            for user_uuid in &user_uuids {
-                new_entries.push(NewDocumentationCollectionVisibility {
-                    collection_id,
-                    group_id: None,
-                    created_by,
-                    user_uuid: Some(*user_uuid),
-                });
-            }
+                // Add user entries
+                for user_uuid in &user_uuids {
+                    new_entries.push(NewDocumentationCollectionVisibility {
+                        collection_id,
+                        group_id: None,
+                        created_by,
+                        user_uuid: Some(*user_uuid),
+                    });
+                }
 
-            diesel::insert_into(documentation_collection_visibility::table)
-                .values(&new_entries)
-                .get_results(conn)?
-        };
+                diesel::insert_into(documentation_collection_visibility::table)
+                    .values(&new_entries)
+                    .get_results(conn)?
+            };
 
         emit::record(
             conn,

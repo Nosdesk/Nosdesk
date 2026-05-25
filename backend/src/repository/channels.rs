@@ -73,7 +73,9 @@ pub fn find_by_provider(
 pub fn create(conn: &mut DbConnection, new: NewChannel) -> QueryResult<Channel> {
     use crate::schema::channels::dsl::*;
     conn.transaction(|conn| {
-        let channel: Channel = diesel::insert_into(channels).values(&new).get_result(conn)?;
+        let channel: Channel = diesel::insert_into(channels)
+            .values(&new)
+            .get_result(conn)?;
         emit::record(
             conn,
             SyncEmit {
@@ -123,7 +125,10 @@ pub fn update(
 pub fn delete(conn: &mut DbConnection, channel_id: i32) -> QueryResult<usize> {
     use crate::schema::channels::dsl::*;
     conn.transaction(|conn| {
-        let channel: Option<Channel> = channels.find(channel_id).first::<Channel>(conn).optional()?;
+        let channel: Option<Channel> = channels
+            .find(channel_id)
+            .first::<Channel>(conn)
+            .optional()?;
         let Some(channel) = channel else {
             return Ok(0);
         };
