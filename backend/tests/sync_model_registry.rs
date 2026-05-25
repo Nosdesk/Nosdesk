@@ -59,6 +59,7 @@ fn all_aggregates() -> Vec<SyncAggregate> {
         CycleTicket,
         User,
         Asset,
+        Webhook,
     ]
 }
 

@@ -1,0 +1,25 @@
+{
+  "name": "webhook",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "uuid": { "rust": "Uuid", "ts": "string" },
+    "name": { "rust": "String", "ts": "string" },
+    "url": { "rust": "String", "ts": "string" },
+    "events": { "rust": "Vec<Option<String>>", "ts": "string[]" },
+    "enabled": { "rust": "bool", "ts": "boolean" },
+    "headers": { "rust": "Option<serde_json::Value>", "ts": "Record<string, unknown> | null" },
+    "disabled_reason": { "rust": "Option<String>", "ts": "string | null" },
+    "created_at": { "rust": "NaiveDateTime", "ts": "string" },
+    "updated_at": { "rust": "NaiveDateTime", "ts": "string" }
+  },
+  "redacted_fields": ["secret"],
+  "events": [
+    { "type": "webhook.created", "op": "I" },
+    { "type": "webhook.configured", "op": "U" },
+    { "type": "webhook.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}

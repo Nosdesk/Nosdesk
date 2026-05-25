@@ -4,13 +4,35 @@
 
 use chrono::Utc;
 use diesel::prelude::*;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
-    NewWebhook, NewWebhookDelivery, Webhook, WebhookDelivery, WebhookDeliveryUpdate, WebhookUpdate,
+    NewWebhook, NewWebhookDelivery, SyncAggregate, SyncOp, Webhook, WebhookDelivery,
+    WebhookDeliveryUpdate, WebhookUpdate,
 };
 use crate::schema::{webhook_deliveries, webhooks};
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
+
+/// Sync-event payload for a webhook. Deliberately excludes `secret`
+/// (the HMAC signing key) — it's in the manifest's `redacted_fields`
+/// and must never reach the sync stream / audit trail.
+fn webhook_sync_payload(w: &Webhook) -> serde_json::Value {
+    json!({
+        "id": w.id,
+        "uuid": w.uuid,
+        "name": w.name,
+        "url": w.url,
+        "events": w.events,
+        "enabled": w.enabled,
+        "headers": w.headers,
+        "disabled_reason": w.disabled_reason,
+        "created_at": w.created_at,
+        "updated_at": w.updated_at,
+    })
+}
 
 /// List all webhooks
 pub fn list_all_webhooks(conn: &mut DbConnection) -> Result<Vec<Webhook>, diesel::result::Error> {
@@ -31,7 +53,6 @@ pub fn get_webhooks_for_event(
         .map_err(|e| format!("Database error: {e}"))
 }
 
-// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Create a new webhook
 pub fn create_webhook(
     conn: &mut DbConnection,
@@ -52,9 +73,24 @@ pub fn create_webhook(
         created_by,
     };
 
-    diesel::insert_into(webhooks::table)
-        .values(&new_webhook)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let webhook: Webhook = diesel::insert_into(webhooks::table)
+            .values(&new_webhook)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Webhook,
+                aggregate_id: webhook.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "webhook.created",
+                data: webhook_sync_payload(&webhook),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(webhook)
+    })
 }
 
 /// Get a webhook by ID
@@ -75,43 +111,97 @@ pub fn get_webhook_by_uuid(
         .first::<Webhook>(conn)
 }
 
-// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Update a webhook by ID
 pub fn update_webhook(
     conn: &mut DbConnection,
     webhook_id: i32,
     update: WebhookUpdate,
 ) -> Result<Webhook, String> {
-    diesel::update(webhooks::table.filter(webhooks::id.eq(webhook_id)))
-        .set(&update)
-        .get_result(conn)
-        .map_err(|e| format!("Database error: {e}"))
+    conn.transaction(|conn| {
+        let webhook: Webhook = diesel::update(webhooks::table.filter(webhooks::id.eq(webhook_id)))
+            .set(&update)
+            .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Webhook,
+                aggregate_id: webhook.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "webhook.configured",
+                data: webhook_sync_payload(&webhook),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(webhook)
+    })
+    .map_err(|e: diesel::result::Error| format!("Database error: {e}"))
 }
 
-// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Update a webhook by UUID
 pub fn update_webhook_by_uuid(
     conn: &mut DbConnection,
     webhook_uuid: Uuid,
     update: WebhookUpdate,
 ) -> Result<Webhook, diesel::result::Error> {
-    diesel::update(webhooks::table.filter(webhooks::uuid.eq(webhook_uuid)))
-        .set(&update)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let webhook: Webhook =
+            diesel::update(webhooks::table.filter(webhooks::uuid.eq(webhook_uuid)))
+                .set(&update)
+                .get_result(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Webhook,
+                aggregate_id: webhook.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "webhook.configured",
+                data: webhook_sync_payload(&webhook),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(webhook)
+    })
 }
 
-// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
 /// Delete a webhook by UUID
 pub fn delete_webhook_by_uuid(
     conn: &mut DbConnection,
     webhook_uuid: Uuid,
 ) -> Result<usize, diesel::result::Error> {
-    diesel::delete(webhooks::table.filter(webhooks::uuid.eq(webhook_uuid))).execute(conn)
+    conn.transaction(|conn| {
+        // Fetch first so the deleted webhook's id + projection can ride
+        // the webhook.deleted event; a missing row deletes nothing and
+        // emits nothing.
+        let webhook: Option<Webhook> = webhooks::table
+            .filter(webhooks::uuid.eq(webhook_uuid))
+            .first::<Webhook>(conn)
+            .optional()?;
+        let Some(webhook) = webhook else {
+            return Ok(0);
+        };
+        let deleted = diesel::delete(webhooks::table.filter(webhooks::uuid.eq(webhook_uuid)))
+            .execute(conn)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Webhook,
+                aggregate_id: webhook.id.to_string(),
+                op: SyncOp::Delete,
+                event_type: "webhook.deleted",
+                data: webhook_sync_payload(&webhook),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(deleted)
+    })
 }
 
 // ===== WEBHOOK DELIVERIES =====
 
-// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
+// sync-audit-only: webhook delivery attempts are high-volume operational state (one row per dispatch + retry), not a tier-1 business aggregate; no sync client subscribes to them. Lifecycle is observable via the webhook_deliveries audit trigger + the parent webhook.* events.
 /// Create a new webhook delivery record
 pub fn create_delivery(
     conn: &mut DbConnection,
@@ -123,7 +213,7 @@ pub fn create_delivery(
         .map_err(|e| format!("Database error: {e}"))
 }
 
-// sync-pending-wire: MFA-only writes don't touch the user projection (uuid / name / email / role / avatar / pronouns), so the sync stream stays quiet. Recorded under audit_log instead. See AUDIT_ONLY. The bare `users::create_user` helper is unused — handlers all use `user_helpers::create_user_with_email` (sync-wired). Listed here so the lint test stays green if a future caller appears, but the answer is "use the wired helper"
+// sync-audit-only: delivery status transitions (pending -> success/failed, retry counts) are operational state on a high-volume table, not a tier-1 aggregate; covered by the webhook_deliveries audit trigger.
 /// Update a webhook delivery
 pub fn update_delivery(
     conn: &mut DbConnection,
