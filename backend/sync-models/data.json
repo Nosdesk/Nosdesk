@@ -1,0 +1,13 @@
+{
+  "name": "data",
+  "schema_version": 1,
+  "fields": {},
+  "notes": "Synthetic aggregate with no backing table. Carries system/meta events about the data itself rather than a row mutation. data.audit.read / data.audit.exported are emitted (op I) when the unified audit surface is read or exported (Item C/W5, D5); aggregate_id is the literal 'audit'. The data payload holds the filter spec and row count, never audit row contents. The GDPR erasure event data.subject.redacted (D2) will join this aggregate in V1.1.",
+  "events": [
+    { "type": "data.audit.read", "op": "I" },
+    { "type": "data.audit.exported", "op": "I" }
+  ],
+  "groups": [
+    "workspace:1"
+  ]
+}

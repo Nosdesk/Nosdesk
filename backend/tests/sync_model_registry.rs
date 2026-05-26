@@ -64,6 +64,7 @@ fn all_aggregates() -> Vec<SyncAggregate> {
         KnowledgeGap,
         DocumentationPage,
         DocumentationCollection,
+        Data,
     ]
 }
 

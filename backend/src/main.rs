@@ -1363,6 +1363,15 @@ async fn main() -> std::io::Result<()> {
                     // 2026-05-11-210000_attach_audit_tier1 for the
                     // tables that participate.
                     .route("/admin/audit-log", web::get().to(handlers::audit_log::list))
+                    // Item C/W5: unified audit feed over all three
+                    // substrates (sync_actions + security_events +
+                    // audit_log), gated by the audit:read scope and the
+                    // admin / audit-reviewer roles.
+                    .route("/admin/audit", web::get().to(handlers::audit::list))
+                    .route(
+                        "/admin/audit/export",
+                        web::get().to(handlers::audit::export),
+                    )
 
                     // Outbound email queue — Item J Pass 1 admin
                     // surface. List rows + per-row actions (retry now,

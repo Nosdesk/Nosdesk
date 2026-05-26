@@ -5,6 +5,7 @@ pub mod asset_kinds;
 pub mod asset_usage;
 pub mod assets;
 pub mod assignment_rules;
+pub mod audit;
 pub mod audit_log;
 pub mod auth;
 pub mod auth_providers;

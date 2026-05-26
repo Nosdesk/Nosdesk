@@ -448,6 +448,11 @@ pub enum SyncAggregate {
     DocumentationPage,
     #[serde(rename = "documentation_collection")]
     DocumentationCollection,
+    /// Synthetic aggregate for system/meta events that have no backing
+    /// table, e.g. `data.audit.read` / `data.audit.exported` emitted
+    /// when the audit surface is read or exported (Item C/W5, D5).
+    #[serde(rename = "data")]
+    Data,
 }
 
 impl SyncAggregate {
@@ -471,6 +476,7 @@ impl SyncAggregate {
             Self::KnowledgeGap => "knowledge_gap",
             Self::DocumentationPage => "documentation_page",
             Self::DocumentationCollection => "documentation_collection",
+            Self::Data => "data",
         }
     }
 }
@@ -503,6 +509,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"knowledge_gap" => Ok(Self::KnowledgeGap),
             b"documentation_page" => Ok(Self::DocumentationPage),
             b"documentation_collection" => Ok(Self::DocumentationCollection),
+            b"data" => Ok(Self::Data),
             other => {
                 Err(format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into())
             }
