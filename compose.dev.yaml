@@ -176,6 +176,7 @@ services:
       - "127.0.0.1:3143:3143"  # IMAP
       - "127.0.0.1:3465:3465"  # SMTPS
       - "127.0.0.1:3993:3993"  # IMAPS
+      - "127.0.0.1:8080:8080"  # API (per-test mailbox purge + readiness)
     environment:
       # Single test user: support@example.com / hunter2
       # -Dgreenmail.verbose enables wire-level logging which we grep in tests.

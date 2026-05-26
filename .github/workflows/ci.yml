@@ -30,6 +30,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # Greenmail backs the `--ignored` IMAP/SMTP wire tests in
+      # tests/channels_email_imap_integration.rs. Same image, ports,
+      # and GREENMAIL_OPTS (single user support:hunter2) as the
+      # compose.dev.yaml `email-testing` profile. No --health-cmd: the
+      # standalone image isn't guaranteed to ship curl/nc, so the
+      # "Wait for Greenmail" step below probes its API from the runner
+      # (which has curl) instead.
+      greenmail:
+        image: greenmail/standalone:2.1.3
+        env:
+          GREENMAIL_OPTS: -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=support:hunter2@example.com -Dgreenmail.verbose
+        ports:
+          - 3025:3025  # SMTP  (fixture send + outbound relay)
+          - 3993:3993  # IMAPS (adapter poll)
+          - 8080:8080  # API   (per-test mailbox purge + readiness probe)
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +77,42 @@ jobs:
           # value; never write real plaintext under this key.
           MFA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
         run: cargo test
+
+      # The service container is "started" before GreenMail's JVM has
+      # bound its listeners. The API server (8080) is the LAST thing
+      # GreenMail starts, so a 200 from /api/configuration means the
+      # mail listeners (incl. IMAPS 3993) are already up. curl is
+      # preinstalled on ubuntu-latest runners.
+      - name: Wait for Greenmail
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8080/api/configuration; then
+              echo "Greenmail ready after ${i}s"
+              exit 0
+            fi
+            echo "waiting for Greenmail API (${i})..."
+            sleep 1
+          done
+          echo "Greenmail did not become ready on 127.0.0.1:8080" >&2
+          exit 1
+
+      # The `#[ignore]`'d IMAP/SMTP wire tests. Skipped by the plain
+      # `cargo test` above; run explicitly here against the Greenmail
+      # service. The lib step already built the crate, so this only
+      # links the one test binary.
+      - name: cargo test (Greenmail email integration)
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgres://nosdesk:nosdesk_password@127.0.0.1:5432/helpdesk_test
+          MFA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          # Greenmail's published ports are on the runner's loopback.
+          GREENMAIL_HOST: 127.0.0.1
+          # Greenmail's IMAPS cert is self-signed; honour the channel's
+          # insecure_skip_cert_verify flag (see test file header).
+          NOSDESK_ALLOW_INSECURE_TLS: "1"
+        # --test-threads=1: both tests share the single `support`
+        # mailbox and purge it on entry, so they must run serially.
+        run: cargo test --test channels_email_imap_integration -- --ignored --test-threads=1
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2

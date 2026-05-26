@@ -7,25 +7,50 @@
 //! docker compose -f compose.yaml -f compose.dev.yaml --profile email-testing up -d greenmail
 //! ```
 //!
-//! Then:
+//! Then run inside the backend container (where `GREENMAIL_HOST`
+//! defaults to the `greenmail` service name on the compose network):
 //!
 //! ```text
-//! cd backend && cargo test --test channels_email_imap_integration -- --ignored
+//! docker compose -f compose.yaml -f compose.dev.yaml exec \
+//!   -e NOSDESK_ALLOW_INSECURE_TLS=1 backend \
+//!   cargo test --test channels_email_imap_integration -- --ignored
 //! ```
 //!
-//! It deliberately does NOT set up the full service environment (no
-//! pipeline, no pool). It exercises just the adapter's poll cycle:
-//! plant an email via SMTP, poll IMAP, verify the parsed event comes
-//! back with the right fields and `last_seen_uid` advances.
+//! Or from the host shell, pointing at the published ports:
 //!
-//! A pool *is* required because the adapter writes runtime_state after
-//! each poll. We lean on the dedicated `TEST_DATABASE_URL`
-//! the library tests use.
+//! ```text
+//! cd backend && GREENMAIL_HOST=127.0.0.1 NOSDESK_ALLOW_INSECURE_TLS=1 \
+//!   cargo test --test channels_email_imap_integration -- --ignored
+//! ```
+//!
+//! `NOSDESK_ALLOW_INSECURE_TLS=1` is required: Greenmail's IMAPS port
+//! presents a self-signed certificate, and the adapter only honours the
+//! channel's `insecure_skip_cert_verify` flag when that env var is set
+//! (see `email_imap.rs` — a guard against silently disabling TLS
+//! validation in production).
+//!
+//! The first test exercises the adapter's poll cycle (plant via SMTP,
+//! poll IMAP, assert the parsed event and `last_seen_uid`). The second
+//! drives a full inbound -> threading -> relay -> outbound cycle
+//! through the real pipeline.
+//!
+//! Both need a pool: the adapter writes runtime_state after each poll,
+//! and the pipeline persists tickets/comments/channel_messages. We
+//! lean on the dedicated `TEST_DATABASE_URL` the library tests use.
+//!
+//! `build_pool` (a) bootstraps migrations on that DB so the suite is
+//! self-contained on a fresh database (e.g. in CI), and (b) seeds
+//! `app.workspace_id` on every connection. After the Phase 3 NOT-NULL
+//! flip, tenant tables default `workspace_id` from that GUC; without
+//! it, `seed_channel` and the manual comment inserts fail the NOT-NULL
+//! check. This mirrors `tests/common/mod.rs`'s `WorkspaceGucCustomizer`.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use backend::db::Pool;
+use std::sync::OnceLock;
+
+use backend::db::{Pool, MIGRATIONS};
 use backend::models::{Channel, NewChannel, NewComment, CHANNEL_DIRECTION_OUTBOUND};
 use backend::repository::{
     channels as channels_repo, comments as comments_repo, tickets as tickets_repo,
@@ -39,6 +64,7 @@ use backend::services::channels::{InboundEvent, PullAdapter};
 use backend::utils::email::{EmailConfig, EmailService, SmtpSecurity};
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
+use diesel_migrations::MigrationHarness;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
@@ -52,6 +78,7 @@ fn greenmail_host() -> String {
 }
 const IMAP_PORT: u16 = 3993;
 const SMTP_PORT: u16 = 3025;
+const API_PORT: u16 = 8080;
 const USER: &str = "support@example.com";
 const USER_LOGIN: &str = "support";
 const PASSWORD: &str = "hunter2";
@@ -62,6 +89,58 @@ fn greenmail_reachable() -> bool {
     std::net::TcpStream::connect((greenmail_host().as_str(), IMAP_PORT)).is_ok()
 }
 
+/// Empty every Greenmail mailbox via the standalone API. The two tests
+/// in this file share one `support` mailbox, and Greenmail retains mail
+/// across runs of the same container, so without a reset the first poll
+/// can return a prior test's messages (and even hit `MAX_FETCH_PER_POLL`
+/// on a busy container, leaving a tail that breaks the "second poll is
+/// empty" assertion). Call this at the start of each test for a known
+/// clean inbox. Tests run `--test-threads=1` so the purge of one test
+/// never races another.
+async fn purge_greenmail() {
+    let url = format!("http://{}:{}/api/mail/purge", greenmail_host(), API_PORT);
+    reqwest::Client::new()
+        .post(&url)
+        .send()
+        .await
+        .expect("POST greenmail /api/mail/purge")
+        .error_for_status()
+        .expect("greenmail purge returned non-success status");
+}
+
+/// Seeds `app.workspace_id` on every fresh connection so tenant-table
+/// inserts (channels, comments, tickets, ...) satisfy the Phase 3
+/// NOT-NULL default `NULLIF(current_setting('app.workspace_id', true),
+/// '')::int`. Bootstrap workspace id=1 is present after migrations.
+/// The pipeline re-sets this transaction-locally for its own writes;
+/// the session value here covers the test's direct inserts. Mirrors
+/// `tests/common/mod.rs`.
+#[derive(Debug)]
+struct WorkspaceGucCustomizer;
+
+impl r2d2::CustomizeConnection<diesel::PgConnection, r2d2::Error> for WorkspaceGucCustomizer {
+    fn on_acquire(&self, conn: &mut diesel::PgConnection) -> Result<(), r2d2::Error> {
+        diesel::sql_query("SELECT set_config('app.workspace_id', '1', false)")
+            .execute(conn)
+            .map_err(r2d2::Error::QueryError)?;
+        Ok(())
+    }
+}
+
+/// Apply embedded migrations to the test DB once per process so the
+/// suite is self-contained on a fresh database (CI starts the Postgres
+/// service empty). Embedded migrations are idempotent, so re-running on
+/// a DB the library tests already migrated is a no-op.
+fn ensure_migrated(url: &str) {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        let mut conn = diesel::PgConnection::establish(url)
+            .expect("connect to TEST_DATABASE_URL for migration bootstrap");
+        conn.run_pending_migrations(MIGRATIONS)
+            .expect("apply migrations to test DB");
+    });
+}
+
 fn build_pool() -> Pool {
     dotenvy::dotenv().ok();
     // Require a dedicated test DB — see `src/test_helpers.rs` for the
@@ -70,9 +149,11 @@ fn build_pool() -> Pool {
     // `teardown`, but we still don't want it mingling with dev data.
     let url = std::env::var("TEST_DATABASE_URL")
         .expect("TEST_DATABASE_URL must be set for integration tests");
+    ensure_migrated(&url);
     let manager = ConnectionManager::<diesel::PgConnection>::new(url);
     r2d2::Pool::builder()
         .max_size(4)
+        .connection_customizer(Box::new(WorkspaceGucCustomizer))
         .build(manager)
         .expect("build pool")
 }
@@ -188,6 +269,7 @@ async fn poll_fetches_pending_email_and_advances_uid() {
         let host = greenmail_host();
         panic!("Greenmail not reachable on {host}:{IMAP_PORT} — start via --profile email-testing");
     }
+    purge_greenmail().await;
 
     let pool = build_pool();
     let channel = seed_channel(&pool);
@@ -234,10 +316,23 @@ async fn poll_fetches_pending_email_and_advances_uid() {
         "expected last_seen_uid > 0"
     );
 
-    // A second poll with no new mail should return empty and leave
-    // state unchanged.
-    let second = adapter.poll().await.expect("second poll");
-    assert!(second.is_empty(), "second poll should return no events");
+    // A second poll has nothing new to deliver: we purged on entry and
+    // sent exactly one message, which the first poll consumed. poll()
+    // is a long-poll — against an IDLE-capable server (Greenmail
+    // advertises IDLE) it drains (empty), then blocks in IDLE waiting
+    // for a server push rather than re-delivering the message we
+    // already saw. Wrap it in a short timeout: either it returns empty
+    // promptly (polled-only server), or it parks in IDLE and we time
+    // out. Both prove no new events; a re-delivered message would come
+    // back before the deadline and fail the Ok branch.
+    match tokio::time::timeout(Duration::from_secs(3), adapter.poll()).await {
+        Ok(Ok(events)) => assert!(
+            events.is_empty(),
+            "second poll must not re-deliver an already-seen message: {events:?}"
+        ),
+        Ok(Err(e)) => panic!("second poll errored: {e:?}"),
+        Err(_elapsed) => { /* parked in IDLE awaiting new mail — correct */ }
+    }
 
     // _guard runs teardown on scope exit (including panics above).
 }
@@ -270,6 +365,7 @@ async fn full_cycle_inbound_internal_outbound() {
         let host = greenmail_host();
         panic!("Greenmail not reachable on {host}:{IMAP_PORT} — start via --profile email-testing");
     }
+    purge_greenmail().await;
 
     let pool = build_pool();
     let channel = seed_channel(&pool);
