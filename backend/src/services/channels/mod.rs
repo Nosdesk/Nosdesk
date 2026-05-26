@@ -34,6 +34,7 @@ pub mod bounce_parser;
 pub mod email_format_flowed;
 pub mod email_imap;
 pub mod email_quote;
+pub mod email_render_kind;
 pub mod email_sanitise;
 pub mod email_trackers;
 pub mod forward_parser;

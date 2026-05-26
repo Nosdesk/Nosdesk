@@ -172,6 +172,7 @@ mod tests {
             quoted_content: None,
             raw_source_uri: None,
             workspace_id: 1,
+            render_kind: None,
         }
     }
 

@@ -1214,6 +1214,12 @@ pub struct Comment {
     #[serde(skip)]
     pub raw_source_uri: Option<String>,
     pub workspace_id: i32,
+    /// Native-first render tier set by the inbound pipeline:
+    /// `text` / `simple` / `rich` (see `email_render_kind`). NULL for
+    /// non-email comments (agent markdown) and email comments ingested
+    /// before this column existed; the frontend falls back to its
+    /// per-`content_format` rendering when NULL.
+    pub render_kind: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, Default)]
@@ -1244,6 +1250,11 @@ pub struct NewComment {
     pub quoted_content: Option<String>,
     #[serde(default)]
     pub raw_source_uri: Option<String>,
+    /// Render tier (`text`/`simple`/`rich`) from `email_render_kind`.
+    /// Inbound channel adapters set this; UI-authored comments leave it
+    /// NULL.
+    #[serde(default)]
+    pub render_kind: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]

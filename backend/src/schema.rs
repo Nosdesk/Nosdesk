@@ -425,6 +425,8 @@ diesel::table! {
         quoted_content -> Nullable<Text>,
         raw_source_uri -> Nullable<Text>,
         workspace_id -> Int4,
+        #[max_length = 16]
+        render_kind -> Nullable<Varchar>,
     }
 }
 

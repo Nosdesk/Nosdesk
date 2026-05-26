@@ -727,6 +727,17 @@ fn insert_inbound_comment(
         _ => super::email_quote::split_plaintext(&content),
     };
 
+    // Native-first render tiering: classify the (already-sanitised)
+    // body into text / simple / rich so the frontend renders the common
+    // case inline and reserves the iframe for genuinely rich mail. For
+    // `simple` this reduces new/quoted content to a semantic-HTML
+    // subset; for `text`/`rich` it passes them through.
+    let classified = super::email_render_kind::classify(
+        content_format,
+        &split.new_content,
+        split.quoted_content.as_deref(),
+    );
+
     let new_comment = NewComment {
         content,
         ticket_id,
@@ -734,6 +745,7 @@ fn insert_inbound_comment(
         channel_metadata: Some(metadata),
         is_internal: false,
         content_format,
+        render_kind: Some(classified.kind.as_str().to_string()),
         // Persist both raw body parts so a future re-sanitise or
         // re-extract can run without re-fetching from upstream.
         // Empty plaintext is coerced to NULL so the DB carries a
@@ -743,8 +755,8 @@ fn insert_inbound_comment(
         // existed, so the same invariant holds without coercion.
         body_text: (!msg.body_text.trim().is_empty()).then(|| msg.body_text.clone()),
         body_html: msg.body_html.clone(),
-        new_content: Some(split.new_content),
-        quoted_content: split.quoted_content,
+        new_content: Some(classified.new_content),
+        quoted_content: classified.quoted_content,
         raw_source_uri,
     };
 
