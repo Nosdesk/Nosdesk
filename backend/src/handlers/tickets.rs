@@ -476,13 +476,7 @@ pub async fn preview_ticket_field(
 // reaching this body means the caller is allowed to read the
 // ticket. 404 (not 403) on deny is enforced inside the extractor,
 // per the OWASP IDOR Cheatsheet.
-pub async fn get_ticket(
-    pool: web::Data<crate::db::Pool>,
-    mut tc: TenantConn,
-    access: TicketAccess,
-) -> impl Responder {
-    use crate::repository::user_ticket_views::UserTicketViewsRepository;
-
+pub async fn get_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
     let TicketAccess { ticket_id, auth } = access;
 
     // A `not_found` here is a genuine "deleted between extraction
@@ -492,12 +486,12 @@ pub async fn get_ticket(
         Err(_) => return errors::not_found_msg("Ticket not found"),
     };
 
-    // Record the view (don't fail the request if this fails). The
-    // view repo wraps the pool with its own connection acquisition;
-    // it's not a tenant table yet so it stays on the legacy path
-    // until Phase 3c sweeps user_ticket_views into RLS.
-    let view_repo = UserTicketViewsRepository::new(pool.get_ref().clone());
-    if let Err(e) = view_repo.record_view(auth.user_uuid, ticket_id) {
+    // Record the view, best-effort (don't fail the request if it
+    // errors). Runs under TenantConn so user_ticket_views' workspace
+    // GUC + audit trigger both have a workspace context.
+    if let Err(e) =
+        tc.run(|conn| repository::user_ticket_views::record_view(conn, auth.user_uuid, ticket_id))
+    {
         warn!(user_uuid = %auth.user_uuid, error = ?e, "Failed to record ticket view");
     }
 
@@ -1723,12 +1717,11 @@ pub async fn remove_device_from_ticket(
 
 // Get recent tickets for the authenticated user
 pub async fn get_recent_tickets(
-    pool: web::Data<crate::db::Pool>,
     mut tc: TenantConn,
     claims: web::ReqData<Claims>,
 ) -> impl Responder {
     use crate::repository::ticket_visibility::{self, VisibilityContext};
-    use crate::repository::user_ticket_views::UserTicketViewsRepository;
+    use crate::repository::user_ticket_views;
 
     let claims_inner = claims.into_inner();
     let Some(vis) = VisibilityContext::from_claims(&claims_inner) else {
@@ -1736,16 +1729,13 @@ pub async fn get_recent_tickets(
     };
     let user_uuid = vis.user_uuid;
 
-    // user_ticket_views isn't RLS-yet (Phase 3c sweeps it), so it
-    // stays on the legacy pool wrapper. The ticket visibility check
-    // below queries the RLS-enabled tickets table and goes through
-    // TenantConn.
-    let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
-
-    let recent = match repo.get_recent_tickets(
-        user_uuid,
-        crate::repository::user_ticket_views::RECENT_TICKETS_LIMIT,
-    ) {
+    let recent = match tc.run(|conn| {
+        user_ticket_views::get_recent_tickets(
+            conn,
+            user_uuid,
+            user_ticket_views::RECENT_TICKETS_LIMIT,
+        )
+    }) {
         Ok(t) => t,
         Err(e) => {
             error!(error = ?e, "Failed to fetch recent tickets");
@@ -1779,18 +1769,11 @@ pub async fn get_recent_tickets(
 // Record a ticket view. Extractor handles visibility — no
 // possibility of recording a view for a ticket the user
 // shouldn't know exists.
-pub async fn record_ticket_view(
-    pool: web::Data<crate::db::Pool>,
-    access: TicketAccess,
-) -> impl Responder {
-    use crate::repository::user_ticket_views::UserTicketViewsRepository;
-
+pub async fn record_ticket_view(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
     let TicketAccess { ticket_id, auth } = access;
     let user_uuid = auth.user_uuid;
 
-    let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
-
-    match repo.record_view(user_uuid, ticket_id) {
+    match tc.run(|conn| repository::user_ticket_views::record_view(conn, user_uuid, ticket_id)) {
         Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
             error!(error = ?e, "Failed to record ticket view");
@@ -1801,12 +1784,10 @@ pub async fn record_ticket_view(
 
 // Remove a ticket from the user's recent views
 pub async fn remove_recent_ticket(
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     path: web::Path<i32>,
     claims: web::ReqData<Claims>,
 ) -> impl Responder {
-    use crate::repository::user_ticket_views::UserTicketViewsRepository;
-
     let ticket_id = path.into_inner();
     let claims_inner = claims.into_inner();
     let user_uuid = match Uuid::parse_str(&claims_inner.sub) {
@@ -1818,9 +1799,7 @@ pub async fn remove_recent_ticket(
         }
     };
 
-    let repo = UserTicketViewsRepository::new(pool.get_ref().clone());
-
-    match repo.delete_view(user_uuid, ticket_id) {
+    match tc.run(|conn| repository::user_ticket_views::delete_view(conn, user_uuid, ticket_id)) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             error!(error = ?e, "Failed to remove recent ticket view");
