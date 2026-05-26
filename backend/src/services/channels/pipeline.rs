@@ -349,7 +349,15 @@ pub async fn process_event(
         // channel pipeline so sync_actions records the system actor
         // rather than NULL. The outer call has no HTTP request, so
         // we synthesise a system actor here.
-        let actor = ActorContext::system("channels:inbound");
+        //
+        // `.with_workspace` is load-bearing: ingestion writes tickets
+        // and comments, both workspace-scoped (workspace_id NOT NULL,
+        // RLS) and audit-triggered (audit_log.workspace_id NOT NULL,
+        // defaulted from the app.workspace_id GUC). Without the channel's
+        // workspace on the actor, set_actor leaves the GUC unset and the
+        // first insert aborts the whole ingest transaction. The channel
+        // owns the workspace the inbound message belongs to.
+        let actor = ActorContext::system("channels:inbound").with_workspace(channel.workspace_id);
         session::set_actor(conn, &actor)?;
 
         // Identity resolution. Routes through the forward-aware
@@ -1124,6 +1132,108 @@ mod tests {
             raw_bytes: None,
             content_language: None,
         }
+    }
+
+    /// `sample_message` with the body overridden. `body_html = Some`
+    /// drives the HTML path; `None` keeps it plaintext.
+    fn message_with_body(
+        external_id: &str,
+        subject: &str,
+        body_text: &str,
+        body_html: Option<&str>,
+    ) -> InboundMessage {
+        let mut m = sample_message(external_id, vec![], Some(subject));
+        m.body_text = body_text.into();
+        m.body_html = body_html.map(str::to_string);
+        m
+    }
+
+    /// End-to-end render-tier classification (Item J native-first): a
+    /// real message flows through sanitise → quote-split → classify →
+    /// persist, and the stored comment carries the right `render_kind`.
+    /// Also exercises the inbound-pipeline workspace fix: ticket +
+    /// comment creation must succeed under the channel's workspace.
+    #[tokio::test]
+    async fn ingest_classifies_render_kind() {
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+
+        async fn ingest(
+            conn: &mut DbConnection,
+            ch: &Channel,
+            msg: InboundMessage,
+        ) -> (Option<String>, Option<String>) {
+            use crate::schema::comments;
+            use diesel::prelude::*;
+            let out = process_event(
+                &StubAdapter,
+                ch,
+                InboundEvent::MessageReceived(msg),
+                conn,
+                &PipelineContext::bare(),
+            )
+            .await
+            .expect("process_event");
+            let comment_id = match out {
+                PipelineOutcome::TicketOpened { comment_id, .. } => comment_id,
+                other => panic!("expected TicketOpened, got {other:?}"),
+            };
+            comments::table
+                .filter(comments::id.eq(comment_id))
+                .select((comments::render_kind, comments::new_content))
+                .first::<(Option<String>, Option<String>)>(conn)
+                .expect("ingested comment")
+        }
+
+        // Plaintext reply -> text bubble.
+        let (rk, _) = ingest(
+            &mut conn,
+            &ch,
+            message_with_body(
+                "<rk-text@ex>",
+                "Plain",
+                "Thanks, that fixed it!\nCheers",
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(rk.as_deref(), Some("text"));
+
+        // Human HTML reply (inline marks + link, no layout) -> simple,
+        // reduced to a semantic subset.
+        let (rk, nc) = ingest(
+            &mut conn,
+            &ch,
+            message_with_body(
+                "<rk-simple@ex>",
+                "HTML",
+                "",
+                Some(
+                    r#"<div dir="ltr"><p>Thanks, that <b>fixed</b> it!</p><p>Add a <a href="https://x.test/seat">2nd seat</a>?</p></div>"#,
+                ),
+            ),
+        )
+        .await;
+        assert_eq!(rk.as_deref(), Some("simple"));
+        let nc = nc.unwrap_or_default();
+        assert!(nc.contains("2nd seat"), "simple keeps the link text: {nc}");
+        assert!(!nc.to_lowercase().contains("<table"), "simple has no table");
+
+        // Newsletter-style layout -> rich (kept whole for the iframe).
+        let (rk, _) = ingest(
+            &mut conn,
+            &ch,
+            message_with_body(
+                "<rk-rich@ex>",
+                "News",
+                "",
+                Some(
+                    r#"<table width="600"><tr><td><h1>Deals</h1><p>Buy now</p></td></tr></table>"#,
+                ),
+            ),
+        )
+        .await;
+        assert_eq!(rk.as_deref(), Some("rich"));
     }
 
     #[tokio::test]
