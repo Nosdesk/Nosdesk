@@ -123,3 +123,51 @@ fn audit_trigger_redacts_pii_and_credentials() {
         "mfa_secret_changed should report the credential being set"
     );
 }
+
+#[derive(QueryableByName)]
+struct TriggerCount {
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    n: i64,
+}
+
+/// Regression guard for the W4 login break: platform auth / identity
+/// tables must NOT carry the audit_log trigger. They have no
+/// workspace_id and are written outside any workspace context (login,
+/// token issuance, password reset, OAuth, onboarding); audit_log's
+/// workspace_id is NOT NULL, so an audit trigger on them defaults it to
+/// NULL and 500s the operation (W4 attached these and broke every
+/// login — migration 2026-05-26-140000 dropped them). Their
+/// security-relevant events live in tier-2 security_events instead.
+#[test]
+fn auth_and_identity_tables_have_no_audit_trigger() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+
+    const PLATFORM_TABLES: &[&str] = &[
+        "active_sessions",
+        "api_tokens",
+        "refresh_tokens",
+        "reset_tokens",
+        "passkey_credentials",
+        "user_emails",
+        "user_auth_identities",
+    ];
+
+    for table in PLATFORM_TABLES {
+        let row: TriggerCount = diesel::sql_query(
+            "SELECT count(*) AS n FROM pg_trigger t \
+             JOIN pg_class c ON c.oid = t.tgrelid \
+             JOIN pg_proc p ON p.oid = t.tgfoid \
+             WHERE p.proname = 'audit_log_trigger' \
+               AND NOT t.tgisinternal AND c.relname = $1",
+        )
+        .bind::<Text, _>(*table)
+        .get_result(&mut conn)
+        .expect("trigger count query");
+        assert_eq!(
+            row.n, 0,
+            "{table} must not have an audit_log trigger (it has no workspace_id \
+             and is written outside workspace context; that 500s login/auth)"
+        );
+    }
+}
