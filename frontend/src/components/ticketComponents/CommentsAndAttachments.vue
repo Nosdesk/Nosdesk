@@ -824,6 +824,7 @@ const handlePastedFiles = async (files: File[]) => {
                                     v-if="hasRealContent(comment)"
                                     :content="comment.content"
                                     :content-format="comment.content_format"
+                                    :render-kind="comment.render_kind"
                                     :new-content="comment.new_content"
                                     :quoted-content="comment.quoted_content"
                                     :has-raw-source="comment.has_raw_source"
@@ -965,9 +966,10 @@ const handlePastedFiles = async (files: File[]) => {
                                         v-if="hasRealContent(comment)"
                                         :content="comment.content"
                                         :content-format="comment.content_format"
+                                        :render-kind="comment.render_kind"
                                         :new-content="comment.new_content"
                                         :quoted-content="comment.quoted_content"
-                                            :has-raw-source="comment.has_raw_source"
+                                        :has-raw-source="comment.has_raw_source"
                                         :comment-id="comment.id"
                                     />
                                     <p v-else-if="isAudioOnlyComment(comment)" class="text-primary text-sm">

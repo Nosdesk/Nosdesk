@@ -27,6 +27,16 @@ export interface Attachment {
  */
 export type CommentContentFormat = 'html' | 'markdown' | 'plaintext'
 
+/**
+ * Native-first render tier set by the inbound email pipeline:
+ * `text` (plaintext, rendered as a linkified pre-wrap bubble),
+ * `simple` (human HTML reduced to a semantic-inline subset, rendered
+ * inline), or `rich` (newsletter/layout HTML, rendered in a sandboxed
+ * iframe). Null/undefined for UI-authored comments and pre-pipeline
+ * rows; the renderer then falls back to per-`content_format` rendering.
+ */
+export type CommentRenderKind = 'text' | 'simple' | 'rich'
+
 export interface Comment {
   id: number
   content: string
@@ -59,6 +69,13 @@ export interface Comment {
    * short replies) or the comment isn't email-derived.
    */
   quoted_content?: string | null
+  /**
+   * Native-first render tier (see `CommentRenderKind`). Set by the
+   * inbound email pipeline; null/undefined for UI-authored comments and
+   * pre-pipeline rows, where the renderer falls back to per-format
+   * rendering.
+   */
+  render_kind?: CommentRenderKind | null
   /**
    * Whether the backend has an archived .eml available at
    * `/api/comments/{id}/raw.eml`. The frontend uses this flag to

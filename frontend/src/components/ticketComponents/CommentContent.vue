@@ -1,66 +1,84 @@
 <!--
-Render a comment's body, choosing the right pipeline for its content
-format and tucking any quoted history behind a disclosure.
+Render a comment's body using the native-first model: most email
+correspondence is text or simple HTML, so render those inline (like an
+agent's own reply) and reserve the sandboxed iframe for genuinely rich
+mail (newsletters, layout tables, Word-soup).
 
-Data flow priority (most-trusted first):
-  1. `newContent` + `quotedContent` from the backend ingest splitter
-     (Pass 1 of the email rendering plan). When set, these are the
-     authoritative split — the splitter ran once at ingest with full
-     access to MIME parts and headers and the result was persisted.
-  2. `sanitisedHtml` from the backend sanitiser (Pass 2). When the
-     parent doesn't have the split (older rows), this is still
-     server-side safe HTML and is passed to `<EmailHtmlBody>` with
-     `pre-sanitised` so DOMPurify doesn't double-process.
-  3. `content` + client-side splitter (`splitQuotedHtml` /
-     `splitQuotedReply`). Legacy path for rows ingested before the
-     backend pipeline shipped.
+Tier comes from the backend `render_kind` (set by the inbound pipeline):
+  - `text`   — plaintext / format=flowed. Linkified, pre-wrap, app
+    typography. No iframe.
+  - `simple` — human HTML reduced server-side to a semantic-inline
+    subset. Rendered inline via `v-safe-html` (DOMPurify defence in
+    depth over the already-reduced HTML). No iframe.
+  - `rich`   — kept as full sanitised HTML; rendered in `<EmailHtmlBody>`
+    (sandboxed iframe). The quoted half renders as an inline sanitised
+    `<div>`, not a second iframe.
 
-  - `html`: an inbound email or any other channel that delivers HTML.
-    Renders inside `<EmailHtmlBody>` (sandboxed iframe + DOMPurify
-    or backend-sanitised). Both visible and quoted halves render in
-    their own iframe so each one's CSS and layout reset stay
-    isolated.
+When `render_kind` is absent (UI-authored comments, rows ingested before
+the pipeline), fall back to the legacy per-`content_format` rendering:
+HTML → two `<EmailHtmlBody>` iframes via the client-side splitter;
+otherwise `<MarkdownRenderer>` with the client-side text splitter.
 
-  - Markdown / plaintext / unknown: `<MarkdownRenderer>` +
-    `splitQuotedReply`. UI-authored comments that pre-date the
-    `content_format` column take this branch via the missing-format
-    default.
+The visible / quoted split is the backend's (`new_content` /
+`quoted_content`) for pipeline rows, or the client splitter for legacy
+rows.
 
-Deliberately not used in the print path: when someone prints a ticket
-they want the full archival record, not the summary view. The print
-loop in `CommentsAndAttachments.vue` keeps calling `<MarkdownRenderer>`
-directly.
+Deliberately not used in the print path: the print loop in
+`CommentsAndAttachments.vue` keeps calling `<MarkdownRenderer>` directly
+so a printed ticket carries the full archival record, not the summary.
 -->
 <template>
   <div class="flex flex-col gap-1">
-    <template v-if="renderAsHtml">
-      <EmailHtmlBody :html="visibleHtml" :pre-sanitised="htmlIsPreSanitised" />
-      <details v-if="trimmedHtml" class="group">
-        <summary :class="summaryClass">
-          <svg :class="summaryIconClass" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-          <span>{{ $t('ticket-comments-show-quoted-thread') }}</span>
-        </summary>
-        <div class="mt-1">
-          <EmailHtmlBody :html="trimmedHtml" :pre-sanitised="htmlIsPreSanitised" />
+    <!-- Visible body -->
+    <EmailHtmlBody
+      v-if="visibleMode === 'iframe'"
+      :html="visible"
+      :pre-sanitised="htmlIsPreSanitised"
+    />
+    <div
+      v-else-if="visibleMode === 'inline-html'"
+      v-safe-html="visible"
+      class="email-inline-body text-primary"
+    />
+    <div
+      v-else-if="visibleMode === 'inline-text'"
+      v-safe-html="visibleTextHtml"
+      class="whitespace-pre-wrap break-words text-primary"
+    />
+    <MarkdownRenderer v-else :content="visible" class="text-primary" />
+
+    <!-- Quoted history, tucked behind a disclosure -->
+    <details v-if="quoted" class="group">
+      <summary :class="summaryClass">
+        <svg :class="summaryIconClass" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+        </svg>
+        <span>{{ quotedLabel }}</span>
+      </summary>
+      <div class="mt-1">
+        <!-- Quoted never gets its own iframe except on the legacy HTML
+             path; rich/simple quoted render as inline sanitised HTML. -->
+        <EmailHtmlBody
+          v-if="quotedMode === 'iframe'"
+          :html="quoted"
+          :pre-sanitised="htmlIsPreSanitised"
+        />
+        <div
+          v-else-if="quotedMode === 'inline-html'"
+          v-safe-html="quoted"
+          class="email-inline-body border-l-2 border-subtle pl-3 text-secondary"
+        />
+        <div
+          v-else-if="quotedMode === 'inline-text'"
+          v-safe-html="quotedTextHtml"
+          class="whitespace-pre-wrap break-words border-l-2 border-subtle pl-3 text-secondary"
+        />
+        <div v-else class="border-l-2 border-subtle pl-3 text-secondary">
+          <MarkdownRenderer :content="quoted" />
         </div>
-      </details>
-    </template>
-    <template v-else>
-      <MarkdownRenderer :content="visibleText" class="text-primary" />
-      <details v-if="trimmedText" class="group">
-        <summary :class="summaryClass">
-          <svg :class="summaryIconClass" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-          <span>{{ $t('ticket-comments-show-quoted-reply', { lines: trimmedTextLines }) }}</span>
-        </summary>
-        <div class="mt-1 border-l-2 border-subtle pl-3 text-secondary">
-          <MarkdownRenderer :content="trimmedText" />
-        </div>
-      </details>
-    </template>
+      </div>
+    </details>
+
     <!--
       Plain anchor rather than a button-plus-window.open: middle-click,
       right-click "open in new tab", copy-link, and keyboard activation
@@ -82,92 +100,127 @@ directly.
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useFluent } from 'fluent-vue';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue';
 import EmailHtmlBody from '@/components/ticketComponents/EmailHtmlBody.vue';
 import { splitQuotedReply } from '@/utils/quotedReply';
 import { splitQuotedHtml } from '@/utils/quotedReplyHtml';
-import type { CommentContentFormat } from '@/types/comment';
+import { linkifyText } from '@/utils/linkifyText';
+import type { CommentContentFormat, CommentRenderKind } from '@/types/comment';
 
 const props = defineProps<{
   content: string;
   /**
-   * Format of the bytes in `content`, as declared by the writer. When
-   * absent we fall through to the Markdown renderer — that matches
-   * the pre-`content_format` behaviour for legacy comments.
+   * Format of the bytes in `content`, as declared by the writer. Used
+   * for the legacy fallback when `renderKind` is absent.
    */
   contentFormat?: CommentContentFormat;
   /**
-   * Backend-extracted just-the-reply (post-sanitise, post-split).
-   * When set, the renderer uses this as the visible body and treats
-   * `quotedContent` as the disclosure body. Same shape as the client
-   * splitter would produce, but generated once at ingest with full
-   * MIME context and persisted.
+   * Native-first render tier from the backend. When set, it drives the
+   * renderer directly; when absent, the legacy per-`contentFormat` path
+   * is used.
+   */
+  renderKind?: CommentRenderKind | null;
+  /**
+   * Backend-extracted just-the-reply (post-sanitise, post-split). When
+   * set, it's the visible body and `quotedContent` is the disclosure.
    */
   newContent?: string | null;
-  /**
-   * Backend-extracted prior thread, paired with `newContent`.
-   */
+  /** Backend-extracted prior thread, paired with `newContent`. */
   quotedContent?: string | null;
-  /**
-   * Whether the backend can serve the original `.eml` via
-   * `/api/comments/{id}/raw.eml`. Drives the visibility of the
-   * "Show original message" affordance below the body.
-   */
+  /** Whether `/api/comments/{id}/raw.eml` is available. */
   hasRawSource?: boolean;
-  /**
-   * Used to construct the "Show original message" URL. Optional
-   * because not every comment-context has the id in scope; the
-   * link is hidden when missing.
-   */
+  /** Used to build the "Show original message" URL. */
   commentId?: number;
 }>();
 
-// Tailwind class strings deduplicated at the template level.
+const fluent = useFluent();
+
 const summaryClass =
   'cursor-pointer text-xs text-tertiary hover:text-secondary select-none inline-flex items-center gap-1 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info';
 const summaryIconClass = 'w-3 h-3 transition-transform group-open:rotate-90';
 
-const renderAsHtml = computed(() => props.contentFormat === 'html');
+type Kind = 'text' | 'simple' | 'rich' | 'legacy-html' | 'legacy-markdown';
 
-// True when the backend supplied a pre-split, pre-sanitised view.
-// Both halves of the split came from ammonia, so the iframe can
-// skip the client-side DOMPurify pass. Legacy rows (no split
-// available) take the client-side path and keep DOMPurify.
-const htmlIsPreSanitised = computed(() => props.newContent != null);
-
-// Markdown / plaintext branch. Prefer the backend's split when
-// present; fall through to client-side `splitQuotedReply` for legacy
-// rows.
-const textSplit = computed(() => {
-  if (renderAsHtml.value) return null;
-  if (props.newContent != null) {
-    return {
-      visible: props.newContent,
-      trimmed: props.quotedContent ?? '',
-    };
+const kind = computed<Kind>(() => {
+  switch (props.renderKind) {
+    case 'text':
+      return 'text';
+    case 'simple':
+      return 'simple';
+    case 'rich':
+      return 'rich';
+    default:
+      return props.contentFormat === 'html' ? 'legacy-html' : 'legacy-markdown';
   }
-  return splitQuotedReply(props.content);
 });
-const visibleText = computed(() => textSplit.value?.visible ?? '');
-const trimmedText = computed(() => textSplit.value?.trimmed ?? '');
-const trimmedTextLines = computed(() =>
-  trimmedText.value ? trimmedText.value.split('\n').length : 0,
+
+// Legacy rows have no backend split; compute it once from `content`.
+const legacySplit = computed(() => {
+  if (kind.value === 'legacy-html') {
+    const { visibleHtml, trimmedHtml } = splitQuotedHtml(props.content);
+    return { visible: visibleHtml, quoted: trimmedHtml };
+  }
+  if (kind.value === 'legacy-markdown') {
+    const { visible, trimmed } = splitQuotedReply(props.content);
+    return { visible, quoted: trimmed };
+  }
+  return null;
+});
+
+// For pipeline tiers, prefer the backend split; `content` is the
+// safety net if `new_content` is somehow absent.
+const visible = computed(() =>
+  legacySplit.value ? legacySplit.value.visible : (props.newContent ?? props.content),
+);
+const quoted = computed(() =>
+  legacySplit.value ? legacySplit.value.quoted : (props.quotedContent ?? ''),
 );
 
-// HTML branch. Same priority order: backend split first, then a
-// client-side split on the raw `content` for legacy rows.
-const htmlSplit = computed(() => {
-  if (!renderAsHtml.value) return null;
-  if (props.newContent != null) {
-    return {
-      visibleHtml: props.newContent,
-      trimmedHtml: props.quotedContent ?? '',
-    };
+const visibleTextHtml = computed(() => linkifyText(visible.value));
+const quotedTextHtml = computed(() => linkifyText(quoted.value));
+
+// Render mode per half. Rich + legacy-html use the iframe for the
+// visible body; rich's quoted half drops to inline HTML (halves the
+// iframe count), while legacy-html keeps its second iframe.
+const visibleMode = computed(() => {
+  switch (kind.value) {
+    case 'rich':
+    case 'legacy-html':
+      return 'iframe' as const;
+    case 'simple':
+      return 'inline-html' as const;
+    case 'text':
+      return 'inline-text' as const;
+    default:
+      return 'markdown' as const;
   }
-  return splitQuotedHtml(props.content);
 });
-const visibleHtml = computed(() => htmlSplit.value?.visibleHtml ?? '');
-const trimmedHtml = computed(() => htmlSplit.value?.trimmedHtml ?? '');
+const quotedMode = computed(() => {
+  switch (kind.value) {
+    case 'legacy-html':
+      return 'iframe' as const;
+    case 'rich':
+    case 'simple':
+      return 'inline-html' as const;
+    case 'text':
+      return 'inline-text' as const;
+    default:
+      return 'markdown' as const;
+  }
+});
+
+// Both halves of a backend split came from ammonia, so the iframe can
+// skip the client DOMPurify pass. Legacy rows keep DOMPurify.
+const htmlIsPreSanitised = computed(() => props.newContent != null);
+
+const quotedLabel = computed(() => {
+  if (kind.value === 'text' || kind.value === 'legacy-markdown') {
+    const lines = quoted.value ? quoted.value.split('\n').length : 0;
+    return fluent.$t('ticket-comments-show-quoted-reply', { lines });
+  }
+  return fluent.$t('ticket-comments-show-quoted-thread');
+});
 
 const rawSourceUrl = computed(() =>
   props.commentId != null ? `/api/comments/${props.commentId}/raw.eml` : null,
