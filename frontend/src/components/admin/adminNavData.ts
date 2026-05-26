@@ -6,6 +6,9 @@ export interface AdminNavItem {
   icon: IconName;
   route: string;
   keywords: string[];
+  /** Visible to the standalone audit_reviewer role (Item C/D4). When
+   * false/undefined the item is admin-only. */
+  auditReviewerAllowed?: boolean;
 }
 
 export interface AdminNavGroup {
@@ -122,8 +125,9 @@ export const adminNavGroups: AdminNavGroup[] = [
         titleKey: 'admin-nav-audit-log-title',
         descriptionKey: 'admin-nav-audit-log-description',
         icon: 'clock',
-        route: '/admin/audit-log',
-        keywords: ['audit', 'log', 'history', 'forensic', 'compliance', 'changes', 'who', 'when']
+        route: '/admin/audit',
+        keywords: ['audit', 'log', 'history', 'forensic', 'compliance', 'changes', 'who', 'when', 'events', 'auth'],
+        auditReviewerAllowed: true
       }
     ]
   },
@@ -190,6 +194,24 @@ export const adminNavGroups: AdminNavGroup[] = [
 
 /** Get all nav items as a flat array */
 export const allAdminNavItems = adminNavGroups.flatMap(g => g.items);
+
+/**
+ * Restrict nav groups to what a role may see. Admins see everything;
+ * the standalone audit_reviewer role sees only items flagged
+ * `auditReviewerAllowed`. Empty groups are dropped.
+ */
+export function filterAdminNavGroupsForRole(
+  groups: AdminNavGroup[],
+  opts: { isAdmin: boolean; isAuditReviewer: boolean },
+): AdminNavGroup[] {
+  if (opts.isAdmin) return groups;
+  if (opts.isAuditReviewer) {
+    return groups
+      .map(group => ({ ...group, items: group.items.filter(i => i.auditReviewerAllowed) }))
+      .filter(group => group.items.length > 0);
+  }
+  return [];
+}
 
 /** Check if a given route path is active for a nav item (handles sub-routes) */
 export function isAdminRouteActive(currentPath: string, itemRoute: string): boolean {

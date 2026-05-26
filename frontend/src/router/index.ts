@@ -41,6 +41,9 @@ declare module 'vue-router' {
     titleKeyArgs?: Record<string, string | number>;
     layout?: string;
     adminRequired?: boolean;
+    /** Within an adminRequired subtree, also allow the standalone
+     * audit_reviewer role to reach this route (Item C/D4). */
+    auditReviewerAllowed?: boolean;
     createButtonText?: string;
     createButtonTextKey?: string;
     createButtonIcon?: 'plus' | 'ticket' | 'user' | 'device' | 'project' | 'document';
@@ -674,10 +677,17 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-branding' }
         },
         {
+          // Item C/W5: unified audit feed (all three substrates).
+          // Reachable by admins and the standalone audit_reviewer role.
+          path: 'audit',
+          name: 'admin-audit',
+          component: () => import('../views/admin/AdminAuditView.vue'),
+          meta: { titleKey: 'route-title-admin-audit-log', auditReviewerAllowed: true }
+        },
+        {
+          // The old tier-3-only view is superseded by the unified feed.
           path: 'audit-log',
-          name: 'admin-audit-log',
-          component: () => import('../views/admin/AuditLogView.vue'),
-          meta: { titleKey: 'route-title-admin-audit-log' }
+          redirect: { name: 'admin-audit' }
         },
         {
           path: 'email-queue',
@@ -963,9 +973,15 @@ async function checkAdminAccess(to: RouteLocationNormalized, _from: RouteLocatio
     const { useAuthStore } = await import('@/stores/auth');
     const authStore = useAuthStore();
 
-    if (!authStore.isAdmin) {
-      return { name: 'home' };
-    }
+    if (authStore.isAdmin) return;
+
+    // The audit_reviewer role may reach only routes explicitly flagged
+    // auditReviewerAllowed (the unified audit feed); every other admin
+    // route still redirects them home.
+    const auditAllowed = to.matched.some((record) => record.meta.auditReviewerAllowed);
+    if (auditAllowed && authStore.isAuditReviewer) return;
+
+    return { name: 'home' };
   }
 }
 

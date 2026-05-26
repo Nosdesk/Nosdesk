@@ -460,6 +460,22 @@ admin-audit-load-more = Load more
 admin-audit-loading-more = Loading…
 admin-audit-error-load = Failed to load audit log
 admin-audit-error-load-more = Failed to load more audit log entries
+admin-audit-tier-all = All
+admin-audit-tier-app = App
+admin-audit-tier-auth = Auth
+admin-audit-tier-change = Changes
+admin-audit-filter-event = Event type
+admin-audit-filter-event-placeholder = e.g. auth.
+admin-audit-filter-severity = Severity
+admin-audit-severity-any = Any
+admin-audit-export = Export JSON
+admin-audit-exporting = Exporting…
+admin-audit-payload = Payload
+admin-audit-target = Target
+admin-audit-source-ip = Source IP
+admin-audit-source-tier1 = App
+admin-audit-source-tier2 = Auth
+admin-audit-source-tier3 = Change
 
 # Admin: email suppression list.
 admin-suppressions-title = Email suppression list

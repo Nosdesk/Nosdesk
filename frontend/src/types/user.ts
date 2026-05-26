@@ -1,6 +1,6 @@
 // Central User Type Definitions
 
-export type UserRole = 'admin' | 'technician' | 'user';
+export type UserRole = 'admin' | 'technician' | 'user' | 'audit_reviewer';
 
 /** Persisted shape of a user's customised dashboard. Widget order is
  * the array order; `visible: false` hides the widget without removing

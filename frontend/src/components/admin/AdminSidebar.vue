@@ -5,16 +5,28 @@ import { useFluent } from 'fluent-vue';
 import {
   adminNavGroups,
   isAdminRouteActive,
-  filterAdminNavGroups
+  filterAdminNavGroups,
+  filterAdminNavGroupsForRole
 } from '@/components/admin/adminNavData';
+import { useAuthStore } from '@/stores/auth';
 import Icon from '@/components/common/Icon.vue';
 
 const route = useRoute();
 const fluent = useFluent();
+const authStore = useAuthStore();
 const searchQuery = ref('');
 
+// First narrow by role (an audit reviewer only ever sees the audit
+// entry), then apply the search filter.
+const roleGroups = computed(() =>
+  filterAdminNavGroupsForRole(adminNavGroups, {
+    isAdmin: authStore.isAdmin,
+    isAuditReviewer: authStore.isAuditReviewer
+  })
+);
+
 const filteredGroups = computed(() =>
-  filterAdminNavGroups(adminNavGroups, searchQuery.value, (key) => fluent.$t(key))
+  filterAdminNavGroups(roleGroups.value, searchQuery.value, (key) => fluent.$t(key))
 );
 
 const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute);

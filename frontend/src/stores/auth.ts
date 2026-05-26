@@ -54,6 +54,10 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => hasCsrfToken() || !!user.value);
   const isAdmin = computed(() => user.value?.role === 'admin');
   const isTechnician = computed(() => user.value?.role === 'technician' || user.value?.role === 'admin');
+  // Standalone read-only audit role (Item C/D4). Distinct from admin:
+  // an audit reviewer can reach only the audit surface, not the rest
+  // of the admin panel.
+  const isAuditReviewer = computed(() => user.value?.role === 'audit_reviewer');
   const isMicrosoftAuth = computed(() => authProvider.value === 'microsoft');
 
   // Fetch current user data from the backend
@@ -463,6 +467,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isAdmin,
     isTechnician,
+    isAuditReviewer,
     isMicrosoftAuth,
     login,
     verifyMfaAndLogin,
