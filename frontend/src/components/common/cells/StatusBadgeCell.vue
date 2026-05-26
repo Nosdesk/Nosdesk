@@ -60,6 +60,8 @@ const getStatusClasses = (value: string, type: string) => {
         return `${baseClasses} bg-status-error-muted text-status-error border-status-error/30`
       case 'technician':
         return `${baseClasses} bg-accent-muted text-accent border-accent/30`
+      case 'audit_reviewer':
+        return `${baseClasses} bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30`
       default:
         return `${baseClasses} bg-surface-alt text-secondary border-default`
     }
@@ -68,10 +70,16 @@ const getStatusClasses = (value: string, type: string) => {
   // Default fallback
   return `${baseClasses} bg-surface-alt text-secondary border-default`
 }
+
+// Role values are stored snake_case (e.g. audit_reviewer); render them
+// with spaces so the badge reads naturally. Other badge types pass
+// through unchanged.
+const displayText = (value: string, type: string) =>
+  type === 'role' ? value?.replace(/_/g, ' ') : value
 </script>
 
 <template>
   <span :class="getStatusClasses(value, type)">
-    {{ value }}
+    {{ displayText(value, type) }}
   </span>
-</template> 
+</template>

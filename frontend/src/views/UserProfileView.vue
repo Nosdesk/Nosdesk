@@ -71,6 +71,7 @@ const editValues = ref<UserFormData>({
 const roleOptions = computed(() => [
     { value: "user", label: t('user-profile-role-user') },
     { value: "technician", label: t('user-profile-role-technician') },
+    { value: "audit_reviewer", label: t('user-profile-role-audit_reviewer') },
     { value: "admin", label: t('user-profile-role-admin') },
 ]);
 

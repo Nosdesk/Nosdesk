@@ -70,6 +70,7 @@ const userFacets = computed<ChipFacetDef[]>(() => [
     options: () => [
       { value: 'admin', label: t('user-mgmt-role-admin'), swatchClass: 'bg-rose-500' },
       { value: 'technician', label: t('user-mgmt-role-technician'), swatchClass: 'bg-accent' },
+      { value: 'audit_reviewer', label: t('user-mgmt-role-audit_reviewer'), swatchClass: 'bg-purple-500' },
       { value: 'user', label: t('user-mgmt-role-user'), swatchClass: 'bg-zinc-400' },
     ],
   },
@@ -86,7 +87,7 @@ const userFacets = computed<ChipFacetDef[]>(() => [
 // Group-by axes. Role uses severity order; status splits active
 // vs soft-deleted; joined buckets recent vs older to spot recent
 // hires during onboarding.
-const ROLE_ORDER: Array<User['role']> = ['admin', 'technician', 'user']
+const ROLE_ORDER: Array<User['role']> = ['admin', 'technician', 'audit_reviewer', 'user']
 const JOIN_BUCKET_ORDER = ['this-month', 'this-year', 'older'] as const
 
 function joinBucket(createdAt: string): (typeof JOIN_BUCKET_ORDER)[number] {
@@ -208,6 +209,7 @@ const showRoleModal = ref(false)
 const ROLE_OPTIONS = computed(() => [
   { value: 'admin', label: t('user-mgmt-role-admin') },
   { value: 'technician', label: t('user-mgmt-role-technician') },
+  { value: 'audit_reviewer', label: t('user-mgmt-role-audit_reviewer') },
   { value: 'user', label: t('user-mgmt-role-user') },
 ])
 
@@ -417,10 +419,11 @@ function formatPurgeAt(deletedAt: string): string {
                 :class="{
                   'bg-status-error-muted text-status-error': item.role === 'admin',
                   'bg-accent-muted text-accent': item.role === 'technician',
+                  'bg-purple-500/10 text-purple-700 dark:text-purple-400': item.role === 'audit_reviewer',
                   'bg-surface-alt text-secondary': item.role === 'user',
                 }"
               >
-                {{ item.role }}
+                {{ item.role.replace('_', ' ') }}
               </span>
               <span v-if="item.open_ticket_count" class="text-secondary tabular-nums">
                 {{ $t('user-mgmt-mobile-tickets', { count: item.open_ticket_count }) }}
