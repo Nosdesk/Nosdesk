@@ -354,7 +354,16 @@ pub async fn sync_once(
         // audit_log_trigger on plugin_trusted_publishers attributes
         // every publisher INSERT/UPDATE/DELETE to a named system
         // actor instead of NULL.
-        let actor = ActorContext::system("scheduler:plugin_registry_sync");
+        //
+        // `.with_workspace(1)` is load-bearing, not cosmetic:
+        // plugin_trusted_publishers / plugin_registry_state carry
+        // audit_log triggers but have no workspace_id of their own, and
+        // audit_log.workspace_id is NOT NULL (defaulted from the
+        // app.workspace_id GUC). Without a workspace on the actor the
+        // trigger's audit insert defaults workspace_id to NULL and the
+        // whole sync transaction aborts. Attribute to the bootstrap
+        // workspace, matching the `startup:seed` system actor.
+        let actor = ActorContext::system("scheduler:plugin_registry_sync").with_workspace(1);
         actor_session::with_actor_context::<_, RegistryError>(&mut conn, &actor, |tx| {
             reconcile(tx, &publishers, &index)?;
             plugin_publishers::update_registry_state(
@@ -370,16 +379,22 @@ pub async fn sync_once(
             Ok(())
         })?;
     } else {
-        // Same version — just stamp last_fetched_at so operators
-        // can see the sync ran.
-        plugin_publishers::update_registry_state(
-            &mut conn,
-            PluginRegistryStateUpdate {
-                last_fetched_at: Some(Some(chrono::Utc::now().naive_utc())),
-                last_fetch_error: Some(None),
-                ..Default::default()
-            },
-        )?;
+        // Same version — just stamp last_fetched_at so operators can see
+        // the sync ran. Still under a workspace-bearing actor context:
+        // this UPDATE fires the plugin_registry_state audit trigger,
+        // which needs app.workspace_id set (see the !unchanged branch).
+        let actor = ActorContext::system("scheduler:plugin_registry_sync").with_workspace(1);
+        actor_session::with_actor_context::<_, RegistryError>(&mut conn, &actor, |tx| {
+            plugin_publishers::update_registry_state(
+                tx,
+                PluginRegistryStateUpdate {
+                    last_fetched_at: Some(Some(chrono::Utc::now().naive_utc())),
+                    last_fetch_error: Some(None),
+                    ..Default::default()
+                },
+            )?;
+            Ok(())
+        })?;
     }
 
     let fetched_at = Utc::now();
