@@ -1600,6 +1600,12 @@ pub enum UserRole {
     Technician,
     #[serde(rename = "user")]
     User,
+    /// Read-only access to the audit surface (Item C/D4). Holds no
+    /// write access to any business entity and no admin-panel access
+    /// beyond the audit view. Distinct from Admin so audit reading
+    /// isn't bundled with admin write.
+    #[serde(rename = "audit_reviewer")]
+    AuditReviewer,
 }
 
 impl UserRole {
@@ -1608,6 +1614,7 @@ impl UserRole {
             UserRole::Admin => "admin",
             UserRole::Technician => "technician",
             UserRole::User => "user",
+            UserRole::AuditReviewer => "audit_reviewer",
         }
     }
 }
@@ -1625,6 +1632,7 @@ impl FromSql<crate::schema::sql_types::UserRole, Pg> for UserRole {
             b"admin" => Ok(UserRole::Admin),
             b"technician" => Ok(UserRole::Technician),
             b"user" => Ok(UserRole::User),
+            b"audit_reviewer" => Ok(UserRole::AuditReviewer),
             _ => Err("Unrecognized enum variant".into()),
         }
     }

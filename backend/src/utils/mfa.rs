@@ -374,8 +374,9 @@ pub fn should_require_mfa(user_role: &UserRole) -> bool {
         // Default remains secure (required) unless explicitly disabled via env
         // Env var: REQUIRE_ADMIN_MFA=true|false (accepts 1/0, yes/no, on/off)
         UserRole::Admin => parse_env_bool("REQUIRE_ADMIN_MFA", true),
-        UserRole::Technician => true, // High privilege users
-        UserRole::User => false,      // Could be made configurable via env var
+        UserRole::Technician => true,    // High privilege users
+        UserRole::AuditReviewer => true, // Reads sensitive audit data
+        UserRole::User => false,         // Could be made configurable via env var
     }
 }
 
@@ -388,6 +389,7 @@ pub async fn validate_mfa_policy(user: &User, conn: &mut crate::db::DbConnection
             match user.role {
                 UserRole::Admin => "administrator",
                 UserRole::Technician => "technician",
+                UserRole::AuditReviewer => "audit reviewer",
                 UserRole::User => "user",
             }
         ));

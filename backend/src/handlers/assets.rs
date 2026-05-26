@@ -183,12 +183,7 @@ impl AssetResponse {
             is_editable,
             primary_user: user.map(|u| {
                 let name = u.name.clone();
-                let role = match u.role {
-                    crate::models::UserRole::Admin => "admin",
-                    crate::models::UserRole::Technician => "technician",
-                    crate::models::UserRole::User => "user",
-                }
-                .to_string();
+                let role = u.role.as_str().to_string();
 
                 // Fetch primary email from user_emails table
                 let email = repository::user_helpers::get_primary_email(&u.uuid, conn)

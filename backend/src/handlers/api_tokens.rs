@@ -62,6 +62,17 @@ pub async fn create_api_token(
         return errors::bad_request("Token name must be 255 characters or less");
     }
 
+    // Reject unknown scopes at mint time so a typo can't silently
+    // create a token that no endpoint will ever honour.
+    if let Some(scopes) = body.scopes.as_ref() {
+        if let Some(bad) = scopes
+            .iter()
+            .find(|s| !crate::utils::rbac::is_valid_token_scope(s))
+        {
+            return errors::bad_request(&format!("Unknown token scope: {bad}"));
+        }
+    }
+
     // Outcome: verify-user step can branch on NotFound; collapse to a
     // single tc.run so both queries share one tenant-scoped tx.
     enum Outcome {

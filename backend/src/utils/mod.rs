@@ -79,6 +79,7 @@ pub fn parse_role(role_str: &str) -> ValidationResult<UserRole> {
         "admin" => Ok(UserRole::Admin),
         "technician" => Ok(UserRole::Technician),
         "user" => Ok(UserRole::User),
+        "audit_reviewer" => Ok(UserRole::AuditReviewer),
         _ => Err(ValidationError::InvalidRole(role_str.to_string())),
     }
 }

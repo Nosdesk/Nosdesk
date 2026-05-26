@@ -244,6 +244,7 @@ fn parse_role(s: &str) -> Option<UserRole> {
         "admin" => Some(UserRole::Admin),
         "technician" => Some(UserRole::Technician),
         "user" => Some(UserRole::User),
+        "audit_reviewer" => Some(UserRole::AuditReviewer),
         _ => None,
     }
 }

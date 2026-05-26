@@ -621,11 +621,7 @@ pub async fn create_user(
     }
 
     // Validate role
-    let _role_enum = match user_data.role {
-        crate::models::UserRole::Admin => "admin",
-        crate::models::UserRole::Technician => "technician",
-        crate::models::UserRole::User => "user",
-    };
+    let _role_enum = user_data.role.as_str();
     // Role is already validated by the enum type
 
     // Validate optional fields
@@ -1951,11 +1947,7 @@ pub async fn update_user_by_uuid(
             // full object, since it's only delivered to the owning
             // user's own sessions via the per-user topic.
             let updated_by = claims.sub.clone();
-            let role_str = match updated_user.role {
-                crate::models::UserRole::Admin => "admin",
-                crate::models::UserRole::Technician => "technician",
-                crate::models::UserRole::User => "user",
-            };
+            let role_str = updated_user.role.as_str();
             let updates: [(&str, bool, serde_json::Value); 6] = [
                 (
                     "name",
@@ -2649,6 +2641,7 @@ pub async fn bulk_users(
                 "admin" => crate::models::UserRole::Admin,
                 "technician" => crate::models::UserRole::Technician,
                 "user" => crate::models::UserRole::User,
+                "audit_reviewer" => crate::models::UserRole::AuditReviewer,
                 _ => return errors::bad_request("Bad Request: Invalid role value"),
             };
 
