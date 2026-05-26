@@ -258,8 +258,39 @@ export const useAuthStore = defineStore('auth', () => {
 
     } catch (err) {
       logger.error('🔐 MFA Login error:', err);
-      const axiosError = err as { response?: { data?: { message?: string } } };
-      error.value = axiosError.response?.data?.message || 'MFA verification failed. Please try again.';
+      const axiosError = err as {
+        response?: {
+          status?: number;
+          data?: { message?: string; error?: string; code?: string; retry_after?: number };
+        };
+      };
+      const status = axiosError.response?.status;
+      const data = axiosError.response?.data;
+
+      // Surface the MFA rate limiter explicitly. The backend returns
+      // 429 / code RATE_LIMITED once the attempt cap is hit, after which
+      // *every* submission is rejected regardless of whether the code is
+      // correct — so the user needs to know to wait, not to re-check
+      // their code.
+      if (status === 429 || data?.code === 'RATE_LIMITED') {
+        const seconds = data?.retry_after;
+        error.value = seconds
+          ? translate(
+              'auth-mfa-rate-limited-retry',
+              { seconds },
+              `Too many attempts. Please try again in ${seconds} seconds.`,
+            )
+          : translate(
+              'auth-mfa-rate-limited',
+              undefined,
+              'Too many MFA attempts. Please try again later.',
+            );
+      } else {
+        error.value =
+          data?.message ||
+          data?.error ||
+          translate('auth-mfa-failed', undefined, 'MFA verification failed. Please try again.');
+      }
       return false;
     } finally {
       loading.value = false;

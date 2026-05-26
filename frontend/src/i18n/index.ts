@@ -127,7 +127,13 @@ export function translate(
   fallback?: string,
 ): string {
   if (!activeFluent) return fallback ?? key
-  return activeFluent.format(key, args)
+  const out = activeFluent.format(key, args)
+  // fluent-vue returns the bare key id when the message is missing from
+  // every bundle. Prefer the caller's fallback copy in that case so a
+  // not-yet-bundled or mistyped key degrades to readable English instead
+  // of surfacing "some-key-name" to the user.
+  if (out === key && fallback !== undefined) return fallback
+  return out
 }
 
 /** Locales we ship catalogues for. Exposed so the settings UI
