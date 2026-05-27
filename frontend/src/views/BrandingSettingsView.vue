@@ -5,7 +5,8 @@ import { useFluent } from 'fluent-vue'
 import AlertMessage from '@/components/common/AlertMessage.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Icon from '@/components/common/Icon.vue'
-import Spinner from '@/components/common/Spinner.vue'
+import Button from '@/components/common/Button.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue'
 import brandingService, { type BrandingConfig } from '@/services/brandingService'
 import uploadService from '@/services/uploadService'
@@ -303,11 +304,9 @@ onMounted(() => {
             <!-- App Name -->
             <div class="flex flex-col gap-2">
               <label for="appName" class="text-sm font-medium text-primary">{{ $t('admin-branding-app-name-label') }}</label>
-              <input
+              <FormInput
                 id="appName"
                 v-model="appName"
-                type="text"
-                class="bg-surface-alt border border-default rounded-lg px-3 py-2 text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
                 :placeholder="$t('admin-branding-app-name-placeholder')"
               />
               <p class="text-xs text-tertiary">{{ $t('admin-branding-app-name-hint') }}</p>
@@ -321,14 +320,9 @@ onMounted(() => {
 
             <!-- Save Button -->
             <div class="flex justify-end pt-2">
-              <button
-                @click="saveSettings"
-                :disabled="isSaving"
-                class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                <Spinner v-if="isSaving" />
+              <Button :loading="isSaving" @click="saveSettings">
                 {{ isSaving ? $t('admin-branding-saving') : $t('admin-branding-save') }}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -361,20 +355,17 @@ onMounted(() => {
                     class="hidden"
                     @change="handleLogoUpload"
                   />
-                  <button
-                    @click="logoInput?.click()"
-                    :disabled="uploadingLogo"
-                    class="px-3 py-1.5 text-sm bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
-                  >
+                  <Button size="sm" :loading="uploadingLogo" @click="logoInput?.click()">
                     {{ uploadingLogo ? $t('admin-branding-logo-uploading') : $t('admin-branding-logo-upload') }}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     v-if="brandingConfig?.logo_url"
+                    variant="ghost-danger"
+                    size="sm"
                     @click="requestDeleteBrandingImage('logo')"
-                    class="px-3 py-1.5 text-sm text-status-error hover:bg-status-error-muted rounded-lg transition-colors"
                   >
                     {{ $t('admin-branding-logo-remove') }}
-                  </button>
+                  </Button>
                 </div>
               </div>
               <p class="text-xs text-tertiary">{{ $t('admin-branding-logo-formats') }}</p>
@@ -409,20 +400,17 @@ onMounted(() => {
                     class="hidden"
                     @change="handleLogoLightUpload"
                   />
-                  <button
-                    @click="logoLightInput?.click()"
-                    :disabled="uploadingLogoLight"
-                    class="px-3 py-1.5 text-sm bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
-                  >
+                  <Button size="sm" :loading="uploadingLogoLight" @click="logoLightInput?.click()">
                     {{ uploadingLogoLight ? $t('admin-branding-logo-uploading') : $t('admin-branding-logo-upload') }}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     v-if="brandingConfig?.logo_light_url"
+                    variant="ghost-danger"
+                    size="sm"
                     @click="requestDeleteBrandingImage('logo_light')"
-                    class="px-3 py-1.5 text-sm text-status-error hover:bg-status-error-muted rounded-lg transition-colors"
                   >
                     {{ $t('admin-branding-logo-remove') }}
-                  </button>
+                  </Button>
                 </div>
               </div>
               <p class="text-xs text-tertiary">{{ $t('admin-branding-logo-light-hint') }}</p>
@@ -455,20 +443,17 @@ onMounted(() => {
                   class="hidden"
                   @change="handleFaviconUpload"
                 />
-                <button
-                  @click="faviconInput?.click()"
-                  :disabled="uploadingFavicon"
-                  class="px-3 py-1.5 text-sm bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
-                >
+                <Button size="sm" :loading="uploadingFavicon" @click="faviconInput?.click()">
                   {{ uploadingFavicon ? $t('admin-branding-favicon-uploading') : $t('admin-branding-favicon-upload') }}
-                </button>
-                <button
+                </Button>
+                <Button
                   v-if="brandingConfig?.favicon_url"
+                  variant="ghost-danger"
+                  size="sm"
                   @click="requestDeleteBrandingImage('favicon')"
-                  class="px-3 py-1.5 text-sm text-status-error hover:bg-status-error-muted rounded-lg transition-colors"
                 >
                   {{ $t('admin-branding-logo-remove') }}
-                </button>
+                </Button>
               </div>
             </div>
             <p class="text-xs text-tertiary">{{ $t('admin-branding-favicon-formats') }}</p>

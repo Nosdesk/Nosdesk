@@ -24,15 +24,15 @@
             </div>
 
             <!-- Action button -->
-            <button
+            <Button
+              variant="danger"
+              size="sm"
+              icon="trash"
+              :loading="isCleaningUp"
               @click="cleanupStaleImages"
-              :disabled="isCleaningUp"
-              class="px-3 py-1.5 bg-status-error/20 text-status-error border border-status-error/50 rounded-lg text-sm hover:bg-status-error/30 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
             >
-              <Spinner v-if="isCleaningUp" />
-              <Icon v-else name="trash" />
               {{ isCleaningUp ? $t('admin-system-storage-cleaning') : $t('admin-system-storage-clean') }}
-            </button>
+            </Button>
           </div>
 
           <!-- Description -->
@@ -101,7 +101,7 @@ import { useFluent } from 'fluent-vue'
 import SystemInfoCard from '@/components/admin/SystemInfoCard.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Icon from '@/components/common/Icon.vue'
-import Spinner from '@/components/common/Spinner.vue'
+import Button from '@/components/common/Button.vue'
 import userService from '@/services/userService'
 
 const authStore = useAuthStore()

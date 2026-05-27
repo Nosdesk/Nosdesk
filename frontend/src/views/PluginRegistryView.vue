@@ -21,6 +21,8 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import Button from '@/components/common/Button.vue';
+import FormInput from '@/components/common/FormInput.vue';
 import Modal from '@/components/Modal.vue';
 import PluginIcon from '@/components/plugins/PluginIcon.vue';
 import PluginTrustBadge from '@/components/plugins/PluginTrustBadge.vue';
@@ -289,31 +291,16 @@ function formatRelative(iso: string): string {
           >nosdesk.com/registry</code>{{ $t('admin-plugins-registry-subtitle-after') }}
         </p>
       </div>
-      <button
+      <Button
         v-if="snapshot"
-        type="button"
+        variant="secondary"
+        size="sm"
+        class="self-start sm:self-auto"
+        :loading="isRefreshing"
         @click="retryRegistrySync"
-        :disabled="isRefreshing"
-        class="flex items-center gap-1.5 self-start rounded-lg border border-default bg-surface px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-surface-hover disabled:opacity-50 sm:self-auto"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="h-4 w-4"
-          :class="{ 'animate-spin': isRefreshing }"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-          />
-        </svg>
         {{ isRefreshing ? $t('admin-plugins-registry-refreshing') : $t('admin-plugins-registry-refresh') }}
-      </button>
+      </Button>
     </header>
 
     <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
@@ -543,15 +530,14 @@ function formatRelative(iso: string): string {
                     >
                       {{ $t('admin-plugins-registry-manage') }}
                     </RouterLink>
-                    <button
+                    <Button
                       v-else
-                      type="button"
-                      :disabled="installing === plugin.name"
+                      size="sm"
+                      :loading="installing === plugin.name"
                       @click="startInstall(plugin)"
-                      class="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
                     >
                       {{ installing === plugin.name ? $t('admin-plugins-registry-installing') : $t('admin-plugins-registry-install') }}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -589,34 +575,26 @@ function formatRelative(iso: string): string {
             <code class="rounded bg-surface-alt px-1 font-mono">{{ pendingInstall.name }}</code>
             {{ $t('admin-plugins-registry-type-to-confirm-after') }}
           </span>
-          <input
+          <FormInput
             v-model="communityConfirmText"
-            type="text"
-            class="w-full rounded-lg border border-default bg-surface-alt px-3 py-2 text-sm text-primary placeholder:text-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none"
             :placeholder="pendingInstall.name"
           />
         </label>
       </div>
       <template #footer>
-        <button
-          type="button"
-          @click="cancelInstall"
-          class="px-4 py-2 text-sm text-secondary transition-colors hover:text-primary"
-        >
+        <Button variant="ghost" @click="cancelInstall">
           {{ $t('admin-plugins-registry-cancel') }}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          :loading="installing === pendingInstall.name"
           :disabled="
-            installing === pendingInstall.name ||
-            (pendingInstall.tier === 'community' &&
-              communityConfirmText.trim() !== pendingInstall.name)
+            pendingInstall.tier === 'community' &&
+            communityConfirmText.trim() !== pendingInstall.name
           "
           @click="confirmInstall"
-          class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
           {{ installing === pendingInstall.name ? $t('admin-plugins-registry-installing') : $t('admin-plugins-registry-install') }}
-        </button>
+        </Button>
       </template>
     </Modal>
   </div>
