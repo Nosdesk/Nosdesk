@@ -283,11 +283,15 @@ class AuthService {
   }
 
   /**
-   * Revoke all other sessions (keep current session)
+   * Revoke all other sessions (keep current session). The backend
+   * requires step-up re-auth: pass the local password or a TOTP/backup
+   * code. An empty object is valid only for accounts with neither.
    */
-  async revokeAllOtherSessions(): Promise<void> {
+  async revokeAllOtherSessions(
+    credential: { password?: string; mfa_code?: string } = {},
+  ): Promise<void> {
     try {
-      await apiClient.delete('/auth/sessions/others');
+      await apiClient.delete('/auth/sessions/others', { data: credential });
     } catch (error) {
       logger.error('Failed to revoke all other sessions', { error });
       throw error;

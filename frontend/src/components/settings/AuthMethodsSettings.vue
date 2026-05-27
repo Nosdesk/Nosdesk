@@ -4,10 +4,14 @@ import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import authService from '@/services/authService';
 import userService from '@/services/userService';
-import { formatDate } from '@/utils/dateUtils';
+import { formatDate, formatRelativeTime } from '@/utils/dateUtils';
+import { extractErrorMessage } from '@/utils/errors';
 import { logger } from '@/utils/logger';
 import Icon from '@/components/common/Icon.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
+import ConfirmModal from '@/components/common/ConfirmModal.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -46,8 +50,34 @@ const isManagingOtherUser = computed(() => {
   return !!props.targetUserUuid && props.targetUserUuid !== authStore.user?.uuid;
 });
 
+// Session state
+const sessionsLoading = ref(true);
+const revokingSessionId = ref<number | null>(null);
+const showRevokeAllModal = ref(false);
+const revokeAllInFlight = ref(false);
+const stepUpCredential = ref('');
+const mfaEnabled = ref(false);
+
 // Computed properties
 const hasMicrosoftConnection = computed(() => authMethods.value.some(m => m.type === 'microsoft'));
+
+const otherSessionsCount = computed(
+  () => activeSessions.value.filter((s) => !s.is_current).length,
+);
+
+// Which credential the "sign out everywhere else" step-up should ask for.
+// Prefer the local password (the mfa_disable precedent); fall back to a
+// TOTP/backup code for accounts without one; 'none' when there's nothing
+// to step up with (OAuth-only, no MFA).
+const hasLocalPassword = computed(() => authMethods.value.some((m) => m.type === 'local'));
+const stepUpMethod = computed<'password' | 'mfa' | 'none'>(() => {
+  if (hasLocalPassword.value) return 'password';
+  if (mfaEnabled.value) return 'mfa';
+  return 'none';
+});
+const revokeAllConfirmDisabled = computed(
+  () => stepUpMethod.value !== 'none' && stepUpCredential.value.trim().length === 0,
+);
 
 // Emits for notifications
 const emit = defineEmits<{
@@ -90,6 +120,14 @@ const loadAuthData = async () => {
 
     if (!isManagingOtherUser.value) {
       await loadActiveSessions();
+      // Decide which credential the bulk-revoke step-up asks for when the
+      // account has no local password (best-effort; defaults to none).
+      try {
+        const status = await authService.getMFAStatus();
+        mfaEnabled.value = status.enabled;
+      } catch (mfaErr) {
+        logger.debug('Could not load MFA status for session step-up', { error: mfaErr });
+      }
     }
   } catch (error) {
     logger.error('Failed to load auth methods', { error });
@@ -100,7 +138,7 @@ const loadAuthData = async () => {
 
 const loadActiveSessions = async () => {
   try {
-    loading.value = true;
+    sessionsLoading.value = true;
     const sessions = await authService.getSessions();
     logger.debug('Loaded active sessions', { count: sessions?.length || 0 });
     activeSessions.value = sessions;
@@ -108,7 +146,7 @@ const loadActiveSessions = async () => {
     logger.error('Failed to load active sessions', { error });
     emit('error', t('settings-auth-methods-sessions-load-error'));
   } finally {
-    loading.value = false;
+    sessionsLoading.value = false;
   }
 };
 
@@ -178,34 +216,48 @@ const adminRemoveAuthMethod = async (methodId: string) => {
   }
 };
 
-// Session functions
+// Single-session revoke is low-friction (one click, per-row in-flight
+// state) per session-management UX norms. The high-blast-radius "sign
+// out everywhere else" goes through the confirm dialog + step-up
+// re-auth below.
 const revokeSession = async (sessionId: number) => {
-  loading.value = true;
+  revokingSessionId.value = sessionId;
   try {
     await authService.revokeSession(sessionId);
-    // Refresh sessions list
     await loadActiveSessions();
     emit('success', t('settings-auth-methods-sessions-revoke-success'));
   } catch (err) {
-    emit('error', t('settings-auth-methods-sessions-revoke-error'));
+    emit('error', extractErrorMessage(err, t('settings-auth-methods-sessions-revoke-error')));
     logger.error('Failed to revoke session', { error: err, sessionId });
   } finally {
-    loading.value = false;
+    revokingSessionId.value = null;
   }
 };
 
-const revokeAllSessions = async () => {
-  loading.value = true;
+const openRevokeAllModal = () => {
+  stepUpCredential.value = '';
+  showRevokeAllModal.value = true;
+};
+
+const confirmRevokeAll = async () => {
+  if (revokeAllConfirmDisabled.value) return;
+  revokeAllInFlight.value = true;
   try {
-    await authService.revokeAllOtherSessions();
-    // Refresh sessions list
+    const credential =
+      stepUpMethod.value === 'password'
+        ? { password: stepUpCredential.value }
+        : stepUpMethod.value === 'mfa'
+          ? { mfa_code: stepUpCredential.value.trim() }
+          : {};
+    await authService.revokeAllOtherSessions(credential);
+    showRevokeAllModal.value = false;
     await loadActiveSessions();
     emit('success', t('settings-auth-methods-sessions-revoke-all-success'));
   } catch (err) {
-    emit('error', t('settings-auth-methods-sessions-revoke-all-error'));
+    emit('error', extractErrorMessage(err, t('settings-auth-methods-sessions-revoke-all-error')));
     logger.error('Failed to revoke all sessions', { error: err });
   } finally {
-    loading.value = false;
+    revokeAllInFlight.value = false;
   }
 };
 
@@ -297,42 +349,83 @@ const getAuthMethodIcon = (type: string) => {
       <template #title>{{ $t('settings-auth-methods-sessions-section-title') }}</template>
       <template #headerActions>
         <button
-          @click="revokeAllSessions"
-          :disabled="loading || activeSessions.length <= 1"
-          class="text-[11px] font-medium text-status-error hover:opacity-80 disabled:opacity-50 whitespace-nowrap"
+          @click="openRevokeAllModal"
+          :disabled="otherSessionsCount === 0"
+          class="text-[11px] font-medium text-status-error hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
         >
           {{ $t('settings-auth-methods-sessions-revoke-all') }}
         </button>
       </template>
 
-      <div class="flex flex-col gap-2">
+      <!-- Loading skeleton mirrors the eventual row layout -->
+      <Skeleton v-if="sessionsLoading" class="flex flex-col gap-2">
+        <div v-for="n in 2" :key="n" class="flex items-center gap-3 p-3 bg-surface-alt rounded-lg">
+          <SkeletonBar class="h-10 w-10 rounded-lg" />
+          <div class="flex flex-col gap-2 flex-1">
+            <SkeletonBar class="h-4 w-40" />
+            <SkeletonBar class="h-3 w-56" />
+          </div>
+        </div>
+      </Skeleton>
+
+      <div v-else class="flex flex-col gap-2">
             <div v-for="session in activeSessions" :key="session.id" class="flex items-center justify-between p-3 bg-surface-alt rounded-lg">
-              <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 bg-surface-hover rounded-lg flex items-center justify-center flex-shrink-0">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                 </div>
-                <div>
-                  <div class="text-sm font-medium text-primary">
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-primary truncate">
                     {{ session.device_name || session.user_agent || $t('settings-auth-methods-sessions-unknown-device') }}
                     <span v-if="session.is_current" class="ml-2 px-2 py-1 bg-status-success/20 text-status-success rounded text-xs">{{ $t('settings-auth-methods-sessions-current-badge') }}</span>
                   </div>
-                  <div class="text-xs text-tertiary">
-                    {{ $t('settings-auth-methods-sessions-last-active', { location: session.location || session.ip_address || $t('settings-auth-methods-sessions-unknown-location'), date: formatDate(session.last_active, 'MMM d, yyyy') }) }}
+                  <div class="text-xs text-tertiary truncate">
+                    {{ $t('settings-auth-methods-sessions-last-active', { location: session.location || session.ip_address || $t('settings-auth-methods-sessions-unknown-location'), date: formatRelativeTime(session.last_active) }) }}
                   </div>
                 </div>
               </div>
               <button
                 v-if="!session.is_current"
                 @click="revokeSession(session.id)"
-                :disabled="loading"
-                class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50"
+                :disabled="revokingSessionId !== null"
+                :aria-label="$t('settings-auth-methods-sessions-revoke-aria', { device: session.device_name || session.user_agent || $t('settings-auth-methods-sessions-unknown-device') })"
+                class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50 whitespace-nowrap flex-shrink-0 ml-3"
               >
-                {{ $t('settings-auth-methods-sessions-revoke') }}
+                {{ revokingSessionId === session.id ? $t('settings-auth-methods-sessions-revoking') : $t('settings-auth-methods-sessions-revoke') }}
               </button>
             </div>
       </div>
     </SectionCard>
+
+    <!-- "Sign out everywhere else": confirm + step-up re-auth -->
+    <ConfirmModal
+      :show="showRevokeAllModal"
+      variant="danger"
+      :title="$t('settings-auth-methods-sessions-revoke-all-title')"
+      :message="$t('settings-auth-methods-sessions-revoke-all-message', { count: otherSessionsCount })"
+      :confirm-label="$t('settings-auth-methods-sessions-revoke-all-confirm')"
+      :confirm-disabled="revokeAllConfirmDisabled || revokeAllInFlight"
+      @confirm="confirmRevokeAll"
+      @close="showRevokeAllModal = false"
+    >
+      <template #body>
+        <div v-if="stepUpMethod !== 'none'" class="mt-3 flex flex-col gap-1.5">
+          <label for="revoke-all-stepup" class="text-xs font-medium text-secondary">
+            {{ stepUpMethod === 'password' ? $t('settings-auth-methods-sessions-stepup-password') : $t('settings-auth-methods-sessions-stepup-mfa') }}
+          </label>
+          <input
+            id="revoke-all-stepup"
+            v-model="stepUpCredential"
+            :type="stepUpMethod === 'password' ? 'password' : 'text'"
+            :inputmode="stepUpMethod === 'mfa' ? 'numeric' : undefined"
+            :autocomplete="stepUpMethod === 'password' ? 'current-password' : 'one-time-code'"
+            class="w-full px-3 py-2 bg-surface-alt border border-subtle rounded-lg text-sm text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
+            @keyup.enter="confirmRevokeAll"
+          />
+        </div>
+      </template>
+    </ConfirmModal>
   </div>
 </template>

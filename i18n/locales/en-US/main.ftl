@@ -2423,11 +2423,18 @@ settings-auth-methods-sessions-unknown-location = Unknown location
 settings-auth-methods-sessions-current-badge = Current
 settings-auth-methods-sessions-last-active = { $location } • Last active { $date }
 settings-auth-methods-sessions-revoke = Revoke
+settings-auth-methods-sessions-revoking = Signing out…
+settings-auth-methods-sessions-revoke-aria = Sign out { $device }
 settings-auth-methods-sessions-revoke-success = Session revoked successfully
 settings-auth-methods-sessions-revoke-error = Failed to revoke session
 settings-auth-methods-sessions-revoke-all-success = All other sessions revoked successfully
 settings-auth-methods-sessions-revoke-all-error = Failed to revoke sessions
 settings-auth-methods-sessions-load-error = Failed to load active sessions
+settings-auth-methods-sessions-revoke-all-title = Sign out everywhere else?
+settings-auth-methods-sessions-revoke-all-message = This signs you out of your other sessions ({ $count }). You will need to sign in again on those devices.
+settings-auth-methods-sessions-revoke-all-confirm = Sign out other sessions
+settings-auth-methods-sessions-stepup-password = Confirm your password to continue
+settings-auth-methods-sessions-stepup-mfa = Enter a code from your authenticator app
 
 # Shared common chrome — keys used by primitive components like
 # Modal.vue. Kept under the "common-*" namespace so primitives
