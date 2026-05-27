@@ -1726,6 +1726,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/batch", web::post().to(handlers::get_users_batch))
                     .route("/users/bulk", web::post().to(handlers::bulk_users))
                     .route("/users/cleanup-images", web::post().to(handlers::cleanup_stale_images))
+                    .route("/users/regenerate-thumbnails", web::post().to(handlers::regenerate_avatar_thumbnails))
                     .route("/files/cleanup-temp", web::post().to(handlers::cleanup_temp_files))
                     .route("/users/auth-identities", web::get().to(handlers::get_user_auth_identities))
                     .route("/users/auth-identities/{id}", web::delete().to(handlers::delete_user_auth_identity))

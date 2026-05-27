@@ -773,6 +773,20 @@ admin-system-cleanup-stat-errors = Errors:
 admin-system-cleanup-view-errors = View Errors ({ $count })
 admin-system-cleanup-error-unexpected = An unexpected error occurred while cleaning up images
 
+# Admin: System Settings. Avatar thumbnail regeneration. Rebuilds
+# thumbnails missing on disk or unset in the database (e.g. after a
+# restore, which doesn't ship thumbnails). Idempotent and safe to run.
+admin-system-thumbnails-title = Profile image thumbnails
+admin-system-thumbnails-description = Rebuild avatar thumbnails that are missing or out of date. Restores omit thumbnails to save space, so run this if profile images look broken after a restore. Safe to run anytime; it only regenerates what is missing.
+admin-system-thumbnails-action = Regenerate
+admin-system-thumbnails-running = Regenerating...
+admin-system-thumbnails-success = Thumbnails regenerated
+admin-system-thumbnails-failed = Regeneration failed
+admin-system-thumbnails-stat-checked = Checked:
+admin-system-thumbnails-stat-regenerated = Regenerated:
+admin-system-thumbnails-stat-failed = Failed:
+admin-system-thumbnails-error-unexpected = An unexpected error occurred while regenerating thumbnails
+
 # Admin: Search Index Management (SearchManagementView).
 admin-search-mgmt-title = Search Index Management
 admin-search-mgmt-description = Manage the full-text search index for tickets, documentation, assets, and users.

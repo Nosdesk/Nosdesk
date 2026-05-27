@@ -530,9 +530,10 @@ pub async fn execute_restore(
     // Force mode: every thumb file is gone after a restore regardless
     // of the column state. Shared with the CLI restore and the daily
     // backfill sweep.
-    let thumbnails_regenerated = backfill_thumbnails(&mut conn, BackfillMode::Force)
-        .await
-        .regenerated;
+    let thumbnails_regenerated =
+        backfill_thumbnails(&mut conn, BackfillMode::Force, "handler:restore_thumbnails")
+            .await
+            .regenerated;
 
     let _ = tc.run(|conn| {
         backup_repo::update_backup_job(

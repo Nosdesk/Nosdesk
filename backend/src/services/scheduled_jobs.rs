@@ -58,7 +58,9 @@ pub async fn cleanup_expired_refresh_tokens(pool: Pool) -> Result<()> {
 pub async fn backfill_user_thumbnails(pool: Pool) -> Result<()> {
     use crate::services::avatar_thumbnails::{backfill_thumbnails, BackfillMode};
     let mut conn = pool.get().context("db pool")?;
-    let stats = backfill_thumbnails(&mut conn, BackfillMode::MissingOnly).await;
+    let stats =
+        backfill_thumbnails(&mut conn, BackfillMode::MissingOnly, "scheduler:thumbnail_backfill")
+            .await;
     if stats.regenerated > 0 || stats.failed > 0 {
         info!(
             checked = stats.checked,

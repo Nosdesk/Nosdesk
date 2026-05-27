@@ -691,6 +691,7 @@ fn db_restore(
         .block_on(avatar_thumbnails::backfill_thumbnails(
             &mut conn,
             avatar_thumbnails::BackfillMode::Force,
+            "cli:db_restore",
         ));
 
     println!();

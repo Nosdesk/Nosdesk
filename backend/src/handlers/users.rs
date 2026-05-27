@@ -1624,6 +1624,46 @@ pub async fn cleanup_stale_images(
     }))
 }
 
+/// POST /users/regenerate-thumbnails — admin maintenance action that
+/// rebuilds avatar thumbnails missing on disk or unset in the DB. Shares
+/// the backfill routine with the restore paths and the daily scheduled
+/// sweep, so behaviour stays consistent across all three triggers.
+/// Idempotent: regenerates only what's missing.
+pub async fn regenerate_avatar_thumbnails(
+    req: HttpRequest,
+    db_pool: web::Data<crate::db::Pool>,
+) -> impl Responder {
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    let claims = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+
+    if claims.role != "admin" {
+        return errors::forbidden("Only administrators can regenerate thumbnails");
+    }
+
+    let stats = crate::services::avatar_thumbnails::backfill_thumbnails(
+        &mut conn,
+        crate::services::avatar_thumbnails::BackfillMode::MissingOnly,
+        "handler:thumbnail_regen",
+    )
+    .await;
+
+    HttpResponse::Ok().json(json!({
+        "success": true,
+        "stats": {
+            "checked": stats.checked,
+            "regenerated": stats.regenerated,
+            "failed": stats.failed,
+        }
+    }))
+}
+
 #[derive(Debug)]
 struct CleanupStats {
     avatars_removed: usize,

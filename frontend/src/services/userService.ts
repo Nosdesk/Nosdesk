@@ -395,6 +395,30 @@ const userService = {
     }
   },
 
+  // Regenerate avatar thumbnails missing on disk or unset in the DB
+  // (admin only). Idempotent; mirrors the restore-time and scheduled
+  // backfill so all three paths behave the same.
+  async regenerateThumbnails(): Promise<{
+    success: boolean;
+    message?: string;
+    stats?: {
+      checked: number;
+      regenerated: number;
+      failed: number;
+    };
+  }> {
+    try {
+      const response = await apiClient.post('/users/regenerate-thumbnails');
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to regenerate thumbnails', { error });
+      return {
+        success: false,
+        message: extractErrorMessage(error, 'Failed to regenerate thumbnails')
+      };
+    }
+  },
+
   // Get email configuration status (admin only)
   async getEmailConfigStatus(): Promise<{ is_configured: boolean; enabled: boolean }> {
     try {

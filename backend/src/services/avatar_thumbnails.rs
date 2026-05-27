@@ -18,9 +18,11 @@
 //! periodic sweep does no work in steady state.
 
 use diesel::prelude::*;
-use diesel::sql_types::Text;
+use diesel::sql_types::{Integer, Nullable, Text};
 
 use crate::db::DbConnection;
+use crate::sync::actor::ActorContext;
+use crate::sync::session::with_actor_context;
 use crate::utils::image::generate_user_avatar_thumbnail;
 
 /// Whether to regenerate every avatar's thumbnail or only the missing
@@ -55,23 +57,43 @@ struct AvatarRow {
     uuid_str: String,
     #[diesel(sql_type = Text)]
     avatar_url: String,
-    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    #[diesel(sql_type = Nullable<Text>)]
     avatar_thumb: Option<String>,
+    /// A workspace the user belongs to, used only to attribute the
+    /// audit_log row when `avatar_thumb` actually has to change. NULL
+    /// when the user has no membership (then the column write is
+    /// skipped: the file is still regenerated).
+    #[diesel(sql_type = Nullable<Integer>)]
+    workspace_id: Option<i32>,
 }
 
-/// Regenerate avatar thumbnails for users with an avatar, writing the
-/// resulting path back to `users.avatar_thumb`. Best-effort: a single
-/// user's failure is logged and the run moves on.
+/// Regenerate avatar thumbnails for users with an avatar. The thumbnail
+/// file is rewritten at its deterministic path; `users.avatar_thumb` is
+/// updated only when it actually changes (NULL or a different path).
+/// Best-effort: a single user's failure is logged and the run moves on.
 ///
-/// Connection note: this runs synchronous Diesel queries before and
-/// after the async image work, holding `conn` across the `.await`s.
-/// Callers invoke it inline from an async handler, via a one-shot
-/// runtime (`nosdesk-cli`), or from the scheduler with an owned,
-/// per-tick pooled connection.
-pub async fn backfill_thumbnails(conn: &mut DbConnection, mode: BackfillMode) -> BackfillStats {
+/// `reference` is the audit/sync actor reference recorded on any
+/// `avatar_thumb` write (see `sync::session` for the prefix
+/// convention), so operators can tell the scheduler sweep, the restore
+/// paths, and the admin button apart in the audit log.
+///
+/// Connection note: synchronous Diesel queries bracket the async image
+/// work, holding `conn` across the `.await`s. Callers invoke it inline
+/// from an async handler, via a one-shot runtime (`nosdesk-cli`), or
+/// from the scheduler with an owned, per-tick pooled connection.
+pub async fn backfill_thumbnails(
+    conn: &mut DbConnection,
+    mode: BackfillMode,
+    reference: &'static str,
+) -> BackfillStats {
+    // Resolve one workspace per user up front so the (rare) column write
+    // can set `app.workspace_id` — the audited `users` write fails the
+    // audit_log NOT NULL constraint without it.
     let rows: Vec<AvatarRow> = match diesel::sql_query(
-        "SELECT uuid::text AS uuid_str, avatar_url, avatar_thumb \
-         FROM users WHERE avatar_url IS NOT NULL",
+        "SELECT u.uuid::text AS uuid_str, u.avatar_url, u.avatar_thumb, \
+                (SELECT wm.workspace_id FROM workspace_members wm \
+                 WHERE wm.user_uuid = u.uuid ORDER BY wm.workspace_id LIMIT 1) AS workspace_id \
+         FROM users u WHERE u.avatar_url IS NOT NULL",
     )
     .load(conn)
     {
@@ -92,15 +114,18 @@ pub async fn backfill_thumbnails(conn: &mut DbConnection, mode: BackfillMode) ->
 
         match generate_user_avatar_thumbnail(&row.avatar_url, &row.uuid_str).await {
             Ok(Some(thumb_url)) => {
-                // Persist the path so the column matches the file we
-                // just wrote. The old handler-local routine skipped this
-                // and only worked because the path is deterministic;
-                // users with a NULL/stale `avatar_thumb` stayed broken.
-                match persist_thumb(conn, &row.uuid_str, &thumb_url) {
-                    Ok(()) => stats.regenerated += 1,
-                    Err(e) => {
-                        stats.failed += 1;
-                        tracing::warn!(user = %row.uuid_str, error = %e, "thumbnail backfill: db write-back failed");
+                // The path is deterministic, so a regenerated file usually
+                // matches the column already (every restore case): skip the
+                // write entirely and avoid the audited-write workspace dance.
+                if row.avatar_thumb.as_deref() == Some(thumb_url.as_str()) {
+                    stats.regenerated += 1;
+                } else {
+                    match persist_thumb(conn, &row, &thumb_url, reference) {
+                        Ok(()) => stats.regenerated += 1,
+                        Err(e) => {
+                            stats.failed += 1;
+                            tracing::warn!(user = %row.uuid_str, error = %e, "thumbnail backfill: db write-back failed");
+                        }
                     }
                 }
             }
@@ -133,14 +158,33 @@ fn thumb_file_exists(uuid: &str) -> bool {
     std::path::Path::new(&format!("uploads/users/thumbs/{uuid}_thumb.webp")).exists()
 }
 
+/// Write `avatar_thumb`, attributing the audited change to the user's
+/// workspace. `users` carries an audit_log trigger whose row requires a
+/// non-null `app.workspace_id`; pin the user's workspace so the write
+/// succeeds (a plain or BYPASSRLS connection without the GUC violates
+/// the audit_log NOT NULL constraint). With no membership there's
+/// nothing to attribute to, so skip the column write — the file was
+/// still regenerated.
 fn persist_thumb(
     conn: &mut DbConnection,
-    uuid_str: &str,
+    row: &AvatarRow,
     thumb_url: &str,
+    reference: &'static str,
 ) -> Result<(), diesel::result::Error> {
-    diesel::sql_query("UPDATE users SET avatar_thumb = $1 WHERE uuid = $2::uuid")
-        .bind::<Text, _>(thumb_url)
-        .bind::<Text, _>(uuid_str)
-        .execute(conn)?;
-    Ok(())
+    let Some(workspace_id) = row.workspace_id else {
+        tracing::warn!(
+            user = %row.uuid_str,
+            "thumbnail backfill: no workspace to attribute avatar_thumb write; file regenerated, column left unchanged"
+        );
+        return Ok(());
+    };
+
+    let actor = ActorContext::system(reference).with_workspace(workspace_id);
+    with_actor_context(conn, &actor, |conn| {
+        diesel::sql_query("UPDATE users SET avatar_thumb = $1 WHERE uuid = $2::uuid")
+            .bind::<Text, _>(thumb_url)
+            .bind::<Text, _>(&row.uuid_str)
+            .execute(conn)?;
+        Ok::<(), diesel::result::Error>(())
+    })
 }

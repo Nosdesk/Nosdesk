@@ -42,7 +42,7 @@
         </div>
 
         <!-- Cleanup Results -->
-        <div v-if="cleanupResults" class="border-t border-default p-4 bg-surface-alt">
+        <div v-if="cleanupResults" class="border-t border-default p-4 bg-surface-alt rounded-b-xl">
           <div class="flex items-center gap-2 mb-3">
             <Icon v-if="cleanupResults.success" name="checkCircle" class="text-status-success" />
             <Icon v-else name="warning" class="text-status-error" />
@@ -75,6 +75,56 @@
 
           <div v-if="!cleanupResults.success" class="text-sm text-status-error">
             {{ cleanupResults.message }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Thumbnail Regeneration Section -->
+      <div class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
+        <div class="p-4 flex flex-col gap-3">
+          <div class="flex items-center gap-3">
+            <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+              <Icon name="refresh" size="md" />
+            </div>
+
+            <div class="flex-1">
+              <span class="font-medium text-primary">{{ $t('admin-system-thumbnails-title') }}</span>
+            </div>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="refresh"
+              :loading="isRegenerating"
+              @click="regenerateThumbnails"
+            >
+              {{ isRegenerating ? $t('admin-system-thumbnails-running') : $t('admin-system-thumbnails-action') }}
+            </Button>
+          </div>
+
+          <p class="text-secondary text-sm">
+            {{ $t('admin-system-thumbnails-description') }}
+          </p>
+        </div>
+
+        <!-- Regeneration Results -->
+        <div v-if="thumbnailResults" class="border-t border-default p-4 bg-surface-alt rounded-b-xl">
+          <div class="flex items-center gap-2 mb-3">
+            <Icon v-if="thumbnailResults.success" name="checkCircle" class="text-status-success" />
+            <Icon v-else name="warning" class="text-status-error" />
+            <span class="text-sm font-medium" :class="thumbnailResults.success ? 'text-status-success' : 'text-status-error'">
+              {{ thumbnailResults.success ? $t('admin-system-thumbnails-success') : $t('admin-system-thumbnails-failed') }}
+            </span>
+          </div>
+
+          <div v-if="thumbnailResults.success && thumbnailResults.stats" class="grid grid-cols-3 gap-2 text-sm">
+            <div><span class="text-tertiary">{{ $t('admin-system-thumbnails-stat-checked') }}</span> <span class="text-primary">{{ thumbnailResults.stats.checked }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-system-thumbnails-stat-regenerated') }}</span> <span class="text-primary">{{ thumbnailResults.stats.regenerated }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-system-thumbnails-stat-failed') }}</span> <span :class="thumbnailResults.stats.failed > 0 ? 'text-status-warning' : 'text-primary'">{{ thumbnailResults.stats.failed }}</span></div>
+          </div>
+
+          <div v-if="!thumbnailResults.success" class="text-sm text-status-error">
+            {{ thumbnailResults.message }}
           </div>
         </div>
       </div>
@@ -124,9 +174,21 @@ interface CleanupResults {
   stats?: CleanupStats
 }
 
+interface ThumbnailResults {
+  success: boolean
+  message?: string
+  stats?: {
+    checked: number
+    regenerated: number
+    failed: number
+  }
+}
+
 // Reactive data
 const isCleaningUp = ref(false)
 const cleanupResults = ref<CleanupResults | null>(null)
+const isRegenerating = ref(false)
+const thumbnailResults = ref<ThumbnailResults | null>(null)
 
 // Check if user is admin
 onMounted(() => {
@@ -159,6 +221,25 @@ const doCleanupStaleImages = async () => {
     }
   } finally {
     isCleaningUp.value = false
+  }
+}
+
+const regenerateThumbnails = async () => {
+  if (isRegenerating.value) return
+  isRegenerating.value = true
+  thumbnailResults.value = null
+
+  try {
+    const data = await userService.regenerateThumbnails()
+    thumbnailResults.value = data
+  } catch (error) {
+    console.error('Error regenerating thumbnails:', error)
+    thumbnailResults.value = {
+      success: false,
+      message: t('admin-system-thumbnails-error-unexpected')
+    }
+  } finally {
+    isRegenerating.value = false
   }
 }
 </script> 
