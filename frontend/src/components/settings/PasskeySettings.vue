@@ -8,6 +8,8 @@ import userService from '@/services/userService';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
+import Button from '@/components/common/Button.vue';
+import FormInput from '@/components/common/FormInput.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -194,7 +196,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <SectionCard content-padding="p-4">
+  <SectionCard content-padding="p-4 sm:p-6">
     <template #title>{{ $t('settings-passkey-section-title') }}</template>
 
     <div>
@@ -233,9 +235,11 @@ onMounted(async () => {
               </div>
             </div>
             <button
+              type="button"
               @click="openAdminDeleteModal(passkey)"
-              class="p-2 text-tertiary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
+              class="p-2 text-tertiary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               :title="$t('settings-passkey-delete-tooltip')"
+              :aria-label="$t('settings-passkey-delete-tooltip')"
             >
               <Icon name="trash" />
             </button>
@@ -278,12 +282,9 @@ onMounted(async () => {
             <p class="text-sm text-secondary">{{ $t('settings-passkey-empty-title') }}</p>
             <p class="text-xs text-tertiary mt-0.5">{{ $t('settings-passkey-empty-self-description') }}</p>
           </div>
-          <button
-            @click="showAddModal = true"
-            class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent text-sm font-medium whitespace-nowrap flex-shrink-0"
-          >
+          <Button class="flex-shrink-0" @click="showAddModal = true">
             {{ $t('settings-passkey-add-button') }}
-          </button>
+          </Button>
         </div>
 
         <!-- Passkey list -->
@@ -312,16 +313,20 @@ onMounted(async () => {
             </div>
             <div class="flex items-center gap-2">
               <button
+                type="button"
                 @click="openRenameModal(passkey)"
-                class="p-2 text-tertiary hover:text-primary hover:bg-surface rounded-lg transition-colors"
+                class="p-2 text-tertiary hover:text-primary hover:bg-surface rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 :title="$t('settings-passkey-rename-tooltip')"
+                :aria-label="$t('settings-passkey-rename-tooltip')"
               >
                 <Icon name="rename" />
               </button>
               <button
+                type="button"
                 @click="openDeleteModal(passkey)"
-                class="p-2 text-tertiary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
+                class="p-2 text-tertiary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 :title="$t('settings-passkey-delete-tooltip')"
+                :aria-label="$t('settings-passkey-delete-tooltip')"
               >
                 <Icon name="trash" />
               </button>
@@ -352,30 +357,20 @@ onMounted(async () => {
           {{ $t('settings-passkey-add-modal-description') }}
         </p>
         <div class="mb-6">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide block mb-1.5">{{ $t('settings-passkey-add-modal-name-label') }}</label>
-          <input
+          <FormInput
             v-model="newPasskeyName"
-            type="text"
-            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-lg border border-subtle focus:ring-2 focus:ring-accent focus:outline-none"
+            :label="$t('settings-passkey-add-modal-name-label')"
             :placeholder="$t('settings-passkey-add-modal-name-placeholder')"
             maxlength="100"
           />
         </div>
         <div class="flex justify-end gap-3">
-          <button
-            @click="closeModals"
-            class="px-4 py-2 text-tertiary hover:text-primary rounded-lg hover:bg-surface-alt transition-colors"
-          >
+          <Button variant="ghost" @click="closeModals">
             {{ $t('settings-passkey-modal-cancel') }}
-          </button>
-          <button
-            @click="handleAddPasskey"
-            :disabled="registering"
-            class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 flex items-center gap-2"
-          >
-            <Spinner v-if="registering" />
-            {{ registering ? $t('settings-passkey-add-modal-creating') : $t('settings-passkey-add-modal-create') }}
-          </button>
+          </Button>
+          <Button :loading="registering" @click="handleAddPasskey">
+            {{ $t('settings-passkey-add-modal-create') }}
+          </Button>
         </div>
       </div>
     </div>
@@ -388,29 +383,20 @@ onMounted(async () => {
       <div class="relative bg-surface rounded-xl border border-default shadow-xl max-w-md w-full mx-4 p-6">
         <h3 class="text-lg font-medium text-primary mb-4">{{ $t('settings-passkey-rename-modal-title') }}</h3>
         <div class="mb-6">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide block mb-1.5">{{ $t('settings-passkey-rename-modal-name-label') }}</label>
-          <input
+          <FormInput
             v-model="renameValue"
-            type="text"
-            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-lg border border-subtle focus:ring-2 focus:ring-accent focus:outline-none"
+            :label="$t('settings-passkey-rename-modal-name-label')"
             :placeholder="$t('settings-passkey-rename-modal-placeholder')"
             maxlength="100"
           />
         </div>
         <div class="flex justify-end gap-3">
-          <button
-            @click="closeModals"
-            class="px-4 py-2 text-tertiary hover:text-primary rounded-lg hover:bg-surface-alt transition-colors"
-          >
+          <Button variant="ghost" @click="closeModals">
             {{ $t('settings-passkey-modal-cancel') }}
-          </button>
-          <button
-            @click="handleRenamePasskey"
-            :disabled="loading || !renameValue.trim()"
-            class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
-          >
+          </Button>
+          <Button :disabled="loading || !renameValue.trim()" @click="handleRenamePasskey">
             {{ $t('settings-passkey-rename-modal-save') }}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -426,29 +412,21 @@ onMounted(async () => {
           {{ $t('settings-passkey-delete-modal-confirm-prefix') }} <strong class="text-primary">{{ selectedPasskey?.name }}</strong>{{ $t('settings-passkey-delete-modal-confirm-suffix') }}
         </p>
         <div class="mb-6">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide block mb-1.5">{{ $t('settings-passkey-delete-modal-password-label') }}</label>
-          <input
+          <FormInput
             v-model="deletePassword"
             type="password"
-            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-lg border border-subtle focus:ring-2 focus:ring-accent focus:outline-none"
+            :label="$t('settings-passkey-delete-modal-password-label')"
             :placeholder="$t('settings-passkey-delete-modal-password-placeholder')"
             autocomplete="current-password"
           />
         </div>
         <div class="flex justify-end gap-3">
-          <button
-            @click="closeModals"
-            class="px-4 py-2 text-tertiary hover:text-primary rounded-lg hover:bg-surface-alt transition-colors"
-          >
+          <Button variant="ghost" @click="closeModals">
             {{ $t('settings-passkey-modal-cancel') }}
-          </button>
-          <button
-            @click="handleDeletePasskey"
-            :disabled="loading || !deletePassword"
-            class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-status-error disabled:opacity-50"
-          >
+          </Button>
+          <Button variant="danger" :disabled="loading || !deletePassword" @click="handleDeletePasskey">
             {{ $t('settings-passkey-delete-modal-confirm') }}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -464,20 +442,12 @@ onMounted(async () => {
           {{ $t('settings-passkey-admin-delete-modal-confirm-prefix') }} <strong class="text-primary">{{ adminDeleteTarget?.name }}</strong>{{ $t('settings-passkey-admin-delete-modal-confirm-suffix') }}
         </p>
         <div class="flex justify-end gap-3">
-          <button
-            @click="closeModals"
-            class="px-4 py-2 text-tertiary hover:text-primary rounded-lg hover:bg-surface-alt transition-colors"
-          >
+          <Button variant="ghost" @click="closeModals">
             {{ $t('settings-passkey-modal-cancel') }}
-          </button>
-          <button
-            @click="handleAdminDeletePasskey"
-            :disabled="adminDeleting"
-            class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-status-error disabled:opacity-50 flex items-center gap-2"
-          >
-            <Spinner v-if="adminDeleting" />
-            {{ adminDeleting ? $t('settings-passkey-admin-delete-modal-deleting') : $t('settings-passkey-delete-modal-confirm') }}
-          </button>
+          </Button>
+          <Button variant="danger" :loading="adminDeleting" @click="handleAdminDeletePasskey">
+            {{ $t('settings-passkey-delete-modal-confirm') }}
+          </Button>
         </div>
       </div>
     </div>

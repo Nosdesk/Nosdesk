@@ -7,6 +7,7 @@ import OtpInput from "@/components/common/OtpInput.vue";
 import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
+import Button from "@/components/common/Button.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useMfaSetupStore } from "@/stores/mfaSetup";
 import { useMfa } from "@/composables/useMfa";
@@ -671,7 +672,7 @@ defineExpose({
 </style>
 
 <template>
-    <SectionCard content-padding="p-4">
+    <SectionCard content-padding="p-4 sm:p-6">
         <template #title>
             {{
                 isManagingOtherUser
@@ -702,15 +703,15 @@ defineExpose({
                                 {{ $t('settings-mfa-admin-backup-codes-generated') }}
                             </span>
                         </div>
-                        <button
+                        <Button
                             v-if="adminMfaStatus.mfa_enabled"
+                            variant="ghost-danger"
+                            size="sm"
+                            :loading="adminDisabling"
                             @click="adminDisableMfa"
-                            :disabled="adminDisabling"
-                            class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50 flex items-center gap-1.5"
                         >
-                            <Spinner v-if="adminDisabling" />
-                            {{ adminDisabling ? $t('settings-mfa-admin-disabling') : $t('settings-mfa-admin-disable') }}
-                        </button>
+                            {{ $t('settings-mfa-admin-disable') }}
+                        </Button>
                     </div>
                 </template>
                 <p class="text-xs text-tertiary">
@@ -856,23 +857,15 @@ defineExpose({
                                     />
                                 </div>
 
-                                <button
+                                <Button
+                                    block
+                                    class="lg:w-auto h-12 lg:h-14"
+                                    :loading="mfa.verifying.value"
+                                    :disabled="verificationCode.length !== 6"
                                     @click="verifyMFA"
-                                    :disabled="
-                                        verificationCode.length !== 6 ||
-                                        mfa.verifying.value
-                                    "
-                                    class="w-full lg:w-auto px-6 h-12 lg:h-14 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-hover flex items-center justify-center transition-colors active:scale-[0.98]"
                                 >
-                                    <span v-if="mfa.verifying.value" class="mr-2 inline-flex">
-                                        <Spinner />
-                                    </span>
-                                    {{
-                                        mfa.verifying.value
-                                            ? $t('settings-mfa-verifying-button')
-                                            : $t('settings-mfa-verify-button')
-                                    }}
-                                </button>
+                                    {{ $t('settings-mfa-verify-button') }}
+                                </Button>
                             </div>
                         </div>
                     </div>
@@ -987,12 +980,9 @@ defineExpose({
 
                         <!-- Action Button -->
                         <div class="flex justify-center pt-2">
-                            <button
-                                @click="completeSetup"
-                                class="w-full sm:w-auto px-8 py-3 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent transition-colors font-medium min-h-[52px] active:scale-[0.98]"
-                            >
+                            <Button size="lg" class="w-full sm:w-auto min-h-[52px]" @click="completeSetup">
                                 {{ $t('settings-mfa-success-cta') }}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
