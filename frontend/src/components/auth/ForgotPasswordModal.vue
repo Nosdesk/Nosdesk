@@ -1,122 +1,70 @@
 <template>
-  <teleport to="body">
-    <transition name="modal">
-      <div
-        v-if="isOpen"
-        class="fixed inset-0 z-overlay flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
-        @click.self="close"
-      >
-        <div
-          class="relative bg-surface rounded-xl border border-default shadow-2xl max-w-md w-full overflow-hidden z-10"
-          @click.stop
-        >
-          <!-- Header -->
-          <div class="px-6 py-4 bg-surface-alt border-b border-subtle flex items-center justify-between">
-            <h2 class="text-lg font-semibold text-primary">{{ $t('forgot-password-title') }}</h2>
-            <button
-              @click="close"
-              class="text-tertiary hover:text-primary transition-colors p-1 rounded-lg hover:bg-surface-hover"
-              :aria-label="$t('forgot-password-close-modal')"
-            >
-              <Icon name="close" size="md" />
-            </button>
-          </div>
-
-          <!-- Content -->
-          <div class="p-6">
-            <!-- Success State -->
-            <div v-if="emailSent" class="flex flex-col items-center gap-4 text-center">
-              <div class="bg-status-success/20 rounded-full p-3">
-                <svg class="w-8 h-8 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-                </svg>
-              </div>
-              <div>
-                <h3 class="text-lg font-medium text-primary mb-2">{{ $t('forgot-password-success-title') }}</h3>
-                <p class="text-sm text-secondary">
-                  {{ $t('forgot-password-success-body', { email }) }}
-                </p>
-              </div>
-              <div class="bg-accent/10 border border-accent/20 rounded-lg p-4 text-sm text-secondary">
-                <p class="mb-2"><strong class="text-accent">{{ $t('forgot-password-success-important') }}</strong></p>
-                <ul class="space-y-1 text-xs">
-                  <li>• <span v-html="$t('forgot-password-success-tip-expiry')"></span></li>
-                  <li>• {{ $t('forgot-password-success-tip-spam') }}</li>
-                  <li>• {{ $t('forgot-password-success-tip-close') }}</li>
-                </ul>
-              </div>
-              <button
-                @click="close"
-                class="w-full px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium"
-              >
-                {{ $t('forgot-password-success-done') }}
-              </button>
-            </div>
-
-            <!-- Form State -->
-            <form v-else @submit.prevent="handleSubmit" class="flex flex-col gap-4">
-              <p class="text-sm text-secondary">
-                {{ $t('forgot-password-intro') }}
-              </p>
-
-              <!-- Error Message -->
-              <div
-                v-if="errorMessage"
-                class="bg-status-error/50 border border-status-error/70 text-status-error px-4 py-3 rounded-lg text-sm"
-              >
-                {{ errorMessage }}
-              </div>
-
-              <!-- Email Input -->
-              <div>
-                <label for="reset-email" class="block text-sm font-medium text-secondary mb-2">
-                  {{ $t('forgot-password-email-label') }}
-                </label>
-                <input
-                  id="reset-email"
-                  v-model="email"
-                  type="email"
-                  required
-                  autocomplete="email"
-                  :placeholder="$t('forgot-password-email-placeholder')"
-                  class="w-full px-4 py-3 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
-                  :disabled="loading"
-                />
-              </div>
-
-              <!-- Action Buttons -->
-              <div class="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  @click="close"
-                  class="flex-1 px-4 py-2 bg-surface-alt hover:bg-surface-hover text-primary rounded-lg transition-colors font-medium"
-                  :disabled="loading"
-                >
-                  {{ $t('forgot-password-cancel') }}
-                </button>
-                <button
-                  type="submit"
-                  class="flex-1 px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  :disabled="loading || !email"
-                >
-                  <Spinner v-if="loading" />
-                  <span>{{ loading ? $t('forgot-password-submitting') : $t('forgot-password-submit') }}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+  <Modal :show="isOpen" :title="$t('forgot-password-title')" size="sm" @close="close">
+    <!-- Success State -->
+    <div v-if="emailSent" class="flex flex-col items-center gap-4 text-center">
+      <div class="bg-status-success/20 rounded-full p-3">
+        <svg class="w-8 h-8 text-status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+        </svg>
       </div>
-    </transition>
-  </teleport>
+      <div>
+        <h3 class="text-lg font-medium text-primary mb-2">{{ $t('forgot-password-success-title') }}</h3>
+        <p class="text-sm text-secondary">
+          {{ $t('forgot-password-success-body', { email }) }}
+        </p>
+      </div>
+      <div class="bg-accent/10 border border-accent/20 rounded-lg p-4 text-sm text-secondary">
+        <p class="mb-2"><strong class="text-accent">{{ $t('forgot-password-success-important') }}</strong></p>
+        <ul class="space-y-1 text-xs">
+          <li>• <span v-html="$t('forgot-password-success-tip-expiry')"></span></li>
+          <li>• {{ $t('forgot-password-success-tip-spam') }}</li>
+          <li>• {{ $t('forgot-password-success-tip-close') }}</li>
+        </ul>
+      </div>
+      <Button block @click="close">{{ $t('forgot-password-success-done') }}</Button>
+    </div>
+
+    <!-- Form State -->
+    <form v-else @submit.prevent="handleSubmit" class="flex flex-col gap-4">
+      <p class="text-sm text-secondary">
+        {{ $t('forgot-password-intro') }}
+      </p>
+
+      <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
+
+      <FormInput
+        id="reset-email"
+        v-model="email"
+        type="email"
+        :label="$t('forgot-password-email-label')"
+        :placeholder="$t('forgot-password-email-placeholder')"
+        autocomplete="email"
+        required
+        :disabled="loading"
+      />
+
+      <!-- Action Buttons -->
+      <div class="flex gap-3 pt-2">
+        <Button type="button" variant="secondary" class="flex-1" :disabled="loading" @click="close">
+          {{ $t('forgot-password-cancel') }}
+        </Button>
+        <Button type="submit" class="flex-1" :loading="loading" :disabled="!email">
+          {{ loading ? $t('forgot-password-submitting') : $t('forgot-password-submit') }}
+        </Button>
+      </div>
+    </form>
+  </Modal>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import authService from '@/services/authService';
-import Icon from '@/components/common/Icon.vue';
-import Spinner from '@/components/common/Spinner.vue';
+import { extractErrorMessage } from '@/utils/errors';
+import Modal from '@/components/Modal.vue';
+import Button from '@/components/common/Button.vue';
+import FormInput from '@/components/common/FormInput.vue';
+import AlertMessage from '@/components/common/AlertMessage.vue';
 
 const fluent = useFluent();
 
@@ -152,9 +100,7 @@ const handleSubmit = async () => {
     emailSent.value = true;
   } catch (error) {
     console.error('Password reset request error:', error);
-    // Show generic error to prevent account enumeration
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || fluent.$t('forgot-password-error-default');
+    errorMessage.value = extractErrorMessage(error, fluent.$t('forgot-password-error-default'));
   } finally {
     loading.value = false;
   }
@@ -166,27 +112,3 @@ const close = () => {
   }
 };
 </script>
-
-<style scoped>
-/* Modal transition animations */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-
-.modal-enter-active > div,
-.modal-leave-active > div {
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.modal-enter-from > div,
-.modal-leave-to > div {
-  transform: scale(0.95);
-  opacity: 0;
-}
-</style>

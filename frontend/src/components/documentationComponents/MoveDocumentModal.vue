@@ -3,7 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useFluent } from 'fluent-vue'
 import documentationService from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
-import Icon from '@/components/common/Icon.vue'
+import Modal from '@/components/Modal.vue'
+import Button from '@/components/common/Button.vue'
 
 useFluent()
 
@@ -118,36 +119,22 @@ onMounted(async () => {
 </script>
 
 <template>
-  <!-- Backdrop -->
-  <div class="fixed inset-0 z-overlay flex items-center justify-center bg-black/40" @click.self="emit('close')">
-    <div class="bg-surface border border-default rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
-      <!-- Header -->
-      <div class="flex items-center justify-between p-4 border-b border-default">
-        <h3 class="text-sm font-semibold text-primary">{{ $t('docs-move-title') }}</h3>
-        <button
-          @click="emit('close')"
-          class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
-        >
-          <Icon name="close" />
-        </button>
-      </div>
-
+  <Modal :show="true" :title="$t('docs-move-title')" size="sm" @close="emit('close')">
+    <div class="flex flex-col gap-3">
       <!-- Search. py-2 keeps the field tall enough that iOS's
            virtual keyboard doesn't cover the input after focus —
            the smaller py-1.5 left it under the threshold the OS
            uses for auto-scroll-into-view. -->
-      <div class="p-3 border-b border-default">
-        <input
-          v-model="searchQuery"
-          type="text"
-          :placeholder="$t('docs-move-search-placeholder')"
-          class="w-full px-3 py-2 text-sm bg-surface-alt border border-default rounded-md text-primary placeholder-tertiary focus:outline-none focus:ring-1 focus:ring-accent/50"
-        />
-      </div>
+      <input
+        v-model="searchQuery"
+        type="text"
+        :placeholder="$t('docs-move-search-placeholder')"
+        class="w-full px-3 py-2 text-sm bg-surface-alt border border-subtle rounded-md text-primary placeholder-tertiary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent"
+      />
 
       <!-- Page Tree -->
-      <div class="flex-1 overflow-y-auto p-2">
-        <div v-if="loading" class="flex flex-col gap-2 p-2">
+      <div class="max-h-[55vh] overflow-y-auto -mx-1">
+        <div v-if="loading" class="flex flex-col gap-2 p-1">
           <div v-for="i in 5" :key="i" class="h-8 rounded-lg bg-surface-alt animate-pulse"></div>
         </div>
 
@@ -198,23 +185,17 @@ onMounted(async () => {
           </div>
         </div>
       </div>
-
-      <!-- Footer -->
-      <div class="flex items-center justify-end gap-2 p-3 border-t border-default">
-        <button
-          @click="emit('close')"
-          class="px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-        >
-          {{ $t('docs-move-cancel') }}
-        </button>
-        <button
-          @click="handleMove"
-          :disabled="!hasChanged || moving"
-          class="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-        >
-          {{ moving ? $t('docs-move-moving') : $t('docs-move-action') }}
-        </button>
-      </div>
     </div>
-  </div>
+
+    <template #footer>
+      <div class="flex items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" @click="emit('close')">
+          {{ $t('docs-move-cancel') }}
+        </Button>
+        <Button size="sm" :loading="moving" :disabled="!hasChanged" @click="handleMove">
+          {{ $t('docs-move-action') }}
+        </Button>
+      </div>
+    </template>
+  </Modal>
 </template>

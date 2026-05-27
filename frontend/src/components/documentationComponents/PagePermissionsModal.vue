@@ -6,7 +6,8 @@ import { getCollectionsForPage } from '@/services/collectionService'
 import type { Collection } from '@/services/collectionService'
 import AssignmentPicker from '@/components/common/AssignmentPicker.vue'
 import type { SelectedPrincipal } from '@/components/common/AssignmentPicker.vue'
-import Icon from '@/components/common/Icon.vue'
+import Modal from '@/components/Modal.vue'
+import Button from '@/components/common/Button.vue'
 
 useFluent()
 
@@ -109,27 +110,12 @@ onMounted(async () => {
 </script>
 
 <template>
-  <!-- Backdrop -->
-  <div class="fixed inset-0 z-overlay flex items-center justify-center bg-black/40" @click.self="emit('close')">
-    <div class="bg-surface border border-default rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col">
-      <!-- Header -->
-      <div class="flex items-center justify-between p-4 border-b border-default">
-        <h3 class="text-sm font-semibold text-primary">{{ $t('docs-page-permissions-title') }}</h3>
-        <button
-          @click="emit('close')"
-          class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
-        >
-          <Icon name="close" />
-        </button>
-      </div>
+  <Modal :show="true" :title="$t('docs-page-permissions-title')" size="sm" @close="emit('close')">
+    <div v-if="loading" class="flex flex-col gap-3">
+      <div v-for="i in 4" :key="i" class="h-10 rounded-lg bg-surface-alt animate-pulse"></div>
+    </div>
 
-      <!-- Content -->
-      <div class="flex-1 overflow-y-auto p-4">
-        <div v-if="loading" class="flex flex-col gap-3">
-          <div v-for="i in 4" :key="i" class="h-10 rounded-lg bg-surface-alt animate-pulse"></div>
-        </div>
-
-        <template v-else>
+    <template v-else>
           <!-- Mode Toggle -->
           <div class="flex gap-1 p-1 bg-surface-alt rounded-lg mb-4">
             <button
@@ -188,25 +174,17 @@ onMounted(async () => {
               {{ $t('docs-page-permissions-no-selection-warning') }}
             </p>
           </div>
-        </template>
-      </div>
+    </template>
 
-      <!-- Footer -->
-      <div class="flex items-center justify-end gap-2 p-3 border-t border-default">
-        <button
-          @click="emit('close')"
-          class="px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-        >
+    <template #footer>
+      <div class="flex items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" @click="emit('close')">
           {{ $t('docs-page-permissions-cancel') }}
-        </button>
-        <button
-          @click="save"
-          :disabled="!hasChanges || saving"
-          class="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-        >
-          {{ saving ? $t('docs-page-permissions-saving') : $t('docs-page-permissions-save') }}
-        </button>
+        </Button>
+        <Button size="sm" :loading="saving" :disabled="!hasChanges" @click="save">
+          {{ $t('docs-page-permissions-save') }}
+        </Button>
       </div>
-    </div>
-  </div>
+    </template>
+  </Modal>
 </template>

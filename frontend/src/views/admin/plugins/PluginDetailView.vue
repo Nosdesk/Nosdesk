@@ -19,6 +19,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import Modal from '@/components/Modal.vue';
+import Button from '@/components/common/Button.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import PluginIcon from '@/components/plugins/PluginIcon.vue';
@@ -515,42 +517,29 @@ const saveButtonLabel = computed(() =>
     </template>
 
     <!-- Uninstall confirmation -->
-    <Teleport to="body">
-      <div
-        v-if="showUninstallConfirm && plugin"
-        class="fixed inset-0 z-overlay flex items-center justify-center bg-black/50 p-4"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="uninstall-title"
-        @click.self="showUninstallConfirm = false"
-      >
-        <div class="w-full max-w-md rounded-xl border border-default bg-surface p-5">
-          <h2 id="uninstall-title" class="font-semibold text-primary">{{ t('plugin-detail-uninstall-title') }}</h2>
-          <p class="mt-3 text-sm text-secondary">
-            {{ t('plugin-detail-uninstall-prompt-prefix') }}
-            <strong class="text-primary">{{ plugin.display_name }}</strong
-            >{{ t('plugin-detail-uninstall-prompt-mid') }}
-            <code class="rounded bg-surface-alt px-1 text-xs">on_uninstall</code>
-            {{ t('plugin-detail-uninstall-prompt-suffix') }}
-          </p>
-          <div class="mt-5 flex justify-end gap-2">
-            <button
-              type="button"
-              @click="showUninstallConfirm = false"
-              class="px-4 py-2 text-sm text-secondary transition-colors hover:text-primary"
-            >
-              {{ t('plugin-detail-uninstall-cancel') }}
-            </button>
-            <button
-              type="button"
-              @click="executeUninstall"
-              class="rounded-lg bg-status-error px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-status-error/90"
-            >
-              {{ t('plugin-detail-uninstall-confirm') }}
-            </button>
-          </div>
+    <Modal
+      :show="showUninstallConfirm && !!plugin"
+      :title="t('plugin-detail-uninstall-title')"
+      size="sm"
+      @close="showUninstallConfirm = false"
+    >
+      <p class="text-sm text-secondary">
+        {{ t('plugin-detail-uninstall-prompt-prefix') }}
+        <strong class="text-primary">{{ plugin?.display_name }}</strong
+        >{{ t('plugin-detail-uninstall-prompt-mid') }}
+        <code class="rounded bg-surface-alt px-1 text-xs">on_uninstall</code>
+        {{ t('plugin-detail-uninstall-prompt-suffix') }}
+      </p>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <Button variant="ghost" @click="showUninstallConfirm = false">
+            {{ t('plugin-detail-uninstall-cancel') }}
+          </Button>
+          <Button variant="danger" @click="executeUninstall">
+            {{ t('plugin-detail-uninstall-confirm') }}
+          </Button>
         </div>
-      </div>
-    </Teleport>
+      </template>
+    </Modal>
   </div>
 </template>
