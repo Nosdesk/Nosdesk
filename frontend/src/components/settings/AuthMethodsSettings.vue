@@ -12,6 +12,8 @@ import SectionCard from '@/components/common/SectionCard.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
+import Button from '@/components/common/Button.vue';
+import FormInput from '@/components/common/FormInput.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -275,7 +277,7 @@ const getAuthMethodIcon = (type: string) => {
 <template>
   <div class="flex flex-col gap-6">
     <!-- Authentication Methods -->
-    <SectionCard content-padding="p-4">
+    <SectionCard content-padding="p-4 sm:p-6">
       <template #title>{{ $t('settings-auth-methods-section-title') }}</template>
 
       <div class="flex flex-col gap-3">
@@ -308,14 +310,15 @@ const getAuthMethodIcon = (type: string) => {
                   </div>
                 </div>
               </div>
-              <button
+              <Button
                 v-if="!method.isPrimary && authMethods.length > 1"
-                @click="isManagingOtherUser ? adminRemoveAuthMethod(method.id) : removeAuthMethod(method.id, method.type)"
+                variant="ghost-danger"
+                size="sm"
                 :disabled="loading"
-                class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50"
+                @click="isManagingOtherUser ? adminRemoveAuthMethod(method.id) : removeAuthMethod(method.id, method.type)"
               >
                 {{ $t('settings-auth-methods-remove') }}
-              </button>
+              </Button>
             </div>
         </div>
 
@@ -345,16 +348,17 @@ const getAuthMethodIcon = (type: string) => {
     </SectionCard>
 
     <!-- Active Sessions (hidden for admin viewing another user) -->
-    <SectionCard v-if="!isManagingOtherUser" content-padding="p-4">
+    <SectionCard v-if="!isManagingOtherUser" content-padding="p-4 sm:p-6">
       <template #title>{{ $t('settings-auth-methods-sessions-section-title') }}</template>
       <template #headerActions>
-        <button
-          @click="openRevokeAllModal"
+        <Button
+          variant="ghost-danger"
+          size="sm"
           :disabled="otherSessionsCount === 0"
-          class="text-[11px] font-medium text-status-error hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+          @click="openRevokeAllModal"
         >
           {{ $t('settings-auth-methods-sessions-revoke-all') }}
-        </button>
+        </Button>
       </template>
 
       <!-- Loading skeleton mirrors the eventual row layout -->
@@ -386,15 +390,18 @@ const getAuthMethodIcon = (type: string) => {
                   </div>
                 </div>
               </div>
-              <button
+              <Button
                 v-if="!session.is_current"
-                @click="revokeSession(session.id)"
+                variant="ghost-danger"
+                size="sm"
+                class="flex-shrink-0 ml-3"
+                :loading="revokingSessionId === session.id"
                 :disabled="revokingSessionId !== null"
                 :aria-label="$t('settings-auth-methods-sessions-revoke-aria', { device: session.device_name || session.user_agent || $t('settings-auth-methods-sessions-unknown-device') })"
-                class="text-status-error hover:opacity-80 text-sm font-medium disabled:opacity-50 whitespace-nowrap flex-shrink-0 ml-3"
+                @click="revokeSession(session.id)"
               >
-                {{ revokingSessionId === session.id ? $t('settings-auth-methods-sessions-revoking') : $t('settings-auth-methods-sessions-revoke') }}
-              </button>
+                {{ $t('settings-auth-methods-sessions-revoke') }}
+              </Button>
             </div>
       </div>
     </SectionCard>
@@ -412,16 +419,17 @@ const getAuthMethodIcon = (type: string) => {
     >
       <template #body>
         <div v-if="stepUpMethod !== 'none'" class="mt-3 flex flex-col gap-1.5">
+          <!-- Sentence-style prompt kept as an external label (FormInput's
+               own label styling is for short uppercase field names). -->
           <label for="revoke-all-stepup" class="text-xs font-medium text-secondary">
             {{ stepUpMethod === 'password' ? $t('settings-auth-methods-sessions-stepup-password') : $t('settings-auth-methods-sessions-stepup-mfa') }}
           </label>
-          <input
+          <FormInput
             id="revoke-all-stepup"
             v-model="stepUpCredential"
             :type="stepUpMethod === 'password' ? 'password' : 'text'"
             :inputmode="stepUpMethod === 'mfa' ? 'numeric' : undefined"
             :autocomplete="stepUpMethod === 'password' ? 'current-password' : 'one-time-code'"
-            class="w-full px-3 py-2 bg-surface-alt border border-subtle rounded-lg text-sm text-primary focus:outline-none focus:ring-2 focus:ring-status-info"
             @keyup.enter="confirmRevokeAll"
           />
         </div>

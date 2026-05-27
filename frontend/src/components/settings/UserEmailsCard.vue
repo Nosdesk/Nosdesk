@@ -3,9 +3,10 @@ import { ref, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import userService from '@/services/userService';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
-import Icon from '@/components/common/Icon.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import Button from '@/components/common/Button.vue';
+import FormInput from '@/components/common/FormInput.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -133,44 +134,37 @@ watch(() => props.userUuid, () => {
 </script>
 
 <template>
-  <SectionCard content-padding="p-4">
+  <SectionCard content-padding="p-4 sm:p-6">
     <template #title>{{ $t('settings-emails-section-title') }}</template>
     <template #headerActions>
-      <button
+      <Button
         v-if="canEdit && !showAddForm"
+        size="sm"
+        icon="add"
         @click="showAddForm = true"
-        class="px-2 py-1 bg-accent text-white rounded-md hover:opacity-90 transition-colors text-xs flex items-center gap-1"
       >
-        <Icon name="add" />
         {{ $t('settings-emails-add-button') }}
-      </button>
+      </Button>
     </template>
 
     <!-- Add Email Form -->
     <div v-if="showAddForm && canEdit" class="mb-4 p-4 bg-surface-alt rounded-lg border border-subtle">
         <h3 class="text-sm font-medium text-primary mb-3">{{ $t('settings-emails-add-form-title') }}</h3>
         <div class="flex flex-col sm:flex-row gap-3">
-          <input
+          <FormInput
             v-model="newEmailAddress"
             type="email"
+            class="flex-1"
             :placeholder="$t('settings-emails-add-placeholder')"
-            class="flex-1 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-accent focus:outline-none"
             @keyup.enter="addEmail"
           />
           <div class="flex gap-2">
-            <button
-              @click="addEmail"
-              :disabled="addingEmail"
-              class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {{ addingEmail ? $t('settings-emails-add-submitting') : $t('settings-emails-add-submit') }}
-            </button>
-            <button
-              @click="cancelAdd"
-              class="px-4 py-2.5 bg-surface-hover text-primary rounded-lg hover:bg-surface transition-colors"
-            >
+            <Button :loading="addingEmail" @click="addEmail">
+              {{ $t('settings-emails-add-submit') }}
+            </Button>
+            <Button variant="secondary" @click="cancelAdd">
               {{ $t('settings-emails-add-cancel') }}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -236,18 +230,12 @@ watch(() => props.userUuid, () => {
 
           <!-- Edit actions (only when canEdit is true) -->
           <div v-if="canEdit && email.id !== 0 && !email.is_primary" class="mt-3 flex flex-wrap gap-2">
-            <button
-              @click="setAsPrimary(email.id, email.email)"
-              class="text-xs px-3 py-1.5 bg-accent/20 text-accent rounded-lg hover:bg-accent/30 transition-colors"
-            >
+            <Button variant="secondary" size="sm" @click="setAsPrimary(email.id, email.email)">
               {{ $t('settings-emails-set-primary') }}
-            </button>
-            <button
-              @click="deleteEmail(email.id, email.email)"
-              class="text-xs px-3 py-1.5 bg-status-error/20 text-status-error rounded-lg hover:bg-status-error/30 transition-colors"
-            >
+            </Button>
+            <Button variant="ghost-danger" size="sm" @click="deleteEmail(email.id, email.email)">
               {{ $t('settings-emails-remove') }}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

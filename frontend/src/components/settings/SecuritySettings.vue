@@ -4,8 +4,9 @@ import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import authService from '@/services/authService';
 import userService from '@/services/userService';
-import Spinner from '@/components/common/Spinner.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
+import Button from '@/components/common/Button.vue';
+import FormInput from '@/components/common/FormInput.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -108,56 +109,36 @@ const adminResetPassword = async () => {
 </script>
 
 <template>
-  <SectionCard content-padding="p-6">
+  <SectionCard content-padding="p-4 sm:p-6">
     <template #title>{{ t('settings-security-title') }}</template>
 
     <div>
       <!-- Admin: reset password form -->
       <form v-if="isManagingOtherUser" @submit.prevent="adminResetPassword" class="flex flex-col gap-4">
-        <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-new') }}</label>
-          <div class="bg-surface-alt rounded-lg border border-subtle">
-            <input
-              v-model="adminNewPassword"
-              type="password"
-              autocomplete="new-password"
-              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              :placeholder="t('settings-security-placeholder-admin-new')"
-              minlength="8"
-              required
-            />
-          </div>
-          <p class="text-xs text-tertiary">{{ t('settings-security-hint-length') }}</p>
-        </div>
+        <FormInput
+          v-model="adminNewPassword"
+          type="password"
+          autocomplete="new-password"
+          :label="t('settings-security-label-new')"
+          :placeholder="t('settings-security-placeholder-admin-new')"
+          :description="t('settings-security-hint-length')"
+          required
+        />
 
-        <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-confirm') }}</label>
-          <div class="bg-surface-alt rounded-lg border border-subtle">
-            <input
-              v-model="adminConfirmPassword"
-              type="password"
-              autocomplete="new-password"
-              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              :placeholder="t('settings-security-placeholder-admin-confirm')"
-              required
-            />
-          </div>
-          <p v-if="adminConfirmPassword && !adminPasswordsMatch" class="text-xs text-status-error">
-            {{ t('settings-security-error-mismatch') }}
-          </p>
-        </div>
+        <FormInput
+          v-model="adminConfirmPassword"
+          type="password"
+          autocomplete="new-password"
+          :label="t('settings-security-label-confirm')"
+          :placeholder="t('settings-security-placeholder-admin-confirm')"
+          :error="adminConfirmPassword && !adminPasswordsMatch ? t('settings-security-error-mismatch') : undefined"
+          required
+        />
 
         <div class="pt-2">
-          <button
-            type="submit"
-            :disabled="!isAdminFormValid || loading"
-            class="px-6 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-          >
-            <span v-if="loading" class="mr-2 inline-flex">
-              <Spinner />
-            </span>
+          <Button type="submit" :disabled="!isAdminFormValid" :loading="loading">
             {{ t('settings-security-submit-reset') }}
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -173,68 +154,40 @@ const adminResetPassword = async () => {
           readonly
         />
 
-        <!-- Current Password -->
-        <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-current') }}</label>
-          <div class="bg-surface-alt rounded-lg border border-subtle">
-            <input
-              v-model="currentPassword"
-              type="password"
-              autocomplete="current-password"
-              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              :placeholder="t('settings-security-placeholder-current')"
-              required
-            />
-          </div>
-        </div>
+        <FormInput
+          v-model="currentPassword"
+          type="password"
+          autocomplete="current-password"
+          :label="t('settings-security-label-current')"
+          :placeholder="t('settings-security-placeholder-current')"
+          required
+        />
 
-        <!-- New Password -->
-        <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-new') }}</label>
-          <div class="bg-surface-alt rounded-lg border border-subtle">
-            <input
-              v-model="newPassword"
-              type="password"
-              autocomplete="new-password"
-              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              :placeholder="t('settings-security-placeholder-new')"
-              minlength="8"
-              required
-            />
-          </div>
-          <p class="text-xs text-tertiary">{{ t('settings-security-hint-length') }}</p>
-        </div>
+        <FormInput
+          v-model="newPassword"
+          type="password"
+          autocomplete="new-password"
+          :label="t('settings-security-label-new')"
+          :placeholder="t('settings-security-placeholder-new')"
+          :description="t('settings-security-hint-length')"
+          required
+        />
 
-        <!-- Confirm New Password -->
-        <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ t('settings-security-label-confirm') }}</label>
-          <div class="bg-surface-alt rounded-lg border border-subtle">
-            <input
-              v-model="confirmPassword"
-              type="password"
-              autocomplete="new-password"
-              class="w-full px-4 py-2 bg-transparent text-primary rounded-lg focus:ring-2 focus:ring-accent focus:outline-none"
-              :placeholder="t('settings-security-placeholder-confirm')"
-              required
-            />
-          </div>
-          <p v-if="confirmPassword && !passwordsMatch" class="text-xs text-status-error">
-            {{ t('settings-security-error-mismatch') }}
-          </p>
-        </div>
+        <FormInput
+          v-model="confirmPassword"
+          type="password"
+          autocomplete="new-password"
+          :label="t('settings-security-label-confirm')"
+          :placeholder="t('settings-security-placeholder-confirm')"
+          :error="confirmPassword && !passwordsMatch ? t('settings-security-error-mismatch') : undefined"
+          required
+        />
 
         <!-- Submit Button -->
         <div class="pt-4">
-          <button
-            type="submit"
-            :disabled="!isFormValid || loading"
-            class="px-6 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-          >
-            <span v-if="loading" class="mr-2 inline-flex">
-              <Spinner />
-            </span>
+          <Button type="submit" :disabled="!isFormValid" :loading="loading">
             {{ t('settings-security-submit-change') }}
-          </button>
+          </Button>
         </div>
       </form>
     </div>
