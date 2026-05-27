@@ -2688,6 +2688,8 @@ doc-icon-selector-category-food = Food
 doc-icon-selector-category-activities = Activities
 # Settings: profile (UserProfileCard)
 settings-profile-banner-alt = Profile banner
+settings-profile-banner-change = Change banner image
+settings-profile-avatar-change = Change profile photo
 settings-profile-change-photo = Change Photo
 settings-profile-name-placeholder = Enter name...
 settings-profile-pronouns-label = Pronouns

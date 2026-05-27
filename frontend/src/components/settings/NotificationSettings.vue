@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import Icon from '@/components/common/Icon.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
+import Button from '@/components/common/Button.vue';
 import {
   getNotificationPreferences,
   updateNotificationPreference,
@@ -273,12 +274,9 @@ onMounted(async () => {
                 </p>
               </div>
               <div>
-                <button
-                  @click="requestBrowserPermission"
-                  class="px-3 py-1.5 text-sm font-medium text-white bg-accent hover:opacity-90 rounded-lg transition-colors"
-                >
+                <Button size="sm" @click="requestBrowserPermission">
                   {{ $t('settings-notifications-browser-banner-enable') }}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -286,7 +284,7 @@ onMounted(async () => {
       </div>
 
       <!-- Quick Settings Card -->
-      <SectionCard content-padding="p-4">
+      <SectionCard content-padding="p-4 sm:p-6">
         <template #leading>
           <span class="text-accent inline-flex">
             <Icon name="settings" />
@@ -314,7 +312,7 @@ onMounted(async () => {
       <SectionCard
         v-for="(types, category) in groupedNotificationTypes"
         :key="category"
-        content-padding="p-4"
+        content-padding="p-4 sm:p-6"
       >
         <template #leading>
           <svg class="w-4 h-4 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" v-html="categoryMeta[category]?.icon || ''"></svg>

@@ -6,6 +6,9 @@ import { useAuthStore } from "@/stores/auth";
 import UserAvatar from "@/components/UserAvatar.vue";
 import InlineEdit from "@/components/common/InlineEdit.vue";
 import LoadingSpinner from "@/components/common/LoadingSpinner.vue";
+import Button from "@/components/common/Button.vue";
+import FormInput from "@/components/common/FormInput.vue";
+import FormTextarea from "@/components/common/FormTextarea.vue";
 import userService from "@/services/userService";
 import uploadService from "@/services/uploadService";
 import type { User } from "@/types/user";
@@ -484,7 +487,9 @@ const getRoleDisplayName = (role: string) => {
             <!-- Banner upload button (only when editable) -->
             <button
                 v-if="isEditable && !bannerUploading"
-                class="absolute bottom-2 right-2 bg-surface/50 hover:bg-surface/80 text-white rounded-full w-11 h-11 flex items-center justify-center transition-colors z-10"
+                type="button"
+                :aria-label="$t('settings-profile-banner-change')"
+                class="absolute bottom-2 right-2 bg-surface/50 hover:bg-surface/80 text-white rounded-full w-11 h-11 flex items-center justify-center transition-colors z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 @click="handleBannerClick"
             >
                 <svg
@@ -544,13 +549,18 @@ const getRoleDisplayName = (role: string) => {
             <!-- Non-clickable avatar for edit mode or when navigation is disabled -->
             <div
                 v-else
-                class="rounded-full overflow-hidden border-4 border-surface shadow-lg z-30"
+                class="rounded-full overflow-hidden border-4 border-surface shadow-lg z-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 :class="[
                     avatarSize,
                     showBanner ? `absolute ${avatarOffset} left-3 sm:left-4` : 'mx-auto mt-4',
                     { 'cursor-pointer': isEditable }
                 ]"
+                :role="isEditable ? 'button' : undefined"
+                :tabindex="isEditable ? 0 : undefined"
+                :aria-label="isEditable ? $t('settings-profile-avatar-change') : undefined"
                 @click="isEditable ? handleAvatarClick() : undefined"
+                @keydown.enter.prevent="isEditable ? handleAvatarClick() : undefined"
+                @keydown.space.prevent="isEditable ? handleAvatarClick() : undefined"
             >
                 <UserAvatar
                     :uuid="displayUser?.uuid"
@@ -640,25 +650,22 @@ const getRoleDisplayName = (role: string) => {
                 <!-- Pronouns field - full width below name/badge -->
                 <div v-if="showPronouns" class="pt-2 pb-6" :class="showBanner ? 'sm:pl-[9.5rem]' : ''">
                     <div class="flex flex-col gap-1.5">
-                        <h3
+                        <label
+                            for="profile-pronouns"
                             class="text-xs font-medium text-tertiary uppercase tracking-wide"
                         >
                             {{ $t('settings-profile-pronouns-label') }}
-                        </h3>
-                        <div class="flex flex-wrap gap-3">
-                            <input
+                        </label>
+                        <div class="flex flex-wrap items-start gap-3">
+                            <FormInput
+                                id="profile-pronouns"
                                 v-model="formData.pronouns"
-                                type="text"
-                                class="flex-1 min-w-48 px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary focus:ring-2 focus:ring-accent focus:outline-none"
+                                class="flex-1 min-w-48"
                                 :placeholder="$t('settings-profile-pronouns-placeholder')"
                             />
-                            <button
-                                @click="updatePronouns"
-                                :disabled="!pronounsModified || loading"
-                                class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                            >
+                            <Button :disabled="!pronounsModified || loading" @click="updatePronouns">
                                 {{ $t('settings-profile-save') }}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -676,22 +683,18 @@ const getRoleDisplayName = (role: string) => {
                             {{ $t('settings-profile-signature-hint-prefix') }} <code class="text-[10px] bg-surface-alt px-1 rounded">-- </code>{{ $t('settings-profile-signature-hint-suffix') }}
                         </p>
                         <div class="flex flex-col gap-3">
-                            <textarea
+                            <FormTextarea
                                 id="user-email-signature"
                                 v-model="formData.signature"
-                                rows="4"
+                                :rows="4"
+                                mono
                                 aria-describedby="user-email-signature-hint"
-                                class="w-full px-4 py-2.5 bg-surface-alt rounded-lg border border-subtle text-primary placeholder-tertiary focus:ring-2 focus:ring-accent focus:outline-none resize-y font-mono text-sm"
                                 :placeholder="$t('settings-profile-signature-placeholder')"
-                            ></textarea>
+                            />
                             <div class="flex justify-end">
-                                <button
-                                    @click="updateSignature"
-                                    :disabled="!signatureModified || loading"
-                                    class="px-4 py-2.5 bg-accent text-white rounded-lg hover:opacity-90 focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
+                                <Button :disabled="!signatureModified || loading" @click="updateSignature">
                                     {{ $t('settings-profile-save') }}
-                                </button>
+                                </Button>
                             </div>
                         </div>
                     </div>

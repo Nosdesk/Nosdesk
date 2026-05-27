@@ -21,6 +21,7 @@ import { SUPPORTED_LOCALES } from '@/i18n'
 import userService from '@/services/userService'
 import SectionCard from '@/components/common/SectionCard.vue'
 import Spinner from '@/components/common/Spinner.vue'
+import Button from '@/components/common/Button.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue'
 
@@ -320,15 +321,9 @@ const dirty = computed(
       </div>
 
       <div class="flex justify-end">
-        <button
-          type="button"
-          :disabled="!dirty || isUpdating"
-          class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-          @click="save"
-        >
-          <Spinner v-if="isUpdating" />
-          {{ isUpdating ? $t('settings-saving') : $t('settings-save') }}
-        </button>
+        <Button type="button" :disabled="!dirty" :loading="isUpdating" @click="save">
+          {{ $t('settings-save') }}
+        </Button>
       </div>
     </div>
   </SectionCard>
