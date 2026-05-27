@@ -131,8 +131,11 @@ pub fn create_session_record(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<crate::models::ActiveSession, diesel::result::Error> {
-    let ip_address = crate::utils::client_ip::from_http_request(request)
-        .and_then(|ip| ip.to_string().parse().ok());
+    // Resolve the client IP once: stored as INET, and (when a GeoIP
+    // database is configured) used for a coarse "City, Country" label.
+    let client_ip = crate::utils::client_ip::from_http_request(request);
+    let ip_address = client_ip.and_then(|ip| ip.to_string().parse().ok());
+    let location = client_ip.and_then(crate::utils::geoip::lookup);
 
     let user_agent = request
         .headers()
@@ -149,7 +152,7 @@ pub fn create_session_record(
         device_name,
         ip_address,
         user_agent,
-        location: None,
+        location,
         expires_at: chrono::Utc::now().naive_utc() + chrono::Duration::days(7),
         is_current: true,
     };
@@ -1894,29 +1897,41 @@ pub async fn revoke_session(
         Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
-    // Verify the session belongs to this user before revoking
+    // Verify the session belongs to this user before revoking. Return
+    // 404 (not 403) when the row exists but isn't theirs, so the response
+    // can't be used to probe for another user's session ids.
     match crate::repository::active_sessions::get_session_by_id(&mut conn, session_id) {
         Ok(session) if session.user_uuid == user_uuid => {
             // Session belongs to user, proceed with revocation
         }
-        Ok(_) => {
-            return errors::forbidden("You can only revoke your own sessions");
-        }
-        Err(_) => {
-            return errors::not_found_msg("Session not found");
-        }
+        _ => return errors::not_found_msg("Session not found"),
     }
 
-    // Revoke the session
+    // Revoke the session. A count of 0 means it was already gone (e.g. a
+    // double-click race); that's the desired end state, so the delete is
+    // idempotent and still reports success.
     match crate::repository::active_sessions::revoke_session(&mut conn, session_id) {
-        Ok(count) if count > 0 => {
+        Ok(_) => {
             tracing::info!("Session {} revoked for user {}", session_id, user_uuid);
+            let _ = crate::utils::security_events::record_security_event(
+                &mut conn,
+                crate::utils::security_events::SecurityEventInput {
+                    user_uuid: Some(user_uuid),
+                    event_type: "session_revoked",
+                    severity: "info",
+                    details: Some(json!({
+                        "reason": "manual_revoke",
+                        "revoked_session_id": session_id
+                    })),
+                    request: Some(&req),
+                    session_id: None,
+                },
+            );
             HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": "Session revoked successfully"
             }))
         }
-        Ok(_) => errors::not_found_msg("Session not found"),
         Err(e) => {
             tracing::error!("Failed to revoke session: {}", e);
             errors::internal("Failed to revoke session")
@@ -1928,6 +1943,7 @@ pub async fn revoke_session(
 pub async fn revoke_all_other_sessions(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
+    body: web::Json<crate::models::RevokeOtherSessionsRequest>,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
@@ -1945,6 +1961,49 @@ pub async fn revoke_all_other_sessions(
         Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
+    // Step-up re-auth. Signing out every other device is a high-blast-
+    // radius, classic post-compromise action, so require a full (non-MFA-
+    // pending) session plus a fresh credential, mirroring mfa_disable.
+    if claims.scope != "full" {
+        return errors::forbidden("This action requires a full session");
+    }
+
+    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
+        Ok(u) => u,
+        Err(_) => return errors::not_found_msg("User not found"),
+    };
+    // Fetch the local password hash once (Err for OAuth-only accounts).
+    let local_hash = get_local_password_hash(&user.uuid, &mut conn).ok();
+
+    let reauthenticated = if let Some(pw) = body.password.as_deref().filter(|p| !p.is_empty()) {
+        // Verify the local password (the mfa_disable precedent).
+        local_hash
+            .as_deref()
+            .map(|hash| verify(pw, hash).unwrap_or(false))
+            .unwrap_or(false)
+    } else if let Some(code) = body
+        .mfa_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        // Verify a TOTP or backup code against the stored secret.
+        user.mfa_enabled
+            && mfa::verify_mfa_token(&user.uuid, code, &mut conn)
+                .await
+                .map(|r| r.is_valid)
+                .unwrap_or(false)
+    } else {
+        // No credential supplied: only acceptable when the account has
+        // nothing to step up with (no local password and no MFA, e.g. an
+        // OAuth-only account without MFA). Otherwise it's required.
+        local_hash.is_none() && !user.mfa_enabled
+    };
+
+    if !reauthenticated {
+        return errors::bad_request("Re-authentication required to sign out all other sessions");
+    }
+
     // Revoke all other sessions (if we can't identify current session, revoke everything)
     let revoke_result = match claims.session_uuid() {
         Some(sid) => crate::repository::active_sessions::revoke_other_sessions_by_uuid(
@@ -1961,6 +2020,20 @@ pub async fn revoke_all_other_sessions(
                 "Revoked {} other session(s) for user {}",
                 revoked_count,
                 user_uuid
+            );
+            let _ = crate::utils::security_events::record_security_event(
+                &mut conn,
+                crate::utils::security_events::SecurityEventInput {
+                    user_uuid: Some(user_uuid),
+                    event_type: "session_revoked",
+                    severity: "info",
+                    details: Some(json!({
+                        "reason": "revoke_all_others",
+                        "revoked_count": revoked_count
+                    })),
+                    request: Some(&req),
+                    session_id: None,
+                },
             );
             HttpResponse::Ok().json(json!({
                 "status": "success",

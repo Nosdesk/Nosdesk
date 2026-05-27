@@ -9,6 +9,7 @@ pub mod email_branding;
 pub mod encryption;
 pub mod error_response;
 pub mod file_validation;
+pub mod geoip;
 pub mod i18n;
 pub mod image;
 pub mod jwt;

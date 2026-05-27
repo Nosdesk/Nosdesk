@@ -295,6 +295,11 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // Open the optional GeoIP database (GEOIP_DB_PATH) once at startup so
+    // session creation can attach a coarse location. No-op + info log when
+    // unset; never fatal.
+    crate::utils::geoip::init_from_env();
+
     // NOSDESK_ROOT_PUBKEY is baked into the binary at build time
     // via option_env! (see services/plugins/signing.rs). Without it
     // the plugin trust chain cannot verify Official or Verified
