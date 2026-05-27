@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
+import { useQuery, useQueryCache } from '@pinia/colada';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
@@ -41,12 +43,30 @@ const navigateToConfiguration = (group: GroupWithMemberCount) => {
   router.push(`/admin/groups/${group.uuid}/configure`);
 };
 
-// State
-const isLoading = ref(false);
+// The group list is cached by Pinia Colada keyed here, so navigating
+// away and back renders it instantly from cache and revalidates in the
+// background. A skeleton shows only on the genuine first load (empty
+// cache); see `isFirstLoad`.
+const GROUPS_KEY = ['groups'] as const;
+const queryCache = useQueryCache();
+const groupsQuery = useQuery({
+  key: GROUPS_KEY,
+  query: () => groupService.getGroups(),
+});
+const groups = computed<GroupWithMemberCount[]>(() =>
+  Array.isArray(groupsQuery.data.value) ? groupsQuery.data.value : (groupsQuery.data.value ?? []),
+);
+const isFirstLoad = computed(
+  () => groupsQuery.status.value === 'pending' && groupsQuery.data.value === undefined,
+);
+const loadError = computed(() =>
+  groupsQuery.error.value ? t('groups-mgmt-error-load') : '',
+);
+
+// Mutation feedback (create / delete) stays in local refs.
 const isSaving = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
-const groups = ref<GroupWithMemberCount[]>([]);
 
 // Search & sort
 const searchQuery = ref('');
@@ -118,28 +138,6 @@ const groupForm = ref<CreateGroupRequest>({
   color: '#6366f1'
 });
 
-// Load groups
-const loadGroups = async () => {
-  isLoading.value = true;
-  errorMessage.value = '';
-
-  try {
-    const result = await groupService.getGroups();
-    if (Array.isArray(result)) {
-      groups.value = result;
-    } else {
-      console.error('Unexpected groups response:', result);
-      groups.value = [];
-    }
-  } catch (error) {
-    console.error('Failed to load groups:', error);
-    errorMessage.value = extractErrorMessage(error, t('groups-mgmt-error-load'));
-    groups.value = [];
-  } finally {
-    isLoading.value = false;
-  }
-};
-
 // Open create group modal
 const openCreateModal = () => {
   groupForm.value = {
@@ -165,7 +163,7 @@ const saveGroup = async () => {
     successMessage.value = t('groups-mgmt-success-created');
 
     showGroupModal.value = false;
-    await loadGroups();
+    await queryCache.invalidateQueries({ key: GROUPS_KEY });
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
@@ -199,7 +197,7 @@ const deleteGroup = async () => {
     }
 
     groupToDelete.value = null;
-    await loadGroups();
+    await queryCache.invalidateQueries({ key: GROUPS_KEY });
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
@@ -212,20 +210,16 @@ const deleteGroup = async () => {
 // Panel event handlers
 const onPanelDeleted = () => {
   selectedGroupUuid.value = null;
-  loadGroups();
+  queryCache.invalidateQueries({ key: GROUPS_KEY });
 };
 
 const onPanelUpdated = () => {
-  loadGroups();
+  queryCache.invalidateQueries({ key: GROUPS_KEY });
 };
 
 const onPanelClose = () => {
   selectedGroupUuid.value = null;
 };
-
-onMounted(() => {
-  loadGroups();
-});
 </script>
 
 <template>
@@ -257,11 +251,33 @@ onMounted(() => {
         <!-- Error message -->
         <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-        <!-- Loading state -->
-        <LoadingSpinner v-if="isLoading" :text="$t('groups-mgmt-loading')" />
+        <!-- Load error (initial fetch failed with no cached data) -->
+        <AlertMessage v-if="loadError && groups.length === 0" type="error" :message="loadError" />
+
+        <!-- First-load skeleton: mirrors the group-row layout so the
+             shell doesn't shift when data arrives. Only shown on a cold
+             cache; remounts render cached rows instantly and revalidate
+             silently in the background. -->
+        <Skeleton
+          v-if="isFirstLoad"
+          :label="$t('groups-mgmt-loading')"
+          class="flex flex-col gap-2 sm:gap-3"
+        >
+          <div
+            v-for="n in 3"
+            :key="n"
+            class="bg-surface border border-default rounded-lg sm:rounded-xl p-3 sm:p-4 flex items-center gap-3 sm:gap-4"
+          >
+            <SkeletonBar class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg shrink-0" />
+            <div class="flex-1 flex flex-col gap-2">
+              <SkeletonBar class="h-4 w-40 max-w-full" />
+              <SkeletonBar class="h-3 w-3/4" />
+            </div>
+          </div>
+        </Skeleton>
 
         <!-- Search & sort toolbar -->
-        <div v-if="!isLoading && groups.length > 0" class="flex items-center gap-2">
+        <div v-if="!isFirstLoad && groups.length > 0" class="flex items-center gap-2">
           <DebouncedSearchInput
             v-model="searchQuery"
             :placeholder="$t('groups-mgmt-search-placeholder')"
@@ -288,7 +304,7 @@ onMounted(() => {
         </div>
 
         <!-- Groups list -->
-        <div v-if="!isLoading" class="flex flex-col gap-2 sm:gap-3">
+        <div v-if="!isFirstLoad" class="flex flex-col gap-2 sm:gap-3">
           <div
             v-for="group in filteredGroups"
             :key="group.id"
@@ -359,7 +375,7 @@ onMounted(() => {
 
           <!-- Empty state -->
           <EmptyState
-            v-if="groups.length === 0 && !isLoading"
+            v-if="groups.length === 0 && !isFirstLoad"
             icon="users"
             :title="$t('empty-groups-title')"
             :description="$t('empty-groups-description')"

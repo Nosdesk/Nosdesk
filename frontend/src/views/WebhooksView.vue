@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { useQuery, useQueryCache } from '@pinia/colada';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
@@ -21,12 +24,30 @@ import { WEBHOOK_EVENT_CATEGORIES } from '@/types/webhook';
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
-// State
-const isLoading = ref(false);
+// The webhook list is cached by Pinia Colada keyed here, so navigating
+// away and back renders it instantly from cache and revalidates in the
+// background. A skeleton shows only on the genuine first load (empty
+// cache); see `isFirstLoad`.
+const WEBHOOKS_KEY = ['webhooks'] as const;
+const queryCache = useQueryCache();
+const webhooksQuery = useQuery({
+  key: WEBHOOKS_KEY,
+  query: () => webhookService.listWebhooks(),
+});
+const webhooks = computed<Webhook[]>(() =>
+  Array.isArray(webhooksQuery.data.value) ? webhooksQuery.data.value : (webhooksQuery.data.value ?? []),
+);
+const isFirstLoad = computed(
+  () => webhooksQuery.status.value === 'pending' && webhooksQuery.data.value === undefined,
+);
+const loadError = computed(() =>
+  webhooksQuery.error.value ? t('admin-webhooks-error-load') : '',
+);
+
+// Mutation feedback stays in local refs.
 const isSaving = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
-const webhooks = ref<Webhook[]>([]);
 
 // Modal states
 const showCreateModal = ref(false);
@@ -142,23 +163,6 @@ const getWebhookStatus = (webhook: Webhook) => {
   return { label: t('admin-webhooks-status-active'), color: 'text-status-success', bg: 'bg-status-success/10' };
 };
 
-// Load webhooks
-const loadWebhooks = async () => {
-  isLoading.value = true;
-  errorMessage.value = '';
-
-  try {
-    const result = await webhookService.listWebhooks();
-    webhooks.value = Array.isArray(result) ? result : [];
-  } catch (error) {
-    console.error('Failed to load webhooks:', error);
-    errorMessage.value = getErrorMessage(error, t('admin-webhooks-error-load'));
-    webhooks.value = [];
-  } finally {
-    isLoading.value = false;
-  }
-};
-
 // Open create modal
 const openCreateModal = () => {
   createForm.value = {
@@ -269,7 +273,7 @@ const createWebhook = async () => {
     showCreateModal.value = false;
     showSecretCreated.value = true;
     copiedSecret.value = false;
-    await loadWebhooks();
+    await queryCache.invalidateQueries({ key: WEBHOOKS_KEY });
   } catch (error) {
     errorMessage.value = getErrorMessage(error, t('admin-webhooks-error-create'));
   } finally {
@@ -336,7 +340,7 @@ const updateWebhook = async () => {
     successMessage.value = t('admin-webhooks-success-update');
     showEditModal.value = false;
     webhookToEdit.value = null;
-    await loadWebhooks();
+    await queryCache.invalidateQueries({ key: WEBHOOKS_KEY });
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
@@ -364,7 +368,7 @@ const deleteWebhook = async () => {
     successMessage.value = t('admin-webhooks-success-delete');
     showDeleteConfirm.value = false;
     webhookToDelete.value = null;
-    await loadWebhooks();
+    await queryCache.invalidateQueries({ key: WEBHOOKS_KEY });
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
@@ -428,7 +432,7 @@ const regenerateSecret = async () => {
     newSecret.value = null; // Backend doesn't return the new secret on regenerate via update
     successMessage.value = t('admin-webhooks-success-regenerate');
     showRegenerateConfirm.value = false;
-    await loadWebhooks();
+    await queryCache.invalidateQueries({ key: WEBHOOKS_KEY });
     // Refresh the edit form with updated data
     if (webhookToEdit.value) {
       const updated = webhooks.value.find(w => w.uuid === webhookToEdit.value?.uuid);
@@ -465,10 +469,6 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
   if (delivery.error_message) return t('admin-webhooks-deliveries-status-error');
   return t('admin-webhooks-deliveries-status-pending');
 };
-
-onMounted(() => {
-  loadWebhooks();
-});
 </script>
 
 <template>
@@ -495,8 +495,30 @@ onMounted(() => {
       <!-- Error message -->
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-      <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" :text="$t('admin-webhooks-loading')" />
+      <!-- Load error (initial fetch failed with no cached data) -->
+      <AlertMessage v-if="loadError && webhooks.length === 0" type="error" :message="loadError" />
+
+      <!-- First-load skeleton: mirrors the webhook-row layout so the
+           shell doesn't shift when data arrives. Only shown on a cold
+           cache; remounts render cached rows instantly and revalidate
+           silently in the background. -->
+      <Skeleton
+        v-if="isFirstLoad"
+        :label="$t('admin-webhooks-loading')"
+        class="flex flex-col gap-2 sm:gap-3"
+      >
+        <div
+          v-for="n in 3"
+          :key="n"
+          class="bg-surface border border-default rounded-lg sm:rounded-xl p-3 sm:p-4 flex items-start gap-3 sm:gap-4"
+        >
+          <SkeletonBar class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg shrink-0" />
+          <div class="flex-1 flex flex-col gap-2">
+            <SkeletonBar class="h-4 w-40 max-w-full" />
+            <SkeletonBar class="h-3 w-3/4" />
+          </div>
+        </div>
+      </Skeleton>
 
       <!-- Webhooks list -->
       <div v-else class="flex flex-col gap-4">
@@ -627,7 +649,7 @@ onMounted(() => {
 
         <!-- Empty state -->
         <EmptyState
-          v-if="webhooks.length === 0 && !isLoading"
+          v-if="webhooks.length === 0 && !isFirstLoad"
           icon="link"
           :title="$t('empty-webhooks-title')"
           :description="$t('empty-webhooks-description')"

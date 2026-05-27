@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { useQuery, useQueryCache } from '@pinia/colada';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -30,12 +32,40 @@ const { isMobile } = useMobileDetection('xl');
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
-// State
-const isLoading = ref(false);
+// The category list is cached by Pinia Colada keyed here, so navigating
+// away and back renders it instantly from cache and revalidates in the
+// background. A skeleton shows only on the genuine first load (empty
+// cache); see `isFirstLoad`.
+//
+// `categories` stays a writable local ref (not a computed) because the
+// drag-reorder composable and the optimistic active-toggle mutate it in
+// place. A watch keeps it in sync with the query's cached data; mutations
+// invalidate the query, which refetches and re-syncs through the watch.
+const CATEGORIES_KEY = ['categories'] as const;
+const queryCache = useQueryCache();
+const categoriesQuery = useQuery({
+  key: CATEGORIES_KEY,
+  query: () => categoryService.getAllCategoriesAdmin(),
+});
+const categories = ref<CategoryWithVisibility[]>([]);
+watch(
+  categoriesQuery.data,
+  (data) => {
+    categories.value = Array.isArray(data) ? data : [];
+  },
+  { immediate: true },
+);
+const isFirstLoad = computed(
+  () => categoriesQuery.status.value === 'pending' && categoriesQuery.data.value === undefined,
+);
+const loadError = computed(() =>
+  categoriesQuery.error.value ? t('admin-categories-error-load') : '',
+);
+
+// Mutation feedback stays in local refs.
 const isSaving = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
-const categories = ref<CategoryWithVisibility[]>([]);
 const availableGroups = ref<GroupWithMemberCount[]>([]);
 
 // Drag-and-drop reordering
@@ -157,21 +187,6 @@ const categoryForm = ref({
   visible_to_group_ids: [] as number[]
 });
 
-// Load categories
-const loadCategories = async () => {
-  isLoading.value = true;
-  errorMessage.value = '';
-
-  try {
-    categories.value = await categoryService.getAllCategoriesAdmin();
-  } catch (error) {
-    console.error('Failed to load categories:', error);
-    errorMessage.value = extractErrorMessage(error, t('admin-categories-error-load'));
-  } finally {
-    isLoading.value = false;
-  }
-};
-
 // Load groups for visibility selection
 const loadGroups = async () => {
   try {
@@ -276,7 +291,7 @@ const saveCategoryFromForm = async (formData: {
     }
 
     showCategoryModal.value = false;
-    await loadCategories();
+    await queryCache.invalidateQueries({ key: CATEGORIES_KEY });
 
     // Update the panel's reference to the fresh category data if editing on desktop
     if (!isMobile.value && editing) {
@@ -363,7 +378,7 @@ const deleteCategory = async () => {
     }
 
     categoryToDelete.value = null;
-    await loadCategories();
+    await queryCache.invalidateQueries({ key: CATEGORIES_KEY });
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
@@ -375,7 +390,8 @@ const deleteCategory = async () => {
 
 
 onMounted(() => {
-  loadCategories();
+  // The category list auto-fetches via useQuery; only the group
+  // visibility list needs an explicit load.
   loadGroups();
 });
 </script>
@@ -411,11 +427,33 @@ onMounted(() => {
         <!-- Error message -->
         <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-        <!-- Loading state -->
-        <LoadingSpinner v-if="isLoading" :text="$t('admin-categories-loading')" />
+        <!-- Load error (initial fetch failed with no cached data) -->
+        <AlertMessage v-if="loadError && categories.length === 0" type="error" :message="loadError" />
+
+        <!-- First-load skeleton: mirrors the category-row layout so the
+             shell doesn't shift when data arrives. Only shown on a cold
+             cache; remounts render cached rows instantly and revalidate
+             silently in the background. -->
+        <Skeleton
+          v-if="isFirstLoad"
+          :label="$t('admin-categories-loading')"
+          class="flex flex-col gap-1"
+        >
+          <div
+            v-for="n in 3"
+            :key="n"
+            class="bg-surface border border-default rounded-xl p-4 flex items-center gap-4"
+          >
+            <SkeletonBar class="w-10 h-10 rounded-lg shrink-0" />
+            <div class="flex-1 flex flex-col gap-2">
+              <SkeletonBar class="h-4 w-40 max-w-full" />
+              <SkeletonBar class="h-3 w-3/4" />
+            </div>
+          </div>
+        </Skeleton>
 
         <!-- Search, filter & sort toolbar -->
-        <div v-if="!isLoading && categories.length > 0" class="flex items-center gap-2">
+        <div v-if="!isFirstLoad && categories.length > 0" class="flex items-center gap-2">
           <DebouncedSearchInput
             v-model="searchQuery"
             :placeholder="$t('admin-categories-search-placeholder')"
@@ -450,7 +488,7 @@ onMounted(() => {
         </div>
 
         <!-- Categories list -->
-        <div v-if="!isLoading" ref="listRef" class="flex flex-col gap-1" :class="{ 'select-none cursor-grabbing': dragState.isDragging }">
+        <div v-if="!isFirstLoad" ref="listRef" class="flex flex-col gap-1" :class="{ 'select-none cursor-grabbing': dragState.isDragging }">
           <template v-for="(category, index) in filteredCategories" :key="category.id">
             <!-- Drop indicator line (before item) -->
             <div
@@ -603,7 +641,7 @@ onMounted(() => {
 
           <!-- Empty state -->
           <EmptyState
-            v-if="categories.length === 0 && !isLoading"
+            v-if="categories.length === 0 && !isFirstLoad"
             icon="folder"
             :title="$t('empty-categories-title')"
             :description="$t('empty-categories-description')"

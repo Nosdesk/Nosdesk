@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
+import { useQuery, useQueryCache } from '@pinia/colada'
 
 import AlertMessage from '@/components/common/AlertMessage.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import Skeleton from '@/components/common/Skeleton.vue'
+import SkeletonBar from '@/components/common/SkeletonBar.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
@@ -21,17 +23,34 @@ import type {
 import type { GroupWithMemberCount } from '@/types/group'
 import type { TicketCategory } from '@/types/category'
 import type { User } from '@/types/user'
-import { extractErrorMessage } from '@/utils/errors'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-// State
-const isLoading = ref(false)
+// The rule list is cached by Pinia Colada keyed here, so navigating
+// away and back renders it instantly from cache and revalidates in the
+// background. A skeleton shows only on the genuine first load (empty
+// cache); see `isFirstLoad`.
+const ASSIGNMENT_RULES_KEY = ['assignment-rules'] as const
+const queryCache = useQueryCache()
+const rulesQuery = useQuery({
+  key: ASSIGNMENT_RULES_KEY,
+  query: () => assignmentRuleService.getAllRules(),
+})
+const rules = computed<AssignmentRuleWithDetails[]>(() =>
+  Array.isArray(rulesQuery.data.value) ? rulesQuery.data.value : (rulesQuery.data.value ?? []),
+)
+const isFirstLoad = computed(
+  () => rulesQuery.status.value === 'pending' && rulesQuery.data.value === undefined,
+)
+const loadError = computed(() =>
+  rulesQuery.error.value ? t('admin-assignment-rules-error-load') : '',
+)
+
+// Mutation feedback stays in local refs.
 const isSaving = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
-const rules = ref<AssignmentRuleWithDetails[]>([])
 
 // Modal states
 const showRuleModal = ref(false)
@@ -74,21 +93,6 @@ const isGroupMethod = computed(() => {
 const isDirectUserMethod = computed(() => {
   return ruleForm.value.method === 'direct_user'
 })
-
-// Load rules
-const loadRules = async () => {
-  isLoading.value = true
-  errorMessage.value = ''
-
-  try {
-    rules.value = await assignmentRuleService.getAllRules()
-  } catch (error) {
-    console.error('Failed to load assignment rules:', error)
-    errorMessage.value = extractErrorMessage(error, t('admin-assignment-rules-error-load'))
-  } finally {
-    isLoading.value = false
-  }
-}
 
 // Load supporting data
 const loadSupportingData = async () => {
@@ -177,7 +181,7 @@ const saveRule = async () => {
     }
 
     showRuleModal.value = false
-    await loadRules()
+    await queryCache.invalidateQueries({ key: ASSIGNMENT_RULES_KEY })
     setTimeout(() => (successMessage.value = ''), 3000)
   } catch (error) {
     const axiosError = error as { response?: { data?: string } }
@@ -191,7 +195,7 @@ const saveRule = async () => {
 const toggleRuleActive = async (rule: AssignmentRuleWithDetails) => {
   try {
     await assignmentRuleService.updateRule(rule.id, { is_active: !rule.is_active })
-    await loadRules()
+    await queryCache.invalidateQueries({ key: ASSIGNMENT_RULES_KEY })
   } catch (error) {
     const axiosError = error as { response?: { data?: string } }
     errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-update')
@@ -216,7 +220,7 @@ const deleteRule = async () => {
     successMessage.value = t('admin-assignment-rules-success-delete')
     showDeleteConfirm.value = false
     ruleToDelete.value = null
-    await loadRules()
+    await queryCache.invalidateQueries({ key: ASSIGNMENT_RULES_KEY })
     setTimeout(() => (successMessage.value = ''), 3000)
   } catch (error) {
     const axiosError = error as { response?: { data?: string } }
@@ -245,7 +249,7 @@ const moveRule = async (rule: AssignmentRuleWithDetails, direction: 'up' | 'down
         { id: rules.value[targetIndex].id, priority: currentPriority }
       ]
     })
-    await loadRules()
+    await queryCache.invalidateQueries({ key: ASSIGNMENT_RULES_KEY })
   } catch (error) {
     const axiosError = error as { response?: { data?: string } }
     errorMessage.value = axiosError.response?.data || t('admin-assignment-rules-error-reorder')
@@ -269,7 +273,8 @@ const getTargetDisplay = (rule: AssignmentRuleWithDetails) => {
 }
 
 onMounted(() => {
-  loadRules()
+  // The rule list auto-fetches via useQuery; only the select-dropdown
+  // supporting data needs an explicit load.
   loadSupportingData()
 })
 </script>
@@ -305,8 +310,30 @@ onMounted(() => {
       <!-- Error message -->
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-      <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" :text="$t('admin-assignment-rules-loading')" />
+      <!-- Load error (initial fetch failed with no cached data) -->
+      <AlertMessage v-if="loadError && rules.length === 0" type="error" :message="loadError" />
+
+      <!-- First-load skeleton: mirrors the rule-card layout so the
+           shell doesn't shift when data arrives. Only shown on a cold
+           cache; remounts render cached rows instantly and revalidate
+           silently in the background. -->
+      <Skeleton
+        v-if="isFirstLoad"
+        :label="$t('admin-assignment-rules-loading')"
+        class="flex flex-col gap-3"
+      >
+        <div
+          v-for="n in 3"
+          :key="n"
+          class="bg-surface border border-default rounded-xl p-4 flex items-center gap-4"
+        >
+          <SkeletonBar class="w-6 h-10 rounded shrink-0" />
+          <div class="flex-1 flex flex-col gap-2">
+            <SkeletonBar class="h-4 w-40 max-w-full" />
+            <SkeletonBar class="h-3 w-3/4" />
+          </div>
+        </div>
+      </Skeleton>
 
       <!-- Rules list -->
       <div v-else class="flex flex-col gap-3">
@@ -410,7 +437,7 @@ onMounted(() => {
 
         <!-- Empty state -->
         <EmptyState
-          v-if="rules.length === 0 && !isLoading"
+          v-if="rules.length === 0 && !isFirstLoad"
           icon="ticket"
           :title="$t('empty-assignment-rules-title')"
           :description="$t('empty-assignment-rules-description')"

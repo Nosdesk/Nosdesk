@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { useQuery, useQueryCache } from '@pinia/colada';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import Icon from '@/components/common/Icon.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import Modal from '@/components/Modal.vue';
@@ -17,12 +19,32 @@ import type { User } from '@/types/user';
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
-// State
-const isLoading = ref(false);
+// Token list is cached by Pinia Colada keyed here, so navigating away
+// and back renders it instantly from cache and revalidates in the
+// background — no cold refetch, no blank flash. A skeleton shows only
+// on the genuine first load (empty cache); see `isFirstLoad`.
+const API_TOKENS_KEY = ['api-tokens'] as const;
+const queryCache = useQueryCache();
+const tokensQuery = useQuery({
+  key: API_TOKENS_KEY,
+  query: () => apiTokenService.listTokens(),
+});
+const tokens = computed<ApiToken[]>(() =>
+  Array.isArray(tokensQuery.data.value) ? tokensQuery.data.value : [],
+);
+// First-ever load (no cached data yet) gates the skeleton; a background
+// refetch on remount keeps the cached list on screen instead.
+const isFirstLoad = computed(
+  () => tokensQuery.status.value === 'pending' && tokensQuery.data.value === undefined,
+);
+const loadError = computed(() =>
+  tokensQuery.error.value ? t('admin-api-tokens-error-load') : '',
+);
+
+// Mutation feedback (create / revoke) stays in local refs.
 const isSaving = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
-const tokens = ref<ApiToken[]>([]);
 const users = ref<User[]>([]);
 
 // Modal states
@@ -58,24 +80,6 @@ const formatDate = (dateStr: string | null) => {
     return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
   } catch {
     return dateStr;
-  }
-};
-
-// Load tokens
-const loadTokens = async () => {
-  isLoading.value = true;
-  errorMessage.value = '';
-
-  try {
-    const result = await apiTokenService.listTokens();
-    tokens.value = Array.isArray(result) ? result : [];
-  } catch (error) {
-    console.error('Failed to load tokens:', error);
-    const axiosError = error as { response?: { data?: string } };
-    errorMessage.value = axiosError.response?.data || t('admin-api-tokens-error-load');
-    tokens.value = [];
-  } finally {
-    isLoading.value = false;
   }
 };
 
@@ -128,7 +132,7 @@ const createToken = async () => {
     showCreateModal.value = false;
     showTokenCreated.value = true;
     copiedToken.value = false;
-    await loadTokens();
+    await queryCache.invalidateQueries({ key: API_TOKENS_KEY });
   } catch (error) {
     const axiosError = error as { response?: { data?: string } };
     errorMessage.value = axiosError.response?.data || t('admin-api-tokens-error-create');
@@ -168,7 +172,7 @@ const revokeToken = async () => {
     successMessage.value = t('admin-api-tokens-revoke-success');
     showRevokeConfirm.value = false;
     tokenToRevoke.value = null;
-    await loadTokens();
+    await queryCache.invalidateQueries({ key: API_TOKENS_KEY });
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
@@ -180,7 +184,8 @@ const revokeToken = async () => {
 };
 
 onMounted(() => {
-  loadTokens();
+  // The token list auto-fetches via useQuery; only the dropdown's
+  // user list needs an explicit load.
   loadUsers();
 });
 </script>
@@ -206,11 +211,33 @@ onMounted(() => {
       <!-- Success message -->
       <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
 
-      <!-- Error message -->
+      <!-- Error message (mutation failures) -->
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-      <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" :text="$t('admin-api-tokens-loading')" />
+      <!-- Load error (initial fetch failed with no cached data) -->
+      <AlertMessage v-if="loadError && tokens.length === 0" type="error" :message="loadError" />
+
+      <!-- First-load skeleton: mirrors the token-row layout so the
+           shell doesn't shift when data arrives. Only shown on a cold
+           cache; remounts render cached rows instantly and revalidate
+           silently in the background. -->
+      <Skeleton
+        v-if="isFirstLoad"
+        :label="$t('admin-api-tokens-loading')"
+        class="flex flex-col gap-2 sm:gap-3"
+      >
+        <div
+          v-for="n in 3"
+          :key="n"
+          class="bg-surface border border-default rounded-lg sm:rounded-xl p-3 sm:p-4 flex items-start gap-3 sm:gap-4"
+        >
+          <SkeletonBar class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg shrink-0" />
+          <div class="flex-1 flex flex-col gap-2">
+            <SkeletonBar class="h-4 w-40 max-w-full" />
+            <SkeletonBar class="h-3 w-3/4" />
+          </div>
+        </div>
+      </Skeleton>
 
       <!-- Tokens list -->
       <div v-else class="flex flex-col gap-4">
@@ -294,7 +321,7 @@ onMounted(() => {
 
         <!-- Empty state -->
         <EmptyState
-          v-if="tokens.length === 0 && !isLoading"
+          v-if="tokens.length === 0 && !isFirstLoad"
           icon="key"
           :title="$t('empty-api-tokens-title')"
           :description="$t('empty-api-tokens-description')"
