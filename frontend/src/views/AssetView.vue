@@ -8,6 +8,8 @@ import DeleteButton from '@/components/common/DeleteButton.vue';
 import InlineEdit from '@/components/common/InlineEdit.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import ConfirmModal from '@/components/common/ConfirmModal.vue';
+import { extractErrorMessage } from '@/utils/errors';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import UserCard from '@/components/UserCard.vue';
@@ -113,6 +115,19 @@ const attributesDirty = computed(() => {
 const kindChangeError = ref<string | null>(null);
 const attributesError = ref<string | null>(null);
 
+// Kind change is deferred to an explicit confirm dialog (it clears the
+// row's attributes), so the picker change just stages the target slug.
+const showKindChangeConfirm = ref(false);
+const pendingKindSlug = ref<string | null>(null);
+const kindChangeConfirmMessage = computed(() =>
+  t('asset-detail-kind-change-confirm', {
+    newKind:
+      kinds.value.find((k) => k.slug === pendingKindSlug.value)?.label ??
+      pendingKindSlug.value ??
+      '',
+  }),
+);
+
 /** Persist the attribute draft against the existing kind. Used
  *  by the Save attributes button in edit mode. */
 async function saveAttributes() {
@@ -126,10 +141,7 @@ async function saveAttributes() {
     device.value = { ...device.value, ...updated };
     attributeDraft.value = { ...(updated.attributes ?? {}) };
   } catch (err) {
-    const e = err as { response?: { data?: { error?: string } } };
-    attributesError.value =
-      e?.response?.data?.error ??
-      (err instanceof Error ? err.message : t('asset-detail-attributes-save-failed'));
+    attributesError.value = extractErrorMessage(err, t('asset-detail-attributes-save-failed'));
   } finally {
     isSaving.value = false;
   }
@@ -146,7 +158,7 @@ function discardAttributes() {
  *  (different schemas, different required keys). We require an
  *  explicit confirm, clear attributes to {} on save, and let
  *  the admin re-enter them against the new kind's schema. */
-async function onKindPickerChange() {
+function onKindPickerChange() {
   if (!device.value) return;
   if (isCreationMode.value) {
     // Creation flow: kind/attributes get sent together on
@@ -157,15 +169,23 @@ async function onKindPickerChange() {
   const currentSlug = device.value.kind ?? 'generic';
   if (newSlug === currentSlug) return;
 
-  const confirmed = window.confirm(
-    t('asset-detail-kind-change-confirm', {
-      newKind: kinds.value.find((k) => k.slug === newSlug)?.label ?? newSlug,
-    }),
-  );
-  if (!confirmed) {
-    selectedKindSlug.value = currentSlug;
-    return;
-  }
+  // Stage the change and defer to the confirm dialog.
+  pendingKindSlug.value = newSlug;
+  showKindChangeConfirm.value = true;
+}
+
+function cancelKindChange() {
+  showKindChangeConfirm.value = false;
+  pendingKindSlug.value = null;
+  // Revert the picker to the persisted kind.
+  selectedKindSlug.value = device.value?.kind ?? 'generic';
+}
+
+async function confirmKindChange() {
+  showKindChangeConfirm.value = false;
+  const newSlug = pendingKindSlug.value;
+  pendingKindSlug.value = null;
+  if (!device.value || !newSlug) return;
 
   isSaving.value = true;
   kindChangeError.value = null;
@@ -177,11 +197,8 @@ async function onKindPickerChange() {
     device.value = { ...device.value, ...updated };
     attributeDraft.value = { ...(updated.attributes ?? {}) };
   } catch (err) {
-    const e = err as { response?: { data?: { error?: string } } };
-    kindChangeError.value =
-      e?.response?.data?.error ??
-      (err instanceof Error ? err.message : t('asset-detail-kind-change-failed'));
-    selectedKindSlug.value = currentSlug;
+    kindChangeError.value = extractErrorMessage(err, t('asset-detail-kind-change-failed'));
+    selectedKindSlug.value = device.value.kind ?? 'generic';
   } finally {
     isSaving.value = false;
   }
@@ -497,9 +514,7 @@ onMounted(() => {
               <p v-if="selectedKind?.description" class="text-xs text-tertiary">
                 {{ selectedKind.description }}
               </p>
-              <p v-if="kindChangeError" class="text-xs text-status-error">
-                {{ kindChangeError }}
-              </p>
+              <AlertMessage v-if="kindChangeError" type="error" :message="kindChangeError" />
             </div>
             <DynamicAttributeForm
               v-if="selectedKindSchema"
@@ -527,10 +542,8 @@ onMounted(() => {
               >
                 {{ $t('asset-detail-attributes-discard') }}
               </button>
-              <p v-if="attributesError" class="text-xs text-status-error ml-2">
-                {{ attributesError }}
-              </p>
             </div>
+            <AlertMessage v-if="attributesError" type="error" :message="attributesError" />
           </div>
         </SectionCard>
 
@@ -958,9 +971,7 @@ onMounted(() => {
           {{ $t('asset-detail-unmanage-confirm-note') }}
         </p>
 
-        <p v-if="unmanageError" class="text-sm text-status-error text-center">
-          {{ unmanageError }}
-        </p>
+        <AlertMessage v-if="unmanageError" type="error" :message="unmanageError" />
 
         <div class="flex justify-center gap-3 mt-2 w-full">
           <button
@@ -979,5 +990,16 @@ onMounted(() => {
         </div>
       </div>
     </Modal>
+
+    <!-- Kind change: explicit confirm (clears the row's attributes) -->
+    <ConfirmModal
+      :show="showKindChangeConfirm"
+      variant="warning"
+      :title="$t('asset-detail-kind-change-title')"
+      :message="kindChangeConfirmMessage"
+      :confirm-label="$t('asset-detail-kind-change-confirm-label')"
+      @confirm="confirmKindChange"
+      @close="cancelKindChange"
+    />
   </div>
 </template>
