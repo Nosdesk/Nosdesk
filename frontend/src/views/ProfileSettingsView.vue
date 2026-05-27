@@ -33,6 +33,7 @@ import type { Group } from '@/types/group';
 import apiClient from '@/services/apiConfig';
 import { useMfa } from '@/composables/useMfa';
 import { useColorFilter } from '@/composables/useColorFilter';
+import { extractErrorMessage } from '@/utils/errors';
 
 const route = useRoute();
 const router = useRouter();
@@ -388,8 +389,7 @@ const deleteAccount = async () => {
     }
   } catch (error) {
     console.error('Failed to delete account:', error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    handleError(axiosError.response?.data?.message || 'Failed to delete account. Please try again.');
+    handleError(extractErrorMessage(error, 'Failed to delete account. Please try again.'));
     isDeleting.value = false;
   } finally {
     showDeleteModal.value = false;

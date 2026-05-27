@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import apiClient from '@/services/apiConfig'
 import { useMicrosoftAuth } from '@/composables/useMicrosoftAuth'
 import AuthCallbackCard, { type ErrorInfo } from '@/components/auth/AuthCallbackCard.vue'
+import { extractErrorMessage } from '@/utils/errors'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -170,9 +171,7 @@ onMounted(async () => {
   } catch (err) {
     const axiosError = err as { response?: { status?: number; data?: { message?: string; error?: string } }; request?: unknown; message?: string }
 
-    error.value = axiosError.response?.data?.message ||
-                  axiosError.response?.data?.error ||
-                  t('auth-callback-error-generic-message')
+    error.value = extractErrorMessage(err, t('auth-callback-error-generic-message'))
 
     if (axiosError.response) {
       detailedError.value = `${t('auth-callback-error-status-prefix', { status: axiosError.response.status ?? '' })}\n${JSON.stringify(axiosError.response.data, null, 2)}`

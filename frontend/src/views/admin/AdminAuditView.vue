@@ -8,6 +8,7 @@ import Icon from '@/components/common/Icon.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import { formatDateTime } from '@/utils/dateUtils';
 import { auditService, type AuditEntry, type AuditQuery } from '@/services/auditService';
+import { extractErrorMessage } from '@/utils/errors';
 
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
@@ -98,8 +99,7 @@ async function exportJson() {
 }
 
 function readError(err: unknown, fallbackKey: string): string {
-  const e = err as { response?: { data?: { message?: string } }; message?: string };
-  return e.response?.data?.message || e.message || t(fallbackKey);
+  return extractErrorMessage(err, t(fallbackKey));
 }
 
 function toggleExpanded(id: string) {

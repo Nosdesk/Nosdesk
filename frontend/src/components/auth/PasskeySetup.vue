@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
 import { passkeySetupService } from '@/services/passkeyService';
 import { logger } from '@/utils/logger';
+import { extractErrorMessage } from '@/utils/errors';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 
@@ -118,8 +119,7 @@ const handleRegisterPasskey = async () => {
           localError.value = t('auth-passkey-setup-error-cancelled-generic');
         } else {
           // Try to extract error message from API response
-          const axiosErr = err as { response?: { data?: { error?: string } } };
-          localError.value = axiosErr.response?.data?.error || err.message || t('auth-passkey-setup-error-generic');
+          localError.value = extractErrorMessage(err, t('auth-passkey-setup-error-generic'));
         }
       } else {
         localError.value = t('auth-passkey-setup-error-generic');

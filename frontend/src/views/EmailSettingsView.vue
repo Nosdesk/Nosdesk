@@ -8,6 +8,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import { extractErrorMessage } from '@/utils/errors';
 
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
@@ -43,8 +44,7 @@ const loadEmailConfig = async () => {
     emailConfig.value = response.data;
   } catch (error) {
     console.error('Failed to load email configuration:', error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('admin-email-settings-error-load');
+    errorMessage.value = extractErrorMessage(error, t('admin-email-settings-error-load'));
   } finally {
     isLoading.value = false;
   }
@@ -79,8 +79,7 @@ const sendTestEmail = async () => {
     setTimeout(() => { successMessage.value = ''; }, 5000);
   } catch (error) {
     console.error('Failed to send test email:', error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('admin-email-settings-error-test');
+    errorMessage.value = extractErrorMessage(error, t('admin-email-settings-error-test'));
     setTimeout(() => { errorMessage.value = ''; }, 5000);
   } finally {
     sendingTest.value = false;

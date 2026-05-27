@@ -14,6 +14,7 @@ import apiClient from "@/services/apiConfig";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";
+import { extractErrorMessage } from "@/utils/errors";
 
 // Get branding and theme stores
 const brandingStore = useBrandingStore();
@@ -315,8 +316,7 @@ const handleRecoveryLogin = async () => {
     }
   } catch (error) {
     console.error("Recovery login error:", error);
-    const axiosErr = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosErr.response?.data?.message || "Invalid recovery code. Please try again.";
+    errorMessage.value = extractErrorMessage(error, "Invalid recovery code. Please try again.");
   } finally {
     loadingAction.value = null;
   }

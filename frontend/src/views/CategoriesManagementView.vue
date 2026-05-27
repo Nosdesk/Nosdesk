@@ -23,6 +23,7 @@ import { useListReorder } from '@/composables/useListReorder';
 import { useMobileDetection } from '@/composables/useMobileDetection';
 import type { CategoryWithVisibility, CreateCategoryRequest, UpdateCategoryRequest } from '@/types/category';
 import type { GroupWithMemberCount } from '@/types/group';
+import { extractErrorMessage } from '@/utils/errors';
 
 const { isMobile } = useMobileDetection('xl');
 
@@ -44,8 +45,7 @@ const { dragState, listRef, handleGripDown } = useListReorder(categories, {
     const orders = reordered.map((c, i) => ({ id: c.id, display_order: i }));
     categoryService.reorderCategories({ orders }).catch((error) => {
       categories.value = previous;
-      const axiosError = error as { response?: { data?: { message?: string } } };
-      errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-reorder');
+      errorMessage.value = extractErrorMessage(error, t('admin-categories-error-reorder'));
     });
   },
 });
@@ -166,8 +166,7 @@ const loadCategories = async () => {
     categories.value = await categoryService.getAllCategoriesAdmin();
   } catch (error) {
     console.error('Failed to load categories:', error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-load');
+    errorMessage.value = extractErrorMessage(error, t('admin-categories-error-load'));
   } finally {
     isLoading.value = false;
   }
@@ -292,8 +291,7 @@ const saveCategoryFromForm = async (formData: {
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-save');
+    errorMessage.value = extractErrorMessage(error, t('admin-categories-error-save'));
   } finally {
     isSaving.value = false;
   }
@@ -327,8 +325,7 @@ const toggleActive = async (category: CategoryWithVisibility) => {
     });
   } catch (error) {
     category.is_active = previousState;
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-update');
+    errorMessage.value = extractErrorMessage(error, t('admin-categories-error-update'));
   }
 };
 
@@ -370,8 +367,7 @@ const deleteCategory = async () => {
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('admin-categories-error-delete');
+    errorMessage.value = extractErrorMessage(error, t('admin-categories-error-delete'));
   } finally {
     isSaving.value = false;
   }

@@ -17,6 +17,7 @@ import GroupConfigurationPanel from '@/components/admin/GroupConfigurationPanel.
 import { groupService } from '@/services/groupService';
 import { useColorFilter } from '@/composables/useColorFilter';
 import type { GroupWithMemberCount, CreateGroupRequest } from '@/types/group';
+import { extractErrorMessage } from '@/utils/errors';
 
 const router = useRouter();
 const { colorFilterStyle } = useColorFilter();
@@ -132,8 +133,7 @@ const loadGroups = async () => {
     }
   } catch (error) {
     console.error('Failed to load groups:', error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('groups-mgmt-error-load');
+    errorMessage.value = extractErrorMessage(error, t('groups-mgmt-error-load'));
     groups.value = [];
   } finally {
     isLoading.value = false;
@@ -169,8 +169,7 @@ const saveGroup = async () => {
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('groups-mgmt-error-create');
+    errorMessage.value = extractErrorMessage(error, t('groups-mgmt-error-create'));
   } finally {
     isSaving.value = false;
   }
@@ -204,8 +203,7 @@ const deleteGroup = async () => {
 
     setTimeout(() => successMessage.value = '', 3000);
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('groups-mgmt-error-delete');
+    errorMessage.value = extractErrorMessage(error, t('groups-mgmt-error-delete'));
   } finally {
     isSaving.value = false;
   }

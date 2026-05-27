@@ -9,6 +9,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import BrandIcon from '@/components/common/BrandIcon.vue';
 import type { IconName } from '@/components/common/icons';
+import { extractErrorMessage } from '@/utils/errors';
 
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
@@ -48,8 +49,7 @@ const loadProviders = async () => {
     providers.value = response.data;
   } catch (error) {
     console.error('Failed to load auth providers:', error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('admin-auth-providers-error-load');
+    errorMessage.value = extractErrorMessage(error, t('admin-auth-providers-error-load'));
   } finally {
     isLoading.value = false;
   }
@@ -70,10 +70,9 @@ const validateProviderConfig = async (provider: Provider) => {
       };
     }
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
     configValidations.value[provider.id] = {
       valid: false,
-      error: axiosError.response?.data?.message || t('admin-auth-providers-error-validate')
+      error: extractErrorMessage(error, t('admin-auth-providers-error-validate'))
     };
   }
 };

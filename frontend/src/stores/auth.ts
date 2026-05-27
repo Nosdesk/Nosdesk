@@ -9,6 +9,7 @@ import type { User, LoginCredentials } from '@/types';
 import { useThemeStore } from './theme';
 import { useDateStore } from './dateStore';
 import { translate } from '@/i18n';
+import { extractErrorMessage } from '@/utils/errors';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -197,8 +198,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     } catch (err) {
       logger.error('Login error:', err);
-      const axiosError = err as { response?: { data?: { message?: string } } };
-      error.value = axiosError.response?.data?.message || 'Login failed. Please check your credentials.';
+      error.value = extractErrorMessage(err, 'Login failed. Please check your credentials.');
       return false;
     } finally {
       loading.value = false;
@@ -320,10 +320,7 @@ export const useAuthStore = defineStore('auth', () => {
         return await authService.setupMFAForLogin({ email, password });
       } catch (err) {
         logger.error('MFA setup error:', err);
-        const axiosError = err as { response?: { data?: { message?: string } } };
-        error.value =
-          axiosError.response?.data?.message ||
-          translate('error-store-auth-mfa-setup-start', undefined, 'Failed to start MFA setup. Please try again.');
+        error.value = extractErrorMessage(err, translate('error-store-auth-mfa-setup-start', undefined, 'Failed to start MFA setup. Please try again.'));
         return null;
       } finally {
         loading.value = false;
@@ -357,10 +354,7 @@ export const useAuthStore = defineStore('auth', () => {
         
       } catch (err) {
         logger.error('MFA enable login error:', err);
-        const axiosError = err as { response?: { data?: { message?: string } } };
-        error.value =
-          axiosError.response?.data?.message ||
-          translate('error-store-auth-mfa-setup-complete', undefined, 'Failed to complete MFA setup. Please try again.');
+        error.value = extractErrorMessage(err, translate('error-store-auth-mfa-setup-complete', undefined, 'Failed to complete MFA setup. Please try again.'));
         return false;
       } finally {
         loading.value = false;

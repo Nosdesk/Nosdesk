@@ -15,6 +15,7 @@ import type {
   ActiveSync,
   LastSyncDetails,
 } from "@/types";
+import { extractErrorMessage } from "@/utils/errors";
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -81,8 +82,7 @@ const validateConfiguration = async () => {
     configValidation.value = response.data;
   } catch (error) {
     console.error("Failed to validate configuration:", error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t("admin-msgraph-error-validate-config");
+    errorMessage.value = extractErrorMessage(error, t("admin-msgraph-error-validate-config"));
     configValidation.value = null;
   } finally {
     isValidatingConfig.value = false;
@@ -193,8 +193,7 @@ const cancelSync = async (sessionId: string) => {
     }, 3000);
   } catch (error) {
     console.error("Failed to cancel sync:", error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t("admin-msgraph-error-cancel-sync");
+    errorMessage.value = extractErrorMessage(error, t("admin-msgraph-error-cancel-sync"));
 
     setTimeout(() => {
       errorMessage.value = null;
@@ -228,9 +227,7 @@ const startSyncWithMode = async (useDelta: boolean) => {
     }, 3000);
   } catch (error) {
     console.error("Failed to start sync:", error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value =
-      axiosError.response?.data?.message || t("admin-msgraph-error-start-sync");
+    errorMessage.value = extractErrorMessage(error, t("admin-msgraph-error-start-sync"));
   } finally {
     isLoading.value = false;
   }

@@ -21,6 +21,7 @@ import type {
 import type { GroupWithMemberCount } from '@/types/group'
 import type { TicketCategory } from '@/types/category'
 import type { User } from '@/types/user'
+import { extractErrorMessage } from '@/utils/errors'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -83,8 +84,7 @@ const loadRules = async () => {
     rules.value = await assignmentRuleService.getAllRules()
   } catch (error) {
     console.error('Failed to load assignment rules:', error)
-    const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || t('admin-assignment-rules-error-load')
+    errorMessage.value = extractErrorMessage(error, t('admin-assignment-rules-error-load'))
   } finally {
     isLoading.value = false
   }

@@ -237,6 +237,7 @@ import { useThemeStore } from '@/stores/theme';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import { extractErrorMessage } from '@/utils/errors';
 
 const router = useRouter();
 const route = useRoute();
@@ -358,10 +359,7 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error('Invitation validation error:', error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value =
-      axiosError.response?.data?.message ||
-      t('accept-invitation-error-validation-failed');
+    errorMessage.value = extractErrorMessage(error, t('accept-invitation-error-validation-failed'));
   } finally {
     validating.value = false;
   }
@@ -379,10 +377,7 @@ const handleSubmit = async () => {
     if (success) clearSensitiveData();
   } catch (error) {
     console.error('Accept invitation error:', error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    submitError.value =
-      axiosError.response?.data?.message ||
-      t('accept-invitation-error-submit');
+    submitError.value = extractErrorMessage(error, t('accept-invitation-error-submit'));
   } finally {
     loading.value = false;
   }

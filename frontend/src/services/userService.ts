@@ -6,6 +6,7 @@ import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
 import type { User, UserSecurityInfo } from '@/types/user';
 import type { Asset } from '@/types/asset';
 import type { Group } from '@/types/group';
+import { extractErrorMessage } from '@/utils/errors';
 
 // Re-export for backwards compatibility
 export type { User };
@@ -226,8 +227,7 @@ const userService = {
     } catch (error: unknown) {
       logger.error('Failed to create user', { error, email: user.email });
       // Extract error message from backend response
-      const axiosError = error as { response?: { data?: { message?: string } } };
-      const message = axiosError.response?.data?.message || 'Failed to create user';
+      const message = extractErrorMessage(error, 'Failed to create user');
       throw new Error(message);
     }
   },
@@ -388,10 +388,9 @@ const userService = {
       return response.data;
     } catch (error) {
       logger.error('Failed to cleanup stale images', { error });
-      const axiosError = error as { response?: { data?: { message?: string } } };
       return {
         success: false,
-        message: axiosError.response?.data?.message || 'Failed to cleanup stale images'
+        message: extractErrorMessage(error, 'Failed to cleanup stale images')
       };
     }
   },
@@ -421,10 +420,9 @@ const userService = {
       };
     } catch (error) {
       logger.error('Failed to resend invitation', { error, uuid });
-      const axiosError = error as { response?: { data?: { message?: string } } };
       return {
         success: false,
-        message: axiosError.response?.data?.message || 'Failed to send invitation email'
+        message: extractErrorMessage(error, 'Failed to send invitation email')
       };
     }
   },

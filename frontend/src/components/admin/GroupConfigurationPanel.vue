@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { extractErrorMessage } from '@/utils/errors';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -328,8 +329,7 @@ const saveGeneralInfo = async () => {
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-save');
+    errorMessage.value = extractErrorMessage(error, fluent.$t('admin-groups-config-error-save'));
   } finally {
     saving.value = false;
   }
@@ -364,8 +364,7 @@ const saveMembers = async () => {
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-members');
+    errorMessage.value = extractErrorMessage(error, fluent.$t('admin-groups-config-error-members'));
   } finally {
     savingMembers.value = false;
   }
@@ -400,8 +399,7 @@ const saveDevices = async () => {
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-devices');
+    errorMessage.value = extractErrorMessage(error, fluent.$t('admin-groups-config-error-devices'));
   } finally {
     savingDevices.value = false;
   }
@@ -436,8 +434,7 @@ const saveIncludes = async () => {
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-includes');
+    errorMessage.value = extractErrorMessage(error, fluent.$t('admin-groups-config-error-includes'));
   } finally {
     savingIncludes.value = false;
   }
@@ -454,8 +451,7 @@ const deleteGroup = async () => {
     await groupService.deleteGroup(group.value.id);
     emit('deleted');
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-delete');
+    errorMessage.value = extractErrorMessage(error, fluent.$t('admin-groups-config-error-delete'));
     showDeleteConfirm.value = false;
   } finally {
     isDeleting.value = false;
@@ -484,8 +480,7 @@ const doUnmanageGroup = async () => {
     setTimeout(() => successMessage.value = '', 3000);
     emit('updated');
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || fluent.$t('admin-groups-config-error-unmanage');
+    errorMessage.value = extractErrorMessage(error, fluent.$t('admin-groups-config-error-unmanage'));
   } finally {
     isUnmanaging.value = false;
   }

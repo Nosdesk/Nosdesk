@@ -19,6 +19,7 @@ import pluginService from '@/services/pluginService';
 import { usePluginAdminConfig } from '@/composables/usePluginAdminConfig';
 import { logger } from '@/utils/logger';
 import { formatFileSize } from '@/utils/formatFileSize';
+import { extractErrorMessage } from '@/utils/errors';
 
 const router = useRouter();
 
@@ -87,8 +88,7 @@ async function executeInstall() {
     logger.info('Plugin sideloaded', { name: installed.name });
     router.replace(`/admin/plugins/${installed.uuid}`);
   } catch (e: unknown) {
-    const eo = e as { response?: { data?: { error?: string } } };
-    errorMessage.value = eo.response?.data?.error ?? t('plugin-sideload-error-install-failed');
+    errorMessage.value = extractErrorMessage(e, t('plugin-sideload-error-install-failed'));
     logger.error('Sideload failed', { error: e });
   } finally {
     installing.value = false;

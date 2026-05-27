@@ -167,6 +167,7 @@ import { usePasswordForm } from '@/composables/usePasswordForm';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import { extractErrorMessage } from '@/utils/errors';
 
 const router = useRouter();
 const route = useRoute();
@@ -214,8 +215,7 @@ const handleSubmit = async () => {
     resetSuccess.value = true;
   } catch (error) {
     console.error('Password reset error:', error);
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    errorMessage.value = axiosError.response?.data?.message || t('password-reset-error-failed');
+    errorMessage.value = extractErrorMessage(error, t('password-reset-error-failed'));
   } finally {
     loading.value = false;
   }

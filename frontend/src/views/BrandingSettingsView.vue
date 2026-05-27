@@ -62,8 +62,7 @@ const loadBrandingConfig = async () => {
     primaryColor.value = config.primary_color || ''
   } catch (error) {
     console.error('Failed to load branding configuration:', error)
-    const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-load')
+    errorMessage.value = extractErrorMessage(error, t('admin-branding-error-load'))
   } finally {
     isLoading.value = false
   }
@@ -91,8 +90,7 @@ const saveSettings = async () => {
     }, 3000)
   } catch (error) {
     console.error('Failed to save branding settings:', error)
-    const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-save')
+    errorMessage.value = extractErrorMessage(error, t('admin-branding-error-save'))
   } finally {
     isSaving.value = false
   }
@@ -132,8 +130,7 @@ const handleLogoUpload = async (event: Event) => {
     }, 3000)
   } catch (error) {
     console.error('Failed to upload logo:', error)
-    const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-upload-logo')
+    errorMessage.value = extractErrorMessage(error, t('admin-branding-error-upload-logo'))
   } finally {
     uploadingLogo.value = false
     input.value = ''
@@ -173,8 +170,7 @@ const handleLogoLightUpload = async (event: Event) => {
     }, 3000)
   } catch (error) {
     console.error('Failed to upload light theme logo:', error)
-    const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-upload-logo-light')
+    errorMessage.value = extractErrorMessage(error, t('admin-branding-error-upload-logo-light'))
   } finally {
     uploadingLogoLight.value = false
     input.value = ''
@@ -214,8 +210,7 @@ const handleFaviconUpload = async (event: Event) => {
     }, 3000)
   } catch (error) {
     console.error('Failed to upload favicon:', error)
-    const axiosError = error as { response?: { data?: { message?: string } } }
-    errorMessage.value = axiosError.response?.data?.message || t('admin-branding-error-upload-favicon')
+    errorMessage.value = extractErrorMessage(error, t('admin-branding-error-upload-favicon'))
   } finally {
     uploadingFavicon.value = false
     input.value = ''
