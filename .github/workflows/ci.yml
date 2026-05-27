@@ -40,7 +40,10 @@ jobs:
       greenmail:
         image: greenmail/standalone:2.1.3
         env:
-          GREENMAIL_OPTS: -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=support:hunter2@example.com -Dgreenmail.verbose
+          # No -Dgreenmail.verbose here (unlike compose.dev.yaml): CI
+          # doesn't read the wire log, and verbose dumps every IMAP/SMTP
+          # line into the job output.
+          GREENMAIL_OPTS: -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=support:hunter2@example.com
         ports:
           - 3025:3025  # SMTP  (fixture send + outbound relay)
           - 3993:3993  # IMAPS (adapter poll)

@@ -85,8 +85,14 @@ const PASSWORD: &str = "hunter2";
 
 /// Skip the whole test file if Greenmail isn't reachable — keeps
 /// `cargo test` from red-lighting on a machine that isn't running it.
+///
+/// Probes the plaintext SMTP port, not the IMAPS port: GreenMail's
+/// mail listeners all bind together, so SMTP liveness implies IMAPS is
+/// up too, and a bare TCP connect to a TLS port would make GreenMail
+/// log a noisy "Can not handle IMAP connection" when it fails to write
+/// its greeting over the unestablished TLS session.
 fn greenmail_reachable() -> bool {
-    std::net::TcpStream::connect((greenmail_host().as_str(), IMAP_PORT)).is_ok()
+    std::net::TcpStream::connect((greenmail_host().as_str(), SMTP_PORT)).is_ok()
 }
 
 /// Empty every Greenmail mailbox via the standalone API. The two tests
@@ -267,7 +273,7 @@ fn find_our_message<'a>(
 async fn poll_fetches_pending_email_and_advances_uid() {
     if !greenmail_reachable() {
         let host = greenmail_host();
-        panic!("Greenmail not reachable on {host}:{IMAP_PORT} — start via --profile email-testing");
+        panic!("Greenmail not reachable on {host}:{SMTP_PORT} — start via --profile email-testing");
     }
     purge_greenmail().await;
 
@@ -363,7 +369,7 @@ fn greenmail_email_service() -> Arc<EmailService> {
 async fn full_cycle_inbound_internal_outbound() {
     if !greenmail_reachable() {
         let host = greenmail_host();
-        panic!("Greenmail not reachable on {host}:{IMAP_PORT} — start via --profile email-testing");
+        panic!("Greenmail not reachable on {host}:{SMTP_PORT} — start via --profile email-testing");
     }
     purge_greenmail().await;
 
