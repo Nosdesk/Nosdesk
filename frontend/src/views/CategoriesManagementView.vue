@@ -8,7 +8,9 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
-import Spinner from '@/components/common/Spinner.vue';
+import Button from '@/components/common/Button.vue';
+import FormInput from '@/components/common/FormInput.vue';
+import FormTextarea from '@/components/common/FormTextarea.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue';
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
@@ -140,11 +142,16 @@ const getIconPath = (iconName: string) => {
   return icon?.path || iconOptions[0].path;
 };
 
+// Default swatch colour for categories/groups without one set. These are
+// arbitrary user-data colours (rendered as hex + alpha), so a named
+// default rather than a theme token.
+const DEFAULT_COLOR = '#6366f1';
+
 // Form state for mobile modal
 const categoryForm = ref({
   name: '',
   description: '',
-  color: '#6366f1',
+  color: DEFAULT_COLOR,
   icon: 'folder',
   is_active: true,
   visible_to_group_ids: [] as number[]
@@ -182,7 +189,7 @@ const openCreateModal = () => {
     categoryForm.value = {
       name: '',
       description: '',
-      color: '#6366f1',
+      color: DEFAULT_COLOR,
       icon: 'folder',
       is_active: true,
       visible_to_group_ids: []
@@ -200,7 +207,7 @@ const openEditModal = (category: CategoryWithVisibility) => {
     categoryForm.value = {
       name: category.name,
       description: category.description || '',
-      color: category.color || '#6366f1',
+      color: category.color || DEFAULT_COLOR,
       icon: category.icon || 'folder',
       is_active: category.is_active,
       visible_to_group_ids: category.visible_to_groups.map(g => g.id)
@@ -391,13 +398,9 @@ onMounted(() => {
             <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-categories-title') }}</h1>
             <p class="text-secondary mt-1">{{ $t('admin-categories-description') }}</p>
           </div>
-          <button
-            @click="openCreateModal"
-            class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:opacity-90 font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
-          >
-            <Icon name="add" />
+          <Button size="sm" icon="add" class="self-start sm:self-auto" @click="openCreateModal">
             {{ $t('admin-categories-new') }}
-          </button>
+          </Button>
         </div>
 
         <!-- Info notice -->
@@ -436,9 +439,11 @@ onMounted(() => {
           />
           <button
             v-if="sortField !== 'custom'"
+            type="button"
             @click="toggleSortDirection"
-            class="p-1.5 border border-default rounded-lg bg-surface-alt hover:border-strong hover:bg-surface-hover transition-colors text-secondary hover:text-primary"
+            class="p-1.5 border border-default rounded-lg bg-surface-alt hover:border-strong hover:bg-surface-hover transition-colors text-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             :title="sortAsc ? $t('admin-categories-sort-ascending') : $t('admin-categories-sort-descending')"
+            :aria-label="sortAsc ? $t('admin-categories-sort-ascending') : $t('admin-categories-sort-descending')"
           >
             <Icon
               name="chevronUp"
@@ -493,7 +498,7 @@ onMounted(() => {
                 <!-- Icon -->
                 <div
                   class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                  :style="{ backgroundColor: (category.color || '#6366f1') + '20' }"
+                  :style="{ backgroundColor: (category.color || DEFAULT_COLOR) + '20' }"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -502,7 +507,7 @@ onMounted(() => {
                     viewBox="0 0 24 24"
                     stroke="currentColor"
                     stroke-width="2"
-                    :style="{ color: category.color || '#6366f1' }"
+                    :style="{ color: category.color || DEFAULT_COLOR }"
                   >
                     <path stroke-linecap="round" stroke-linejoin="round" :d="getIconPath(category.icon || 'folder')" />
                   </svg>
@@ -556,24 +561,30 @@ onMounted(() => {
                 <div class="flex items-center gap-2 flex-shrink-0">
                   <!-- Toggle active -->
                   <button
+                    type="button"
                     @click.stop="toggleActive(category)"
-                    class="p-2 rounded-lg transition-colors"
+                    class="p-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     :class="category.is_active ? 'text-status-success hover:bg-status-success/10' : 'text-tertiary hover:bg-surface-hover'"
                     :title="category.is_active ? $t('admin-categories-action-deactivate') : $t('admin-categories-action-activate')"
+                    :aria-label="category.is_active ? $t('admin-categories-action-deactivate') : $t('admin-categories-action-activate')"
                   >
                     <Icon :name="category.is_active ? 'eye' : 'eyeOff'" />
                   </button>
                   <button
+                    type="button"
                     @click.stop="openEditModal(category)"
-                    class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
+                    class="p-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     :title="$t('admin-categories-action-edit')"
+                    :aria-label="$t('admin-categories-action-edit')"
                   >
                     <Icon name="rename" />
                   </button>
                   <button
+                    type="button"
                     @click.stop="confirmDelete(category)"
-                    class="p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
+                    class="p-2 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     :title="$t('admin-categories-action-delete')"
+                    :aria-label="$t('admin-categories-action-delete')"
                   >
                     <Icon name="trash" />
                   </button>
@@ -633,11 +644,9 @@ onMounted(() => {
       <!-- Name -->
       <div>
         <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-categories-modal-name-label') }}</label>
-        <input
+        <FormInput
           v-model="categoryForm.name"
-          type="text"
           :placeholder="$t('admin-categories-modal-name-placeholder')"
-          class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
           required
         />
       </div>
@@ -645,11 +654,10 @@ onMounted(() => {
       <!-- Description -->
       <div>
         <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-categories-modal-description-label') }}</label>
-        <textarea
+        <FormTextarea
           v-model="categoryForm.description"
           :placeholder="$t('admin-categories-modal-description-placeholder')"
-          rows="2"
-          class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-none"
+          :rows="2"
         />
       </div>
 
@@ -713,7 +721,7 @@ onMounted(() => {
             />
             <div
               class="w-3 h-3 rounded-full flex-shrink-0"
-              :style="{ backgroundColor: group.color || '#6366f1' }"
+              :style="{ backgroundColor: group.color || DEFAULT_COLOR }"
             />
             <span class="text-sm text-primary">{{ group.name }}</span>
             <span class="text-xs text-tertiary ml-auto">{{ $t('admin-categories-modal-group-members', { count: group.member_count }) }}</span>
@@ -726,21 +734,12 @@ onMounted(() => {
 
       <!-- Actions -->
       <div class="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          @click="showCategoryModal = false"
-          class="px-4 py-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-        >
+        <Button variant="ghost" @click="showCategoryModal = false">
           {{ $t('admin-categories-modal-cancel') }}
-        </button>
-        <button
-          type="submit"
-          :disabled="isSaving"
-          class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
-        >
-          <Spinner v-if="isSaving" />
+        </Button>
+        <Button type="submit" :loading="isSaving">
           {{ editingCategory ? $t('admin-categories-modal-save') : $t('admin-categories-modal-create') }}
-        </button>
+        </Button>
       </div>
     </form>
   </Modal>
@@ -758,21 +757,12 @@ onMounted(() => {
       </p>
 
       <div class="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          @click="showDeleteConfirm = false"
-          class="px-4 py-2 text-secondary hover:text-primary hover:bg-surface-hover rounded-lg transition-colors"
-        >
+        <Button variant="ghost" @click="showDeleteConfirm = false">
           {{ $t('admin-categories-delete-cancel') }}
-        </button>
-        <button
-          @click="deleteCategory"
-          :disabled="isSaving"
-          class="px-4 py-2 bg-status-error text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
-        >
-          <Spinner v-if="isSaving" />
+        </Button>
+        <Button variant="danger" :loading="isSaving" @click="deleteCategory">
           {{ $t('admin-categories-delete-confirm') }}
-        </button>
+        </Button>
       </div>
     </div>
   </Modal>
@@ -799,7 +789,7 @@ onMounted(() => {
           <!-- Icon -->
           <div
             class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-            :style="{ backgroundColor: (draggedCategory.color || '#6366f1') + '20' }"
+            :style="{ backgroundColor: (draggedCategory.color || DEFAULT_COLOR) + '20' }"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -808,7 +798,7 @@ onMounted(() => {
               viewBox="0 0 24 24"
               stroke="currentColor"
               stroke-width="2"
-              :style="{ color: draggedCategory.color || '#6366f1' }"
+              :style="{ color: draggedCategory.color || DEFAULT_COLOR }"
             >
               <path stroke-linecap="round" stroke-linejoin="round" :d="getIconPath(draggedCategory.icon || 'folder')" />
             </svg>

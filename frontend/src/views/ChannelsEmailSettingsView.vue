@@ -215,14 +215,9 @@
                 :class="inputClasses"
               />
               <div v-if="channel?.has_credential" class="flex items-center gap-4 mt-1">
-                <button
-                  type="button"
-                  class="text-xs text-status-error hover:underline"
-                  :disabled="clearing"
-                  @click="clearCredential"
-                >
+                <Button variant="ghost-danger" size="sm" :loading="clearing" @click="clearCredential">
                   {{ clearing ? $t('admin-channels-email-removing-password') : $t('admin-channels-email-remove-password') }}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -244,16 +239,15 @@
 
           <div class="flex items-center justify-between gap-4 flex-wrap border-t border-default pt-4">
             <div class="flex items-center gap-3">
-              <button
+              <Button
                 v-if="channel"
-                type="button"
-                class="px-4 py-2 bg-surface-alt border border-default rounded-lg hover:border-strong text-sm font-medium text-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                :disabled="testing || !canTest"
+                variant="secondary"
+                :loading="testing"
+                :disabled="!canTest"
                 @click="testConnection"
               >
-                <LoadingSpinner v-if="testing" size="sm" variant="inline" />
                 {{ testing ? $t('admin-channels-email-testing') : $t('admin-channels-email-test') }}
-              </button>
+              </Button>
               <span v-if="testResult === 'ok'" class="text-sm text-status-success inline-flex items-center gap-1.5">
                 <span class="inline-block w-1.5 h-1.5 rounded-full bg-status-success"></span>
                 {{ $t('admin-channels-email-test-connected') }}
@@ -268,23 +262,17 @@
               </span>
             </div>
             <div class="flex items-center gap-3">
-              <button
+              <Button
                 v-if="channel"
-                type="button"
-                class="px-4 py-2 border border-status-error-border text-status-error rounded-lg hover:bg-status-error-bg text-sm font-medium disabled:opacity-50"
-                :disabled="deleting"
+                variant="ghost-danger"
+                :loading="deleting"
                 @click="confirmAndDelete"
               >
                 {{ deleting ? $t('admin-channels-email-deleting') : $t('admin-channels-email-delete') }}
-              </button>
-              <button
-                type="submit"
-                class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium"
-                :disabled="saving || !canSave"
-              >
-                <LoadingSpinner v-if="saving" size="sm" variant="inline" />
+              </Button>
+              <Button type="submit" :loading="saving" :disabled="!canSave">
                 {{ channel ? (saving ? $t('admin-channels-email-saving') : $t('admin-channels-email-save')) : (saving ? $t('admin-channels-email-creating') : $t('admin-channels-email-create')) }}
-              </button>
+              </Button>
             </div>
           </div>
         </form>
@@ -319,6 +307,7 @@ import { useFluent } from 'fluent-vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
+import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import {
   channelsService,
@@ -379,8 +368,10 @@ const testErrorMessage = ref('');
 const successMessage = ref('');
 const errorMessage = ref('');
 
+// Mirrors the FormInput field styling so these (label-associated, number,
+// and password) inputs match the shared primitive's look + focus ring.
 const inputClasses =
-  'w-full bg-surface-alt border border-default rounded-lg px-3 py-2.5 text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors';
+  'w-full bg-surface-alt border border-subtle rounded-lg px-3 py-2 text-primary placeholder-tertiary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent';
 
 const runtimeState = computed<ImapRuntimeState>(() => {
   if (!channel.value) return {};

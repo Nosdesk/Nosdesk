@@ -22,6 +22,7 @@ import {
   type SlaPolicyBody,
 } from '@/services/slaService'
 import Checkbox from '@/components/common/Checkbox.vue'
+import Button from '@/components/common/Button.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
@@ -328,11 +329,9 @@ function fmtMinutes(m: number | null): string {
           <p class="text-[11px] text-tertiary italic">
             {{ $t('admin-sla-schedule-hint') }}
           </p>
-          <button
-            type="submit"
-            class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 disabled:opacity-50 self-end"
-            :disabled="!calendarDraft.name.trim()"
-          >{{ $t('admin-sla-create') }}</button>
+          <Button type="submit" size="sm" class="self-end" :disabled="!calendarDraft.name.trim()">
+            {{ $t('admin-sla-create') }}
+          </Button>
         </form>
       </section>
 
@@ -448,11 +447,9 @@ function fmtMinutes(m: number | null): string {
               @update:model-value="(v: boolean) => (policyDraft.is_default = v)"
             />
           </div>
-          <button
-            type="submit"
-            class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 disabled:opacity-50 self-end"
-            :disabled="!policyDraft.name.trim()"
-          >{{ $t('admin-sla-create') }}</button>
+          <Button type="submit" size="sm" class="self-end" :disabled="!policyDraft.name.trim()">
+            {{ $t('admin-sla-create') }}
+          </Button>
         </form>
       </section>
     </div>
