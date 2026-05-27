@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { getPages } from '@/services/documentationService'
 import type { Page } from '@/services/documentationService'
-import Icon from '@/components/common/Icon.vue'
+import Modal from '@/components/Modal.vue'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -62,34 +62,18 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-overlay flex items-center justify-center bg-black/40" @click.self="emit('close')">
-    <div class="bg-surface border border-default rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[70vh] flex flex-col">
-      <!-- Header -->
-      <div class="flex items-center justify-between p-4 border-b border-default">
-        <h3 class="text-sm font-semibold text-primary">{{ t('editor-doc-picker-title') }}</h3>
-        <button
-          @click="emit('close')"
-          class="text-tertiary hover:text-primary p-1 rounded-md hover:bg-surface-hover transition-colors"
-          :aria-label="t('editor-doc-picker-close')"
-          :title="t('editor-doc-picker-close')"
-        >
-          <Icon name="close" />
-        </button>
-      </div>
-
+  <Modal :show="true" :title="t('editor-doc-picker-title')" size="sm" @close="emit('close')">
+    <div class="flex flex-col gap-3">
       <!-- Search -->
-      <div class="p-3 border-b border-default">
-        <input
-          v-model="searchQuery"
-          :placeholder="t('editor-doc-picker-search-placeholder')"
-          class="w-full bg-surface-alt text-sm text-primary placeholder:text-tertiary border border-subtle rounded-lg px-3 py-2 focus:border-accent focus:outline-none"
-          autofocus
-        />
-      </div>
+      <input
+        v-model="searchQuery"
+        :placeholder="t('editor-doc-picker-search-placeholder')"
+        class="w-full bg-surface-alt text-sm text-primary placeholder:text-tertiary border border-subtle rounded-lg px-3 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent"
+      />
 
       <!-- List -->
-      <div class="flex-1 overflow-y-auto p-2">
-        <div v-if="loading" class="flex flex-col gap-2 p-2">
+      <div class="max-h-[50vh] overflow-y-auto -mx-1">
+        <div v-if="loading" class="flex flex-col gap-2 p-1">
           <div v-for="i in 5" :key="i" class="h-8 rounded bg-surface-alt animate-pulse"></div>
         </div>
 
@@ -111,5 +95,5 @@ onMounted(async () => {
         </div>
       </div>
     </div>
-  </div>
+  </Modal>
 </template>

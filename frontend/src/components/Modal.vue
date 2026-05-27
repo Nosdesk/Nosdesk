@@ -46,8 +46,18 @@ const onEscape = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && props.show) emit('close')
 }
 
-onMounted(() => document.addEventListener('keydown', onEscape))
-onUnmounted(() => document.removeEventListener('keydown', onEscape))
+onMounted(() => {
+  document.addEventListener('keydown', onEscape)
+  // Some callers v-if-mount the modal already-open rather than toggling
+  // `show`. The watcher below only fires on change, so move focus in
+  // here too when we mount in the open state.
+  if (props.show) moveFocusIntoDialog()
+})
+onUnmounted(() => {
+  document.removeEventListener('keydown', onEscape)
+  // Restore focus if we're unmounted while still open (v-if teardown).
+  restoreFocus()
+})
 
 // --- Focus trap + restore ---
 //
@@ -103,20 +113,26 @@ function onTrapKeydown(e: KeyboardEvent): void {
   }
 }
 
+async function moveFocusIntoDialog(): Promise<void> {
+  previouslyFocused = (document.activeElement as HTMLElement | null) ?? null
+  await nextTick()
+  const elements = focusableInDialog()
+  ;(elements[0] ?? dialogRef.value)?.focus()
+}
+
+function restoreFocus(): void {
+  if (!previouslyFocused) return
+  // Defer to let any teleported-element cleanup finish first.
+  const target = previouslyFocused
+  previouslyFocused = null
+  nextTick(() => target.focus())
+}
+
 watch(
   () => props.show,
-  async (open) => {
-    if (open) {
-      previouslyFocused = (document.activeElement as HTMLElement | null) ?? null
-      await nextTick()
-      const elements = focusableInDialog()
-      ;(elements[0] ?? dialogRef.value)?.focus()
-    } else if (previouslyFocused) {
-      // Defer to let any teleported-element cleanup finish first.
-      const target = previouslyFocused
-      previouslyFocused = null
-      nextTick(() => target.focus())
-    }
+  (open) => {
+    if (open) moveFocusIntoDialog()
+    else restoreFocus()
   },
 )
 </script>

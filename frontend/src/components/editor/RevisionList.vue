@@ -23,6 +23,7 @@ import type { ArticleRevision } from '@/services/versionHistoryService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Icon from '@/components/common/Icon.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import apiClient from '@/services/apiConfig'
 
@@ -323,39 +324,18 @@ onMounted(() => {
       </div>
     </div>
 
-    <Teleport to="body">
-      <div
-        v-if="showRestoreConfirm"
-        class="fixed inset-0 bg-black/50 flex items-center justify-center z-overlay"
-        @click.self="cancelRestore"
-      >
-        <div class="bg-surface rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-          <h3 class="text-lg font-semibold text-primary mb-2">{{ t('editor-revisions-confirm-title') }}</h3>
-          <p class="text-sm text-secondary mb-4">
-            {{ t('editor-revisions-confirm-body', { revision: revisionToRestore ?? '' }) }}
-          </p>
-          <p class="text-xs text-tertiary mb-6">
-            {{ t('editor-revisions-confirm-note') }}
-          </p>
-          <div class="flex gap-3">
-            <button
-              @click="cancelRestore"
-              :disabled="isRestoring"
-              class="flex-1 px-4 py-2 text-sm font-medium text-primary bg-surface-alt hover:bg-surface-hover border border-default rounded-lg transition-colors disabled:opacity-50"
-            >
-              {{ t('editor-revisions-confirm-cancel') }}
-            </button>
-            <button
-              @click="executeRestore"
-              :disabled="isRestoring"
-              class="flex-1 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50"
-            >
-              {{ isRestoring ? t('editor-revisions-restoring') : t('editor-revisions-confirm-restore') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <ConfirmModal
+      :show="showRestoreConfirm"
+      :title="t('editor-revisions-confirm-title')"
+      :message="t('editor-revisions-confirm-body', { revision: revisionToRestore ?? '' })"
+      :confirm-label="t('editor-revisions-confirm-restore')"
+      :cancel-label="t('editor-revisions-confirm-cancel')"
+      :loading="isRestoring"
+      @confirm="executeRestore"
+      @close="cancelRestore"
+    >
+      <p class="text-xs text-tertiary">{{ t('editor-revisions-confirm-note') }}</p>
+    </ConfirmModal>
   </div>
 </template>
 

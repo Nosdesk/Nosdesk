@@ -34,10 +34,10 @@ Usage:
         </button>
         <button
           type="button"
-          :disabled="confirmDisabled"
+          :disabled="confirmDisabled || loading"
           :class="[
-            'px-4 py-2 text-sm rounded-lg text-white transition-colors',
-            confirmDisabled
+            'px-4 py-2 text-sm rounded-lg text-white transition-colors inline-flex items-center justify-center gap-2',
+            confirmDisabled && !loading
               ? 'bg-surface-alt text-tertiary cursor-not-allowed'
               : variant === 'danger'
                 ? 'bg-status-error hover:opacity-90'
@@ -45,8 +45,9 @@ Usage:
                   ? 'bg-status-warning hover:opacity-90'
                   : 'bg-accent hover:opacity-90',
           ]"
-          @click="confirmDisabled ? undefined : emit('confirm')"
+          @click="confirmDisabled || loading ? undefined : emit('confirm')"
         >
+          <Spinner v-if="loading" size="xs" />
           {{ confirmLabel }}
         </button>
       </div>
@@ -56,6 +57,7 @@ Usage:
 
 <script setup lang="ts">
 import Modal from '@/components/Modal.vue';
+import Spinner from '@/components/common/Spinner.vue';
 
 withDefaults(
   defineProps<{
@@ -70,12 +72,17 @@ withDefaults(
      *  where confirm should only be reachable once a precondition
      *  is met. */
     confirmDisabled?: boolean;
+    /** When true, the Confirm button shows a spinner and is disabled
+     *  (keeps its variant colour). Use for async confirms so the
+     *  in-flight state is visible. */
+    loading?: boolean;
   }>(),
   {
     confirmLabel: 'Confirm',
     cancelLabel: 'Cancel',
     variant: 'info',
     confirmDisabled: false,
+    loading: false,
   },
 );
 
