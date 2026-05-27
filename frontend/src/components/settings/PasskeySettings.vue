@@ -10,6 +10,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
+import Modal from '@/components/Modal.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -348,108 +349,88 @@ onMounted(async () => {
   </SectionCard>
 
   <!-- Add Passkey Modal -->
-  <Teleport to="body">
-    <div v-if="showAddModal" class="fixed inset-0 z-overlay flex items-center justify-center">
-      <div class="absolute inset-0 bg-black/50" @click="closeModals"></div>
-      <div class="relative bg-surface rounded-xl border border-default shadow-xl max-w-md w-full mx-4 p-6">
-        <h3 class="text-lg font-medium text-primary mb-4">{{ $t('settings-passkey-add-modal-title') }}</h3>
-        <p class="text-sm text-tertiary mb-4">
-          {{ $t('settings-passkey-add-modal-description') }}
-        </p>
-        <div class="mb-6">
-          <FormInput
-            v-model="newPasskeyName"
-            :label="$t('settings-passkey-add-modal-name-label')"
-            :placeholder="$t('settings-passkey-add-modal-name-placeholder')"
-            maxlength="100"
-          />
-        </div>
-        <div class="flex justify-end gap-3">
-          <Button variant="ghost" @click="closeModals">
-            {{ $t('settings-passkey-modal-cancel') }}
-          </Button>
-          <Button :loading="registering" @click="handleAddPasskey">
-            {{ $t('settings-passkey-add-modal-create') }}
-          </Button>
-        </div>
+  <Modal :show="showAddModal" :title="$t('settings-passkey-add-modal-title')" size="sm" @close="closeModals">
+    <p class="text-sm text-tertiary mb-4">
+      {{ $t('settings-passkey-add-modal-description') }}
+    </p>
+    <FormInput
+      v-model="newPasskeyName"
+      :label="$t('settings-passkey-add-modal-name-label')"
+      :placeholder="$t('settings-passkey-add-modal-name-placeholder')"
+      maxlength="100"
+      @keyup.enter="handleAddPasskey"
+    />
+    <template #footer>
+      <div class="flex justify-end gap-3">
+        <Button variant="ghost" @click="closeModals">
+          {{ $t('settings-passkey-modal-cancel') }}
+        </Button>
+        <Button :loading="registering" @click="handleAddPasskey">
+          {{ $t('settings-passkey-add-modal-create') }}
+        </Button>
       </div>
-    </div>
-  </Teleport>
+    </template>
+  </Modal>
 
   <!-- Rename Modal -->
-  <Teleport to="body">
-    <div v-if="showRenameModal" class="fixed inset-0 z-overlay flex items-center justify-center">
-      <div class="absolute inset-0 bg-black/50" @click="closeModals"></div>
-      <div class="relative bg-surface rounded-xl border border-default shadow-xl max-w-md w-full mx-4 p-6">
-        <h3 class="text-lg font-medium text-primary mb-4">{{ $t('settings-passkey-rename-modal-title') }}</h3>
-        <div class="mb-6">
-          <FormInput
-            v-model="renameValue"
-            :label="$t('settings-passkey-rename-modal-name-label')"
-            :placeholder="$t('settings-passkey-rename-modal-placeholder')"
-            maxlength="100"
-          />
-        </div>
-        <div class="flex justify-end gap-3">
-          <Button variant="ghost" @click="closeModals">
-            {{ $t('settings-passkey-modal-cancel') }}
-          </Button>
-          <Button :disabled="loading || !renameValue.trim()" @click="handleRenamePasskey">
-            {{ $t('settings-passkey-rename-modal-save') }}
-          </Button>
-        </div>
+  <Modal :show="showRenameModal" :title="$t('settings-passkey-rename-modal-title')" size="sm" @close="closeModals">
+    <FormInput
+      v-model="renameValue"
+      :label="$t('settings-passkey-rename-modal-name-label')"
+      :placeholder="$t('settings-passkey-rename-modal-placeholder')"
+      maxlength="100"
+      @keyup.enter="handleRenamePasskey"
+    />
+    <template #footer>
+      <div class="flex justify-end gap-3">
+        <Button variant="ghost" @click="closeModals">
+          {{ $t('settings-passkey-modal-cancel') }}
+        </Button>
+        <Button :disabled="loading || !renameValue.trim()" @click="handleRenamePasskey">
+          {{ $t('settings-passkey-rename-modal-save') }}
+        </Button>
       </div>
-    </div>
-  </Teleport>
+    </template>
+  </Modal>
 
   <!-- Delete Modal -->
-  <Teleport to="body">
-    <div v-if="showDeleteModal" class="fixed inset-0 z-overlay flex items-center justify-center">
-      <div class="absolute inset-0 bg-black/50" @click="closeModals"></div>
-      <div class="relative bg-surface rounded-xl border border-default shadow-xl max-w-md w-full mx-4 p-6">
-        <h3 class="text-lg font-medium text-primary mb-4">{{ $t('settings-passkey-delete-modal-title') }}</h3>
-        <p class="text-sm text-tertiary mb-4">
-          {{ $t('settings-passkey-delete-modal-confirm-prefix') }} <strong class="text-primary">{{ selectedPasskey?.name }}</strong>{{ $t('settings-passkey-delete-modal-confirm-suffix') }}
-        </p>
-        <div class="mb-6">
-          <FormInput
-            v-model="deletePassword"
-            type="password"
-            :label="$t('settings-passkey-delete-modal-password-label')"
-            :placeholder="$t('settings-passkey-delete-modal-password-placeholder')"
-            autocomplete="current-password"
-          />
-        </div>
-        <div class="flex justify-end gap-3">
-          <Button variant="ghost" @click="closeModals">
-            {{ $t('settings-passkey-modal-cancel') }}
-          </Button>
-          <Button variant="danger" :disabled="loading || !deletePassword" @click="handleDeletePasskey">
-            {{ $t('settings-passkey-delete-modal-confirm') }}
-          </Button>
-        </div>
+  <Modal :show="showDeleteModal" :title="$t('settings-passkey-delete-modal-title')" size="sm" @close="closeModals">
+    <p class="text-sm text-tertiary mb-4">
+      {{ $t('settings-passkey-delete-modal-confirm-prefix') }} <strong class="text-primary">{{ selectedPasskey?.name }}</strong>{{ $t('settings-passkey-delete-modal-confirm-suffix') }}
+    </p>
+    <FormInput
+      v-model="deletePassword"
+      type="password"
+      :label="$t('settings-passkey-delete-modal-password-label')"
+      :placeholder="$t('settings-passkey-delete-modal-password-placeholder')"
+      autocomplete="current-password"
+    />
+    <template #footer>
+      <div class="flex justify-end gap-3">
+        <Button variant="ghost" @click="closeModals">
+          {{ $t('settings-passkey-modal-cancel') }}
+        </Button>
+        <Button variant="danger" :disabled="loading || !deletePassword" @click="handleDeletePasskey">
+          {{ $t('settings-passkey-delete-modal-confirm') }}
+        </Button>
       </div>
-    </div>
-  </Teleport>
+    </template>
+  </Modal>
 
   <!-- Admin Delete Passkey Modal -->
-  <Teleport to="body">
-    <div v-if="showAdminDeleteModal" class="fixed inset-0 z-overlay flex items-center justify-center">
-      <div class="absolute inset-0 bg-black/50" @click="closeModals"></div>
-      <div class="relative bg-surface rounded-xl border border-default shadow-xl max-w-md w-full mx-4 p-6">
-        <h3 class="text-lg font-medium text-primary mb-4">{{ $t('settings-passkey-delete-modal-title') }}</h3>
-        <p class="text-sm text-tertiary mb-6">
-          {{ $t('settings-passkey-admin-delete-modal-confirm-prefix') }} <strong class="text-primary">{{ adminDeleteTarget?.name }}</strong>{{ $t('settings-passkey-admin-delete-modal-confirm-suffix') }}
-        </p>
-        <div class="flex justify-end gap-3">
-          <Button variant="ghost" @click="closeModals">
-            {{ $t('settings-passkey-modal-cancel') }}
-          </Button>
-          <Button variant="danger" :loading="adminDeleting" @click="handleAdminDeletePasskey">
-            {{ $t('settings-passkey-delete-modal-confirm') }}
-          </Button>
-        </div>
+  <Modal :show="showAdminDeleteModal" :title="$t('settings-passkey-delete-modal-title')" size="sm" @close="closeModals">
+    <p class="text-sm text-tertiary">
+      {{ $t('settings-passkey-admin-delete-modal-confirm-prefix') }} <strong class="text-primary">{{ adminDeleteTarget?.name }}</strong>{{ $t('settings-passkey-admin-delete-modal-confirm-suffix') }}
+    </p>
+    <template #footer>
+      <div class="flex justify-end gap-3">
+        <Button variant="ghost" @click="closeModals">
+          {{ $t('settings-passkey-modal-cancel') }}
+        </Button>
+        <Button variant="danger" :loading="adminDeleting" @click="handleAdminDeletePasskey">
+          {{ $t('settings-passkey-delete-modal-confirm') }}
+        </Button>
       </div>
-    </div>
-  </Teleport>
+    </template>
+  </Modal>
 </template>
