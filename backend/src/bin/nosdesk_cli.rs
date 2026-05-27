@@ -41,6 +41,7 @@ use backend::repository::user_auth_identities;
 use backend::repository::user_helpers;
 use backend::repository::users as users_repo;
 use backend::services::admin_setup;
+use backend::services::avatar_thumbnails;
 use backend::services::backup as backup_service;
 use backend::services::plugins::{install, signing, trust};
 
@@ -678,11 +679,29 @@ fn db_restore(
     let files_restored = backup_service::restore_backup_files(file, password.as_deref())
         .map_err(|e| anyhow!("file restore failed: {e}"))?;
 
+    // Thumbnails aren't part of the backup payload (skipped as cheap to
+    // regenerate), so rebuild them from the restored avatar originals.
+    // This mirrors the admin HTTP restore path; without it a CLI restore
+    // leaves every profile thumbnail missing. The image pipeline is
+    // async, so drive it on a one-shot current-thread runtime.
+    let thumb_stats = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build runtime for thumbnail backfill")?
+        .block_on(avatar_thumbnails::backfill_thumbnails(
+            &mut conn,
+            avatar_thumbnails::BackfillMode::Force,
+        ));
+
     println!();
     println!("Restore complete:");
     println!("  tables restored:  {}", stats.tables_restored);
     println!("  records restored: {}", stats.records_restored);
     println!("  files restored:   {}", files_restored);
+    println!(
+        "  thumbnails:       {} regenerated, {} failed",
+        thumb_stats.regenerated, thumb_stats.failed
+    );
     if !stats.per_table.is_empty() {
         println!();
         println!("Per-table breakdown:");

@@ -14,8 +14,8 @@ use crate::models::{
     StartBackupExportRequest,
 };
 use crate::repository::backup as backup_repo;
+use crate::services::avatar_thumbnails::{backfill_thumbnails, BackfillMode};
 use crate::services::backup as backup_service;
-use crate::utils::image::generate_user_avatar_thumbnail;
 
 /// Start a backup export job
 /// POST /api/admin/backup/export
@@ -525,7 +525,14 @@ pub async fn execute_restore(
             }
         };
 
-    let thumbnails_regenerated = regenerate_user_thumbnails(&mut conn).await;
+    // Thumbnails aren't carried in the backup (skipped as cheap to
+    // regenerate), so rebuild them from the restored avatar originals.
+    // Force mode: every thumb file is gone after a restore regardless
+    // of the column state. Shared with the CLI restore and the daily
+    // backfill sweep.
+    let thumbnails_regenerated = backfill_thumbnails(&mut conn, BackfillMode::Force)
+        .await
+        .regenerated;
 
     let _ = tc.run(|conn| {
         backup_repo::update_backup_job(
@@ -598,54 +605,7 @@ pub async fn delete_job(
 // Restore now ships via `nosdesk-cli db restore`, gated on shell
 // access. Authed admin restore at /api/admin/backup/restore/*
 // is unchanged.
-
-/// Regenerate thumbnails for all users with avatars
-/// Returns the count of successfully regenerated thumbnails
-async fn regenerate_user_thumbnails(conn: &mut crate::db::DbConnection) -> u64 {
-    use diesel::RunQueryDsl;
-
-    // Query all users with avatar URLs
-    #[derive(diesel::QueryableByName)]
-    struct UserAvatar {
-        #[diesel(sql_type = diesel::sql_types::Text)]
-        uuid_str: String,
-        #[diesel(sql_type = diesel::sql_types::Text)]
-        avatar: String,
-    }
-
-    let user_avatars: Vec<UserAvatar> = match diesel::sql_query(
-        "SELECT uuid::text as uuid_str, avatar_url as avatar FROM users WHERE avatar_url IS NOT NULL"
-    ).load(conn) {
-        Ok(avatars) => avatars,
-        Err(e) => {
-            log::error!("Failed to query users for thumbnail regeneration: {e}");
-            return 0;
-        }
-    };
-
-    let mut regenerated = 0u64;
-
-    for user_avatar in user_avatars {
-        match generate_user_avatar_thumbnail(&user_avatar.avatar, &user_avatar.uuid_str).await {
-            Ok(Some(_)) => {
-                regenerated += 1;
-                log::debug!("Regenerated thumbnail for user {}", user_avatar.uuid_str);
-            }
-            Ok(None) => {
-                log::warn!(
-                    "Could not generate thumbnail for user {} - avatar may be missing",
-                    user_avatar.uuid_str
-                );
-            }
-            Err(e) => {
-                log::warn!(
-                    "Failed to regenerate thumbnail for user {}: {}",
-                    user_avatar.uuid_str,
-                    e
-                );
-            }
-        }
-    }
-
-    regenerated
-}
+//
+// Post-restore thumbnail regeneration lives in
+// `services::avatar_thumbnails` so the HTTP restore, the CLI restore,
+// and the daily backfill sweep all share one implementation.

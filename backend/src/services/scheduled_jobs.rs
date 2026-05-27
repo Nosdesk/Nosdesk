@@ -49,6 +49,27 @@ pub async fn cleanup_expired_refresh_tokens(pool: Pool) -> Result<()> {
     Ok(())
 }
 
+/// Backfill avatar thumbnails that are missing on disk or unset in the
+/// DB. Thumbnails are derived from the avatar original and are not part
+/// of backups (skipped as cheap to regenerate), so a CLI restore or a
+/// partial file sync can leave them absent. Restore paths regenerate
+/// eagerly; this daily sweep is the idempotent safety net that catches
+/// any drift and does no work once everything is in place.
+pub async fn backfill_user_thumbnails(pool: Pool) -> Result<()> {
+    use crate::services::avatar_thumbnails::{backfill_thumbnails, BackfillMode};
+    let mut conn = pool.get().context("db pool")?;
+    let stats = backfill_thumbnails(&mut conn, BackfillMode::MissingOnly).await;
+    if stats.regenerated > 0 || stats.failed > 0 {
+        info!(
+            checked = stats.checked,
+            regenerated = stats.regenerated,
+            failed = stats.failed,
+            "scheduler: avatar thumbnails backfilled"
+        );
+    }
+    Ok(())
+}
+
 /// Provision sync_actions and audit_log partitions out to the
 /// configured lookahead. Called daily so an INSERT after the last
 /// provisioned month never fails. Idempotent — uses

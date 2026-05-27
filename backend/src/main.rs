@@ -1064,7 +1064,20 @@ async fn main() -> std::io::Result<()> {
             move || jobs::purge_soft_deleted_users(p.clone(), s.clone(), sse.clone()),
         );
 
-        info!("scheduler: 5 periodic jobs spawned");
+        // Daily: backfill avatar thumbnails missing on disk or unset in
+        // the DB. Restores rebuild thumbnails eagerly (they're not in the
+        // backup payload); this is the idempotent safety net that heals
+        // any later drift and does no work in steady state.
+        let p = pool.clone();
+        spawn_periodic(
+            "users.backfill_thumbnails",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::backfill_user_thumbnails(p.clone()),
+        );
+
+        info!("scheduler: periodic jobs spawned");
     }
     let scheduler_status_data = web::Data::new(scheduler_status);
 
