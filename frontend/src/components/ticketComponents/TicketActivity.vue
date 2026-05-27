@@ -31,6 +31,7 @@ import {
 } from '@/services/ticketService'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
+import { useTicketActivitySSE } from '@/composables/useTicketActivitySSE'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Spinner from '@/components/common/Spinner.vue'
@@ -83,6 +84,41 @@ async function loadMore() {
   }
 }
 
+// Pull in activity that landed since our newest entry and prepend it.
+// Driven by SSE (useTicketActivitySSE) so the feed stays live for
+// collaborators' changes without polling. Dedupes by sync_id in case a
+// live event races an in-flight load. Best-effort: a failure is
+// swallowed; the next event or a remount recovers.
+async function refreshNewest() {
+  const headId = events.value[0]?.sync_id
+  if (headId == null) {
+    // Nothing loaded yet: a normal initial load covers it.
+    await loadInitial()
+    return
+  }
+  try {
+    const res = await getTicketActivity(props.ticketId, { after: headId, limit: 50 })
+    if (res.events.length === 0) return
+    const known = new Set(events.value.map((e) => e.sync_id))
+    const fresh = res.events.filter((e) => !known.has(e.sync_id))
+    if (fresh.length > 0) {
+      // Response is newest-first; prepend preserves overall ordering
+      // and the grouping recomputes over the merged list.
+      events.value = [...fresh, ...events.value]
+    }
+  } catch {
+    // ignore — live refresh is best-effort
+  }
+}
+
+// Live-refresh on collaborators' changes. The connection itself is
+// owned by useTicketSSE at the TicketView level; this only adds
+// listeners.
+useTicketActivitySSE(
+  computed(() => props.ticketId),
+  refreshNewest,
+)
+
 onMounted(loadInitial)
 
 // Reload when the ticket id changes (route change between tickets
@@ -91,6 +127,7 @@ onMounted(loadInitial)
 watch(() => props.ticketId, () => {
   events.value = []
   nextCursor.value = null
+  expanded.value = new Set()
   loadInitial()
 })
 
@@ -374,6 +411,89 @@ function actorFor(ev: TicketActivityEvent): ActorDisplay {
     userUuid: null,
   }
 }
+
+// ---- Grouping ---------------------------------------------------
+//
+// Consecutive low-signal field changes by the same actor within a
+// short window collapse into one "made N changes" row, expandable on
+// click. The window models "one editing session": the backend writes
+// one event per update request, so the noise we're collapsing is a
+// burst of separate edits by the same person. Comments and ticket
+// creation/deletion are milestones and never fold in — they keep
+// their own line. Grouping is purely a render concern over the
+// already-fetched events; pagination and payloads are untouched.
+
+const GROUP_WINDOW_MS = 10 * 60 * 1000 // 10 minutes — one editing session
+
+function isGroupable(ev: TicketActivityEvent): boolean {
+  return (
+    ev.event_type.startsWith('ticket.') &&
+    ev.event_type !== 'ticket.created' &&
+    ev.event_type !== 'ticket.deleted'
+  )
+}
+
+// Stable "same actor" key for run detection. Groupable events are
+// always agent/system actions, so uuid + kind fully identifies them.
+function actorKey(ev: TicketActivityEvent): string {
+  return `${ev.actor_kind}:${ev.actor_uuid ?? ''}`
+}
+
+// One shape for both row kinds (a single row carries a one-element
+// events array) so the template never narrows a union — keeps Volar
+// happy and field access uniform.
+interface TimelineItem {
+  kind: 'single' | 'bundle'
+  key: string
+  anchorId: number
+  events: TicketActivityEvent[]
+}
+
+const timeline = computed<TimelineItem[]>(() => {
+  const list = events.value
+  const items: TimelineItem[] = []
+  let i = 0
+  while (i < list.length) {
+    const ev = list[i]
+    if (isGroupable(ev)) {
+      // events are newest-first; chain older same-actor changes that
+      // fall within the window of this anchor (the newest in the run).
+      const anchorMs = new Date(ev.occurred_at).getTime()
+      const key = actorKey(ev)
+      const run = [ev]
+      let j = i + 1
+      while (
+        j < list.length &&
+        isGroupable(list[j]) &&
+        actorKey(list[j]) === key &&
+        anchorMs - new Date(list[j].occurred_at).getTime() <= GROUP_WINDOW_MS
+      ) {
+        run.push(list[j])
+        j += 1
+      }
+      if (run.length >= 2) {
+        items.push({ kind: 'bundle', key: `b${ev.sync_id}`, anchorId: ev.sync_id, events: run })
+      } else {
+        items.push({ kind: 'single', key: `s${ev.sync_id}`, anchorId: ev.sync_id, events: [ev] })
+      }
+      i = j
+    } else {
+      items.push({ kind: 'single', key: `s${ev.sync_id}`, anchorId: ev.sync_id, events: [ev] })
+      i += 1
+    }
+  }
+  return items
+})
+
+// Expanded bundles, keyed by anchor sync_id. Collapsed by default —
+// shrinking the feed is the whole point.
+const expanded = ref<Set<number>>(new Set())
+function toggleBundle(id: number) {
+  const next = new Set(expanded.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expanded.value = next
+}
 </script>
 
 <template>
@@ -405,70 +525,127 @@ function actorFor(ev: TicketActivityEvent): ActorDisplay {
     </div>
 
     <ul v-else class="flex flex-col gap-1.5">
-      <!-- Each row: actor avatar + actor name + verb phrase +
-           relative timestamp. The avatar uses the directory
-           composable so it resolves through the same sync engine
-           pool the rest of the app reads from. Actor uuid is
-           null for system-generated events (background jobs,
-           webhooks); fall back to the actor_kind label. -->
-      <li
-        v-for="ev in events"
-        :key="ev.sync_id"
-        class="flex items-start gap-2 px-2 py-1.5 rounded transition-colors"
-        :class="
-          isInternalNoteEvent(ev)
-            ? 'bg-status-warning-bg/25 border-l-2 border-status-warning-border/60'
-            : 'hover:bg-surface-hover/40'
-        "
-      >
-        <!-- Avatar / origin slot. `actorFor` picks the most
-             meaningful identity available: ticket sender for
-             channel/portal events, signed-in user for everything
-             else, "sys" badge as final fallback. Avatar lookups
-             only fire for the user path; the small badges for
-             email/portal/system are static so they don't churn the
-             directory composable. -->
-        <template v-if="actorFor(ev).kind === 'user' && actorFor(ev).userUuid">
-          <UserAvatar
-            :uuid="actorFor(ev).userUuid!"
-            size="xs"
-            :show-name="false"
-            :clickable="true"
-            class="mt-0.5"
-          />
-        </template>
-        <span
-          v-else-if="actorFor(ev).kind === 'email'"
-          class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-status-info-bg text-status-info-border text-[10px] mt-0.5 shrink-0"
-          :title="actorFor(ev).title ?? undefined"
-          :aria-label="t('ticket-activity-actor-email-aria')"
-        >@</span>
-        <span
-          v-else-if="actorFor(ev).kind === 'portal'"
-          class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-[9px] mt-0.5 shrink-0"
-          :title="actorFor(ev).title ?? undefined"
-          :aria-label="t('ticket-activity-actor-portal-aria')"
-        >www</span>
-        <span
-          v-else
-          class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-[9px] mt-0.5 shrink-0"
-          :title="actorFor(ev).title ?? undefined"
-        >sys</span>
+      <!-- Each item is either a standalone event (comment, ticket
+           creation, or a lone change) or a collapsed run of
+           consecutive field changes by one actor ("made N changes").
+           Bundles default collapsed; clicking expands the individual
+           changes. The avatar uses the directory composable so it
+           resolves through the same sync-engine pool as the rest of
+           the app; actor uuid is null for system events (background
+           jobs, webhooks), which fall back to the "sys" badge. -->
+      <template v-for="item in timeline" :key="item.key">
+        <!-- Grouped run of consecutive same-actor changes. -->
+        <li v-if="item.kind === 'bundle'" class="flex flex-col">
+          <button
+            type="button"
+            class="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-surface-hover/40 transition-colors text-left w-full"
+            :aria-expanded="expanded.has(item.anchorId)"
+            @click="toggleBundle(item.anchorId)"
+          >
+            <UserAvatar
+              v-if="actorFor(item.events[0]).kind === 'user' && actorFor(item.events[0]).userUuid"
+              :uuid="actorFor(item.events[0]).userUuid!"
+              size="xs"
+              :show-name="false"
+              :clickable="false"
+              class="mt-0.5"
+            />
+            <span
+              v-else
+              class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-[9px] mt-0.5 shrink-0"
+              :title="actorFor(item.events[0]).title ?? undefined"
+            >sys</span>
 
-        <div class="flex-1 min-w-0 text-xs text-secondary leading-relaxed">
+            <div class="flex-1 min-w-0 text-xs text-secondary leading-relaxed">
+              <span
+                class="font-medium text-primary"
+                :title="actorFor(item.events[0]).title ?? undefined"
+              >{{ actorFor(item.events[0]).name }}</span>
+              {{ t('ticket-activity-made-changes', { count: item.events.length }) }}
+              <span class="text-tertiary tabular-nums">
+                · {{ formatCompactRelativeTime(item.events[0].occurred_at) }}
+              </span>
+            </div>
+            <Icon
+              :name="expanded.has(item.anchorId) ? 'chevronUp' : 'chevronDown'"
+              class="w-3.5 h-3.5 text-tertiary mt-1 shrink-0"
+            />
+          </button>
+
+          <ul
+            v-if="expanded.has(item.anchorId)"
+            class="ml-7 mt-1 flex flex-col gap-1 border-l border-subtle pl-3"
+          >
+            <li
+              v-for="ev in item.events"
+              :key="ev.sync_id"
+              class="text-xs text-secondary leading-relaxed"
+            >
+              {{ phraseFor(ev, ctx) }}
+              <span v-if="assigneeNameFor(ev)" class="font-medium text-primary">
+                {{ t('ticket-activity-to-assignee', { name: assigneeNameFor(ev) ?? '' }) }}
+              </span>
+              <span class="text-tertiary tabular-nums">
+                · {{ formatCompactRelativeTime(ev.occurred_at) }}
+              </span>
+            </li>
+          </ul>
+        </li>
+
+        <!-- Standalone event. `actorFor` picks the most meaningful
+             identity: ticket sender for channel/portal events,
+             signed-in user otherwise, "sys" badge as final fallback. -->
+        <li
+          v-else
+          class="flex items-start gap-2 px-2 py-1.5 rounded transition-colors"
+          :class="
+            isInternalNoteEvent(item.events[0])
+              ? 'bg-status-warning-bg/25 border-l-2 border-status-warning-border/60'
+              : 'hover:bg-surface-hover/40'
+          "
+        >
+          <template v-if="actorFor(item.events[0]).kind === 'user' && actorFor(item.events[0]).userUuid">
+            <UserAvatar
+              :uuid="actorFor(item.events[0]).userUuid!"
+              size="xs"
+              :show-name="false"
+              :clickable="true"
+              class="mt-0.5"
+            />
+          </template>
           <span
-            class="font-medium text-primary"
-            :title="actorFor(ev).title ?? undefined"
-          >{{ actorFor(ev).name }}</span>
-          {{ phraseFor(ev, ctx) }}
-          <span v-if="assigneeNameFor(ev)" class="font-medium text-primary">
-            {{ t('ticket-activity-to-assignee', { name: assigneeNameFor(ev) ?? '' }) }}
-          </span>
-          <span class="text-tertiary tabular-nums">
-            · {{ formatCompactRelativeTime(ev.occurred_at) }}
-          </span>
-        </div>
-      </li>
+            v-else-if="actorFor(item.events[0]).kind === 'email'"
+            class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-status-info-bg text-status-info-border text-[10px] mt-0.5 shrink-0"
+            :title="actorFor(item.events[0]).title ?? undefined"
+            :aria-label="t('ticket-activity-actor-email-aria')"
+          >@</span>
+          <span
+            v-else-if="actorFor(item.events[0]).kind === 'portal'"
+            class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-[9px] mt-0.5 shrink-0"
+            :title="actorFor(item.events[0]).title ?? undefined"
+            :aria-label="t('ticket-activity-actor-portal-aria')"
+          >www</span>
+          <span
+            v-else
+            class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface-alt text-tertiary text-[9px] mt-0.5 shrink-0"
+            :title="actorFor(item.events[0]).title ?? undefined"
+          >sys</span>
+
+          <div class="flex-1 min-w-0 text-xs text-secondary leading-relaxed">
+            <span
+              class="font-medium text-primary"
+              :title="actorFor(item.events[0]).title ?? undefined"
+            >{{ actorFor(item.events[0]).name }}</span>
+            {{ phraseFor(item.events[0], ctx) }}
+            <span v-if="assigneeNameFor(item.events[0])" class="font-medium text-primary">
+              {{ t('ticket-activity-to-assignee', { name: assigneeNameFor(item.events[0]) ?? '' }) }}
+            </span>
+            <span class="text-tertiary tabular-nums">
+              · {{ formatCompactRelativeTime(item.events[0].occurred_at) }}
+            </span>
+          </div>
+        </li>
+      </template>
     </ul>
 
     <!-- Load-more affordance. Explicit button rather than

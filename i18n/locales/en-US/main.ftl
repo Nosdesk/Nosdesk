@@ -3248,6 +3248,10 @@ ticket-activity-actor-title-subject = { $name } — Subject: { $subject }
 ticket-activity-actor-title-named = { $name } <{ $email }>
 ticket-activity-actor-title-named-subject = { $name } <{ $email }> — Subject: { $subject }
 ticket-activity-to-assignee = to { $name }
+ticket-activity-made-changes = made { $count } { $count ->
+    [one] change
+   *[other] changes
+}
 ticket-activity-phrase-created = created this ticket
 ticket-activity-phrase-opened-via = opened this ticket via { $channel }
 ticket-activity-phrase-submitted-via = submitted this ticket via { $channel }

@@ -323,11 +323,12 @@ export interface TicketActivityResponse {
 
 export const getTicketActivity = async (
   ticketId: number,
-  options: { before?: number; limit?: number } = {},
+  options: { before?: number; after?: number; limit?: number } = {},
 ): Promise<TicketActivityResponse> => {
   const response = await apiClient.get(`/tickets/${ticketId}/activity`, {
     params: {
       before: options.before,
+      after: options.after,
       limit: options.limit,
     },
   })

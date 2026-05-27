@@ -286,6 +286,10 @@ pub struct TicketActivityQuery {
     /// Cursor — return rows with `sync_id < before` (descending
     /// pagination). Omit to fetch the most recent page.
     pub before: Option<i64>,
+    /// Cursor — return rows with `sync_id > after`, newest first.
+    /// Used to fetch activity that landed since the currently
+    /// displayed head (SSE-driven live prepend), not for paging.
+    pub after: Option<i64>,
     /// Page size. Defaults to 50, hard-capped at 200 — bigger pages
     /// are pointless for a UI timeline (the user scrolls a window
     /// at a time).
@@ -331,6 +335,7 @@ pub async fn get_ticket_activity(
         .clamp(1, MAX_ACTIVITY_LIMIT);
     let group_marker = format!("ticket:{}", ticket_id);
     let before = query.before;
+    let after = query.after;
 
     let load_result = tc.run(|conn| {
         // Fetch limit + 1 so we can detect the boundary without a
@@ -358,6 +363,9 @@ pub async fn get_ticket_activity(
 
         if let Some(b) = before {
             q = q.filter(sync_actions::sync_id.lt(b));
+        }
+        if let Some(a) = after {
+            q = q.filter(sync_actions::sync_id.gt(a));
         }
 
         q.load::<TicketActivityRow>(conn)
