@@ -9,6 +9,8 @@ import BackButton from '@/components/common/BackButton.vue';
 import Callout from '@/components/common/Callout.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
+import Button from '@/components/common/Button.vue';
+import FormInput from '@/components/common/FormInput.vue';
 import Modal from '@/components/Modal.vue';
 import HorizontalScrollContainer from '@/components/common/HorizontalScrollContainer.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
@@ -62,6 +64,11 @@ const isAdminMode = computed(() => {
 // Initialize activeTab synchronously from route to avoid flash
 const routeSection = route.params.section as string | undefined;
 const validTabs = ['profile', 'appearance', 'language', 'notifications', 'security'];
+
+// Fallback swatch colour for groups that have no colour set. Group
+// colours are arbitrary user data (rendered as hex + alpha), so this is
+// a named default rather than a theme token.
+const DEFAULT_GROUP_COLOR = '#6366f1';
 const activeTab = ref(routeSection && validTabs.includes(routeSection) ? routeSection : 'profile');
 
 // Admin user management state
@@ -569,8 +576,8 @@ const cancelDelete = () => {
                     :to="`/groups/${group.uuid}`"
                     class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity"
                     :style="{
-                      backgroundColor: (group.color || '#6366f1') + '20',
-                      color: group.color || '#6366f1',
+                      backgroundColor: (group.color || DEFAULT_GROUP_COLOR) + '20',
+                      color: group.color || DEFAULT_GROUP_COLOR,
                       ...colorFilterStyle
                     }"
                   >
@@ -671,15 +678,13 @@ const cancelDelete = () => {
                         Send a new invitation email to <span class="text-primary font-medium">{{ targetUser.email }}</span> with a secure link to set up their password.
                       </p>
                     </div>
-                    <button
+                    <Button
+                      icon="email"
+                      :loading="resendingInvitation"
                       @click="resendInvitation"
-                      :disabled="resendingInvitation"
-                      class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Spinner v-if="resendingInvitation" />
-                      <Icon v-else name="email" />
                       {{ resendingInvitation ? 'Sending...' : 'Resend Invitation' }}
-                    </button>
+                    </Button>
                   </div>
 
                   <!-- Info notice -->
@@ -763,13 +768,9 @@ const cancelDelete = () => {
                       This action cannot be undone.
                     </p>
                   </div>
-                  <button
-                    @click="openDeleteModal"
-                    class="btn-danger px-4 py-2 bg-status-error text-white rounded-lg hover:bg-status-error/80 focus:outline-none focus:ring-2 focus:ring-status-error transition-colors flex items-center gap-2 whitespace-nowrap"
-                  >
-                    <Icon name="trash" />
+                  <Button variant="danger" icon="trash" @click="openDeleteModal">
                     Delete Account
-                  </button>
+                  </Button>
                 </div>
               </div>
             </Callout>
@@ -830,14 +831,14 @@ const cancelDelete = () => {
 
         <!-- Password Input (shown when admin doesn't have MFA enabled) -->
         <div v-else class="flex flex-col gap-2">
-          <label class="text-sm font-medium text-secondary">
+          <label for="delete-confirm-password" class="text-sm font-medium text-secondary">
             Enter your password to confirm:
           </label>
-          <input
+          <FormInput
+            id="delete-confirm-password"
             v-model="deletePassword"
             type="password"
             autocomplete="current-password"
-            class="w-full px-4 py-2 bg-surface-alt text-primary rounded-lg border border-default focus:ring-2 focus:ring-status-error focus:outline-none"
             :placeholder="t('user-settings-password-placeholder')"
             @keyup.enter="deleteAccount"
           />
@@ -847,21 +848,17 @@ const cancelDelete = () => {
         </div>
 
         <div class="flex justify-end gap-3 pt-2">
-          <button
-            @click="cancelDelete"
-            :disabled="isDeleting"
-            class="px-4 py-2 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover transition-colors disabled:opacity-50"
-          >
+          <Button variant="secondary" :disabled="isDeleting" @click="cancelDelete">
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="danger"
+            :loading="isDeleting"
+            :disabled="adminMfaEnabled ? (!deleteMfaCode || deleteMfaCode.length < 6) : !deletePassword"
             @click="deleteAccount"
-            :disabled="(adminMfaEnabled ? (!deleteMfaCode || deleteMfaCode.length < 6) : !deletePassword) || isDeleting"
-            class="btn-danger px-4 py-2 bg-status-error text-white rounded-lg hover:bg-status-error/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            <Spinner v-if="isDeleting" />
             {{ isDeleting ? 'Deleting...' : 'Delete Account Permanently' }}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
