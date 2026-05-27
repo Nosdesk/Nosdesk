@@ -104,7 +104,7 @@ async fn check_for_updates() -> Option<(String, String)> {
         .ok()?;
 
     let response = client
-        .get("https://api.github.com/repos/kylephillipsau/nosdesk/releases/latest")
+        .get("https://api.github.com/repos/Nosdesk/Nosdesk/releases/latest")
         .send()
         .await
         .ok()?;

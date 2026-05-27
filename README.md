@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://nosdesk.com">Website</a> ·
   <a href="https://nosdesk.com/docs">Documentation</a> ·
-  <a href="https://github.com/kylephillipsau/Nosdesk/issues">Report a Bug</a>
+  <a href="https://github.com/Nosdesk/Nosdesk/issues">Report a Bug</a>
 </p>
 
 ---
@@ -36,7 +36,7 @@ You'll need Docker and Docker Compose installed.
 
 ```bash
 # Clone the repository
-git clone https://github.com/kylephillipsau/Nosdesk.git
+git clone https://github.com/Nosdesk/Nosdesk.git
 cd Nosdesk
 
 # Create your environment file
@@ -172,4 +172,10 @@ on the install pipeline.
 
 ## License
 
-This project is licensed under the Business Source License. See the [LICENSE](LICENSE) file for details.
+Nosdesk is licensed under the Business Source License 1.1. See the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2026 Nosdesk Pty Ltd.
+
+## Trademark
+
+Nosdesk&trade; and the Nosdesk logo are trademarks of Nosdesk Pty Ltd. The license above grants no right to use these marks (see the trademark reservation in the [LICENSE](LICENSE)); you may not use the Nosdesk name or logo to brand a derivative or fork in a way that implies endorsement or affiliation.
