@@ -8,6 +8,7 @@ import userService from '@/services/userService';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
+import { extractErrorMessage } from '@/utils/errors';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Modal from '@/components/Modal.vue';
@@ -141,8 +142,7 @@ const handleAdminDeletePasskey = async () => {
     adminDeleteTarget.value = null;
     emit('success', t('settings-passkey-admin-delete-success'));
   } catch (err) {
-    const axiosError = err as { response?: { data?: { message?: string } } };
-    emit('error', axiosError.response?.data?.message || t('settings-passkey-admin-delete-error'));
+    emit('error', extractErrorMessage(err, t('settings-passkey-admin-delete-error')));
   } finally {
     adminDeleting.value = false;
   }

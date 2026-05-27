@@ -4,6 +4,7 @@ import { useFluent } from 'fluent-vue';
 import userService from '@/services/userService';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
+import { extractErrorMessage } from '@/utils/errors';
 import Spinner from '@/components/common/Spinner.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
@@ -71,8 +72,7 @@ const addEmail = async () => {
       await fetchUserEmails(); // Refresh list
     }
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    const message = axiosError.response?.data?.message || t('settings-emails-add-error');
+    const message = extractErrorMessage(error, t('settings-emails-add-error'));
     emit('error', message);
   } finally {
     addingEmail.value = false;
@@ -86,8 +86,7 @@ const setAsPrimary = async (emailId: number, emailAddress: string) => {
     emit('success', t('settings-emails-set-primary-success', { email: emailAddress }));
     await fetchUserEmails(); // Refresh list
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    const message = axiosError.response?.data?.message || t('settings-emails-set-primary-error');
+    const message = extractErrorMessage(error, t('settings-emails-set-primary-error'));
     emit('error', message);
   }
 };
@@ -108,8 +107,7 @@ const doDeleteEmail = async () => {
     emit('success', t('settings-emails-delete-success'));
     await fetchUserEmails(); // Refresh list
   } catch (error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    const message = axiosError.response?.data?.message || t('settings-emails-delete-error');
+    const message = extractErrorMessage(error, t('settings-emails-delete-error'));
     emit('error', message);
   }
 };

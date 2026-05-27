@@ -4,6 +4,7 @@ import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import authService from '@/services/authService';
 import userService from '@/services/userService';
+import { extractErrorMessage } from '@/utils/errors';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
@@ -76,8 +77,7 @@ const changePassword = async () => {
 
     emit('success', t('settings-security-success-changed'));
   } catch (err) {
-    const axiosError = err as { response?: { data?: { message?: string } } };
-    const errorMessage = axiosError.response?.data?.message || t('settings-security-error-change-failed');
+    const errorMessage = extractErrorMessage(err, t('settings-security-error-change-failed'));
     emit('error', errorMessage);
     console.error('Error changing password:', err);
   } finally {
@@ -99,8 +99,7 @@ const adminResetPassword = async () => {
 
     emit('success', t('settings-security-success-reset'));
   } catch (err) {
-    const axiosError = err as { response?: { data?: { message?: string } } };
-    const errorMessage = axiosError.response?.data?.message || t('settings-security-error-reset-failed');
+    const errorMessage = extractErrorMessage(err, t('settings-security-error-reset-failed'));
     emit('error', errorMessage);
   } finally {
     loading.value = false;

@@ -7,6 +7,7 @@ import OtpInput from "@/components/common/OtpInput.vue";
 import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
+import { extractErrorMessage } from "@/utils/errors";
 import Button from "@/components/common/Button.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useMfaSetupStore } from "@/stores/mfaSetup";
@@ -55,8 +56,7 @@ const adminDisableMfa = async () => {
         }
         emit("success", t("settings-mfa-admin-disable-success"));
     } catch (err) {
-        const axiosError = err as { response?: { data?: { message?: string } } };
-        emit("error", axiosError.response?.data?.message || t("settings-mfa-admin-disable-error"));
+        emit("error", extractErrorMessage(err, t("settings-mfa-admin-disable-error")));
     } finally {
         adminDisabling.value = false;
     }

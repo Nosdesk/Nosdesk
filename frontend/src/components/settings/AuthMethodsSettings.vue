@@ -191,8 +191,7 @@ const removeAuthMethod = async (methodId: string, methodType: string) => {
     emit('success', t('settings-auth-methods-remove-success'));
   } catch (err) {
     // Extract error message from backend response
-    const axiosError = err as { response?: { data?: { message?: string } } };
-    const errorMessage = axiosError.response?.data?.message || t('settings-auth-methods-remove-error');
+    const errorMessage = extractErrorMessage(err, t('settings-auth-methods-remove-error'));
     emit('error', errorMessage);
     logger.error('Failed to remove auth method', { error: err, methodId, methodType });
   } finally {
@@ -209,8 +208,7 @@ const adminRemoveAuthMethod = async (methodId: string) => {
     await loadAuthData();
     emit('success', t('settings-auth-methods-remove-success'));
   } catch (err) {
-    const axiosError = err as { response?: { data?: { message?: string } } };
-    const errorMessage = axiosError.response?.data?.message || t('settings-auth-methods-remove-error');
+    const errorMessage = extractErrorMessage(err, t('settings-auth-methods-remove-error'));
     emit('error', errorMessage);
     logger.error('Failed to remove auth method (admin)', { error: err, methodId });
   } finally {
