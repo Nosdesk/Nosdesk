@@ -368,7 +368,11 @@ enum SlaBreachKind {
 /// into that ticket's workspace context so the audited
 /// `sla_*_breached_at` UPDATE and the emitted sync_action attribute
 /// to the correct workspace.
-pub async fn detect_sla_breaches(pool: Pool) -> Result<()> {
+pub async fn detect_sla_breaches(
+    pool: Pool,
+    notification_service: Arc<crate::services::notifications::NotificationService>,
+    sse_state: Arc<crate::handlers::sse::SseState>,
+) -> Result<()> {
     let mut conn = pool.get().context("db pool")?;
     let candidates =
         scan_breach_candidates(&mut conn).context("scan SLA breach candidates")?;
@@ -379,8 +383,18 @@ pub async fn detect_sla_breaches(pool: Pool) -> Result<()> {
     let (mut processed, mut failed) = (0usize, 0usize);
     for (ticket_id, kind, workspace_id) in candidates {
         match process_one_breach(&mut conn, ticket_id, kind, workspace_id) {
-            Ok(true) => processed += 1,
-            Ok(false) => {} // lost the idempotency race — normal no-op
+            Ok(Some(ctx)) => {
+                processed += 1;
+                // Async fanout outside the DB workspace context:
+                // notify the assignee + watchers via NotificationService
+                // (in-app + email through the existing channels), and
+                // broadcast SseEvent::SlaBreached on the global topic
+                // so the webhook listener can fire `ticket.sla_breached`
+                // deliveries. The pill repaint already flowed through
+                // the sync_action emit inside process_one_breach.
+                fanout_breach(&notification_service, &sse_state, &ctx).await;
+            }
+            Ok(None) => {} // lost the idempotency race — normal no-op
             Err(e) => {
                 failed += 1;
                 warn!(
@@ -440,23 +454,40 @@ fn scan_breach_candidates(
     Ok(candidates)
 }
 
-/// Atomically stamp the breach + emit a pill-refresh sync_action.
-/// Runs in the ticket's workspace context so the audited stamp and
-/// the emit attribute to the correct workspace. Returns `Ok(false)`
-/// when the idempotency guard caught a duplicate (another tick won
-/// the race) — a normal no-op, not an error.
+/// Everything the orchestrator needs to fan out an SLA breach
+/// after `process_one_breach` has done its DB work. Computed inside
+/// the workspace context (so the watcher / assignee lookups attribute
+/// correctly) and returned out so the async notification + SSE work
+/// happens outside any DB transaction.
+struct BreachContext {
+    ticket_id: i32,
+    ticket_title: String,
+    kind: SlaBreachKind,
+    target_at: chrono::DateTime<chrono::Utc>,
+    breached_at: chrono::DateTime<chrono::Utc>,
+    assignee_uuid: Option<uuid::Uuid>,
+    watcher_uuids: Vec<uuid::Uuid>,
+}
+
+/// Atomically stamp the breach + emit a pill-refresh sync_action +
+/// gather the bits the orchestrator needs for the async fanout. Runs
+/// in the ticket's workspace context so the audited stamp and the
+/// emit attribute to the correct workspace. Returns `Ok(None)` when
+/// the idempotency guard caught a duplicate (another tick won the
+/// race) — a normal no-op, not an error.
 fn process_one_breach(
     conn: &mut crate::db::DbConnection,
     ticket_id: i32,
     kind: SlaBreachKind,
     workspace_id: i32,
-) -> Result<bool, diesel::result::Error> {
+) -> Result<Option<BreachContext>, diesel::result::Error> {
     use crate::models::Ticket;
     use crate::schema::tickets;
     use crate::sync::actor::ActorContext;
     use crate::sync::emit::{self, SyncEmit};
     use crate::sync::groups;
     use crate::sync::session::with_actor_context;
+    use chrono::{DateTime, Utc};
     use diesel::prelude::*;
     use serde_json::json;
 
@@ -476,7 +507,7 @@ fn process_one_breach(
                 .execute(conn)?,
         };
         if stamped == 0 {
-            return Ok(false);
+            return Ok(None);
         }
         // Reload to capture the freshly-stamped *_breached_at and
         // compute a pill whose breached flag now reads true.
@@ -495,6 +526,124 @@ fn process_one_breach(
                 causation_id: None,
             },
         )?;
-        Ok(true)
+        let watcher_uuids = crate::repository::ticket_watchers::watcher_uuids(conn, ticket_id)
+            .unwrap_or_default();
+        let (target_at, breached_at) = match kind {
+            SlaBreachKind::Response => (
+                ticket.sla_response_target_at,
+                ticket.sla_response_breached_at,
+            ),
+            SlaBreachKind::Resolution => (
+                ticket.sla_resolution_target_at,
+                ticket.sla_resolution_breached_at,
+            ),
+        };
+        // The stamp above guarantees breached_at is now Some;
+        // target_at is non-null because the scan predicate required
+        // it. Both should resolve, but degrade gracefully if not.
+        let now = Utc::now();
+        let to_utc = |opt: Option<chrono::NaiveDateTime>| -> DateTime<Utc> {
+            opt.map(|t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc))
+                .unwrap_or(now)
+        };
+        Ok(Some(BreachContext {
+            ticket_id,
+            ticket_title: ticket.title.clone(),
+            kind,
+            target_at: to_utc(target_at),
+            breached_at: to_utc(breached_at),
+            assignee_uuid: ticket.assignee_uuid,
+            watcher_uuids,
+        }))
     })
+}
+
+/// Async fanout for one detected breach. The DB work already
+/// committed in `process_one_breach`; this does the user-visible
+/// surfaces: in-app + email notification to the assignee and every
+/// watcher (deduped), plus an SSE broadcast on the global topic so
+/// the webhook listener can fire `ticket.sla_breached` deliveries.
+async fn fanout_breach(
+    notification_service: &crate::services::notifications::NotificationService,
+    sse_state: &crate::handlers::sse::SseState,
+    ctx: &BreachContext,
+) {
+    use crate::services::notifications::types::{
+        NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
+    };
+
+    // System-triggered: no human actor. nil uuid + "System" name is
+    // the convention other system-triggered notifications would use.
+    let actor = NotificationActor {
+        uuid: uuid::Uuid::nil(),
+        name: "System".to_string(),
+        avatar_thumb: None,
+    };
+    let entity = NotificationEntity::Ticket {
+        id: ctx.ticket_id,
+        title: ctx.ticket_title.clone(),
+    };
+
+    let timer_label = ctx.kind.label();
+    let body = format!(
+        "{} SLA on #{} \"{}\" breached at {}",
+        timer_label,
+        ctx.ticket_id,
+        ctx.ticket_title,
+        ctx.breached_at.format("%Y-%m-%d %H:%M UTC"),
+    );
+
+    // Recipients: assignee + watchers, deduped. Skip if no recipient
+    // (an unassigned ticket with no watchers has nobody to notify —
+    // the pill still flips via the sync_action; the webhook still
+    // fires below).
+    let mut recipients: Vec<uuid::Uuid> = ctx
+        .assignee_uuid
+        .into_iter()
+        .chain(ctx.watcher_uuids.iter().copied())
+        .collect();
+    recipients.sort();
+    recipients.dedup();
+    for recipient in recipients {
+        let payload = NotificationPayload::new(
+            NotificationTypeCode::SlaBreached,
+            recipient,
+            actor.clone(),
+            entity.clone(),
+        )
+        .with_body(body.clone());
+        if let Err(e) = notification_service.notify(payload).await {
+            warn!(
+                ticket_id = ctx.ticket_id,
+                recipient = %recipient,
+                error = %e,
+                "scheduler:sla_breach: notify failed"
+            );
+        }
+    }
+
+    // Broadcast on global topic for webhook fanout. The pill repaint
+    // already flowed through the sync_action emit inside
+    // process_one_breach, so connected clients don't need this event
+    // to update their UI — it exists purely as the
+    // `ticket.sla_breached` channel for configured webhooks.
+    sse_state
+        .broadcast_event(crate::handlers::sse::SseEvent::SlaBreached {
+            ticket_id: ctx.ticket_id,
+            ticket_title: ctx.ticket_title.clone(),
+            timer: timer_label,
+            target_at: ctx.target_at,
+            breached_at: ctx.breached_at,
+            timestamp: chrono::Utc::now(),
+        })
+        .await;
+}
+
+impl SlaBreachKind {
+    fn label(&self) -> &'static str {
+        match self {
+            SlaBreachKind::Response => "Response",
+            SlaBreachKind::Resolution => "Resolution",
+        }
+    }
 }

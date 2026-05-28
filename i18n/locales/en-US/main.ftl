@@ -96,6 +96,7 @@ notif-mentioned = [{ $app }] { $actor } mentioned you
 notif-ticket-created-requester = [{ $app }] Ticket created: { $title }
 notif-doc-page-updated = [{ $app }] Page updated: { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
+notif-sla-breached = [{ $app }] SLA breached: { $title }
 # Notification email body. The user-authored payload (`body`)
 # stays verbatim, escaped at the Rust boundary. Only the
 # connector copy below gets translated.

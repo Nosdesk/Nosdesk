@@ -18,6 +18,7 @@ pub enum NotificationTypeCode {
     TicketCreatedRequester,
     DocPageUpdated,
     AssetLowStock,
+    SlaBreached,
 }
 
 impl NotificationTypeCode {
@@ -30,6 +31,7 @@ impl NotificationTypeCode {
             Self::TicketCreatedRequester => "ticket_created_requester",
             Self::DocPageUpdated => "doc_page_updated",
             Self::AssetLowStock => "asset_low_stock",
+            Self::SlaBreached => "sla_breached",
         }
     }
 
@@ -42,6 +44,7 @@ impl NotificationTypeCode {
             "ticket_created_requester" => Some(Self::TicketCreatedRequester),
             "doc_page_updated" => Some(Self::DocPageUpdated),
             "asset_low_stock" => Some(Self::AssetLowStock),
+            "sla_breached" => Some(Self::SlaBreached),
             _ => None,
         }
     }
@@ -56,6 +59,7 @@ impl NotificationTypeCode {
             Self::TicketCreatedRequester => "Ticket Created",
             Self::DocPageUpdated => "Documentation Page Updated",
             Self::AssetLowStock => "Low Stock Alert",
+            Self::SlaBreached => "SLA Breached",
         }
     }
 }

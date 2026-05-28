@@ -46,6 +46,9 @@ pub enum WebhookEventType {
     UserCreated,
     UserUpdated,
     UserDeleted,
+
+    // SLA events
+    TicketSlaBreached,
 }
 
 impl WebhookEventType {
@@ -73,6 +76,7 @@ impl WebhookEventType {
             Self::UserCreated => "user.created",
             Self::UserUpdated => "user.updated",
             Self::UserDeleted => "user.deleted",
+            Self::TicketSlaBreached => "ticket.sla_breached",
         }
     }
 
@@ -101,6 +105,7 @@ impl WebhookEventType {
             "user.created" => Some(Self::UserCreated),
             "user.updated" => Some(Self::UserUpdated),
             "user.deleted" => Some(Self::UserDeleted),
+            "ticket.sla_breached" => Some(Self::TicketSlaBreached),
             _ => None,
         }
     }
@@ -129,6 +134,7 @@ impl WebhookEventType {
             "user.created",
             "user.updated",
             "user.deleted",
+            "ticket.sla_breached",
         ]
     }
 
@@ -189,6 +195,7 @@ impl WebhookEventType {
             // hit /api/sync/delta directly), so no resource_type to
             // report.
             SseEvent::SyncActions { .. } => None,
+            SseEvent::SlaBreached { .. } => Some(Self::TicketSlaBreached),
         }
     }
 }
@@ -229,6 +236,7 @@ mod tests {
             WebhookEventType::UserCreated,
             WebhookEventType::UserUpdated,
             WebhookEventType::UserDeleted,
+            WebhookEventType::TicketSlaBreached,
         ];
         for variant in &variants {
             let s = variant.as_str();
@@ -251,7 +259,7 @@ mod tests {
 
     #[test]
     fn all_returns_correct_count() {
-        assert_eq!(WebhookEventType::all().len(), 21);
+        assert_eq!(WebhookEventType::all().len(), 22);
     }
 
     #[test]

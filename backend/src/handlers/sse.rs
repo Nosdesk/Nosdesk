@@ -262,6 +262,22 @@ pub enum SseEvent {
         last_sync_id: i64,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// SLA breach fired by the scheduled detection sweep. The pill
+    /// repaint flows through `ticket.sla_updated` sync_actions
+    /// already (see `services::scheduled_jobs::detect_sla_breaches`);
+    /// this event is the webhook-fanout channel so subscribers
+    /// listening on the global SSE topic can pick up
+    /// `ticket.sla_breached` deliveries. Carries the timer kind so
+    /// downstream consumers can route response vs resolution breaches
+    /// separately without resolving the ticket payload themselves.
+    SlaBreached {
+        ticket_id: i32,
+        ticket_title: String,
+        timer: &'static str,
+        target_at: chrono::DateTime<chrono::Utc>,
+        breached_at: chrono::DateTime<chrono::Utc>,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
 }
 
 fn event_type_str(event: &SseEvent) -> &'static str {
@@ -301,6 +317,7 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::Heartbeat { .. } => "heartbeat",
         SseEvent::NotificationReceived { .. } => "notification-received",
         SseEvent::SyncActions { .. } => "sync-actions",
+        SseEvent::SlaBreached { .. } => "ticket.sla_breached",
     }
 }
 

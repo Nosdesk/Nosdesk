@@ -80,6 +80,7 @@ impl EmailChannel {
             NotificationTypeCode::TicketCreatedRequester => "notif-ticket-created-requester",
             NotificationTypeCode::DocPageUpdated => "notif-doc-page-updated",
             NotificationTypeCode::AssetLowStock => "notif-asset-low-stock",
+            NotificationTypeCode::SlaBreached => "notif-sla-breached",
         };
 
         // Pass every possible arg; Fluent silently ignores unused
