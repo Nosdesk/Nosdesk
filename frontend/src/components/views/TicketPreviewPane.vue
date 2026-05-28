@@ -26,7 +26,7 @@
  * Cross-fade transition on `card.id` so arrow-scrubbing through
  * rows feels continuous rather than snap-replacing the panel.
  */
-import { toRef } from 'vue'
+import { computed, toRef } from 'vue'
 import Icon from '@/components/common/Icon.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserCell from '@/components/views/UserCell.vue'
@@ -36,7 +36,7 @@ import {
   priorityLabel,
   priorityToneClass,
 } from '@/utils/priorityHelpers'
-import { useSlaState } from '@/composables/useSlaState'
+import { useSlaState, useSlaTimers, type SlaState } from '@/composables/useSlaState'
 import {
   formatCleanRelativeTime,
   formatDateTime,
@@ -66,6 +66,25 @@ function fullDateTime(iso: string | null | undefined): string {
 }
 
 const slaState = useSlaState(toRef(props, 'card'))
+const slaTimers = useSlaTimers(toRef(props, 'card'))
+
+// What the SLA section renders: both timers labelled when the policy
+// has both targets configured, otherwise the one timer unlabeled.
+// The labelKey is resolved by the template's $t so we don't have to
+// pull in useFluent here. Computed so the template loop renders one
+// shape regardless of how many timers exist; the empty-array case
+// naturally hides the section.
+const slaRows = computed<Array<{ labelKey: string | null; state: SlaState }>>(() => {
+  const { response, resolution } = slaTimers.value
+  if (response && resolution) {
+    return [
+      { labelKey: 'views-ticket-preview-sla-response', state: response },
+      { labelKey: 'views-ticket-preview-sla-resolution', state: resolution },
+    ]
+  }
+  const only = response ?? resolution
+  return only ? [{ labelKey: null, state: only }] : []
+})
 
 function onOpen(): void {
   if (props.card) emit('open', props.card.id)
@@ -246,17 +265,23 @@ function onOpen(): void {
             </div>
           </section>
 
-          <!-- SLA section: dedicated visualization. The bar gives
-               a peripheral urgency cue; the detail line carries
-               the precise time + target. -->
-          <section v-if="slaState" class="px-5 pt-5 pb-5 border-t border-subtle/60">
-            <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-3">
+          <!-- SLA section: per-timer row(s). When the matched policy
+               has both a response and a resolution target the section
+               stacks both with labels; with only one configured the
+               row is unlabeled (the section heading already names
+               what it is). The bar gives peripheral urgency; the
+               detail line carries the precise time + target. -->
+          <section v-if="slaRows.length > 0" class="px-5 pt-5 pb-5 border-t border-subtle/60 flex flex-col gap-4">
+            <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary">
               {{ $t('views-ticket-preview-sla') }}
             </h3>
-            <div class="flex flex-col gap-2">
+            <div v-for="row in slaRows" :key="row.labelKey ?? 'single'" class="flex flex-col gap-2">
               <div class="flex items-center justify-between text-xs">
-                <span class="font-medium" :class="slaState.toneClass">{{ slaState.statusLabel }}</span>
-                <span class="text-tertiary tabular-nums">{{ slaState.target }}</span>
+                <span class="flex items-center gap-2 font-medium" :class="row.state.toneClass">
+                  <span v-if="row.labelKey" class="text-tertiary font-normal">{{ $t(row.labelKey) }}</span>
+                  {{ row.state.statusLabel }}
+                </span>
+                <span class="text-tertiary tabular-nums">{{ row.state.target }}</span>
               </div>
               <!-- Time bar. Width animates between cards via the
                    transition on `width` so cross-fading rows feels
@@ -264,11 +289,11 @@ function onOpen(): void {
               <div class="h-1.5 rounded-full bg-surface-hover overflow-hidden">
                 <div
                   class="h-full rounded-full transition-[width,background-color] duration-500"
-                  :class="slaState.barClass"
-                  :style="{ width: `${slaState.fraction * 100}%` }"
+                  :class="row.state.barClass"
+                  :style="{ width: `${row.state.fraction * 100}%` }"
                 />
               </div>
-              <p class="text-[11px] text-tertiary">{{ slaState.detail }}</p>
+              <p class="text-[11px] text-tertiary">{{ row.state.detail }}</p>
             </div>
           </section>
 

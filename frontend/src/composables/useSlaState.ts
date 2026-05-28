@@ -284,3 +284,17 @@ export function deriveSlaTimers(
     resolution: sla.resolution ? deriveSlaState(sla.resolution, now) : null,
   }
 }
+
+/** Reactive form of [`deriveSlaTimers`] — pairs the same shared 30s
+ *  tick that drives `useSlaState` so the stacked preview-pane rows
+ *  stay perfectly in sync with the compact list pill. */
+export function useSlaTimers(
+  card: Ref<CardData | null> | (() => CardData | null),
+): ComputedRef<{ response: SlaState | null; resolution: SlaState | null }> {
+  onMounted(subscribeTick)
+  onUnmounted(unsubscribeTick)
+  return computed(() => {
+    const c = typeof card === 'function' ? card() : card.value
+    return deriveSlaTimers(c, tickNow.value)
+  })
+}
