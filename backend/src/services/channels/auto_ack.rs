@@ -299,6 +299,11 @@ mod tests {
             recurrence_template_id: None,
             resolution_notes: None,
             workspace_id: 1,
+            first_response_at: None,
+            sla_response_target_at: None,
+            sla_response_breached_at: None,
+            sla_resolution_target_at: None,
+            sla_resolution_breached_at: None,
         }
     }
 
