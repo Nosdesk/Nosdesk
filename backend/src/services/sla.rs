@@ -201,6 +201,16 @@ pub struct SlaTimer {
     pub seconds_remaining: Option<i64>,
 }
 
+impl SlaTimer {
+    /// Does this timer belong in the breach-detection scan? True when
+    /// it's still ticking — neither met (response only) nor paused.
+    /// The stamping helper writes `target_at = NULL` for non-scannable
+    /// timers so the partial scan index naturally excludes the row.
+    fn is_scannable(&self) -> bool {
+        self.met_at.is_none() && !self.paused
+    }
+}
+
 /// Full SLA payload for one ticket. The most-urgent active timer's
 /// fields are flattened to the top level so every v1 consumer
 /// (`TicketRow` pill column, the filter facet, `KanbanBoard`) keeps
@@ -376,31 +386,47 @@ pub fn compute_pill(
 /// previous (now stale) pill until the next bootstrap. Returns
 /// `Value::Null` when no policy matches; the frontend treats that as
 /// "no SLA on this ticket" and hides the pill.
-pub fn compute_pill_for_ticket(
+/// Recompute one ticket's SLA pill and persist the materialised
+/// target timestamps in the same call. Used by mutation paths
+/// (status / priority / category change, first-response stamp, the
+/// breach-detection sweep) so the `sla_response_target_at` /
+/// `sla_resolution_target_at` columns the breach job scans against
+/// stay in lockstep with the JSON pill the frontend renders. Returns
+/// the pill JSON to slot into the `ticket.sla_updated` sync_action;
+/// `Value::Null` when no policy applies (and the materialised columns
+/// are cleared so the breach scan ignores the row).
+pub fn recompute_and_stamp_sla_for_ticket(
     conn: &mut crate::db::DbConnection,
     ticket: &Ticket,
 ) -> serde_json::Value {
+    let pill = load_pill_for_ticket(conn, ticket);
+    let (response_target, resolution_target) = pill
+        .as_ref()
+        .map(targets_from_pill)
+        .unwrap_or((None, None));
+    set_sla_targets(conn, ticket.id, response_target, resolution_target);
+    pill.and_then(|p| serde_json::to_value(p).ok())
+        .unwrap_or(serde_json::Value::Null)
+}
+
+/// Load every input the engine needs for one ticket and run
+/// `compute_pill`. Returns `None` when any link in the chain is
+/// missing (no matching policy, policy without a calendar, calendar
+/// row gone, no configured targets) — callers either return null JSON
+/// or clear the materialised columns accordingly.
+fn load_pill_for_ticket(
+    conn: &mut crate::db::DbConnection,
+    ticket: &Ticket,
+) -> Option<SlaPill> {
     use crate::schema::{
         sla_policies, working_calendar_holidays, working_calendars, workflow_states,
     };
     use diesel::prelude::*;
 
-    let policies: Vec<SlaPolicy> = match sla_policies::table.load(conn) {
-        Ok(p) => p,
-        Err(_) => return serde_json::Value::Null,
-    };
-    let Some(policy) = pick_policy(&policies, ticket) else {
-        return serde_json::Value::Null;
-    };
-    let Some(cal_id) = policy.working_calendar_id else {
-        return serde_json::Value::Null;
-    };
-    let Ok(calendar) = working_calendars::table
-        .find(cal_id)
-        .first::<WorkingCalendar>(conn)
-    else {
-        return serde_json::Value::Null;
-    };
+    let policies: Vec<SlaPolicy> = sla_policies::table.load(conn).ok()?;
+    let policy = pick_policy(&policies, ticket)?;
+    let cal_id = policy.working_calendar_id?;
+    let calendar: WorkingCalendar = working_calendars::table.find(cal_id).first(conn).ok()?;
     let holidays: HashSet<NaiveDate> = working_calendar_holidays::table
         .filter(working_calendar_holidays::calendar_id.eq(cal_id))
         .select(working_calendar_holidays::date)
@@ -413,9 +439,46 @@ pub fn compute_pill_for_ticket(
         .first::<WorkflowStateCategory>(conn)
         .unwrap_or(WorkflowStateCategory::Backlog);
 
-    match compute_pill(ticket, category, policy, &calendar, &holidays, Utc::now()) {
-        Some(pill) => serde_json::to_value(pill).unwrap_or(serde_json::Value::Null),
-        None => serde_json::Value::Null,
+    compute_pill(ticket, category, policy, &calendar, &holidays, Utc::now())
+}
+
+/// Derive the (response, resolution) target timestamps to materialise
+/// from a computed pill. Each timer contributes its `target_at` only
+/// when it's still scannable (not met, not paused) — the partial scan
+/// index excludes NULL rows naturally, so the breach job doesn't even
+/// look at met/paused timers.
+fn targets_from_pill(
+    pill: &SlaPill,
+) -> (Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>) {
+    let scannable = |t: &SlaTimer| t.is_scannable().then(|| t.target_at.naive_utc());
+    (
+        pill.response.as_ref().and_then(scannable),
+        pill.resolution.as_ref().and_then(scannable),
+    )
+}
+
+/// Persist the materialised target columns on a ticket. `None` clears
+/// the column so the partial scan index ignores the row. Failures are
+/// logged rather than propagated — a missed stamp is self-healing on
+/// the next mutation or the next breach-detection sweep, and we don't
+/// want one stamp failure to roll back the caller's transaction.
+fn set_sla_targets(
+    conn: &mut crate::db::DbConnection,
+    ticket_id: i32,
+    response_target: Option<chrono::NaiveDateTime>,
+    resolution_target: Option<chrono::NaiveDateTime>,
+) {
+    use crate::schema::tickets;
+    use diesel::prelude::*;
+
+    if let Err(e) = diesel::update(tickets::table.find(ticket_id))
+        .set((
+            tickets::sla_response_target_at.eq(response_target),
+            tickets::sla_resolution_target_at.eq(resolution_target),
+        ))
+        .execute(conn)
+    {
+        tracing::warn!(ticket_id, error = %e, "set_sla_targets failed");
     }
 }
 

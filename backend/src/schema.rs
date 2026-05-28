@@ -1393,6 +1393,10 @@ diesel::table! {
         resolution_notes -> Nullable<Text>,
         workspace_id -> Int4,
         first_response_at -> Nullable<Timestamptz>,
+        sla_response_target_at -> Nullable<Timestamptz>,
+        sla_response_breached_at -> Nullable<Timestamptz>,
+        sla_resolution_target_at -> Nullable<Timestamptz>,
+        sla_resolution_breached_at -> Nullable<Timestamptz>,
     }
 }
 

@@ -180,8 +180,10 @@ pub fn create_comment_with_annotation(
                 // already stamped and we'd broadcast a duplicate.
                 if stamped > 0 {
                     let updated_ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
-                    let sla =
-                        crate::services::sla::compute_pill_for_ticket(conn, &updated_ticket);
+                    let sla = crate::services::sla::recompute_and_stamp_sla_for_ticket(
+                        conn,
+                        &updated_ticket,
+                    );
                     emit::record(
                         conn,
                         SyncEmit {

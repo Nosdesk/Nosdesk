@@ -1077,6 +1077,25 @@ async fn main() -> std::io::Result<()> {
             move || jobs::backfill_user_thumbnails(p.clone()),
         );
 
+        // Every 60s: detect SLA breaches and flip the pill live. Scans
+        // the materialised `sla_response_target_at` /
+        // `sla_resolution_target_at` columns (cheap partial indexes),
+        // atomically stamps `*_breached_at`, and emits a
+        // ticket.sla_updated sync_action so connected clients re-render
+        // the row without needing a reload. This is what makes the
+        // "compute-on-read, no refresh required" architectural claim
+        // true for time-driven transitions (the user-driven ones land
+        // via update_ticket_partial and the comment first-response
+        // hook).
+        let p = pool.clone();
+        spawn_periodic(
+            "sla.detect_breaches",
+            Duration::from_secs(60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::detect_sla_breaches(p.clone()),
+        );
+
         info!("scheduler: periodic jobs spawned");
     }
     let scheduler_status_data = web::Data::new(scheduler_status);

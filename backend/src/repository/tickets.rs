@@ -268,7 +268,7 @@ pub fn update_ticket_partial(
             if let Some(obj) = data.as_object_mut() {
                 obj.insert(
                     "sla".into(),
-                    crate::services::sla::compute_pill_for_ticket(conn, &result),
+                    crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &result),
                 );
             }
         }

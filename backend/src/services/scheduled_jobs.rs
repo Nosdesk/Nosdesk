@@ -328,3 +328,173 @@ pub async fn purge_soft_deleted_users(
     );
     Ok(())
 }
+
+const SLA_BREACH_ACTOR_REF: &str = "scheduler:sla_breach";
+/// Per-tick cap on each timer scan. With both response + resolution
+/// scans running, a workspace can process up to 2×LIMIT breaches per
+/// minute; a deploy-time backlog of thousands drains over several
+/// ticks rather than fan-firing all writes at once.
+const SLA_BREACH_SCAN_LIMIT: i64 = 100;
+
+/// Which SLA timer breached on a given ticket. The scan + process
+/// helpers thread this through because each timer targets a different
+/// pair of columns; Diesel's type-safe DSL forces the per-arm match.
+#[derive(Debug, Clone, Copy)]
+enum SlaBreachKind {
+    Response,
+    Resolution,
+}
+
+/// Periodic SLA breach-detection sweep. Scans the materialised
+/// `sla_response_target_at` / `sla_resolution_target_at` columns
+/// (Phase 1c) for tickets whose target has passed without a
+/// `*_breached_at` stamp, atomically stamps the breach, and emits a
+/// `ticket.sla_updated` sync_action so connected clients flip the
+/// pill to "Breached" live — without this, a long-open tab would
+/// keep showing the previous on-track/at-risk colour until something
+/// else mutated the row. The same sync_action carries the recomputed
+/// pill JSON, so the frontend pool's shallow-merge picks it up
+/// without needing a dedicated SSE event variant.
+///
+/// Two scans per tick (response + resolution timers) — each breaches
+/// independently. Partial indexes (`tickets_sla_response_scan_idx`,
+/// `tickets_sla_resolution_scan_idx`) make each scan cheap even at
+/// workspace scale; the LIMIT bounds work per tick so a backlog of
+/// thousands of breached tickets after a deploy drains over a few
+/// minutes rather than thrashing one tick.
+///
+/// Cross-workspace: the scan runs under BYPASSRLS so it sees every
+/// workspace's breached tickets; per-ticket processing then switches
+/// into that ticket's workspace context so the audited
+/// `sla_*_breached_at` UPDATE and the emitted sync_action attribute
+/// to the correct workspace.
+pub async fn detect_sla_breaches(pool: Pool) -> Result<()> {
+    let mut conn = pool.get().context("db pool")?;
+    let candidates =
+        scan_breach_candidates(&mut conn).context("scan SLA breach candidates")?;
+    if candidates.is_empty() {
+        return Ok(());
+    }
+
+    let (mut processed, mut failed) = (0usize, 0usize);
+    for (ticket_id, kind, workspace_id) in candidates {
+        match process_one_breach(&mut conn, ticket_id, kind, workspace_id) {
+            Ok(true) => processed += 1,
+            Ok(false) => {} // lost the idempotency race — normal no-op
+            Err(e) => {
+                failed += 1;
+                warn!(
+                    ticket_id,
+                    kind = ?kind,
+                    error = ?e,
+                    "scheduler:sla_breach: ticket processing failed"
+                );
+            }
+        }
+    }
+
+    if processed > 0 || failed > 0 {
+        info!(processed, failed, "scheduler: SLA breach detection swept");
+    }
+    Ok(())
+}
+
+/// Cross-workspace scan under BYPASSRLS for tickets eligible to fire
+/// a breach event on either timer. Bounded per-call by
+/// `SLA_BREACH_SCAN_LIMIT` to keep one sweep predictable.
+fn scan_breach_candidates(
+    conn: &mut crate::db::DbConnection,
+) -> Result<Vec<(i32, SlaBreachKind, i32)>> {
+    use crate::schema::tickets;
+    use crate::sync::actor::ActorContext;
+    use crate::sync::session::with_actor_bypass_context;
+    use diesel::prelude::*;
+
+    let actor = ActorContext::system(SLA_BREACH_ACTOR_REF);
+    let now = chrono::Utc::now().naive_utc();
+    let candidates = with_actor_bypass_context::<_, diesel::result::Error>(conn, &actor, |conn| {
+        let response = tickets::table
+            .filter(tickets::sla_response_target_at.is_not_null())
+            .filter(tickets::sla_response_target_at.le(now))
+            .filter(tickets::sla_response_breached_at.is_null())
+            .select((tickets::id, tickets::workspace_id))
+            .limit(SLA_BREACH_SCAN_LIMIT)
+            .load::<(i32, i32)>(conn)?;
+        let resolution = tickets::table
+            .filter(tickets::sla_resolution_target_at.is_not_null())
+            .filter(tickets::sla_resolution_target_at.le(now))
+            .filter(tickets::sla_resolution_breached_at.is_null())
+            .select((tickets::id, tickets::workspace_id))
+            .limit(SLA_BREACH_SCAN_LIMIT)
+            .load::<(i32, i32)>(conn)?;
+        Ok(response
+            .into_iter()
+            .map(|(id, ws)| (id, SlaBreachKind::Response, ws))
+            .chain(
+                resolution
+                    .into_iter()
+                    .map(|(id, ws)| (id, SlaBreachKind::Resolution, ws)),
+            )
+            .collect())
+    })?;
+    Ok(candidates)
+}
+
+/// Atomically stamp the breach + emit a pill-refresh sync_action.
+/// Runs in the ticket's workspace context so the audited stamp and
+/// the emit attribute to the correct workspace. Returns `Ok(false)`
+/// when the idempotency guard caught a duplicate (another tick won
+/// the race) — a normal no-op, not an error.
+fn process_one_breach(
+    conn: &mut crate::db::DbConnection,
+    ticket_id: i32,
+    kind: SlaBreachKind,
+    workspace_id: i32,
+) -> Result<bool, diesel::result::Error> {
+    use crate::models::Ticket;
+    use crate::schema::tickets;
+    use crate::sync::actor::ActorContext;
+    use crate::sync::emit::{self, SyncEmit};
+    use crate::sync::groups;
+    use crate::sync::session::with_actor_context;
+    use diesel::prelude::*;
+    use serde_json::json;
+
+    let actor = ActorContext::system(SLA_BREACH_ACTOR_REF).with_workspace(workspace_id);
+    with_actor_context(conn, &actor, |conn| {
+        // Atomic idempotency stamp — the `WHERE breached_at IS NULL`
+        // predicate makes a concurrent tick a no-op rather than a
+        // duplicate emit.
+        let stamped = match kind {
+            SlaBreachKind::Response => diesel::update(tickets::table.find(ticket_id))
+                .filter(tickets::sla_response_breached_at.is_null())
+                .set(tickets::sla_response_breached_at.eq(diesel::dsl::now))
+                .execute(conn)?,
+            SlaBreachKind::Resolution => diesel::update(tickets::table.find(ticket_id))
+                .filter(tickets::sla_resolution_breached_at.is_null())
+                .set(tickets::sla_resolution_breached_at.eq(diesel::dsl::now))
+                .execute(conn)?,
+        };
+        if stamped == 0 {
+            return Ok(false);
+        }
+        // Reload to capture the freshly-stamped *_breached_at and
+        // compute a pill whose breached flag now reads true.
+        let ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
+        let sla = crate::services::sla::recompute_and_stamp_sla_for_ticket(conn, &ticket);
+        let groups = groups::for_ticket(conn, &ticket)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: crate::models::SyncAggregate::Ticket,
+                aggregate_id: ticket_id.to_string(),
+                op: crate::models::SyncOp::Update,
+                event_type: "ticket.sla_updated",
+                data: json!({ "id": ticket_id, "sla": sla }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(true)
+    })
+}

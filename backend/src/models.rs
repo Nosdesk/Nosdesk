@@ -844,6 +844,28 @@ pub struct Ticket {
     /// target_at`; before the first response, the timer counts down
     /// toward breach exactly like the resolution timer.
     pub first_response_at: Option<NaiveDateTime>,
+    /// Materialised response-timer target — the wall-clock instant
+    /// the response SLA breaches. NULL when the timer doesn't apply
+    /// (no `target_response_minutes` configured), has already been
+    /// met (`first_response_at` is set), or the ticket is paused
+    /// (non-active workflow state). The breach-detection job scans
+    /// `WHERE sla_response_target_at <= NOW() AND
+    /// sla_response_breached_at IS NULL` via a partial index. Kept
+    /// fresh by `services::sla::recompute_and_stamp_sla_for_ticket`
+    /// on every mutation that could change it.
+    pub sla_response_target_at: Option<NaiveDateTime>,
+    /// Idempotency stamp for the response breach. NULL until the
+    /// detection job first observes a breach; once set, the partial
+    /// index excludes the row from the scan so a follow-up tick
+    /// doesn't re-fire the notification.
+    pub sla_response_breached_at: Option<NaiveDateTime>,
+    /// Materialised resolution-timer target. Same semantics as
+    /// `sla_response_target_at` but for the resolution SLA (no `met`
+    /// concept — resolution is satisfied by closing the ticket,
+    /// which is a separate concern).
+    pub sla_resolution_target_at: Option<NaiveDateTime>,
+    /// Idempotency stamp for the resolution breach.
+    pub sla_resolution_breached_at: Option<NaiveDateTime>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
