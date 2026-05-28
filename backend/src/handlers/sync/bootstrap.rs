@@ -423,10 +423,11 @@ fn stream_bootstrap_inner(
                 let category = ws
                     .map(|s| s.category)
                     .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
-                Some(crate::services::sla::compute_pill(
+                crate::services::sla::compute_pill(
                     &t, category, policy, calendar, &holidays, now,
-                ))
+                )
             })
+            .and_then(|pill| serde_json::to_value(pill).ok())
             .unwrap_or(serde_json::Value::Null);
         send(
             tx,

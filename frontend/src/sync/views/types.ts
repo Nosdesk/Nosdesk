@@ -83,17 +83,11 @@ export interface CardData {
     count: number
     first?: { id: number; name: string; os?: string | null }
   } | null
-  /** SLA pill payload computed by the backend's SLA engine. The
-   * renderer reads `pill_color` for the badge style and the
-   * `breached`/`paused`/`seconds_remaining` fields for the
-   * tooltip. Null when no policy applies to the ticket. */
-  sla?: {
-    target_at: string
-    breached: boolean
-    paused: boolean
-    pill_color: 'green' | 'amber' | 'red'
-    seconds_remaining?: number | null
-  } | null
+  /** SLA pill payload computed by the backend's SLA engine. Top-level
+   * fields reflect the most-urgent active timer (primary); nested
+   * `response` + `resolution` sub-objects carry both timers for the
+   * preview-pane stack. Null when no policy applies to the ticket. */
+  sla?: import('@/types/sla').SlaPill | null
   /** RFC 5545 RRULE string when the ticket is part of a recurring
    * series; the kanban surfaces a small recurrence pill so the
    * pattern is visible at a glance. */

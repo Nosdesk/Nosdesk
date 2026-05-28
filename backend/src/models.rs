@@ -836,6 +836,14 @@ pub struct Ticket {
     /// use a single null-check.
     pub resolution_notes: Option<String>,
     pub workspace_id: i32,
+    /// Wall-clock moment of the first non-internal staff comment on
+    /// this ticket. Stamped idempotently by `repository::comments`
+    /// (UPDATE ... WHERE first_response_at IS NULL) so concurrent
+    /// first replies don't race. Feeds the SLA engine's response
+    /// timer: the response target is met when `first_response_at <=
+    /// target_at`; before the first response, the timer counts down
+    /// toward breach exactly like the resolution timer.
+    pub first_response_at: Option<NaiveDateTime>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes

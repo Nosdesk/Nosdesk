@@ -149,10 +149,59 @@ pub fn create_comment_with_annotation(
                     "content_format": comment.content_format,
                     "created_via": created_via,
                 }),
-                groups,
+                groups: groups.clone(),
                 causation_id: None,
             },
         )?;
+
+        // SLA response-timer stamp. The first non-internal comment by
+        // a staff member (admin / technician) marks the moment the
+        // response target was met. Stamped idempotently with a
+        // `first_response_at IS NULL` predicate so concurrent first
+        // replies don't race. Internal notes and requester replies
+        // don't count — industry convention.
+        if !comment.is_internal && parent.first_response_at.is_none() {
+            let role = crate::schema::users::table
+                .find(new_comment.user_uuid)
+                .select(crate::schema::users::role)
+                .first::<crate::models::UserRole>(conn)
+                .ok();
+            let is_staff = matches!(
+                role,
+                Some(crate::models::UserRole::Admin | crate::models::UserRole::Technician)
+            );
+            if is_staff {
+                let stamped = diesel::update(tickets::table.find(ticket_id))
+                    .filter(tickets::first_response_at.is_null())
+                    .set(tickets::first_response_at.eq(diesel::dsl::now))
+                    .execute(conn)?;
+                // Only emit the sla_updated event when we actually
+                // won the idempotency race; otherwise another comment
+                // already stamped and we'd broadcast a duplicate.
+                if stamped > 0 {
+                    let updated_ticket: Ticket = tickets::table.find(ticket_id).first(conn)?;
+                    let sla =
+                        crate::services::sla::compute_pill_for_ticket(conn, &updated_ticket);
+                    emit::record(
+                        conn,
+                        SyncEmit {
+                            aggregate: SyncAggregate::Ticket,
+                            aggregate_id: ticket_id.to_string(),
+                            op: SyncOp::Update,
+                            event_type: "ticket.sla_updated",
+                            data: json!({
+                                "id": ticket_id,
+                                "first_response_at": updated_ticket.first_response_at,
+                                "sla": sla,
+                            }),
+                            groups,
+                            causation_id: None,
+                        },
+                    )?;
+                }
+            }
+        }
+
         Ok(comment)
     })?;
 

@@ -1392,6 +1392,7 @@ diesel::table! {
         recurrence_template_id -> Nullable<Int4>,
         resolution_notes -> Nullable<Text>,
         workspace_id -> Int4,
+        first_response_at -> Nullable<Timestamptz>,
     }
 }
 

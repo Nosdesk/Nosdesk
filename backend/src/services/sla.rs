@@ -180,33 +180,77 @@ fn next_day_midnight(tz: &Tz, date: NaiveDate) -> DateTime<Tz> {
     })
 }
 
-/// Compute the SLA pill payload for a ticket. The architecture spec
-/// says SLA arithmetic only runs while the ticket's workflow state
-/// category is `active`; everything else (triage, backlog, in_review,
-/// done, cancelled) is paused so the pill stops counting and shows
-/// the paused colour.
-pub fn compute_pill(
-    ticket: &Ticket,
-    category: WorkflowStateCategory,
-    policy: &SlaPolicy,
+/// One SLA timer's render state. Two timers per ticket (response,
+/// resolution) — see [`SlaPill`]. The field shape mirrors the v1
+/// payload (`target_at`, `breached`, `paused`, `pill_color`,
+/// `seconds_remaining`) so frontend pill rendering stays the same per
+/// timer; the new addition is `met_at`, which the response timer sets
+/// when `first_response_at` lands and the resolution timer leaves
+/// `None` until we model close-vs-resolved separately.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SlaTimer {
+    pub target_at: DateTime<Utc>,
+    /// When the timer was satisfied (e.g. `first_response_at` for the
+    /// response timer). Omitted from JSON when `None` so consumers can
+    /// treat absence as "still ticking".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub met_at: Option<DateTime<Utc>>,
+    pub breached: bool,
+    pub paused: bool,
+    pub pill_color: &'static str,
+    pub seconds_remaining: Option<i64>,
+}
+
+/// Full SLA payload for one ticket. The most-urgent active timer's
+/// fields are flattened to the top level so every v1 consumer
+/// (`TicketRow` pill column, the filter facet, `KanbanBoard`) keeps
+/// reading `sla.breached` / `sla.paused` / `sla.target_at` / etc.
+/// unchanged — they now reflect whichever timer is currently most
+/// at risk. The nested `response` + `resolution` sub-objects are new,
+/// additive, and consumed by the preview pane to stack both timers.
+///
+/// "Most urgent" = the response timer when it's still active
+/// (`first_response_at IS NULL`); the resolution timer otherwise.
+/// Mirrors the architecture spec: pre-first-response, missing the
+/// response target is the louder signal; after it's met, the
+/// resolution timer is the only thing still counting.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SlaPill {
+    #[serde(flatten)]
+    pub primary: SlaTimer,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<SlaTimer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<SlaTimer>,
+}
+
+/// Compute a single timer's render state given its target window and
+/// optional met-at moment. Shared by response + resolution: the
+/// response timer passes `met_at = Some(first_response_at)` once a
+/// staff comment lands; the resolution timer leaves it `None`.
+fn compute_timer(
+    target_minutes: i64,
+    start_from: DateTime<Utc>,
+    met_at: Option<DateTime<Utc>>,
+    paused: bool,
     calendar: &WorkingCalendar,
     holidays: &HashSet<NaiveDate>,
     now: DateTime<Utc>,
-) -> serde_json::Value {
-    let target_minutes = match policy.target_resolution_minutes {
-        Some(m) if m > 0 => m as i64,
-        _ => return serde_json::Value::Null,
+) -> SlaTimer {
+    let target_at = add_business_minutes(start_from, target_minutes, calendar, holidays);
+
+    // A met timer is judged against when it was met, not the wall
+    // clock — so a response that lands 1m before the target is "met
+    // on time" even if we're observing 3h later.
+    let breached = match met_at {
+        Some(met) => met > target_at,
+        None if paused => false,
+        None => now > target_at,
     };
 
-    // Project the breach instant from the ticket's creation time.
-    // Pause states freeze the pill colour rather than drift the
-    // target — the recompute on the next bootstrap picks up where
-    // the previous active stretch left off.
-    let created_utc = DateTime::<Utc>::from_naive_utc_and_offset(ticket.created_at, Utc);
-    let target_at = add_business_minutes(created_utc, target_minutes, calendar, holidays);
-    let paused = category != WorkflowStateCategory::Active;
-    let breached = !paused && now > target_at;
-    let seconds_remaining = if breached {
+    let seconds_remaining = if met_at.is_some() {
+        None
+    } else if breached {
         Some((now - target_at).num_seconds().saturating_neg())
     } else {
         Some((target_at - now).num_seconds().max(0))
@@ -214,13 +258,16 @@ pub fn compute_pill(
 
     let pill_color = if breached {
         "red"
+    } else if met_at.is_some() {
+        // Met on time — the timer is done; show it as green/resolved.
+        "green"
     } else if paused {
         "amber"
     } else {
         // Within 25% of the window remaining flips to amber so the
-        // pill flags work that's about to breach without waiting
-        // for the actual transition.
-        let window_seconds = (target_at - created_utc).num_seconds().max(1);
+        // pill flags work that's about to breach without waiting for
+        // the actual transition.
+        let window_seconds = (target_at - start_from).num_seconds().max(1);
         let remaining = seconds_remaining.unwrap_or(0);
         if remaining * 4 < window_seconds {
             "amber"
@@ -229,12 +276,89 @@ pub fn compute_pill(
         }
     };
 
-    serde_json::json!({
-        "target_at": target_at,
-        "breached": breached,
-        "paused": paused,
-        "pill_color": pill_color,
-        "seconds_remaining": seconds_remaining,
+    SlaTimer {
+        target_at,
+        met_at,
+        breached,
+        paused,
+        pill_color,
+        seconds_remaining,
+    }
+}
+
+/// Compute the SLA pill payload for a ticket — both response +
+/// resolution timers, gated on which policy targets are configured.
+/// The architecture spec says SLA arithmetic only runs while the
+/// ticket's workflow state category is `active`; everything else
+/// (triage, backlog, in_review, done, cancelled) is paused so the
+/// timers stop counting. The response timer also stops counting once
+/// `first_response_at` is stamped, regardless of pause state — at
+/// that point the response was either met or breached, and the wall
+/// clock has nothing left to say about it.
+///
+/// Returns `None` when the policy has neither a response target nor a
+/// resolution target (no pill to render). Otherwise returns at least
+/// one timer; the other is `None` when its target isn't configured.
+pub fn compute_pill(
+    ticket: &Ticket,
+    category: WorkflowStateCategory,
+    policy: &SlaPolicy,
+    calendar: &WorkingCalendar,
+    holidays: &HashSet<NaiveDate>,
+    now: DateTime<Utc>,
+) -> Option<SlaPill> {
+    let created_utc = DateTime::<Utc>::from_naive_utc_and_offset(ticket.created_at, Utc);
+    let paused = category != WorkflowStateCategory::Active;
+
+    let response = policy
+        .target_response_minutes
+        .filter(|m| *m > 0)
+        .map(|minutes| {
+            let met_at = ticket
+                .first_response_at
+                .map(|t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
+            compute_timer(
+                minutes as i64,
+                created_utc,
+                met_at,
+                paused,
+                calendar,
+                holidays,
+                now,
+            )
+        });
+
+    let resolution = policy
+        .target_resolution_minutes
+        .filter(|m| *m > 0)
+        .map(|minutes| {
+            compute_timer(
+                minutes as i64,
+                created_utc,
+                None,
+                paused,
+                calendar,
+                holidays,
+                now,
+            )
+        });
+
+    // Pick the most-urgent active timer to flatten as `primary`. The
+    // response timer wins while it's still ticking (first_response_at
+    // not yet stamped); once met, the resolution timer takes over.
+    // Fallback to whichever exists so a policy with only one target
+    // configured still renders a pill.
+    let primary = match (&response, &resolution) {
+        (Some(r), _) if r.met_at.is_none() => r.clone(),
+        (_, Some(res)) => res.clone(),
+        (Some(r), None) => r.clone(),
+        (None, None) => return None,
+    };
+
+    Some(SlaPill {
+        primary,
+        response,
+        resolution,
     })
 }
 
@@ -289,7 +413,10 @@ pub fn compute_pill_for_ticket(
         .first::<WorkflowStateCategory>(conn)
         .unwrap_or(WorkflowStateCategory::Backlog);
 
-    compute_pill(ticket, category, policy, &calendar, &holidays, Utc::now())
+    match compute_pill(ticket, category, policy, &calendar, &holidays, Utc::now()) {
+        Some(pill) => serde_json::to_value(pill).unwrap_or(serde_json::Value::Null),
+        None => serde_json::Value::Null,
+    }
 }
 
 /// Pick the most-specific policy that matches a ticket. Highest-id

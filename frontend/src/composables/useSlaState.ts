@@ -114,6 +114,23 @@ export function deriveSlaState(
     }
   }
 
+  // Response timer met on time — show as done. Resolution timers
+  // never set `met_at` (they're satisfied by closing the ticket, a
+  // separate concern); only the response timer flows through here.
+  if (sla.met_at) {
+    return {
+      compactLabel: 'Met',
+      statusLabel: 'Met',
+      toneClass: 'text-emerald-600 dark:text-emerald-400',
+      barClass: 'bg-emerald-500',
+      fraction: 1,
+      detail: `Met ${fullDateTime(sla.met_at)}`,
+      target,
+      breached: false,
+      paused: false,
+    }
+  }
+
   if (sla.paused) {
     return {
       compactLabel: 'Paused',
@@ -169,4 +186,27 @@ export function useSlaState(
     const c = typeof card === 'function' ? card() : card.value
     return deriveSlaState(c)
   })
+}
+
+/**
+ * Derive both the response and resolution timers' render states. Used
+ * by the preview pane to stack them. Each sub-timer is run through the
+ * same `deriveSlaState` derivation, so the rendered tone / label
+ * vocabulary is consistent with the compact pill. Either field is
+ * `null` when its target isn't configured on the matched policy (or
+ * when the card has no SLA at all).
+ */
+export function deriveSlaTimers(
+  source: CardData | SlaPayload | null | undefined,
+): { response: SlaState | null; resolution: SlaState | null } {
+  if (!source) return { response: null, resolution: null }
+  const sla =
+    'target_at' in source
+      ? (source as SlaPayload)
+      : ((source as CardData).sla as SlaPayload | null | undefined)
+  if (!sla) return { response: null, resolution: null }
+  return {
+    response: sla.response ? deriveSlaState(sla.response) : null,
+    resolution: sla.resolution ? deriveSlaState(sla.resolution) : null,
+  }
 }

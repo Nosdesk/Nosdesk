@@ -51,14 +51,10 @@ export interface SyncTicket {
    * Bootstrap denormalises from cycle_tickets so the Triage saved
    * view's `cycle_id is_empty` predicate evaluates without a join. */
   cycle_id?: number | null
-  /** SLA pill payload from the backend SLA engine. */
-  sla?: {
-    target_at: string
-    breached: boolean
-    paused: boolean
-    pill_color: 'green' | 'amber' | 'red'
-    seconds_remaining?: number | null
-  } | null
+  /** SLA pill payload from the backend SLA engine. Top-level fields
+   *  reflect the most-urgent active timer (primary); nested `response`
+   *  + `resolution` carry both timers for the preview-pane stack. */
+  sla?: import('@/types/sla').SlaPill | null
   /** RFC 5545 RRULE string. Closing a ticket with a rule spawns
    * the next occurrence (services/recurrence on the backend). */
   recurrence_rule?: string | null

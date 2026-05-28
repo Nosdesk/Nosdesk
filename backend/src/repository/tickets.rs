@@ -569,15 +569,16 @@ pub fn get_complete_ticket(
                 .select(crate::schema::workflow_states::category)
                 .first::<crate::models::WorkflowStateCategory>(conn)
                 .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
-            Some(crate::services::sla::compute_pill(
+            crate::services::sla::compute_pill(
                 &ticket,
                 category,
                 policy,
                 calendar,
                 &holidays,
                 chrono::Utc::now(),
-            ))
+            )
         })
+        .and_then(|pill| serde_json::to_value(pill).ok())
         .unwrap_or(serde_json::Value::Null);
 
     let tag_ids = crate::repository::tags::tag_ids_for_ticket(conn, ticket_id).unwrap_or_default();
