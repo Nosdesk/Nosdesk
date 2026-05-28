@@ -11,9 +11,30 @@
       <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-      <LoadingSpinner v-if="loading" :text="$t('admin-channels-email-loading')" />
+      <!-- Load error (initial fetch failed with no cached data) -->
+      <AlertMessage v-if="loadError && !hasLoadedData" type="error" :message="loadError" />
 
-      <div v-else class="flex flex-col gap-6">
+      <!-- First-load skeleton: a couple of card shells mirroring the
+           status + form layout. Cold cache only; revisits seed the
+           form from cache instantly and revalidate silently. -->
+      <Skeleton
+        v-if="isFirstLoad"
+        :label="$t('admin-channels-email-loading')"
+        class="flex flex-col gap-6"
+      >
+        <div
+          v-for="n in 2"
+          :key="n"
+          class="bg-surface border border-default rounded-xl p-6 flex flex-col gap-4"
+        >
+          <SkeletonBar class="h-5 w-48 max-w-full" />
+          <SkeletonBar class="h-4 w-full" />
+          <SkeletonBar class="h-10 w-full" />
+          <SkeletonBar class="h-10 w-5/6" />
+        </div>
+      </Skeleton>
+
+      <div v-else-if="hasLoadedData" class="flex flex-col gap-6">
         <!-- Status card (only shown when a channel exists). -->
         <div
           v-if="channel"
@@ -302,10 +323,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { useQuery, useQueryCache } from '@pinia/colada';
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
@@ -356,17 +379,53 @@ function emptyForm(): FormState {
   };
 }
 
-const loading = ref(true);
+// The email channel config is cached by Pinia Colada so revisits
+// render the form instantly from cache and revalidate silently in
+// the background. The skeleton only shows on a genuine cold cache.
+const CHANNELS_EMAIL_KEY = ['channels-email-config'] as const;
+const queryCache = useQueryCache();
+const channelQuery = useQuery({
+  key: CHANNELS_EMAIL_KEY,
+  query: async () => {
+    const list = await channelsService.list();
+    return list.find((c) => c.provider === EMAIL_PROVIDER) ?? null;
+  },
+});
+const channel = computed<Channel | null>(() => channelQuery.data.value ?? null);
+const isFirstLoad = computed(
+  () => channelQuery.status.value === 'pending' && channelQuery.data.value === undefined,
+);
+const loadError = computed(() =>
+  channelQuery.error.value ? t('admin-channels-email-error-load') : '',
+);
+// Distinguishes a genuine fetch failure (no data ever received) from
+// a successful "no email channel configured" result, which is null.
+const hasLoadedData = computed(() => channelQuery.data.value !== undefined);
+
 const saving = ref(false);
 const testing = ref(false);
 const deleting = ref(false);
 const clearing = ref(false);
-const channel = ref<Channel | null>(null);
 const form = reactive<FormState>(emptyForm());
 const testResult = ref<'idle' | 'ok' | 'failed'>('idle');
 const testErrorMessage = ref('');
 const successMessage = ref('');
 const errorMessage = ref('');
+
+// Seed the editable form once per component lifetime from the
+// cached query. Subsequent background revalidations are ignored so
+// they can't clobber in-progress edits. On nav-back the component
+// remounts, `seeded` resets, and the immediate watch reseeds.
+const seeded = ref(false);
+watch(
+  channelQuery.data,
+  (data) => {
+    if (data === undefined || seeded.value) return;
+    if (data) populateForm(data);
+    seeded.value = true;
+  },
+  { immediate: true },
+);
 
 // Mirrors the FormInput field styling so these (label-associated, number,
 // and password) inputs match the shared primitive's look + focus ring.
@@ -444,24 +503,6 @@ function formatRelative(iso: string): string {
   return t('admin-channels-email-relative-days', { count: days });
 }
 
-onMounted(async () => {
-  await loadExisting();
-});
-
-async function loadExisting() {
-  loading.value = true;
-  try {
-    const list = await channelsService.list();
-    const match = list.find((c) => c.provider === EMAIL_PROVIDER) ?? null;
-    channel.value = match;
-    if (match) populateForm(match);
-  } catch {
-    errorMessage.value = t('admin-channels-email-error-load');
-  } finally {
-    loading.value = false;
-  }
-}
-
 async function save() {
   clearMessages();
   testResult.value = 'idle';
@@ -478,7 +519,9 @@ async function save() {
         // `UpdateChannelRequest` contract.
         ...(form.password.length > 0 ? { password: form.password } : {})
       });
-      channel.value = updated;
+      // Keep the cache in lockstep so a later revisit shows the saved
+      // values without a network round-trip.
+      queryCache.setQueryData(CHANNELS_EMAIL_KEY, updated);
       populateForm(updated);
       successMessage.value = t('admin-channels-email-success-update');
     } else {
@@ -489,7 +532,7 @@ async function save() {
         config: buildConfig(),
         ...(form.password.length > 0 ? { password: form.password } : {})
       });
-      channel.value = created;
+      queryCache.setQueryData(CHANNELS_EMAIL_KEY, created);
       populateForm(created);
       successMessage.value = t('admin-channels-email-success-create');
     }
@@ -541,7 +584,7 @@ async function doClearCredential() {
   clearing.value = true;
   try {
     await channelsService.clearCredential(channel.value.id);
-    await loadExisting();
+    await queryCache.invalidateQueries({ key: CHANNELS_EMAIL_KEY });
     successMessage.value = t('admin-channels-email-success-password-removed');
     setTimeout(() => (successMessage.value = ''), 3000);
   } catch (e: unknown) {
@@ -563,7 +606,7 @@ async function doDeleteChannel() {
   deleting.value = true;
   try {
     await channelsService.remove(channel.value.id);
-    channel.value = null;
+    queryCache.setQueryData(CHANNELS_EMAIL_KEY, null);
     Object.assign(form, emptyForm());
     successMessage.value = t('admin-channels-email-success-delete');
     setTimeout(() => (successMessage.value = ''), 3000);

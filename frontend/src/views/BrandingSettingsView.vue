@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
+import { useQuery, useQueryCache } from '@pinia/colada'
 
 import AlertMessage from '@/components/common/AlertMessage.vue'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import Skeleton from '@/components/common/Skeleton.vue'
+import SkeletonBar from '@/components/common/SkeletonBar.vue'
 import Icon from '@/components/common/Icon.vue'
 import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
@@ -19,16 +21,47 @@ const brandingStore = useBrandingStore()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
+// Branding config is cached by Pinia Colada so revisits render the
+// form instantly from cache and revalidate silently in the background.
+// The skeleton only shows on a genuine cold cache; see `isFirstLoad`.
+const BRANDING_KEY = ['branding-config'] as const
+const queryCache = useQueryCache()
+const brandingQuery = useQuery({
+  key: BRANDING_KEY,
+  query: () => brandingService.getBrandingConfig(),
+})
+const brandingConfig = computed<BrandingConfig | null>(() => brandingQuery.data.value ?? null)
+const isFirstLoad = computed(
+  () => brandingQuery.status.value === 'pending' && brandingQuery.data.value === undefined,
+)
+const loadError = computed(() =>
+  brandingQuery.error.value ? t('admin-branding-error-load') : '',
+)
+
 // State
-const isLoading = ref(false)
 const isSaving = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
-const brandingConfig = ref<BrandingConfig | null>(null)
 
-// Form state
+// Form state (seeded once from cache; see watch below)
 const appName = ref('Nosdesk')
 const primaryColor = ref('')
+
+// Seed the editable form once per component lifetime. On nav-back
+// the component remounts, `seeded` resets, and the immediate watch
+// reseeds from the (now-fresh) cache. Subsequent background
+// revalidations are ignored so they can't clobber in-progress edits.
+const seeded = ref(false)
+watch(
+  brandingQuery.data,
+  (data) => {
+    if (!data || seeded.value) return
+    appName.value = data.app_name || 'Nosdesk'
+    primaryColor.value = data.primary_color || ''
+    seeded.value = true
+  },
+  { immediate: true },
+)
 
 // File input refs
 const logoInput = ref<HTMLInputElement | null>(null)
@@ -50,24 +83,6 @@ const isConfigured = computed(() => {
   )
 })
 
-// Load branding configuration
-const loadBrandingConfig = async () => {
-  isLoading.value = true
-  errorMessage.value = ''
-
-  try {
-    const config = await brandingService.getBrandingConfig()
-    brandingConfig.value = config
-    appName.value = config.app_name || 'Nosdesk'
-    primaryColor.value = config.primary_color || ''
-  } catch (error) {
-    console.error('Failed to load branding configuration:', error)
-    errorMessage.value = extractErrorMessage(error, t('admin-branding-error-load'))
-  } finally {
-    isLoading.value = false
-  }
-}
-
 // Save app name and primary color
 const saveSettings = async () => {
   isSaving.value = true
@@ -79,7 +94,10 @@ const saveSettings = async () => {
       app_name: appName.value,
       primary_color: primaryColor.value || null
     })
-    brandingConfig.value = config
+    // Keep the cache in lockstep so a later revisit shows the saved
+    // values without a network round-trip. The seeded watch is a
+    // no-op now so this won't overwrite local edits either.
+    queryCache.setQueryData(BRANDING_KEY, config)
     successMessage.value = t('admin-branding-success-saved')
 
     // Update the branding store so changes reflect immediately across the app
@@ -119,7 +137,7 @@ const handleLogoUpload = async (event: Event) => {
 
   try {
     const result = await brandingService.uploadBrandingImage(file, 'logo')
-    brandingConfig.value = result.settings
+    queryCache.setQueryData(BRANDING_KEY, result.settings)
     successMessage.value = t('admin-branding-success-logo')
 
     // Update the branding store so the logo reflects immediately
@@ -159,7 +177,7 @@ const handleLogoLightUpload = async (event: Event) => {
 
   try {
     const result = await brandingService.uploadBrandingImage(file, 'logo_light')
-    brandingConfig.value = result.settings
+    queryCache.setQueryData(BRANDING_KEY, result.settings)
     successMessage.value = t('admin-branding-success-logo-light')
 
     // Update the branding store so the logo reflects immediately
@@ -199,7 +217,7 @@ const handleFaviconUpload = async (event: Event) => {
 
   try {
     const result = await brandingService.uploadBrandingImage(file, 'favicon')
-    brandingConfig.value = result.settings
+    queryCache.setQueryData(BRANDING_KEY, result.settings)
     successMessage.value = t('admin-branding-success-favicon')
 
     // Update the branding store so the favicon reflects immediately
@@ -249,7 +267,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
 
   try {
     const config = await brandingService.deleteBrandingImage(type)
-    brandingConfig.value = config
+    queryCache.setQueryData(BRANDING_KEY, config)
 
     // Update the branding store so changes reflect immediately
     brandingStore.updateConfig(config)
@@ -265,9 +283,6 @@ async function confirmDeleteBrandingImage(): Promise<void> {
   }
 }
 
-onMounted(() => {
-  loadBrandingConfig()
-})
 </script>
 
 <template>
@@ -283,14 +298,34 @@ onMounted(() => {
       <!-- Success message -->
       <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
 
-      <!-- Error message -->
+      <!-- Error message (mutation failures) -->
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-      <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" :text="$t('admin-branding-loading')" />
+      <!-- Load error (initial fetch failed with no cached data) -->
+      <AlertMessage v-if="loadError && !brandingConfig" type="error" :message="loadError" />
+
+      <!-- First-load skeleton: mirrors the section-card layout so the
+           shell doesn't shift when data arrives. Cold cache only;
+           revisits seed the form from cache instantly and revalidate
+           silently. -->
+      <Skeleton
+        v-if="isFirstLoad"
+        :label="$t('admin-branding-loading')"
+        class="flex flex-col gap-6"
+      >
+        <div
+          v-for="n in 3"
+          :key="n"
+          class="bg-surface border border-default rounded-xl p-6 flex flex-col gap-4"
+        >
+          <SkeletonBar class="h-5 w-48 max-w-full" />
+          <SkeletonBar class="h-10 w-full" />
+          <SkeletonBar class="h-4 w-2/3" />
+        </div>
+      </Skeleton>
 
       <!-- Branding configuration -->
-      <div v-else class="flex flex-col gap-6">
+      <div v-else-if="brandingConfig" class="flex flex-col gap-6">
         <!-- App Name and Primary Color -->
         <div class="bg-surface border border-default rounded-xl p-6 hover:border-strong transition-colors">
           <h2 class="text-lg font-semibold text-primary mb-4">{{ $t('admin-branding-general-heading') }}</h2>

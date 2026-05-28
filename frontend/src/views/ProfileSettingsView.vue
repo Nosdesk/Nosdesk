@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
+import { useQuery, useQueryCache } from '@pinia/colada';
 import { useAuthStore } from '@/stores/auth';
 import { useBrandingStore } from '@/stores/branding';
 import { useToastStore } from '@/stores/toast';
@@ -44,10 +45,6 @@ const toast = useToastStore();
 const brandingStore = useBrandingStore();
 const { colorFilterStyle } = useColorFilter();
 
-// Groups state
-const userGroups = ref<Group[]>([]);
-const loadingGroups = ref(false);
-
 // Global state for notifications. Success messages route through
 // the toast store now (see `handleSuccess`); only errors still
 // surface inline at the page level.
@@ -72,15 +69,86 @@ const validTabs = ['profile', 'appearance', 'language', 'notifications', 'securi
 const DEFAULT_GROUP_COLOR = '#6366f1';
 const activeTab = ref(routeSection && validTabs.includes(routeSection) ? routeSection : 'profile');
 
-// Admin user management state
-// Start loading immediately if route indicates admin mode, so nothing renders with wrong data
+// Admin user management state.
+// The target user and the admin-viewed groups list are fetched via
+// Pinia Colada with a reactive key so switching admin targets refetches
+// per-user and revisits to the same user render instantly from cache.
+const queryCache = useQueryCache();
+const userProfileQuery = useQuery({
+  key: () => ['user-profile', targetUserUuid.value ?? ''],
+  query: () => userService.getUserByUuid(targetUserUuid.value as string),
+  enabled: () => isAdminMode.value,
+});
+const userGroupsQuery = useQuery({
+  key: () => ['user-groups', targetUserUuid.value ?? ''],
+  query: () => groupService.getUserGroups(targetUserUuid.value as string),
+  enabled: () => isAdminMode.value,
+});
+
+// Local mirror of the loaded admin target user. Seeded from the
+// query and mutated locally by `updateUserRole` so the role-grid
+// reflects the change instantly; the query cache is also synced
+// via setQueryData so a later revisit is consistent.
 const targetUser = ref<User | null>(null);
-const isManagingOtherUser = ref(false);
-const loadingTargetUser = ref(isAdminMode.value);
+// Reseed when the admin target uuid changes; otherwise leave the
+// local ref alone so role mutations aren't clobbered by background
+// revalidations.
+const seededUuid = ref<string | undefined>(undefined);
+watch(
+  [userProfileQuery.data, targetUserUuid],
+  ([data, uuid]) => {
+    if (!isAdminMode.value) {
+      targetUser.value = null;
+      seededUuid.value = undefined;
+      return;
+    }
+    if (!data) return;
+    if (seededUuid.value === uuid) return;
+    targetUser.value = data;
+    seededUuid.value = uuid;
+  },
+  { immediate: true },
+);
+
+// Surface a not-found / load-failure for the admin target user.
+watch(userProfileQuery.error, (err) => {
+  if (!err || !isAdminMode.value) return;
+  console.error('Error loading target user:', err);
+  error.value = t('user-profile-load-failed');
+  setTimeout(() => router.push('/users'), 2000);
+});
+// API can return null for a missing uuid (vs throwing); preserve the
+// pre-Colada redirect behaviour for that case too.
+watch(userProfileQuery.data, (data) => {
+  if (!isAdminMode.value) return;
+  if (data === null) {
+    error.value = t('user-profile-not-found');
+    setTimeout(() => router.push('/users'), 2000);
+  }
+});
+
+const isManagingOtherUser = computed(() => isAdminMode.value && !!targetUser.value);
+const loadingTargetUser = computed(
+  () =>
+    isAdminMode.value &&
+    userProfileQuery.status.value === 'pending' &&
+    userProfileQuery.data.value === undefined,
+);
 const updatingRole = ref(false);
 
 // Get the current user being edited (either targetUser for admin or authStore.user for self)
 const currentUser = computed(() => targetUser.value || authStore.user);
+
+// Groups list comes from the cache-backed query in admin mode.
+const userGroups = computed<Group[]>(() =>
+  Array.isArray(userGroupsQuery.data.value) ? userGroupsQuery.data.value : [],
+);
+const loadingGroups = computed(
+  () =>
+    isAdminMode.value &&
+    userGroupsQuery.status.value === 'pending' &&
+    userGroupsQuery.data.value === undefined,
+);
 
 // Update URL when tab changes without causing navigation.
 // Uses history.replaceState to avoid triggering Vue Router's reactivity,
@@ -157,36 +225,6 @@ const availableRoles = computed<{ value: UserRole; label: string; colorClass: st
   },
 ]);
 
-// Load target user if in admin mode
-const loadTargetUser = async () => {
-  if (!targetUserUuid.value || targetUserUuid.value === authStore.user?.uuid) {
-    isManagingOtherUser.value = false;
-    targetUser.value = null;
-    return;
-  }
-
-  try {
-    loadingTargetUser.value = true;
-    const user = await userService.getUserByUuid(targetUserUuid.value);
-    
-    if (user) {
-      targetUser.value = user;
-      isManagingOtherUser.value = true;
-    } else {
-      error.value = t('user-profile-not-found');
-      // Redirect back to users list after a delay
-      setTimeout(() => router.push('/users'), 2000);
-    }
-  } catch (e) {
-    console.error('Error loading target user:', e);
-    error.value = t('user-profile-load-failed');
-    // Redirect back to users list after a delay
-    setTimeout(() => router.push('/users'), 2000);
-  } finally {
-    loadingTargetUser.value = false;
-  }
-};
-
 // Clear the inline error banner after a delay (success messages
 // auto-dismiss via the toast store's own timer).
 const clearMessages = () => {
@@ -210,39 +248,26 @@ const handleError = (message: string) => {
   clearMessages();
 };
 
-// Load user's groups
-const loadUserGroups = async () => {
-  const uuid = currentUser.value?.uuid;
-  if (!uuid) return;
-
-  try {
-    loadingGroups.value = true;
-    userGroups.value = await groupService.getUserGroups(uuid);
-  } catch (e) {
-    console.error('Error loading user groups:', e);
-  } finally {
-    loadingGroups.value = false;
-  }
-};
-
 // Initialize from current route on mount
 onMounted(async () => {
-  // Load target user if in admin mode
-  await loadTargetUser();
-
-  // Check if user has completed account setup (for resend invitation feature)
+  // Check if user has completed account setup (for resend invitation feature).
+  // Defer until the target user lands; in admin mode the user query may
+  // still be in flight on mount, so a watch handles it once data arrives.
   if (isManagingOtherUser.value && targetUser.value) {
     await checkUserSetupStatus();
-  }
-
-  // Load user groups (admin mode only — regular users see groups on their profile page)
-  if (isAdminMode.value) {
-    await loadUserGroups();
   }
 
   // If active tab wasn't set from route, ensure URL matches
   if (!routeSection || !validTabs.includes(routeSection)) {
     updateURL('profile');
+  }
+});
+
+// In admin mode the target user lands asynchronously from the cache;
+// re-run the setup-status probe once it's available.
+watch(targetUser, async (u) => {
+  if (u && isAdminMode.value) {
+    await checkUserSetupStatus();
   }
 });
 
@@ -281,6 +306,10 @@ const updateUserRole = async (newRole: UserRole) => {
     if (updatedUser && targetUser.value) {
       // Update the local user object
       targetUser.value = { ...targetUser.value, role: newRole };
+      // Keep the cache in lockstep so a later revisit shows the
+      // updated role without a refetch. The seededUuid guard means
+      // the watch is a no-op here.
+      queryCache.setQueryData(['user-profile', targetUserUuid.value ?? ''], targetUser.value);
 
       handleSuccess(`Successfully updated ${targetUser.value.name}'s role to ${newRole}`);
     }
