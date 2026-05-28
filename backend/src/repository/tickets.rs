@@ -238,6 +238,40 @@ pub fn update_ticket_partial(
         } else {
             "ticket.updated"
         };
+        // Recompute the SLA pill when a field that feeds policy
+        // matching or pause state changes — workflow_state_id drives
+        // the paused flag (via the state's category), priority and
+        // category_id drive policy matching. Including the fresh pill
+        // in the sync_action's `data` lets the frontend pool
+        // shallow-merge it into the card without waiting for the next
+        // bootstrap; this is what makes the "compute-on-read, no
+        // refresh required" architectural claim true for collaborative
+        // sessions, not just first-load. `Value::Null` is a valid pill
+        // payload (no policy matches the new shape), and merging it
+        // correctly clears a stale pill from the card.
+        let pill_affecting = ticket_update.workflow_state_id.is_some()
+            || ticket_update.priority.is_some()
+            || ticket_update.category_id.is_some();
+        let mut data = json!({
+            "id": result.id,
+            "title": result.title,
+            "workflow_state_id": result.workflow_state_id,
+            "priority": result.priority.as_str(),
+            "requester_uuid": result.requester_uuid,
+            "assignee_uuid": result.assignee_uuid,
+            "category_id": result.category_id,
+            "verification_state": result.verification_state,
+            "due_date": result.due_date,
+            "resolution_notes": result.resolution_notes,
+        });
+        if pill_affecting {
+            if let Some(obj) = data.as_object_mut() {
+                obj.insert(
+                    "sla".into(),
+                    crate::services::sla::compute_pill_for_ticket(conn, &result),
+                );
+            }
+        }
         emit::record(
             conn,
             SyncEmit {
@@ -245,18 +279,7 @@ pub fn update_ticket_partial(
                 aggregate_id: result.id.to_string(),
                 op: SyncOp::Update,
                 event_type,
-                data: json!({
-                    "id": result.id,
-                    "title": result.title,
-                    "workflow_state_id": result.workflow_state_id,
-                    "priority": result.priority.as_str(),
-                    "requester_uuid": result.requester_uuid,
-                    "assignee_uuid": result.assignee_uuid,
-                    "category_id": result.category_id,
-                    "verification_state": result.verification_state,
-                    "due_date": result.due_date,
-                    "resolution_notes": result.resolution_notes,
-                }),
+                data,
                 groups,
                 causation_id: None,
             },

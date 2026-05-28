@@ -238,6 +238,60 @@ pub fn compute_pill(
     })
 }
 
+/// Load the SLA context for one ticket and return its pill payload.
+///
+/// The bootstrap path loads policies / calendars / holidays once for
+/// the whole workspace and reuses them across every ticket. Mutation
+/// handlers (status change, priority change, etc.) only need to
+/// recompute one ticket at a time, so this helper does a per-ticket
+/// load instead of dragging the full context through every caller.
+///
+/// Used by `repository::tickets::update_ticket_partial` so the
+/// `sync_action` it broadcasts on a pill-affecting field change carries
+/// an up-to-date pill — without this, open clients keep showing the
+/// previous (now stale) pill until the next bootstrap. Returns
+/// `Value::Null` when no policy matches; the frontend treats that as
+/// "no SLA on this ticket" and hides the pill.
+pub fn compute_pill_for_ticket(
+    conn: &mut crate::db::DbConnection,
+    ticket: &Ticket,
+) -> serde_json::Value {
+    use crate::schema::{
+        sla_policies, working_calendar_holidays, working_calendars, workflow_states,
+    };
+    use diesel::prelude::*;
+
+    let policies: Vec<SlaPolicy> = match sla_policies::table.load(conn) {
+        Ok(p) => p,
+        Err(_) => return serde_json::Value::Null,
+    };
+    let Some(policy) = pick_policy(&policies, ticket) else {
+        return serde_json::Value::Null;
+    };
+    let Some(cal_id) = policy.working_calendar_id else {
+        return serde_json::Value::Null;
+    };
+    let Ok(calendar) = working_calendars::table
+        .find(cal_id)
+        .first::<WorkingCalendar>(conn)
+    else {
+        return serde_json::Value::Null;
+    };
+    let holidays: HashSet<NaiveDate> = working_calendar_holidays::table
+        .filter(working_calendar_holidays::calendar_id.eq(cal_id))
+        .select(working_calendar_holidays::date)
+        .load::<NaiveDate>(conn)
+        .map(|v| v.into_iter().collect())
+        .unwrap_or_default();
+    let category = workflow_states::table
+        .find(ticket.workflow_state_id)
+        .select(workflow_states::category)
+        .first::<WorkflowStateCategory>(conn)
+        .unwrap_or(WorkflowStateCategory::Backlog);
+
+    compute_pill(ticket, category, policy, &calendar, &holidays, Utc::now())
+}
+
 /// Pick the most-specific policy that matches a ticket. Highest-id
 /// match wins, with the workspace default as a fallback.
 pub fn pick_policy<'a>(policies: &'a [SlaPolicy], ticket: &Ticket) -> Option<&'a SlaPolicy> {
