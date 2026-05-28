@@ -11,7 +11,27 @@
       <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-      <LoadingSpinner v-if="loading" :text="$t('admin-guest-loading')" />
+      <AlertMessage v-if="loadError && !settings" type="error" :message="loadError" />
+
+      <!-- First-load skeleton: a couple of card shells mirroring the
+           settings sections. Cold cache only; revisits seed the form
+           from cache instantly and revalidate silently. -->
+      <Skeleton
+        v-if="isFirstLoad"
+        :label="$t('admin-guest-loading')"
+        class="flex flex-col gap-6"
+      >
+        <div
+          v-for="n in 2"
+          :key="n"
+          class="bg-surface border border-default rounded-xl p-6 flex flex-col gap-4"
+        >
+          <SkeletonBar class="h-5 w-48 max-w-full" />
+          <SkeletonBar class="h-4 w-full" />
+          <SkeletonBar class="h-4 w-5/6" />
+          <SkeletonBar class="h-4 w-2/3" />
+        </div>
+      </Skeleton>
 
       <div v-else-if="settings" class="flex flex-col gap-6">
         <!-- Feature toggles -->
@@ -142,11 +162,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { useQuery, useQueryCache } from '@pinia/colada';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import {
   adminGuestSettingsService,
@@ -163,8 +185,26 @@ type ToggleKey =
   | 'guest_kb_search_enabled'
   | 'guest_help_page_enabled';
 
-const loading = ref(true);
+// Settings are fetched through Pinia Colada so a revisit renders the
+// form instantly from cache and revalidates silently. The form seeds
+// from the cached data (see the watch below) only while clean, so a
+// background refetch never clobbers in-progress edits.
+const GUEST_SETTINGS_KEY = ['guest-settings'] as const;
+const queryCache = useQueryCache();
+const settingsQuery = useQuery({
+  key: GUEST_SETTINGS_KEY,
+  query: () => adminGuestSettingsService.get(),
+});
+const isFirstLoad = computed(
+  () => settingsQuery.status.value === 'pending' && settingsQuery.data.value === undefined,
+);
+const loadError = computed(() =>
+  settingsQuery.error.value ? t('admin-guest-error-load') : '',
+);
+
 const saving = ref(false);
+// `settings` is the editable working copy; `pristine` is the last
+// saved/loaded baseline used for dirty-tracking.
 const settings = ref<AdminGuestSettings | null>(null);
 const pristine = ref<AdminGuestSettings | null>(null);
 const errorMessage = ref('');
@@ -233,17 +273,17 @@ const dirty = computed(() => {
   return JSON.stringify(settings.value) !== JSON.stringify(pristine.value);
 });
 
-onMounted(async () => {
-  try {
-    const data = await adminGuestSettingsService.get();
-    settings.value = data;
+// Seed the editable form from the cached query. Skip while dirty so a
+// silent background revalidation never overwrites edits in progress.
+watch(
+  settingsQuery.data,
+  (data) => {
+    if (!data || dirty.value) return;
+    settings.value = { ...data };
     pristine.value = { ...data };
-  } catch {
-    errorMessage.value = t('admin-guest-error-load');
-  } finally {
-    loading.value = false;
-  }
-});
+  },
+  { immediate: true },
+);
 
 async function save() {
   if (!settings.value) return;
@@ -266,6 +306,9 @@ async function save() {
     });
     settings.value = data;
     pristine.value = { ...data };
+    // Keep the cache in lockstep so a later revisit shows the saved
+    // values without a network round-trip.
+    queryCache.setQueryData(GUEST_SETTINGS_KEY, data);
     successMessage.value = t('admin-guest-saved');
     setTimeout(() => (successMessage.value = ''), 3000);
   } catch {

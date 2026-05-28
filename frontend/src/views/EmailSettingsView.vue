@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useFluent } from 'fluent-vue';
+import { useQuery } from '@pinia/colada';
 
 import EnvConfigNotice from '@/components/admin/EnvConfigNotice.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import { extractErrorMessage } from '@/utils/errors';
@@ -26,29 +28,32 @@ interface EmailConfig {
   error?: string;
 }
 
-// State
-const isLoading = ref(false);
+// Email config is read-only here (set via .env) and cached by Pinia
+// Colada, so a revisit renders it instantly and revalidates silently.
+// A skeleton shows only on the genuine first load (empty cache).
+const EMAIL_CONFIG_KEY = ['email-config'] as const;
+const emailConfigQuery = useQuery({
+  key: EMAIL_CONFIG_KEY,
+  query: async () => {
+    const response = await axios.get('/api/admin/email/config');
+    return response.data as EmailConfig;
+  },
+});
+const emailConfig = computed<EmailConfig | null>(() => emailConfigQuery.data.value ?? null);
+const isFirstLoad = computed(
+  () => emailConfigQuery.status.value === 'pending' && emailConfigQuery.data.value === undefined,
+);
+const loadError = computed(() =>
+  emailConfigQuery.error.value
+    ? extractErrorMessage(emailConfigQuery.error.value, t('admin-email-settings-error-load'))
+    : '',
+);
+
+// Test-send feedback stays in local refs.
 const errorMessage = ref('');
 const successMessage = ref('');
-const emailConfig = ref<EmailConfig | null>(null);
 const sendingTest = ref(false);
 const testEmailAddress = ref('');
-
-// Load email configuration from API
-const loadEmailConfig = async () => {
-  isLoading.value = true;
-  errorMessage.value = '';
-
-  try {
-    const response = await axios.get('/api/admin/email/config');
-    emailConfig.value = response.data;
-  } catch (error) {
-    console.error('Failed to load email configuration:', error);
-    errorMessage.value = extractErrorMessage(error, t('admin-email-settings-error-load'));
-  } finally {
-    isLoading.value = false;
-  }
-};
 
 // Send a test email
 const sendTestEmail = async () => {
@@ -99,9 +104,6 @@ const getRequiredEnvVars = () => {
   ];
 };
 
-onMounted(() => {
-  loadEmailConfig();
-});
 </script>
 
 <template>
@@ -127,11 +129,29 @@ onMounted(() => {
       <!-- Error message -->
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-      <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" :text="$t('admin-email-settings-loading')" />
+      <!-- Load error (initial fetch failed with no cached data) -->
+      <AlertMessage v-if="loadError && !emailConfig" type="error" :message="loadError" />
+
+      <!-- First-load skeleton: a config-card shell. Cold cache only;
+           revisits render the cached config instantly. -->
+      <Skeleton
+        v-if="isFirstLoad"
+        :label="$t('admin-email-settings-loading')"
+        class="flex flex-col gap-4"
+      >
+        <div class="bg-surface border border-default rounded-xl p-4 flex flex-col gap-4">
+          <div class="flex items-center gap-3">
+            <SkeletonBar class="h-9 w-9 rounded-lg shrink-0" />
+            <SkeletonBar class="h-4 w-48 max-w-full" />
+          </div>
+          <SkeletonBar class="h-4 w-full" />
+          <SkeletonBar class="h-4 w-5/6" />
+          <SkeletonBar class="h-4 w-2/3" />
+        </div>
+      </Skeleton>
 
       <!-- Email configuration display -->
-      <div v-else class="flex flex-col gap-4">
+      <div v-else-if="emailConfig" class="flex flex-col gap-4">
         <div class="bg-surface border border-default rounded-xl hover:border-strong transition-colors overflow-hidden">
 
           <!-- Configuration Header -->
