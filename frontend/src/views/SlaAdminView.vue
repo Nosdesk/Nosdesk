@@ -21,6 +21,8 @@ import {
   type WorkingCalendarBody,
   type SlaPolicyBody,
 } from '@/services/slaService'
+import { categoryService } from '@/services/categoryService'
+import type { TicketCategory } from '@/types/category'
 import Checkbox from '@/components/common/Checkbox.vue'
 import Button from '@/components/common/Button.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -32,6 +34,7 @@ const t = (key: string) => fluent.$t(key)
 
 const policies = ref<SlaPolicy[]>([])
 const calendars = ref<WorkingCalendar[]>([])
+const categories = ref<TicketCategory[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -53,12 +56,14 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const [p, c] = await Promise.all([
+    const [p, c, cats] = await Promise.all([
       slaService.listPolicies(),
       slaService.listCalendars(),
+      categoryService.getCategories(),
     ])
     policies.value = p
     calendars.value = c
+    categories.value = cats
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('admin-sla-error-load')
   } finally {
@@ -141,6 +146,10 @@ const policyDraft = ref<SlaPolicyBody>({
 
 const calendarOptions = computed(() =>
   calendars.value.map((c) => ({ value: c.id, label: c.name })),
+)
+
+const categoryOptions = computed(() =>
+  categories.value.map((c) => ({ value: c.id, label: c.name })),
 )
 
 async function createPolicy(): Promise<void> {
@@ -437,6 +446,18 @@ function fmtMinutes(m: number | null): string {
                 <option value="low">{{ $t('admin-sla-priority-low') }}</option>
                 <option value="medium">{{ $t('admin-sla-priority-medium') }}</option>
                 <option value="high">{{ $t('admin-sla-priority-high') }}</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1 text-[11px] text-tertiary">
+              {{ $t('admin-sla-field-category') }}
+              <select
+                v-model.number="policyDraft.category_id_filter"
+                class="bg-surface border border-subtle rounded-md text-sm px-2 py-1 text-primary"
+              >
+                <option :value="null">{{ $t('admin-sla-category-any') }}</option>
+                <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
               </select>
             </label>
             <Checkbox
