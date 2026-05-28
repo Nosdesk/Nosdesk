@@ -7,14 +7,49 @@
  * Returns null when the card has no SLA — consumers conditionally
  * render the SLA chrome only when this resolves.
  *
- * The bar fraction is best-effort: we don't have `started_at`
- * (only `target_at` and `seconds_remaining`), so the fill is
- * mapped from time-remaining-buckets. It reads as an urgency
- * indicator rather than a literal progress bar, which is
- * consistent with how Linear / Plain present SLA pills.
+ * **Live derivation.** The countdown text, the at-risk transition,
+ * and the breach pre-flip are all derived from `start_at` +
+ * `target_at` + the current wall clock — not from the server's
+ * pre-baked `seconds_remaining` / `pill_color` / `breached` flag.
+ * That keeps the pill current between server-emitted updates: the
+ * "3h 12m" counts down, the green→amber→red transitions fire when
+ * they actually happen, and a freshly-breached ticket flips red
+ * immediately (the server's breach-detection job catches up within
+ * 60s and emits an authoritative `ticket.sla_updated` that is
+ * consistent with what we already showed). `useSlaState` shares one
+ * 30s tick ref across every active pill via a ref-counted
+ * subscription so we run one timer regardless of how many tickets
+ * are on screen.
  */
-import { computed, type ComputedRef, type Ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, type ComputedRef, type Ref } from 'vue'
 import type { CardData } from '@/sync/views/types'
+
+// Single shared tick: re-emits the wall clock so every consumer's
+// computed re-evaluates together. 30s is a sweet spot — fast enough
+// that the "3h" → "2h 59m" transition isn't visibly stale, slow
+// enough that we're not waking the main thread every second on every
+// open ticket view.
+const TICK_INTERVAL_MS = 30_000
+const tickNow = ref(Date.now())
+let tickHandle: ReturnType<typeof setInterval> | null = null
+let tickSubs = 0
+
+function subscribeTick(): void {
+  tickSubs += 1
+  if (tickHandle === null) {
+    tickHandle = setInterval(() => {
+      tickNow.value = Date.now()
+    }, TICK_INTERVAL_MS)
+  }
+}
+
+function unsubscribeTick(): void {
+  tickSubs = Math.max(0, tickSubs - 1)
+  if (tickSubs === 0 && tickHandle !== null) {
+    clearInterval(tickHandle)
+    tickHandle = null
+  }
+}
 
 export interface SlaState {
   /** Compact pill text — used in the table column. */
@@ -61,18 +96,25 @@ function detailRemaining(seconds: number): string {
   return `${Math.ceil(seconds / 86_400)} days remaining`
 }
 
-/**
- * Map remaining time to a fill fraction. 24h+ remaining = 25%
- * filled (mostly empty bar = lots of time). Less than 1h = 85%
- * (almost full = urgent). The exact mapping is pedagogical —
- * meant to communicate urgency at a glance, not measure SLA
- * progress precisely.
- */
-function urgencyFraction(seconds: number): number {
-  if (seconds > 86_400) return 0.25
-  if (seconds > 14_400) return 0.45
-  if (seconds > 3600) return 0.65
-  return 0.85
+/** Seconds remaining until the target, computed against `now`.
+ *  Negative when the target has passed. Source of truth for the
+ *  pill's countdown text + the client-side breach pre-flip. */
+function liveSecondsRemaining(targetIso: string, now: number): number {
+  return Math.floor((new Date(targetIso).getTime() - now) / 1000)
+}
+
+/** True progress fraction (0..1) of elapsed time over the timer's
+ *  window. Replaces the bucket-based urgency guess we used before
+ *  start_at landed in the payload — the bar now literally tracks how
+ *  far through the window the ticket is. Clamped to 0..1 so a stale
+ *  clock or out-of-order computation can't produce a runaway value. */
+function progressFraction(startIso: string, targetIso: string, now: number): number {
+  const start = new Date(startIso).getTime()
+  const target = new Date(targetIso).getTime()
+  const windowMs = target - start
+  if (windowMs <= 0) return 1
+  const elapsed = now - start
+  return Math.min(1, Math.max(0, elapsed / windowMs))
 }
 
 /**
@@ -83,10 +125,17 @@ function urgencyFraction(seconds: number): number {
  */
 export type SlaPayload = NonNullable<CardData['sla']>
 
-export function deriveSlaState(card: CardData | null): SlaState | null
-export function deriveSlaState(sla: SlaPayload | null | undefined): SlaState | null
+export function deriveSlaState(
+  card: CardData | null,
+  now?: number,
+): SlaState | null
+export function deriveSlaState(
+  sla: SlaPayload | null | undefined,
+  now?: number,
+): SlaState | null
 export function deriveSlaState(
   source: CardData | SlaPayload | null | undefined,
+  now: number = Date.now(),
 ): SlaState | null {
   if (!source) return null
   // Discriminate on shape: CardData carries an `sla` field;
@@ -100,23 +149,9 @@ export function deriveSlaState(
   if (!sla) return null
   const target = fullDateTime(sla.target_at)
 
-  if (sla.breached) {
-    return {
-      compactLabel: 'Breached',
-      statusLabel: 'Breached',
-      toneClass: 'text-rose-600 dark:text-rose-400',
-      barClass: 'bg-rose-500',
-      fraction: 1,
-      detail: `Past target · ${target}`,
-      target,
-      breached: true,
-      paused: false,
-    }
-  }
-
-  // Response timer met on time — show as done. Resolution timers
-  // never set `met_at` (they're satisfied by closing the ticket, a
-  // separate concern); only the response timer flows through here.
+  // Met-on-time short-circuits: the timer is done, render as done.
+  // `met_at` is server-authoritative (set when first_response_at
+  // lands); we don't predict response client-side.
   if (sla.met_at) {
     return {
       compactLabel: 'Met',
@@ -131,6 +166,9 @@ export function deriveSlaState(
     }
   }
 
+  // Paused freezes the visual — the server's `paused` flag is the
+  // source of truth (we don't have the workflow_state category here
+  // to derive pause client-side).
   if (sla.paused) {
     return {
       compactLabel: 'Paused',
@@ -145,12 +183,40 @@ export function deriveSlaState(
     }
   }
 
-  const remaining = sla.seconds_remaining ?? 0
+  const remaining = liveSecondsRemaining(sla.target_at, now)
+
+  // Effective-breached: trust the server's stamp when present, but
+  // also pre-flip when the live clock has crossed `target_at`. The
+  // breach-detection job catches up within 60s and emits an
+  // authoritative sla_updated that is consistent with what we already
+  // showed; pre-flipping avoids a 60s window of stale on-track tone.
+  const effectiveBreached = sla.breached || remaining < 0
+  if (effectiveBreached) {
+    return {
+      compactLabel: 'Breached',
+      statusLabel: 'Breached',
+      toneClass: 'text-rose-600 dark:text-rose-400',
+      barClass: 'bg-rose-500',
+      fraction: 1,
+      detail: `Past target · ${target}`,
+      target,
+      breached: true,
+      paused: false,
+    }
+  }
+
   const compact = compactRemaining(remaining)
   const detail = `${detailRemaining(remaining)} · target ${target}`
-  const fraction = urgencyFraction(remaining)
+  const fraction = progressFraction(sla.start_at, sla.target_at, now)
 
-  if (sla.pill_color === 'amber') {
+  // At-risk client-side: within 25% of the window remaining flips
+  // amber. Computed from start_at + target_at + now so the green →
+  // amber transition is live, not bounded by the next server emit.
+  const windowSeconds =
+    (new Date(sla.target_at).getTime() - new Date(sla.start_at).getTime()) / 1000
+  const atRisk = remaining * 4 < windowSeconds
+
+  if (atRisk) {
     return {
       compactLabel: compact,
       statusLabel: 'At risk',
@@ -178,13 +244,18 @@ export function deriveSlaState(
 }
 
 /** Reactive form: pass a ref / getter, get a computed SlaState
- * that re-evaluates when the card changes. */
+ *  that re-evaluates when the card changes AND every 30s as the
+ *  shared tick fires — so the countdown text, the at-risk transition
+ *  and the breach pre-flip all stay current without waiting on a
+ *  server-emitted update. */
 export function useSlaState(
   card: Ref<CardData | null> | (() => CardData | null),
 ): ComputedRef<SlaState | null> {
+  onMounted(subscribeTick)
+  onUnmounted(unsubscribeTick)
   return computed(() => {
     const c = typeof card === 'function' ? card() : card.value
-    return deriveSlaState(c)
+    return deriveSlaState(c, tickNow.value)
   })
 }
 
@@ -194,10 +265,13 @@ export function useSlaState(
  * same `deriveSlaState` derivation, so the rendered tone / label
  * vocabulary is consistent with the compact pill. Either field is
  * `null` when its target isn't configured on the matched policy (or
- * when the card has no SLA at all).
+ * when the card has no SLA at all). `now` is threaded through so a
+ * reactive caller (the preview pane wires this to the shared tick)
+ * gets the same live behaviour as the compact pill.
  */
 export function deriveSlaTimers(
   source: CardData | SlaPayload | null | undefined,
+  now: number = Date.now(),
 ): { response: SlaState | null; resolution: SlaState | null } {
   if (!source) return { response: null, resolution: null }
   const sla =
@@ -206,7 +280,7 @@ export function deriveSlaTimers(
       : ((source as CardData).sla as SlaPayload | null | undefined)
   if (!sla) return { response: null, resolution: null }
   return {
-    response: sla.response ? deriveSlaState(sla.response) : null,
-    resolution: sla.resolution ? deriveSlaState(sla.resolution) : null,
+    response: sla.response ? deriveSlaState(sla.response, now) : null,
+    resolution: sla.resolution ? deriveSlaState(sla.resolution, now) : null,
   }
 }

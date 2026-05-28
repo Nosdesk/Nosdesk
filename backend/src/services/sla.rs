@@ -189,6 +189,13 @@ fn next_day_midnight(tz: &Tz, date: NaiveDate) -> DateTime<Tz> {
 /// `None` until we model close-vs-resolved separately.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SlaTimer {
+    /// Wall-clock start of the timer — the ticket's `created_at` for
+    /// both response and resolution today. Carried in the payload so
+    /// the frontend can derive the at-risk threshold live (within 25%
+    /// of `target_at - start_at` remaining flips to amber). Without
+    /// it the at-risk transition wouldn't go live between
+    /// server-emitted updates.
+    pub start_at: DateTime<Utc>,
     pub target_at: DateTime<Utc>,
     /// When the timer was satisfied (e.g. `first_response_at` for the
     /// response timer). Omitted from JSON when `None` so consumers can
@@ -287,6 +294,7 @@ fn compute_timer(
     };
 
     SlaTimer {
+        start_at: start_from,
         target_at,
         met_at,
         breached,

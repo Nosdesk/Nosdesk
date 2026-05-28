@@ -12,6 +12,10 @@
  */
 
 export interface SlaTimer {
+  /** Wall-clock start of the timer (ticket's `created_at` today).
+   *  Lets the frontend derive the at-risk threshold live (within 25%
+   *  of `target_at - start_at` remaining flips amber). */
+  start_at: string
   target_at: string
   /** ISO timestamp when the timer was satisfied (e.g.
    * `first_response_at` for the response timer). Omitted when the
