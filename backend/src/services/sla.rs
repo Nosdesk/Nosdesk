@@ -408,10 +408,8 @@ pub fn recompute_and_stamp_sla_for_ticket(
     ticket: &Ticket,
 ) -> serde_json::Value {
     let pill = load_pill_for_ticket(conn, ticket);
-    let (response_target, resolution_target) = pill
-        .as_ref()
-        .map(targets_from_pill)
-        .unwrap_or((None, None));
+    let (response_target, resolution_target) =
+        pill.as_ref().map(targets_from_pill).unwrap_or((None, None));
     set_sla_targets(conn, ticket.id, response_target, resolution_target);
     pill.and_then(|p| serde_json::to_value(p).ok())
         .unwrap_or(serde_json::Value::Null)
@@ -422,12 +420,9 @@ pub fn recompute_and_stamp_sla_for_ticket(
 /// missing (no matching policy, policy without a calendar, calendar
 /// row gone, no configured targets) — callers either return null JSON
 /// or clear the materialised columns accordingly.
-fn load_pill_for_ticket(
-    conn: &mut crate::db::DbConnection,
-    ticket: &Ticket,
-) -> Option<SlaPill> {
+fn load_pill_for_ticket(conn: &mut crate::db::DbConnection, ticket: &Ticket) -> Option<SlaPill> {
     use crate::schema::{
-        sla_policies, working_calendar_holidays, working_calendars, workflow_states,
+        sla_policies, workflow_states, working_calendar_holidays, working_calendars,
     };
     use diesel::prelude::*;
 

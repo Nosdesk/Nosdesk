@@ -58,9 +58,12 @@ pub async fn cleanup_expired_refresh_tokens(pool: Pool) -> Result<()> {
 pub async fn backfill_user_thumbnails(pool: Pool) -> Result<()> {
     use crate::services::avatar_thumbnails::{backfill_thumbnails, BackfillMode};
     let mut conn = pool.get().context("db pool")?;
-    let stats =
-        backfill_thumbnails(&mut conn, BackfillMode::MissingOnly, "scheduler:thumbnail_backfill")
-            .await;
+    let stats = backfill_thumbnails(
+        &mut conn,
+        BackfillMode::MissingOnly,
+        "scheduler:thumbnail_backfill",
+    )
+    .await;
     if stats.regenerated > 0 || stats.failed > 0 {
         info!(
             checked = stats.checked,
@@ -374,8 +377,7 @@ pub async fn detect_sla_breaches(
     sse_state: Arc<crate::handlers::sse::SseState>,
 ) -> Result<()> {
     let mut conn = pool.get().context("db pool")?;
-    let candidates =
-        scan_breach_candidates(&mut conn).context("scan SLA breach candidates")?;
+    let candidates = scan_breach_candidates(&mut conn).context("scan SLA breach candidates")?;
     if candidates.is_empty() {
         return Ok(());
     }
@@ -526,8 +528,8 @@ fn process_one_breach(
                 causation_id: None,
             },
         )?;
-        let watcher_uuids = crate::repository::ticket_watchers::watcher_uuids(conn, ticket_id)
-            .unwrap_or_default();
+        let watcher_uuids =
+            crate::repository::ticket_watchers::watcher_uuids(conn, ticket_id).unwrap_or_default();
         let (target_at, breached_at) = match kind {
             SlaBreachKind::Response => (
                 ticket.sla_response_target_at,
