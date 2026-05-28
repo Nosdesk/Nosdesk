@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import axios from 'axios';
 import { useFluent } from 'fluent-vue';
+import { useQuery } from '@pinia/colada';
 
 import EnvConfigNotice from '@/components/admin/EnvConfigNotice.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import Icon from '@/components/common/Icon.vue';
 import BrandIcon from '@/components/common/BrandIcon.vue';
 import type { IconName } from '@/components/common/icons';
@@ -32,28 +34,29 @@ interface ConfigValidation {
   error?: string;
 }
 
-// State for providers
-const isLoading = ref(false);
-const errorMessage = ref('');
-const providers = ref<Provider[]>([]);
+// Provider list is read-only here (configured via .env) and cached by
+// Pinia Colada, so navigating away and back renders it instantly and
+// revalidates silently. A skeleton shows only on the genuine first
+// load (empty cache); see `isFirstLoad`.
+const AUTH_PROVIDERS_KEY = ['auth-providers'] as const;
+const providersQuery = useQuery({
+  key: AUTH_PROVIDERS_KEY,
+  query: async () => {
+    const response = await axios.get('/api/admin/auth/providers');
+    return response.data as Provider[];
+  },
+});
+const providers = computed<Provider[]>(() =>
+  Array.isArray(providersQuery.data.value) ? providersQuery.data.value : [],
+);
+const isFirstLoad = computed(
+  () => providersQuery.status.value === 'pending' && providersQuery.data.value === undefined,
+);
+const loadError = computed(() =>
+  providersQuery.error.value ? t('admin-auth-providers-error-load') : '',
+);
 const successMessage = ref('');
 const configValidations = ref<Record<number, ConfigValidation>>({});
-
-// Load providers from API
-const loadProviders = async () => {
-  isLoading.value = true;
-  errorMessage.value = '';
-  
-  try {
-    const response = await axios.get('/api/admin/auth/providers');
-    providers.value = response.data;
-  } catch (error) {
-    console.error('Failed to load auth providers:', error);
-    errorMessage.value = extractErrorMessage(error, t('admin-auth-providers-error-load'));
-  } finally {
-    isLoading.value = false;
-  }
-};
 
 // Validate provider configuration
 const validateProviderConfig = async (provider: Provider) => {
@@ -137,10 +140,16 @@ const getConfigRequirements = (provider: Provider) => {
   }
 };
 
-onMounted(async () => {
-  await loadProviders();
-  await validateAllProviders();
-});
+// Re-run per-provider config validation whenever the provider list
+// arrives — on first fetch, on a cache-hit remount, and on background
+// refetch. Guarded so the initial undefined value is a no-op.
+watch(
+  () => providersQuery.data.value,
+  (list) => {
+    if (list) validateAllProviders();
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -160,11 +169,30 @@ onMounted(async () => {
       <!-- Success message -->
       <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
 
-      <!-- Error message -->
-      <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
-      
-      <!-- Loading state -->
-      <LoadingSpinner v-if="isLoading" :text="$t('admin-auth-providers-loading')" />
+      <!-- Load error (initial fetch failed with no cached data) -->
+      <AlertMessage v-if="loadError && providers.length === 0" type="error" :message="loadError" />
+
+      <!-- First-load skeleton: mirrors the provider-card layout so the
+           shell doesn't shift when data arrives. Cold cache only;
+           remounts render cached cards instantly and revalidate
+           silently in the background. -->
+      <Skeleton
+        v-if="isFirstLoad"
+        :label="$t('admin-auth-providers-loading')"
+        class="flex flex-col gap-4"
+      >
+        <div
+          v-for="n in 2"
+          :key="n"
+          class="bg-surface border border-default rounded-xl p-4 flex items-center gap-3"
+        >
+          <SkeletonBar class="w-10 h-10 rounded-lg shrink-0" />
+          <div class="flex-1 flex flex-col gap-2">
+            <SkeletonBar class="h-4 w-40 max-w-full" />
+            <SkeletonBar class="h-3 w-1/2" />
+          </div>
+        </div>
+      </Skeleton>
 
       <!-- Provider list -->
       <div v-else class="flex flex-col gap-4">
@@ -256,7 +284,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="providers.length === 0 && !isLoading" class="text-center py-12 text-secondary bg-surface rounded-xl border border-default p-6">
+        <div v-if="providers.length === 0 && !isFirstLoad" class="text-center py-12 text-secondary bg-surface rounded-xl border border-default p-6">
           <div class="flex justify-center mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />

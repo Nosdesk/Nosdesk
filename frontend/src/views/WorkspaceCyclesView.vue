@@ -11,14 +11,17 @@
  * Completed cycles are hidden by default; a toggle pulls them in
  * for retro / planning sessions.
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
+import { useQuery } from '@pinia/colada'
 import { cyclesService, type Cycle } from '@/services/cyclesService'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { subscribe } from '@/sync/lifecycle'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
+import Skeleton from '@/components/common/Skeleton.vue'
+import SkeletonBar from '@/components/common/SkeletonBar.vue'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -27,33 +30,37 @@ const router = useRouter()
 const projectsStore = useSyncProjectsStore()
 const allProjects = projectsStore.all()
 
-const cycles = ref<Cycle[]>([])
-const isLoading = ref(false)
-const error = ref<string | null>(null)
 const includeCompleted = ref(false)
 
-async function load(): Promise<void> {
-  isLoading.value = true
-  error.value = null
-  try {
-    cycles.value = await cyclesService.listWorkspace(
+// Cycles are cached by Pinia Colada, keyed by the include-completed
+// filter so each variant caches independently and a revisit renders
+// instantly with a silent background revalidate. Toggling the filter
+// switches keys, so Colada refetches that variant (no manual watch).
+// A skeleton shows only on a cold cache for the active variant.
+const cyclesQuery = useQuery({
+  key: () => ['workspace-cycles', includeCompleted.value ? 'all' : 'open'],
+  query: () =>
+    cyclesService.listWorkspace(
       includeCompleted.value ? ['planned', 'active', 'completed'] : undefined,
-    )
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('workspace-cycles-error-fallback')
-  } finally {
-    isLoading.value = false
-  }
-}
-
-onMounted(async () => {
-  // Workspace subscription pulls projects into the pool so the
-  // project-name lookup below resolves without a per-row fetch.
-  await subscribe('workspace:1')
-  await load()
+    ),
+})
+const cycles = computed<Cycle[]>(() =>
+  Array.isArray(cyclesQuery.data.value) ? cyclesQuery.data.value : [],
+)
+const isFirstLoad = computed(
+  () => cyclesQuery.status.value === 'pending' && cyclesQuery.data.value === undefined,
+)
+const loadError = computed(() => {
+  const e = cyclesQuery.error.value
+  if (!e) return ''
+  return e instanceof Error ? e.message : t('workspace-cycles-error-fallback')
 })
 
-watch(includeCompleted, () => { void load() })
+onMounted(() => {
+  // Workspace subscription pulls projects into the pool so the
+  // project-name lookup below resolves without a per-row fetch.
+  void subscribe('workspace:1')
+})
 
 const projectNameById = computed<Map<number, string>>(() => {
   const map = new Map<number, string>()
@@ -122,11 +129,18 @@ function openCycle(uuid: string): void {
       />
     </header>
 
-    <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
-      {{ $t('workspace-cycles-loading') }}
-    </div>
-    <div v-else-if="error" class="flex-1 flex items-center justify-center text-status-error text-sm">
-      {{ error }}
+    <Skeleton
+      v-if="isFirstLoad"
+      :label="$t('workspace-cycles-loading')"
+      class="flex-1 overflow-y-auto p-6 flex flex-col gap-6"
+    >
+      <section v-for="n in 2" :key="n" class="flex flex-col gap-3">
+        <SkeletonBar class="h-4 w-48 max-w-full" />
+        <SkeletonBar class="h-24 w-full rounded-xl" />
+      </section>
+    </Skeleton>
+    <div v-else-if="loadError" class="flex-1 flex items-center justify-center text-status-error text-sm">
+      {{ loadError }}
     </div>
     <div
       v-else-if="grouped.length === 0"
