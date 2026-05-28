@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { useInfiniteQuery, useQuery, useQueryCache } from '@pinia/colada';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import { formatDateTime } from '@/utils/dateUtils';
 import {
   emailQueueService,
@@ -33,13 +35,8 @@ const statusFilter = ref<Set<OutboundEmailStatus>>(new Set());
 const ticketFilter = ref('');
 const domainFilter = ref('');
 
-const rows = ref<OutboundEmailRow[]>([]);
-const nextCursor = ref<string | null>(null);
-const stats = ref<OutboundEmailStats | null>(null);
 const expanded = ref<Record<number, boolean>>({});
-
-const isLoading = ref(false);
-const isLoadingMore = ref(false);
+// Mutation feedback (retry / cancel) stays in a local ref.
 const errorMessage = ref('');
 
 const showCancelConfirm = ref(false);
@@ -57,49 +54,54 @@ function buildQuery(cursor?: string): OutboundEmailQuery {
   return q;
 }
 
-async function loadStats() {
-  try {
-    stats.value = await emailQueueService.stats();
-  } catch (err) {
-    // Non-fatal: stats are decorative, the list is the load-bearing data.
-    const e = err as { message?: string };
-    errorMessage.value = e.message || t('admin-email-queue-error-stats');
-  }
-}
+// List + stats are cached by Pinia Colada under a shared `email-queue`
+// prefix, so revisiting renders instantly and revalidates silently, and
+// a single prefix invalidation after a mutation refreshes both. The
+// list query key includes the filters, so changing a filter switches
+// keys and Colada refetches that variant (no manual watch); each filter
+// combination caches independently.
+const EMAIL_QUEUE_KEY = ['email-queue'] as const;
+const queryCache = useQueryCache();
+const statusKeyPart = computed(() => [...statusFilter.value].sort().join(','));
 
-async function loadFirstPage() {
-  isLoading.value = true;
-  errorMessage.value = '';
-  expanded.value = {};
-  try {
-    const page = await emailQueueService.list(buildQuery());
-    rows.value = page.rows;
-    nextCursor.value = page.next_cursor;
-  } catch (err) {
-    const e = err as { response?: { data?: { message?: string } }; message?: string };
-    errorMessage.value =
-      e.response?.data?.message || e.message || t('admin-email-queue-error-load');
-    rows.value = [];
-    nextCursor.value = null;
-  } finally {
-    isLoading.value = false;
-  }
-}
+const queueList = useInfiniteQuery({
+  key: () => [
+    'email-queue',
+    'list',
+    statusKeyPart.value,
+    ticketFilter.value.trim(),
+    domainFilter.value.trim(),
+  ],
+  initialPageParam: null as string | null,
+  query: ({ pageParam }) => emailQueueService.list(buildQuery(pageParam ?? undefined)),
+  getNextPageParam: (lastPage) => lastPage.next_cursor,
+});
+const rows = computed<OutboundEmailRow[]>(
+  () => queueList.data.value?.pages.flatMap((p) => p.rows) ?? [],
+);
+const hasMore = computed(() => queueList.hasNextPage.value);
+const isFirstLoad = computed(
+  () => queueList.asyncStatus.value === 'loading' && rows.value.length === 0,
+);
+const isLoadingMore = computed(
+  () => queueList.asyncStatus.value === 'loading' && rows.value.length > 0,
+);
+const loadError = computed(() => {
+  const e = queueList.error.value as
+    | { response?: { data?: { message?: string } }; message?: string }
+    | null;
+  if (!e) return '';
+  return e.response?.data?.message || e.message || t('admin-email-queue-error-load');
+});
 
-async function loadMore() {
-  if (!nextCursor.value || isLoadingMore.value) return;
-  isLoadingMore.value = true;
-  try {
-    const page = await emailQueueService.list(buildQuery(nextCursor.value));
-    rows.value.push(...page.rows);
-    nextCursor.value = page.next_cursor;
-  } catch (err) {
-    const e = err as { response?: { data?: { message?: string } }; message?: string };
-    errorMessage.value =
-      e.response?.data?.message || e.message || t('admin-email-queue-error-load-more');
-  } finally {
-    isLoadingMore.value = false;
-  }
+const statsQuery = useQuery({
+  key: ['email-queue', 'stats'],
+  query: () => emailQueueService.stats(),
+});
+const stats = computed<OutboundEmailStats | null>(() => statsQuery.data.value ?? null);
+
+function loadMore() {
+  queueList.loadNextPage();
 }
 
 function toggleExpanded(id: number) {
@@ -116,7 +118,7 @@ function toggleStatus(s: OutboundEmailStatus) {
 async function retryNow(id: number) {
   try {
     await emailQueueService.retryNow(id);
-    await Promise.all([loadFirstPage(), loadStats()]);
+    await queryCache.invalidateQueries({ key: EMAIL_QUEUE_KEY });
   } catch (err) {
     const e = err as { message?: string };
     errorMessage.value = e.message || t('admin-email-queue-error-retry');
@@ -135,7 +137,7 @@ async function confirmCancel() {
   if (id === null) return;
   try {
     await emailQueueService.cancel(id);
-    await Promise.all([loadFirstPage(), loadStats()]);
+    await queryCache.invalidateQueries({ key: EMAIL_QUEUE_KEY });
   } catch (err) {
     const e = err as { message?: string };
     errorMessage.value = e.message || t('admin-email-queue-error-cancel');
@@ -198,17 +200,6 @@ const deadTotal = computed(
   () => stats.value?.by_status.find((s) => s.status === 'dead')?.count ?? 0,
 );
 
-watch(
-  [statusFilter, ticketFilter, domainFilter],
-  () => {
-    void loadFirstPage();
-  },
-  { flush: 'post' },
-);
-
-onMounted(async () => {
-  await Promise.all([loadFirstPage(), loadStats()]);
-});
 </script>
 
 <template>
@@ -293,10 +284,24 @@ onMounted(async () => {
     </section>
 
     <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
+    <AlertMessage v-if="loadError && rows.length === 0" type="error" :message="loadError" />
 
-    <div v-if="isLoading" class="py-12 flex justify-center">
-      <LoadingSpinner />
-    </div>
+    <Skeleton
+      v-if="isFirstLoad"
+      :label="$t('admin-email-queue-title')"
+      class="flex flex-col gap-1"
+    >
+      <div
+        v-for="n in 6"
+        :key="n"
+        class="rounded border border-default bg-surface px-3 py-2 flex items-center gap-3"
+      >
+        <SkeletonBar class="h-4 w-16 shrink-0" />
+        <SkeletonBar class="h-4 flex-1" />
+        <SkeletonBar class="h-4 w-20 shrink-0" />
+        <SkeletonBar class="h-4 w-12 shrink-0" />
+      </div>
+    </Skeleton>
 
     <EmptyState
       v-else-if="rows.length === 0"
@@ -407,7 +412,7 @@ onMounted(async () => {
       </li>
     </ul>
 
-    <div v-if="nextCursor" class="flex justify-center pt-2">
+    <div v-if="hasMore" class="flex justify-center pt-2">
       <button
         type="button"
         class="h-9 px-4 rounded border border-default text-sm hover:bg-hover disabled:opacity-50"

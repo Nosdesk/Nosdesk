@@ -12,13 +12,15 @@
  * Reads also serve as the audit trail: bounce_count and last_seen_at
  * show whether an address is chronically failing or one-off.
  */
-import { onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { useInfiniteQuery, useQueryCache } from '@pinia/colada';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import Skeleton from '@/components/common/Skeleton.vue';
+import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import {
   emailSuppressionsService,
   type EmailSuppression,
@@ -27,12 +29,43 @@ import {
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
-const rows = ref<EmailSuppression[]>([]);
-const total = ref(0);
-const nextCursor = ref<string | null>(null);
+// The suppression list is a cursor-paginated infinite query cached by
+// Pinia Colada, so revisiting renders the loaded pages instantly and
+// revalidates silently. A skeleton shows only on a cold first load.
+const SUPPRESSIONS_KEY = ['email-suppressions'] as const;
+const queryCache = useQueryCache();
+const suppressionsList = useInfiniteQuery({
+  key: SUPPRESSIONS_KEY,
+  initialPageParam: null as string | null,
+  query: ({ pageParam }) =>
+    emailSuppressionsService.list(
+      pageParam ? { before: pageParam, limit: 50 } : { limit: 50 },
+    ),
+  // next_cursor is the `before` cursor for the next (older) page;
+  // null means there are no more pages.
+  getNextPageParam: (lastPage) => lastPage.next_cursor,
+});
+const rows = computed<EmailSuppression[]>(
+  () => suppressionsList.data.value?.pages.flatMap((p) => p.rows) ?? [],
+);
+const total = computed(() => suppressionsList.data.value?.pages.at(-1)?.total ?? 0);
+const hasMore = computed(() => suppressionsList.hasNextPage.value);
+const isFirstLoad = computed(
+  () => suppressionsList.asyncStatus.value === 'loading' && rows.value.length === 0,
+);
+const isLoadingMore = computed(
+  () => suppressionsList.asyncStatus.value === 'loading' && rows.value.length > 0,
+);
+const loadError = computed(() => {
+  const e = suppressionsList.error.value;
+  if (!e) return '';
+  return e instanceof Error ? e.message : t('admin-suppressions-error-load');
+});
+function loadMore() {
+  suppressionsList.loadNextPage();
+}
 
-const isLoading = ref(false);
-const isLoadingMore = ref(false);
+// Mutation feedback (remove failures) stays in a local ref.
 const errorMessage = ref('');
 
 const newEmail = ref('');
@@ -43,41 +76,6 @@ const addError = ref('');
 const pendingRemove = ref<string | null>(null);
 const showRemoveConfirm = ref(false);
 
-async function loadFirstPage() {
-    isLoading.value = true;
-    errorMessage.value = '';
-    try {
-        const page = await emailSuppressionsService.list({ limit: 50 });
-        rows.value = page.rows;
-        total.value = page.total;
-        nextCursor.value = page.next_cursor;
-    } catch (err) {
-        const e = err as { message?: string };
-        errorMessage.value = e.message || t('admin-suppressions-error-load');
-    } finally {
-        isLoading.value = false;
-    }
-}
-
-async function loadMore() {
-    if (!nextCursor.value || isLoadingMore.value) return;
-    isLoadingMore.value = true;
-    try {
-        const page = await emailSuppressionsService.list({
-            before: nextCursor.value,
-            limit: 50,
-        });
-        rows.value = [...rows.value, ...page.rows];
-        total.value = page.total;
-        nextCursor.value = page.next_cursor;
-    } catch (err) {
-        const e = err as { message?: string };
-        errorMessage.value = e.message || t('admin-suppressions-error-load-more');
-    } finally {
-        isLoadingMore.value = false;
-    }
-}
-
 async function handleAdd() {
     const email = newEmail.value.trim();
     if (!email) return;
@@ -87,7 +85,7 @@ async function handleAdd() {
         await emailSuppressionsService.add(email, newNote.value.trim() || undefined);
         newEmail.value = '';
         newNote.value = '';
-        await loadFirstPage();
+        await queryCache.invalidateQueries({ key: SUPPRESSIONS_KEY });
     } catch (err) {
         const e = err as { message?: string };
         addError.value = e.message || t('admin-suppressions-error-add');
@@ -108,7 +106,7 @@ async function confirmRemove() {
     if (!email) return;
     try {
         await emailSuppressionsService.remove(email);
-        await loadFirstPage();
+        await queryCache.invalidateQueries({ key: SUPPRESSIONS_KEY });
     } catch (err) {
         const e = err as { message?: string };
         errorMessage.value = e.message || t('admin-suppressions-error-remove');
@@ -133,8 +131,6 @@ function reasonLabel(reason: string): string {
 function formatDateTime(iso: string): string {
     return new Date(iso).toLocaleString();
 }
-
-onMounted(loadFirstPage);
 </script>
 
 <template>
@@ -181,10 +177,23 @@ onMounted(loadFirstPage);
         </section>
 
         <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
+        <AlertMessage v-if="loadError && rows.length === 0" type="error" :message="loadError" />
 
-        <div v-if="isLoading" class="py-12 flex justify-center">
-            <LoadingSpinner />
-        </div>
+        <Skeleton
+            v-if="isFirstLoad"
+            :label="$t('admin-suppressions-title')"
+            class="flex flex-col gap-1"
+        >
+            <div
+                v-for="n in 5"
+                :key="n"
+                class="rounded border border-default bg-surface px-3 py-2 flex items-center gap-3"
+            >
+                <SkeletonBar class="h-4 w-16 shrink-0" />
+                <SkeletonBar class="h-4 flex-1" />
+                <SkeletonBar class="h-4 w-24 shrink-0" />
+            </div>
+        </Skeleton>
 
         <EmptyState
             v-else-if="rows.length === 0"
@@ -228,7 +237,7 @@ onMounted(loadFirstPage);
             </li>
         </ul>
 
-        <div v-if="nextCursor" class="flex justify-center pt-2">
+        <div v-if="hasMore" class="flex justify-center pt-2">
             <button
                 type="button"
                 class="h-9 px-4 rounded border border-default text-sm hover:bg-hover disabled:opacity-50"
