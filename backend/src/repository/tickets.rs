@@ -552,7 +552,11 @@ pub fn get_complete_ticket(
     let sla = crate::repository::sla::load_for_pill_computation(conn)
         .ok()
         .and_then(|ctx| {
-            let policy = crate::services::sla::pick_policy(&ctx.policies, &ticket)?;
+            let group_ids = ticket
+                .assignee_uuid
+                .and_then(|u| crate::repository::groups::get_group_ids_for_user(conn, &u).ok())
+                .unwrap_or_default();
+            let policy = crate::services::sla::pick_policy(&ctx.policies, &ticket, &group_ids)?;
             let cal_id = policy.working_calendar_id?;
             let calendar = ctx.calendars_by_id.get(&cal_id)?;
             let holidays = ctx

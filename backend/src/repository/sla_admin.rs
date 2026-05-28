@@ -102,6 +102,7 @@ pub struct NewSlaPolicy {
     pub working_calendar_id: Option<i32>,
     pub priority_filter: Option<String>,
     pub category_id_filter: Option<i32>,
+    pub assignee_group_id_filter: Option<i32>,
     pub is_default: bool,
     pub created_by: Option<Uuid>,
 }
@@ -115,6 +116,7 @@ pub struct SlaPolicyPatch {
     pub working_calendar_id: Option<Option<i32>>,
     pub priority_filter: Option<Option<String>>,
     pub category_id_filter: Option<Option<i32>>,
+    pub assignee_group_id_filter: Option<Option<i32>>,
     pub is_default: Option<bool>,
     pub updated_at: Option<chrono::DateTime<Utc>>,
 }
@@ -127,6 +129,7 @@ pub struct SlaPolicyBody {
     pub working_calendar_id: Option<i32>,
     pub priority_filter: Option<String>,
     pub category_id_filter: Option<i32>,
+    pub assignee_group_id_filter: Option<i32>,
     pub is_default: Option<bool>,
 }
 
@@ -150,6 +153,7 @@ pub fn create_policy(
             working_calendar_id: body.working_calendar_id,
             priority_filter: body.priority_filter,
             category_id_filter: body.category_id_filter,
+            assignee_group_id_filter: body.assignee_group_id_filter,
             is_default: body.is_default.unwrap_or(false),
             created_by: actor,
         })
@@ -169,6 +173,7 @@ pub fn update_policy(
         working_calendar_id: Some(body.working_calendar_id),
         priority_filter: Some(body.priority_filter),
         category_id_filter: Some(body.category_id_filter),
+        assignee_group_id_filter: Some(body.assignee_group_id_filter),
         is_default: body.is_default,
         updated_at: Some(Utc::now()),
     };

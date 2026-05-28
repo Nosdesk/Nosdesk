@@ -334,6 +334,7 @@ pub struct SlaPolicy {
     pub updated_at: DateTime<Utc>,
     pub created_by: Option<Uuid>,
     pub workspace_id: i32,
+    pub assignee_group_id_filter: Option<i32>,
 }
 
 /// Operation kind recorded in `sync_actions.op`. The fourth variant

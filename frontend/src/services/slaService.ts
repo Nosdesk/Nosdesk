@@ -19,6 +19,7 @@ export interface SlaPolicy {
   working_calendar_id: number | null
   priority_filter: string | null
   category_id_filter: number | null
+  assignee_group_id_filter: number | null
   is_default: boolean
   created_at: string
   updated_at: string
@@ -39,6 +40,7 @@ export interface SlaPolicyBody {
   working_calendar_id?: number | null
   priority_filter?: string | null
   category_id_filter?: number | null
+  assignee_group_id_filter?: number | null
   is_default?: boolean
 }
 

@@ -23,6 +23,8 @@ import {
 } from '@/services/slaService'
 import { categoryService } from '@/services/categoryService'
 import type { TicketCategory } from '@/types/category'
+import { groupService } from '@/services/groupService'
+import type { GroupWithMemberCount } from '@/types/group'
 import Checkbox from '@/components/common/Checkbox.vue'
 import Button from '@/components/common/Button.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -35,6 +37,7 @@ const t = (key: string) => fluent.$t(key)
 const policies = ref<SlaPolicy[]>([])
 const calendars = ref<WorkingCalendar[]>([])
 const categories = ref<TicketCategory[]>([])
+const groups = ref<GroupWithMemberCount[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -56,14 +59,16 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const [p, c, cats] = await Promise.all([
+    const [p, c, cats, grps] = await Promise.all([
       slaService.listPolicies(),
       slaService.listCalendars(),
       categoryService.getCategories(),
+      groupService.getGroups(),
     ])
     policies.value = p
     calendars.value = c
     categories.value = cats
+    groups.value = grps
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('admin-sla-error-load')
   } finally {
@@ -141,6 +146,7 @@ const policyDraft = ref<SlaPolicyBody>({
   working_calendar_id: null,
   priority_filter: null,
   category_id_filter: null,
+  assignee_group_id_filter: null,
   is_default: false,
 })
 
@@ -150,6 +156,10 @@ const calendarOptions = computed(() =>
 
 const categoryOptions = computed(() =>
   categories.value.map((c) => ({ value: c.id, label: c.name })),
+)
+
+const groupOptions = computed(() =>
+  groups.value.map((g) => ({ value: g.id, label: g.name })),
 )
 
 async function createPolicy(): Promise<void> {
@@ -164,6 +174,7 @@ async function createPolicy(): Promise<void> {
       working_calendar_id: null,
       priority_filter: null,
       category_id_filter: null,
+      assignee_group_id_filter: null,
       is_default: false,
     }
   } catch (e) {
@@ -206,6 +217,7 @@ async function patchPolicy(p: SlaPolicy, patch: Partial<SlaPolicyBody>): Promise
       working_calendar_id: p.working_calendar_id,
       priority_filter: p.priority_filter,
       category_id_filter: p.category_id_filter,
+      assignee_group_id_filter: p.assignee_group_id_filter,
       is_default: p.is_default,
       ...patch,
     })
@@ -456,6 +468,18 @@ function fmtMinutes(m: number | null): string {
               >
                 <option :value="null">{{ $t('admin-sla-category-any') }}</option>
                 <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1 text-[11px] text-tertiary">
+              {{ $t('admin-sla-field-assignee-group') }}
+              <select
+                v-model.number="policyDraft.assignee_group_id_filter"
+                class="bg-surface border border-subtle rounded-md text-sm px-2 py-1 text-primary"
+              >
+                <option :value="null">{{ $t('admin-sla-assignee-group-any') }}</option>
+                <option v-for="opt in groupOptions" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
                 </option>
               </select>

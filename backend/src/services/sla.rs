@@ -427,7 +427,11 @@ fn load_pill_for_ticket(conn: &mut crate::db::DbConnection, ticket: &Ticket) -> 
     use diesel::prelude::*;
 
     let policies: Vec<SlaPolicy> = sla_policies::table.load(conn).ok()?;
-    let policy = pick_policy(&policies, ticket)?;
+    let group_ids = ticket
+        .assignee_uuid
+        .and_then(|u| crate::repository::groups::get_group_ids_for_user(conn, &u).ok())
+        .unwrap_or_default();
+    let policy = pick_policy(&policies, ticket, &group_ids)?;
     let cal_id = policy.working_calendar_id?;
     let calendar: WorkingCalendar = working_calendars::table.find(cal_id).first(conn).ok()?;
     let holidays: HashSet<NaiveDate> = working_calendar_holidays::table
@@ -487,7 +491,18 @@ fn set_sla_targets(
 
 /// Pick the most-specific policy that matches a ticket. Highest-id
 /// match wins, with the workspace default as a fallback.
-pub fn pick_policy<'a>(policies: &'a [SlaPolicy], ticket: &Ticket) -> Option<&'a SlaPolicy> {
+///
+/// `assignee_group_ids` lists the groups the ticket's current assignee
+/// belongs to (empty when unassigned or when the assignee is in no
+/// groups). A policy with `assignee_group_id_filter = NULL` matches
+/// regardless; a policy with a set filter only matches when that group
+/// id appears in the slice. Group resolution is left to the caller so
+/// `pick_policy` stays a pure function with no DB dependency.
+pub fn pick_policy<'a>(
+    policies: &'a [SlaPolicy],
+    ticket: &Ticket,
+    assignee_group_ids: &[i32],
+) -> Option<&'a SlaPolicy> {
     let priority_str = match ticket.priority {
         crate::models::TicketPriority::Low => "low",
         crate::models::TicketPriority::Medium => "medium",
@@ -504,7 +519,11 @@ pub fn pick_policy<'a>(policies: &'a [SlaPolicy], ticket: &Ticket) -> Option<&'a
             .category_id_filter
             .map(|c| Some(c) == ticket.category_id)
             .unwrap_or(true);
-        if !priority_ok || !category_ok {
+        let group_ok = policy
+            .assignee_group_id_filter
+            .map(|g| assignee_group_ids.contains(&g))
+            .unwrap_or(true);
+        if !priority_ok || !category_ok || !group_ok {
             continue;
         }
         // Prefer non-default policies (more specific) over the
@@ -531,6 +550,7 @@ pub fn pick_policy<'a>(policies: &'a [SlaPolicy], ticket: &Ticket) -> Option<&'a
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     fn cal(schedule: serde_json::Value) -> WorkingCalendar {
         WorkingCalendar {
@@ -564,6 +584,88 @@ mod tests {
         let start = Utc.with_ymd_and_hms(2026, 5, 1, 16, 0, 0).unwrap(); // Friday
         let end = add_business_minutes(start, 4 * 60, &cal, &HashSet::new());
         assert_eq!(end, Utc.with_ymd_and_hms(2026, 5, 4, 12, 0, 0).unwrap());
+    }
+
+    fn policy(id: i32, group: Option<i32>, is_default: bool) -> SlaPolicy {
+        SlaPolicy {
+            id,
+            name: format!("p{id}"),
+            target_response_minutes: Some(60),
+            target_resolution_minutes: Some(240),
+            working_calendar_id: Some(1),
+            priority_filter: None,
+            category_id_filter: None,
+            assignee_group_id_filter: group,
+            is_default,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            created_by: None,
+            workspace_id: 1,
+            // No need to backfill new ticket fields; the matcher
+            // doesn't read them and Ticket is built per-test.
+        }
+    }
+
+    fn ticket(assignee: Option<Uuid>) -> Ticket {
+        Ticket {
+            id: 1,
+            title: "t".into(),
+            workflow_state_id: 2,
+            priority: crate::models::TicketPriority::Medium,
+            requester_uuid: None,
+            assignee_uuid: assignee,
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
+            created_by: None,
+            closed_at: None,
+            closed_by: None,
+            category_id: None,
+            submitted_via: None,
+            guest_lookup_token: None,
+            verification_state: None,
+            origin_channel_id: None,
+            triage_state: None,
+            due_date: None,
+            recurrence_rule: None,
+            recurrence_template_id: None,
+            resolution_notes: None,
+            workspace_id: 1,
+            first_response_at: None,
+            sla_response_target_at: None,
+            sla_response_breached_at: None,
+            sla_resolution_target_at: None,
+            sla_resolution_breached_at: None,
+        }
+    }
+
+    #[test]
+    fn pick_policy_group_filter_matches_when_assignee_in_group() {
+        let group_policy = policy(2, Some(10), false);
+        let default_policy = policy(1, None, true);
+        let policies = vec![default_policy, group_policy];
+        let t = ticket(Some(Uuid::new_v4()));
+        // Assignee is in group 10, so the more-specific group policy wins.
+        let picked = pick_policy(&policies, &t, &[10]).expect("a policy");
+        assert_eq!(picked.id, 2);
+    }
+
+    #[test]
+    fn pick_policy_group_filter_falls_back_to_default_when_assignee_not_in_group() {
+        let policies = vec![policy(1, None, true), policy(2, Some(10), false)];
+        let t = ticket(Some(Uuid::new_v4()));
+        // Assignee is in groups 7 + 8 but not 10, so the group-scoped
+        // policy is filtered out and we fall back to the default.
+        let picked = pick_policy(&policies, &t, &[7, 8]).expect("a policy");
+        assert_eq!(picked.id, 1);
+    }
+
+    #[test]
+    fn pick_policy_group_filter_skips_when_ticket_unassigned() {
+        let policies = vec![policy(2, Some(10), false)];
+        let t = ticket(None);
+        // No assignee, no group memberships, group-scoped policy
+        // cannot match and there's no default to fall back to.
+        assert!(pick_policy(&policies, &t, &[]).is_none());
     }
 
     #[test]

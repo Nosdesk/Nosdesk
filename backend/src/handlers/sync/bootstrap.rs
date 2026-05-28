@@ -384,6 +384,14 @@ fn stream_bootstrap_inner(
     // pill-computation loop below resolves each ticket against
     // them in memory.
     let sla_ctx = crate::repository::sla::load_for_pill_computation(conn)?;
+    // Batch-load the group memberships for every distinct assignee
+    // in this ticket set so the matcher can honour
+    // `assignee_group_id_filter` without an N+1.
+    let assignee_uuids: Vec<uuid::Uuid> =
+        ticket_rows.iter().filter_map(|t| t.assignee_uuid).collect();
+    let groups_by_assignee =
+        crate::repository::groups::get_group_ids_for_users(conn, &assignee_uuids)
+            .unwrap_or_default();
     let now = chrono::Utc::now();
 
     for t in ticket_rows {
@@ -411,7 +419,12 @@ fn stream_bootstrap_inner(
         // resolve the working calendar + holidays it points at.
         // Tickets without a matching policy or calendar render
         // without a pill; consumers tolerate the null shape.
-        let sla = crate::services::sla::pick_policy(&sla_ctx.policies, &t)
+        let assignee_groups = t
+            .assignee_uuid
+            .and_then(|u| groups_by_assignee.get(&u))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let sla = crate::services::sla::pick_policy(&sla_ctx.policies, &t, assignee_groups)
             .and_then(|policy| {
                 let cal_id = policy.working_calendar_id?;
                 let calendar = sla_ctx.calendars_by_id.get(&cal_id)?;

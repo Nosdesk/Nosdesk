@@ -577,6 +577,66 @@ pub fn get_group_ids_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> Quer
     Ok(all_ids)
 }
 
+/// Batch variant of `get_group_ids_for_user`: returns a map from each
+/// supplied user to the full set of groups they belong to (direct +
+/// parent groups via `group_includes`). Users absent from any group
+/// won't appear in the map; callers should treat a missing key as
+/// "no memberships". Two flat queries irrespective of input size,
+/// which is what the SLA bootstrap loop needs to avoid an N+1.
+pub fn get_group_ids_for_users(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> QueryResult<std::collections::HashMap<Uuid, Vec<i32>>> {
+    use std::collections::HashMap;
+
+    if user_uuids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let direct: Vec<(Uuid, i32)> = user_groups::table
+        .filter(user_groups::user_uuid.eq_any(user_uuids))
+        .select((user_groups::user_uuid, user_groups::group_id))
+        .load(conn)?;
+
+    if direct.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // Resolve every parent group reachable from any direct membership
+    // in one query, then re-attach to each user.
+    let all_direct_ids: Vec<i32> = direct.iter().map(|(_, g)| *g).collect();
+    let parent_links: Vec<(i32, i32)> = group_includes::table
+        .filter(group_includes::child_group_id.eq_any(&all_direct_ids))
+        .select((
+            group_includes::child_group_id,
+            group_includes::parent_group_id,
+        ))
+        .load(conn)?;
+    let parents_by_child: HashMap<i32, Vec<i32>> =
+        parent_links
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, (child, parent)| {
+                acc.entry(child).or_default().push(parent);
+                acc
+            });
+
+    let mut out: HashMap<Uuid, Vec<i32>> = HashMap::new();
+    for (user, group_id) in direct {
+        let bucket = out.entry(user).or_default();
+        if !bucket.contains(&group_id) {
+            bucket.push(group_id);
+        }
+        if let Some(parents) = parents_by_child.get(&group_id) {
+            for pid in parents {
+                if !bucket.contains(pid) {
+                    bucket.push(*pid);
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Upsert a group from external source - returns (group, was_created)
 pub fn upsert_external_group(
     conn: &mut DbConnection,

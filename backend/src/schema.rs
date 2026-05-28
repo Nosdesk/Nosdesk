@@ -1190,6 +1190,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         workspace_id -> Int4,
+        assignee_group_id_filter -> Nullable<Int4>,
     }
 }
 
@@ -1763,6 +1764,7 @@ diesel::joinable!(security_events -> active_sessions (session_id));
 diesel::joinable!(security_events -> users (user_uuid));
 diesel::joinable!(site_settings -> users (updated_by));
 diesel::joinable!(site_settings -> workspaces (workspace_id));
+diesel::joinable!(sla_policies -> groups (assignee_group_id_filter));
 diesel::joinable!(sla_policies -> ticket_categories (category_id_filter));
 diesel::joinable!(sla_policies -> users (created_by));
 diesel::joinable!(sla_policies -> working_calendars (working_calendar_id));
