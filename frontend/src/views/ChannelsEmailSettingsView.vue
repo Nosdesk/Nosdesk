@@ -119,10 +119,9 @@
 
           <ToggleSwitch
             v-if="channel"
+            v-model="form.enabled"
             :label="$t('admin-channels-email-toggle-enabled-label')"
             :description="$t('admin-channels-email-toggle-enabled-description')"
-            :model-value="form.enabled"
-            @update:model-value="form.enabled = $event"
           />
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -250,10 +249,9 @@
             </summary>
             <div class="pt-4 flex flex-col gap-3">
               <ToggleSwitch
+                v-model="form.insecure_skip_cert_verify"
                 :label="$t('admin-channels-email-toggle-insecure-label')"
                 :description="$t('admin-channels-email-toggle-insecure-description')"
-                :model-value="form.insecure_skip_cert_verify"
-                @update:model-value="form.insecure_skip_cert_verify = $event"
               />
             </div>
           </details>
@@ -265,11 +263,18 @@
                 variant="secondary"
                 :loading="testing"
                 :disabled="!canTest"
+                :title="formIsDirty ? $t('admin-channels-email-test-dirty-hint') : undefined"
                 @click="testConnection"
               >
                 {{ testing ? $t('admin-channels-email-testing') : $t('admin-channels-email-test') }}
               </Button>
-              <span v-if="testResult === 'ok'" class="text-sm text-status-success inline-flex items-center gap-1.5">
+              <span
+                v-if="formIsDirty && channel"
+                class="text-sm text-tertiary"
+              >
+                {{ $t('admin-channels-email-test-dirty-hint') }}
+              </span>
+              <span v-else-if="testResult === 'ok'" class="text-sm text-status-success inline-flex items-center gap-1.5">
                 <span class="inline-block w-1.5 h-1.5 rounded-full bg-status-success"></span>
                 {{ $t('admin-channels-email-test-connected') }}
               </span>
@@ -292,7 +297,7 @@
                 {{ deleting ? $t('admin-channels-email-deleting') : $t('admin-channels-email-delete') }}
               </Button>
               <Button type="submit" :loading="saving" :disabled="!canSave">
-                {{ channel ? (saving ? $t('admin-channels-email-saving') : $t('admin-channels-email-save')) : (saving ? $t('admin-channels-email-creating') : $t('admin-channels-email-create')) }}
+                {{ submitLabel }}
               </Button>
             </div>
           </div>
@@ -395,9 +400,13 @@ const channel = computed<Channel | null>(() => channelQuery.data.value ?? null);
 const isFirstLoad = computed(
   () => channelQuery.status.value === 'pending' && channelQuery.data.value === undefined,
 );
-const loadError = computed(() =>
-  channelQuery.error.value ? t('admin-channels-email-error-load') : '',
-);
+// Surface backend detail when available; fall back to a generic
+// message only when the error doesn't carry one (e.g. network drop).
+const loadError = computed(() => {
+  const err = channelQuery.error.value;
+  if (!err) return '';
+  return createErrorFromResponse(err).getUserMessage() || t('admin-channels-email-error-load');
+});
 // Distinguishes a genuine fetch failure (no data ever received) from
 // a successful "no email channel configured" result, which is null.
 const hasLoadedData = computed(() => channelQuery.data.value !== undefined);
@@ -451,9 +460,69 @@ const canSave = computed(() => {
 
 // Test-connection is enabled when we have either a candidate password
 // on the form or a stored one on the channel. Without either there's
-// nothing to authenticate with.
+// nothing to authenticate with. We also disable it when the form is
+// dirty against the saved config: the test endpoint authenticates
+// against the *stored* settings, so testing unsaved edits would
+// silently check the wrong host/port and confuse the admin.
+const formIsDirty = computed(() => {
+  const ch = channel.value;
+  if (!ch) return false;
+  const cfg = (ch.config ?? {}) as unknown as ImapChannelConfig;
+  return (
+    form.name !== ch.name ||
+    form.enabled !== ch.enabled ||
+    form.host !== (cfg.host ?? '') ||
+    form.port !== (cfg.port ?? DEFAULT_CONFIG.port) ||
+    form.username !== (cfg.username ?? '') ||
+    form.mailbox !== (cfg.mailbox ?? DEFAULT_CONFIG.mailbox) ||
+    form.reply_domain !== (cfg.reply_domain ?? '') ||
+    form.insecure_skip_cert_verify !== (cfg.insecure_skip_cert_verify ?? false)
+  );
+});
 const canTest = computed(() => {
+  if (formIsDirty.value) return false;
   return form.password.length > 0 || (channel.value?.has_credential ?? false);
+});
+
+// Any edit invalidates a previous test result. The green "Connected"
+// pip would otherwise survive an admin changing the host away from
+// the value that actually authenticated.
+watch(
+  () => [
+    form.host,
+    form.port,
+    form.username,
+    form.mailbox,
+    form.reply_domain,
+    form.password,
+    form.insecure_skip_cert_verify,
+  ],
+  () => {
+    testResult.value = 'idle';
+    testErrorMessage.value = '';
+  },
+);
+
+/**
+ * Show a success message and auto-clear it after 3s. The `=== msg`
+ * guard prevents a later success from being cleared by an earlier
+ * timer, which would happen if two saves landed within the window.
+ */
+function flashSuccess(key: string) {
+  const msg = t(key);
+  successMessage.value = msg;
+  setTimeout(() => {
+    if (successMessage.value === msg) successMessage.value = '';
+  }, 3000);
+}
+
+const submitLabel = computed(() => {
+  if (saving.value) {
+    return channel.value
+      ? t('admin-channels-email-saving')
+      : t('admin-channels-email-creating');
+  }
+  return channel.value ? t('admin-channels-email-save') : t('admin-channels-email-create');
 });
 
 function populateForm(ch: Channel) {
@@ -478,7 +547,7 @@ function buildConfig(): Record<string, unknown> {
     port: form.port,
     username: form.username.trim(),
     mailbox: form.mailbox.trim() || DEFAULT_CONFIG.mailbox,
-    use_tls: true,
+    use_tls: DEFAULT_CONFIG.use_tls,
     reply_domain: form.reply_domain.trim(),
     insecure_skip_cert_verify: form.insecure_skip_cert_verify
   };
@@ -523,7 +592,7 @@ async function save() {
       // values without a network round-trip.
       queryCache.setQueryData(CHANNELS_EMAIL_KEY, updated);
       populateForm(updated);
-      successMessage.value = t('admin-channels-email-success-update');
+      flashSuccess('admin-channels-email-success-update');
     } else {
       const created = await channelsService.create({
         provider: EMAIL_PROVIDER,
@@ -534,9 +603,8 @@ async function save() {
       });
       queryCache.setQueryData(CHANNELS_EMAIL_KEY, created);
       populateForm(created);
-      successMessage.value = t('admin-channels-email-success-create');
+      flashSuccess('admin-channels-email-success-create');
     }
-    setTimeout(() => (successMessage.value = ''), 3000);
   } catch (e: unknown) {
     errorMessage.value = createErrorFromResponse(e).getUserMessage();
   } finally {
@@ -585,8 +653,7 @@ async function doClearCredential() {
   try {
     await channelsService.clearCredential(channel.value.id);
     await queryCache.invalidateQueries({ key: CHANNELS_EMAIL_KEY });
-    successMessage.value = t('admin-channels-email-success-password-removed');
-    setTimeout(() => (successMessage.value = ''), 3000);
+    flashSuccess('admin-channels-email-success-password-removed');
   } catch (e: unknown) {
     errorMessage.value = createErrorFromResponse(e).getUserMessage();
   } finally {
@@ -608,8 +675,7 @@ async function doDeleteChannel() {
     await channelsService.remove(channel.value.id);
     queryCache.setQueryData(CHANNELS_EMAIL_KEY, null);
     Object.assign(form, emptyForm());
-    successMessage.value = t('admin-channels-email-success-delete');
-    setTimeout(() => (successMessage.value = ''), 3000);
+    flashSuccess('admin-channels-email-success-delete');
   } catch (e: unknown) {
     errorMessage.value = createErrorFromResponse(e).getUserMessage();
   } finally {

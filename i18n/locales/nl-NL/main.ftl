@@ -1299,6 +1299,7 @@ admin-channels-email-toggle-insecure-description = ALLEEN voor Greenmail of zelf
 admin-channels-email-test = Verbinding testen
 admin-channels-email-testing = Testen...
 admin-channels-email-test-connected = Verbonden
+admin-channels-email-test-dirty-hint = Sla wijzigingen eerst op om ze te testen.
 admin-channels-email-test-failed = Mislukt
 admin-channels-email-test-unknown-error = Onbekende fout
 admin-channels-email-delete = Verwijderen
