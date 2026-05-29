@@ -28,6 +28,15 @@ pub struct UpdateBrandingRequest {
     /// leave alone, empty string = clear back to "no org default".
     #[serde(default)]
     pub signature_default: Option<String>,
+    /// Whether to send the "we got your message" auto-ack when a
+    /// channel message opens a new ticket. Omitted = leave alone.
+    #[serde(default)]
+    pub channel_auto_ack_enabled: Option<bool>,
+    /// Custom auto-ack body. Same omission / empty-string semantics
+    /// as signature_default: omitted = leave alone, empty string =
+    /// clear back to "use built-in FTL default for the locale".
+    #[serde(default)]
+    pub channel_auto_ack_template: Option<String>,
 }
 
 // GET /api/admin/branding/config - Get branding settings (public for initial load)
@@ -52,7 +61,9 @@ pub async fn get_branding_config(pool: web::Data<Pool>) -> impl Responder {
                 "favicon_url": null,
                 "primary_color": null,
                 "updated_at": null,
-                "signature_default": null
+                "signature_default": null,
+                "channel_auto_ack_enabled": true,
+                "channel_auto_ack_template": null
             }))
         }
     }
@@ -112,10 +123,37 @@ pub async fn update_branding_config(
         }
     }
 
+    // Same rule for the auto-ack template — admins shouldn't be able
+    // to save `{{tech_name}}` here (auto-ack is system-authored, no
+    // agent on hand). Empty / blank clears back to the built-in FTL
+    // default.
+    if let Some(ref tmpl) = body.channel_auto_ack_template {
+        if !tmpl.trim().is_empty() {
+            let unknown = crate::utils::template_variables::unknown_variables(
+                tmpl,
+                crate::utils::template_variables::AUTO_ACK_VARIABLES,
+            );
+            if !unknown.is_empty() {
+                return errors::bad_request(format!(
+                    "Unknown auto-ack variables: {}. Supported: {}.",
+                    unknown.join(", "),
+                    crate::utils::template_variables::AUTO_ACK_VARIABLES.join(", ")
+                ));
+            }
+        }
+    }
+
     // Mirror the user-signature empty-string-is-clear semantic from
     // users.rs so the admin UI can revert to "no org default"
     // without a separate API call.
     let signature_default_change = body.signature_default.as_ref().map(|s| {
+        if s.trim().is_empty() {
+            None
+        } else {
+            Some(s.clone())
+        }
+    });
+    let auto_ack_template_change = body.channel_auto_ack_template.as_ref().map(|s| {
         if s.trim().is_empty() {
             None
         } else {
@@ -131,6 +169,8 @@ pub async fn update_branding_config(
         primary_color: body.primary_color.as_ref().map(|c| Some(c.clone())),
         updated_by: Some(user_uuid),
         signature_default: signature_default_change,
+        channel_auto_ack_enabled: body.channel_auto_ack_enabled,
+        channel_auto_ack_template: auto_ack_template_change,
         ..Default::default()
     };
 

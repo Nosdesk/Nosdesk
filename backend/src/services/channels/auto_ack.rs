@@ -220,21 +220,30 @@ async fn send_auto_ack(
     Ok(())
 }
 
-/// Minimal `{{variable}}` substitution. Not Handlebars — we only need
-/// 4 tokens and the template is plain text. Unknown tokens are left
-/// intact rather than erroring; admins editing the template will
-/// spot their own typos.
+/// `{{variable}}` substitution backed by the shared renderer in
+/// `utils::template_variables`. Whitespace inside braces is
+/// tolerated (`{{ ticket_id }}` works the same as `{{ticket_id}}`),
+/// matching canned-response + signature behaviour. Unknown tokens
+/// are left intact rather than erroring; admin-saved templates are
+/// validated up-front at the handler boundary so the only way an
+/// unknown token reaches this renderer is the built-in FTL default,
+/// which is curated.
 fn render_template(
     template: &str,
     settings: &SiteSettings,
     ticket: &Ticket,
     customer_name: &str,
 ) -> String {
-    template
-        .replace("{{ticket_id}}", &ticket.id.to_string())
-        .replace("{{ticket_title}}", &ticket.title)
-        .replace("{{customer_name}}", customer_name)
-        .replace("{{app_name}}", &settings.app_name)
+    let ticket_id = ticket.id.to_string();
+    crate::utils::template_variables::substitute(
+        template,
+        &[
+            ("ticket_id", &ticket_id),
+            ("ticket_title", &ticket.title),
+            ("customer_name", customer_name),
+            ("app_name", &settings.app_name),
+        ],
+    )
 }
 
 #[cfg(test)]

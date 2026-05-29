@@ -3487,6 +3487,13 @@ pub struct SiteSettingsResponse {
     /// excluded from `PublicSiteSettings` since it isn't relevant
     /// to anonymous guest views.
     pub signature_default: Option<String>,
+    /// Whether to send the "we got your message" auto-acknowledgement
+    /// when a channel message opens a new ticket. See
+    /// `services::channels::auto_ack`.
+    pub channel_auto_ack_enabled: bool,
+    /// Admin-overridden template for the auto-ack body. `None` =
+    /// use the built-in FTL default for the resolved locale.
+    pub channel_auto_ack_template: Option<String>,
 }
 
 impl From<SiteSettings> for SiteSettingsResponse {
@@ -3509,6 +3516,8 @@ impl From<SiteSettings> for SiteSettingsResponse {
             guest_ticket_attachments_enabled: settings.guest_ticket_attachments_enabled,
             guest_ticket_intro_message: settings.guest_ticket_intro_message,
             signature_default: settings.signature_default,
+            channel_auto_ack_enabled: settings.channel_auto_ack_enabled,
+            channel_auto_ack_template: settings.channel_auto_ack_template,
         }
     }
 }

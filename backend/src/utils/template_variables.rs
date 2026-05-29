@@ -39,6 +39,12 @@ pub const CANNED_RESPONSE_VARIABLES: &[&str] = &[
 /// since a signature is boilerplate, not a templated reply.
 pub const SIGNATURE_VARIABLES: &[&str] = &["tech_name", "tech_email", "app_name"];
 
+/// Variables the auto-acknowledgement renderer substitutes when
+/// emitting the "we got your message" reply. No `tech_name`: the
+/// auto-ack is system-authored, there's no agent on hand yet.
+pub const AUTO_ACK_VARIABLES: &[&str] =
+    &["ticket_id", "ticket_title", "customer_name", "app_name"];
+
 /// Whitespace-tolerant token matcher: `{{ name }}` and `{{name}}`
 /// both match the same way the frontend mirror does.
 static VARIABLE_TOKEN_RE: Lazy<Regex> =
@@ -121,6 +127,16 @@ mod tests {
         let body = "Sent by {{tech_name}} re: ticket {{ticket_id}}.";
         let flagged = unknown_variables(body, SIGNATURE_VARIABLES);
         assert_eq!(flagged, vec!["ticket_id"]);
+    }
+
+    #[test]
+    fn auto_ack_allow_list_rejects_tech_name() {
+        // Auto-ack is system-authored, there's no agent. A template
+        // with `{{tech_name}}` would substitute to the literal token
+        // (no value bound), so reject at save time.
+        let body = "Hi {{customer_name}}, your ticket {{ticket_id}} from {{tech_name}}.";
+        let flagged = unknown_variables(body, AUTO_ACK_VARIABLES);
+        assert_eq!(flagged, vec!["tech_name"]);
     }
 
     #[test]
