@@ -1,7 +1,7 @@
 use lettre::{
     message::{
         header::{ContentType, Header, HeaderName, HeaderValue, InReplyTo, MessageId, References},
-        Mailbox, MultiPart,
+        Mailbox, MultiPart, SinglePart,
     },
     transport::smtp::authentication::Credentials,
     Message, SmtpTransport, Transport,
@@ -48,6 +48,24 @@ impl Header for XAutoResponseSuppress {
 }
 use std::env;
 use std::str::FromStr;
+
+/// Build the plaintext `SinglePart` used in outbound replies with
+/// the `format=flowed` parameter declared (RFC 3676). Our generated
+/// plaintext (`> ` quote prefixes, `-- ` signature separator,
+/// hard-wrapped line breaks via `\n`) already follows the format-
+/// flowed conventions, but without the parameter clients are free
+/// to soft-wrap our lines and break the quote/signature alignment
+/// on narrow viewports. `delsp=no` keeps trailing whitespace —
+/// we never emit soft breaks (lines ending in a space) so this is
+/// strictly correct.
+fn plaintext_flowed_part(body: String) -> SinglePart {
+    SinglePart::builder()
+        .header(
+            ContentType::parse("text/plain; charset=utf-8; format=flowed; delsp=no")
+                .expect("valid content-type literal"),
+        )
+        .body(body)
+}
 
 /// Simple HTML escaping for email content to prevent XSS
 fn escape_html(s: &str) -> String {
@@ -979,17 +997,24 @@ impl EmailService {
 
         // Prefer multipart/alternative when both text + html are given so
         // clients can pick. Text-only falls back to a single part.
+        // Both paths declare `format=flowed` on the text part so mail
+        // clients don't aggressively soft-wrap our `> ` quote prefixes
+        // or `-- ` signature separator on narrow viewports.
         let message = if let Some(html) = outbound.body_html {
             builder
-                .multipart(MultiPart::alternative_plain_html(
-                    outbound.body_text.to_string(),
-                    html.to_string(),
-                ))
+                .multipart(
+                    MultiPart::alternative()
+                        .singlepart(plaintext_flowed_part(outbound.body_text.to_string()))
+                        .singlepart(
+                            SinglePart::builder()
+                                .header(ContentType::TEXT_HTML)
+                                .body(html.to_string()),
+                        ),
+                )
                 .map_err(|e| format!("Failed to build ticket reply: {e}"))?
         } else {
             builder
-                .header(ContentType::TEXT_PLAIN)
-                .body(outbound.body_text.to_string())
+                .singlepart(plaintext_flowed_part(outbound.body_text.to_string()))
                 .map_err(|e| format!("Failed to build ticket reply: {e}"))?
         };
 
