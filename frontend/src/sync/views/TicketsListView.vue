@@ -24,7 +24,7 @@
  *   /  — open AddFilterMenu pre-selected to the Title facet
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
 import { subscribe } from '@/sync/lifecycle'
@@ -70,6 +70,7 @@ import { FACET_ORDER } from '@/components/views/filterFacets'
 import { TICKET_COLUMNS } from '@/sync/views/ticketColumns'
 
 const router = useRouter()
+const route = useRoute()
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 const ticketsStore = useSyncTicketsStore()
@@ -96,6 +97,64 @@ const {
 } = useTicketsColumns(activeView)
 const { density, setDensity, rowClass, cellPadding } = useTicketsDensity()
 const filters = useTicketsFilters()
+
+// URL-bind the SLA filter so the dashboard "SLA health" widget can
+// deep-link to a filtered list (e.g. `/tickets?sla=breached`) and so
+// the chosen state survives reloads / bookmarks. Comma-separated for
+// multi-select; unknown values are ignored rather than throwing.
+const VALID_SLA_FILTERS: ReadonlySet<SlaFilter> = new Set<SlaFilter>([
+  'breached',
+  'at-risk',
+  'on-track',
+  'paused',
+  'none',
+])
+
+function parseSlaQuery(
+  raw: string | (string | null)[] | null | undefined,
+): SlaFilter[] {
+  if (raw == null) return []
+  const value = Array.isArray(raw)
+    ? raw.filter((s): s is string => typeof s === 'string').join(',')
+    : raw
+  return value
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s): s is SlaFilter => VALID_SLA_FILTERS.has(s as SlaFilter))
+}
+
+onMounted(() => {
+  const parsed = parseSlaQuery(route.query.sla)
+  if (parsed.length > 0) {
+    filters.sla.value = new Set(parsed)
+  }
+})
+
+// Mirror filter changes back into the URL. We watch the ref's
+// identity rather than mutating the Set in place because every
+// toggle in the chip handlers already replaces the Set wholesale —
+// deep tracking isn't needed and would hurt perf for nothing.
+watch(
+  () => filters.sla.value,
+  (next) => {
+    const serialised = Array.from(next).join(',')
+    const currentRaw = route.query.sla
+    const current = Array.isArray(currentRaw)
+      ? currentRaw.filter((s): s is string => typeof s === 'string').join(',')
+      : (currentRaw ?? '')
+    if (serialised === current) return
+    const nextQuery = { ...route.query }
+    if (serialised) {
+      nextQuery.sla = serialised
+    } else {
+      delete nextQuery.sla
+    }
+    // Use `replace` so the filter doesn't pollute browser history;
+    // back-button should escape the list, not step through each
+    // filter tweak.
+    router.replace({ query: nextQuery })
+  },
+)
 const workflowStatesStore = useWorkflowStatesStore()
 const grouping = useTicketsGrouping(() => activeView.value.id)
 const splitView = useSplitView()
