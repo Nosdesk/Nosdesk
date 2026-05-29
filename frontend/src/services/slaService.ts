@@ -120,6 +120,24 @@ export const slaService = {
     const { data } = await apiClient.get<SlaExplain>(`/tickets/${ticketId}/sla/explain`)
     return data
   },
+
+  async getPolicyMatchCounts(): Promise<Record<string, PolicyMatchCounts>> {
+    const { data } = await apiClient.get<Record<string, PolicyMatchCounts>>(
+      '/admin/sla/policies/matches',
+    )
+    return data
+  },
+}
+
+/** Per-policy state breakdown over the workspace's open tickets.
+ *  Object keys are policy ids as strings (JSON map shape from
+ *  Rust's HashMap<i32, _> serialisation). */
+export interface PolicyMatchCounts {
+  total: number
+  on_track: number
+  at_risk: number
+  breached: number
+  paused: number
 }
 
 // "Why this SLA?" payload returned by GET /api/tickets/{id}/sla/explain.

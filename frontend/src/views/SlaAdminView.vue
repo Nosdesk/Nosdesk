@@ -25,7 +25,7 @@
  * reads top to bottom in the same order the engine evaluates:
  * filter, then compute.
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery, useQueryCache } from '@pinia/colada'
 import {
@@ -35,6 +35,7 @@ import {
   type WorkingCalendarBody,
   type WorkingCalendarHoliday,
   type SlaPolicyBody,
+  type PolicyMatchCounts,
 } from '@/services/slaService'
 import { categoryService } from '@/services/categoryService'
 import type { TicketCategory } from '@/types/category'
@@ -64,6 +65,9 @@ const POLICIES_KEY = ['sla', 'policies'] as const
 const CALENDARS_KEY = ['sla', 'calendars'] as const
 const CATEGORIES_KEY = ['categories'] as const
 const GROUPS_KEY = ['groups'] as const
+const MATCH_COUNTS_KEY = ['sla', 'policy-matches'] as const
+
+const MATCH_COUNTS_REFRESH_MS = 30_000
 
 const queryCache = useQueryCache()
 const policiesQuery = useQuery({
@@ -82,11 +86,44 @@ const groupsQuery = useQuery({
   key: GROUPS_KEY,
   query: () => groupService.getGroups(),
 })
+const matchCountsQuery = useQuery({
+  key: MATCH_COUNTS_KEY,
+  query: () => slaService.getPolicyMatchCounts(),
+})
+
+// Refresh the live match counts on a steady tick so the breach /
+// at-risk callouts reflect the current open-ticket set without the
+// admin having to reload. 30s mirrors the existing SLA pill tick and
+// the breach-detection job cadence on the backend.
+let matchCountsTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  matchCountsTimer = setInterval(() => {
+    matchCountsQuery.refetch()
+  }, MATCH_COUNTS_REFRESH_MS)
+})
+onBeforeUnmount(() => {
+  if (matchCountsTimer) clearInterval(matchCountsTimer)
+})
 
 const policies = computed<SlaPolicy[]>(() => policiesQuery.data.value ?? [])
 const calendars = computed<WorkingCalendar[]>(() => calendarsQuery.data.value ?? [])
 const categories = computed<TicketCategory[]>(() => categoriesQuery.data.value ?? [])
 const groups = computed<GroupWithMemberCount[]>(() => groupsQuery.data.value ?? [])
+const matchCounts = computed<Record<string, PolicyMatchCounts>>(
+  () => matchCountsQuery.data.value ?? {},
+)
+
+function countsFor(policyId: number): PolicyMatchCounts {
+  return (
+    matchCounts.value[String(policyId)] ?? {
+      total: 0,
+      on_track: 0,
+      at_risk: 0,
+      breached: 0,
+      paused: 0,
+    }
+  )
+}
 
 const isFirstLoad = computed(
   () =>
@@ -588,13 +625,13 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
                 <tr>
                   <th class="text-left px-3 py-2 font-medium">{{ $t('admin-sla-col-name') }}</th>
                   <th class="text-left px-3 py-2 font-medium">
-                    {{ $t('admin-sla-col-response') }}
-                  </th>
-                  <th class="text-left px-3 py-2 font-medium">
-                    {{ $t('admin-sla-col-resolution') }}
+                    {{ $t('admin-sla-col-targets') }}
                   </th>
                   <th class="text-left px-3 py-2 font-medium">
                     {{ $t('admin-sla-col-calendar') }}
+                  </th>
+                  <th class="text-left px-3 py-2 font-medium">
+                    {{ $t('admin-sla-col-matches') }}
                   </th>
                   <th class="text-left px-3 py-2 font-medium">{{ $t('admin-sla-col-default') }}</th>
                   <th class="px-3 py-2"></th>
@@ -608,14 +645,47 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
                 </tr>
                 <tr v-for="p in policies" :key="p.id" class="bg-surface">
                   <td class="px-3 py-2 text-primary">{{ p.name }}</td>
-                  <td class="px-3 py-2 text-secondary tabular-nums">
+                  <td class="px-3 py-2 text-secondary tabular-nums whitespace-nowrap">
                     {{ fmtMinutes(p.target_response_minutes) }}
-                  </td>
-                  <td class="px-3 py-2 text-secondary tabular-nums">
+                    <span class="text-tertiary"> / </span>
                     {{ fmtMinutes(p.target_resolution_minutes) }}
                   </td>
                   <td class="px-3 py-2 text-secondary">
                     {{ calendarName(p.working_calendar_id) }}
+                  </td>
+                  <td class="px-3 py-2 whitespace-nowrap">
+                    <template v-if="countsFor(p.id).total === 0">
+                      <span class="text-tertiary">{{ $t('admin-sla-matches-none') }}</span>
+                    </template>
+                    <template v-else>
+                      <span class="text-primary tabular-nums">{{
+                        $t('admin-sla-matches-total', { count: countsFor(p.id).total })
+                      }}</span>
+                      <span
+                        v-if="countsFor(p.id).at_risk > 0"
+                        class="ml-2 text-status-warning tabular-nums"
+                        :title="$t('admin-sla-matches-at-risk-title')"
+                      >
+                        ·
+                        {{
+                          $t('admin-sla-matches-at-risk', {
+                            count: countsFor(p.id).at_risk,
+                          })
+                        }}
+                      </span>
+                      <span
+                        v-if="countsFor(p.id).breached > 0"
+                        class="ml-2 text-status-error font-medium tabular-nums"
+                        :title="$t('admin-sla-matches-breached-title')"
+                      >
+                        ·
+                        {{
+                          $t('admin-sla-matches-breached', {
+                            count: countsFor(p.id).breached,
+                          })
+                        }}
+                      </span>
+                    </template>
                   </td>
                   <td class="px-3 py-2">
                     <button

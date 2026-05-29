@@ -1474,6 +1474,8 @@ async fn main() -> std::io::Result<()> {
                     // inside the handler.
                     .route("/admin/sla/policies", web::get().to(handlers::sla::list_policies))
                     .route("/admin/sla/policies", web::post().to(handlers::sla::create_policy))
+                    // Static path must precede /{id} so "matches" isn't parsed as an id.
+                    .route("/admin/sla/policies/matches", web::get().to(handlers::sla::policy_match_counts))
                     .route("/admin/sla/policies/{id}", web::patch().to(handlers::sla::update_policy))
                     .route("/admin/sla/policies/{id}", web::delete().to(handlers::sla::delete_policy))
                     .route("/admin/sla/calendars", web::get().to(handlers::sla::list_calendars))
