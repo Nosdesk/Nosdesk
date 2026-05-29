@@ -625,6 +625,12 @@ pub struct WorkflowState {
     pub created_at: DateTime<Utc>,
     pub created_by: Option<Uuid>,
     pub workspace_id: i32,
+    /// When true, the SLA matcher stops the clock while a ticket is
+    /// in this state. Per-row override of the legacy category-derived
+    /// rule (active = running, everything else = paused), so an admin
+    /// can keep a "Waiting on customer" status modelled under active
+    /// while still pausing the timer.
+    pub pauses_sla: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -636,6 +642,7 @@ pub struct NewWorkflowState {
     pub position: i32,
     pub is_default: bool,
     pub created_by: Option<Uuid>,
+    pub pauses_sla: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -646,6 +653,7 @@ pub struct WorkflowStateUpdate {
     pub position: Option<i32>,
     pub is_default: Option<bool>,
     pub archived_at: Option<Option<DateTime<Utc>>>,
+    pub pauses_sla: Option<bool>,
 }
 
 #[derive(

@@ -32,6 +32,12 @@ pub struct CreateBody {
     pub name: String,
     pub category: WorkflowStateCategory,
     pub color: String,
+    /// Optional pause-SLA override. When `None`, the default is
+    /// derived from the category (active runs the clock, every other
+    /// category pauses it). Setting it explicitly lets an admin keep
+    /// a "Waiting on customer" status modelled under active while
+    /// still pausing the timer.
+    pub pauses_sla: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +49,7 @@ pub struct PatchBody {
     /// sets this state as the workspace default. `Some(false)` is
     /// rejected — there must always be exactly one default.
     pub is_default: Option<bool>,
+    pub pauses_sla: Option<bool>,
 }
 
 /// Pull the JWT subject UUID off the request, used for the
@@ -107,6 +114,14 @@ pub async fn create(
         }
     };
 
+    // Default to the legacy category-derived rule (active = clock
+    // running, everything else = paused) when the caller didn't pick
+    // a side. Keeps existing seed/onboarding flows behaving as before
+    // while letting an admin override per state.
+    let pauses_sla = body
+        .pauses_sla
+        .unwrap_or(body.category != WorkflowStateCategory::Active);
+
     let new = NewWorkflowState {
         name: trimmed.to_string(),
         category: body.category,
@@ -114,6 +129,7 @@ pub async fn create(
         position: next_position,
         is_default: false,
         created_by: actor,
+        pauses_sla,
     };
 
     let created = tc.run(|conn| repo::create(conn, new));
@@ -170,6 +186,7 @@ pub async fn patch(
         // (the caller would skip the demote-old-default emit).
         is_default: None,
         archived_at: None,
+        pauses_sla: body.pauses_sla,
     };
     let promote = matches!(body.is_default, Some(true));
     let result = tc.run(|conn| {

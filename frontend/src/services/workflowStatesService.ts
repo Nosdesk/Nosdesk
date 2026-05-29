@@ -9,6 +9,12 @@ export interface CreateWorkflowStateBody {
   name: string
   category: WorkflowStateCategory
   color: string
+  /**
+   * Optional override; the backend derives a default from the
+   * category when omitted (active = clock running, every other
+   * category pauses).
+   */
+  pauses_sla?: boolean
 }
 
 export interface UpdateWorkflowStateBody {
@@ -16,6 +22,7 @@ export interface UpdateWorkflowStateBody {
   color?: string
   position?: number
   is_default?: boolean
+  pauses_sla?: boolean
 }
 
 export const workflowStatesService = {

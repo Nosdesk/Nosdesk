@@ -104,6 +104,29 @@ async function promoteDefault(state: WorkflowState) {
   }
 }
 
+/**
+ * Toggle whether tickets sitting in this state pause the SLA clock.
+ * The legacy rule (active category runs, every other category pauses)
+ * is now per-state so an admin can hold a "Waiting on customer"
+ * status under active without letting the timer keep counting.
+ */
+async function togglePause(state: WorkflowState) {
+  try {
+    await workflowStatesService.update(state.id, { pauses_sla: !state.pauses_sla })
+    await reload()
+    flash(
+      t(
+        !state.pauses_sla
+          ? 'admin-workflow-states-sla-now-paused-flash'
+          : 'admin-workflow-states-sla-now-running-flash',
+        { name: state.name },
+      ),
+    )
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : t('admin-workflow-states-error-save')
+  }
+}
+
 const pendingArchive = ref<WorkflowState | null>(null)
 
 function requestArchive(state: WorkflowState): void {
@@ -223,6 +246,16 @@ onMounted(() => {
               @click="promoteDefault(state)"
             >
               {{ $t('admin-workflow-states-make-default') }}
+            </button>
+            <button
+              type="button"
+              class="text-xs transition-colors"
+              :class="state.pauses_sla ? 'text-status-warning hover:text-status-warning/80' : 'text-secondary hover:text-accent'"
+              :aria-pressed="state.pauses_sla"
+              :title="state.pauses_sla ? $t('admin-workflow-states-sla-paused-title') : $t('admin-workflow-states-sla-running-title')"
+              @click="togglePause(state)"
+            >
+              {{ state.pauses_sla ? $t('admin-workflow-states-sla-paused') : $t('admin-workflow-states-sla-running') }}
             </button>
             <button
               type="button"

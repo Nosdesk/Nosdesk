@@ -1565,6 +1565,7 @@ diesel::table! {
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         workspace_id -> Int4,
+        pauses_sla -> Bool,
     }
 }
 

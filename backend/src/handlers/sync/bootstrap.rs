@@ -433,10 +433,12 @@ fn stream_bootstrap_inner(
                     .get(&cal_id)
                     .cloned()
                     .unwrap_or_default();
-                let category = ws
-                    .map(|s| s.category)
-                    .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
-                crate::services::sla::compute_pill(&t, category, policy, calendar, &holidays, now)
+                // Missing state row (shouldn't happen but possible if
+                // a state was hard-deleted) defaults to paused so we
+                // don't silently start counting on an unresolvable
+                // category.
+                let paused = ws.map(|s| s.pauses_sla).unwrap_or(true);
+                crate::services::sla::compute_pill(&t, paused, policy, calendar, &holidays, now)
             })
             .and_then(|pill| serde_json::to_value(pill).ok())
             .unwrap_or(serde_json::Value::Null);

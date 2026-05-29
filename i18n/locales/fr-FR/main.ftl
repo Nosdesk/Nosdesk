@@ -587,6 +587,12 @@ admin-workflow-states-saved = Enregistré
 admin-workflow-states-default-flash = { $name } est désormais l'état par défaut pour les nouveaux tickets
 admin-workflow-states-archived-flash = { $name } archivé
 admin-workflow-states-added-flash = { $name } ajouté à { $category }
+admin-workflow-states-sla-paused = Met le SLA en pause
+admin-workflow-states-sla-running = Lance le SLA
+admin-workflow-states-sla-paused-title = Les tickets dans cet état mettent en pause le compteur SLA. Cliquez pour le relancer.
+admin-workflow-states-sla-running-title = Les tickets dans cet état font tourner le compteur SLA. Cliquez pour le mettre en pause.
+admin-workflow-states-sla-now-paused-flash = { $name } met désormais le SLA en pause
+admin-workflow-states-sla-now-running-flash = { $name } fait désormais tourner le SLA
 
 # DRAFT (needs native-review pass): asset-kinds registry.
 admin-asset-kinds-title = Types d'actifs

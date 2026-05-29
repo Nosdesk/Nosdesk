@@ -374,6 +374,7 @@ mod tests {
                     position: 99,
                     is_default: false,
                     created_by: Some(user.uuid),
+                    pauses_sla: false,
                 };
                 let created = create(conn, new)?;
                 let after: i64 = sync_actions::table

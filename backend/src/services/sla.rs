@@ -10,12 +10,13 @@
 //!    breach?") and elapsed-time accumulation ("how much business
 //!    time has the ticket been in active state?").
 //!
-//! 2. **Pill computation** — `compute_pill(ticket, policy, calendar,
-//!    holidays, now)` returns the spec'd CardData.sla payload:
-//!    `{ target_at, breached, paused, pill_color, seconds_remaining }`.
-//!    Tickets in non-active workflow categories are paused
-//!    (architecture doc § 6: "a ticket is in progress for SLA
-//!    purposes whenever its state's category is `active`").
+//! 2. **Pill computation** — `compute_pill(ticket, paused, policy,
+//!    calendar, holidays, now)` returns the spec'd CardData.sla
+//!    payload `{ target_at, breached, paused, pill_color,
+//!    seconds_remaining }`. Whether a ticket pauses the clock is the
+//!    caller's responsibility, derived from the workflow state's
+//!    own `pauses_sla` flag (admin-editable, defaults from the
+//!    category at create time).
 //!
 //! This module is read-only. SLA pills are derived on every read;
 //! there's no separate `sla_application` row to maintain. If the
@@ -30,9 +31,7 @@ use chrono::{
 use chrono_tz::Tz;
 use std::collections::HashSet;
 
-use crate::models::{
-    SlaPolicy, Ticket, WorkflowStateCategory, WorkingCalendar, WorkingCalendarHoliday,
-};
+use crate::models::{SlaPolicy, Ticket, WorkingCalendar, WorkingCalendarHoliday};
 
 /// One [open, close) interval inside a working day.
 #[derive(Debug, Clone, Copy)]
@@ -306,9 +305,8 @@ fn compute_timer(
 
 /// Compute the SLA pill payload for a ticket — both response +
 /// resolution timers, gated on which policy targets are configured.
-/// The architecture spec says SLA arithmetic only runs while the
-/// ticket's workflow state category is `active`; everything else
-/// (triage, backlog, in_review, done, cancelled) is paused so the
+/// `paused` is the workflow state's own `pauses_sla` flag (resolved
+/// at the caller from `WorkflowState::pauses_sla`); when true the
 /// timers stop counting. The response timer also stops counting once
 /// `first_response_at` is stamped, regardless of pause state — at
 /// that point the response was either met or breached, and the wall
@@ -319,14 +317,13 @@ fn compute_timer(
 /// one timer; the other is `None` when its target isn't configured.
 pub fn compute_pill(
     ticket: &Ticket,
-    category: WorkflowStateCategory,
+    paused: bool,
     policy: &SlaPolicy,
     calendar: &WorkingCalendar,
     holidays: &HashSet<NaiveDate>,
     now: DateTime<Utc>,
 ) -> Option<SlaPill> {
     let created_utc = DateTime::<Utc>::from_naive_utc_and_offset(ticket.created_at, Utc);
-    let paused = category != WorkflowStateCategory::Active;
 
     let response = policy
         .target_response_minutes
@@ -440,13 +437,16 @@ fn load_pill_for_ticket(conn: &mut crate::db::DbConnection, ticket: &Ticket) -> 
         .load::<NaiveDate>(conn)
         .map(|v| v.into_iter().collect())
         .unwrap_or_default();
-    let category = workflow_states::table
+    // Default to paused so a missing state row (shouldn't happen but
+    // can if a state was hard-deleted) doesn't accidentally start
+    // counting time against an unresolvable category.
+    let paused = workflow_states::table
         .find(ticket.workflow_state_id)
-        .select(workflow_states::category)
-        .first::<WorkflowStateCategory>(conn)
-        .unwrap_or(WorkflowStateCategory::Backlog);
+        .select(workflow_states::pauses_sla)
+        .first::<bool>(conn)
+        .unwrap_or(true);
 
-    compute_pill(ticket, category, policy, &calendar, &holidays, Utc::now())
+    compute_pill(ticket, paused, policy, &calendar, &holidays, Utc::now())
 }
 
 /// Derive the (response, resolution) target timestamps to materialise

@@ -564,18 +564,18 @@ pub fn get_complete_ticket(
                 .get(&cal_id)
                 .cloned()
                 .unwrap_or_default();
-            // Resolve the ticket's workflow state category for the
-            // pause-state computation. Backlog default matches the
-            // bootstrap fallback so a missing state row degrades
-            // gracefully rather than panicking.
-            let category = crate::schema::workflow_states::table
+            // Resolve the ticket's per-state pause flag (set by an
+            // admin in the workflow-state editor). Missing row → paused
+            // so we don't silently start counting on an unresolvable
+            // state — mirrors the bootstrap fallback.
+            let paused = crate::schema::workflow_states::table
                 .find(ticket.workflow_state_id)
-                .select(crate::schema::workflow_states::category)
-                .first::<crate::models::WorkflowStateCategory>(conn)
-                .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+                .select(crate::schema::workflow_states::pauses_sla)
+                .first::<bool>(conn)
+                .unwrap_or(true);
             crate::services::sla::compute_pill(
                 &ticket,
-                category,
+                paused,
                 policy,
                 calendar,
                 &holidays,

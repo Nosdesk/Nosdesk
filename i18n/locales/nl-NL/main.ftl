@@ -584,6 +584,12 @@ admin-workflow-states-saved = Opgeslagen
 admin-workflow-states-default-flash = { $name } is nu de standaardstatus voor nieuwe tickets
 admin-workflow-states-archived-flash = { $name } gearchiveerd
 admin-workflow-states-added-flash = { $name } toegevoegd aan { $category }
+admin-workflow-states-sla-paused = Pauzeert SLA
+admin-workflow-states-sla-running = Laat SLA lopen
+admin-workflow-states-sla-paused-title = Tickets in deze status pauzeren de SLA-klok. Klik om de klok te laten lopen.
+admin-workflow-states-sla-running-title = Tickets in deze status laten de SLA-klok lopen. Klik om te pauzeren.
+admin-workflow-states-sla-now-paused-flash = { $name } pauzeert nu de SLA-klok
+admin-workflow-states-sla-now-running-flash = { $name } laat nu de SLA-klok lopen
 
 # DRAFT (needs native-review pass): asset-kinds registry.
 admin-asset-kinds-title = Activatypen

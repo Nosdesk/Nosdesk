@@ -42,6 +42,13 @@ export interface WorkflowState {
   archived_at: string | null
   created_at: string
   created_by: string | null
+  /**
+   * Per-state SLA pause flag (admin-editable). When true, the SLA
+   * matcher stops the clock while a ticket sits in this state. Lets a
+   * "Waiting on customer" status pause time even if it lives under
+   * the active category.
+   */
+  pauses_sla: boolean
 }
 
 /**

@@ -647,6 +647,12 @@ admin-workflow-states-saved = Saved
 admin-workflow-states-default-flash = { $name } is now the default for new tickets
 admin-workflow-states-archived-flash = { $name } archived
 admin-workflow-states-added-flash = { $name } added to { $category }
+admin-workflow-states-sla-paused = Pauses SLA
+admin-workflow-states-sla-running = Runs SLA
+admin-workflow-states-sla-paused-title = Tickets in this state pause the SLA clock. Click to let it run.
+admin-workflow-states-sla-running-title = Tickets in this state run the SLA clock. Click to pause it.
+admin-workflow-states-sla-now-paused-flash = { $name } now pauses the SLA clock
+admin-workflow-states-sla-now-running-flash = { $name } now runs the SLA clock
 
 # Admin: asset-kinds registry (AssetKindsView). Admins define the
 # kinds of assets they track and the attributes each kind carries.
