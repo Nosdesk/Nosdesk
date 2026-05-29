@@ -843,7 +843,7 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
           </label>
         </div>
 
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-2 pt-2 border-t border-subtle">
           <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-schedule') }}</span>
           <WeekScheduleEditor
             v-model="calendarDraft.schedule as WeekSchedule"

@@ -5,27 +5,23 @@
  * The schedule is the same `Record<day, [open, close][]>` shape the
  * backend stores in JSONB: keys mon..sun, values are zero or more
  * [open, close] string pairs (HH:MM 24h, in the calendar's
- * timezone). The editor never reshapes or sorts the data; it just
- * mutates a deep copy via v-model so the parent's existing
- * Pinia-backed reactivity flows straight back to the API.
+ * timezone).
  *
- * Each day is a row. Empty days show a ghost "+ Add hours"
- * affordance; days with ranges render each range as a chip carrying
- * two native `<input type="time">` controls plus a remove button.
- * The chip *is* the editor (no read/edit mode toggle, no popover) so
- * an admin can edit times with the same keystroke economy as a real
- * spreadsheet, and the whole component fits in one viewport.
+ * Each day is a row carrying a `DayTimeline` — a 24h horizontal
+ * track with draggable range bars. Drag the bar edges to resize,
+ * drag the body to shift, click empty space to create. Direct
+ * manipulation beats the prior text-input chip layout because the
+ * admin can see the day shape at a glance and adjust without
+ * mentally converting "09:00 → 17:00" into spatial intuition.
  *
- * Validation is light on purpose: the schedule parser on the engine
- * side silently drops ranges where `close <= open`, so a typo
- * doesn't blow up — it just renders as "Closed" for the affected
- * day. UI mirrors that: invalid ranges show in tertiary tone instead
- * of accent.
+ * Validation is render-only (close <= open shows as error tone);
+ * the `update:valid` watcher lets the parent gate the Save button
+ * so the admin sees the data refused to commit instead of vanishing
+ * silently through the backend schedule parser.
  */
 import { computed, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
-import Icon from '@/components/common/Icon.vue'
-import TimePicker from '@/components/common/TimePicker.vue'
+import DayTimeline from '@/components/admin/DayTimeline.vue'
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
@@ -44,53 +40,26 @@ const DAYS: { key: DayKey; labelKey: string }[] = [
   { key: 'sun', labelKey: 'admin-sla-schedule-day-sun' },
 ]
 
-// Default range for the "+ Add hours" button. Same shape engineers
-// type by hand most often, and the schedule parser is happy with it.
-const DEFAULT_RANGE: [string, string] = ['09:00', '17:00']
-
 const model = defineModel<WeekSchedule>({ required: true })
 
 // Surfacing validity lets the parent's Save button stay disabled
-// while any range is malformed, instead of the prior behaviour where
-// invalid ranges rendered muted but quietly saved (and got silently
-// dropped by the backend schedule parser).
+// while any range is malformed.
 const emit = defineEmits<{ (e: 'update:valid', valid: boolean): void }>()
 
 function dayRanges(day: DayKey): DaySchedule {
   return model.value[day] ?? []
 }
 
-function setDay(day: DayKey, ranges: DaySchedule) {
+function setDayRanges(day: DayKey, ranges: DaySchedule): void {
   // Replace the whole row in a shallow clone so the parent ref's
   // reactivity flips for the watcher chain (sync_action emit, draft
   // dirty-check, etc.) without us having to mutate in place.
   model.value = { ...model.value, [day]: ranges }
 }
 
-function addRange(day: DayKey) {
-  setDay(day, [...dayRanges(day), [...DEFAULT_RANGE]])
-}
-
-function updateRange(day: DayKey, index: number, which: 0 | 1, value: string) {
-  const next = dayRanges(day).map((r, i) =>
-    i === index ? ([which === 0 ? value : r[0], which === 1 ? value : r[1]] as [string, string]) : r,
-  )
-  setDay(day, next)
-}
-
-function removeRange(day: DayKey, index: number) {
-  setDay(
-    day,
-    dayRanges(day).filter((_, i) => i !== index),
-  )
-}
-
-/** Render-only check; invalid ranges keep their data but go muted. */
 function isValid(range: [string, string]): boolean {
   return range[0] < range[1]
 }
-
-const weekIsEmpty = computed(() => DAYS.every((d) => dayRanges(d.key).length === 0))
 
 const allRangesValid = computed(() =>
   DAYS.every((d) => dayRanges(d.key).every(isValid)),
@@ -100,61 +69,26 @@ watch(allRangesValid, (v) => emit('update:valid', v), { immediate: true })
 </script>
 
 <template>
-  <div class="flex flex-col gap-2">
+  <div class="flex flex-col gap-1.5">
     <div
       v-for="day in DAYS"
       :key="day.key"
-      class="flex items-start gap-3 py-2 border-b border-subtle last:border-b-0"
+      class="flex items-center gap-3"
     >
       <span
-        class="w-10 flex-shrink-0 text-xs font-medium text-tertiary uppercase tracking-wide pt-1.5"
+        class="w-10 flex-shrink-0 text-[11px] font-semibold text-tertiary uppercase tracking-wide"
       >
         {{ $t(day.labelKey) }}
       </span>
-      <div class="flex-1 flex flex-wrap items-center gap-2 min-h-[30px]">
-        <span
-          v-for="(range, i) in dayRanges(day.key)"
-          :key="i"
-          class="inline-flex items-center gap-1.5"
-        >
-          <TimePicker
-            :model-value="range[0]"
-            :aria-label="t('admin-sla-schedule-open-aria')"
-            :error="!isValid(range)"
-            @update:model-value="(v: string) => updateRange(day.key, i, 0, v)"
-          />
-          <span class="text-tertiary text-[11px]" aria-hidden="true">→</span>
-          <TimePicker
-            :model-value="range[1]"
-            :aria-label="t('admin-sla-schedule-close-aria')"
-            :error="!isValid(range)"
-            @update:model-value="(v: string) => updateRange(day.key, i, 1, v)"
-          />
-          <button
-            type="button"
-            class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:text-status-error transition-colors"
-            :aria-label="t('admin-sla-schedule-remove-range-aria')"
-            @click="removeRange(day.key, i)"
-          >
-            <Icon name="close" class="w-3 h-3" />
-          </button>
-        </span>
-        <button
-          type="button"
-          class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-subtle text-xs text-tertiary hover:text-accent hover:border-accent/50 hover:bg-accent-muted transition-colors"
-          @click="addRange(day.key)"
-        >
-          <Icon name="add" class="w-3 h-3" />
-          <span v-if="dayRanges(day.key).length === 0">
-            {{ $t('admin-sla-schedule-add-hours') }}
-          </span>
-          <span v-else class="sr-only">{{ $t('admin-sla-schedule-add-range-aria') }}</span>
-        </button>
-      </div>
+      <DayTimeline
+        class="flex-1 min-w-0"
+        :ranges="dayRanges(day.key)"
+        :aria-label="t(day.labelKey)"
+        @update:ranges="(ranges: DaySchedule) => setDayRanges(day.key, ranges)"
+      />
     </div>
-    <p v-if="weekIsEmpty" class="text-[11px] text-tertiary italic">
-      {{ $t('admin-sla-schedule-empty-hint') }}
+    <p class="text-[10px] text-tertiary italic mt-1">
+      {{ $t('admin-sla-schedule-timeline-hint') }}
     </p>
   </div>
 </template>
-
