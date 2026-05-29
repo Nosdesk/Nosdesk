@@ -327,7 +327,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       <template v-else-if="col.id === 'sla'">
         <span
           v-if="card.sla"
-          class="inline-flex items-center gap-1 text-[11px] tabular-nums"
+          class="inline-flex items-center gap-1 text-[11px] tabular-nums transition-colors duration-200"
           :class="slaToneClass(card)"
           :title="slaTitle(card)"
         >

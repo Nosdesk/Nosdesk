@@ -180,7 +180,7 @@ function onOpen(): void {
               </span>
               <span
                 v-if="slaState"
-                class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 h-6 rounded-md border border-subtle"
+                class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 h-6 rounded-md border border-subtle transition-colors duration-200"
                 :class="slaState.toneClass"
               >
                 <Icon name="clock" class="w-3 h-3" />
@@ -277,7 +277,7 @@ function onOpen(): void {
             </h3>
             <div v-for="row in slaRows" :key="row.labelKey ?? 'single'" class="flex flex-col gap-2">
               <div class="flex items-center justify-between text-xs">
-                <span class="flex items-center gap-2 font-medium" :class="row.state.toneClass">
+                <span class="flex items-center gap-2 font-medium transition-colors duration-200" :class="row.state.toneClass">
                   <span v-if="row.labelKey" class="text-tertiary font-normal">{{ $t(row.labelKey) }}</span>
                   {{ row.state.statusLabel }}
                 </span>

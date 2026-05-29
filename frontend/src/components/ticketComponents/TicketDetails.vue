@@ -799,7 +799,7 @@ watchEffect(async () => {
             :title="slaState.detail"
           >
             <span class="text-tertiary font-medium">{{ t('ticket-detail-sla-label') }}</span>
-            <span class="inline-flex items-center gap-1.5" :class="slaState.toneClass">
+            <span class="inline-flex items-center gap-1.5 transition-colors duration-200" :class="slaState.toneClass">
               <Icon name="clock" class="w-3.5 h-3.5" />
               <span class="font-medium">{{ slaState.statusLabel }}</span>
               <span
