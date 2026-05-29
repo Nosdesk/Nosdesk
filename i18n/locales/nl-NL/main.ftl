@@ -2649,6 +2649,9 @@ ticket-picker-canned-loading = Laden…
 ticket-picker-canned-empty-title = Nog geen standaardantwoorden.
 ticket-picker-canned-empty-hint = Beheerders kunnen sjablonen toevoegen in het beheergedeelte.
 ticket-picker-canned-load-error = Kan sjablonen niet laden
+ticket-picker-canned-search-placeholder = Zoek een standaardantwoord…
+ticket-picker-canned-search-aria = Zoek standaardantwoord
+ticket-picker-canned-no-matches = Geen resultaten voor "{ $query }"
 
 # Ticket picker: apparaat modaal (DeviceModal)
 ticket-picker-device-title = Activum toevoegen

@@ -2569,6 +2569,9 @@ ticket-picker-canned-loading = Loading…
 ticket-picker-canned-empty-title = No canned responses yet.
 ticket-picker-canned-empty-hint = Admins can add templates in the admin area.
 ticket-picker-canned-load-error = Couldn't load templates
+ticket-picker-canned-search-placeholder = Search canned responses…
+ticket-picker-canned-search-aria = Search canned responses
+ticket-picker-canned-no-matches = No matches for "{ $query }"
 
 # Ticket picker: device modal (DeviceModal)
 ticket-picker-device-title = Add asset

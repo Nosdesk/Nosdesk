@@ -2658,6 +2658,9 @@ ticket-picker-canned-loading = Chargement…
 ticket-picker-canned-empty-title = Aucune réponse préenregistrée pour le moment.
 ticket-picker-canned-empty-hint = Les administrateurs peuvent ajouter des modèles dans la zone d'administration.
 ticket-picker-canned-load-error = Échec du chargement des modèles
+ticket-picker-canned-search-placeholder = Rechercher une réponse…
+ticket-picker-canned-search-aria = Rechercher une réponse préenregistrée
+ticket-picker-canned-no-matches = Aucun résultat pour « { $query } »
 
 # Ticket picker: modale d'appareil (DeviceModal)
 ticket-picker-device-title = Ajouter un actif

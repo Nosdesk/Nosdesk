@@ -3,10 +3,11 @@ Dropdown button that lists the team's canned responses and emits the
 selected body (with template variables already substituted) back up
 to the composer.
 
-Deliberately minimal: no search, no categorisation. Most teams have
-<30 canned responses and a simple alphabetical list is easier to
-scan than a search box with zero matches. Add search once the
-template library actually grows.
+Search box appears at the top of the dropdown once any templates
+exist, focused on open (combobox pattern). Substring match on title
++ first 150 chars of body, case-insensitive, multi-term AND. Arrow
+keys navigate the filtered list whether focus is in the input or
+the panel; Enter inserts the active item.
 -->
 <template>
   <div>
@@ -71,24 +72,50 @@ template library actually grows.
             {{ $t('ticket-picker-canned-empty-hint') }}
           </p>
         </div>
-        <ul v-else class="flex flex-col" role="presentation">
-          <li
-            v-for="(r, i) in responses"
-            :id="optionId(i)"
-            :key="r.id"
-            role="option"
-            :aria-selected="i === activeIndex"
-            @mousemove="activeIndex = i"
-            @click="choose(r)"
-            :class="[
-              'w-full text-left px-4 py-2.5 cursor-pointer flex flex-col gap-0.5 transition-colors',
-              i === activeIndex ? 'bg-surface-hover' : 'hover:bg-surface-hover',
-            ]"
+        <template v-else>
+          <div class="px-3 py-2 border-b border-default">
+            <input
+              ref="searchInputEl"
+              v-model="searchQuery"
+              type="text"
+              :placeholder="$t('ticket-picker-canned-search-placeholder')"
+              :aria-label="$t('ticket-picker-canned-search-aria')"
+              aria-autocomplete="list"
+              autocomplete="off"
+              spellcheck="false"
+              class="w-full bg-surface-alt border border-default rounded-md px-2 py-1.5 text-sm text-primary placeholder:text-tertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info"
+            />
+          </div>
+          <ul
+            v-if="filteredResponses.length > 0"
+            class="flex flex-col"
+            role="presentation"
           >
-            <span class="text-sm font-medium text-primary truncate">{{ r.title }}</span>
-            <span class="text-xs text-tertiary line-clamp-2">{{ r.body }}</span>
-          </li>
-        </ul>
+            <li
+              v-for="(r, i) in filteredResponses"
+              :id="optionId(i)"
+              :key="r.id"
+              role="option"
+              :aria-selected="i === activeIndex"
+              @mousemove="activeIndex = i"
+              @click="choose(r)"
+              :class="[
+                'w-full text-left px-4 py-2.5 cursor-pointer flex flex-col gap-0.5 transition-colors',
+                i === activeIndex ? 'bg-surface-hover' : 'hover:bg-surface-hover',
+              ]"
+            >
+              <span class="text-sm font-medium text-primary truncate">{{ r.title }}</span>
+              <span class="text-xs text-tertiary line-clamp-2">{{ r.body }}</span>
+            </li>
+          </ul>
+          <div
+            v-else
+            class="px-4 py-3 text-sm text-tertiary"
+            role="status"
+          >
+            {{ $t('ticket-picker-canned-no-matches', { query: searchQuery }) }}
+          </div>
+        </template>
       </div>
     </Teleport>
   </div>
@@ -131,11 +158,34 @@ const emit = defineEmits<{
 
 const triggerEl = ref<HTMLButtonElement | null>(null);
 const panelEl = ref<HTMLDivElement | null>(null);
+const searchInputEl = ref<HTMLInputElement | null>(null);
 const isOpen = ref(false);
 const loading = ref(false);
 const error = ref('');
 const responses = ref<CannedResponse[]>([]);
+const searchQuery = ref('');
 const activeIndex = ref(0);
+
+// Substring filter on title + first 150 chars of body, case-
+// insensitive, multi-term AND. Body slice is enough to disambiguate
+// titles without scanning huge templates on every keystroke; <1000
+// items is instant client-side so no debounce needed.
+const filteredResponses = computed(() => {
+  const q = searchQuery.value.trim();
+  if (!q) return responses.value;
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return responses.value;
+  return responses.value.filter((r) => {
+    const haystack = `${r.title.toLowerCase()} ${r.body.slice(0, 150).toLowerCase()}`;
+    return terms.every((t) => haystack.includes(t));
+  });
+});
+
+// Reset highlight to the top of the (newly filtered) list whenever
+// the query changes so Enter picks the most relevant match.
+watch(searchQuery, () => {
+  activeIndex.value = 0;
+});
 /**
  * Live bounding rect of the trigger button. Updated whenever the
  * panel opens, the window resizes, or any ancestor scrolls — keeping
@@ -173,7 +223,7 @@ function captureTriggerRect() {
 const uid = Math.random().toString(36).slice(2, 8);
 const optionId = (i: number) => `canned-response-opt-${uid}-${i}`;
 const activeOptionId = computed(() =>
-  responses.value.length > 0 ? optionId(activeIndex.value) : undefined,
+  filteredResponses.value.length > 0 ? optionId(activeIndex.value) : undefined,
 );
 
 async function toggleOpen() {
@@ -200,14 +250,19 @@ async function toggleOpen() {
       loading.value = false;
     }
   }
-  // Move focus into the panel so arrow keys / Esc / Enter work
-  // immediately — standard listbox behaviour.
+  // Focus the search input so the user can start typing immediately
+  // (standard combobox UX). Falls back to the panel itself when the
+  // input isn't rendered yet (loading / error / empty-library
+  // states), so arrow keys / Esc / Enter still work.
   await nextTick();
-  panelEl.value?.focus();
+  (searchInputEl.value ?? panelEl.value)?.focus();
 }
 
 function closePicker(returnFocus: boolean) {
   isOpen.value = false;
+  // Reset query so the next open starts with the full list. The
+  // template cache (`loaded`) is preserved.
+  searchQuery.value = '';
   if (returnFocus) triggerEl.value?.focus();
 }
 
@@ -219,8 +274,14 @@ function choose(r: CannedResponse) {
   closePicker(true);
 }
 
+// Keydown lives on the panel so it fires whether focus is in the
+// search input or the listbox; arrow keys always navigate the
+// filtered list. Home/End only apply when focus is NOT in the
+// input — otherwise they jump the text caret, which the user
+// expects in a text field.
 function onPanelKeydown(e: KeyboardEvent) {
-  const n = responses.value.length;
+  const n = filteredResponses.value.length;
+  const inSearch = e.target === searchInputEl.value;
   switch (e.key) {
     case 'Escape':
       e.preventDefault();
@@ -239,22 +300,28 @@ function onPanelKeydown(e: KeyboardEvent) {
       scrollActiveIntoView();
       break;
     case 'Home':
-      if (n === 0) return;
+      if (n === 0 || inSearch) return;
       e.preventDefault();
       activeIndex.value = 0;
       scrollActiveIntoView();
       break;
     case 'End':
-      if (n === 0) return;
+      if (n === 0 || inSearch) return;
       e.preventDefault();
       activeIndex.value = n - 1;
       scrollActiveIntoView();
       break;
     case 'Enter':
-    case ' ':
       if (n === 0) return;
       e.preventDefault();
-      choose(responses.value[activeIndex.value]);
+      choose(filteredResponses.value[activeIndex.value]);
+      break;
+    case ' ':
+      // Space inserts only when the listbox itself has focus —
+      // otherwise we'd block typing a space in the search query.
+      if (n === 0 || inSearch) return;
+      e.preventDefault();
+      choose(filteredResponses.value[activeIndex.value]);
       break;
   }
 }
