@@ -26,6 +26,7 @@ pub mod safe_http;
 pub mod security_events;
 pub mod slug;
 pub mod storage;
+pub mod tracing_redact;
 pub mod user;
 pub mod utf8_trunc;
 pub mod webauthn;

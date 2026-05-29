@@ -164,17 +164,39 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    // Ignore tracing init errors (might already be initialized by cargo watch)
-    // Docker best practice: log to stdout (not files), Docker daemon handles log forwarding
-    let _ = tracing_subscriber::registry()
-        .with(
-            fmt::layer()
-                .with_target(true)
-                .with_line_number(true)
-                .with_writer(std::io::stdout),
-        )
-        .with(EnvFilter::new(&log_level))
-        .try_init();
+    // Production (LOG_FORMAT=json) emits via `RedactingJsonLayer` —
+    // a field-allowlist JSON serializer that drops anything outside
+    // the policy in `utils::tracing_redact`. Local dev keeps the
+    // pretty formatter because developer laptops aren't
+    // sub-processors of anyone's data. See the "Log redaction"
+    // section of `SECURITY.md` for the policy.
+    //
+    // `EnvFilter` is attached as a per-layer filter via
+    // `Layer::with_filter`, not on the registry. This keeps the
+    // registry's span store unfiltered, so `LookupSpan` /
+    // `ctx.event_scope` always see `tracing_actix_web`'s
+    // per-request span (carrying `request_id`) — even when the
+    // filter would drop the "served" event. The bare event is
+    // suppressed inside the layer by target check.
+    use tracing_subscriber::Layer as _;
+    let json_logs = std::env::var("LOG_FORMAT").ok().as_deref() == Some("json");
+    let env_filter = || EnvFilter::new(&log_level);
+    let registry = tracing_subscriber::registry();
+    let _ = if json_logs {
+        registry
+            .with(utils::tracing_redact::RedactingJsonLayer.with_filter(env_filter()))
+            .try_init()
+    } else {
+        registry
+            .with(
+                fmt::layer()
+                    .with_target(true)
+                    .with_line_number(true)
+                    .with_writer(std::io::stdout)
+                    .with_filter(env_filter()),
+            )
+            .try_init()
+    };
 
     debug!("Tracing initialized, continuing startup");
 
@@ -261,10 +283,10 @@ async fn main() -> std::io::Result<()> {
     // MFA features) but still validates the format if one is set.
     let encryption_key_set =
         std::env::var("ENCRYPTION_KEY").is_ok() || std::env::var("MFA_ENCRYPTION_KEY").is_ok();
-    if let Some(placeholder_key) = std::env::var("MFA_ENCRYPTION_KEY")
+    if std::env::var("MFA_ENCRYPTION_KEY")
         .ok()
         .or_else(|| std::env::var("ENCRYPTION_KEY").ok())
-        .filter(|k| looks_like_placeholder(k))
+        .is_some_and(|k| looks_like_placeholder(&k))
     {
         if environment == "production" {
             error!("Encryption key appears to be the docker.env.example placeholder");
@@ -272,7 +294,11 @@ async fn main() -> std::io::Result<()> {
             error!("Generate a secure key with: openssl rand -hex 32");
             std::process::exit(1);
         } else {
-            warn!(?placeholder_key, "Encryption key looks like a placeholder; MFA / encrypted-secret flows will use it as-is in dev");
+            // Log the warning without the key value — even known
+            // placeholder strings shouldn't sit in structured-log
+            // output where a future shipper config might forward
+            // them.
+            warn!("Encryption key looks like a placeholder; MFA / encrypted-secret flows will use it as-is in dev");
         }
     }
     match crate::utils::encryption::validate_at_startup() {

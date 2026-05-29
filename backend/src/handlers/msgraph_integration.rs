@@ -918,7 +918,7 @@ pub async fn test_connection(req: actix_web::HttpRequest) -> impl Responder {
 }
 
 /// Sync data from Microsoft Graph
-#[instrument(level = "info", skip(req, db_pool, request, ws), fields(entities = ?request.entities))]
+#[instrument(level = "info", skip(req, db_pool, request, ws), fields(count = request.entities.len()))]
 pub async fn sync_data(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
@@ -2381,7 +2381,7 @@ fn update_identity_data(
 }
 
 /// Update existing user who already has Microsoft identity (optimized version)
-#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(user_principal_name = %ms_user.user_principal_name, user_uuid = %existing_identity.user_uuid))]
+#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(user_uuid = %existing_identity.user_uuid))]
 async fn update_existing_microsoft_user_optimized(
     conn: &mut DbConnection,
     ms_user: &MicrosoftGraphUser,
@@ -2531,7 +2531,7 @@ async fn update_existing_microsoft_user_optimized(
 }
 
 /// Link existing local user to Microsoft identity (optimized version)
-#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(existing_user_email = %existing_user.name, user_principal_name = %ms_user.user_principal_name, provider_id = provider_id))]
+#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client, existing_user), fields(user_uuid = %existing_user.uuid, provider_id = provider_id))]
 async fn link_existing_user_to_microsoft_optimized(
     conn: &mut DbConnection,
     provider_id: i32,
@@ -2657,7 +2657,7 @@ async fn link_existing_user_to_microsoft_optimized(
 }
 
 /// Create new user from Microsoft Graph data (optimized version)
-#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(user_principal_name = %ms_user.user_principal_name, provider_id = provider_id))]
+#[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(provider_id = provider_id))]
 async fn create_new_user_from_microsoft_optimized(
     conn: &mut DbConnection,
     provider_id: i32,
