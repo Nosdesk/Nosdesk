@@ -125,117 +125,68 @@
           />
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="flex flex-col gap-2 md:col-span-2">
-              <label for="channel-name" class="text-sm font-medium text-primary">
-                {{ $t('admin-channels-email-field-name-label') }}
-              </label>
-              <input
-                id="channel-name"
-                v-model="form.name"
-                type="text"
-                :placeholder="$t('admin-channels-email-field-name-placeholder')"
-                required
-                :class="inputClasses"
-              />
-              <p class="text-xs text-tertiary">
-                {{ $t('admin-channels-email-field-name-hint') }}
-              </p>
-            </div>
+            <FormInput
+              v-model="form.name"
+              class="md:col-span-2"
+              :label="$t('admin-channels-email-field-name-label')"
+              :placeholder="$t('admin-channels-email-field-name-placeholder')"
+              :description="$t('admin-channels-email-field-name-hint')"
+              required
+            />
 
-            <div class="flex flex-col gap-2">
-              <label for="channel-host" class="text-sm font-medium text-primary">
-                {{ $t('admin-channels-email-field-host-label') }}
-              </label>
-              <input
-                id="channel-host"
-                v-model="form.host"
-                type="text"
-                :placeholder="$t('admin-channels-email-field-host-placeholder')"
-                required
-                autocomplete="off"
-                :class="inputClasses"
-              />
-            </div>
+            <FormInput
+              v-model="form.host"
+              :label="$t('admin-channels-email-field-host-label')"
+              :placeholder="$t('admin-channels-email-field-host-placeholder')"
+              required
+              autocomplete="off"
+            />
 
-            <div class="flex flex-col gap-2">
-              <label for="channel-port" class="text-sm font-medium text-primary">
-                {{ $t('admin-channels-email-field-port-label') }}
-              </label>
-              <input
-                id="channel-port"
-                v-model.number="form.port"
-                type="number"
-                min="1"
-                max="65535"
-                :class="inputClasses"
-              />
-              <p class="text-xs text-tertiary">{{ $t('admin-channels-email-field-port-hint') }}</p>
-            </div>
+            <FormInput
+              v-model="portStr"
+              type="number"
+              :label="$t('admin-channels-email-field-port-label')"
+              :description="$t('admin-channels-email-field-port-hint')"
+              min="1"
+              max="65535"
+            />
 
-            <div class="flex flex-col gap-2">
-              <label for="channel-username" class="text-sm font-medium text-primary">
-                {{ $t('admin-channels-email-field-username-label') }}
-              </label>
-              <input
-                id="channel-username"
-                v-model="form.username"
-                type="text"
-                :placeholder="$t('admin-channels-email-field-username-placeholder')"
-                required
-                autocomplete="off"
-                :class="inputClasses"
-              />
-            </div>
+            <FormInput
+              v-model="form.username"
+              :label="$t('admin-channels-email-field-username-label')"
+              :placeholder="$t('admin-channels-email-field-username-placeholder')"
+              required
+              autocomplete="off"
+            />
 
-            <div class="flex flex-col gap-2">
-              <label for="channel-mailbox" class="text-sm font-medium text-primary">
-                {{ $t('admin-channels-email-field-mailbox-label') }}
-              </label>
-              <input
-                id="channel-mailbox"
-                v-model="form.mailbox"
-                type="text"
-                :placeholder="$t('admin-channels-email-field-mailbox-placeholder')"
-                :class="inputClasses"
-              />
-              <p class="text-xs text-tertiary">{{ $t('admin-channels-email-field-mailbox-hint') }}</p>
-            </div>
+            <FormInput
+              v-model="form.mailbox"
+              :label="$t('admin-channels-email-field-mailbox-label')"
+              :placeholder="$t('admin-channels-email-field-mailbox-placeholder')"
+              :description="$t('admin-channels-email-field-mailbox-hint')"
+            />
+
+            <FormInput
+              v-model="form.reply_domain"
+              class="md:col-span-2"
+              :label="$t('admin-channels-email-field-reply-domain-label')"
+              :placeholder="$t('admin-channels-email-field-reply-domain-placeholder')"
+              :description="$t('admin-channels-email-field-reply-domain-hint')"
+              required
+              autocomplete="off"
+            />
 
             <div class="flex flex-col gap-2 md:col-span-2">
-              <label for="channel-reply-domain" class="text-sm font-medium text-primary">
-                {{ $t('admin-channels-email-field-reply-domain-label') }}
-              </label>
-              <input
-                id="channel-reply-domain"
-                v-model="form.reply_domain"
-                type="text"
-                :placeholder="$t('admin-channels-email-field-reply-domain-placeholder')"
-                required
-                autocomplete="off"
-                :class="inputClasses"
-              />
-              <p class="text-xs text-tertiary">
-                {{ $t('admin-channels-email-field-reply-domain-hint') }}
-              </p>
-            </div>
-
-            <div class="flex flex-col gap-2 md:col-span-2">
-              <label for="channel-password" class="text-sm font-medium text-primary">
-                {{ $t('admin-channels-email-field-password-label') }}
-                <span v-if="channel?.has_credential" class="text-tertiary font-normal">
-                  {{ $t('admin-channels-email-field-password-keep-existing') }}
-                </span>
-              </label>
-              <input
-                id="channel-password"
+              <FormInput
                 v-model="form.password"
                 type="password"
-                autocomplete="new-password"
+                :label="$t('admin-channels-email-field-password-label')"
+                :description="channel?.has_credential ? $t('admin-channels-email-field-password-keep-existing') : undefined"
                 :placeholder="channel?.has_credential ? $t('admin-channels-email-field-password-placeholder-stored') : $t('admin-channels-email-field-password-placeholder-new')"
-                :class="inputClasses"
+                autocomplete="new-password"
               />
-              <div v-if="channel?.has_credential" class="flex items-center gap-4 mt-1">
-                <Button variant="ghost-danger" size="sm" :loading="clearing" @click="clearCredential">
+              <div v-if="channel?.has_credential" class="flex items-center gap-4">
+                <Button variant="ghost-danger" size="sm" :loading="clearing" @click="requestClearCredential">
                   {{ clearing ? $t('admin-channels-email-removing-password') : $t('admin-channels-email-remove-password') }}
                 </Button>
               </div>
@@ -292,7 +243,7 @@
                 v-if="channel"
                 variant="ghost-danger"
                 :loading="deleting"
-                @click="confirmAndDelete"
+                @click="requestDeleteChannel"
               >
                 {{ deleting ? $t('admin-channels-email-deleting') : $t('admin-channels-email-delete') }}
               </Button>
@@ -306,23 +257,13 @@
     </div>
 
     <ConfirmModal
-      :show="showClearCredentialConfirm"
+      :show="confirmModalContent !== null"
       variant="danger"
-      :title="$t('admin-channels-email-clear-credential-title')"
-      :message="$t('admin-channels-email-clear-credential-message')"
-      :confirm-label="$t('admin-channels-email-clear-credential-confirm')"
-      @confirm="doClearCredential"
-      @close="showClearCredentialConfirm = false"
-    />
-
-    <ConfirmModal
-      :show="showDeleteChannelConfirm"
-      variant="danger"
-      :title="$t('admin-channels-email-delete-title')"
-      :message="$t('admin-channels-email-delete-message')"
-      :confirm-label="$t('admin-channels-email-delete-confirm')"
-      @confirm="doDeleteChannel"
-      @close="showDeleteChannelConfirm = false"
+      :title="confirmModalContent?.title ?? ''"
+      :message="confirmModalContent?.message ?? ''"
+      :confirm-label="confirmModalContent?.confirmLabel ?? ''"
+      @confirm="executePendingAction"
+      @close="pendingAction = null"
     />
   </div>
 </template>
@@ -337,6 +278,7 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
+import FormInput from '@/components/common/FormInput.vue';
 import {
   channelsService,
   type Channel,
@@ -437,10 +379,17 @@ watch(
   { immediate: true },
 );
 
-// Mirrors the FormInput field styling so these (label-associated, number,
-// and password) inputs match the shared primitive's look + focus ring.
-const inputClasses =
-  'w-full bg-surface-alt border border-subtle rounded-lg px-3 py-2 text-primary placeholder-tertiary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent';
+// Port comes from the FormInput as a string (its defineModel is
+// string-typed); we still want a numeric on the wire and in the
+// dirty-check. Bridge with a computed get/set so the form schema
+// stays `port: number` end-to-end.
+const portStr = computed<string>({
+  get: () => String(form.value.port),
+  set: (v) => {
+    const n = Number(v);
+    form.value.port = Number.isFinite(n) && n > 0 ? n : DEFAULT_CONFIG.port;
+  },
+});
 
 const runtimeState = computed<ImapRuntimeState>(() => {
   if (!channel.value) return {};
@@ -634,49 +583,71 @@ async function testConnection() {
   }
 }
 
-const showClearCredentialConfirm = ref(false);
-const showDeleteChannelConfirm = ref(false);
+// Destructive actions share one confirm-modal driver. The
+// `pendingAction` discriminator picks the copy + handler so the
+// component only renders one ConfirmModal instance and the
+// open/close plumbing isn't duplicated per action.
+type PendingAction = 'clear-credential' | 'delete-channel' | null;
+const pendingAction = ref<PendingAction>(null);
 
-function clearCredential() {
-  if (!channel.value) return;
-  showClearCredentialConfirm.value = true;
-}
-
-async function doClearCredential() {
-  showClearCredentialConfirm.value = false;
-  if (!channel.value) return;
-  clearMessages();
-  clearing.value = true;
-  try {
-    await channelsService.clearCredential(channel.value.id);
-    await queryCache.invalidateQueries({ key: CHANNELS_EMAIL_KEY });
-    flashSuccess('admin-channels-email-success-password-removed');
-  } catch (e: unknown) {
-    errorMessage.value = createErrorFromResponse(e).getUserMessage();
-  } finally {
-    clearing.value = false;
+const confirmModalContent = computed(() => {
+  switch (pendingAction.value) {
+    case 'clear-credential':
+      return {
+        title: t('admin-channels-email-clear-credential-title'),
+        message: t('admin-channels-email-clear-credential-message'),
+        confirmLabel: t('admin-channels-email-clear-credential-confirm'),
+      };
+    case 'delete-channel':
+      return {
+        title: t('admin-channels-email-delete-title'),
+        message: t('admin-channels-email-delete-message'),
+        confirmLabel: t('admin-channels-email-delete-confirm'),
+      };
+    default:
+      return null;
   }
+});
+
+function requestClearCredential() {
+  if (!channel.value) return;
+  pendingAction.value = 'clear-credential';
 }
 
-function confirmAndDelete() {
+function requestDeleteChannel() {
   if (!channel.value) return;
-  showDeleteChannelConfirm.value = true;
+  pendingAction.value = 'delete-channel';
 }
 
-async function doDeleteChannel() {
-  showDeleteChannelConfirm.value = false;
-  if (!channel.value) return;
-  clearMessages();
-  deleting.value = true;
-  try {
-    await channelsService.remove(channel.value.id);
-    queryCache.setQueryData(CHANNELS_EMAIL_KEY, null);
-    form.value = emptyForm();
-    flashSuccess('admin-channels-email-success-delete');
-  } catch (e: unknown) {
-    errorMessage.value = createErrorFromResponse(e).getUserMessage();
-  } finally {
-    deleting.value = false;
+async function executePendingAction() {
+  const action = pendingAction.value;
+  pendingAction.value = null;
+  if (!channel.value || !action) return;
+  if (action === 'clear-credential') {
+    clearMessages();
+    clearing.value = true;
+    try {
+      await channelsService.clearCredential(channel.value.id);
+      await queryCache.invalidateQueries({ key: CHANNELS_EMAIL_KEY });
+      flashSuccess('admin-channels-email-success-password-removed');
+    } catch (e: unknown) {
+      errorMessage.value = createErrorFromResponse(e).getUserMessage();
+    } finally {
+      clearing.value = false;
+    }
+  } else if (action === 'delete-channel') {
+    clearMessages();
+    deleting.value = true;
+    try {
+      await channelsService.remove(channel.value.id);
+      queryCache.setQueryData(CHANNELS_EMAIL_KEY, null);
+      form.value = emptyForm();
+      flashSuccess('admin-channels-email-success-delete');
+    } catch (e: unknown) {
+      errorMessage.value = createErrorFromResponse(e).getUserMessage();
+    } finally {
+      deleting.value = false;
+    }
   }
 }
 
