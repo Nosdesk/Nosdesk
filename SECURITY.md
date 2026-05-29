@@ -231,3 +231,98 @@ Triage policy:
   DOMPurify via `frontend/src/composables/useSanitise.ts`.
   Email HTML renders in a sandboxed iframe.
 * `npm audit` clean at all severity levels.
+* Structured-log field allowlist for production output.
+  `backend/src/utils/tracing_redact.rs` is the canonical
+  policy — see "Log redaction" below.
+
+## Log redaction
+
+The default `tracing_subscriber` JSON formatter would emit
+every field on every event — including any `email`,
+`user_name`, `ticket_title`, etc. that a call site happens to
+attach. For a multi-tenant helpdesk shipping logs to a hosted
+log store, that's the moment the operator becomes a
+sub-processor of every tenant's customer text.
+
+The production output path runs through a field-allowlist
+layer in `backend/src/utils/tracing_redact.rs`. Fields whose
+name is not in `ALLOWED_FIELDS` are dropped before the JSON
+line is written; an aggregate `redacted` counter is attached
+to the event so operators can observe the rate without
+inspecting the values. Span ancestry is walked and span
+fields are subject to the same allowlist, so a
+`#[instrument(fields(email = %u.email))]` is dropped even
+though the call site looks fine.
+
+The layer activates on `LOG_FORMAT=json` (the production
+Docker configuration). Local development keeps the pretty
+formatter — developer laptops aren't sub-processors of
+anyone's data.
+
+### What's allowed
+
+| Category | Examples |
+|---|---|
+| Tenant-internal stable IDs | `ticket_id`, `comment_id`, `asset_id`, `workspace_id`, `user_uuid`, `requester_uuid`, `assignee_uuid`, `cycle_id`, `policy_id`, `provider_id`, `state_id`, `id` |
+| Bounded enums | `status`, `priority`, `role`, `recurrence`, `category`, `event_type`, `op`, `aggregate`, `kind` |
+| Counts / timings / outcomes | `count`, `elapsed_ms`, `latency_ms`, `error`, `error_kind`, `code`, `stamped` |
+| HTTP context | `method`, `route` |
+| Trace correlation | `request_id`, `span_id`, `trace_id` |
+| Tracing internals | `message`, `log.file`, `log.line`, `log.module_path`, `log.target` |
+
+### What's denied (silently dropped)
+
+Anything not in the allowlist. The classes the audit
+specifically called out:
+
+- **User-identifying free text** — `email`, `user_email`,
+  `user_name`, `display_name`, `user_principal_name`,
+  `requester_name`, `assignee_name`, `name`.
+- **User-typed content** — `title`, `description`, `body`,
+  `content`, `comment_body`, `subject`, `original_filename`.
+- **Network identifiers** — `ip`, `ip_hash`, `user_agent`,
+  `host`.
+- **Credentials** — `token`, `access_token`, `refresh_token`,
+  `api_key`, `secret`, `password`.
+- **Whole-payload splats** — `request_body`, `entities`,
+  `ticket_update`, `update`.
+
+A unit test pair (`allowed_fields_pass` +
+`pii_fields_are_redacted`) enforces both halves at every CI
+run. The audit trail for any future change is the PR that
+touches `ALLOWED_FIELDS`.
+
+### Adding a field
+
+Open a PR that adds the field name to `ALLOWED_FIELDS` and to
+`allowed_fields_pass`. In the PR description, answer: *is
+this field always safe to log regardless of which tenant the
+request is inside?* If the answer isn't an obvious yes, log
+the stable ID for the underlying row and look up the
+sensitive text via `audit_log` when investigating. That PR is
+the audit surface SOC 2 CC6.7 (data classification) expects.
+
+### Where redacted data still lives
+
+The allowlist only governs `tracing` output. PII / customer
+text is still persisted in the application database and in
+`audit_log` rows. Operator access to those tables is scoped
+by RBAC and recorded — that's the intentional channel for
+forensic lookup. `tracing` is the wrong place to reach for
+raw customer text.
+
+### Operational notes
+
+- `EnvFilter` is attached via `Layer::with_filter`, not on
+  the registry, so the registry retains every span for
+  `LookupSpan`. `tracing-actix-web`'s per-request span
+  (carrying `request_id`) is reachable via `ctx.event_scope`
+  even when its bare "served" event is suppressed (by target
+  check inside `on_event`).
+- Failure mode is silent drop. A field outside the
+  allowlist produces no warning, just an increment to the
+  per-event `redacted` counter. A noisy redaction warning
+  would itself become an information leak.
+- Redaction applies at all levels including `DEBUG`. If a
+  debug session needs the raw value, query `audit_log` or
+  attach a debugger; don't loosen the policy.

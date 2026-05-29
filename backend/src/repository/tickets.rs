@@ -211,7 +211,30 @@ pub fn update_ticket_partial(
     ticket_update: crate::models::TicketUpdate,
     observer: Option<&dyn TicketUpdatedObserver>,
 ) -> QueryResult<Ticket> {
-    debug!(ticket_id, update = ?ticket_update, "Updating ticket");
+    // Log the cardinality of the change set, not its values. `title`
+    // and `resolution_notes` carry user-typed customer text;
+    // value-level reconstruction belongs in audit_log, not in
+    // tracing output.
+    let count = [
+        ticket_update.title.is_some(),
+        ticket_update.workflow_state_id.is_some(),
+        ticket_update.priority.is_some(),
+        ticket_update.requester_uuid.is_some(),
+        ticket_update.assignee_uuid.is_some(),
+        ticket_update.closed_at.is_some(),
+        ticket_update.verification_state.is_some(),
+        ticket_update.origin_channel_id.is_some(),
+        ticket_update.category_id.is_some(),
+        ticket_update.triage_state.is_some(),
+        ticket_update.due_date.is_some(),
+        ticket_update.recurrence_rule.is_some(),
+        ticket_update.recurrence_template_id.is_some(),
+        ticket_update.resolution_notes.is_some(),
+    ]
+    .into_iter()
+    .filter(|b| *b)
+    .count();
+    debug!(ticket_id, count, "Updating ticket");
 
     let result = conn.transaction::<Ticket, diesel::result::Error, _>(|conn| {
         let result: Ticket = diesel::update(tickets::table.find(ticket_id))
