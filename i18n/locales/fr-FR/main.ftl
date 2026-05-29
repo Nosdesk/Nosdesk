@@ -983,6 +983,9 @@ admin-sla-holiday-remove-aria = Supprimer ce jour férié
 admin-sla-holiday-annual = Récurrence annuelle
 admin-sla-holiday-annual-hint = Répéter la même date (MM-JJ) chaque année (ex. Noël).
 admin-sla-holiday-annual-badge = Annuel
+admin-sla-holiday-import-label = Importer un préréglage :
+admin-sla-holiday-import-placeholder = Choisir un pays...
+admin-sla-holiday-import-summary = { $country } : { $added } ajouté(s), { $skipped } ignoré(s) (déjà présent)
 
 sla-explain-aria = Explication SLA
 sla-explain-title = Pourquoi ce SLA ?

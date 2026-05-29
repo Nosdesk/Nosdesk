@@ -1064,6 +1064,9 @@ admin-sla-holiday-remove-aria = Remove this holiday
 admin-sla-holiday-annual = Recurs annually
 admin-sla-holiday-annual-hint = Repeat the same MM-DD every year (e.g. Christmas Day).
 admin-sla-holiday-annual-badge = Annual
+admin-sla-holiday-import-label = Import preset:
+admin-sla-holiday-import-placeholder = Choose country...
+admin-sla-holiday-import-summary = { $country }: added { $added }, skipped { $skipped } (already present)
 
 # SLA "Why this SLA?" popover, opened by clicking the pill on the
 # ticket detail sidebar. Makes the compute-on-read engine's

@@ -980,6 +980,9 @@ admin-sla-holiday-remove-aria = Deze feestdag verwijderen
 admin-sla-holiday-annual = Jaarlijks herhalend
 admin-sla-holiday-annual-hint = Herhaalt dezelfde MM-DD elk jaar (bv. Kerstmis).
 admin-sla-holiday-annual-badge = Jaarlijks
+admin-sla-holiday-import-label = Voorinstelling importeren:
+admin-sla-holiday-import-placeholder = Land kiezen...
+admin-sla-holiday-import-summary = { $country }: { $added } toegevoegd, { $skipped } overgeslagen (al aanwezig)
 
 sla-explain-aria = SLA-uitleg
 sla-explain-title = Waarom dit SLA?

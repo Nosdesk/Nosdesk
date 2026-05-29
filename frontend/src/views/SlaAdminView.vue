@@ -56,9 +56,14 @@ import WeekScheduleEditor, {
   type WeekSchedule,
 } from '@/components/admin/WeekScheduleEditor.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
+import {
+  HOLIDAY_TEMPLATE_LIST,
+  HOLIDAY_TEMPLATES,
+  type CountryCode,
+} from '@/data/holidayTemplates'
 
 const fluent = useFluent()
-const t = (key: string) => fluent.$t(key)
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 // ---------------- Query keys + queries ----------------
 const POLICIES_KEY = ['sla', 'policies'] as const
@@ -321,6 +326,60 @@ async function addHoliday(): Promise<void> {
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('admin-sla-error-create')
   }
+}
+
+// Bulk holiday import. The picker holds the country choice; on
+// change we POST each preset, swallow per-row unique-violation 400s
+// (the backend rejects duplicates on (calendar_id, date)) and surface
+// a transient summary so the admin sees what landed. The picker
+// resets after the run so re-selecting the same country re-imports.
+const importChoice = ref<CountryCode | ''>('')
+const importSummary = ref<string | null>(null)
+let importSummaryTimer: ReturnType<typeof setTimeout> | undefined
+
+function flashImportSummary(message: string): void {
+  importSummary.value = message
+  if (importSummaryTimer) clearTimeout(importSummaryTimer)
+  importSummaryTimer = setTimeout(() => {
+    importSummary.value = null
+  }, 4500)
+}
+
+async function handleImportChoice(country: CountryCode | ''): Promise<void> {
+  if (!country) return
+  const target = editingCalendar.value
+  if (!target) return
+  const template = HOLIDAY_TEMPLATES[country]
+  const presets = template.generate(new Date().getFullYear())
+  let added = 0
+  let skipped = 0
+  for (const p of presets) {
+    try {
+      const created = await slaService.createHoliday(target.id, {
+        date: p.date,
+        label: p.label,
+        recurrence: p.recurrence,
+      })
+      editingHolidays.value = [...editingHolidays.value, created]
+      added++
+    } catch {
+      // Duplicate (HTTP 400 from the unique constraint) or transient
+      // network error — count and keep going. The admin sees the
+      // summary at the end either way.
+      skipped++
+    }
+  }
+  editingHolidays.value = editingHolidays.value
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+  importChoice.value = ''
+  flashImportSummary(
+    t('admin-sla-holiday-import-summary', {
+      country: template.name,
+      added,
+      skipped,
+    }),
+  )
 }
 
 async function removeHoliday(id: number): Promise<void> {
@@ -801,7 +860,30 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
 
         <!-- Holidays: only meaningful for a saved calendar. -->
         <div v-if="editingCalendar" class="flex flex-col gap-2 pt-2 border-t border-subtle">
-          <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-holidays') }}</span>
+          <div class="flex items-center justify-between gap-3">
+            <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-holidays') }}</span>
+            <label class="flex items-center gap-2 text-[11px] text-tertiary">
+              <span>{{ $t('admin-sla-holiday-import-label') }}</span>
+              <select
+                :value="importChoice"
+                :class="FIELD_CLASS_SM"
+                class="!w-auto"
+                @change="(e) => handleImportChoice((e.target as HTMLSelectElement).value as CountryCode | '')"
+              >
+                <option value="">{{ $t('admin-sla-holiday-import-placeholder') }}</option>
+                <option v-for="tpl in HOLIDAY_TEMPLATE_LIST" :key="tpl.code" :value="tpl.code">
+                  {{ tpl.name }}
+                </option>
+              </select>
+            </label>
+          </div>
+          <p
+            v-if="importSummary"
+            class="text-[11px] text-accent bg-accent/10 border border-accent/30 rounded px-2 py-1"
+            role="status"
+          >
+            {{ importSummary }}
+          </p>
           <ul
             v-if="editingHolidays.length > 0"
             class="flex flex-col divide-y divide-subtle border border-subtle rounded-md"
