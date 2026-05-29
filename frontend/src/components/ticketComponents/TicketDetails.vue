@@ -27,6 +27,7 @@ import TicketLinkedTicketsField from "@/components/ticketComponents/TicketLinked
 import TicketProjectsField from "@/components/ticketComponents/TicketProjectsField.vue";
 import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
 import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
+import DatePicker from "@/components/common/DatePicker.vue";
 import type { Asset } from "@/types/asset";
 import type { CommentWithAttachments } from "@/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
@@ -302,27 +303,24 @@ const categoryLabel = computed(() => {
   return option?.label || props.ticket.category?.name || null;
 });
 
-/** Backend stores due_date as a TIMESTAMPTZ; the date input wants
- * a `YYYY-MM-DD` string. Slicing the ISO string is sufficient
+/** Backend stores due_date as a TIMESTAMPTZ; the picker speaks
+ * `YYYY-MM-DD`. Slicing the ISO string on read is sufficient
  * because the calendar view buckets cards by local-day, so any
- * additional precision would be misleading. */
-const dueDateInputValue = computed<string>(() => {
-  if (!props.ticket.due_date) return '';
-  return props.ticket.due_date.slice(0, 10);
+ * additional precision would be misleading. On write we anchor at
+ * start-of-day in the user's local timezone before serialising to
+ * RFC3339 — the backend persists the tz so round-tripping is
+ * unambiguous. Empty string from the picker clears the due date. */
+const dueDateValue = computed<string>({
+  get: () => (props.ticket.due_date ? props.ticket.due_date.slice(0, 10) : ''),
+  set: (value: string) => {
+    if (!value) {
+      emit('update:dueDate', null);
+      return;
+    }
+    const local = new Date(`${value}T00:00:00`);
+    emit('update:dueDate', local.toISOString());
+  },
 });
-
-function handleDueDateChange(event: Event): void {
-  const value = (event.target as HTMLInputElement).value;
-  if (!value) {
-    emit('update:dueDate', null);
-    return;
-  }
-  // Anchor at start-of-day in the user's local timezone, then
-  // serialise to RFC3339 for the API. The backend persists the
-  // timezone so round-tripping is unambiguous.
-  const local = new Date(`${value}T00:00:00`);
-  emit('update:dueDate', local.toISOString());
-}
 
 /** Recurrence preset that maps to a known RRULE string. The picker
  * exposes a small list rather than the full RFC; an admin who
@@ -860,17 +858,17 @@ watchEffect(async () => {
             <div v-if="schedulingOpen" class="px-3 py-3 flex flex-col gap-3 border-t border-default">
               <label class="flex flex-col gap-1">
                 <span class="text-[11px] text-tertiary">{{ t('ticket-detail-scheduling-due-date') }}</span>
-                <div class="flex items-center bg-app rounded-md border border-subtle">
-                  <input
-                    type="date"
-                    class="flex-1 bg-transparent text-sm text-primary px-2 py-1.5 outline-none"
-                    :value="dueDateInputValue"
-                    @change="handleDueDateChange"
+                <div class="flex items-center gap-1">
+                  <DatePicker
+                    v-model="dueDateValue"
+                    size="md"
+                    block
+                    :aria-label="t('ticket-detail-scheduling-due-date')"
                   />
                   <button
                     v-if="ticket.due_date"
                     type="button"
-                    class="text-xs text-tertiary hover:text-primary px-2"
+                    class="text-xs text-tertiary hover:text-primary px-2 py-1"
                     :title="t('ticket-detail-scheduling-clear-due')"
                     @click="emit('update:dueDate', null)"
                   >×</button>

@@ -21,6 +21,7 @@ import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import DatePicker from '@/components/common/DatePicker.vue'
 
 const props = defineProps<{ id: string }>()
 
@@ -146,18 +147,20 @@ function stateLabel(state: string): string {
           </label>
           <label class="flex flex-col gap-1 text-[11px] text-tertiary">
             <span>{{ $t('project-cycles-field-start') }}</span>
-            <input
+            <DatePicker
               v-model="newCycleStart"
-              type="date"
-              class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
+              size="md"
+              block
+              :aria-label="$t('project-cycles-field-start')"
             />
           </label>
           <label class="flex flex-col gap-1 text-[11px] text-tertiary">
             <span>{{ $t('project-cycles-field-end') }}</span>
-            <input
+            <DatePicker
               v-model="newCycleEnd"
-              type="date"
-              class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
+              size="md"
+              block
+              :aria-label="$t('project-cycles-field-end')"
             />
           </label>
           <button

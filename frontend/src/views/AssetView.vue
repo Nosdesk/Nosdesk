@@ -9,6 +9,7 @@ import InlineEdit from '@/components/common/InlineEdit.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
+import DatePicker from '@/components/common/DatePicker.vue';
 import { extractErrorMessage } from '@/utils/errors';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
@@ -644,12 +645,13 @@ onMounted(() => {
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="flex flex-col gap-1.5">
                   <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-purchase-date') }}</h3>
-                  <input
+                  <DatePicker
                     v-if="isCreationMode || device?.is_editable"
                     v-model="editValues.purchase_date"
-                    type="date"
-                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2 text-primary focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
-                    @change="() => { if (!isCreationMode) saveField('purchase_date') }"
+                    size="md"
+                    block
+                    :aria-label="$t('asset-detail-field-purchase-date')"
+                    @update:model-value="() => { if (!isCreationMode) saveField('purchase_date') }"
                   />
                   <p v-else class="text-primary text-sm">{{ device?.purchase_date || '-' }}</p>
                 </div>

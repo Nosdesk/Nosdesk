@@ -37,6 +37,10 @@ interface Props {
   min?: string
   /** Upper bound (ISO YYYY-MM-DD inclusive). */
   max?: string
+  /** Stretch the trigger to fill its container instead of the
+   *  default fixed inline width. Use when the picker sits in a
+   *  form grid cell that expects `w-full` inputs. */
+  block?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -240,7 +244,7 @@ async function onOpen(): Promise<void> {
 </script>
 
 <template>
-  <div class="date-picker">
+  <div class="date-picker" :class="{ 'date-picker--block': block }">
     <input
       ref="triggerRef"
       v-model="draftText"
@@ -326,6 +330,15 @@ async function onOpen(): Promise<void> {
 .date-picker {
   position: relative;
   display: inline-block;
+}
+
+.date-picker--block {
+  display: block;
+  width: 100%;
+}
+
+.date-picker--block .date-picker__input {
+  width: 100%;
 }
 
 .date-picker__input {
