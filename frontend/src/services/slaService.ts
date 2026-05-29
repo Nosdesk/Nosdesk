@@ -127,6 +127,14 @@ export const slaService = {
     )
     return data
   },
+
+  /** Workspace-wide roll-up of the same per-policy scan. Powers the
+   *  dashboard SLA health widget so technicians + admins see the
+   *  urgency signal where they're already looking. */
+  async getWorkspaceSummary(): Promise<PolicyMatchCounts> {
+    const { data } = await apiClient.get<PolicyMatchCounts>('/sla/workspace-summary')
+    return data
+  },
 }
 
 /** Per-policy state breakdown over the workspace's open tickets.

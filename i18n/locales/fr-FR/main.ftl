@@ -4516,6 +4516,18 @@ dashboard-widget-stats-summary-title = Résumé des demandes
 dashboard-widget-stats-summary-description = Nombre de vos demandes par statut.
 dashboard-widget-knowledge-gaps-title = Lacunes documentaires
 dashboard-widget-knowledge-gaps-description = Principaux articles à rédiger, classés selon les tickets.
+
+dashboard-widget-sla-health-title = Santé SLA
+dashboard-widget-sla-health-description = Vue d'ensemble des tickets couverts par une politique SLA.
+dashboard-sla-health-title = Santé SLA
+dashboard-sla-health-action = Admin SLA
+dashboard-sla-health-tracked = Suivis
+dashboard-sla-health-breached = Violés
+dashboard-sla-health-at-risk = À risque
+dashboard-sla-health-paused = En pause
+dashboard-sla-health-error = Impossible de charger la santé SLA
+dashboard-sla-health-empty-title = Aucun ticket suivi
+dashboard-sla-health-empty-description = Aucun ticket ouvert ne correspond actuellement à une politique SLA.
 # Q1 polish: template attributes + static text
 tickets-row-new-activity-tooltip = Nouvelle activité depuis votre dernière consultation
 tickets-row-new-activity-aria = Nouvelle activité

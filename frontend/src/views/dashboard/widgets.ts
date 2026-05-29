@@ -26,6 +26,7 @@ import StarredDocsWidget from './StarredDocsWidget.vue'
 import MyDevicesWidget from './MyAssetsWidget.vue'
 import ChannelHealthWidget from './ChannelHealthWidget.vue'
 import KnowledgeGapsWidget from './KnowledgeGapsWidget.vue'
+import SlaHealthWidget from './SlaHealthWidget.vue'
 
 export type WidgetSpan = 1 | 2 | 3
 
@@ -189,6 +190,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ['technician', 'admin'],
     dataNeeds: ['knowledge_gaps'],
   },
+  {
+    id: 'sla-health',
+    titleKey: 'dashboard-widget-sla-health-title',
+    descriptionKey: 'dashboard-widget-sla-health-description',
+    component: SlaHealthWidget,
+    span: 1,
+    roles: ['technician', 'admin'],
+    naturalHeight: true,
+  },
 ]
 
 /** Return widget definitions available to the given role. */
@@ -224,6 +234,7 @@ const STAFF_VISIBLE: DashboardLayout['widgets'] = [
     span: 1,
     config: { metrics: ['open', 'in-progress', 'high-priority', 'closed-today'] },
   },
+  { id: 'sla-health', visible: true, span: 1 },
   { id: 'unassigned-queue', visible: true, span: 1 },
   { id: 'recently-viewed', visible: true, span: 1 },
   { id: 'assigned-tickets', visible: true, span: 1 },

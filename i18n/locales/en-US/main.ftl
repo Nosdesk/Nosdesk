@@ -4650,6 +4650,20 @@ dashboard-widget-stats-summary-title = Request summary
 dashboard-widget-stats-summary-description = Count of your requests by status.
 dashboard-widget-knowledge-gaps-title = Knowledge gaps
 dashboard-widget-knowledge-gaps-description = Top docs to write, ranked by ticket evidence.
+
+# SLA workspace health: at-a-glance breakdown of currently tracked
+# tickets across all policies. Refreshes every 30s.
+dashboard-widget-sla-health-title = SLA health
+dashboard-widget-sla-health-description = Workspace-wide breakdown of tickets covered by an SLA policy.
+dashboard-sla-health-title = SLA health
+dashboard-sla-health-action = SLA admin
+dashboard-sla-health-tracked = Tracked
+dashboard-sla-health-breached = Breached
+dashboard-sla-health-at-risk = At risk
+dashboard-sla-health-paused = Paused
+dashboard-sla-health-error = Couldn't load SLA health
+dashboard-sla-health-empty-title = No tickets tracked
+dashboard-sla-health-empty-description = No open tickets currently match any SLA policy.
 # Q1 polish: template attributes + static text
 tickets-row-new-activity-tooltip = New activity since you last viewed this
 tickets-row-new-activity-aria = New activity

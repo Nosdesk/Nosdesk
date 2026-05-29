@@ -1486,6 +1486,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/sla/calendars/{id}/holidays", web::post().to(handlers::sla::create_holiday))
                     .route("/admin/sla/holidays/{id}", web::delete().to(handlers::sla::delete_holiday))
                     .route("/tickets/{id}/sla/explain", web::get().to(handlers::sla::explain_for_ticket))
+                    .route("/sla/workspace-summary", web::get().to(handlers::sla::workspace_summary))
 
                     .route("/sync/bootstrap", web::get().to(handlers::sync::bootstrap::bootstrap))
                     .route("/sync/delta", web::get().to(handlers::sync::delta::delta))

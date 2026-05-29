@@ -9,6 +9,9 @@
 //!   counts (total, on-track, at-risk, breached, paused) for the
 //!   open tickets in the workspace. Drives the live state pills on
 //!   the policy list.
+//! - `GET    /api/sla/workspace-summary` — non-admin (technician+
+//!   gated): the same scan rolled up to a single workspace total.
+//!   Drives the dashboard SLA health widget.
 //! - `GET    /api/admin/sla/calendars` — list calendars.
 //! - `POST   /api/admin/sla/calendars` — create.
 //! - `PATCH  /api/admin/sla/calendars/{id}` — update.
@@ -30,11 +33,10 @@ use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::models::{SlaPolicy, Ticket, WorkflowState, WorkflowStateCategory};
+use crate::models::{SlaPolicy, Ticket, WorkflowState};
 use crate::repository::sla_admin::{
     self, SlaPolicyBody, WorkingCalendarBody, WorkingCalendarHolidayBody,
 };
-use std::collections::HashMap;
 
 fn require_admin(auth: &AuthContext) -> Option<HttpResponse> {
     if auth.is_admin() {
@@ -244,130 +246,38 @@ pub async fn delete_holiday(
 /// regularly hits this should move to materialised counts.
 const POLICY_MATCH_SCAN_LIMIT: i64 = 10_000;
 
-/// Per-policy state breakdown of currently open tickets. `total` is
-/// the count of tickets whose engine-picked policy is this one;
-/// the remaining fields partition that total by pill state.
-#[derive(Debug, Default, Serialize)]
-pub struct PolicyMatchCounts {
-    pub total: i64,
-    pub on_track: i64,
-    pub at_risk: i64,
-    pub breached: i64,
-    pub paused: i64,
-}
-
 /// GET /api/admin/sla/policies/matches. Returns a map from policy
-/// id to counts. Excludes tickets in Done/Cancelled workflow-state
-/// categories because they don't carry a meaningful live SLA.
-///
-/// Cost is O(open_tickets x policies). Policies are typically
-/// single-digit, open tickets typically a few thousand; one pass
-/// over the set with a pre-loaded SLA context is fast enough that
-/// the frontend can refresh on a 30-second tick without a back-end
-/// cache.
+/// id to counts. Delegates to `services::sla::scan_open_ticket_buckets`
+/// so the per-policy admin view and the workspace dashboard widget
+/// share the same scan and bucketing rules.
 pub async fn policy_match_counts(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
-    let result: Result<HashMap<i32, PolicyMatchCounts>, diesel::result::Error> = tc.run(|conn| {
-        use crate::schema::{tickets, workflow_states};
-
-        let ctx = crate::repository::sla::load_for_pill_computation(conn)?;
-
-        // Open = not in a terminal category. Two cheap queries:
-        // the workflow-states scan picks the open state ids +
-        // their pauses_sla flag, then tickets loads everything
-        // pointing at one of them. Ticket doesn't derive
-        // Selectable so we avoid the inner-join select tuple.
-        let open_states: Vec<(i32, bool)> = workflow_states::table
-            .filter(workflow_states::category.ne(WorkflowStateCategory::Done))
-            .filter(workflow_states::category.ne(WorkflowStateCategory::Cancelled))
-            .select((workflow_states::id, workflow_states::pauses_sla))
-            .load(conn)?;
-        let open_state_ids: Vec<i32> = open_states.iter().map(|(id, _)| *id).collect();
-        let pause_by_state: HashMap<i32, bool> = open_states.into_iter().collect();
-
-        // Safety cap: a workspace with tens of thousands of open
-        // tickets would otherwise turn each 30-second poll into a
-        // long scan. The counts stay approximate above the cap; the
-        // alternative (background-materialised counts) is the right
-        // move when we see workspaces routinely hit it.
-        let open_tickets: Vec<Ticket> = tickets::table
-            .filter(tickets::workflow_state_id.eq_any(&open_state_ids))
-            .limit(POLICY_MATCH_SCAN_LIMIT)
-            .load(conn)?;
-
-        // Batch-load assignee group memberships so the matcher
-        // can honour assignee_group_id_filter without N+1.
-        let assignee_uuids: Vec<uuid::Uuid> = open_tickets
-            .iter()
-            .filter_map(|t| t.assignee_uuid)
-            .collect();
-        let groups_by_assignee =
-            crate::repository::groups::get_group_ids_for_users(conn, &assignee_uuids)
-                .unwrap_or_default();
-
-        let now = chrono::Utc::now();
-        let mut counts: HashMap<i32, PolicyMatchCounts> = HashMap::new();
-
-        for ticket in open_tickets {
-            // Default to paused so a state missing from the
-            // lookup (race during a delete) doesn't accidentally
-            // start counting a stale ticket.
-            let paused = pause_by_state
-                .get(&ticket.workflow_state_id)
-                .copied()
-                .unwrap_or(true);
-            let assignee_groups = ticket
-                .assignee_uuid
-                .and_then(|u| groups_by_assignee.get(&u))
-                .map(|v| v.as_slice())
-                .unwrap_or(&[]);
-            let Some(policy) =
-                crate::services::sla::pick_policy(&ctx.policies, &ticket, assignee_groups)
-            else {
-                continue;
-            };
-            let bucket = counts.entry(policy.id).or_default();
-            bucket.total += 1;
-
-            // No calendar attached -> no pill; the policy still
-            // matches the ticket so it counts toward `total`
-            // but lands in `on_track` as a neutral default.
-            let pill = policy
-                .working_calendar_id
-                .and_then(|cal_id| {
-                    ctx.calendars_by_id.get(&cal_id).map(|calendar| {
-                        let holidays = ctx
-                            .holidays_by_calendar
-                            .get(&cal_id)
-                            .cloned()
-                            .unwrap_or_default();
-                        crate::services::sla::compute_pill(
-                            &ticket, paused, policy, calendar, &holidays, now,
-                        )
-                    })
-                })
-                .flatten();
-
-            // Breached wins over paused: a paused ticket with a met-
-            // -late response timer still carries the breached flag and
-            // is the more actionable signal for an admin scanning the
-            // counts. Matches the frontend's deriveSlaState which also
-            // checks breached first.
-            match pill {
-                Some(p) if p.primary.breached => bucket.breached += 1,
-                Some(p) if p.primary.paused => bucket.paused += 1,
-                Some(p) if p.primary.pill_color == "amber" => bucket.at_risk += 1,
-                Some(_) => bucket.on_track += 1,
-                None => bucket.on_track += 1,
-            }
-        }
-        Ok(counts)
-    });
-
+    let result = tc
+        .run(|conn| crate::services::sla::scan_open_ticket_buckets(conn, POLICY_MATCH_SCAN_LIMIT));
     match result {
-        Ok(counts) => HttpResponse::Ok().json(counts),
+        Ok(scan) => HttpResponse::Ok().json(scan.by_policy),
         Err(e) => {
             error!(error = %e, "policy match counts failed");
             errors::internal("Failed to compute policy match counts")
+        }
+    }
+}
+
+/// GET /api/sla/workspace-summary. Workspace-wide roll-up of the
+/// same per-policy scan: total open tickets covered by any policy,
+/// partitioned by pill state. Gated to technicians + admins so the
+/// dashboard widget can show "3 breached, 7 at risk" at a glance
+/// without exposing workspace-level urgency to end-users.
+pub async fn workspace_summary(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if !auth.is_technician_or_admin() {
+        return errors::forbidden("Technician or admin role required");
+    }
+    let result = tc
+        .run(|conn| crate::services::sla::scan_open_ticket_buckets(conn, POLICY_MATCH_SCAN_LIMIT));
+    match result {
+        Ok(scan) => HttpResponse::Ok().json(scan.workspace_total),
+        Err(e) => {
+            error!(error = %e, "sla workspace summary failed");
+            errors::internal("Failed to compute SLA workspace summary")
         }
     }
 }

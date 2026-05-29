@@ -29,7 +29,7 @@ use chrono::{
     DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Timelike, Utc, Weekday,
 };
 use chrono_tz::Tz;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::models::{SlaPolicy, Ticket, WorkingCalendar, WorkingCalendarHoliday};
 
@@ -552,6 +552,142 @@ pub fn pick_policy<'a>(
         }
     }
     best
+}
+
+// ---------------- Open-ticket scan ----------------
+
+/// Per-policy state breakdown of currently-open tickets. Lives in
+/// services because both the admin per-policy endpoint and the
+/// workspace-wide dashboard widget need the same scan + bucketing.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+pub struct PolicyMatchCounts {
+    pub total: i64,
+    pub on_track: i64,
+    pub at_risk: i64,
+    pub breached: i64,
+    pub paused: i64,
+}
+
+impl PolicyMatchCounts {
+    /// Increment `total` and bucket the ticket by its pill state.
+    /// Breached wins over paused so a paused ticket whose response
+    /// timer was met late still counts as breached — the more
+    /// actionable signal — and the count matches the live pill.
+    fn add_pill(&mut self, pill: Option<&SlaPill>) {
+        self.total += 1;
+        match pill {
+            Some(p) if p.primary.breached => self.breached += 1,
+            Some(p) if p.primary.paused => self.paused += 1,
+            Some(p) if p.primary.pill_color == "amber" => self.at_risk += 1,
+            Some(_) => self.on_track += 1,
+            None => self.on_track += 1,
+        }
+    }
+}
+
+/// Output of `scan_open_ticket_buckets`. Carries both the per-policy
+/// breakdown the admin policy list uses and the workspace roll-up
+/// the dashboard health widget shows.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct OpenTicketScan {
+    pub by_policy: HashMap<i32, PolicyMatchCounts>,
+    pub workspace_total: PolicyMatchCounts,
+}
+
+/// One pass over the workspace's open tickets, bucketing each by
+/// the matched policy's pill state. Reused by the admin per-policy
+/// endpoint and the dashboard workspace-summary endpoint — same
+/// scan, two aggregations.
+///
+/// The scan is capped at `limit`; counts stay useful as
+/// approximations above the cap. Materialised counts would be the
+/// next step if a real workspace routinely hits it.
+pub fn scan_open_ticket_buckets(
+    conn: &mut crate::db::DbConnection,
+    limit: i64,
+) -> diesel::QueryResult<OpenTicketScan> {
+    use crate::models::WorkflowStateCategory;
+    use crate::schema::{tickets, workflow_states};
+    use diesel::prelude::*;
+
+    let ctx = crate::repository::sla::load_for_pill_computation(conn)?;
+
+    // Open = not in a terminal category. Two cheap queries: pick the
+    // open state ids + their pauses_sla flag, then load tickets in
+    // those states. Ticket doesn't derive Selectable so we avoid the
+    // inner-join select tuple.
+    let open_states: Vec<(i32, bool)> = workflow_states::table
+        .filter(workflow_states::category.ne(WorkflowStateCategory::Done))
+        .filter(workflow_states::category.ne(WorkflowStateCategory::Cancelled))
+        .select((workflow_states::id, workflow_states::pauses_sla))
+        .load(conn)?;
+    let open_state_ids: Vec<i32> = open_states.iter().map(|(id, _)| *id).collect();
+    let pause_by_state: HashMap<i32, bool> = open_states.into_iter().collect();
+
+    let open_tickets: Vec<Ticket> = tickets::table
+        .filter(tickets::workflow_state_id.eq_any(&open_state_ids))
+        .limit(limit)
+        .load(conn)?;
+
+    // Batch-load assignee group memberships so the matcher can honour
+    // assignee_group_id_filter without N+1.
+    let assignee_uuids: Vec<uuid::Uuid> = open_tickets
+        .iter()
+        .filter_map(|t| t.assignee_uuid)
+        .collect();
+    let groups_by_assignee =
+        crate::repository::groups::get_group_ids_for_users(conn, &assignee_uuids)
+            .unwrap_or_default();
+
+    let now = Utc::now();
+    let mut by_policy: HashMap<i32, PolicyMatchCounts> = HashMap::new();
+    let mut workspace_total = PolicyMatchCounts::default();
+
+    for ticket in open_tickets {
+        // Default to paused so a state missing from the lookup
+        // (race during a delete) doesn't accidentally start
+        // counting a stale ticket.
+        let paused = pause_by_state
+            .get(&ticket.workflow_state_id)
+            .copied()
+            .unwrap_or(true);
+        let assignee_groups = ticket
+            .assignee_uuid
+            .and_then(|u| groups_by_assignee.get(&u))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let Some(policy) = pick_policy(&ctx.policies, &ticket, assignee_groups) else {
+            continue;
+        };
+
+        // No calendar attached -> no pill; the policy still matches
+        // the ticket so it counts toward `total` but lands in
+        // `on_track` as a neutral default.
+        let pill = policy
+            .working_calendar_id
+            .and_then(|cal_id| {
+                ctx.calendars_by_id.get(&cal_id).map(|calendar| {
+                    let holidays = ctx
+                        .holidays_by_calendar
+                        .get(&cal_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    compute_pill(&ticket, paused, policy, calendar, &holidays, now)
+                })
+            })
+            .flatten();
+
+        by_policy
+            .entry(policy.id)
+            .or_default()
+            .add_pill(pill.as_ref());
+        workspace_total.add_pill(pill.as_ref());
+    }
+
+    Ok(OpenTicketScan {
+        by_policy,
+        workspace_total,
+    })
 }
 
 #[cfg(test)]

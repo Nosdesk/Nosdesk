@@ -4507,6 +4507,18 @@ dashboard-widget-stats-summary-title = Verzoeksamenvatting
 dashboard-widget-stats-summary-description = Telling van jouw verzoeken per status.
 dashboard-widget-knowledge-gaps-title = Kennisleemtes
 dashboard-widget-knowledge-gaps-description = Belangrijkste documenten om te schrijven, gerangschikt op ticketbewijs.
+
+dashboard-widget-sla-health-title = SLA-gezondheid
+dashboard-widget-sla-health-description = Overzicht van tickets gedekt door een SLA-beleid.
+dashboard-sla-health-title = SLA-gezondheid
+dashboard-sla-health-action = SLA-beheer
+dashboard-sla-health-tracked = Gevolgd
+dashboard-sla-health-breached = Overschreden
+dashboard-sla-health-at-risk = Risico
+dashboard-sla-health-paused = Gepauzeerd
+dashboard-sla-health-error = SLA-gezondheid kon niet worden geladen
+dashboard-sla-health-empty-title = Geen tickets gevolgd
+dashboard-sla-health-empty-description = Geen open tickets komen momenteel overeen met een SLA-beleid.
 # Q1 polish: template attributes + static text
 tickets-row-new-activity-tooltip = Nieuwe activiteit sinds je laatste bezoek
 tickets-row-new-activity-aria = Nieuwe activiteit
