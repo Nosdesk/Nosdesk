@@ -40,6 +40,10 @@ import SectionCard from '@/components/common/SectionCard.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
+import Modal from '@/components/Modal.vue'
+import WeekScheduleEditor, {
+  type WeekSchedule,
+} from '@/components/admin/WeekScheduleEditor.vue'
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
@@ -164,6 +168,59 @@ async function deleteCalendar(id: number): Promise<void> {
     )
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('admin-sla-error-delete')
+  }
+}
+
+// ---------------- Calendar edit modal ----------------
+// The list view has shown name + timezone + default toggle for a
+// while; the schedule was unreachable from the UI (admins patched
+// JSON by hand). The edit modal closes that gap by reusing the same
+// schedule editor the create form drives.
+const editingCalendar = ref<WorkingCalendar | null>(null)
+const editDraft = ref<WorkingCalendarBody>({
+  name: '',
+  timezone: 'UTC',
+  schedule: {
+    mon: [],
+    tue: [],
+    wed: [],
+    thu: [],
+    fri: [],
+    sat: [],
+    sun: [],
+  },
+  is_default: false,
+})
+
+function openCalendarEditor(cal: WorkingCalendar): void {
+  editingCalendar.value = cal
+  // Deep-clone the schedule so edits don't leak into the cached row
+  // before the user clicks Save.
+  editDraft.value = {
+    name: cal.name,
+    timezone: cal.timezone,
+    schedule: JSON.parse(JSON.stringify(cal.schedule)),
+    is_default: cal.is_default,
+  }
+}
+
+function closeCalendarEditor(): void {
+  editingCalendar.value = null
+}
+
+async function saveCalendarEdit(): Promise<void> {
+  const target = editingCalendar.value
+  if (!target) return
+  try {
+    const updated = await slaService.updateCalendar(target.id, editDraft.value)
+    queryCache.setQueryData(
+      CALENDARS_KEY,
+      calendars.value.map((c) => (c.id === target.id ? updated : c)),
+    )
+    editingCalendar.value = null
+    error.value = null
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('admin-sla-error-update')
   }
 }
 
@@ -390,7 +447,14 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
                       }}
                     </button>
                   </td>
-                  <td class="px-3 py-2 text-right">
+                  <td class="px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      class="text-[11px] text-tertiary hover:text-primary mr-3"
+                      @click="openCalendarEditor(cal)"
+                    >
+                      {{ $t('admin-sla-edit') }}
+                    </button>
                     <button
                       type="button"
                       class="text-[11px] text-tertiary hover:text-primary"
@@ -425,9 +489,10 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
                 />
               </label>
             </div>
-            <p class="text-[11px] text-tertiary italic">
-              {{ $t('admin-sla-schedule-hint') }}
-            </p>
+            <div class="flex flex-col gap-1">
+              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-schedule') }}</span>
+              <WeekScheduleEditor v-model="calendarDraft.schedule as WeekSchedule" />
+            </div>
             <Button
               type="submit"
               size="sm"
@@ -642,5 +707,43 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
       @confirm="confirmDelete"
       @close="pendingDelete = null"
     />
+
+    <Modal
+      :show="editingCalendar !== null"
+      :title="$t('admin-sla-edit-calendar-title')"
+      size="lg"
+      @close="closeCalendarEditor"
+    >
+      <form class="flex flex-col gap-4" @submit.prevent="saveCalendarEdit">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormInput
+            v-model="editDraft.name"
+            size="sm"
+            :label="$t('admin-sla-field-name')"
+          />
+          <label class="flex flex-col gap-1.5">
+            <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-tz') }}</span>
+            <input
+              v-model="editDraft.timezone"
+              type="text"
+              :placeholder="$t('admin-sla-placeholder-tz')"
+              :class="FIELD_CLASS_SM"
+            />
+          </label>
+        </div>
+        <div class="flex flex-col gap-1">
+          <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-schedule') }}</span>
+          <WeekScheduleEditor v-model="editDraft.schedule as WeekSchedule" />
+        </div>
+        <div class="flex items-center justify-end gap-2">
+          <Button type="button" variant="secondary" size="sm" @click="closeCalendarEditor">
+            {{ $t('admin-sla-cancel') }}
+          </Button>
+          <Button type="submit" size="sm" :disabled="!editDraft.name.trim()">
+            {{ $t('admin-sla-save') }}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   </div>
 </template>
