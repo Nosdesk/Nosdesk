@@ -34,8 +34,22 @@ const username = computed(() => {
 
 const { currentTheme, formattedGreeting, subtitle } = useDashboardGreeting(username)
 
-// Resolve the layout against the current user on mount and again if the
-// user object re-arrives (SSO refresh, profile refetch).
+// The dashboard layout depends on the user's role (technician/admin
+// vs end-user widget sets differ entirely). The store is created at
+// module-load time with `auth.user === null`, so its initial layout
+// is the end-user default. If we render the grid against that and
+// auth then resolves to an admin, every admin-only widget mounts
+// fresh in a second render — which is what caused the
+// Unassigned-queue / Assigned-tickets "doesn't load half the time"
+// race: the role-swap remount fires concurrent fetches against an
+// auth state still settling.
+//
+// `authReady` gates the grid on `auth.user.uuid` being set, so the
+// grid only mounts once with the correct role. The watch below
+// still reloads the layout if the user object re-arrives later
+// (SSO refresh, profile refetch).
+const authReady = computed(() => !!authStore.user?.uuid)
+
 onMounted(() => dashboardLayout.loadFromUser())
 watch(() => authStore.user?.uuid, () => dashboardLayout.loadFromUser())
 
@@ -77,7 +91,7 @@ useCreateTicketAction()
 
       <DashboardEditBar v-if="dashboardLayout.editMode" />
 
-      <DashboardGrid />
+      <DashboardGrid v-if="authReady" />
     </div>
   </div>
 </template>
