@@ -356,14 +356,22 @@ async function confirmDeleteBrandingImage(): Promise<void> {
             </div>
 
             <!-- Default Signature -->
-            <FormTextarea
-              v-model="signatureDefault"
-              :label="$t('admin-branding-signature-default-label')"
-              :placeholder="$t('admin-branding-signature-default-placeholder')"
-              :description="$t('admin-branding-signature-default-hint')"
-              :rows="5"
-              mono
-            />
+            <div class="flex flex-col gap-2">
+              <FormTextarea
+                v-model="signatureDefault"
+                :label="$t('admin-branding-signature-default-label')"
+                :placeholder="$t('admin-branding-signature-default-placeholder')"
+                :description="$t('admin-branding-signature-default-hint')"
+                :rows="5"
+                mono
+              />
+              <p class="text-xs text-tertiary">
+                {{ $t('admin-branding-signature-default-variables-hint') }}
+                <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;tech_name&#125;&#125;</code>,
+                <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;tech_email&#125;&#125;</code>,
+                <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;app_name&#125;&#125;</code>
+              </p>
+            </div>
 
             <!-- Save Button -->
             <div class="flex justify-end pt-2">

@@ -1030,6 +1030,7 @@ admin-branding-primary-color-hint = Hex-kleurcode voor accentelementen (bv. #2C8
 admin-branding-signature-default-label = Standaard e-mailhandtekening
 admin-branding-signature-default-placeholder = Met vriendelijke groet, het Supportteam
 admin-branding-signature-default-hint = Gebruikt voor medewerkers zonder persoonlijke handtekening. Laat leeg om antwoorden zonder handtekening te versturen.
+admin-branding-signature-default-variables-hint = Variabelen (per antwoord ingevuld):
 admin-branding-save = Instellingen opslaan
 admin-branding-saving = Opslaan...
 admin-branding-logo-heading = Logo
@@ -2701,6 +2702,7 @@ settings-profile-save = Opslaan
 settings-profile-signature-label = E-mailhandtekening
 settings-profile-signature-hint-prefix = Wordt toegevoegd aan uw uitgaande antwoorden op tickets uit een kanaal (e-mail). Het standaardscheidingsteken is
 settings-profile-signature-hint-suffix = .
+settings-profile-signature-variables-hint = Variabelen (per antwoord ingevuld):
 settings-profile-signature-placeholder = Naam van technicus
     IT-ondersteuning
 settings-profile-unknown-user = Onbekende gebruiker

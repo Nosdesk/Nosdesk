@@ -93,6 +93,25 @@ pub async fn update_branding_config(
         }
     }
 
+    // Validate signature template tokens up front. Same rule as the
+    // per-user signature path in handlers/users.rs: empty / blank
+    // skips validation (will be normalized to None below).
+    if let Some(ref sig) = body.signature_default {
+        if !sig.trim().is_empty() {
+            let unknown = crate::utils::template_variables::unknown_variables(
+                sig,
+                crate::utils::template_variables::SIGNATURE_VARIABLES,
+            );
+            if !unknown.is_empty() {
+                return errors::bad_request(format!(
+                    "Unknown signature variables: {}. Supported: {}.",
+                    unknown.join(", "),
+                    crate::utils::template_variables::SIGNATURE_VARIABLES.join(", ")
+                ));
+            }
+        }
+    }
+
     // Mirror the user-signature empty-string-is-clear semantic from
     // users.rs so the admin UI can revert to "no org default"
     // without a separate API call.

@@ -947,6 +947,7 @@ admin-branding-primary-color-hint = Hex colour code for accent elements (e.g., #
 admin-branding-signature-default-label = Default email signature
 admin-branding-signature-default-placeholder = Kind regards, The Support Team
 admin-branding-signature-default-hint = Used for agents who haven't set a personal signature. Leave blank to send replies unsigned.
+admin-branding-signature-default-variables-hint = Variables (filled in per reply):
 admin-branding-save = Save Settings
 admin-branding-saving = Saving...
 admin-branding-logo-heading = Logo
@@ -2621,6 +2622,7 @@ settings-profile-save = Save
 settings-profile-signature-label = Email signature
 settings-profile-signature-hint-prefix = Appended to your outbound replies on channel-originated tickets (email). Separator is the standard
 settings-profile-signature-hint-suffix = .
+settings-profile-signature-variables-hint = Variables (filled in per reply):
 settings-profile-signature-placeholder = Tech Name
     IT Support
 settings-profile-unknown-user = Unknown User

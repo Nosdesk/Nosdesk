@@ -682,6 +682,12 @@ const getRoleDisplayName = (role: string) => {
                         <p id="user-email-signature-hint" class="text-xs text-tertiary">
                             {{ $t('settings-profile-signature-hint-prefix') }} <code class="text-[10px] bg-surface-alt px-1 rounded">-- </code>{{ $t('settings-profile-signature-hint-suffix') }}
                         </p>
+                        <p class="text-xs text-tertiary">
+                            {{ $t('settings-profile-signature-variables-hint') }}
+                            <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;tech_name&#125;&#125;</code>,
+                            <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;tech_email&#125;&#125;</code>,
+                            <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;app_name&#125;&#125;</code>
+                        </p>
                         <div class="flex flex-col gap-3">
                             <FormTextarea
                                 id="user-email-signature"

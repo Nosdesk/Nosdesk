@@ -1,12 +1,16 @@
 //! Canned-response CRUD. Reads open to any authenticated user so the
 //! ticket composer's picker works for all techs; writes restricted
 //! to admins so the template library has a single source of truth.
+//!
+//! `{{variable}}` validation lives in
+//! `utils::template_variables`; the canned-response surface uses
+//! the `CANNED_RESPONSE_VARIABLES` allow-list, which includes
+//! ticket-scoped tokens (`{{ticket_id}}`, `{{customer_name}}`)
+//! that don't apply to signatures. Keep the frontend
+//! `cannedResponsesService.renderTemplate` in sync with that list.
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
-use once_cell::sync::Lazy;
-use regex::Regex;
 use serde::Deserialize;
-use std::collections::BTreeSet;
 use tracing::{error, info};
 
 use crate::extractors::TenantConn;
@@ -14,38 +18,7 @@ use crate::handlers::errors;
 use crate::models::{CannedResponse, CannedResponseUpdate, NewCannedResponse};
 use crate::repository::canned_responses as repo;
 use crate::utils::rbac::require_admin;
-
-/// Variables the renderer (frontend `cannedResponsesService.renderTemplate`)
-/// substitutes at insert time. Keep in sync with that file's table of
-/// supported tokens; the validation below rejects any `{{...}}` in a
-/// template body that isn't on this list, so an admin typo like
-/// `{{custmer_name}}` fails on save rather than landing in a customer
-/// reply verbatim.
-const ALLOWED_VARIABLES: &[&str] = &[
-    "ticket_id",
-    "ticket_title",
-    "customer_name",
-    "tech_name",
-    "app_name",
-];
-
-static VARIABLE_TOKEN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}").expect("valid regex"));
-
-/// Return the sorted set of unknown `{{token}}` names in `body`.
-/// Empty when every token is recognised. Captures dedup automatically
-/// via the BTreeSet so the error message lists each typo once.
-fn unknown_variables(body: &str) -> Vec<String> {
-    let allowed: BTreeSet<&str> = ALLOWED_VARIABLES.iter().copied().collect();
-    let mut out: BTreeSet<String> = BTreeSet::new();
-    for cap in VARIABLE_TOKEN_RE.captures_iter(body) {
-        let name = &cap[1];
-        if !allowed.contains(name) {
-            out.insert(name.to_string());
-        }
-    }
-    out.into_iter().collect()
-}
+use crate::utils::template_variables::{unknown_variables, CANNED_RESPONSE_VARIABLES};
 
 /// Body for `POST /api/canned-responses`. Validation is trivial —
 /// title + body both required and non-empty — and happens inline.
@@ -111,12 +84,12 @@ pub async fn create_canned(
     if content.is_empty() {
         return bad_request("Body is required");
     }
-    let unknown = unknown_variables(content);
+    let unknown = unknown_variables(content, CANNED_RESPONSE_VARIABLES);
     if !unknown.is_empty() {
         return bad_request(format!(
             "Unknown template variables: {}. Supported: {}.",
             unknown.join(", "),
-            ALLOWED_VARIABLES.join(", ")
+            CANNED_RESPONSE_VARIABLES.join(", ")
         ));
     }
 
@@ -160,12 +133,12 @@ pub async fn update_canned(
         if trimmed.is_empty() {
             return bad_request("Body must not be empty");
         }
-        let unknown = unknown_variables(trimmed);
+        let unknown = unknown_variables(trimmed, CANNED_RESPONSE_VARIABLES);
         if !unknown.is_empty() {
             return bad_request(format!(
                 "Unknown template variables: {}. Supported: {}.",
                 unknown.join(", "),
-                ALLOWED_VARIABLES.join(", ")
+                CANNED_RESPONSE_VARIABLES.join(", ")
             ));
         }
     }
@@ -212,43 +185,3 @@ pub async fn delete_canned(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unknown_variables_returns_empty_for_clean_body() {
-        let body =
-            "Hi {{customer_name}}, your ticket {{ticket_id}} is being looked at by {{tech_name}}.";
-        assert!(unknown_variables(body).is_empty());
-    }
-
-    #[test]
-    fn unknown_variables_flags_typos() {
-        let body = "Hi {{custmer_name}}, ticket {{ticket_id}} from {{app_naem}}.";
-        let mut flagged = unknown_variables(body);
-        flagged.sort();
-        assert_eq!(flagged, vec!["app_naem", "custmer_name"]);
-    }
-
-    #[test]
-    fn unknown_variables_dedups_repeated_unknowns() {
-        let body = "{{foo}} {{foo}} {{foo}}";
-        assert_eq!(unknown_variables(body), vec!["foo"]);
-    }
-
-    #[test]
-    fn unknown_variables_ignores_plain_braces() {
-        let body = "Use { single } braces or {{ticket_id}} tokens — but not {{nope}}.";
-        assert_eq!(unknown_variables(body), vec!["nope"]);
-    }
-
-    #[test]
-    fn unknown_variables_tolerates_whitespace_inside_braces() {
-        // The frontend renderer matches `\{\{\s*name\s*\}\}` too, so
-        // a body with `{{ ticket_id }}` rendered fine. Validation must
-        // not reject it.
-        let body = "Ticket #{{ ticket_id }} opened.";
-        assert!(unknown_variables(body).is_empty());
-    }
-}

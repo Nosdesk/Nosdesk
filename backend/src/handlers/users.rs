@@ -1917,6 +1917,27 @@ pub async fn update_user_by_uuid(
         }
     }
 
+    // Validate signature template tokens up front so a typo like
+    // `{{tech_naem}}` fails at save time rather than landing in an
+    // outbound customer reply verbatim. Empty / pure-whitespace
+    // signatures skip validation since they'll be normalized to
+    // None below.
+    if let Some(ref sig) = user_data.signature {
+        if !sig.trim().is_empty() {
+            let unknown = crate::utils::template_variables::unknown_variables(
+                sig,
+                crate::utils::template_variables::SIGNATURE_VARIABLES,
+            );
+            if !unknown.is_empty() {
+                return errors::bad_request(format!(
+                    "Unknown signature variables: {}. Supported: {}.",
+                    unknown.join(", "),
+                    crate::utils::template_variables::SIGNATURE_VARIABLES.join(", ")
+                ));
+            }
+        }
+    }
+
     // Update user (core identity fields only — preferences land
     // separately in user_preferences below).
     let user_update = UserUpdate {

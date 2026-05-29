@@ -55,28 +55,63 @@ fn signature_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> Option<String
     )
 }
 
+/// Render a signature template against the agent context. Templates
+/// without `{{...}}` tokens short-circuit (zero extra queries on the
+/// common "fixed text" case). When at least one token is present we
+/// load the agent name + primary email + workspace `app_name` for
+/// substitution; if the agent row can't be loaded we return `None`
+/// so the caller skips appending altogether (a literal `{{tech_name}}`
+/// in a customer reply is worse than no signature at all).
+fn render_signature(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    template: String,
+) -> Option<String> {
+    if !template.contains("{{") {
+        return Some(template);
+    }
+    let user = crate::repository::users::get_user_by_uuid(&user_uuid, conn).ok()?;
+    let tech_email =
+        crate::repository::user_helpers::get_primary_email(&user_uuid, conn).unwrap_or_default();
+    let app_name = crate::repository::site_settings::get_site_settings(conn)
+        .map(|s| s.app_name)
+        .unwrap_or_else(|_| "Nosdesk".to_string());
+    Some(crate::utils::template_variables::substitute(
+        &template,
+        &[
+            ("tech_name", &user.name),
+            ("tech_email", &tech_email),
+            ("app_name", &app_name),
+        ],
+    ))
+}
+
 /// Append the user's signature to both representations of `body`.
 ///
-/// DB read failures are silently treated as "no signature" — better to
-/// send the reply unsigned than to fail the whole outbound dispatch
-/// over a transient read hiccup.
+/// DB read failures on the per-user / org-default lookups are
+/// silently treated as "no signature" so the reply still ships; a
+/// failed render against an existing template (e.g. transient user
+/// read failure) drops the signature for the same reason.
 pub fn append_signature_for_user(
     conn: &mut DbConnection,
     user_uuid: Uuid,
     body: ReplyBody,
 ) -> ReplyBody {
-    match signature_for_user(conn, user_uuid) {
-        Some(sig) => {
-            let text_fragment = format!("\n\n-- \n{sig}");
-            // Escape the user-authored signature before embedding into
-            // HTML; their newlines become `<br>` so the visual layout
-            // matches the plaintext.
-            let escaped = html_escape::encode_safe(&sig).replace('\n', "<br>\n");
-            let html_fragment = format!("<br><br>--<br>\n{escaped}");
-            body.append(&html_fragment, &text_fragment)
-        }
-        None => body,
-    }
+    let template = match signature_for_user(conn, user_uuid) {
+        Some(s) => s,
+        None => return body,
+    };
+    let sig = match render_signature(conn, user_uuid, template) {
+        Some(s) => s,
+        None => return body,
+    };
+    let text_fragment = format!("\n\n-- \n{sig}");
+    // Escape the user-authored signature before embedding into
+    // HTML; their newlines become `<br>` so the visual layout
+    // matches the plaintext.
+    let escaped = html_escape::encode_safe(&sig).replace('\n', "<br>\n");
+    let html_fragment = format!("<br><br>--<br>\n{escaped}");
+    body.append(&html_fragment, &text_fragment)
 }
 
 #[cfg(test)]
