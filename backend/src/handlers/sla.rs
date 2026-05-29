@@ -9,15 +9,27 @@
 //! - `POST   /api/admin/sla/calendars` — create.
 //! - `PATCH  /api/admin/sla/calendars/{id}` — update.
 //! - `DELETE /api/admin/sla/calendars/{id}` — drop.
+//! - `GET    /api/admin/sla/calendars/{id}/holidays` — list dates.
+//! - `POST   /api/admin/sla/calendars/{id}/holidays` — add one.
+//! - `DELETE /api/admin/sla/holidays/{id}` — remove one.
+//! - `GET    /api/tickets/{id}/sla/explain` — non-admin: why a
+//!   ticket currently has the SLA pill it does. Surfaces the matched
+//!   policy + calendar + per-state pause flag so the user can audit
+//!   the engine's decision without leaving the ticket view.
 //!
 //! All writes gate on admin via the AuthContext.
 
 use actix_web::{web, HttpResponse, Responder};
+use diesel::prelude::*;
+use serde::Serialize;
 use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::repository::sla_admin::{self, SlaPolicyBody, WorkingCalendarBody};
+use crate::models::{SlaPolicy, Ticket, WorkflowState};
+use crate::repository::sla_admin::{
+    self, SlaPolicyBody, WorkingCalendarBody, WorkingCalendarHolidayBody,
+};
 
 fn require_admin(auth: &AuthContext) -> Option<HttpResponse> {
     if auth.is_admin() {
@@ -157,6 +169,204 @@ pub async fn delete_calendar(
         Err(e) => {
             error!(error = %e, id, "delete calendar failed");
             errors::internal("Failed to delete working calendar")
+        }
+    }
+}
+
+// ---- Holidays ----
+
+pub async fn list_holidays(
+    mut tc: TenantConn,
+    path: web::Path<i32>,
+    _auth: AuthContext,
+) -> impl Responder {
+    let calendar_id = path.into_inner();
+    match tc.run(|conn| sla_admin::list_holidays(conn, calendar_id)) {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => {
+            error!(error = %e, calendar_id, "list holidays failed");
+            errors::internal("Failed to list holidays")
+        }
+    }
+}
+
+pub async fn create_holiday(
+    mut tc: TenantConn,
+    path: web::Path<i32>,
+    body: web::Json<WorkingCalendarHolidayBody>,
+    auth: AuthContext,
+) -> impl Responder {
+    if let Some(resp) = require_admin(&auth) {
+        return resp;
+    }
+    let calendar_id = path.into_inner();
+    match tc.run(|conn| sla_admin::create_holiday(conn, calendar_id, body.into_inner())) {
+        Ok(row) => HttpResponse::Created().json(row),
+        Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::UniqueViolation,
+            _,
+        )) => errors::bad_request("Holiday already exists for that date"),
+        Err(e) => {
+            error!(error = %e, calendar_id, "create holiday failed");
+            errors::internal("Failed to create holiday")
+        }
+    }
+}
+
+pub async fn delete_holiday(
+    mut tc: TenantConn,
+    path: web::Path<i32>,
+    auth: AuthContext,
+) -> impl Responder {
+    if let Some(resp) = require_admin(&auth) {
+        return resp;
+    }
+    let id = path.into_inner();
+    match tc.run(|conn| sla_admin::delete_holiday(conn, id)) {
+        Ok(_) => HttpResponse::NoContent().finish(),
+        Err(e) => {
+            error!(error = %e, id, "delete holiday failed");
+            errors::internal("Failed to delete holiday")
+        }
+    }
+}
+
+// ---- Explain ("why this SLA?") ----
+
+#[derive(Debug, Serialize)]
+pub struct SlaExplain {
+    /// Matched policy, or `None` when nothing matched and there's no
+    /// workspace default (no pill renders client-side either).
+    pub policy: Option<SlaExplainPolicy>,
+    pub state: SlaExplainState,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SlaExplainPolicy {
+    pub id: i32,
+    pub name: String,
+    pub is_default: bool,
+    pub target_response_minutes: Option<i32>,
+    pub target_resolution_minutes: Option<i32>,
+    pub calendar: Option<SlaExplainCalendar>,
+    /// Filters the matcher saw as a hit. Empty when the policy is the
+    /// workspace default with no filters set.
+    pub matched_filters: Vec<SlaExplainFilter>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SlaExplainCalendar {
+    pub id: i32,
+    pub name: String,
+    pub timezone: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SlaExplainState {
+    pub paused: bool,
+    pub state_name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SlaExplainFilter {
+    Priority { value: String },
+    Category { id: i32, name: String },
+    AssigneeGroup { id: i32, name: String },
+}
+
+/// GET /api/tickets/{id}/sla/explain. Authenticated; the matcher
+/// runs inside the user's tenant connection so RLS keeps cross-
+/// workspace visibility off.
+pub async fn explain_for_ticket(
+    mut tc: TenantConn,
+    path: web::Path<i32>,
+    _auth: AuthContext,
+) -> impl Responder {
+    let ticket_id = path.into_inner();
+    let result: Result<Option<SlaExplain>, diesel::result::Error> = tc.run(|conn| {
+        use crate::schema::{groups, sla_policies, ticket_categories, tickets, workflow_states};
+
+        let ticket: Ticket = match tickets::table.find(ticket_id).first::<Ticket>(conn) {
+            Ok(t) => t,
+            Err(diesel::result::Error::NotFound) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+
+        let state: WorkflowState = workflow_states::table
+            .find(ticket.workflow_state_id)
+            .first(conn)?;
+
+        let policies: Vec<SlaPolicy> = sla_policies::table.load(conn)?;
+        let group_ids = ticket
+            .assignee_uuid
+            .and_then(|u| crate::repository::groups::get_group_ids_for_user(conn, &u).ok())
+            .unwrap_or_default();
+
+        let explain_policy =
+            crate::services::sla::pick_policy(&policies, &ticket, &group_ids).map(|policy| {
+                let calendar = policy.working_calendar_id.and_then(|cid| {
+                    crate::schema::working_calendars::table
+                        .find(cid)
+                        .first::<crate::models::WorkingCalendar>(conn)
+                        .ok()
+                        .map(|c| SlaExplainCalendar {
+                            id: c.id,
+                            name: c.name,
+                            timezone: c.timezone,
+                        })
+                });
+
+                // Translate the filters the matcher accepted into typed
+                // entries so the frontend can render them with local
+                // copy + links rather than parsing strings.
+                let mut matched_filters: Vec<SlaExplainFilter> = Vec::new();
+                if let Some(ref p) = policy.priority_filter {
+                    matched_filters.push(SlaExplainFilter::Priority { value: p.clone() });
+                }
+                if let Some(cid) = policy.category_id_filter {
+                    let name = ticket_categories::table
+                        .find(cid)
+                        .select(ticket_categories::name)
+                        .first::<String>(conn)
+                        .unwrap_or_else(|_| format!("#{cid}"));
+                    matched_filters.push(SlaExplainFilter::Category { id: cid, name });
+                }
+                if let Some(gid) = policy.assignee_group_id_filter {
+                    let name = groups::table
+                        .find(gid)
+                        .select(groups::name)
+                        .first::<String>(conn)
+                        .unwrap_or_else(|_| format!("#{gid}"));
+                    matched_filters.push(SlaExplainFilter::AssigneeGroup { id: gid, name });
+                }
+
+                SlaExplainPolicy {
+                    id: policy.id,
+                    name: policy.name.clone(),
+                    is_default: policy.is_default,
+                    target_response_minutes: policy.target_response_minutes,
+                    target_resolution_minutes: policy.target_resolution_minutes,
+                    calendar,
+                    matched_filters,
+                }
+            });
+
+        Ok(Some(SlaExplain {
+            policy: explain_policy,
+            state: SlaExplainState {
+                paused: state.pauses_sla,
+                state_name: state.name,
+            },
+        }))
+    });
+
+    match result {
+        Ok(Some(explain)) => HttpResponse::Ok().json(explain),
+        Ok(None) => errors::not_found_msg("Ticket not found"),
+        Err(e) => {
+            error!(error = %e, ticket_id, "sla explain failed");
+            errors::internal("Failed to load SLA explain")
         }
     }
 }

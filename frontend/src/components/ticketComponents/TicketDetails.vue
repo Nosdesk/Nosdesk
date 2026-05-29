@@ -26,6 +26,7 @@ import TicketAssetUsage from "@/components/ticketComponents/TicketAssetUsage.vue
 import TicketLinkedTicketsField from "@/components/ticketComponents/TicketLinkedTicketsField.vue";
 import TicketProjectsField from "@/components/ticketComponents/TicketProjectsField.vue";
 import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
+import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
 import type { Asset } from "@/types/asset";
 import type { CommentWithAttachments } from "@/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
@@ -57,6 +58,12 @@ function toggleSelfAssign() {
 
 // QR code for print
 const qrCodeDataUrl = ref<string | null>(null);
+
+// "Why this SLA?" popover. Click the pill to toggle; popover loads
+// its data lazily the first time and caches per ticket id (see
+// SlaExplainPopover for the cache rule).
+const slaPillRef = ref<HTMLElement | null>(null);
+const slaExplainOpen = ref(false);
 
 // Branding for print header
 const brandingStore = useBrandingStore();
@@ -799,14 +806,28 @@ watchEffect(async () => {
             :title="slaState.detail"
           >
             <span class="text-tertiary font-medium">{{ t('ticket-detail-sla-label') }}</span>
-            <span class="inline-flex items-center gap-1.5 transition-colors duration-200" :class="slaState.toneClass">
+            <button
+              ref="slaPillRef"
+              type="button"
+              class="inline-flex items-center gap-1.5 transition-colors duration-200 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              :class="slaState.toneClass"
+              :aria-expanded="slaExplainOpen"
+              :aria-label="t('ticket-detail-sla-explain-aria')"
+              @click="slaExplainOpen = !slaExplainOpen"
+            >
               <Icon name="clock" class="w-3.5 h-3.5" />
               <span class="font-medium">{{ slaState.statusLabel }}</span>
               <span
                 v-if="!slaState.breached && !slaState.paused"
                 class="text-tertiary tabular-nums"
               >· {{ slaState.compactLabel }}</span>
-            </span>
+            </button>
+            <SlaExplainPopover
+              :anchor="slaPillRef"
+              :open="slaExplainOpen"
+              :ticket-id="ticket.id"
+              @close="slaExplainOpen = false"
+            />
           </div>
 
           <!-- Scheduling group: due date + recurrence collapsed

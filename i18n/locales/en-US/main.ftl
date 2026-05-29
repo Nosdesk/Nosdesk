@@ -1023,7 +1023,9 @@ admin-sla-field-priority = Priority filter
 admin-sla-field-category = Category filter
 admin-sla-field-assignee-group = Assignee group filter
 admin-sla-placeholder-name = EU support hours
-admin-sla-placeholder-tz = Europe/London
+admin-sla-placeholder-tz = Select a timezone
+admin-sla-tz-search-placeholder = Search timezones...
+admin-sla-tz-no-matches = No matching timezones
 admin-sla-policy-name-placeholder = Critical incidents
 admin-sla-edit-calendar-title = Edit working calendar
 admin-sla-field-schedule = Working hours
@@ -1040,6 +1042,37 @@ admin-sla-schedule-remove-range-aria = Remove this range
 admin-sla-schedule-open-aria = Open time
 admin-sla-schedule-close-aria = Close time
 admin-sla-schedule-empty-hint = No working hours configured. SLA timers stay paused until at least one day has hours.
+admin-sla-field-holidays = Holidays
+admin-sla-holidays-empty-hint = No holidays yet. Add a date below to mark it as non-working.
+admin-sla-holiday-date = Date
+admin-sla-holiday-label = Label
+admin-sla-holiday-placeholder = e.g. Bank holiday
+admin-sla-holiday-add = Add
+admin-sla-holiday-remove-aria = Remove this holiday
+
+# SLA "Why this SLA?" popover, opened by clicking the pill on the
+# ticket detail sidebar. Makes the compute-on-read engine's
+# reasoning visible in place rather than as a separate report.
+sla-explain-aria = SLA explanation
+sla-explain-title = Why this SLA?
+sla-explain-error = Couldn't load SLA explanation.
+sla-explain-no-policy = No SLA policy matched this ticket, so no targets apply.
+sla-explain-default-badge = Workspace default
+sla-explain-no-filters = Matched as the workspace default (no filters set).
+sla-explain-filter-priority = Priority is { $value }
+sla-explain-filter-category = Category is { $name }
+sla-explain-filter-group = Assignee is in { $name }
+sla-explain-calendar-label = Calendar
+sla-explain-targets-label = Targets
+sla-explain-targets = { $response } response · { $resolution } resolution
+sla-explain-state-label = Status
+sla-explain-state-running = Clock running ({ $state })
+sla-explain-state-paused = Clock paused ({ $state })
+sla-explain-fmt-minutes = { $n }m
+sla-explain-fmt-hours = { $n }h
+sla-explain-fmt-days = { $n }d
+
+ticket-detail-sla-explain-aria = Show why this SLA was picked
 admin-sla-priority-any = Any
 admin-sla-category-any = Any
 admin-sla-assignee-group-any = Any

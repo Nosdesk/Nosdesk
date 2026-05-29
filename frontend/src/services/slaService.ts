@@ -33,6 +33,20 @@ export interface WorkingCalendarBody {
   is_default?: boolean
 }
 
+export interface WorkingCalendarHoliday {
+  id: number
+  calendar_id: number
+  /** ISO date string (YYYY-MM-DD) — engine matches on the local date. */
+  date: string
+  /** Free-form admin-readable label like "Bank holiday". */
+  label: string | null
+}
+
+export interface WorkingCalendarHolidayBody {
+  date: string
+  label?: string | null
+}
+
 export interface SlaPolicyBody {
   name: string
   target_response_minutes?: number | null
@@ -76,4 +90,63 @@ export const slaService = {
   async deleteCalendar(id: number): Promise<void> {
     await apiClient.delete(`/admin/sla/calendars/${id}`)
   },
+
+  async listHolidays(calendarId: number): Promise<WorkingCalendarHoliday[]> {
+    const { data } = await apiClient.get<WorkingCalendarHoliday[]>(
+      `/admin/sla/calendars/${calendarId}/holidays`,
+    )
+    return data
+  },
+  async createHoliday(
+    calendarId: number,
+    body: WorkingCalendarHolidayBody,
+  ): Promise<WorkingCalendarHoliday> {
+    const { data } = await apiClient.post<WorkingCalendarHoliday>(
+      `/admin/sla/calendars/${calendarId}/holidays`,
+      body,
+    )
+    return data
+  },
+  async deleteHoliday(id: number): Promise<void> {
+    await apiClient.delete(`/admin/sla/holidays/${id}`)
+  },
+
+  async explainForTicket(ticketId: number): Promise<SlaExplain> {
+    const { data } = await apiClient.get<SlaExplain>(`/tickets/${ticketId}/sla/explain`)
+    return data
+  },
 }
+
+// "Why this SLA?" payload returned by GET /api/tickets/{id}/sla/explain.
+// Surfaces the matched policy, its calendar, the workflow-state pause
+// flag, and the typed filters the matcher accepted as hits.
+export interface SlaExplain {
+  policy: SlaExplainPolicy | null
+  state: SlaExplainState
+}
+
+export interface SlaExplainPolicy {
+  id: number
+  name: string
+  is_default: boolean
+  target_response_minutes: number | null
+  target_resolution_minutes: number | null
+  calendar: SlaExplainCalendar | null
+  matched_filters: SlaExplainFilter[]
+}
+
+export interface SlaExplainCalendar {
+  id: number
+  name: string
+  timezone: string
+}
+
+export interface SlaExplainState {
+  paused: boolean
+  state_name: string
+}
+
+export type SlaExplainFilter =
+  | { kind: 'priority'; value: string }
+  | { kind: 'category'; id: number; name: string }
+  | { kind: 'assignee_group'; id: number; name: string }

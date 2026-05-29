@@ -13,7 +13,7 @@
  * away so date formatting + active Fluent bundle flip immediately.
  * On API failure revert.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDateStore } from '@/stores/dateStore'
@@ -24,6 +24,7 @@ import Spinner from '@/components/common/Spinner.vue'
 import Button from '@/components/common/Button.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue'
+import { useTimezoneOptions } from '@/composables/useTimezoneOptions'
 
 const authStore = useAuthStore()
 const dateStore = useDateStore()
@@ -84,108 +85,22 @@ const localeOptions = computed(() => [
   })),
 ])
 
-// Timezone options. `Intl.supportedValuesOf('timeZone')` returns
-// the IANA tz database (~600 names in modern browsers). Each
-// option carries label = city, description = "Region · UTC offset
-// · current local time" so the picker reads at a glance instead
-// of expecting the user to know their IANA path. The "Use device
-// timezone" sentinel is pinned at the top.
+// Timezone options come from the shared composable so every
+// IANA-picker in the app reads the same way. We prepend a
+// "Use device timezone" sentinel here because that meaning only
+// applies to per-user preferences, not to workspace-pinned
+// calendars.
 const browserTimezone = computed(() => dateStore.browserTimezone)
-
-const ianaTimezones = computed<string[]>(() => {
-  if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
-    try {
-      return (Intl as unknown as { supportedValuesOf: (k: string) => string[] })
-        .supportedValuesOf('timeZone')
-    } catch {
-      return []
-    }
-  }
-  return []
-})
-
-/**
- * For an IANA name like `America/Indiana/Indianapolis`:
- *   city   = "Indianapolis"
- *   region = "America"
- * Underscores become spaces so labels read like normal English.
- */
-function splitIana(name: string): { city: string; region: string } {
-  const parts = name.split('/')
-  const city = parts[parts.length - 1].replace(/_/g, ' ')
-  const region = parts[0].replace(/_/g, ' ')
-  return { city, region }
-}
-
-/** Current UTC offset for `tz` as a short string ("UTC+10:00"). */
-function offsetFor(tz: string, now: Date): string {
-  try {
-    const parts = new Intl.DateTimeFormat('en', {
-      timeZone: tz,
-      timeZoneName: 'longOffset',
-    }).formatToParts(now)
-    const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? ''
-    // longOffset produces "GMT+10:00"; normalise to "UTC+10:00".
-    return raw.replace(/^GMT/, 'UTC')
-  } catch {
-    return ''
-  }
-}
-
-/** Localised "3:47 PM" rendering of the current moment in `tz`. */
-function localTimeFor(tz: string, now: Date): string {
-  try {
-    return new Intl.DateTimeFormat(dateStore.locale, {
-      timeZone: tz,
-      hour: 'numeric',
-      minute: '2-digit',
-    }).format(now)
-  } catch {
-    return ''
-  }
-}
-
-// Recompute every minute so the displayed local times don't drift
-// while the picker is open. Cheap; ~600 options × one Intl call.
-const tick = ref(0)
-let tickInterval: ReturnType<typeof setInterval> | undefined
-onMounted(() => {
-  tickInterval = setInterval(() => {
-    tick.value++
-  }, 60_000)
-})
-onBeforeUnmount(() => {
-  if (tickInterval) clearInterval(tickInterval)
-})
+const ianaOptions = useTimezoneOptions()
 
 const timezoneOptions = computed<DropdownOption[]>(() => {
-  // Read tick so this re-evaluates on the minute.
-  void tick.value
-  const now = new Date()
   const opts: DropdownOption[] = []
-
-  // Pinned "use device" sentinel.
-  const browserOffset = offsetFor(browserTimezone.value, now)
-  const browserLocal = localTimeFor(browserTimezone.value, now)
   opts.push({
     value: 'system',
     label: fluent.$t('settings-timezone-use-device'),
-    description: [browserTimezone.value, browserOffset, browserLocal]
-      .filter(Boolean)
-      .join(' · '),
+    description: browserTimezone.value,
   })
-
-  for (const name of ianaTimezones.value) {
-    const { city, region } = splitIana(name)
-    const offset = offsetFor(name, now)
-    const local = localTimeFor(name, now)
-    opts.push({
-      value: name,
-      label: city,
-      description: [region, offset, local].filter(Boolean).join(' · '),
-    })
-  }
-  return opts
+  return [...opts, ...ianaOptions.value]
 })
 
 const isUpdating = ref(false)

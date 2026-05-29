@@ -25,6 +25,7 @@
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
+import TimePicker from '@/components/common/TimePicker.vue'
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
@@ -91,48 +92,35 @@ const weekIsEmpty = computed(() => DAYS.every((d) => dayRanges(d.key).length ===
     <div
       v-for="day in DAYS"
       :key="day.key"
-      class="flex items-start gap-3 py-1.5 border-b border-subtle last:border-b-0"
+      class="flex items-start gap-3 py-2 border-b border-subtle last:border-b-0"
     >
       <span
         class="w-10 flex-shrink-0 text-xs font-medium text-tertiary uppercase tracking-wide pt-1.5"
       >
         {{ $t(day.labelKey) }}
       </span>
-      <div class="flex-1 flex flex-wrap items-center gap-1.5 min-h-[28px]">
+      <div class="flex-1 flex flex-wrap items-center gap-2 min-h-[30px]">
         <span
           v-for="(range, i) in dayRanges(day.key)"
           :key="i"
-          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-xs tabular-nums transition-colors"
-          :class="
-            isValid(range)
-              ? 'bg-accent-muted border-accent/30 text-primary'
-              : 'bg-surface-alt border-subtle text-tertiary'
-          "
+          class="inline-flex items-center gap-1.5"
         >
-          <input
-            type="time"
-            :value="range[0]"
+          <TimePicker
+            :model-value="range[0]"
             :aria-label="t('admin-sla-schedule-open-aria')"
-            class="bg-transparent border-0 p-0 text-xs tabular-nums focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
-            @input="
-              (e) =>
-                updateRange(day.key, i, 0, (e.target as HTMLInputElement).value)
-            "
+            :error="!isValid(range)"
+            @update:model-value="(v: string) => updateRange(day.key, i, 0, v)"
           />
-          <span class="text-tertiary" aria-hidden="true">→</span>
-          <input
-            type="time"
-            :value="range[1]"
+          <span class="text-tertiary text-[11px]" aria-hidden="true">→</span>
+          <TimePicker
+            :model-value="range[1]"
             :aria-label="t('admin-sla-schedule-close-aria')"
-            class="bg-transparent border-0 p-0 text-xs tabular-nums focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
-            @input="
-              (e) =>
-                updateRange(day.key, i, 1, (e.target as HTMLInputElement).value)
-            "
+            :error="!isValid(range)"
+            @update:model-value="(v: string) => updateRange(day.key, i, 1, v)"
           />
           <button
             type="button"
-            class="ml-0.5 text-tertiary hover:text-status-error transition-colors"
+            class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:text-status-error transition-colors"
             :aria-label="t('admin-sla-schedule-remove-range-aria')"
             @click="removeRange(day.key, i)"
           >
@@ -141,7 +129,7 @@ const weekIsEmpty = computed(() => DAYS.every((d) => dayRanges(d.key).length ===
         </span>
         <button
           type="button"
-          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-dashed border-subtle text-xs text-tertiary hover:text-accent hover:border-accent/40 transition-colors"
+          class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-subtle text-xs text-tertiary hover:text-accent hover:border-accent/50 hover:bg-accent-muted transition-colors"
           @click="addRange(day.key)"
         >
           <Icon name="add" class="w-3 h-3" />
@@ -157,3 +145,4 @@ const weekIsEmpty = computed(() => DAYS.every((d) => dayRanges(d.key).length ===
     </p>
   </div>
 </template>
+

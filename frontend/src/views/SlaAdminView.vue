@@ -27,6 +27,7 @@ import {
   type SlaPolicy,
   type WorkingCalendar,
   type WorkingCalendarBody,
+  type WorkingCalendarHoliday,
   type SlaPolicyBody,
 } from '@/services/slaService'
 import { categoryService } from '@/services/categoryService'
@@ -41,6 +42,9 @@ import FormInput from '@/components/common/FormInput.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
 import Modal from '@/components/Modal.vue'
+import Icon from '@/components/common/Icon.vue'
+import SearchableDropdown from '@/components/common/SearchableDropdown.vue'
+import { useTimezoneOptions } from '@/composables/useTimezoneOptions'
 import WeekScheduleEditor, {
   type WeekSchedule,
 } from '@/components/admin/WeekScheduleEditor.vue'
@@ -192,7 +196,17 @@ const editDraft = ref<WorkingCalendarBody>({
   is_default: false,
 })
 
-function openCalendarEditor(cal: WorkingCalendar): void {
+// Holidays are scoped to the calendar being edited. We load them
+// lazily on modal open rather than caching app-wide because the
+// admin only looks at a calendar's holidays in this one place;
+// keeping a local ref avoids polluting Pinia Colada with
+// per-calendar keys for a list that's only visible while the modal
+// is open.
+const editingHolidays = ref<WorkingCalendarHoliday[]>([])
+const newHolidayDate = ref('')
+const newHolidayLabel = ref('')
+
+async function openCalendarEditor(cal: WorkingCalendar): Promise<void> {
   editingCalendar.value = cal
   // Deep-clone the schedule so edits don't leak into the cached row
   // before the user clicks Save.
@@ -202,10 +216,48 @@ function openCalendarEditor(cal: WorkingCalendar): void {
     schedule: JSON.parse(JSON.stringify(cal.schedule)),
     is_default: cal.is_default,
   }
+  editingHolidays.value = []
+  newHolidayDate.value = ''
+  newHolidayLabel.value = ''
+  try {
+    editingHolidays.value = await slaService.listHolidays(cal.id)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('admin-sla-error-load')
+  }
 }
 
 function closeCalendarEditor(): void {
   editingCalendar.value = null
+}
+
+async function addHoliday(): Promise<void> {
+  const target = editingCalendar.value
+  if (!target || !newHolidayDate.value) return
+  try {
+    const created = await slaService.createHoliday(target.id, {
+      date: newHolidayDate.value,
+      label: newHolidayLabel.value.trim() || null,
+    })
+    // Insert in date order so the list stays sorted as the admin
+    // adds rows out of sequence.
+    editingHolidays.value = [...editingHolidays.value, created].sort((a, b) =>
+      a.date.localeCompare(b.date),
+    )
+    newHolidayDate.value = ''
+    newHolidayLabel.value = ''
+    error.value = null
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('admin-sla-error-create')
+  }
+}
+
+async function removeHoliday(id: number): Promise<void> {
+  try {
+    await slaService.deleteHoliday(id)
+    editingHolidays.value = editingHolidays.value.filter((h) => h.id !== id)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('admin-sla-error-delete')
+  }
 }
 
 async function saveCalendarEdit(): Promise<void> {
@@ -262,6 +314,25 @@ const categoryOptions = computed(() =>
 const groupOptions = computed(() =>
   groups.value.map((g) => ({ value: g.id, label: g.name })),
 )
+
+// Shared with LocalizationSettings via the composable so the
+// IANA-picker reads the same everywhere. Workspace calendars pin a
+// specific zone, so we don't surface the "Use device timezone"
+// sentinel here.
+const timezoneOptions = useTimezoneOptions()
+
+// SearchableDropdown's modelValue is a required string, but the
+// calendar bodies type timezone as `string | undefined`. These
+// adapters coerce undefined to '' and back; '' on save defaults to
+// UTC at the backend (matches the existing seed default).
+const calendarDraftTimezone = computed<string>({
+  get: () => calendarDraft.value.timezone ?? '',
+  set: (v) => (calendarDraft.value.timezone = v),
+})
+const editDraftTimezone = computed<string>({
+  get: () => editDraft.value.timezone ?? '',
+  set: (v) => (editDraft.value.timezone = v),
+})
 
 async function createPolicy(): Promise<void> {
   if (!policyDraft.value.name.trim()) return
@@ -481,11 +552,13 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
               />
               <label class="flex flex-col gap-1.5">
                 <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-tz') }}</span>
-                <input
-                  v-model="calendarDraft.timezone"
-                  type="text"
+                <SearchableDropdown
+                  v-model="calendarDraftTimezone"
+                  size="sm"
+                  :options="timezoneOptions"
                   :placeholder="$t('admin-sla-placeholder-tz')"
-                  :class="FIELD_CLASS_SM"
+                  :search-placeholder="$t('admin-sla-tz-search-placeholder')"
+                  :empty-message="$t('admin-sla-tz-no-matches')"
                 />
               </label>
             </div>
@@ -723,11 +796,13 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
           />
           <label class="flex flex-col gap-1.5">
             <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-tz') }}</span>
-            <input
-              v-model="editDraft.timezone"
-              type="text"
+            <SearchableDropdown
+              v-model="editDraftTimezone"
+              size="sm"
+              :options="timezoneOptions"
               :placeholder="$t('admin-sla-placeholder-tz')"
-              :class="FIELD_CLASS_SM"
+              :search-placeholder="$t('admin-sla-tz-search-placeholder')"
+              :empty-message="$t('admin-sla-tz-no-matches')"
             />
           </label>
         </div>
@@ -735,6 +810,63 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
           <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-schedule') }}</span>
           <WeekScheduleEditor v-model="editDraft.schedule as WeekSchedule" />
         </div>
+
+        <div class="flex flex-col gap-2">
+          <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-holidays') }}</span>
+          <ul
+            v-if="editingHolidays.length > 0"
+            class="flex flex-col divide-y divide-subtle border border-subtle rounded-md"
+          >
+            <li
+              v-for="h in editingHolidays"
+              :key="h.id"
+              class="flex items-center gap-3 px-3 py-1.5 text-xs"
+            >
+              <span class="font-mono tabular-nums text-primary">{{ h.date }}</span>
+              <span class="flex-1 text-secondary truncate">{{ h.label ?? '' }}</span>
+              <button
+                type="button"
+                class="text-tertiary hover:text-status-error transition-colors"
+                :aria-label="$t('admin-sla-holiday-remove-aria')"
+                @click="removeHoliday(h.id)"
+              >
+                <Icon name="close" class="w-3.5 h-3.5" />
+              </button>
+            </li>
+          </ul>
+          <p v-else class="text-[11px] text-tertiary italic">
+            {{ $t('admin-sla-holidays-empty-hint') }}
+          </p>
+          <div class="grid grid-cols-[10rem_1fr_auto] gap-2 items-end">
+            <label class="flex flex-col gap-1">
+              <span class="text-[10px] uppercase tracking-wide font-medium text-tertiary">
+                {{ $t('admin-sla-holiday-date') }}
+              </span>
+              <input v-model="newHolidayDate" type="date" :class="FIELD_CLASS_SM" />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-[10px] uppercase tracking-wide font-medium text-tertiary">
+                {{ $t('admin-sla-holiday-label') }}
+              </span>
+              <input
+                v-model="newHolidayLabel"
+                type="text"
+                :placeholder="$t('admin-sla-holiday-placeholder')"
+                :class="FIELD_CLASS_SM"
+              />
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              :disabled="!newHolidayDate"
+              @click="addHoliday"
+            >
+              {{ $t('admin-sla-holiday-add') }}
+            </Button>
+          </div>
+        </div>
+
         <div class="flex items-center justify-end gap-2">
           <Button type="button" variant="secondary" size="sm" @click="closeCalendarEditor">
             {{ $t('admin-sla-cancel') }}

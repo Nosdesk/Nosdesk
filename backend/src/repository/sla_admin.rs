@@ -1,19 +1,17 @@
-//! Admin-side CRUD for SLA policies + working calendars. Read
-//! happens through `repository::sla::load_for_pill_computation`;
-//! this module covers the writes the admin UI needs.
-//!
-//! Holidays edit lands in a follow-up; admins who need to add a
-//! holiday today can patch the row directly.
+//! Admin-side CRUD for SLA policies, working calendars + per-calendar
+//! holidays. Read happens through
+//! `repository::sla::load_for_pill_computation`; this module covers
+//! the writes the admin UI needs.
 
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use diesel::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{SlaPolicy, WorkingCalendar};
-use crate::schema::{sla_policies, working_calendars};
+use crate::models::{SlaPolicy, WorkingCalendar, WorkingCalendarHoliday};
+use crate::schema::{sla_policies, working_calendar_holidays, working_calendars};
 
 // ---- Working calendars ----
 
@@ -185,4 +183,51 @@ pub fn update_policy(
 // sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn delete_policy(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
     diesel::delete(sla_policies::table.find(id)).execute(conn)
+}
+
+// ---- Working-calendar holidays ----
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = working_calendar_holidays)]
+pub struct NewWorkingCalendarHoliday {
+    pub calendar_id: i32,
+    pub date: NaiveDate,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WorkingCalendarHolidayBody {
+    pub date: NaiveDate,
+    /// Free-form label like "Bank holiday" or "Office closed". Optional
+    /// because the engine only cares about the date; the label is
+    /// purely admin-readable context.
+    pub label: Option<String>,
+}
+
+pub fn list_holidays(
+    conn: &mut DbConnection,
+    calendar_id_value: i32,
+) -> QueryResult<Vec<WorkingCalendarHoliday>> {
+    working_calendar_holidays::table
+        .filter(working_calendar_holidays::calendar_id.eq(calendar_id_value))
+        .order(working_calendar_holidays::date.asc())
+        .load(conn)
+}
+
+pub fn create_holiday(
+    conn: &mut DbConnection,
+    calendar_id_value: i32,
+    body: WorkingCalendarHolidayBody,
+) -> QueryResult<WorkingCalendarHoliday> {
+    diesel::insert_into(working_calendar_holidays::table)
+        .values(&NewWorkingCalendarHoliday {
+            calendar_id: calendar_id_value,
+            date: body.date,
+            label: body.label,
+        })
+        .get_result(conn)
+}
+
+pub fn delete_holiday(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
+    diesel::delete(working_calendar_holidays::table.find(id)).execute(conn)
 }
