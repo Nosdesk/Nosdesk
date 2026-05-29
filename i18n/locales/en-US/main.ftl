@@ -1088,6 +1088,12 @@ sla-explain-fmt-hours = { $n }h
 sla-explain-fmt-days = { $n }d
 
 ticket-detail-sla-explain-aria = Show why this SLA was picked
+
+# Shared TimePicker + DatePicker primitive aria copy.
+time-picker-hours-aria = Hours
+time-picker-minutes-aria = Minutes
+date-picker-prev-month-aria = Previous month
+date-picker-next-month-aria = Next month
 admin-sla-priority-any = Any
 admin-sla-category-any = Any
 admin-sla-assignee-group-any = Any

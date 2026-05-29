@@ -238,6 +238,12 @@ pub async fn delete_holiday(
 
 // ---- Live match counts ----
 
+/// Upper bound on the ticket set the per-policy scan walks per call.
+/// At 10k tickets the in-memory loop is still milliseconds, and the
+/// counts stay useful as approximations above that. A workspace that
+/// regularly hits this should move to materialised counts.
+const POLICY_MATCH_SCAN_LIMIT: i64 = 10_000;
+
 /// Per-policy state breakdown of currently open tickets. `total` is
 /// the count of tickets whose engine-picked policy is this one;
 /// the remaining fields partition that total by pill state.
@@ -278,8 +284,14 @@ pub async fn policy_match_counts(mut tc: TenantConn, _auth: AuthContext) -> impl
         let open_state_ids: Vec<i32> = open_states.iter().map(|(id, _)| *id).collect();
         let pause_by_state: HashMap<i32, bool> = open_states.into_iter().collect();
 
+        // Safety cap: a workspace with tens of thousands of open
+        // tickets would otherwise turn each 30-second poll into a
+        // long scan. The counts stay approximate above the cap; the
+        // alternative (background-materialised counts) is the right
+        // move when we see workspaces routinely hit it.
         let open_tickets: Vec<Ticket> = tickets::table
             .filter(tickets::workflow_state_id.eq_any(&open_state_ids))
+            .limit(POLICY_MATCH_SCAN_LIMIT)
             .load(conn)?;
 
         // Batch-load assignee group memberships so the matcher
@@ -335,9 +347,14 @@ pub async fn policy_match_counts(mut tc: TenantConn, _auth: AuthContext) -> impl
                 })
                 .flatten();
 
+            // Breached wins over paused: a paused ticket with a met-
+            // -late response timer still carries the breached flag and
+            // is the more actionable signal for an admin scanning the
+            // counts. Matches the frontend's deriveSlaState which also
+            // checks breached first.
             match pill {
-                Some(p) if p.primary.paused => bucket.paused += 1,
                 Some(p) if p.primary.breached => bucket.breached += 1,
+                Some(p) if p.primary.paused => bucket.paused += 1,
                 Some(p) if p.primary.pill_color == "amber" => bucket.at_risk += 1,
                 Some(_) => bucket.on_track += 1,
                 None => bucket.on_track += 1,

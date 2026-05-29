@@ -435,7 +435,7 @@ fn load_pill_for_ticket(conn: &mut crate::db::DbConnection, ticket: &Ticket) -> 
     // their concrete dates for the year window the engine touches.
     // expand_holiday lives in the repository so the bootstrap path
     // and this per-ticket path share the same rule.
-    let holiday_rows: Vec<crate::models::WorkingCalendarHoliday> = working_calendar_holidays::table
+    let holiday_rows: Vec<WorkingCalendarHoliday> = working_calendar_holidays::table
         .filter(working_calendar_holidays::calendar_id.eq(cal_id))
         .load(conn)
         .unwrap_or_default();
@@ -694,9 +694,3 @@ mod tests {
         assert_eq!(end, Utc.with_ymd_and_hms(2026, 5, 5, 12, 0, 0).unwrap());
     }
 }
-
-// Suppress an unused-import warning on `WorkingCalendarHoliday`
-// while no consumer uses the struct directly (the SLA service
-// works with the parsed `HashSet<NaiveDate>` hot-path shape).
-#[allow(dead_code)]
-fn _holiday_marker(_h: &WorkingCalendarHoliday) {}

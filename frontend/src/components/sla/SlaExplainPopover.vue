@@ -44,15 +44,28 @@ const loadedForTicket = ref<number | null>(null)
 
 async function load(): Promise<void> {
   if (loadedForTicket.value === props.ticketId && explain.value) return
+  // Stamp the in-flight target *before* awaiting so a fast ticket
+  // switch can't slip past the cache check and trigger a duplicate
+  // fetch — and so a late-arriving response for a stale ticket id
+  // gets discarded instead of overwriting the current one.
+  const requestedTicket = props.ticketId
+  loadedForTicket.value = requestedTicket
   loading.value = true
   error.value = null
   try {
-    explain.value = await slaService.explainForTicket(props.ticketId)
-    loadedForTicket.value = props.ticketId
+    const result = await slaService.explainForTicket(requestedTicket)
+    // If the ticket changed while we were waiting, drop this result.
+    if (loadedForTicket.value === requestedTicket) {
+      explain.value = result
+    }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('sla-explain-error')
+    if (loadedForTicket.value === requestedTicket) {
+      error.value = e instanceof Error ? e.message : t('sla-explain-error')
+    }
   } finally {
-    loading.value = false
+    if (loadedForTicket.value === requestedTicket) {
+      loading.value = false
+    }
   }
 }
 
@@ -88,6 +101,13 @@ function filterLabel(f: SlaExplainFilter): string {
       return t('sla-explain-filter-category', { name: f.name })
     case 'assignee_group':
       return t('sla-explain-filter-group', { name: f.name })
+    default: {
+      // Exhaustiveness check: if a new filter kind lands in the
+      // SlaExplainFilter union the compiler will error here until
+      // it's handled.
+      const _exhaustive: never = f
+      return _exhaustive
+    }
   }
 }
 

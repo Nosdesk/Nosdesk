@@ -22,6 +22,7 @@
  * default and keeps the v1 simple.
  */
 import { computed, nextTick, ref, watch, type Ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Popover from '@/components/common/Popover.vue'
 import Icon from '@/components/common/Icon.vue'
 
@@ -45,6 +46,9 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
+
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
 
 const triggerRef = ref<HTMLInputElement | null>(null) as Ref<HTMLInputElement | null>
 const open = ref(false)
@@ -272,7 +276,7 @@ async function onOpen(): Promise<void> {
         <button
           type="button"
           class="date-picker__nav"
-          :aria-label="'Previous month'"
+          :aria-label="t('date-picker-prev-month-aria')"
           @click="shiftMonth(-1)"
         >
           <Icon name="chevronLeft" class="w-3.5 h-3.5" />
@@ -281,7 +285,7 @@ async function onOpen(): Promise<void> {
         <button
           type="button"
           class="date-picker__nav"
-          :aria-label="'Next month'"
+          :aria-label="t('date-picker-next-month-aria')"
           @click="shiftMonth(1)"
         >
           <Icon name="chevronRight" class="w-3.5 h-3.5" />

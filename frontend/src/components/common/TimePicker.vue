@@ -20,6 +20,7 @@
  * until the user fixes it or blurs to a valid value.
  */
 import { computed, nextTick, ref, watch, type Ref } from 'vue'
+import { useFluent } from 'fluent-vue'
 import Popover from '@/components/common/Popover.vue'
 
 interface Props {
@@ -44,6 +45,9 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
+
 const triggerRef = ref<HTMLInputElement | null>(null) as Ref<HTMLInputElement | null>
 const open = ref(false)
 const draftText = ref(props.modelValue)
@@ -63,7 +67,12 @@ watch(
 const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
 function clampMinuteToStep(minute: number, step: number): number {
-  return Math.round(minute / step) * step % 60
+  // For a HIGHLIGHT indicator we want the nearest step-aligned
+  // value that still falls within [0, 60). Rounding (e.g. minute=59,
+  // step=5 -> 12 * 5 = 60) can overshoot, so cap at the largest
+  // valid step.
+  const rounded = Math.round(minute / step) * step
+  return Math.min(rounded, 60 - step)
 }
 
 function commitText(): void {
@@ -187,7 +196,7 @@ defineExpose({ focus: focusInput })
       @close="open = false"
     >
       <div class="time-picker__grid">
-        <ul ref="hourColRef" class="time-picker__col" aria-label="Hours">
+        <ul ref="hourColRef" class="time-picker__col" :aria-label="t('time-picker-hours-aria')">
           <li v-for="h in hours" :key="h">
             <button
               type="button"
@@ -200,7 +209,7 @@ defineExpose({ focus: focusInput })
             </button>
           </li>
         </ul>
-        <ul ref="minuteColRef" class="time-picker__col" aria-label="Minutes">
+        <ul ref="minuteColRef" class="time-picker__col" :aria-label="t('time-picker-minutes-aria')">
           <li v-for="m in minutes" :key="m">
             <button
               type="button"

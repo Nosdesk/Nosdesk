@@ -209,7 +209,10 @@ async function openEditCalendar(cal: WorkingCalendar): Promise<void> {
   calendarDraft.value = {
     name: cal.name,
     timezone: cal.timezone,
-    schedule: JSON.parse(JSON.stringify(cal.schedule)),
+    // Deep-clone so edits don't leak into the cached row before the
+    // user clicks Save. structuredClone is the modern equivalent of
+    // the JSON-stringify-parse idiom and survives Date / Map / etc.
+    schedule: structuredClone(cal.schedule),
     is_default: cal.is_default,
   }
   editingHolidays.value = []
@@ -231,6 +234,9 @@ function closeCalendarModal(): void {
 
 async function saveCalendar(): Promise<void> {
   if (!calendarDraft.value.name.trim()) return
+  // Clear any stale error from a prior failed attempt so the banner
+  // disappears the moment the user retries, not just on success.
+  error.value = null
   try {
     if (editingCalendar.value) {
       const target = editingCalendar.value
@@ -291,6 +297,10 @@ const editingHolidays = ref<WorkingCalendarHoliday[]>([])
 const newHolidayDate = ref('')
 const newHolidayLabel = ref('')
 const newHolidayAnnual = ref(false)
+// Set false the moment the schedule editor reports an invalid range
+// (close <= open). The Save button binds to this so a typo can't
+// quietly save and get dropped by the backend's schedule parser.
+const calendarScheduleValid = ref(true)
 
 async function addHoliday(): Promise<void> {
   const target = editingCalendar.value
@@ -374,6 +384,7 @@ function closePolicyModal(): void {
 
 async function savePolicy(): Promise<void> {
   if (!policyDraft.value.name.trim()) return
+  error.value = null
   try {
     if (editingPolicy.value) {
       const target = editingPolicy.value
@@ -775,7 +786,10 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
 
         <div class="flex flex-col gap-1">
           <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-schedule') }}</span>
-          <WeekScheduleEditor v-model="calendarDraft.schedule as WeekSchedule" />
+          <WeekScheduleEditor
+            v-model="calendarDraft.schedule as WeekSchedule"
+            @update:valid="(v: boolean) => (calendarScheduleValid = v)"
+          />
         </div>
 
         <Checkbox
@@ -865,7 +879,11 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
           <Button type="button" variant="secondary" size="sm" @click="closeCalendarModal">
             {{ $t('admin-sla-cancel') }}
           </Button>
-          <Button type="submit" size="sm" :disabled="!calendarDraft.name.trim()">
+          <Button
+            type="submit"
+            size="sm"
+            :disabled="!calendarDraft.name.trim() || !calendarScheduleValid"
+          >
             {{ $t('admin-sla-save') }}
           </Button>
         </div>

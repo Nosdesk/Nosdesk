@@ -1004,6 +1004,11 @@ sla-explain-fmt-hours = { $n }h
 sla-explain-fmt-days = { $n }j
 
 ticket-detail-sla-explain-aria = Montrer pourquoi ce SLA a été choisi
+
+time-picker-hours-aria = Heures
+time-picker-minutes-aria = Minutes
+date-picker-prev-month-aria = Mois précédent
+date-picker-next-month-aria = Mois suivant
 admin-sla-priority-any = Toutes
 admin-sla-category-any = Toutes
 admin-sla-assignee-group-any = Tous

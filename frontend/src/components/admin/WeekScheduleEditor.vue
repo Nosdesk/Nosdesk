@@ -22,7 +22,7 @@
  * day. UI mirrors that: invalid ranges show in tertiary tone instead
  * of accent.
  */
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import TimePicker from '@/components/common/TimePicker.vue'
@@ -49,6 +49,12 @@ const DAYS: { key: DayKey; labelKey: string }[] = [
 const DEFAULT_RANGE: [string, string] = ['09:00', '17:00']
 
 const model = defineModel<WeekSchedule>({ required: true })
+
+// Surfacing validity lets the parent's Save button stay disabled
+// while any range is malformed, instead of the prior behaviour where
+// invalid ranges rendered muted but quietly saved (and got silently
+// dropped by the backend schedule parser).
+const emit = defineEmits<{ (e: 'update:valid', valid: boolean): void }>()
 
 function dayRanges(day: DayKey): DaySchedule {
   return model.value[day] ?? []
@@ -85,6 +91,12 @@ function isValid(range: [string, string]): boolean {
 }
 
 const weekIsEmpty = computed(() => DAYS.every((d) => dayRanges(d.key).length === 0))
+
+const allRangesValid = computed(() =>
+  DAYS.every((d) => dayRanges(d.key).every(isValid)),
+)
+
+watch(allRangesValid, (v) => emit('update:valid', v), { immediate: true })
 </script>
 
 <template>
