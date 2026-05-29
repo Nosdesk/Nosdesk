@@ -49,7 +49,7 @@ fn require_admin(auth: &AuthContext) -> Option<HttpResponse> {
 // ---- Policies ----
 
 pub async fn list_policies(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
-    match tc.run(|conn| sla_admin::list_policies(conn)) {
+    match tc.run(sla_admin::list_policies) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(error = %e, "list sla policies failed");
@@ -116,7 +116,7 @@ pub async fn delete_policy(
 // ---- Calendars ----
 
 pub async fn list_calendars(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
-    match tc.run(|conn| sla_admin::list_calendars(conn)) {
+    match tc.run(sla_admin::list_calendars) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(error = %e, "list calendars failed");

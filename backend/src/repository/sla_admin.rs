@@ -218,6 +218,7 @@ pub fn list_holidays(
         .load(conn)
 }
 
+// sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn create_holiday(
     conn: &mut DbConnection,
     calendar_id_value: i32,
@@ -237,6 +238,7 @@ pub fn create_holiday(
         .get_result(conn)
 }
 
+// sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn delete_holiday(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
     diesel::delete(working_calendar_holidays::table.find(id)).execute(conn)
 }
