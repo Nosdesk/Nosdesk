@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useFluent } from 'fluent-vue';
+import { useQuery, useQueryCache } from "@pinia/colada";
 import { useAuthStore } from "@/stores/auth";
 import { useSSEListeners } from "@/composables/useSSEListeners";
 import { useWidgetConfigState } from "@/composables/useWidgetConfigState";
@@ -133,42 +134,41 @@ function isHighPriority(ticket: Ticket): boolean {
     return p === 'high' || p === 'critical';
 }
 
-// -- Fetch --------------------------------------------------------------
+// -- Query --------------------------------------------------------------
+//
+// Pinia Colada owns the server response; client-only filters
+// (high-priority, new-activity) sit in the `tickets` computed below so
+// they don't need a refetch. Switching anything in the query key
+// (target user, ticket type, status, sort) triggers a refetch
+// automatically — same shape as every other dashboard widget.
+//
+// `enabled` defends against the auth-not-ready window: the parent
+// DashboardView already gates the grid on auth.user.uuid, but this
+// stays as belt-and-braces so the component is correct even if a
+// caller embeds it outside the dashboard (e.g. profile view).
 
-// `rawTickets` is the server response; `tickets` is the displayed
-// list after client-side filters. Splitting them means toggles that
-// only narrow the visible set (high-priority, new-activity) update
-// instantly without a round-trip — only state that changes what the
-// server returns (status, sort, target user) refetches.
-const rawTickets = ref<Ticket[]>([]);
-const loading = ref(true);
-const refreshing = ref(false);
-const hasLoadedOnce = ref(false);
-const error = ref<string | null>(null);
+const queryCache = useQueryCache();
 
-const tickets = computed<Ticket[]>(() => {
-    let out = rawTickets.value;
-    if (config.highPriority) out = out.filter(isHighPriority);
-    if (config.newActivity) out = out.filter(hasNewActivity);
-    return out.slice(0, props.limit);
-});
+const queryKey = computed(
+    () => [
+        'user-tickets',
+        props.ticketType,
+        targetUserUuid.value,
+        config.status,
+        config.sort,
+        props.limit,
+    ] as const,
+);
 
-async function fetchTickets() {
-    if (!targetUserUuid.value) return;
-
-    if (hasLoadedOnce.value) {
-        refreshing.value = true;
-    } else {
-        loading.value = true;
-    }
-    error.value = null;
-
-    try {
-        // "active" collapses open + in-progress client-side (the server
-        // status filter only matches a single status at a time).
-        const statusFilter = config.status && config.status !== "active"
-            ? config.status
-            : undefined;
+const { data, isPending, isLoading, error } = useQuery({
+    key: queryKey,
+    enabled: () => !!targetUserUuid.value,
+    query: async () => {
+        // "active" collapses open + in-progress client-side (the
+        // server status filter only matches a single status at a
+        // time).
+        const statusFilter =
+            config.status && config.status !== "active" ? config.status : undefined;
 
         // Sort field + direction per sortBy:
         //  - priority-date: priority desc (client re-sorts with date tiebreak)
@@ -198,56 +198,60 @@ async function fetchTickets() {
             queryParams.assignee = targetUserUuid.value;
         }
 
-        const requestKey = `user-tickets-${props.ticketType}-${targetUserUuid.value}`;
-        const response = await ticketService.getPaginatedTickets(queryParams, requestKey);
+        const response = await ticketService.getPaginatedTickets(queryParams);
 
-        let data = response.data;
+        let rows = response.data;
         if (config.status === "active") {
-            data = data.filter((t) => t.status === "open" || t.status === "in-progress");
+            rows = rows.filter((t) => t.status === "open" || t.status === "in-progress");
         }
         if (config.sort === "priority-date") {
-            data = data.slice().sort((a, b) => {
+            rows = rows.slice().sort((a, b) => {
                 const priorityA = PRIORITY_ORDER[a.priority] ?? 4;
                 const priorityB = PRIORITY_ORDER[b.priority] ?? 4;
                 if (priorityA !== priorityB) return priorityA - priorityB;
                 return new Date(b.modified).getTime() - new Date(a.modified).getTime();
             });
         }
+        return rows;
+    },
+});
 
-        rawTickets.value = data;
-    } catch (err) {
-        console.error(`Error fetching ${props.ticketType} tickets:`, err);
-        error.value = props.ticketType === 'requested'
+const rawTickets = computed<Ticket[]>(() => data.value ?? []);
+// `loading` is the first-paint signal (cache miss); `refreshing` is the
+// background-refetch signal. Splitting them lets the shell keep cached
+// content visible during a refetch instead of flashing back to skeleton.
+const loading = computed(() => isPending.value && data.value === undefined);
+const refreshing = computed(() => isLoading.value && data.value !== undefined);
+const errorMessage = computed(() =>
+    error.value
+        ? props.ticketType === 'requested'
             ? fluent.$t('user-assigned-tickets-error-requested')
-            : fluent.$t('user-assigned-tickets-error-assigned');
-    } finally {
-        loading.value = false;
-        refreshing.value = false;
-        hasLoadedOnce.value = true;
-    }
+            : fluent.$t('user-assigned-tickets-error-assigned')
+        : null,
+);
+
+const tickets = computed<Ticket[]>(() => {
+    let out = rawTickets.value;
+    if (config.highPriority) out = out.filter(isHighPriority);
+    if (config.newActivity) out = out.filter(hasNewActivity);
+    return out.slice(0, props.limit);
+});
+
+// Sync the explicit prop status (when this widget is embedded outside
+// the dashboard, e.g. a profile view) into the persisted config so the
+// query key picks it up.
+if (props.filterStatus) {
+    config.status = props.filterStatus;
 }
 
 onMounted(refreshRecentViews);
 
-// Refetch only when inputs that change what the server returns change.
-// Client-only filters (high-priority, new-activity) are computed from
-// `rawTickets` and don't need a round-trip.
-watch(
-    [
-        targetUserUuid,
-        () => props.filterStatus,
-        () => props.ticketType,
-        () => config.status,
-        () => config.sort,
-    ],
-    ([userUuid, newPropStatus]) => {
-        if (newPropStatus) config.status = newPropStatus;
-        if (userUuid) fetchTickets();
-    },
-    { immediate: true },
-);
-
 // -- SSE live updates ---------------------------------------------------
+//
+// The cache is the source of truth; SSE patches it via setQueryData so
+// the same query handle re-renders. Mutating a local ref (the old
+// shape) would have left the cache stale, so a subsequent remount
+// would re-fetch and overwrite the SSE-applied changes.
 
 const { on } = useSSEListeners();
 
@@ -257,28 +261,36 @@ function statusMatchesFilter(status: string): boolean {
     return status === config.status;
 }
 
+function patchCache(updater: (current: Ticket[]) => Ticket[]): void {
+    queryCache.setQueryData(queryKey.value, updater(rawTickets.value));
+}
+
 on('ticket-updated', (data) => {
     const event = data as { ticket_id: number; field: string; value: unknown };
-    const idx = rawTickets.value.findIndex(t => t.id === event.ticket_id);
-    if (idx === -1) return;
-
-    const ticket = rawTickets.value[idx];
-    const field = event.field as keyof Ticket;
-    if (field in ticket) {
-        (ticket as Record<string, unknown>)[field] = event.value;
-    }
-
-    if (field === 'status' && !statusMatchesFilter(String(event.value))) {
-        rawTickets.value.splice(idx, 1);
-        return;
-    }
-    if (field === 'assignee' && props.ticketType === 'assigned') {
-        const assigneeVal = event.value as { uuid?: string } | string | null;
-        const assigneeUuid = typeof assigneeVal === 'object' && assigneeVal ? assigneeVal.uuid : assigneeVal;
-        if (assigneeUuid !== targetUserUuid.value) {
-            rawTickets.value.splice(idx, 1);
+    patchCache((current) => {
+        const idx = current.findIndex((t) => t.id === event.ticket_id);
+        if (idx === -1) return current;
+        const ticket = { ...current[idx] } as Ticket;
+        const field = event.field as keyof Ticket;
+        if (field in ticket) {
+            (ticket as unknown as Record<string, unknown>)[field] = event.value;
         }
-    }
+
+        // Status no longer matches the filter -> drop from this view.
+        if (field === 'status' && !statusMatchesFilter(String(event.value))) {
+            return current.filter((_, i) => i !== idx);
+        }
+        // Reassigned away -> drop from the "assigned to me" view.
+        if (field === 'assignee' && props.ticketType === 'assigned') {
+            const assigneeVal = event.value as { uuid?: string } | string | null;
+            const assigneeUuid =
+                typeof assigneeVal === 'object' && assigneeVal ? assigneeVal.uuid : assigneeVal;
+            if (assigneeUuid !== targetUserUuid.value) {
+                return current.filter((_, i) => i !== idx);
+            }
+        }
+        return current.map((t, i) => (i === idx ? ticket : t));
+    });
 });
 
 on('ticket-created', (data) => {
@@ -287,22 +299,21 @@ on('ticket-created', (data) => {
     // The SSE payload carries the raw DB row (requester_uuid /
     // assignee_uuid as columns), not the API-facing Ticket shape.
     const ticket = event.ticket as unknown as Ticket & {
-        assignee_uuid?: string | null
-        requester_uuid?: string | null
+        assignee_uuid?: string | null;
+        requester_uuid?: string | null;
     };
-
-    const matchesUser = props.ticketType === 'assigned'
-        ? ticket.assignee_uuid === targetUserUuid.value
-        : ticket.requester_uuid === targetUserUuid.value;
+    const matchesUser =
+        props.ticketType === 'assigned'
+            ? ticket.assignee_uuid === targetUserUuid.value
+            : ticket.requester_uuid === targetUserUuid.value;
     if (!matchesUser) return;
     if (!statusMatchesFilter(ticket.status)) return;
-
-    rawTickets.value.unshift(ticket);
+    patchCache((current) => [ticket, ...current]);
 });
 
 on('ticket-deleted', (data) => {
     const event = data as { ticket_id: number };
-    rawTickets.value = rawTickets.value.filter(t => t.id !== event.ticket_id);
+    patchCache((current) => current.filter((t) => t.id !== event.ticket_id));
 });
 </script>
 
@@ -312,8 +323,8 @@ on('ticket-deleted', (data) => {
         :action-to="seeAllLink"
         :loading="loading"
         :refreshing="refreshing"
-        :error="error"
-        :empty="!loading && !error && tickets.length === 0"
+        :error="errorMessage"
+        :empty="!loading && !errorMessage && tickets.length === 0"
         :empty-title="props.ticketType === 'requested' ? $t('user-assigned-tickets-empty-title-requested') : $t('user-assigned-tickets-empty-title-assigned')"
         :empty-description="emptyDescription"
         min-body-height="200px"
