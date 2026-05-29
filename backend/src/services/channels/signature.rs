@@ -43,9 +43,11 @@ fn non_empty(raw: Option<String>) -> Option<String> {
 /// the reply unsigned than to fail the whole outbound dispatch
 /// over a transient read hiccup.
 fn signature_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> Option<String> {
-    if let Some(s) =
-        non_empty(crate::repository::user_preferences::get_signature(conn, user_uuid).ok().flatten())
-    {
+    if let Some(s) = non_empty(
+        crate::repository::user_preferences::get_signature(conn, user_uuid)
+            .ok()
+            .flatten(),
+    ) {
         return Some(s);
     }
     non_empty(
@@ -62,11 +64,7 @@ fn signature_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> Option<String
 /// substitution; if the agent row can't be loaded we return `None`
 /// so the caller skips appending altogether (a literal `{{tech_name}}`
 /// in a customer reply is worse than no signature at all).
-fn render_signature(
-    conn: &mut DbConnection,
-    user_uuid: Uuid,
-    template: String,
-) -> Option<String> {
+fn render_signature(conn: &mut DbConnection, user_uuid: Uuid, template: String) -> Option<String> {
     if !template.contains("{{") {
         return Some(template);
     }

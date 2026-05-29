@@ -184,4 +184,3 @@ pub async fn delete_canned(
         }
     }
 }
-

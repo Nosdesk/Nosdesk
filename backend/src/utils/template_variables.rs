@@ -42,8 +42,7 @@ pub const SIGNATURE_VARIABLES: &[&str] = &["tech_name", "tech_email", "app_name"
 /// Variables the auto-acknowledgement renderer substitutes when
 /// emitting the "we got your message" reply. No `tech_name`: the
 /// auto-ack is system-authored, there's no agent on hand yet.
-pub const AUTO_ACK_VARIABLES: &[&str] =
-    &["ticket_id", "ticket_title", "customer_name", "app_name"];
+pub const AUTO_ACK_VARIABLES: &[&str] = &["ticket_id", "ticket_title", "customer_name", "app_name"];
 
 /// Whitespace-tolerant token matcher: `{{ name }}` and `{{name}}`
 /// both match the same way the frontend mirror does.
@@ -104,13 +103,19 @@ mod tests {
     #[test]
     fn unknown_variables_dedups_repeated_unknowns() {
         let body = "{{foo}} {{foo}} {{foo}}";
-        assert_eq!(unknown_variables(body, CANNED_RESPONSE_VARIABLES), vec!["foo"]);
+        assert_eq!(
+            unknown_variables(body, CANNED_RESPONSE_VARIABLES),
+            vec!["foo"]
+        );
     }
 
     #[test]
     fn unknown_variables_ignores_plain_braces() {
         let body = "Use { single } braces or {{ticket_id}} tokens, but not {{nope}}.";
-        assert_eq!(unknown_variables(body, CANNED_RESPONSE_VARIABLES), vec!["nope"]);
+        assert_eq!(
+            unknown_variables(body, CANNED_RESPONSE_VARIABLES),
+            vec!["nope"]
+        );
     }
 
     #[test]
