@@ -33,6 +33,8 @@ export interface WorkingCalendarBody {
   is_default?: boolean
 }
 
+export type HolidayRecurrence = 'none' | 'annual'
+
 export interface WorkingCalendarHoliday {
   id: number
   calendar_id: number
@@ -40,11 +42,14 @@ export interface WorkingCalendarHoliday {
   date: string
   /** Free-form admin-readable label like "Bank holiday". */
   label: string | null
+  /** `none` (single date) or `annual` (MM-DD repeats every year). */
+  recurrence: HolidayRecurrence
 }
 
 export interface WorkingCalendarHolidayBody {
   date: string
   label?: string | null
+  recurrence?: HolidayRecurrence
 }
 
 export interface SlaPolicyBody {

@@ -313,6 +313,11 @@ pub struct WorkingCalendarHoliday {
     pub date: chrono::NaiveDate,
     pub label: Option<String>,
     pub workspace_id: i32,
+    /// `"none"` (single date) or `"annual"` (MM-DD repeats every
+    /// year). The engine expands annual rows into concrete dates at
+    /// load time so the arithmetic keeps using a flat
+    /// `HashSet<NaiveDate>`.
+    pub recurrence: String,
 }
 
 /// SLA policy — applies to a ticket when its `priority_filter` /

@@ -193,6 +193,7 @@ pub struct NewWorkingCalendarHoliday {
     pub calendar_id: i32,
     pub date: NaiveDate,
     pub label: Option<String>,
+    pub recurrence: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -202,6 +203,9 @@ pub struct WorkingCalendarHolidayBody {
     /// because the engine only cares about the date; the label is
     /// purely admin-readable context.
     pub label: Option<String>,
+    /// `"none"` (default) or `"annual"`. Unknown values are coerced to
+    /// `"none"` so a typo doesn't silently activate recurrence.
+    pub recurrence: Option<String>,
 }
 
 pub fn list_holidays(
@@ -219,11 +223,16 @@ pub fn create_holiday(
     calendar_id_value: i32,
     body: WorkingCalendarHolidayBody,
 ) -> QueryResult<WorkingCalendarHoliday> {
+    let recurrence = match body.recurrence.as_deref() {
+        Some("annual") => "annual".to_string(),
+        _ => "none".to_string(),
+    };
     diesel::insert_into(working_calendar_holidays::table)
         .values(&NewWorkingCalendarHoliday {
             calendar_id: calendar_id_value,
             date: body.date,
             label: body.label,
+            recurrence,
         })
         .get_result(conn)
 }

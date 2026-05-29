@@ -1012,6 +1012,12 @@ admin-sla-calendar-delete-confirm = Delete this calendar? Policies pointing at i
 admin-sla-policy-delete-confirm = Delete this policy? Tickets that currently match it will lose their SLA pill until another policy matches them. This cannot be undone.
 admin-sla-new-calendar-heading = New calendar
 admin-sla-new-policy-heading = New policy
+admin-sla-new-calendar-button = New calendar
+admin-sla-new-policy-button = New policy
+admin-sla-new-calendar-title = New working calendar
+admin-sla-new-policy-title = New SLA policy
+admin-sla-edit-policy-title = Edit SLA policy
+admin-sla-error-save = Failed to save
 admin-sla-form-conditions-heading = Conditions
 admin-sla-form-targets-heading = Targets
 admin-sla-field-name = Name
@@ -1049,6 +1055,9 @@ admin-sla-holiday-label = Label
 admin-sla-holiday-placeholder = e.g. Bank holiday
 admin-sla-holiday-add = Add
 admin-sla-holiday-remove-aria = Remove this holiday
+admin-sla-holiday-annual = Recurs annually
+admin-sla-holiday-annual-hint = Repeat the same MM-DD every year (e.g. Christmas Day).
+admin-sla-holiday-annual-badge = Annual
 
 # SLA "Why this SLA?" popover, opened by clicking the pill on the
 # ticket detail sidebar. Makes the compute-on-read engine's

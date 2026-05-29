@@ -2,22 +2,28 @@
 /**
  * SLA admin: list + edit working calendars and SLA policies.
  *
- * Two columns side by side because policies depend on calendars (a
- * policy with no calendar can't compute a target). Each column is a
- * SectionCard so the chrome matches every other card-with-header in
- * the app, and create lives inline below the list (no modal — admins
- * write a calendar or policy a handful of times then forget it).
+ * Layout mirrors the dominant admin idiom in this codebase
+ * (WebhooksView, ApiTokensView, AssignmentRulesView): a single
+ * column centred in a max-w-8xl container, with each list living
+ * inside its own SectionCard and a "+ New" button in the card
+ * header that opens a modal. Calendars come first because policies
+ * depend on them — the reading order encodes the dependency.
+ *
+ * Both calendars and policies use a unified modal that handles
+ * create and edit through the same form; mode is determined by
+ * whether the corresponding `*Editing` ref is null. This matches
+ * what AssignmentRules + Webhooks already do and saves a second
+ * form template.
  *
  * Reads go through Pinia Colada so revisits paint from cache and
  * background revalidations stay silent; mutations push the new row
  * into the cache directly rather than refetching. A first-load
- * skeleton mirrors the live two-column shape so the cutover doesn't
- * reflow when data arrives.
+ * skeleton mirrors the live shape so the cutover doesn't reflow.
  *
  * The policy form is grouped into Conditions (which tickets the
- * policy matches) and Targets (the times it sets) so the admin reads
- * top to bottom in the same order the engine evaluates: filter, then
- * compute.
+ * policy matches) and Targets (the times it sets) so the admin
+ * reads top to bottom in the same order the engine evaluates:
+ * filter, then compute.
  */
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -48,14 +54,12 @@ import { useTimezoneOptions } from '@/composables/useTimezoneOptions'
 import WeekScheduleEditor, {
   type WeekSchedule,
 } from '@/components/admin/WeekScheduleEditor.vue'
+import DatePicker from '@/components/common/DatePicker.vue'
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
 
 // ---------------- Query keys + queries ----------------
-// Cache scoping mirrors WebhooksView: tuple keys, one query per
-// resource, computed views that fall back to [] so the template
-// never sees undefined.
 const POLICIES_KEY = ['sla', 'policies'] as const
 const CALENDARS_KEY = ['sla', 'calendars'] as const
 const CATEGORIES_KEY = ['categories'] as const
@@ -84,10 +88,6 @@ const calendars = computed<WorkingCalendar[]>(() => calendarsQuery.data.value ??
 const categories = computed<TicketCategory[]>(() => categoriesQuery.data.value ?? [])
 const groups = computed<GroupWithMemberCount[]>(() => groupsQuery.data.value ?? [])
 
-// Skeleton only on a genuine cache miss — revisits paint instantly.
-// Calendars + policies decide first-paint together because each
-// section renders independently; revalidations of categories or
-// groups don't reset the skeleton.
 const isFirstLoad = computed(
   () =>
     (policiesQuery.status.value === 'pending' &&
@@ -112,8 +112,6 @@ const error = ref<string | null>(null)
 const liveError = computed(() => error.value ?? loadError.value ?? null)
 
 // ---------------- Confirm delete ----------------
-// Single pending-confirm state covers both calendar + policy deletes
-// so the template renders one ConfirmModal instance.
 const pendingDelete = ref<
   | { kind: 'calendar'; id: number; name: string }
   | { kind: 'policy'; id: number; name: string }
@@ -126,36 +124,92 @@ const confirmDeleteMessage = computed<string>(() => {
     : t('admin-sla-policy-delete-confirm')
 })
 
-// ---------------- Calendar create + mutate ----------------
-const calendarDraft = ref<WorkingCalendarBody>({
-  name: '',
-  timezone: 'UTC',
-  schedule: {
-    mon: [['09:00', '17:00']],
-    tue: [['09:00', '17:00']],
-    wed: [['09:00', '17:00']],
-    thu: [['09:00', '17:00']],
-    fri: [['09:00', '17:00']],
-    sat: [],
-    sun: [],
-  },
-  is_default: false,
-})
+// ---------------- Calendar modal (create + edit) ----------------
+// One draft + one "editing target" ref drives both modes. When the
+// target is null we're creating; otherwise the draft is seeded from
+// the target and Save patches the existing row.
+const calendarOpen = ref(false)
+const editingCalendar = ref<WorkingCalendar | null>(null)
+const calendarDraft = ref<WorkingCalendarBody>(emptyCalendarDraft())
 
-async function createCalendar(): Promise<void> {
+function emptyCalendarDraft(): WorkingCalendarBody {
+  return {
+    name: '',
+    timezone: 'UTC',
+    schedule: {
+      mon: [['09:00', '17:00']],
+      tue: [['09:00', '17:00']],
+      wed: [['09:00', '17:00']],
+      thu: [['09:00', '17:00']],
+      fri: [['09:00', '17:00']],
+      sat: [],
+      sun: [],
+    },
+    is_default: false,
+  }
+}
+
+const calendarModalTitle = computed(() =>
+  editingCalendar.value
+    ? t('admin-sla-edit-calendar-title')
+    : t('admin-sla-new-calendar-title'),
+)
+
+function openCreateCalendar(): void {
+  editingCalendar.value = null
+  calendarDraft.value = emptyCalendarDraft()
+  editingHolidays.value = []
+  newHolidayDate.value = ''
+  newHolidayLabel.value = ''
+  newHolidayAnnual.value = false
+  calendarOpen.value = true
+}
+
+async function openEditCalendar(cal: WorkingCalendar): Promise<void> {
+  editingCalendar.value = cal
+  // Deep-clone the schedule so edits don't leak into the cached row
+  // before the user clicks Save.
+  calendarDraft.value = {
+    name: cal.name,
+    timezone: cal.timezone,
+    schedule: JSON.parse(JSON.stringify(cal.schedule)),
+    is_default: cal.is_default,
+  }
+  editingHolidays.value = []
+  newHolidayDate.value = ''
+  newHolidayLabel.value = ''
+  newHolidayAnnual.value = false
+  calendarOpen.value = true
+  try {
+    editingHolidays.value = await slaService.listHolidays(cal.id)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('admin-sla-error-load')
+  }
+}
+
+function closeCalendarModal(): void {
+  calendarOpen.value = false
+  editingCalendar.value = null
+}
+
+async function saveCalendar(): Promise<void> {
   if (!calendarDraft.value.name.trim()) return
   try {
-    const created = await slaService.createCalendar(calendarDraft.value)
-    queryCache.setQueryData(CALENDARS_KEY, [...calendars.value, created])
-    calendarDraft.value = {
-      name: '',
-      timezone: 'UTC',
-      schedule: { ...calendarDraft.value.schedule },
-      is_default: false,
+    if (editingCalendar.value) {
+      const target = editingCalendar.value
+      const updated = await slaService.updateCalendar(target.id, calendarDraft.value)
+      queryCache.setQueryData(
+        CALENDARS_KEY,
+        calendars.value.map((c) => (c.id === target.id ? updated : c)),
+      )
+    } else {
+      const created = await slaService.createCalendar(calendarDraft.value)
+      queryCache.setQueryData(CALENDARS_KEY, [...calendars.value, created])
     }
+    closeCalendarModal()
     error.value = null
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('admin-sla-error-create')
+    error.value = e instanceof Error ? e.message : t('admin-sla-error-save')
   }
 }
 
@@ -172,107 +226,6 @@ async function deleteCalendar(id: number): Promise<void> {
     )
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('admin-sla-error-delete')
-  }
-}
-
-// ---------------- Calendar edit modal ----------------
-// The list view has shown name + timezone + default toggle for a
-// while; the schedule was unreachable from the UI (admins patched
-// JSON by hand). The edit modal closes that gap by reusing the same
-// schedule editor the create form drives.
-const editingCalendar = ref<WorkingCalendar | null>(null)
-const editDraft = ref<WorkingCalendarBody>({
-  name: '',
-  timezone: 'UTC',
-  schedule: {
-    mon: [],
-    tue: [],
-    wed: [],
-    thu: [],
-    fri: [],
-    sat: [],
-    sun: [],
-  },
-  is_default: false,
-})
-
-// Holidays are scoped to the calendar being edited. We load them
-// lazily on modal open rather than caching app-wide because the
-// admin only looks at a calendar's holidays in this one place;
-// keeping a local ref avoids polluting Pinia Colada with
-// per-calendar keys for a list that's only visible while the modal
-// is open.
-const editingHolidays = ref<WorkingCalendarHoliday[]>([])
-const newHolidayDate = ref('')
-const newHolidayLabel = ref('')
-
-async function openCalendarEditor(cal: WorkingCalendar): Promise<void> {
-  editingCalendar.value = cal
-  // Deep-clone the schedule so edits don't leak into the cached row
-  // before the user clicks Save.
-  editDraft.value = {
-    name: cal.name,
-    timezone: cal.timezone,
-    schedule: JSON.parse(JSON.stringify(cal.schedule)),
-    is_default: cal.is_default,
-  }
-  editingHolidays.value = []
-  newHolidayDate.value = ''
-  newHolidayLabel.value = ''
-  try {
-    editingHolidays.value = await slaService.listHolidays(cal.id)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('admin-sla-error-load')
-  }
-}
-
-function closeCalendarEditor(): void {
-  editingCalendar.value = null
-}
-
-async function addHoliday(): Promise<void> {
-  const target = editingCalendar.value
-  if (!target || !newHolidayDate.value) return
-  try {
-    const created = await slaService.createHoliday(target.id, {
-      date: newHolidayDate.value,
-      label: newHolidayLabel.value.trim() || null,
-    })
-    // Insert in date order so the list stays sorted as the admin
-    // adds rows out of sequence.
-    editingHolidays.value = [...editingHolidays.value, created].sort((a, b) =>
-      a.date.localeCompare(b.date),
-    )
-    newHolidayDate.value = ''
-    newHolidayLabel.value = ''
-    error.value = null
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('admin-sla-error-create')
-  }
-}
-
-async function removeHoliday(id: number): Promise<void> {
-  try {
-    await slaService.deleteHoliday(id)
-    editingHolidays.value = editingHolidays.value.filter((h) => h.id !== id)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('admin-sla-error-delete')
-  }
-}
-
-async function saveCalendarEdit(): Promise<void> {
-  const target = editingCalendar.value
-  if (!target) return
-  try {
-    const updated = await slaService.updateCalendar(target.id, editDraft.value)
-    queryCache.setQueryData(
-      CALENDARS_KEY,
-      calendars.value.map((c) => (c.id === target.id ? updated : c)),
-    )
-    editingCalendar.value = null
-    error.value = null
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('admin-sla-error-update')
   }
 }
 
@@ -293,74 +246,119 @@ async function toggleCalendarDefault(cal: WorkingCalendar): Promise<void> {
   }
 }
 
-// ---------------- Policy create + mutate ----------------
-const policyDraft = ref<SlaPolicyBody>({
-  name: '',
-  target_response_minutes: 60,
-  target_resolution_minutes: 24 * 60,
-  working_calendar_id: null,
-  priority_filter: null,
-  category_id_filter: null,
-  assignee_group_id_filter: null,
-  is_default: false,
-})
+// ---------------- Holidays (scoped to the calendar being edited) ----------------
+// Loaded lazily into a local ref because the admin only looks at a
+// calendar's holidays while its modal is open; no app-wide cache
+// scope justified.
+const editingHolidays = ref<WorkingCalendarHoliday[]>([])
+const newHolidayDate = ref('')
+const newHolidayLabel = ref('')
+const newHolidayAnnual = ref(false)
 
-const calendarOptions = computed(() =>
-  calendars.value.map((c) => ({ value: c.id, label: c.name })),
-)
-const categoryOptions = computed(() =>
-  categories.value.map((c) => ({ value: c.id, label: c.name })),
-)
-const groupOptions = computed(() =>
-  groups.value.map((g) => ({ value: g.id, label: g.name })),
-)
-
-// Shared with LocalizationSettings via the composable so the
-// IANA-picker reads the same everywhere. Workspace calendars pin a
-// specific zone, so we don't surface the "Use device timezone"
-// sentinel here.
-const timezoneOptions = useTimezoneOptions()
-
-// SearchableDropdown's modelValue is a required string, but the
-// calendar bodies type timezone as `string | undefined`. These
-// adapters coerce undefined to '' and back; '' on save defaults to
-// UTC at the backend (matches the existing seed default).
-const calendarDraftTimezone = computed<string>({
-  get: () => calendarDraft.value.timezone ?? '',
-  set: (v) => (calendarDraft.value.timezone = v),
-})
-const editDraftTimezone = computed<string>({
-  get: () => editDraft.value.timezone ?? '',
-  set: (v) => (editDraft.value.timezone = v),
-})
-
-async function createPolicy(): Promise<void> {
-  if (!policyDraft.value.name.trim()) return
+async function addHoliday(): Promise<void> {
+  const target = editingCalendar.value
+  if (!target || !newHolidayDate.value) return
   try {
-    const created = await slaService.createPolicy(policyDraft.value)
-    queryCache.setQueryData(POLICIES_KEY, [...policies.value, created])
-    policyDraft.value = {
-      name: '',
-      target_response_minutes: 60,
-      target_resolution_minutes: 24 * 60,
-      working_calendar_id: null,
-      priority_filter: null,
-      category_id_filter: null,
-      assignee_group_id_filter: null,
-      is_default: false,
-    }
+    const created = await slaService.createHoliday(target.id, {
+      date: newHolidayDate.value,
+      label: newHolidayLabel.value.trim() || null,
+      recurrence: newHolidayAnnual.value ? 'annual' : 'none',
+    })
+    editingHolidays.value = [...editingHolidays.value, created].sort((a, b) =>
+      a.date.localeCompare(b.date),
+    )
+    newHolidayDate.value = ''
+    newHolidayLabel.value = ''
+    newHolidayAnnual.value = false
     error.value = null
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('admin-sla-error-create')
   }
 }
 
-// Confirm wording for policy delete calls out the side effect: any
-// tickets the policy currently covers stop having an SLA. Without
-// this the operator might delete "Standard SLA" thinking they can
-// recreate it later and not realise tickets in flight lose their
-// pill until the new policy lands.
+async function removeHoliday(id: number): Promise<void> {
+  try {
+    await slaService.deleteHoliday(id)
+    editingHolidays.value = editingHolidays.value.filter((h) => h.id !== id)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('admin-sla-error-delete')
+  }
+}
+
+// ---------------- Policy modal (create + edit) ----------------
+const policyOpen = ref(false)
+const editingPolicy = ref<SlaPolicy | null>(null)
+const policyDraft = ref<SlaPolicyBody>(emptyPolicyDraft())
+
+function emptyPolicyDraft(): SlaPolicyBody {
+  return {
+    name: '',
+    target_response_minutes: 60,
+    target_resolution_minutes: 24 * 60,
+    working_calendar_id: null,
+    priority_filter: null,
+    category_id_filter: null,
+    assignee_group_id_filter: null,
+    is_default: false,
+  }
+}
+
+const policyModalTitle = computed(() =>
+  editingPolicy.value
+    ? t('admin-sla-edit-policy-title')
+    : t('admin-sla-new-policy-title'),
+)
+
+function openCreatePolicy(): void {
+  editingPolicy.value = null
+  policyDraft.value = emptyPolicyDraft()
+  policyOpen.value = true
+}
+
+function openEditPolicy(p: SlaPolicy): void {
+  editingPolicy.value = p
+  policyDraft.value = {
+    name: p.name,
+    target_response_minutes: p.target_response_minutes,
+    target_resolution_minutes: p.target_resolution_minutes,
+    working_calendar_id: p.working_calendar_id,
+    priority_filter: p.priority_filter,
+    category_id_filter: p.category_id_filter,
+    assignee_group_id_filter: p.assignee_group_id_filter,
+    is_default: p.is_default,
+  }
+  policyOpen.value = true
+}
+
+function closePolicyModal(): void {
+  policyOpen.value = false
+  editingPolicy.value = null
+}
+
+async function savePolicy(): Promise<void> {
+  if (!policyDraft.value.name.trim()) return
+  try {
+    if (editingPolicy.value) {
+      const target = editingPolicy.value
+      const updated = await slaService.updatePolicy(target.id, policyDraft.value)
+      queryCache.setQueryData(
+        POLICIES_KEY,
+        policies.value.map((p) => (p.id === target.id ? updated : p)),
+      )
+    } else {
+      const created = await slaService.createPolicy(policyDraft.value)
+      queryCache.setQueryData(POLICIES_KEY, [...policies.value, created])
+    }
+    closePolicyModal()
+    error.value = null
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('admin-sla-error-save')
+  }
+}
+
 function requestDeletePolicy(p: SlaPolicy): void {
+  // Confirm wording for policy delete calls out the side effect: any
+  // tickets the policy currently covers stop having an SLA.
   pendingDelete.value = { kind: 'policy', id: p.id, name: p.name }
 }
 
@@ -384,7 +382,7 @@ async function confirmDelete(): Promise<void> {
   else await deletePolicy(target.id)
 }
 
-async function patchPolicy(p: SlaPolicy, patch: Partial<SlaPolicyBody>): Promise<void> {
+async function togglePolicyDefault(p: SlaPolicy): Promise<void> {
   try {
     const updated = await slaService.updatePolicy(p.id, {
       name: p.name,
@@ -394,8 +392,7 @@ async function patchPolicy(p: SlaPolicy, patch: Partial<SlaPolicyBody>): Promise
       priority_filter: p.priority_filter,
       category_id_filter: p.category_id_filter,
       assignee_group_id_filter: p.assignee_group_id_filter,
-      is_default: p.is_default,
-      ...patch,
+      is_default: !p.is_default,
     })
     queryCache.setQueryData(
       POLICIES_KEY,
@@ -406,6 +403,28 @@ async function patchPolicy(p: SlaPolicy, patch: Partial<SlaPolicyBody>): Promise
   }
 }
 
+// ---------------- Dropdown options ----------------
+const calendarOptions = computed(() =>
+  calendars.value.map((c) => ({ value: c.id, label: c.name })),
+)
+const categoryOptions = computed(() =>
+  categories.value.map((c) => ({ value: c.id, label: c.name })),
+)
+const groupOptions = computed(() =>
+  groups.value.map((g) => ({ value: g.id, label: g.name })),
+)
+const timezoneOptions = useTimezoneOptions()
+
+// SearchableDropdown's modelValue is a required string but
+// WorkingCalendarBody.timezone is `string | undefined`. The adapter
+// coerces undefined to '' and back; '' saves as undefined which
+// the backend defaults to UTC.
+const calendarDraftTimezone = computed<string>({
+  get: () => calendarDraft.value.timezone ?? '',
+  set: (v) => (calendarDraft.value.timezone = v),
+})
+
+// ---------------- Display helpers ----------------
 function calendarName(id: number | null): string {
   if (id == null) return '-'
   return calendars.value.find((c) => c.id === id)?.name ?? `#${id}`
@@ -419,44 +438,43 @@ function fmtMinutes(m: number | null): string {
 }
 
 // Mirrors FormInput's size="sm" field styling so the bare <select>
-// and the bare number/optional-string <input> reads as the same
-// control. FormInput is string-only and required, so we drop down to
-// the native element for numeric and nullable-optional fields. If a
-// FormSelect/FormNumberInput lands later this constant disappears.
+// and the bare number-input read as the same control. If a
+// FormSelect / FormNumberInput primitive lands later this constant
+// disappears.
 const FIELD_CLASS_SM =
   'w-full bg-surface-alt border border-subtle rounded-lg text-primary px-3 py-1.5 text-sm ' +
   'placeholder-tertiary transition-colors ' +
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent ' +
   'disabled:opacity-50 disabled:cursor-not-allowed'
 
-// Match FormInput's label styling exactly so the inline labels above
-// bare fields read identical to FormInput's own.
 const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-wide'
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
-    <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
-      <div>
-        <h1 class="text-xl font-semibold text-primary">{{ $t('admin-sla-title') }}</h1>
-        <p class="text-xs text-tertiary mt-0.5 max-w-2xl">
+  <div class="flex-1 overflow-y-auto">
+    <div class="max-w-8xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-4">
+      <!-- Standard admin header: title + description, no sticky chrome.
+           Matches WebhooksView / ApiTokensView / AssignmentRulesView. -->
+      <header>
+        <h1 class="text-xl lg:text-2xl font-bold text-primary">{{ $t('admin-sla-title') }}</h1>
+        <p class="text-sm text-secondary mt-1 max-w-2xl">
           {{ $t('admin-sla-description') }}
         </p>
-      </div>
-    </header>
+      </header>
 
-    <Skeleton
-      v-if="isFirstLoad"
-      :label="$t('admin-sla-loading')"
-      class="flex-1 min-h-0 overflow-hidden p-6 grid gap-6"
-      style="grid-template-columns: 1fr 1fr"
-    >
-      <!-- Mirror the live two-section layout so the cutover doesn't
-           reflow when data arrives. -->
-      <section v-for="col in 2" :key="col" class="flex flex-col gap-3">
-        <SkeletonBar class="h-4 w-32" />
-        <div class="border border-subtle rounded-md overflow-hidden">
-          <SkeletonBar class="h-7 w-full" />
+      <Skeleton
+        v-if="isFirstLoad"
+        :label="$t('admin-sla-loading')"
+        class="flex flex-col gap-4"
+      >
+        <!-- Mirror the live stacked-sections shape so the cutover
+             doesn't reflow when data arrives. -->
+        <div
+          v-for="section in 2"
+          :key="section"
+          class="border border-default rounded-xl overflow-hidden"
+        >
+          <SkeletonBar class="h-9 w-full" />
           <div
             v-for="row in 4"
             :key="row"
@@ -467,22 +485,28 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
             <SkeletonBar class="h-2.5 w-12" />
           </div>
         </div>
-      </section>
-    </Skeleton>
+      </Skeleton>
 
-    <div
-      v-else
-      class="flex-1 min-h-0 overflow-y-auto p-6 grid gap-6"
-      style="grid-template-columns: 1fr 1fr"
-    >
-      <p v-if="liveError" class="col-span-2 text-sm text-status-error">{{ liveError }}</p>
+      <template v-else>
+        <p v-if="liveError" class="text-sm text-status-error">{{ liveError }}</p>
 
-      <!-- Working calendars -->
-      <section class="flex flex-col gap-3">
+        <!-- Working calendars. First because policies depend on them;
+             the reading order encodes the dependency the old
+             side-by-side grid used spatial juxtaposition to convey. -->
         <SectionCard content-padding="">
           <template #title>{{ $t('admin-sla-calendars-heading') }}</template>
+          <template #headerActions>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+              @click="openCreateCalendar"
+            >
+              <Icon name="add" class="w-3 h-3" />
+              {{ $t('admin-sla-new-calendar-button') }}
+            </button>
+          </template>
           <div class="overflow-x-auto">
-            <table class="w-full min-w-[480px] text-xs">
+            <table class="w-full text-xs">
               <thead class="bg-surface-alt text-tertiary">
                 <tr>
                   <th class="text-left px-3 py-2 font-medium">{{ $t('admin-sla-col-name') }}</th>
@@ -492,47 +516,51 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
                 </tr>
               </thead>
               <tbody class="divide-y divide-subtle">
-                <tr v-if="!calendars.length" class="bg-app">
+                <tr v-if="!calendars.length" class="bg-surface">
                   <td colspan="4" class="px-3 py-4 text-tertiary text-center">
                     {{ $t('admin-sla-no-calendars-hint') }}
                   </td>
                 </tr>
-                <tr v-for="cal in calendars" :key="cal.id" class="bg-app">
+                <tr v-for="cal in calendars" :key="cal.id" class="bg-surface">
                   <td class="px-3 py-2 text-primary">{{ cal.name }}</td>
                   <td class="px-3 py-2 text-secondary">{{ cal.timezone }}</td>
                   <td class="px-3 py-2">
                     <button
+                      v-if="cal.is_default"
                       type="button"
-                      class="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5"
-                      :class="
-                        cal.is_default
-                          ? 'bg-accent text-on-accent'
-                          : 'bg-surface-hover text-tertiary'
-                      "
+                      class="text-[10px] uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
                       @click="toggleCalendarDefault(cal)"
                     >
-                      {{
-                        cal.is_default
-                          ? $t('admin-sla-default-badge')
-                          : $t('admin-sla-set-default')
-                      }}
+                      {{ $t('admin-sla-default-badge') }}
+                    </button>
+                    <button
+                      v-else
+                      type="button"
+                      class="text-xs text-secondary hover:text-accent transition-colors"
+                      @click="toggleCalendarDefault(cal)"
+                    >
+                      {{ $t('admin-sla-set-default') }}
                     </button>
                   </td>
-                  <td class="px-3 py-2 text-right whitespace-nowrap">
-                    <button
-                      type="button"
-                      class="text-[11px] text-tertiary hover:text-primary mr-3"
-                      @click="openCalendarEditor(cal)"
-                    >
-                      {{ $t('admin-sla-edit') }}
-                    </button>
-                    <button
-                      type="button"
-                      class="text-[11px] text-tertiary hover:text-primary"
-                      @click="requestDeleteCalendar(cal)"
-                    >
-                      {{ $t('admin-sla-delete') }}
-                    </button>
+                  <td class="px-3 py-2">
+                    <div class="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                        :aria-label="$t('admin-sla-edit')"
+                        @click="openEditCalendar(cal)"
+                      >
+                        <Icon name="rename" class="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md transition-colors"
+                        :aria-label="$t('admin-sla-delete')"
+                        @click="requestDeleteCalendar(cal)"
+                      >
+                        <Icon name="trash" class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -540,50 +568,22 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
           </div>
         </SectionCard>
 
-        <SectionCard>
-          <template #title>{{ $t('admin-sla-new-calendar-heading') }}</template>
-          <form class="flex flex-col gap-3" @submit.prevent="createCalendar">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FormInput
-                v-model="calendarDraft.name"
-                size="sm"
-                :label="$t('admin-sla-field-name')"
-                :placeholder="$t('admin-sla-placeholder-name')"
-              />
-              <label class="flex flex-col gap-1.5">
-                <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-tz') }}</span>
-                <SearchableDropdown
-                  v-model="calendarDraftTimezone"
-                  size="sm"
-                  :options="timezoneOptions"
-                  :placeholder="$t('admin-sla-placeholder-tz')"
-                  :search-placeholder="$t('admin-sla-tz-search-placeholder')"
-                  :empty-message="$t('admin-sla-tz-no-matches')"
-                />
-              </label>
-            </div>
-            <div class="flex flex-col gap-1">
-              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-schedule') }}</span>
-              <WeekScheduleEditor v-model="calendarDraft.schedule as WeekSchedule" />
-            </div>
-            <Button
-              type="submit"
-              size="sm"
-              class="self-end"
-              :disabled="!calendarDraft.name.trim()"
-            >
-              {{ $t('admin-sla-create') }}
-            </Button>
-          </form>
-        </SectionCard>
-      </section>
-
-      <!-- Policies -->
-      <section class="flex flex-col gap-3">
+        <!-- Policies. Sit below calendars because they pick one as
+             their working-hours source. -->
         <SectionCard content-padding="">
           <template #title>{{ $t('admin-sla-policies-heading') }}</template>
+          <template #headerActions>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+              @click="openCreatePolicy"
+            >
+              <Icon name="add" class="w-3 h-3" />
+              {{ $t('admin-sla-new-policy-button') }}
+            </button>
+          </template>
           <div class="overflow-x-auto">
-            <table class="w-full min-w-[480px] text-xs">
+            <table class="w-full text-xs">
               <thead class="bg-surface-alt text-tertiary">
                 <tr>
                   <th class="text-left px-3 py-2 font-medium">{{ $t('admin-sla-col-name') }}</th>
@@ -601,17 +601,17 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
                 </tr>
               </thead>
               <tbody class="divide-y divide-subtle">
-                <tr v-if="!policies.length" class="bg-app">
+                <tr v-if="!policies.length" class="bg-surface">
                   <td colspan="6" class="px-3 py-4 text-tertiary text-center">
                     {{ $t('admin-sla-no-policies-hint') }}
                   </td>
                 </tr>
-                <tr v-for="p in policies" :key="p.id" class="bg-app">
+                <tr v-for="p in policies" :key="p.id" class="bg-surface">
                   <td class="px-3 py-2 text-primary">{{ p.name }}</td>
-                  <td class="px-3 py-2 text-secondary">
+                  <td class="px-3 py-2 text-secondary tabular-nums">
                     {{ fmtMinutes(p.target_response_minutes) }}
                   </td>
-                  <td class="px-3 py-2 text-secondary">
+                  <td class="px-3 py-2 text-secondary tabular-nums">
                     {{ fmtMinutes(p.target_resolution_minutes) }}
                   </td>
                   <td class="px-3 py-2 text-secondary">
@@ -619,156 +619,48 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
                   </td>
                   <td class="px-3 py-2">
                     <button
+                      v-if="p.is_default"
                       type="button"
-                      class="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5"
-                      :class="
-                        p.is_default
-                          ? 'bg-accent text-on-accent'
-                          : 'bg-surface-hover text-tertiary'
-                      "
-                      @click="patchPolicy(p, { is_default: !p.is_default })"
+                      class="text-[10px] uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
+                      @click="togglePolicyDefault(p)"
                     >
-                      {{
-                        p.is_default
-                          ? $t('admin-sla-default-badge')
-                          : $t('admin-sla-set-default')
-                      }}
+                      {{ $t('admin-sla-default-badge') }}
+                    </button>
+                    <button
+                      v-else
+                      type="button"
+                      class="text-xs text-secondary hover:text-accent transition-colors"
+                      @click="togglePolicyDefault(p)"
+                    >
+                      {{ $t('admin-sla-set-default') }}
                     </button>
                   </td>
-                  <td class="px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      class="text-[11px] text-tertiary hover:text-primary"
-                      @click="requestDeletePolicy(p)"
-                    >
-                      {{ $t('admin-sla-delete') }}
-                    </button>
+                  <td class="px-3 py-2">
+                    <div class="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        class="p-1.5 text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                        :aria-label="$t('admin-sla-edit')"
+                        @click="openEditPolicy(p)"
+                      >
+                        <Icon name="rename" class="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md transition-colors"
+                        :aria-label="$t('admin-sla-delete')"
+                        @click="requestDeletePolicy(p)"
+                      >
+                        <Icon name="trash" class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
         </SectionCard>
-
-        <SectionCard>
-          <template #title>{{ $t('admin-sla-new-policy-heading') }}</template>
-          <form class="flex flex-col gap-4" @submit.prevent="createPolicy">
-            <FormInput
-              v-model="policyDraft.name"
-              size="sm"
-              :label="$t('admin-sla-field-name')"
-              :placeholder="$t('admin-sla-policy-name-placeholder')"
-            />
-
-            <!-- Conditions: filters the matcher reads. Top section
-                 because admins decide who the policy is *for* before
-                 they decide what targets it gets. -->
-            <fieldset class="flex flex-col gap-2">
-              <legend
-                class="text-[11px] font-medium text-tertiary uppercase tracking-wide mb-1"
-              >
-                {{ $t('admin-sla-form-conditions-heading') }}
-              </legend>
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <label class="flex flex-col gap-1.5">
-                  <span :class="FIELD_LABEL_CLASS">
-                    {{ $t('admin-sla-field-priority') }}
-                  </span>
-                  <select v-model="policyDraft.priority_filter" :class="FIELD_CLASS_SM">
-                    <option :value="null">{{ $t('admin-sla-priority-any') }}</option>
-                    <option value="low">{{ $t('admin-sla-priority-low') }}</option>
-                    <option value="medium">{{ $t('admin-sla-priority-medium') }}</option>
-                    <option value="high">{{ $t('admin-sla-priority-high') }}</option>
-                  </select>
-                </label>
-                <label class="flex flex-col gap-1.5">
-                  <span :class="FIELD_LABEL_CLASS">
-                    {{ $t('admin-sla-field-category') }}
-                  </span>
-                  <select
-                    v-model.number="policyDraft.category_id_filter"
-                    :class="FIELD_CLASS_SM"
-                  >
-                    <option :value="null">{{ $t('admin-sla-category-any') }}</option>
-                    <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">
-                      {{ opt.label }}
-                    </option>
-                  </select>
-                </label>
-                <label class="flex flex-col gap-1.5">
-                  <span :class="FIELD_LABEL_CLASS">
-                    {{ $t('admin-sla-field-assignee-group') }}
-                  </span>
-                  <select
-                    v-model.number="policyDraft.assignee_group_id_filter"
-                    :class="FIELD_CLASS_SM"
-                  >
-                    <option :value="null">{{ $t('admin-sla-assignee-group-any') }}</option>
-                    <option v-for="opt in groupOptions" :key="opt.value" :value="opt.value">
-                      {{ opt.label }}
-                    </option>
-                  </select>
-                </label>
-              </div>
-            </fieldset>
-
-            <!-- Targets: what the engine computes for each match. -->
-            <fieldset class="flex flex-col gap-2">
-              <legend
-                class="text-[11px] font-medium text-tertiary uppercase tracking-wide mb-1"
-              >
-                {{ $t('admin-sla-form-targets-heading') }}
-              </legend>
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <label class="flex flex-col gap-1.5">
-                  <span :class="FIELD_LABEL_CLASS">
-                    {{ $t('admin-sla-field-calendar') }}
-                  </span>
-                  <select
-                    v-model.number="policyDraft.working_calendar_id"
-                    :class="FIELD_CLASS_SM"
-                  >
-                    <option :value="null">-</option>
-                    <option v-for="opt in calendarOptions" :key="opt.value" :value="opt.value">
-                      {{ opt.label }}
-                    </option>
-                  </select>
-                </label>
-                <label class="flex flex-col gap-1.5">
-                  <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-response') }}</span>
-                  <input
-                    v-model.number="policyDraft.target_response_minutes"
-                    type="number"
-                    min="0"
-                    :class="FIELD_CLASS_SM"
-                  />
-                </label>
-                <label class="flex flex-col gap-1.5">
-                  <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-resolution') }}</span>
-                  <input
-                    v-model.number="policyDraft.target_resolution_minutes"
-                    type="number"
-                    min="0"
-                    :class="FIELD_CLASS_SM"
-                  />
-                </label>
-              </div>
-            </fieldset>
-
-            <div class="flex items-center justify-between gap-3">
-              <Checkbox
-                :model-value="!!policyDraft.is_default"
-                size="sm"
-                :label="$t('admin-sla-workspace-default')"
-                @update:model-value="(v: boolean) => (policyDraft.is_default = v)"
-              />
-              <Button type="submit" size="sm" :disabled="!policyDraft.name.trim()">
-                {{ $t('admin-sla-create') }}
-              </Button>
-            </div>
-          </form>
-        </SectionCard>
-      </section>
+      </template>
     </div>
 
     <ConfirmModal
@@ -781,23 +673,27 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
       @close="pendingDelete = null"
     />
 
+    <!-- Calendar modal: create + edit. Holidays section only renders
+         in edit mode because there's nothing to attach them to until
+         the calendar has an id. -->
     <Modal
-      :show="editingCalendar !== null"
-      :title="$t('admin-sla-edit-calendar-title')"
+      :show="calendarOpen"
+      :title="calendarModalTitle"
       size="lg"
-      @close="closeCalendarEditor"
+      @close="closeCalendarModal"
     >
-      <form class="flex flex-col gap-4" @submit.prevent="saveCalendarEdit">
+      <form class="flex flex-col gap-4" @submit.prevent="saveCalendar">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormInput
-            v-model="editDraft.name"
+            v-model="calendarDraft.name"
             size="sm"
             :label="$t('admin-sla-field-name')"
+            :placeholder="$t('admin-sla-placeholder-name')"
           />
           <label class="flex flex-col gap-1.5">
             <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-tz') }}</span>
             <SearchableDropdown
-              v-model="editDraftTimezone"
+              v-model="calendarDraftTimezone"
               size="sm"
               :options="timezoneOptions"
               :placeholder="$t('admin-sla-placeholder-tz')"
@@ -806,12 +702,21 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
             />
           </label>
         </div>
+
         <div class="flex flex-col gap-1">
           <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-schedule') }}</span>
-          <WeekScheduleEditor v-model="editDraft.schedule as WeekSchedule" />
+          <WeekScheduleEditor v-model="calendarDraft.schedule as WeekSchedule" />
         </div>
 
-        <div class="flex flex-col gap-2">
+        <Checkbox
+          :model-value="!!calendarDraft.is_default"
+          size="sm"
+          :label="$t('admin-sla-workspace-default')"
+          @update:model-value="(v: boolean) => (calendarDraft.is_default = v)"
+        />
+
+        <!-- Holidays: only meaningful for a saved calendar. -->
+        <div v-if="editingCalendar" class="flex flex-col gap-2 pt-2 border-t border-subtle">
           <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-holidays') }}</span>
           <ul
             v-if="editingHolidays.length > 0"
@@ -820,13 +725,19 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
             <li
               v-for="h in editingHolidays"
               :key="h.id"
-              class="flex items-center gap-3 px-3 py-1.5 text-xs"
+              class="flex items-center gap-3 pl-3 pr-1.5 py-1 text-xs"
             >
               <span class="font-mono tabular-nums text-primary">{{ h.date }}</span>
+              <span
+                v-if="h.recurrence === 'annual'"
+                class="text-[10px] uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
+              >
+                {{ $t('admin-sla-holiday-annual-badge') }}
+              </span>
               <span class="flex-1 text-secondary truncate">{{ h.label ?? '' }}</span>
               <button
                 type="button"
-                class="text-tertiary hover:text-status-error transition-colors"
+                class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md transition-colors"
                 :aria-label="$t('admin-sla-holiday-remove-aria')"
                 @click="removeHoliday(h.id)"
               >
@@ -837,41 +748,174 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
           <p v-else class="text-[11px] text-tertiary italic">
             {{ $t('admin-sla-holidays-empty-hint') }}
           </p>
-          <div class="grid grid-cols-[10rem_1fr_auto] gap-2 items-end">
-            <label class="flex flex-col gap-1">
-              <span class="text-[10px] uppercase tracking-wide font-medium text-tertiary">
-                {{ $t('admin-sla-holiday-date') }}
-              </span>
-              <input v-model="newHolidayDate" type="date" :class="FIELD_CLASS_SM" />
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-[10px] uppercase tracking-wide font-medium text-tertiary">
-                {{ $t('admin-sla-holiday-label') }}
-              </span>
-              <input
-                v-model="newHolidayLabel"
-                type="text"
-                :placeholder="$t('admin-sla-holiday-placeholder')"
-                :class="FIELD_CLASS_SM"
-              />
-            </label>
-            <Button
-              type="button"
+          <div class="flex flex-col gap-2">
+            <div class="flex flex-wrap items-end gap-2">
+              <label class="flex flex-col gap-1">
+                <span class="text-[10px] uppercase tracking-wide font-medium text-tertiary">
+                  {{ $t('admin-sla-holiday-date') }}
+                </span>
+                <DatePicker
+                  v-model="newHolidayDate"
+                  size="sm"
+                  :aria-label="$t('admin-sla-holiday-date')"
+                />
+              </label>
+              <label class="flex flex-col gap-1 flex-1 min-w-[12rem]">
+                <span class="text-[10px] uppercase tracking-wide font-medium text-tertiary">
+                  {{ $t('admin-sla-holiday-label') }}
+                </span>
+                <input
+                  v-model="newHolidayLabel"
+                  type="text"
+                  :placeholder="$t('admin-sla-holiday-placeholder')"
+                  :class="FIELD_CLASS_SM"
+                />
+              </label>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                :disabled="!newHolidayDate"
+                @click="addHoliday"
+              >
+                {{ $t('admin-sla-holiday-add') }}
+              </Button>
+            </div>
+            <Checkbox
+              :model-value="newHolidayAnnual"
               size="sm"
-              variant="secondary"
-              :disabled="!newHolidayDate"
-              @click="addHoliday"
-            >
-              {{ $t('admin-sla-holiday-add') }}
-            </Button>
+              :label="$t('admin-sla-holiday-annual')"
+              :description="$t('admin-sla-holiday-annual-hint')"
+              @update:model-value="(v: boolean) => (newHolidayAnnual = v)"
+            />
           </div>
         </div>
 
-        <div class="flex items-center justify-end gap-2">
-          <Button type="button" variant="secondary" size="sm" @click="closeCalendarEditor">
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-subtle">
+          <Button type="button" variant="secondary" size="sm" @click="closeCalendarModal">
             {{ $t('admin-sla-cancel') }}
           </Button>
-          <Button type="submit" size="sm" :disabled="!editDraft.name.trim()">
+          <Button type="submit" size="sm" :disabled="!calendarDraft.name.trim()">
+            {{ $t('admin-sla-save') }}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+
+    <!-- Policy modal: create + edit. -->
+    <Modal
+      :show="policyOpen"
+      :title="policyModalTitle"
+      size="lg"
+      @close="closePolicyModal"
+    >
+      <form class="flex flex-col gap-4" @submit.prevent="savePolicy">
+        <FormInput
+          v-model="policyDraft.name"
+          size="sm"
+          :label="$t('admin-sla-field-name')"
+          :placeholder="$t('admin-sla-policy-name-placeholder')"
+        />
+
+        <!-- Conditions: which tickets does this policy match? -->
+        <fieldset class="flex flex-col gap-2">
+          <legend
+            class="text-[11px] font-medium text-tertiary uppercase tracking-wide mb-1"
+          >
+            {{ $t('admin-sla-form-conditions-heading') }}
+          </legend>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label class="flex flex-col gap-1.5">
+              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-priority') }}</span>
+              <select v-model="policyDraft.priority_filter" :class="FIELD_CLASS_SM">
+                <option :value="null">{{ $t('admin-sla-priority-any') }}</option>
+                <option value="low">{{ $t('admin-sla-priority-low') }}</option>
+                <option value="medium">{{ $t('admin-sla-priority-medium') }}</option>
+                <option value="high">{{ $t('admin-sla-priority-high') }}</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1.5">
+              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-category') }}</span>
+              <select
+                v-model.number="policyDraft.category_id_filter"
+                :class="FIELD_CLASS_SM"
+              >
+                <option :value="null">{{ $t('admin-sla-category-any') }}</option>
+                <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1.5">
+              <span :class="FIELD_LABEL_CLASS">
+                {{ $t('admin-sla-field-assignee-group') }}
+              </span>
+              <select
+                v-model.number="policyDraft.assignee_group_id_filter"
+                :class="FIELD_CLASS_SM"
+              >
+                <option :value="null">{{ $t('admin-sla-assignee-group-any') }}</option>
+                <option v-for="opt in groupOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- Targets: what the engine computes for each match. -->
+        <fieldset class="flex flex-col gap-2">
+          <legend
+            class="text-[11px] font-medium text-tertiary uppercase tracking-wide mb-1"
+          >
+            {{ $t('admin-sla-form-targets-heading') }}
+          </legend>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label class="flex flex-col gap-1.5">
+              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-calendar') }}</span>
+              <select
+                v-model.number="policyDraft.working_calendar_id"
+                :class="FIELD_CLASS_SM"
+              >
+                <option :value="null">-</option>
+                <option v-for="opt in calendarOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1.5">
+              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-response') }}</span>
+              <input
+                v-model.number="policyDraft.target_response_minutes"
+                type="number"
+                min="0"
+                :class="FIELD_CLASS_SM"
+              />
+            </label>
+            <label class="flex flex-col gap-1.5">
+              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-resolution') }}</span>
+              <input
+                v-model.number="policyDraft.target_resolution_minutes"
+                type="number"
+                min="0"
+                :class="FIELD_CLASS_SM"
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        <Checkbox
+          :model-value="!!policyDraft.is_default"
+          size="sm"
+          :label="$t('admin-sla-workspace-default')"
+          @update:model-value="(v: boolean) => (policyDraft.is_default = v)"
+        />
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-subtle">
+          <Button type="button" variant="secondary" size="sm" @click="closePolicyModal">
+            {{ $t('admin-sla-cancel') }}
+          </Button>
+          <Button type="submit" size="sm" :disabled="!policyDraft.name.trim()">
             {{ $t('admin-sla-save') }}
           </Button>
         </div>

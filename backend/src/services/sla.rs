@@ -431,12 +431,19 @@ fn load_pill_for_ticket(conn: &mut crate::db::DbConnection, ticket: &Ticket) -> 
     let policy = pick_policy(&policies, ticket, &group_ids)?;
     let cal_id = policy.working_calendar_id?;
     let calendar: WorkingCalendar = working_calendars::table.find(cal_id).first(conn).ok()?;
-    let holidays: HashSet<NaiveDate> = working_calendar_holidays::table
+    // Pull the full rows so annual-recurrence holidays expand into
+    // their concrete dates for the year window the engine touches.
+    // expand_holiday lives in the repository so the bootstrap path
+    // and this per-ticket path share the same rule.
+    let holiday_rows: Vec<crate::models::WorkingCalendarHoliday> = working_calendar_holidays::table
         .filter(working_calendar_holidays::calendar_id.eq(cal_id))
-        .select(working_calendar_holidays::date)
-        .load::<NaiveDate>(conn)
-        .map(|v| v.into_iter().collect())
+        .load(conn)
         .unwrap_or_default();
+    let current_year = Utc::now().year();
+    let holidays: HashSet<NaiveDate> = holiday_rows
+        .iter()
+        .flat_map(|h| crate::repository::sla::expand_holiday(h, current_year))
+        .collect();
     // Default to paused so a missing state row (shouldn't happen but
     // can if a state was hard-deleted) doesn't accidentally start
     // counting time against an unresolvable category.

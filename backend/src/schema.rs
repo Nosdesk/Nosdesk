@@ -1577,6 +1577,8 @@ diesel::table! {
         #[max_length = 120]
         label -> Nullable<Varchar>,
         workspace_id -> Int4,
+        #[max_length = 20]
+        recurrence -> Varchar,
     }
 }
 
