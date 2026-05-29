@@ -1319,6 +1319,17 @@ admin-channels-email-success-update = Kanaal bijgewerkt
 admin-channels-email-success-create = Kanaal aangemaakt
 admin-channels-email-success-password-removed = Wachtwoord verwijderd
 admin-channels-email-success-delete = Kanaal verwijderd
+admin-channels-email-auto-ack-heading = Automatische ontvangstbevestiging
+admin-channels-email-auto-ack-subtitle = Wanneer een nieuwe e-mail een ticket opent, stuurt u een kort "we hebben uw bericht ontvangen"-antwoord zodat de klant weet dat het is aangekomen.
+admin-channels-email-auto-ack-toggle-label = Ontvangstbevestiging verzenden
+admin-channels-email-auto-ack-toggle-description = Schakel uit als uw team binnen enkele minuten handmatig wil reageren.
+admin-channels-email-auto-ack-template-label = Aangepast sjabloon
+admin-channels-email-auto-ack-template-placeholder = Hallo {"{{"}customer_name{"}}"}, we hebben uw bericht ontvangen en komen spoedig bij u terug. (ref #{"{{"}ticket_id{"}}"})
+admin-channels-email-auto-ack-template-hint = Laat leeg om de gelokaliseerde standaard te gebruiken. Alleen platte tekst.
+admin-channels-email-auto-ack-variables-hint = Variabelen (per ticket ingevuld):
+admin-channels-email-auto-ack-saving = Opslaan…
+admin-channels-email-auto-ack-save = Ontvangstbevestiging opslaan
+admin-channels-email-auto-ack-success-saved = Ontvangstbevestiging bijgewerkt
 
 # Admin: Microsoft Graph (gegevensimport)
 admin-msgraph-back = Terug naar gegevensimport

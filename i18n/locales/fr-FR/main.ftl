@@ -1322,6 +1322,17 @@ admin-channels-email-success-update = Canal mis à jour
 admin-channels-email-success-create = Canal créé
 admin-channels-email-success-password-removed = Mot de passe supprimé
 admin-channels-email-success-delete = Canal supprimé
+admin-channels-email-auto-ack-heading = Accusé de réception automatique
+admin-channels-email-auto-ack-subtitle = Quand un nouvel e-mail ouvre un ticket, envoyez une brève réponse « message bien reçu » pour que le client sache qu'il est arrivé.
+admin-channels-email-auto-ack-toggle-label = Envoyer un accusé de réception
+admin-channels-email-auto-ack-toggle-description = Désactivez si votre équipe préfère répondre manuellement en quelques minutes.
+admin-channels-email-auto-ack-template-label = Modèle personnalisé
+admin-channels-email-auto-ack-template-placeholder = Bonjour {"{{"}customer_name{"}}"}, nous avons bien reçu votre message et reviendrons vers vous rapidement. (réf. #{"{{"}ticket_id{"}}"})
+admin-channels-email-auto-ack-template-hint = Laissez vide pour utiliser le modèle par défaut localisé. Texte brut uniquement.
+admin-channels-email-auto-ack-variables-hint = Variables (remplies pour chaque ticket) :
+admin-channels-email-auto-ack-saving = Enregistrement…
+admin-channels-email-auto-ack-save = Enregistrer l'accusé
+admin-channels-email-auto-ack-success-saved = Accusé de réception mis à jour
 
 # Admin : Microsoft Graph (import de données)
 admin-msgraph-back = Retour à l'import de données

@@ -1249,6 +1249,17 @@ admin-channels-email-success-update = Channel updated
 admin-channels-email-success-create = Channel created
 admin-channels-email-success-password-removed = Password removed
 admin-channels-email-success-delete = Channel deleted
+admin-channels-email-auto-ack-heading = Auto-acknowledgement
+admin-channels-email-auto-ack-subtitle = When a new email opens a ticket, fire off a quick "got your message" reply so the customer knows it landed.
+admin-channels-email-auto-ack-toggle-label = Send auto-acknowledgement
+admin-channels-email-auto-ack-toggle-description = Turn off if your team prefers to reply by hand within a few minutes.
+admin-channels-email-auto-ack-template-label = Custom template
+admin-channels-email-auto-ack-template-placeholder = G'day {"{{"}customer_name{"}}"}, we got your message and will be in touch shortly. (ref #{"{{"}ticket_id{"}}"})
+admin-channels-email-auto-ack-template-hint = Leave blank to use the localised default. Plain text only.
+admin-channels-email-auto-ack-variables-hint = Variables (filled in per ticket):
+admin-channels-email-auto-ack-saving = Saving…
+admin-channels-email-auto-ack-save = Save auto-ack
+admin-channels-email-auto-ack-success-saved = Auto-acknowledgement updated
 
 # Admin: Microsoft Graph (data import)
 admin-msgraph-back = Back to Data Import

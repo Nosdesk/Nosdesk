@@ -15,12 +15,25 @@ export interface BrandingConfig {
    * backend to clear it back to `null`.
    */
   signature_default: string | null
+  /**
+   * Whether to send the "we got your message" auto-acknowledgement
+   * when a channel message opens a new ticket.
+   */
+  channel_auto_ack_enabled: boolean
+  /**
+   * Admin-overridden auto-ack body. `null` = use the built-in FTL
+   * default for the resolved locale. Empty string is sent to clear
+   * back to `null`.
+   */
+  channel_auto_ack_template: string | null
 }
 
 export interface UpdateBrandingRequest {
   app_name?: string
   primary_color?: string | null
   signature_default?: string | null
+  channel_auto_ack_enabled?: boolean
+  channel_auto_ack_template?: string | null
 }
 
 class BrandingService {
@@ -44,7 +57,9 @@ class BrandingService {
         favicon_url: null,
         primary_color: null,
         updated_at: null,
-        signature_default: null
+        signature_default: null,
+        channel_auto_ack_enabled: true,
+        channel_auto_ack_template: null
       }
     }
   }
