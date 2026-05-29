@@ -23,6 +23,11 @@ pub struct BrandingImageTypeQuery {
 pub struct UpdateBrandingRequest {
     pub app_name: Option<String>,
     pub primary_color: Option<String>,
+    /// Workspace-wide default email signature. Same omission /
+    /// empty-string semantics as user-level signature: omitted =
+    /// leave alone, empty string = clear back to "no org default".
+    #[serde(default)]
+    pub signature_default: Option<String>,
 }
 
 // GET /api/admin/branding/config - Get branding settings (public for initial load)
@@ -46,7 +51,8 @@ pub async fn get_branding_config(pool: web::Data<Pool>) -> impl Responder {
                 "logo_light_url": null,
                 "favicon_url": null,
                 "primary_color": null,
-                "updated_at": null
+                "updated_at": null,
+                "signature_default": null
             }))
         }
     }
@@ -87,6 +93,17 @@ pub async fn update_branding_config(
         }
     }
 
+    // Mirror the user-signature empty-string-is-clear semantic from
+    // users.rs so the admin UI can revert to "no org default"
+    // without a separate API call.
+    let signature_default_change = body.signature_default.as_ref().map(|s| {
+        if s.trim().is_empty() {
+            None
+        } else {
+            Some(s.clone())
+        }
+    });
+
     let update = UpdateSiteSettings {
         app_name: body.app_name.clone(),
         logo_url: None,
@@ -94,6 +111,7 @@ pub async fn update_branding_config(
         favicon_url: None,
         primary_color: body.primary_color.as_ref().map(|c| Some(c.clone())),
         updated_by: Some(user_uuid),
+        signature_default: signature_default_change,
         ..Default::default()
     };
 

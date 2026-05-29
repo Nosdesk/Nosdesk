@@ -14,24 +14,45 @@
 //! separator paired with the `text-signature` div so a plaintext
 //! conversion of the HTML round-trips back to the same RFC 3676 marker.
 //!
-//! No-op when the user has no signature or it's empty / whitespace.
+//! Resolution chain mirrors locale / timezone (see
+//! `user_preferences.rs`):
+//!   `user_preferences.signature` (trimmed, non-empty)
+//!     → `site_settings.signature_default` (trimmed, non-empty)
+//!     → no signature (reply goes out unsigned)
+//!
+//! The org default lets a workspace set one team-wide template and
+//! have every agent who hasn't customised their own fall through to
+//! it, matching Zendesk / Help Scout / Freshdesk semantics.
 
 use uuid::Uuid;
 
 use super::reply_body::ReplyBody;
 use crate::db::DbConnection;
 
-/// Fetch the user's stored signature; `None` if unset or whitespace.
+/// Trim a stored signature, returning `None` for empty / whitespace.
+/// The trim only gates the empty-check; the returned string keeps
+/// the original leading / trailing whitespace so admin-authored
+/// indentation isn't silently stripped.
+fn non_empty(raw: Option<String>) -> Option<String> {
+    raw.and_then(|s| if s.trim().is_empty() { None } else { Some(s) })
+}
+
+/// Fetch the resolved signature for an agent, walking
+/// per-user → org default → none. Per-source DB read failures are
+/// silently treated as "no value at this level" — better to send
+/// the reply unsigned than to fail the whole outbound dispatch
+/// over a transient read hiccup.
 fn signature_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> Option<String> {
-    let raw = crate::repository::user_preferences::get_signature(conn, user_uuid).ok();
-    raw.flatten().and_then(|s| {
-        let t = s.trim();
-        if t.is_empty() {
-            None
-        } else {
-            Some(s)
-        }
-    })
+    if let Some(s) =
+        non_empty(crate::repository::user_preferences::get_signature(conn, user_uuid).ok().flatten())
+    {
+        return Some(s);
+    }
+    non_empty(
+        crate::repository::site_settings::get_site_settings(conn)
+            .ok()
+            .and_then(|s| s.signature_default),
+    )
 }
 
 /// Append the user's signature to both representations of `body`.
@@ -109,6 +130,25 @@ mod tests {
         }
     }
 
+    /// Pure-function mirror of the per-user → org-default → none
+    /// resolution chain. Same precedence rule the live function uses
+    /// against the DB; lets us cover the fallback without standing
+    /// up a real connection.
+    fn resolve(user_sig: Option<&str>, org_default: Option<&str>) -> Option<String> {
+        if let Some(s) = user_sig {
+            if !s.trim().is_empty() {
+                return Some(s.to_string());
+            }
+        }
+        org_default.and_then(|s| {
+            if s.trim().is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        })
+    }
+
     #[test]
     fn no_signature_leaves_body_unchanged() {
         let before = body_html("<p>Hi.</p>");
@@ -143,5 +183,33 @@ mod tests {
         assert!(body.html.contains("<br>\nFooter line"));
         // RFC 3676 marker preserved in plain too.
         assert!(body.text.contains("-- \nTech <admin>"));
+    }
+
+    #[test]
+    fn user_signature_wins_over_org_default() {
+        let sig = resolve(Some("Personal sig"), Some("Org default"));
+        assert_eq!(sig.as_deref(), Some("Personal sig"));
+    }
+
+    #[test]
+    fn org_default_used_when_user_unset() {
+        let sig = resolve(None, Some("Org default"));
+        assert_eq!(sig.as_deref(), Some("Org default"));
+    }
+
+    #[test]
+    fn org_default_used_when_user_blank() {
+        let sig = resolve(Some("   \n  "), Some("Org default"));
+        assert_eq!(sig.as_deref(), Some("Org default"));
+    }
+
+    #[test]
+    fn no_signature_when_both_unset() {
+        assert!(resolve(None, None).is_none());
+    }
+
+    #[test]
+    fn no_signature_when_both_blank() {
+        assert!(resolve(Some("  "), Some("\n\n")).is_none());
     }
 }

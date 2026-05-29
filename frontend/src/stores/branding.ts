@@ -52,7 +52,8 @@ export const useBrandingStore = defineStore('branding', () => {
     logo_light_url: null,
     favicon_url: null,
     primary_color: null,
-    updated_at: null
+    updated_at: null,
+    signature_default: null
   })
 
   // Loading state
@@ -172,7 +173,8 @@ export const useBrandingStore = defineStore('branding', () => {
       logo_light_url: null,
       favicon_url: null,
       primary_color: null,
-      updated_at: null
+      updated_at: null,
+      signature_default: null
     }
     // Clear the cache
     try {

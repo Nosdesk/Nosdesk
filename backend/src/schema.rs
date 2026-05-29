@@ -1171,6 +1171,7 @@ diesel::table! {
         default_locale -> Text,
         default_timezone -> Text,
         workspace_id -> Int4,
+        signature_default -> Nullable<Text>,
     }
 }
 

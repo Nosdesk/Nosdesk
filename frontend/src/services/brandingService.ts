@@ -8,11 +8,19 @@ export interface BrandingConfig {
   favicon_url: string | null
   primary_color: string | null
   updated_at: string | null
+  /**
+   * Workspace-wide default email signature. `null` = no org default
+   * (the outbound pipeline sends agents' replies unsigned when they
+   * also have no personal signature). Empty string is sent to the
+   * backend to clear it back to `null`.
+   */
+  signature_default: string | null
 }
 
 export interface UpdateBrandingRequest {
   app_name?: string
   primary_color?: string | null
+  signature_default?: string | null
 }
 
 class BrandingService {
@@ -35,7 +43,8 @@ class BrandingService {
         logo_light_url: null,
         favicon_url: null,
         primary_color: null,
-        updated_at: null
+        updated_at: null,
+        signature_default: null
       }
     }
   }

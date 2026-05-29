@@ -9,6 +9,7 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue'
 import Icon from '@/components/common/Icon.vue'
 import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import ColorHueSlider from '@/components/common/ColorHueSlider.vue'
 import brandingService, { type BrandingConfig } from '@/services/brandingService'
 import uploadService from '@/services/uploadService'
@@ -46,6 +47,7 @@ const successMessage = ref('')
 // Form state (seeded once from cache; see watch below)
 const appName = ref('Nosdesk')
 const primaryColor = ref('')
+const signatureDefault = ref('')
 
 // Seed the editable form once per component lifetime. On nav-back
 // the component remounts, `seeded` resets, and the immediate watch
@@ -58,6 +60,7 @@ watch(
     if (!data || seeded.value) return
     appName.value = data.app_name || 'Nosdesk'
     primaryColor.value = data.primary_color || ''
+    signatureDefault.value = data.signature_default || ''
     seeded.value = true
   },
   { immediate: true },
@@ -92,7 +95,11 @@ const saveSettings = async () => {
   try {
     const config = await brandingService.updateBrandingConfig({
       app_name: appName.value,
-      primary_color: primaryColor.value || null
+      primary_color: primaryColor.value || null,
+      // Empty textarea clears the org default back to null on the
+      // server (matches the user-level signature semantic in the
+      // profile editor).
+      signature_default: signatureDefault.value,
     })
     // Keep the cache in lockstep so a later revisit shows the saved
     // values without a network round-trip. The seeded watch is a
@@ -347,6 +354,16 @@ async function confirmDeleteBrandingImage(): Promise<void> {
               <ColorHueSlider v-model="primaryColor" :label="$t('admin-branding-primary-color-label')" />
               <p class="text-xs text-tertiary">{{ $t('admin-branding-primary-color-hint') }}</p>
             </div>
+
+            <!-- Default Signature -->
+            <FormTextarea
+              v-model="signatureDefault"
+              :label="$t('admin-branding-signature-default-label')"
+              :placeholder="$t('admin-branding-signature-default-placeholder')"
+              :description="$t('admin-branding-signature-default-hint')"
+              :rows="5"
+              mono
+            />
 
             <!-- Save Button -->
             <div class="flex justify-end pt-2">

@@ -3427,6 +3427,12 @@ pub struct SiteSettings {
     /// to the team's working zone (e.g. `Australia/Sydney`).
     pub default_timezone: String,
     pub workspace_id: i32,
+    /// Workspace-wide default email signature. The outbound channel
+    /// reply pipeline appends this when an agent has not set a
+    /// personal signature in `user_preferences.signature`. `None` =
+    /// no org default; reply goes out unsigned, matching the pre-
+    /// migration behaviour.
+    pub signature_default: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -3452,6 +3458,10 @@ pub struct UpdateSiteSettings {
     pub channel_auto_ack_template: Option<Option<String>>,
     pub default_locale: Option<String>,
     pub default_timezone: Option<String>,
+    /// `Option<Option<String>>`: outer `None` = leave as-is,
+    /// `Some(None)` = clear back to NULL (no org default),
+    /// `Some(Some(_))` = set the org-wide template.
+    pub signature_default: Option<Option<String>>,
 }
 
 // API response for site settings (without internal fields)
@@ -3473,6 +3483,10 @@ pub struct SiteSettingsResponse {
     pub guest_ticket_email_verification: bool,
     pub guest_ticket_attachments_enabled: bool,
     pub guest_ticket_intro_message: Option<String>,
+    /// Workspace-wide default email signature. Admin-visible only;
+    /// excluded from `PublicSiteSettings` since it isn't relevant
+    /// to anonymous guest views.
+    pub signature_default: Option<String>,
 }
 
 impl From<SiteSettings> for SiteSettingsResponse {
@@ -3494,6 +3508,7 @@ impl From<SiteSettings> for SiteSettingsResponse {
             guest_ticket_email_verification: settings.guest_ticket_email_verification,
             guest_ticket_attachments_enabled: settings.guest_ticket_attachments_enabled,
             guest_ticket_intro_message: settings.guest_ticket_intro_message,
+            signature_default: settings.signature_default,
         }
     }
 }

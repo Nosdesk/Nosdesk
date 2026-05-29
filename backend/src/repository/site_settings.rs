@@ -88,6 +88,7 @@ mod tests {
             favicon_url: None,
             primary_color: None,
             updated_by: None,
+            signature_default: None,
             ..Default::default()
         };
 

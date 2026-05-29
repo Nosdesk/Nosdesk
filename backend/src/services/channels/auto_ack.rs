@@ -272,6 +272,7 @@ mod tests {
             default_locale: "en-US".into(),
             default_timezone: "UTC".into(),
             workspace_id: 1,
+            signature_default: None,
         }
     }
 
