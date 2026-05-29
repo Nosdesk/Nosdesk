@@ -69,7 +69,7 @@
             <div class="flex flex-col gap-1">
               <span class="text-xs uppercase tracking-wide text-tertiary">{{ $t('admin-channels-email-status-last-polled') }}</span>
               <span class="text-sm text-primary">
-                {{ channel.last_polled_at ? formatRelative(channel.last_polled_at) : $t('admin-channels-email-status-never') }}
+                {{ channel.last_polled_at ? formatRelativeTime(channel.last_polled_at) : $t('admin-channels-email-status-never') }}
               </span>
             </div>
             <div class="flex flex-col gap-1">
@@ -328,7 +328,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import AlertMessage from '@/components/common/AlertMessage.vue';
@@ -344,6 +344,7 @@ import {
   type ImapRuntimeState
 } from '@/services/channelsService';
 import { createErrorFromResponse } from '@/utils/errors';
+import { formatRelativeTime } from '@/utils/dateUtils';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -415,7 +416,7 @@ const saving = ref(false);
 const testing = ref(false);
 const deleting = ref(false);
 const clearing = ref(false);
-const form = reactive<FormState>(emptyForm());
+const form = ref<FormState>(emptyForm());
 const testResult = ref<'idle' | 'ok' | 'failed'>('idle');
 const testErrorMessage = ref('');
 const successMessage = ref('');
@@ -450,11 +451,12 @@ const runtimeState = computed<ImapRuntimeState>(() => {
 // is allowed (admin sets it later) and editing without one preserves
 // the stored secret. See `save()` for the "send-only-if-non-empty" rule.
 const canSave = computed(() => {
+  const f = form.value;
   return (
-    form.name.trim().length > 0 &&
-    form.host.trim().length > 0 &&
-    form.username.trim().length > 0 &&
-    form.reply_domain.trim().length > 0
+    f.name.trim().length > 0 &&
+    f.host.trim().length > 0 &&
+    f.username.trim().length > 0 &&
+    f.reply_domain.trim().length > 0
   );
 });
 
@@ -468,35 +470,39 @@ const formIsDirty = computed(() => {
   const ch = channel.value;
   if (!ch) return false;
   const cfg = (ch.config ?? {}) as unknown as ImapChannelConfig;
+  const f = form.value;
   return (
-    form.name !== ch.name ||
-    form.enabled !== ch.enabled ||
-    form.host !== (cfg.host ?? '') ||
-    form.port !== (cfg.port ?? DEFAULT_CONFIG.port) ||
-    form.username !== (cfg.username ?? '') ||
-    form.mailbox !== (cfg.mailbox ?? DEFAULT_CONFIG.mailbox) ||
-    form.reply_domain !== (cfg.reply_domain ?? '') ||
-    form.insecure_skip_cert_verify !== (cfg.insecure_skip_cert_verify ?? false)
+    f.name !== ch.name ||
+    f.enabled !== ch.enabled ||
+    f.host !== (cfg.host ?? '') ||
+    f.port !== (cfg.port ?? DEFAULT_CONFIG.port) ||
+    f.username !== (cfg.username ?? '') ||
+    f.mailbox !== (cfg.mailbox ?? DEFAULT_CONFIG.mailbox) ||
+    f.reply_domain !== (cfg.reply_domain ?? '') ||
+    f.insecure_skip_cert_verify !== (cfg.insecure_skip_cert_verify ?? false)
   );
 });
 const canTest = computed(() => {
   if (formIsDirty.value) return false;
-  return form.password.length > 0 || (channel.value?.has_credential ?? false);
+  return form.value.password.length > 0 || (channel.value?.has_credential ?? false);
 });
 
 // Any edit invalidates a previous test result. The green "Connected"
 // pip would otherwise survive an admin changing the host away from
 // the value that actually authenticated.
 watch(
-  () => [
-    form.host,
-    form.port,
-    form.username,
-    form.mailbox,
-    form.reply_domain,
-    form.password,
-    form.insecure_skip_cert_verify,
-  ],
+  () => {
+    const f = form.value;
+    return [
+      f.host,
+      f.port,
+      f.username,
+      f.mailbox,
+      f.reply_domain,
+      f.password,
+      f.insecure_skip_cert_verify,
+    ];
+  },
   () => {
     testResult.value = 'idle';
     testErrorMessage.value = '';
@@ -527,29 +533,32 @@ const submitLabel = computed(() => {
 
 function populateForm(ch: Channel) {
   const cfg = (ch.config ?? {}) as unknown as ImapChannelConfig;
-  form.name = ch.name;
-  form.enabled = ch.enabled;
-  form.host = cfg.host ?? '';
-  form.port = cfg.port ?? DEFAULT_CONFIG.port;
-  form.username = cfg.username ?? '';
-  form.mailbox = cfg.mailbox ?? DEFAULT_CONFIG.mailbox;
-  form.reply_domain = cfg.reply_domain ?? '';
-  form.insecure_skip_cert_verify = cfg.insecure_skip_cert_verify ?? false;
-  form.password = '';
+  form.value = {
+    name: ch.name,
+    enabled: ch.enabled,
+    host: cfg.host ?? '',
+    port: cfg.port ?? DEFAULT_CONFIG.port,
+    username: cfg.username ?? '',
+    mailbox: cfg.mailbox ?? DEFAULT_CONFIG.mailbox,
+    reply_domain: cfg.reply_domain ?? '',
+    insecure_skip_cert_verify: cfg.insecure_skip_cert_verify ?? false,
+    password: '',
+  };
 }
 
 // Typed locally, then widened to the `Record<string, unknown>` shape the
 // service accepts. The channels endpoint is generic over providers and
 // only `email_imap`'s shape is validated server-side.
 function buildConfig(): Record<string, unknown> {
+  const f = form.value;
   const cfg: ImapChannelConfig = {
-    host: form.host.trim(),
-    port: form.port,
-    username: form.username.trim(),
-    mailbox: form.mailbox.trim() || DEFAULT_CONFIG.mailbox,
+    host: f.host.trim(),
+    port: f.port,
+    username: f.username.trim(),
+    mailbox: f.mailbox.trim() || DEFAULT_CONFIG.mailbox,
     use_tls: DEFAULT_CONFIG.use_tls,
-    reply_domain: form.reply_domain.trim(),
-    insecure_skip_cert_verify: form.insecure_skip_cert_verify
+    reply_domain: f.reply_domain.trim(),
+    insecure_skip_cert_verify: f.insecure_skip_cert_verify
   };
   return cfg as unknown as Record<string, unknown>;
 }
@@ -559,34 +568,22 @@ function clearMessages() {
   errorMessage.value = '';
 }
 
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const diffSec = Math.max(0, Math.floor((now - then) / 1000));
-  if (diffSec < 60) return t('admin-channels-email-relative-seconds', { count: diffSec });
-  const mins = Math.floor(diffSec / 60);
-  if (mins < 60) return t('admin-channels-email-relative-minutes', { count: mins });
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return t('admin-channels-email-relative-hours', { count: hrs });
-  const days = Math.floor(hrs / 24);
-  return t('admin-channels-email-relative-days', { count: days });
-}
-
 async function save() {
   clearMessages();
   testResult.value = 'idle';
   if (!canSave.value) return;
   saving.value = true;
+  const f = form.value;
   try {
     if (channel.value) {
       const updated = await channelsService.update(channel.value.id, {
-        name: form.name.trim(),
-        enabled: form.enabled,
+        name: f.name.trim(),
+        enabled: f.enabled,
         config: buildConfig(),
         // Only send password when the admin typed one. An empty string
         // must not nuke the stored secret. See channelsService's
         // `UpdateChannelRequest` contract.
-        ...(form.password.length > 0 ? { password: form.password } : {})
+        ...(f.password.length > 0 ? { password: f.password } : {})
       });
       // Keep the cache in lockstep so a later revisit shows the saved
       // values without a network round-trip.
@@ -596,10 +593,10 @@ async function save() {
     } else {
       const created = await channelsService.create({
         provider: EMAIL_PROVIDER,
-        name: form.name.trim(),
-        enabled: form.enabled,
+        name: f.name.trim(),
+        enabled: f.enabled,
         config: buildConfig(),
-        ...(form.password.length > 0 ? { password: form.password } : {})
+        ...(f.password.length > 0 ? { password: f.password } : {})
       });
       queryCache.setQueryData(CHANNELS_EMAIL_KEY, created);
       populateForm(created);
@@ -621,7 +618,7 @@ async function testConnection() {
   try {
     const result = await channelsService.testConnection(
       channel.value.id,
-      form.password.length > 0 ? form.password : undefined
+      form.value.password.length > 0 ? form.value.password : undefined
     );
     if (result.ok) {
       testResult.value = 'ok';
@@ -674,7 +671,7 @@ async function doDeleteChannel() {
   try {
     await channelsService.remove(channel.value.id);
     queryCache.setQueryData(CHANNELS_EMAIL_KEY, null);
-    Object.assign(form, emptyForm());
+    form.value = emptyForm();
     flashSuccess('admin-channels-email-success-delete');
   } catch (e: unknown) {
     errorMessage.value = createErrorFromResponse(e).getUserMessage();
