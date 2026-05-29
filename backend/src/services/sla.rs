@@ -811,6 +811,141 @@ mod tests {
         assert!(pick_policy(&policies, &t, &[]).is_none());
     }
 
+    // ---------------- Precedence coverage ----------------
+    //
+    // The matcher's job is to apply the precedence in this order:
+    //   1. drop policies whose priority/category/group filters
+    //      reject the ticket
+    //   2. among survivors, non-default beats default (more specific)
+    //   3. among same-default-status survivors, highest id wins
+    //      (last-write semantics; explicit ordering would replace
+    //      this when an admin UI ships)
+    //
+    // The tests below cover each branch of that decision tree.
+
+    #[test]
+    fn pick_policy_returns_none_when_no_policies() {
+        assert!(pick_policy(&[], &ticket(None), &[]).is_none());
+    }
+
+    #[test]
+    fn pick_policy_returns_none_when_no_policy_matches_and_no_default() {
+        // Only a group-scoped policy exists and the assignee isn't
+        // in that group — no fallback.
+        let policies = vec![policy(1, Some(99), false)];
+        let t = ticket(Some(Uuid::new_v4()));
+        assert!(pick_policy(&policies, &t, &[7]).is_none());
+    }
+
+    #[test]
+    fn pick_policy_picks_unfiltered_default_as_catch_all() {
+        let policies = vec![policy(1, None, true)];
+        let picked = pick_policy(&policies, &ticket(None), &[]).expect("a policy");
+        assert_eq!(picked.id, 1);
+    }
+
+    #[test]
+    fn pick_policy_higher_id_wins_among_non_defaults() {
+        // Three unfiltered non-defaults — all match every ticket;
+        // the matcher's tiebreak is highest id.
+        let policies = vec![
+            policy(1, None, false),
+            policy(5, None, false),
+            policy(3, None, false),
+        ];
+        let picked = pick_policy(&policies, &ticket(None), &[]).expect("a policy");
+        assert_eq!(picked.id, 5);
+    }
+
+    #[test]
+    fn pick_policy_non_default_beats_default_even_with_lower_id() {
+        // Specificity beats id: even though the default has the
+        // higher id, the non-default is more specific so it wins.
+        let policies = vec![policy(99, None, true), policy(1, None, false)];
+        let picked = pick_policy(&policies, &ticket(None), &[]).expect("a policy");
+        assert_eq!(picked.id, 1);
+    }
+
+    #[test]
+    fn pick_policy_two_defaults_picks_highest_id() {
+        // The DB doesn't enforce uniqueness on is_default; if two
+        // defaults end up flagged the matcher still picks
+        // deterministically.
+        let policies = vec![
+            policy(1, None, true),
+            policy(7, None, true),
+            policy(3, None, true),
+        ];
+        let picked = pick_policy(&policies, &ticket(None), &[]).expect("a policy");
+        assert_eq!(picked.id, 7);
+    }
+
+    #[test]
+    fn pick_policy_priority_filter_rejects_mismatched_ticket() {
+        let mut high_only = policy(2, None, false);
+        high_only.priority_filter = Some("high".into());
+        let policies = vec![policy(1, None, true), high_only];
+        // Ticket default priority is Medium; the high-only policy
+        // is filtered out and the default takes over.
+        let picked = pick_policy(&policies, &ticket(None), &[]).expect("a policy");
+        assert_eq!(picked.id, 1);
+    }
+
+    #[test]
+    fn pick_policy_priority_filter_accepts_matching_ticket() {
+        let mut high_only = policy(2, None, false);
+        high_only.priority_filter = Some("high".into());
+        let policies = vec![policy(1, None, true), high_only];
+        let mut t = ticket(None);
+        t.priority = crate::models::TicketPriority::High;
+        let picked = pick_policy(&policies, &t, &[]).expect("a policy");
+        assert_eq!(picked.id, 2);
+    }
+
+    #[test]
+    fn pick_policy_category_filter_rejects_when_ticket_has_no_category() {
+        let mut cat_only = policy(2, None, false);
+        cat_only.category_id_filter = Some(42);
+        let policies = vec![policy(1, None, true), cat_only];
+        // ticket(...) builds with category_id = None.
+        let picked = pick_policy(&policies, &ticket(None), &[]).expect("a policy");
+        assert_eq!(picked.id, 1);
+    }
+
+    #[test]
+    fn pick_policy_combined_filters_all_must_match() {
+        // Policy requires priority = high AND category = 42; ticket
+        // satisfies one at a time, then both.
+        let mut combo = policy(2, None, false);
+        combo.priority_filter = Some("high".into());
+        combo.category_id_filter = Some(42);
+        let policies = vec![policy(1, None, true), combo];
+        let mut t = ticket(None);
+        t.priority = crate::models::TicketPriority::High;
+        t.category_id = Some(7);
+        // Priority matches, category doesn't -> default wins.
+        assert_eq!(pick_policy(&policies, &t, &[]).unwrap().id, 1);
+        // Flip category to match -> combo wins.
+        t.category_id = Some(42);
+        assert_eq!(pick_policy(&policies, &t, &[]).unwrap().id, 2);
+    }
+
+    #[test]
+    fn pick_policy_result_independent_of_input_order() {
+        // Same set of policies in two orderings must yield the same
+        // pick — the matcher's tiebreak rules are total, not
+        // input-ordering-dependent.
+        let a = policy(1, None, true);
+        let b = policy(2, None, false);
+        let t = ticket(None);
+        let order_ab = vec![a.clone(), b.clone()];
+        let order_ba = vec![b, a];
+        assert_eq!(
+            pick_policy(&order_ab, &t, &[]).unwrap().id,
+            pick_policy(&order_ba, &t, &[]).unwrap().id,
+        );
+    }
+
     #[test]
     fn add_business_minutes_skips_holiday() {
         let cal = cal(serde_json::json!({
