@@ -1544,6 +1544,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/asset-kinds", web::get().to(handlers::asset_kinds::list))
                     .route("/admin/asset-kinds/{id}", web::get().to(handlers::asset_kinds::get))
                     .route("/admin/asset-kinds", web::post().to(handlers::asset_kinds::create))
+                    // Usage stat. Sits at /usage suffix on a numeric
+                    // {id} path so the wildcard-vs-literal shadowing
+                    // hazard (see project_actix_route_shadowing memory)
+                    // doesn't apply: both segments are constrained
+                    // numerics, no literal-vs-wildcard ambiguity.
+                    .route("/admin/asset-kinds/{id}/usage", web::get().to(handlers::asset_kinds::usage))
                     .route("/admin/asset-kinds/{id}", web::put().to(handlers::asset_kinds::update))
                     .route("/admin/asset-kinds/{id}", web::delete().to(handlers::asset_kinds::delete))
 

@@ -14,8 +14,11 @@
 //! - each property MUST be one of: string, number, integer,
 //!   boolean, array (with `items` of a primitive type)
 //! - per-property constraints: `enum`, `minLength`, `maxLength`,
-//!   `pattern`, `format` (date | date-time | email | uri),
-//!   `minimum`, `maximum`, `multipleOf`
+//!   `pattern`, `format` (date | date-time | email | uri |
+//!   user-uuid | asset-ref), `minimum`, `maximum`, `multipleOf`
+//! - `assetKind` (string) is allowed alongside `format:
+//!   "asset-ref"` to scope the reference picker on the data-
+//!   entry side; the validator itself is syntactic
 //! - object-level `additionalProperties` defaults to false
 //!
 //! Anything outside that subset is rejected with a descriptive
@@ -229,10 +232,35 @@ fn validate_property_schema(name: &str, prop: &Value) -> Result<(), AttributeSch
                         property: name.to_string(),
                         keyword: keyword.clone(),
                     })?;
-                if !matches!(f, "date" | "date-time" | "email" | "uri") {
+                // `user-uuid` and `asset-ref` are Nosdesk extensions
+                // to the JSON Schema vocabulary, both operating on
+                // string-typed values: a stored UUID for users and a
+                // stringified integer asset id for asset references.
+                // Storing asset refs as strings avoids the "what type
+                // is the FK?" question at the JSONB layer and lines
+                // up with how user-uuid is stored.
+                if !matches!(
+                    f,
+                    "date" | "date-time" | "email" | "uri" | "user-uuid" | "asset-ref"
+                ) {
                     return Err(AttributeSchemaError::UnsupportedFormat {
                         property: name.to_string(),
                         format: f.to_string(),
+                    });
+                }
+            }
+            "assetKind" => {
+                // Optional scope hint for `format: "asset-ref"`
+                // properties. Tells the data-entry picker which kind
+                // to filter on. The validator itself doesn't enforce
+                // the kind matches at write time (saves a DB lookup
+                // per attribute write); the picker only offers valid
+                // targets, and stale references behave like any other
+                // dangling FK in the absence of a real foreign key.
+                if !value.is_string() {
+                    return Err(AttributeSchemaError::UnsupportedKeyword {
+                        property: name.to_string(),
+                        keyword: keyword.clone(),
                     });
                 }
             }
@@ -366,6 +394,16 @@ fn check_string(name: &str, prop: &Value, value: &str) -> Result<(), AttributeEr
             "date-time" => chrono::DateTime::parse_from_rfc3339(value).is_ok(),
             "email" => is_email(value),
             "uri" => is_web_uri(value),
+            // Syntactic checks only: confirm the value looks like
+            // a UUID / a positive integer id. Existence is not
+            // verified against `users` / `assets` here, so deleting
+            // a referenced target leaves a stale reference rather
+            // than blocking the delete. The picker on the data-
+            // entry side only offers valid targets, so stale refs
+            // only arise from out-of-band edits; we treat them as
+            // the same shape of problem as any dangling FK.
+            "user-uuid" => uuid::Uuid::parse_str(value).is_ok(),
+            "asset-ref" => value.parse::<i32>().ok().filter(|n| *n > 0).is_some(),
             _ => true,
         };
         if !ok {
@@ -722,6 +760,97 @@ mod tests {
         assert!(matches!(
             validate_attributes(&s, &json!({"tags": ["a", 1]})),
             Err(AttributeError::WrongType { .. })
+        ));
+    }
+
+    #[test]
+    fn user_uuid_format_accepts_valid_uuid_and_rejects_garbage() {
+        let s = schema_with(
+            json!({"owner": {"type": "string", "format": "user-uuid"}}),
+            None,
+        );
+        validate_attributes(
+            &s,
+            &json!({"owner": "019dcf49-a30e-7af2-9ede-78a96a4b6832"}),
+        )
+        .unwrap();
+        assert!(matches!(
+            validate_attributes(&s, &json!({"owner": "not-a-uuid"})),
+            Err(AttributeError::BadFormat { .. })
+        ));
+        assert!(matches!(
+            validate_attributes(&s, &json!({"owner": ""})),
+            Err(AttributeError::BadFormat { .. })
+        ));
+    }
+
+    #[test]
+    fn asset_ref_format_requires_positive_integer_string() {
+        let s = schema_with(
+            json!({"docks_to": {"type": "string", "format": "asset-ref"}}),
+            None,
+        );
+        validate_attributes(&s, &json!({"docks_to": "42"})).unwrap();
+        assert!(matches!(
+            validate_attributes(&s, &json!({"docks_to": "0"})),
+            Err(AttributeError::BadFormat { .. })
+        ));
+        assert!(matches!(
+            validate_attributes(&s, &json!({"docks_to": "-5"})),
+            Err(AttributeError::BadFormat { .. })
+        ));
+        assert!(matches!(
+            validate_attributes(&s, &json!({"docks_to": "not-an-int"})),
+            Err(AttributeError::BadFormat { .. })
+        ));
+    }
+
+    #[test]
+    fn asset_ref_schema_accepts_asset_kind_scope_hint() {
+        // The `assetKind` keyword scopes the picker on the data
+        // entry side. The validator allows it next to format=asset
+        // -ref without enforcing the target exists or matches.
+        validate_schema(&json!({
+            "type": "object",
+            "properties": {
+                "docks_to": {
+                    "type": "string",
+                    "format": "asset-ref",
+                    "assetKind": "monitor"
+                }
+            }
+        }))
+        .unwrap();
+    }
+
+    #[test]
+    fn user_uuid_schema_round_trips_validate_schema() {
+        validate_schema(&json!({
+            "type": "object",
+            "properties": {
+                "primary_user": {
+                    "type": "string",
+                    "format": "user-uuid"
+                }
+            }
+        }))
+        .unwrap();
+    }
+
+    #[test]
+    fn asset_kind_keyword_rejects_non_string_value() {
+        assert!(matches!(
+            validate_schema(&json!({
+                "type": "object",
+                "properties": {
+                    "docks_to": {
+                        "type": "string",
+                        "format": "asset-ref",
+                        "assetKind": 42
+                    }
+                }
+            })),
+            Err(AttributeSchemaError::UnsupportedKeyword { .. })
         ));
     }
 }

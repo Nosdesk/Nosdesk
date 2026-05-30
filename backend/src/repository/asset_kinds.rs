@@ -63,3 +63,17 @@ pub fn update_kind(
 pub fn delete_kind(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
     diesel::delete(asset_kinds::table.find(id)).execute(conn)
 }
+
+/// Count how many asset rows currently carry `slug` as their kind
+/// discriminator. Drives the delete-usage guard on the admin page
+/// (the ConfirmModal shows "N assets currently use this kind"
+/// rather than silently orphaning rows) and the per-kind usage
+/// stat in the list view. RLS is already pinned by the calling
+/// TenantConn so the count is workspace-local automatically.
+pub fn count_assets_using_kind(conn: &mut DbConnection, slug: &str) -> QueryResult<i64> {
+    use crate::schema::assets;
+    assets::table
+        .filter(assets::kind.eq(slug))
+        .count()
+        .get_result(conn)
+}

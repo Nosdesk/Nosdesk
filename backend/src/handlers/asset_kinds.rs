@@ -112,6 +112,34 @@ pub async fn get(mut tc: TenantConn, path: web::Path<i32>, auth: AuthContext) ->
     }
 }
 
+/// `GET /api/admin/asset-kinds/{id}/usage` — returns how many
+/// asset rows currently reference this kind. The admin list view
+/// displays the count next to each row, and the delete-confirm
+/// modal surfaces it as the "you are about to orphan N rows"
+/// warning. Workspace-scoped automatically via the RLS pin on
+/// `assets`.
+pub async fn usage(mut tc: TenantConn, path: web::Path<i32>, auth: AuthContext) -> impl Responder {
+    if !auth.is_admin() {
+        return errors::forbidden("Admin required");
+    }
+    let id = path.into_inner();
+    let result: Result<(crate::models::AssetKind, i64), DieselError> = tc.run(|conn| {
+        let kind = repo::get_kind(conn, id)?;
+        let count = repo::count_assets_using_kind(conn, &kind.slug)?;
+        Ok((kind, count))
+    });
+    match result {
+        Ok((_kind, count)) => HttpResponse::Ok().json(serde_json::json!({
+            "asset_count": count,
+        })),
+        Err(DieselError::NotFound) => errors::not_found_msg(format!("Asset kind {id} not found")),
+        Err(e) => {
+            error!(id, error = %e, "failed to count asset kind usage");
+            errors::internal("Failed to count asset kind usage")
+        }
+    }
+}
+
 pub async fn create(
     mut tc: TenantConn,
     body: web::Json<CreateBody>,
