@@ -12,20 +12,13 @@
  * form for an href attribute.
  */
 
+import { escapeHtml } from '@/utils/escape';
+
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 
 // Sentence punctuation that commonly trails a URL but isn't part of it,
 // e.g. "see https://x.test/page." or "(https://x.test)".
 const TRAILING_PUNCT = /[.,;:!?)\]}'"]+$/;
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 export function linkifyText(text: string): string {
   const escaped = escapeHtml(text);

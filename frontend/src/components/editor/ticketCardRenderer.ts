@@ -3,6 +3,8 @@
  * Used by both ticketLinkPlugin and ticketDropIndicatorPlugin.
  */
 
+import { escapeHtml } from '@/utils/escape';
+
 export interface TicketCardData {
   id: number
   title: string
@@ -38,12 +40,6 @@ export function getPriorityClass(priority?: string, prefix = 'ticket-link'): str
     default:
       return ''
   }
-}
-
-export function escapeHtml(text: string): string {
-  const div = document.createElement('div')
-  div.textContent = text
-  return div.innerHTML
 }
 
 /**

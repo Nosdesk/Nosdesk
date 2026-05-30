@@ -616,6 +616,18 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-canned-responses' }
         },
         {
+          path: 'canned-responses/new',
+          name: 'admin-canned-responses-new',
+          component: () => import('../views/CannedResponseEditView.vue'),
+          meta: { titleKey: 'route-title-admin-canned-responses-new' }
+        },
+        {
+          path: 'canned-responses/:id(\\d+)',
+          name: 'admin-canned-responses-edit',
+          component: () => import('../views/CannedResponseEditView.vue'),
+          meta: { titleKey: 'route-title-admin-canned-responses-edit' }
+        },
+        {
           path: 'webhooks',
           name: 'admin-webhooks',
           component: () => import('../views/WebhooksView.vue'),

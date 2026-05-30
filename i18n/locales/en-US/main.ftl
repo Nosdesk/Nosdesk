@@ -1028,6 +1028,20 @@ admin-canned-responses-error-unknown-variables = Unknown variables: { $names }. 
 admin-canned-responses-success-created = Canned response created
 admin-canned-responses-success-updated = Canned response saved
 admin-canned-responses-success-deleted = Canned response deleted
+admin-canned-responses-browse-starters = Browse templates
+admin-canned-responses-editor-insert-label = Insert:
+admin-canned-responses-edit-back-label = Back to canned responses
+admin-canned-responses-editor-variable-aria = Variable: { $name }
+admin-canned-responses-editor-insert-variable-aria = Insert variable { $name }
+admin-canned-responses-edit-not-found = That canned response wasn't found. It may have been deleted in another tab.
+admin-canned-responses-preview-heading = Preview
+admin-canned-responses-preview-empty = Body is empty. Start typing in the editor to see the preview.
+admin-canned-responses-preview-hint = Rendered with sample values. Real tickets substitute the values the picker has at insert time.
+admin-canned-responses-starters-title = Start from a template
+admin-canned-responses-starters-description = Pick a starter as your starting point. You can edit anything before saving.
+admin-canned-responses-starters-loading = Loading starters...
+admin-canned-responses-starters-error-load = Failed to load starter templates
+admin-canned-responses-starters-use = Use this
 
 # Admin: SLA (SlaAdminView). Working calendars and SLA policies
 # side by side; both have inline create-forms.
@@ -4566,6 +4580,8 @@ route-title-admin-workflow = Workflow
 route-title-admin-asset-kinds = Asset kinds
 route-title-admin-api-tokens = API tokens
 route-title-admin-canned-responses = Canned responses
+route-title-admin-canned-responses-new = New canned response
+route-title-admin-canned-responses-edit = Edit canned response
 route-title-admin-webhooks = Webhooks
 route-title-admin-sla = SLA
 route-title-admin-plugins = Plugins

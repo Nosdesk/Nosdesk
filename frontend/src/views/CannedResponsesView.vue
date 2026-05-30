@@ -4,11 +4,12 @@
  * shared list; any tech can read in the composer picker, only
  * admins reach this page.
  *
- * Modal-based create/edit lands here as the v1 surface; a follow-up
- * commit upgrades to a full-page editor with chip-aware variable
- * tokens and a sample-data preview pane.
+ * Create / edit lives on a separate full-page route so the editor
+ * has room for chip-aware variable tokens on the left and a live
+ * preview pane on the right (see CannedResponseEditView).
  */
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import { formatDistanceToNow } from 'date-fns';
@@ -17,20 +18,21 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import FormInput from '@/components/common/FormInput.vue';
-import FormTextarea from '@/components/common/FormTextarea.vue';
 import Icon from '@/components/common/Icon.vue';
-import Modal from '@/components/Modal.vue';
+import SearchInput from '@/components/common/SearchInput.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
+import StarterCatalogModal from '@/components/cannedResponseComponents/StarterCatalogModal.vue';
 import cannedResponsesService, {
-  findUnknownVariables,
-  CANNED_RESPONSE_VARIABLES,
   type CannedResponseListItem,
+  type CannedResponseStarter,
 } from '@/services/cannedResponsesService';
+import { escapeHtml, escapeRegex } from '@/utils/escape';
+import { extractErrorMessage } from '@/utils/errors';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+const router = useRouter();
 
 // Pinia Colada keys the canned-response list. The picker will read
 // this same key in a follow-up commit so admin saves invalidate it
@@ -63,13 +65,6 @@ const searchTerms = computed<string[]>(() =>
     .map((s) => s.trim())
     .filter(Boolean),
 );
-const filtered = computed<CannedResponseListItem[]>(() => {
-  if (searchTerms.value.length === 0) return sorted.value;
-  return sorted.value.filter((r) => {
-    const haystack = `${r.title}\n${r.body}`.toLowerCase();
-    return searchTerms.value.every((term) => haystack.includes(term));
-  });
-});
 
 // Column sort. Name ascending is the default (matches every
 // competitor surveyed); click a header to switch axis or direction.
@@ -87,6 +82,13 @@ const sorted = computed<CannedResponseListItem[]>(() => {
   });
   return arr;
 });
+const filtered = computed<CannedResponseListItem[]>(() => {
+  if (searchTerms.value.length === 0) return sorted.value;
+  return sorted.value.filter((r) => {
+    const haystack = `${r.title}\n${r.body}`.toLowerCase();
+    return searchTerms.value.every((term) => haystack.includes(term));
+  });
+});
 function toggleSort(key: SortKey): void {
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
@@ -99,116 +101,47 @@ function toggleSort(key: SortKey): void {
   }
 }
 
-// Hit highlighter. Wraps matched substrings of every search term
-// in <mark> for the title column; body matches drive the filter
-// but don't render (the body is collapsed on the row).
+// Hit highlighter for the title column. Body matches drive the
+// filter but the body is shown collapsed on the row.
 function highlight(value: string): string {
   if (searchTerms.value.length === 0) return escapeHtml(value);
-  const pattern = new RegExp(
-    `(${searchTerms.value.map(escapeRegex).join('|')})`,
-    'gi',
-  );
+  const pattern = new RegExp(`(${searchTerms.value.map(escapeRegex).join('|')})`, 'gi');
   return escapeHtml(value).replace(pattern, '<mark>$1</mark>');
 }
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+// escapeHtml / escapeRegex live in utils/escape; imported above.
 
-// Editor modal. One modal handles both create and edit; `editing`
-// being null is the create case, otherwise it's the row under edit.
-const showEditor = ref(false);
-const editing = ref<CannedResponseListItem | null>(null);
-const form = ref({ title: '', body: '' });
-const isSaving = ref(false);
-const formError = ref('');
+// Mutation feedback (delete) lives in local refs. Create / update
+// feedback is owned by the editor view and surfaces on its next
+// mount via Pinia Colada invalidation.
 const successMessage = ref('');
 const errorMessage = ref('');
 
+// Browse-starters modal. Selecting a starter navigates to the
+// editor route with `?starter=<slug>` so the editor can pre-fill
+// without us having to round-trip the catalog twice.
+const showStarters = ref(false);
+function openStarters(): void {
+  showStarters.value = true;
+}
+function pickStarter(starter: CannedResponseStarter): void {
+  showStarters.value = false;
+  router.push({
+    name: 'admin-canned-responses-new',
+    query: { starter: starter.slug },
+  });
+}
+
+// Navigation helpers. Create + edit are full-page routes (full
+// editor with preview pane), not modals, so click handlers push
+// the router instead of opening overlays.
 function openCreate(): void {
-  editing.value = null;
-  form.value = { title: '', body: '' };
-  formError.value = '';
-  showEditor.value = true;
+  router.push({ name: 'admin-canned-responses-new' });
 }
 function openEdit(row: CannedResponseListItem): void {
-  editing.value = row;
-  form.value = { title: row.title, body: row.body };
-  formError.value = '';
-  showEditor.value = true;
-}
-function closeEditor(): void {
-  showEditor.value = false;
-  editing.value = null;
-  formError.value = '';
+  router.push({ name: 'admin-canned-responses-edit', params: { id: row.id } });
 }
 
-// Inline unknown-variable warning. The save round-trip would reject
-// these anyway, but surfacing them at edit time saves a round-trip
-// and points at the typo directly.
-const unknownVariables = computed<string[]>(() => findUnknownVariables(form.value.body));
-
-const editorTitle = computed(() =>
-  editing.value
-    ? t('admin-canned-responses-edit-title')
-    : t('admin-canned-responses-create-title'),
-);
-const editorSubmitLabel = computed(() =>
-  editing.value
-    ? t('admin-canned-responses-save')
-    : t('admin-canned-responses-create-submit'),
-);
-
-async function submitEditor(): Promise<void> {
-  const title = form.value.title.trim();
-  const body = form.value.body.trim();
-  if (!title) {
-    formError.value = t('admin-canned-responses-error-title-required');
-    return;
-  }
-  if (!body) {
-    formError.value = t('admin-canned-responses-error-body-required');
-    return;
-  }
-  if (unknownVariables.value.length > 0) {
-    formError.value = t('admin-canned-responses-error-unknown-variables', {
-      names: unknownVariables.value.join(', '),
-    });
-    return;
-  }
-  isSaving.value = true;
-  formError.value = '';
-  try {
-    if (editing.value) {
-      await cannedResponsesService.update(editing.value.id, { title, body });
-      successMessage.value = t('admin-canned-responses-success-updated');
-    } else {
-      await cannedResponsesService.create({ title, body });
-      successMessage.value = t('admin-canned-responses-success-created');
-    }
-    showEditor.value = false;
-    editing.value = null;
-    await queryCache.invalidateQueries({ key: CANNED_RESPONSES_KEY });
-    setTimeout(() => (successMessage.value = ''), 3000);
-  } catch (error) {
-    const axiosError = error as { response?: { data?: string } };
-    formError.value =
-      axiosError.response?.data || t('admin-canned-responses-error-save');
-  } finally {
-    isSaving.value = false;
-  }
-}
-
-// Delete confirmation. The list refresh is keyed off the same
-// Pinia Colada invalidation as edit so the row vanishes the
-// moment the request returns 2xx.
+// Delete confirmation
 const showDeleteConfirm = ref(false);
 const deleting = ref<CannedResponseListItem | null>(null);
 const isDeleting = ref(false);
@@ -227,17 +160,16 @@ async function doDelete(): Promise<void> {
     await queryCache.invalidateQueries({ key: CANNED_RESPONSES_KEY });
     setTimeout(() => (successMessage.value = ''), 3000);
   } catch (error) {
-    const axiosError = error as { response?: { data?: string } };
-    errorMessage.value =
-      axiosError.response?.data || t('admin-canned-responses-error-delete');
+    errorMessage.value = extractErrorMessage(
+      error,
+      t('admin-canned-responses-error-delete'),
+    );
     setTimeout(() => (errorMessage.value = ''), 5000);
   } finally {
     isDeleting.value = false;
   }
 }
 
-// Relative "updated 3 days ago" formatter, matches the convention
-// used by ApiTokensView for last-used / created timestamps.
 function relativeTime(iso: string): string {
   try {
     return formatDistanceToNow(new Date(iso), { addSuffix: true });
@@ -245,16 +177,12 @@ function relativeTime(iso: string): string {
     return iso;
   }
 }
-
-onMounted(() => {
-  // Query auto-fetches via useQuery; nothing else to prime here.
-});
 </script>
 
 <template>
   <div class="flex-1">
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
-      <!-- Heading + create CTA -->
+      <!-- Heading + create CTAs -->
       <div class="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 class="text-xl sm:text-2xl font-bold text-primary">
@@ -264,13 +192,18 @@ onMounted(() => {
             {{ $t('admin-canned-responses-description') }}
           </p>
         </div>
-        <Button @click="openCreate">
-          <Icon name="add" />
-          <span>{{ $t('admin-canned-responses-create') }}</span>
-        </Button>
+        <div class="flex items-center gap-2 self-start sm:self-auto">
+          <Button variant="secondary" @click="openStarters">
+            <Icon name="document" />
+            <span>{{ $t('admin-canned-responses-browse-starters') }}</span>
+          </Button>
+          <Button @click="openCreate">
+            <Icon name="add" />
+            <span>{{ $t('admin-canned-responses-create') }}</span>
+          </Button>
+        </div>
       </div>
 
-      <!-- Mutation feedback -->
       <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
       <AlertMessage
@@ -279,24 +212,12 @@ onMounted(() => {
         :message="loadError"
       />
 
-      <!-- Search input (always rendered above the list when not in
-           first-load skeleton state so admins can pre-type while
-           the list is hydrating). -->
-      <div v-if="!isFirstLoad" class="relative">
-        <Icon
-          name="search"
-          class="absolute left-3 top-1/2 -translate-y-1/2 text-secondary pointer-events-none"
-        />
-        <input
-          v-model="search"
-          type="search"
-          :placeholder="$t('admin-canned-responses-search-placeholder')"
-          :aria-label="$t('admin-canned-responses-search-aria')"
-          class="w-full pl-9 pr-3 py-2 text-sm border border-default rounded-lg bg-surface text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent/40"
-        />
-      </div>
+      <SearchInput
+        v-if="!isFirstLoad && responses.length > 0"
+        v-model="search"
+        :placeholder="$t('admin-canned-responses-search-placeholder')"
+      />
 
-      <!-- First-load skeleton -->
       <Skeleton
         v-if="isFirstLoad"
         :label="$t('admin-canned-responses-loading')"
@@ -312,16 +233,14 @@ onMounted(() => {
         </div>
       </Skeleton>
 
-      <!-- Empty state. Shown for both "library is empty" and "search
-           matched nothing"; the CTA varies by case. -->
       <EmptyState
         v-else-if="responses.length === 0"
         icon="document"
         :title="$t('admin-canned-responses-empty-title')"
         :description="$t('admin-canned-responses-empty-description')"
-        :action-label="$t('admin-canned-responses-create')"
+        :action-label="$t('admin-canned-responses-browse-starters')"
         variant="card"
-        @action="openCreate"
+        @action="openStarters"
       />
       <EmptyState
         v-else-if="filtered.length === 0"
@@ -331,13 +250,20 @@ onMounted(() => {
         variant="card"
       />
 
-      <!-- Main list, table-style with sortable column headers. -->
+      <!-- Responsive list. On sm+ the row lays out as a 4-column grid
+           with sortable headers (Name, Updated, Inserts, Actions). On
+           mobile the row flips to a stacked card with title + body
+           preview on top and a metadata + delete strip below; sort
+           headers hide because the cells no longer line up under them.
+           CSS `display: contents` on `<sm` sublayouts would have let
+           the headers stay, but the cost in code is worse than just
+           hiding them for the narrowest viewport. -->
       <div
         v-else
         class="bg-surface border border-default rounded-lg overflow-hidden"
       >
         <div
-          class="grid grid-cols-[1fr_140px_120px_56px] text-xs uppercase tracking-wide text-secondary border-b border-default"
+          class="hidden sm:grid sm:grid-cols-[1fr_140px_120px_56px] text-xs uppercase tracking-wide text-secondary border-b border-default"
         >
           <button
             class="text-left px-4 py-2 hover:bg-surface-hover flex items-center gap-1"
@@ -363,8 +289,8 @@ onMounted(() => {
           </button>
           <button
             class="text-right px-4 py-2 hover:bg-surface-hover flex items-center justify-end gap-1"
-            @click="toggleSort('inserts')"
             :title="$t('admin-canned-responses-column-inserts-title')"
+            @click="toggleSort('inserts')"
           >
             {{ $t('admin-canned-responses-column-inserts') }}
             <Icon
@@ -378,81 +304,54 @@ onMounted(() => {
         <div
           v-for="row in filtered"
           :key="row.id"
-          class="grid grid-cols-[1fr_140px_120px_56px] items-center border-b border-default last:border-b-0 hover:bg-surface-hover transition-colors"
+          class="flex flex-col sm:grid sm:grid-cols-[1fr_140px_120px_56px] sm:items-center border-b border-default last:border-b-0 hover:bg-surface-hover transition-colors"
         >
-          <button
-            class="text-left px-4 py-3 min-w-0"
-            @click="openEdit(row)"
-          >
+          <button class="text-left px-4 pt-3 pb-1 sm:py-3 min-w-0" @click="openEdit(row)">
             <div class="font-medium text-primary truncate" v-html="highlight(row.title)" />
             <div class="text-xs text-tertiary truncate mt-0.5">
               {{ row.body.length > 120 ? row.body.slice(0, 120) + '…' : row.body }}
             </div>
           </button>
-          <div class="px-4 py-3 text-sm text-secondary">
-            {{ relativeTime(row.updated_at) }}
-          </div>
-          <div class="px-4 py-3 text-sm text-secondary text-right tabular-nums">
-            {{ row.inserts_30d }}
-          </div>
-          <div class="px-2 py-3 flex justify-end">
-            <button
-              class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md transition-colors"
-              :title="$t('admin-canned-responses-delete-title')"
-              :aria-label="$t('admin-canned-responses-delete-aria', { name: row.title })"
-              @click="confirmDelete(row)"
+          <!-- Mobile-only meta strip: updated + inserts inline below
+               the name, with the delete button at the far right. On
+               sm+ this whole strip dissolves and each child sits in
+               its own grid cell. -->
+          <div
+            class="flex items-center gap-3 px-4 pb-3 sm:pb-0 sm:contents text-xs text-tertiary"
+          >
+            <span
+              class="sm:px-4 sm:py-3 sm:text-sm sm:text-secondary"
             >
-              <Icon name="trash" />
-            </button>
+              <span class="sm:hidden">{{ $t('admin-canned-responses-column-updated') }}: </span>
+              {{ relativeTime(row.updated_at) }}
+            </span>
+            <span
+              class="sm:px-4 sm:py-3 sm:text-sm sm:text-secondary sm:text-right sm:tabular-nums"
+            >
+              <span class="sm:hidden">{{ $t('admin-canned-responses-column-inserts') }}: </span>
+              {{ row.inserts_30d }}
+            </span>
+            <div class="ml-auto sm:ml-0 sm:px-2 sm:py-3 sm:flex sm:justify-end">
+              <button
+                class="p-1.5 text-secondary hover:text-status-error hover:bg-status-error/10 rounded-md transition-colors"
+                :title="$t('admin-canned-responses-delete-title')"
+                :aria-label="$t('admin-canned-responses-delete-aria', { name: row.title })"
+                @click="confirmDelete(row)"
+              >
+                <Icon name="trash" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Create / edit modal -->
-    <Modal :show="showEditor" :title="editorTitle" size="lg" @close="closeEditor">
-      <form class="flex flex-col gap-4" @submit.prevent="submitEditor">
-        <AlertMessage v-if="formError" type="error" :message="formError" />
-        <FormInput
-          v-model="form.title"
-          :label="$t('admin-canned-responses-field-title')"
-          :placeholder="$t('admin-canned-responses-field-title-placeholder')"
-          required
-        />
-        <FormTextarea
-          v-model="form.body"
-          :label="$t('admin-canned-responses-field-body')"
-          :placeholder="$t('admin-canned-responses-field-body-placeholder')"
-          :hint="
-            $t('admin-canned-responses-field-body-hint', {
-              variables: CANNED_RESPONSE_VARIABLES.map((v) => '{{' + v + '}}').join(', '),
-            })
-          "
-          :rows="10"
-          required
-        />
-        <div
-          v-if="unknownVariables.length > 0"
-          class="text-xs text-status-warning"
-        >
-          {{
-            $t('admin-canned-responses-warn-unknown-variables', {
-              names: unknownVariables.join(', '),
-            })
-          }}
-        </div>
-        <div class="flex justify-end gap-2">
-          <Button variant="secondary" type="button" @click="closeEditor">
-            {{ $t('admin-canned-responses-cancel') }}
-          </Button>
-          <Button type="submit" :loading="isSaving">
-            {{ editorSubmitLabel }}
-          </Button>
-        </div>
-      </form>
-    </Modal>
+    <StarterCatalogModal
+      :show="showStarters"
+      @close="showStarters = false"
+      @select="pickStarter"
+    />
 
-    <!-- Delete confirmation -->
     <ConfirmModal
       :show="showDeleteConfirm"
       variant="danger"
