@@ -20,7 +20,8 @@ import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
 import { getAssetById, updateAsset, createAsset, deleteAsset, unmanageAsset } from '@/services/assetService';
-import { assetKindsService, type AssetKind } from '@/services/assetKindsService';
+import { type AssetKind } from '@/services/assetKindsService';
+import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 import { useSSEListeners } from '@/composables/useSSEListeners';
 import type { DeviceUpdatedEventData, DeviceDeletedEventData } from '@/types/sse';
 import type { Asset, AssetFormData } from '@/types/asset';
@@ -60,7 +61,13 @@ const editValues = ref({
 // picker is populated before the create form renders; in edit
 // mode it backs the read-only "Kind" row at the bottom of the
 // details card.
-const kinds = ref<AssetKind[]>([]);
+// Shared Pinia Colada cache so an admin edit on /admin/asset-kinds
+// invalidates this picker without us having to manually re-fetch.
+// Cold-start (no cached data) falls back to a single hard-coded
+// 'device' option below via the same defensive guard the previous
+// onMounted+try/catch had.
+const { kinds: kindsRef, error: kindsError } = useAssetKindsQuery();
+const kinds = computed<AssetKind[]>(() => kindsRef.value);
 const selectedKindSlug = ref<string>('device');
 const attributeDraft = ref<Record<string, unknown>>({});
 
@@ -72,16 +79,15 @@ const selectedKindSchema = computed(
   () => (selectedKind.value?.attribute_schema as Record<string, unknown>) ?? null,
 );
 
-async function loadKinds() {
-  try {
-    kinds.value = await assetKindsService.list();
-  } catch (err) {
-    // Non-fatal: fall back to a single hard-coded 'device' option
-    // so the form still functions for non-admins or if the
-    // endpoint is unavailable.
+// kinds are auto-fetched by useAssetKindsQuery; on error the
+// computed `kinds` ref stays empty and the picker falls back to
+// the static 'device' default below, preserving the previous
+// "non-fatal for non-admins / endpoint outage" behaviour.
+watch(kindsError, (err) => {
+  if (err) {
     console.warn('asset-kinds list failed; defaulting to device only', err);
   }
-}
+});
 
 // Computed
 const isCreationMode = computed(() => !route.params.id || route.params.id === 'new');
@@ -443,7 +449,6 @@ on('asset-deleted', (data) => {
 
 // Lifecycle
 onMounted(() => {
-  loadKinds();
   fetchDeviceData();
 });
 </script>

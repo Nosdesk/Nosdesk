@@ -58,6 +58,13 @@ export interface UpdateAssetKindBody {
   category?: AssetKindCategory
 }
 
+/** Shape of `GET /admin/asset-kinds/{id}/usage`. The admin list
+ *  surfaces the count next to each row and the delete-confirm
+ *  modal warns when it's non-zero. */
+export interface AssetKindUsage {
+  asset_count: number
+}
+
 export const assetKindsService = {
   async list(): Promise<AssetKind[]> {
     const { data } = await apiClient.get<AssetKind[]>('/admin/asset-kinds')
@@ -86,4 +93,18 @@ export const assetKindsService = {
   async delete(id: number): Promise<void> {
     await apiClient.delete(`/admin/asset-kinds/${id}`)
   },
+
+  async getUsage(id: number): Promise<AssetKindUsage> {
+    const { data } = await apiClient.get<AssetKindUsage>(`/admin/asset-kinds/${id}/usage`)
+    return data
+  },
 }
+
+/**
+ * Stable Pinia Colada cache key for the asset-kinds list. Shared
+ * by the admin CRUD page and any consumer that needs to render a
+ * picker against the registry (asset detail view, future ticket-
+ * asset linker), so an admin save invalidates every open view
+ * in one shot rather than each consumer re-fetching on mount.
+ */
+export const ASSET_KINDS_QUERY_KEY = ['asset-kinds'] as const
