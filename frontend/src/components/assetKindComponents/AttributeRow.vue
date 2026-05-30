@@ -15,6 +15,7 @@ import { useFluent } from 'fluent-vue';
 
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import FormInput from '@/components/common/FormInput.vue';
+import FormNumber from '@/components/common/FormNumber.vue';
 import Icon from '@/components/common/Icon.vue';
 import {
   ATTRIBUTE_KINDS_ORDERED,
@@ -180,21 +181,19 @@ const assetScopeOptions = computed(() => [
             : t('asset-kind-attribute-row-name-hint')
         "
         class="flex-1 min-w-[160px]"
+        size="sm"
         @update:model-value="(v) => patch({ name: v })"
       />
 
-      <div class="flex flex-col gap-1 text-sm w-44 shrink-0">
-        <span class="font-medium text-primary">
-          {{ t('asset-kind-attribute-row-kind') }}
-        </span>
-        <BaseDropdown
-          :model-value="modelValue.kind"
-          :options="kindOptions"
-          :disabled="isRaw"
-          size="sm"
-          @update:model-value="(v) => onKindChange(v as AttributeKind)"
-        />
-      </div>
+      <BaseDropdown
+        :model-value="modelValue.kind"
+        :options="kindOptions"
+        :label="t('asset-kind-attribute-row-kind')"
+        :disabled="isRaw"
+        size="sm"
+        class="w-44 shrink-0"
+        @update:model-value="(v) => onKindChange(v as AttributeKind)"
+      />
 
       <label
         class="flex items-center gap-2 text-sm self-end pb-1.5 cursor-pointer"
@@ -233,21 +232,14 @@ const assetScopeOptions = computed(() => [
 
     <!-- Text-only: maxLength + pattern. -->
     <div v-if="isText" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <label class="flex flex-col gap-1 text-sm">
-        <span class="font-medium text-primary">
-          {{ t('asset-kind-attribute-row-max-length') }}
-        </span>
-        <input
-          type="number"
-          min="1"
-          :value="modelValue.maxLength ?? ''"
-          class="block w-full py-1.5 px-2 text-sm rounded-lg bg-surface-alt border border-default text-primary placeholder-tertiary hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          @input="(e) => {
-            const v = (e.target as HTMLInputElement).value;
-            patch({ maxLength: v ? Number(v) : undefined });
-          }"
-        />
-      </label>
+      <FormNumber
+        :model-value="modelValue.maxLength ?? null"
+        :label="t('asset-kind-attribute-row-max-length')"
+        size="sm"
+        integer
+        :min="1"
+        @update:model-value="(v) => patch({ maxLength: v ?? undefined })"
+      />
       <FormInput
         :model-value="modelValue.pattern ?? ''"
         :label="t('asset-kind-attribute-row-pattern')"
@@ -257,56 +249,38 @@ const assetScopeOptions = computed(() => [
       />
     </div>
 
-    <!-- Numeric: minimum + maximum. -->
+    <!-- Numeric: minimum + maximum. Decimal kind allows fractions;
+         integer kind enforces whole numbers via the `integer` prop. -->
     <div v-if="numericFields" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <label class="flex flex-col gap-1 text-sm">
-        <span class="font-medium text-primary">
-          {{ t('asset-kind-attribute-row-minimum') }}
-        </span>
-        <input
-          type="number"
-          :value="modelValue.minimum ?? ''"
-          class="block w-full py-1.5 px-2 text-sm rounded-lg bg-surface-alt border border-default text-primary placeholder-tertiary hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          @input="(e) => {
-            const v = (e.target as HTMLInputElement).value;
-            patch({ minimum: v ? Number(v) : undefined });
-          }"
-        />
-      </label>
-      <label class="flex flex-col gap-1 text-sm">
-        <span class="font-medium text-primary">
-          {{ t('asset-kind-attribute-row-maximum') }}
-        </span>
-        <input
-          type="number"
-          :value="modelValue.maximum ?? ''"
-          class="block w-full py-1.5 px-2 text-sm rounded-lg bg-surface-alt border border-default text-primary placeholder-tertiary hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          @input="(e) => {
-            const v = (e.target as HTMLInputElement).value;
-            patch({ maximum: v ? Number(v) : undefined });
-          }"
-        />
-      </label>
+      <FormNumber
+        :model-value="modelValue.minimum ?? null"
+        :label="t('asset-kind-attribute-row-minimum')"
+        size="sm"
+        :integer="modelValue.kind === 'number'"
+        @update:model-value="(v) => patch({ minimum: v ?? undefined })"
+      />
+      <FormNumber
+        :model-value="modelValue.maximum ?? null"
+        :label="t('asset-kind-attribute-row-maximum')"
+        size="sm"
+        :integer="modelValue.kind === 'number'"
+        @update:model-value="(v) => patch({ maximum: v ?? undefined })"
+      />
     </div>
 
     <!-- Asset reference: optional scope to a specific asset kind.
          Empty scope means the picker offers all assets across all
          kinds. Source list comes from the registry so admin renames
          flow through on next mount. -->
-    <div v-if="isAssetRef" class="flex flex-col gap-1 text-sm">
-      <span class="font-medium text-primary">
-        {{ t('asset-kind-attribute-row-asset-scope') }}
-      </span>
-      <BaseDropdown
-        :model-value="modelValue.assetKindScope ?? ''"
-        :options="assetScopeOptions"
-        size="sm"
-        @update:model-value="(v) => patch({ assetKindScope: (v as string) || undefined })"
-      />
-      <span class="text-xs text-tertiary">
-        {{ t('asset-kind-attribute-row-asset-scope-hint') }}
-      </span>
-    </div>
+    <BaseDropdown
+      v-if="isAssetRef"
+      :model-value="modelValue.assetKindScope ?? ''"
+      :options="assetScopeOptions"
+      :label="t('asset-kind-attribute-row-asset-scope')"
+      :description="t('asset-kind-attribute-row-asset-scope-hint')"
+      size="sm"
+      @update:model-value="(v) => patch({ assetKindScope: (v as string) || undefined })"
+    />
 
     <!-- Select / Multi-select: enum value editor. -->
     <div v-if="isEnumKind" class="flex flex-col gap-2">

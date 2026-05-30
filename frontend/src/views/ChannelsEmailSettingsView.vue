@@ -142,13 +142,14 @@
               autocomplete="off"
             />
 
-            <FormInput
-              v-model="portStr"
-              type="number"
+            <FormNumber
+              :model-value="form.port"
               :label="$t('admin-channels-email-field-port-label')"
               :description="$t('admin-channels-email-field-port-hint')"
-              min="1"
-              max="65535"
+              integer
+              :min="1"
+              :max="65535"
+              @update:model-value="(v) => (form.port = v ?? DEFAULT_CONFIG.port)"
             />
 
             <FormInput
@@ -332,6 +333,7 @@ import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import FormInput from '@/components/common/FormInput.vue';
+import FormNumber from '@/components/common/FormNumber.vue';
 import {
   channelsService,
   type Channel,
@@ -466,17 +468,11 @@ watch(
   { immediate: true },
 );
 
-// Port comes from the FormInput as a string (its defineModel is
-// string-typed); we still want a numeric on the wire and in the
-// dirty-check. Bridge with a computed get/set so the form schema
-// stays `port: number` end-to-end.
-const portStr = computed<string>({
-  get: () => String(form.value.port),
-  set: (v) => {
-    const n = Number(v);
-    form.value.port = Number.isFinite(n) && n > 0 ? n : DEFAULT_CONFIG.port;
-  },
-});
+// Port is now bound directly through FormNumber, which is
+// number-typed end-to-end. The old portStr string bridge that
+// existed for FormInput's string-typed defineModel is no longer
+// needed; the empty-clear case falls back to DEFAULT_CONFIG.port
+// inline in the @update:model-value handler.
 
 const runtimeState = computed<ImapRuntimeState>(() => {
   if (!channel.value) return {};

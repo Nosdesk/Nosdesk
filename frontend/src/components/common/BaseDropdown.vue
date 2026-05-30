@@ -7,7 +7,7 @@
  * file is the dropdown's actual job: trigger rendering, option
  * rendering, multi-select wiring, keyboard navigation.
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import ResponsiveMenu from './ResponsiveMenu.vue'
 import Icon from './Icon.vue'
 
@@ -36,6 +36,20 @@ const props = withDefaults(
     disabled?: boolean
     size?: 'xs' | 'sm' | 'md' | 'lg'
     multiple?: boolean
+    /** Optional label rendered above the trigger in the same
+     * uppercase-tertiary shell as FormInput / FormNumber, so a
+     * dropdown sitting alongside text inputs in a form looks
+     * coherent without the consumer wrapping it in a hand-rolled
+     * `<label>`. */
+    label?: string
+    /** Helper text shown below the trigger. */
+    description?: string
+    /** Error text shown below the trigger; flags the trigger as
+     * invalid via aria-invalid + a red border. */
+    error?: string
+    /** Marks the field required for the label asterisk; the
+     * dropdown itself doesn't enforce a non-empty selection. */
+    required?: boolean
   }>(),
   {
     placeholder: 'Select an option',
@@ -53,6 +67,11 @@ const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const menuContentRef = ref<HTMLElement | null>(null)
 const highlightedIndex = ref(-1)
+const generatedId = useId()
+const triggerId = computed(() => `dropdown-${generatedId}`)
+const describedById = computed(() =>
+  props.error || props.description ? `${triggerId.value}-desc` : undefined,
+)
 
 // Anchor descriptor passed to <Popover>. The function form keeps
 // the lookup live so the popover repositions correctly even if
@@ -218,23 +237,36 @@ watch(highlightedIndex, async (index) => {
 </script>
 
 <template>
-  <div class="relative" ref="triggerRef">
-    <button
-      type="button"
-      @click="toggleDropdown"
-      @keydown="handleKeydown"
-      :disabled="disabled"
-      :aria-expanded="isOpen"
-      :aria-haspopup="true"
-      class="w-full bg-surface-alt border border-default rounded-lg text-left flex items-center justify-between transition-all duration-200"
-      :class="[
-        sizeClasses.button,
-        disabled
-          ? 'opacity-50 cursor-not-allowed'
-          : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
-        isOpen && !disabled ? 'border-accent ring-1 ring-accent' : '',
-      ]"
+  <div class="flex flex-col gap-1.5">
+    <label
+      v-if="label"
+      :for="triggerId"
+      class="text-xs font-medium text-tertiary uppercase tracking-wide"
     >
+      {{ label
+      }}<span v-if="required" class="text-status-error ml-0.5" aria-hidden="true">*</span>
+    </label>
+    <div class="relative" ref="triggerRef">
+      <button
+        :id="triggerId"
+        type="button"
+        @click="toggleDropdown"
+        @keydown="handleKeydown"
+        :disabled="disabled"
+        :aria-expanded="isOpen"
+        :aria-haspopup="true"
+        :aria-invalid="error ? 'true' : undefined"
+        :aria-describedby="describedById"
+        class="w-full bg-surface-alt border rounded-lg text-left flex items-center justify-between transition-all duration-200"
+        :class="[
+          sizeClasses.button,
+          error ? 'border-status-error' : 'border-subtle',
+          disabled
+            ? 'opacity-50 cursor-not-allowed'
+            : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
+          isOpen && !disabled ? 'border-accent ring-1 ring-accent' : '',
+        ]"
+      >
       <span
         class="truncate flex items-center gap-2 min-w-0"
         :class="hasSelection ? 'text-primary' : 'text-tertiary'"
@@ -372,5 +404,10 @@ watch(highlightedIndex, async (index) => {
         </button>
       </div>
     </ResponsiveMenu>
+    </div>
+    <p v-if="error" :id="describedById" class="text-xs text-status-error">{{ error }}</p>
+    <p v-else-if="description" :id="describedById" class="text-xs text-tertiary">
+      {{ description }}
+    </p>
   </div>
 </template>

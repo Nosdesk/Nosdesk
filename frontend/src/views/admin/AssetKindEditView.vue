@@ -38,6 +38,7 @@ import { useToastStore } from '@/stores/toast';
 import { RouterLink } from 'vue-router';
 import AttributeEditor from '@/components/assetKindComponents/AttributeEditor.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
+import FormNumber from '@/components/common/FormNumber.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -337,6 +338,16 @@ const categoryOptions = computed(() =>
     label: t(`admin-asset-kinds-category-${c}`),
   })),
 );
+
+// FormNumber emits `number | null`; the form state requires a
+// number, so the bridge falls back to 0 (the natural "first in
+// sort order" value) when the admin clears the field.
+const sortOrderModel = computed<number | null>({
+  get: () => form.value.sort_order,
+  set: (v) => {
+    form.value.sort_order = v ?? 0;
+  },
+});
 </script>
 
 <template>
@@ -407,32 +418,22 @@ const categoryOptions = computed(() =>
             v-model="form.icon"
             :label="t('admin-asset-kinds-field-icon')"
             :hint="t('admin-asset-kinds-field-icon-hint')"
+            size="sm"
           />
-          <!-- sort_order: number bound via v-model.number on a raw
-               input because FormInput is string-typed; the integer
-               edge case is small enough not to warrant a numeric
-               variant of the primitive yet. -->
-          <label class="flex flex-col gap-1 text-sm">
-            <span class="font-medium text-primary">
-              {{ t('admin-asset-kinds-field-sort-order') }}
-            </span>
-            <input
-              v-model.number="form.sort_order"
-              type="number"
-              class="block w-full py-1.5 px-2 text-sm rounded-lg bg-surface-alt border border-default text-primary placeholder-tertiary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            />
-          </label>
-          <label class="flex flex-col gap-1 text-sm">
-            <span class="font-medium text-primary">
-              {{ t('admin-asset-kinds-field-category') }}
-            </span>
-            <BaseDropdown
-              :model-value="form.category"
-              :options="categoryOptions"
-              size="sm"
-              @update:model-value="(v) => (form.category = v as typeof form.category)"
-            />
-          </label>
+          <FormNumber
+            v-model="sortOrderModel"
+            :label="t('admin-asset-kinds-field-sort-order')"
+            size="sm"
+            integer
+            :min="0"
+          />
+          <BaseDropdown
+            :model-value="form.category"
+            :options="categoryOptions"
+            :label="t('admin-asset-kinds-field-category')"
+            size="sm"
+            @update:model-value="(v) => (form.category = v as typeof form.category)"
+          />
         </div>
 
         <div class="flex flex-col gap-2">

@@ -9,6 +9,7 @@ import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import Icon from '@/components/common/Icon.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
+import FormNumber from '@/components/common/FormNumber.vue';
 import Modal from '@/components/Modal.vue';
 import apiTokenService from '@/services/apiTokenService';
 import userService from '@/services/userService';
@@ -380,12 +381,14 @@ onMounted(() => {
             class="mb-2"
           />
           <div v-if="!noExpiration" class="flex items-center gap-2">
-            <input
-              v-model.number="tokenForm.expires_in_days"
-              type="number"
-              min="1"
-              max="365"
-              class="w-24 px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
+            <FormNumber
+              :model-value="tokenForm.expires_in_days ?? null"
+              size="sm"
+              integer
+              :min="1"
+              :max="365"
+              class="w-40 shrink-0"
+              @update:model-value="(v) => (tokenForm.expires_in_days = v ?? 90)"
             />
             <span class="text-sm text-secondary">{{ $t('admin-api-tokens-modal-expires-days-suffix') }}</span>
           </div>

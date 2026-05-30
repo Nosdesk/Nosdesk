@@ -46,6 +46,7 @@ import Button from '@/components/common/Button.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import FormInput from '@/components/common/FormInput.vue'
+import FormNumber from '@/components/common/FormNumber.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
 import Modal from '@/components/Modal.vue'
@@ -1053,24 +1054,22 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
                 </option>
               </select>
             </label>
-            <label class="flex flex-col gap-1.5">
-              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-response') }}</span>
-              <input
-                v-model.number="policyDraft.target_response_minutes"
-                type="number"
-                min="0"
-                :class="FIELD_CLASS_SM"
-              />
-            </label>
-            <label class="flex flex-col gap-1.5">
-              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-resolution') }}</span>
-              <input
-                v-model.number="policyDraft.target_resolution_minutes"
-                type="number"
-                min="0"
-                :class="FIELD_CLASS_SM"
-              />
-            </label>
+            <FormNumber
+              :model-value="policyDraft.target_response_minutes ?? null"
+              :label="$t('admin-sla-field-response')"
+              size="sm"
+              integer
+              :min="0"
+              @update:model-value="(v) => (policyDraft.target_response_minutes = v ?? undefined)"
+            />
+            <FormNumber
+              :model-value="policyDraft.target_resolution_minutes ?? null"
+              :label="$t('admin-sla-field-resolution')"
+              size="sm"
+              integer
+              :min="0"
+              @update:model-value="(v) => (policyDraft.target_resolution_minutes = v ?? undefined)"
+            />
           </div>
         </fieldset>
 

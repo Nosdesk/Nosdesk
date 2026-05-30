@@ -18,7 +18,7 @@
  * it goes in `MultiSelectCombobox.vue` — same logic, different
  * selection wiring — rather than back into here.
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import ResponsiveMenu from './ResponsiveMenu.vue'
 import Icon from './Icon.vue'
@@ -35,6 +35,13 @@ const props = withDefaults(
     emptyMessage?: string
     disabled?: boolean
     size?: 'xs' | 'sm' | 'md' | 'lg'
+    /** Optional label rendered above the trigger in the same shell
+     * as FormInput / FormNumber / BaseDropdown. See BaseDropdown
+     * for the rationale. */
+    label?: string
+    description?: string
+    error?: string
+    required?: boolean
   }>(),
   {
     placeholder: undefined,
@@ -50,6 +57,11 @@ const emit = defineEmits<{
 }>()
 
 const fluent = useFluent()
+const generatedId = useId()
+const triggerId = computed(() => `searchable-dropdown-${generatedId}`)
+const describedById = computed(() =>
+  props.error || props.description ? `${triggerId.value}-desc` : undefined,
+)
 const resolvedPlaceholder = computed(() => props.placeholder ?? fluent.$t('common-dropdown-select-placeholder'))
 const resolvedSearchPlaceholder = computed(() => props.searchPlaceholder ?? fluent.$t('common-search-placeholder'))
 const resolvedEmptyMessage = computed(() => props.emptyMessage ?? fluent.$t('common-dropdown-empty-message'))
@@ -201,23 +213,36 @@ watch(highlightedIndex, async (index) => {
 </script>
 
 <template>
-  <div class="relative" ref="triggerRef">
-    <button
-      type="button"
-      @click="toggleDropdown"
-      @keydown="handleTriggerKeydown"
-      :disabled="disabled"
-      :aria-expanded="isOpen"
-      :aria-haspopup="true"
-      class="w-full bg-surface-alt border border-default rounded-lg text-left flex items-center justify-between transition-all duration-200"
-      :class="[
-        sizeClasses.button,
-        disabled
-          ? 'opacity-50 cursor-not-allowed'
-          : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
-        isOpen && !disabled ? 'border-accent ring-1 ring-accent' : '',
-      ]"
+  <div class="flex flex-col gap-1.5">
+    <label
+      v-if="label"
+      :for="triggerId"
+      class="text-xs font-medium text-tertiary uppercase tracking-wide"
     >
+      {{ label
+      }}<span v-if="required" class="text-status-error ml-0.5" aria-hidden="true">*</span>
+    </label>
+    <div class="relative" ref="triggerRef">
+      <button
+        :id="triggerId"
+        type="button"
+        @click="toggleDropdown"
+        @keydown="handleTriggerKeydown"
+        :disabled="disabled"
+        :aria-expanded="isOpen"
+        :aria-haspopup="true"
+        :aria-invalid="error ? 'true' : undefined"
+        :aria-describedby="describedById"
+        class="w-full bg-surface-alt border rounded-lg text-left flex items-center justify-between transition-all duration-200"
+        :class="[
+          sizeClasses.button,
+          error ? 'border-status-error' : 'border-subtle',
+          disabled
+            ? 'opacity-50 cursor-not-allowed'
+            : 'hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent cursor-pointer',
+          isOpen && !disabled ? 'border-accent ring-1 ring-accent' : '',
+        ]"
+      >
       <span
         class="truncate flex items-center gap-2 min-w-0"
         :class="hasSelection ? 'text-primary' : 'text-tertiary'"
@@ -326,5 +351,10 @@ watch(highlightedIndex, async (index) => {
         </div>
       </div>
     </ResponsiveMenu>
+    </div>
+    <p v-if="error" :id="describedById" class="text-xs text-status-error">{{ error }}</p>
+    <p v-else-if="description" :id="describedById" class="text-xs text-tertiary">
+      {{ description }}
+    </p>
   </div>
 </template>

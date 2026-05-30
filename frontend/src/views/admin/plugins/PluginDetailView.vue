@@ -22,6 +22,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import Modal from '@/components/Modal.vue';
 import Button from '@/components/common/Button.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
+import FormNumber from '@/components/common/FormNumber.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import PluginIcon from '@/components/plugins/PluginIcon.vue';
 import PluginStateBadge from '@/components/plugins/PluginStateBadge.vue';
@@ -417,12 +418,12 @@ const saveButtonLabel = computed(() =>
               </div>
             </div>
 
-            <input
+            <FormNumber
               v-else-if="def.type === 'number'"
               :id="`setting-${def.key}`"
-              v-model.number="settingValues[def.key]"
-              type="number"
-              class="w-full rounded-lg border border-default bg-surface-alt px-3 py-2 text-primary focus:border-transparent focus:ring-2 focus:ring-accent focus:outline-none"
+              :model-value="(settingValues[def.key] as number | null | undefined) ?? null"
+              size="sm"
+              @update:model-value="(v) => (settingValues[def.key] = v)"
             />
 
             <Checkbox
