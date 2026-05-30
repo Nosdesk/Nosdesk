@@ -702,6 +702,32 @@ admin-asset-kinds-error-bad-schema-json = Attribute schema is not valid JSON: { 
 admin-asset-kinds-delete-confirm-title = Delete asset kind?
 admin-asset-kinds-delete-confirm = Delete "{ $label }"? Any existing assets with this kind will keep the value, but you will not be able to create new ones until you add the kind back.
 
+# Asset Kinds — additions for the list/editor split (registry
+# polish pass). The list view shows builtin + custom groups with
+# search + usage-aware delete; create + edit live on a dedicated
+# editor route.
+admin-asset-kinds-new = New kind
+admin-asset-kinds-back-label = Back to asset kinds
+admin-asset-kinds-search-placeholder = Search by label, slug, or description...
+admin-asset-kinds-loading = Loading asset kinds...
+admin-asset-kinds-empty-title = No asset kinds yet
+admin-asset-kinds-empty-description = Create your first asset kind to describe what your team tracks.
+admin-asset-kinds-no-matches-title = No matching kinds
+admin-asset-kinds-no-matches-description = Nothing matches "{ $query }". Try a different word.
+admin-asset-kinds-updated = Updated { $when }
+admin-asset-kinds-delete-aria = Delete kind { $label }
+admin-asset-kinds-delete-confirm-zero = Delete "{ $label }"? No assets currently use this kind.
+admin-asset-kinds-delete-confirm-with-count = Delete "{ $label }"? { $count } existing asset(s) reference this kind. They will keep the slug value, but you won't be able to create new ones until the kind is added back.
+admin-asset-kinds-builtin-no-delete = Built-in kinds can't be deleted
+admin-asset-kinds-create-title = New asset kind
+admin-asset-kinds-edit-title = Edit asset kind
+admin-asset-kinds-edit-not-found = That asset kind wasn't found. It may have been deleted in another tab.
+admin-asset-kinds-prettify = Prettify JSON
+admin-asset-kinds-field-slug-hint = Lowercase letters, digits, and underscores. Used internally; cannot be changed once the kind exists.
+admin-asset-kinds-field-slug-locked = Slug is locked after creation so existing asset rows keep resolving.
+admin-asset-kinds-field-icon-hint = Optional icon name (e.g. "monitor", "phone"). Shown in the asset picker.
+admin-asset-kinds-field-attribute-schema-hint = JSON Schema subset. A typed schema builder replaces this in the next release.
+
 # Admin chrome — sidebar header, search, breadcrumb, index page
 # title and copy, group labels and 19 nav items (title + blurb).
 admin-back-to-dashboard = Back to Dashboard
@@ -4579,6 +4605,8 @@ route-title-admin-categories = Categories
 route-title-admin-assignment-rules = Assignment rules
 route-title-admin-workflow = Workflow
 route-title-admin-asset-kinds = Asset kinds
+route-title-admin-asset-kinds-new = New asset kind
+route-title-admin-asset-kinds-edit = Edit asset kind
 route-title-admin-api-tokens = API tokens
 route-title-admin-canned-responses = Canned responses
 route-title-admin-canned-responses-new = New canned response

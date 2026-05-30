@@ -604,6 +604,18 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-asset-kinds' }
         },
         {
+          path: 'asset-kinds/new',
+          name: 'admin-asset-kinds-new',
+          component: () => import('../views/admin/AssetKindEditView.vue'),
+          meta: { titleKey: 'route-title-admin-asset-kinds-new' }
+        },
+        {
+          path: 'asset-kinds/:id(\\d+)',
+          name: 'admin-asset-kinds-edit',
+          component: () => import('../views/admin/AssetKindEditView.vue'),
+          meta: { titleKey: 'route-title-admin-asset-kinds-edit' }
+        },
+        {
           path: 'api-tokens',
           name: 'admin-api-tokens',
           component: () => import('../views/ApiTokensView.vue'),
