@@ -31,6 +31,7 @@ export type AttributeKind =
   | 'datetime'
   | 'select'
   | 'multi_select'
+  | 'user'
   | 'raw';
 
 export const ATTRIBUTE_KINDS_ORDERED: Exclude<AttributeKind, 'raw'>[] = [
@@ -44,6 +45,7 @@ export const ATTRIBUTE_KINDS_ORDERED: Exclude<AttributeKind, 'raw'>[] = [
   'datetime',
   'select',
   'multi_select',
+  'user',
 ];
 
 export interface AttributeDef {
@@ -185,6 +187,14 @@ function propToDef(
         description: stringOrUndefined(prop.description),
       };
     }
+    if (format === 'user-uuid') {
+      return {
+        name,
+        kind: 'user',
+        required,
+        description: stringOrUndefined(prop.description),
+      };
+    }
     if (format === 'uri') {
       return {
         name,
@@ -274,6 +284,8 @@ function defToProp(def: AttributeDef): Record<string, unknown> {
       return { ...base, type: 'string', format: 'date' };
     case 'datetime':
       return { ...base, type: 'string', format: 'date-time' };
+    case 'user':
+      return { ...base, type: 'string', format: 'user-uuid' };
     case 'number': {
       const out: Record<string, unknown> = { ...base, type: 'integer' };
       if (def.minimum != null) out.minimum = def.minimum;

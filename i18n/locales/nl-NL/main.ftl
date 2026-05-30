@@ -698,7 +698,11 @@ asset-kind-attribute-kind-date = Datum
 asset-kind-attribute-kind-datetime = Datum en tijd
 asset-kind-attribute-kind-select = Eén keuze
 asset-kind-attribute-kind-multi_select = Meerdere keuzes
+asset-kind-attribute-kind-user = Gebruikersverwijzing
 asset-kind-attribute-kind-raw = Aangepast (alleen-lezen)
+asset-kind-attribute-user-loading = Gebruikers laden...
+asset-kind-attribute-user-none = Geen gebruiker geselecteerd
+asset-kind-attribute-user-load-error = Kan gebruikers niet laden
 
 admin-nav-asset-kinds-title = Activatypen
 admin-nav-asset-kinds-description = Definieer de activatypen die u bijhoudt en de attributen per type

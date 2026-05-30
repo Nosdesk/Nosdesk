@@ -701,7 +701,11 @@ asset-kind-attribute-kind-date = Date
 asset-kind-attribute-kind-datetime = Date et heure
 asset-kind-attribute-kind-select = Choix unique
 asset-kind-attribute-kind-multi_select = Choix multiple
+asset-kind-attribute-kind-user = Référence utilisateur
 asset-kind-attribute-kind-raw = Personnalisé (lecture seule)
+asset-kind-attribute-user-loading = Chargement des utilisateurs...
+asset-kind-attribute-user-none = Aucun utilisateur sélectionné
+asset-kind-attribute-user-load-error = Échec du chargement des utilisateurs
 
 admin-nav-asset-kinds-title = Types d'actifs
 admin-nav-asset-kinds-description = Définissez les types d'actifs suivis et les attributs portés par chaque type

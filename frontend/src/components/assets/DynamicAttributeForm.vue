@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import UserAttributePicker from '@/components/assets/UserAttributePicker.vue';
 
 /**
  * Render form inputs for a constrained JSON Schema (the subset
  * defined in `backend/src/services/assets/kinds.rs`). Supported
  * property types map to inputs as follows:
  *
+ * - string + format user-uuid                       -> user picker
  * - string + format date / date-time / email / uri  -> typed input
  * - string + enum                                   -> select
  * - string                                          -> text input
@@ -131,9 +133,19 @@ function boolValue(key: string): boolean {
       </label>
       <p v-if="prop.description" class="text-xs text-tertiary">{{ prop.description }}</p>
 
+      <!-- user reference -> user picker. Must come before the
+           enum / plain-string cases so format-driven rendering
+           wins. -->
+      <UserAttributePicker
+        v-if="prop.format === 'user-uuid'"
+        :model-value="stringValue(key)"
+        :disabled="disabled"
+        @update:model-value="(v) => updateField(key, v)"
+      />
+
       <!-- enum -> select -->
       <select
-        v-if="Array.isArray(prop.enum) && prop.enum.length > 0"
+        v-else-if="Array.isArray(prop.enum) && prop.enum.length > 0"
         :disabled="disabled"
         :value="stringValue(key)"
         class="bg-surface-alt rounded-lg border border-default px-3 py-2 text-primary text-sm"

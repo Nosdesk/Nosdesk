@@ -771,7 +771,11 @@ asset-kind-attribute-kind-date = Date
 asset-kind-attribute-kind-datetime = Date and time
 asset-kind-attribute-kind-select = Single choice
 asset-kind-attribute-kind-multi_select = Multiple choice
+asset-kind-attribute-kind-user = User reference
 asset-kind-attribute-kind-raw = Custom (read-only)
+asset-kind-attribute-user-loading = Loading users...
+asset-kind-attribute-user-none = No user selected
+asset-kind-attribute-user-load-error = Failed to load users
 
 # Admin chrome — sidebar header, search, breadcrumb, index page
 # title and copy, group labels and 19 nav items (title + blurb).
