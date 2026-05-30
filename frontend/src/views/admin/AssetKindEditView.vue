@@ -36,6 +36,7 @@ import {
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 import { RouterLink } from 'vue-router';
+import AttributeEditor from '@/components/assetKindComponents/AttributeEditor.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -186,6 +187,54 @@ function prettifySchema(): void {
       error: e instanceof Error ? e.message : String(e),
     });
   }
+}
+
+// Builder ↔ JSON-textarea bridge. The single source of truth is
+// `form.attribute_schema` (string). The builder wants an object,
+// so `schemaObject` is a computed read/write bridge: getter parses
+// the string (defaults to empty object on parse error so the
+// builder still mounts), setter re-stringifies the new schema and
+// updates the form.
+const showJson = ref(false);
+const schemaObject = computed<Record<string, unknown>>({
+  get: () => {
+    try {
+      const v = parseSchema(form.value.attribute_schema);
+      return (v && typeof v === 'object' && !Array.isArray(v))
+        ? (v as Record<string, unknown>)
+        : { type: 'object', properties: {} };
+    } catch {
+      return { type: 'object', properties: {} };
+    }
+  },
+  set: (next) => {
+    form.value.attribute_schema = JSON.stringify(next, null, 2);
+    formError.value = '';
+  },
+});
+function toggleJson(): void {
+  if (!showJson.value) {
+    // Going Builder → JSON: prettify so the textarea is readable.
+    try {
+      const parsed = parseSchema(form.value.attribute_schema);
+      form.value.attribute_schema = JSON.stringify(parsed, null, 2);
+    } catch {
+      // Leave as-is; the textarea will show whatever the admin had.
+    }
+  } else {
+    // Going JSON → Builder: validate that the current text parses
+    // as JSON. If not, stay in JSON mode and surface the error.
+    try {
+      parseSchema(form.value.attribute_schema);
+    } catch (e) {
+      formError.value = t('admin-asset-kinds-error-bad-schema-json', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return;
+    }
+  }
+  showJson.value = !showJson.value;
+  formError.value = '';
 }
 
 async function submit(force = false): Promise<void> {
@@ -378,21 +427,44 @@ function cancel(): void {
         </div>
 
         <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
             <span class="text-sm font-medium text-primary">
               {{ t('admin-asset-kinds-field-attribute-schema') }}
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="copy"
-              type="button"
-              @click="prettifySchema"
-            >
-              {{ t('admin-asset-kinds-prettify') }}
-            </Button>
+            <div class="flex items-center gap-2">
+              <!-- View-JSON escape hatch. The typed builder is the
+                   default surface; admins who hand-author or need
+                   an unsupported keyword can toggle into the raw
+                   textarea. Round-trip through the schema parser
+                   means dropping back to the builder doesn't lose
+                   information for the supported shape. -->
+              <Button
+                variant="ghost"
+                size="sm"
+                :icon="showJson ? 'documentEdit' : 'document'"
+                type="button"
+                @click="toggleJson"
+              >
+                {{ showJson ? t('admin-asset-kinds-view-builder') : t('admin-asset-kinds-view-json') }}
+              </Button>
+              <Button
+                v-if="showJson"
+                variant="ghost"
+                size="sm"
+                icon="copy"
+                type="button"
+                @click="prettifySchema"
+              >
+                {{ t('admin-asset-kinds-prettify') }}
+              </Button>
+            </div>
           </div>
+          <AttributeEditor
+            v-if="!showJson"
+            v-model="schemaObject"
+          />
           <FormTextarea
+            v-else
             v-model="form.attribute_schema"
             :rows="12"
             class="font-mono"
