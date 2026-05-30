@@ -86,6 +86,10 @@ pub fn delete(conn: &mut DbConnection, row_id: i32) -> QueryResult<usize> {
 
 /// Append one insertion record. Fire-and-forget from the picker;
 /// callers don't fail the user-facing insert on a logging error.
+/// Workspace-local usage counter, never propagated to clients (no
+/// list endpoint, no entity surface, just an aggregate the admin
+/// list page rolls into the 30-day column).
+// sync-audit-only: workspace-local usage counter; no entity sync needed
 pub fn record_insertion(
     conn: &mut DbConnection,
     new: NewCannedResponseInsertion,
