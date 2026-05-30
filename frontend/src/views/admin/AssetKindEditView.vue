@@ -37,6 +37,7 @@ import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 import { RouterLink } from 'vue-router';
 import AttributeEditor from '@/components/assetKindComponents/AttributeEditor.vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -326,6 +327,16 @@ async function submit(force = false): Promise<void> {
 function cancel(): void {
   router.push({ name: 'admin-asset-kinds' });
 }
+
+// Options for the BaseDropdown category selector. Recomputes when
+// the Fluent locale changes so the labels stay in the active
+// language without a remount.
+const categoryOptions = computed(() =>
+  ASSET_KIND_CATEGORIES.map((c) => ({
+    value: c,
+    label: t(`admin-asset-kinds-category-${c}`),
+  })),
+);
 </script>
 
 <template>
@@ -415,14 +426,12 @@ function cancel(): void {
             <span class="font-medium text-primary">
               {{ t('admin-asset-kinds-field-category') }}
             </span>
-            <select
-              v-model="form.category"
-              class="block w-full py-1.5 px-2 text-sm rounded-lg bg-surface-alt border border-default text-primary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            >
-              <option v-for="c in ASSET_KIND_CATEGORIES" :key="c" :value="c">
-                {{ t(`admin-asset-kinds-category-${c}`) }}
-              </option>
-            </select>
+            <BaseDropdown
+              :model-value="form.category"
+              :options="categoryOptions"
+              size="sm"
+              @update:model-value="(v) => (form.category = v as typeof form.category)"
+            />
           </label>
         </div>
 

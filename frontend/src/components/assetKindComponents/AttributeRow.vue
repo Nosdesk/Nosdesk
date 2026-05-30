@@ -13,6 +13,7 @@
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Icon from '@/components/common/Icon.vue';
 import {
@@ -99,6 +100,32 @@ const isAssetRef = computed(() => props.modelValue.kind === 'asset');
 // the row is instant on a warm cache and an admin's edits to the
 // registry land here without a manual refetch.
 const { kinds: availableAssetKinds } = useAssetKindsQuery();
+
+// Options for BaseDropdown — kind picker. Recomputes when locale
+// changes so labels track the active language. The `raw` option
+// only appears for rows currently of kind=raw (the row's kind
+// dropdown is disabled in that case, so this just makes the
+// current value visible rather than orphaned).
+const kindOptions = computed<{ value: string; label: string }[]>(() => {
+  const base: { value: string; label: string }[] = ATTRIBUTE_KINDS_ORDERED.map((k) => ({
+    value: k,
+    label: t(`asset-kind-attribute-kind-${k}`),
+  }));
+  if (props.modelValue.kind === 'raw') {
+    base.push({ value: 'raw', label: t('asset-kind-attribute-kind-raw') });
+  }
+  return base;
+});
+
+// Asset-scope dropdown options: "Any kind" sentinel + every kind
+// from the registry. Empty string maps to undefined on save.
+const assetScopeOptions = computed(() => [
+  { value: '', label: t('asset-kind-attribute-row-asset-scope-any') },
+  ...availableAssetKinds.value.map((k) => ({
+    value: k.slug,
+    label: `${k.label} (${k.slug})`,
+  })),
+]);
 </script>
 
 <template>
@@ -156,24 +183,18 @@ const { kinds: availableAssetKinds } = useAssetKindsQuery();
         @update:model-value="(v) => patch({ name: v })"
       />
 
-      <label class="flex flex-col gap-1 text-sm w-44 shrink-0">
+      <div class="flex flex-col gap-1 text-sm w-44 shrink-0">
         <span class="font-medium text-primary">
           {{ t('asset-kind-attribute-row-kind') }}
         </span>
-        <select
-          :value="modelValue.kind"
+        <BaseDropdown
+          :model-value="modelValue.kind"
+          :options="kindOptions"
           :disabled="isRaw"
-          class="block w-full py-1.5 px-2 text-sm rounded-lg bg-surface-alt border border-default text-primary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 disabled:cursor-not-allowed"
-          @change="(e) => onKindChange((e.target as HTMLSelectElement).value as AttributeKind)"
-        >
-          <option v-for="k in ATTRIBUTE_KINDS_ORDERED" :key="k" :value="k">
-            {{ t(`asset-kind-attribute-kind-${k}`) }}
-          </option>
-          <option v-if="isRaw" value="raw">
-            {{ t('asset-kind-attribute-kind-raw') }}
-          </option>
-        </select>
-      </label>
+          size="sm"
+          @update:model-value="(v) => onKindChange(v as AttributeKind)"
+        />
+      </div>
 
       <label
         class="flex items-center gap-2 text-sm self-end pb-1.5 cursor-pointer"
@@ -272,27 +293,20 @@ const { kinds: availableAssetKinds } = useAssetKindsQuery();
          Empty scope means the picker offers all assets across all
          kinds. Source list comes from the registry so admin renames
          flow through on next mount. -->
-    <label v-if="isAssetRef" class="flex flex-col gap-1 text-sm">
+    <div v-if="isAssetRef" class="flex flex-col gap-1 text-sm">
       <span class="font-medium text-primary">
         {{ t('asset-kind-attribute-row-asset-scope') }}
       </span>
-      <select
-        :value="modelValue.assetKindScope ?? ''"
-        class="block w-full py-1.5 px-2 text-sm rounded-lg bg-surface-alt border border-default text-primary hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-        @change="(e) => {
-          const v = (e.target as HTMLSelectElement).value;
-          patch({ assetKindScope: v || undefined });
-        }"
-      >
-        <option value="">{{ t('asset-kind-attribute-row-asset-scope-any') }}</option>
-        <option v-for="k in availableAssetKinds" :key="k.slug" :value="k.slug">
-          {{ k.label }} ({{ k.slug }})
-        </option>
-      </select>
+      <BaseDropdown
+        :model-value="modelValue.assetKindScope ?? ''"
+        :options="assetScopeOptions"
+        size="sm"
+        @update:model-value="(v) => patch({ assetKindScope: (v as string) || undefined })"
+      />
       <span class="text-xs text-tertiary">
         {{ t('asset-kind-attribute-row-asset-scope-hint') }}
       </span>
-    </label>
+    </div>
 
     <!-- Select / Multi-select: enum value editor. -->
     <div v-if="isEnumKind" class="flex flex-col gap-2">

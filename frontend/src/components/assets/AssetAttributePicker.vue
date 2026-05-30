@@ -8,13 +8,16 @@
  * `assetKind` (when present in the schema) filters the picker to
  * assets of that kind only. Empty / undefined means "any kind".
  *
- * Pragmatic v1 implementation, same trade-off as
- * UserAttributePicker: a `<select>` populated by `getAssets()`.
- * A scoped typeahead combobox is a follow-up polish.
+ * Backed by `SearchableDropdown` because the asset list grows
+ * unboundedly in any real workspace. The typeahead match runs
+ * against the asset name + the displayed id.
  */
 import { computed, onMounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 
+import SearchableDropdown, {
+  type DropdownOption,
+} from '@/components/common/SearchableDropdown.vue';
 import { getAssets } from '@/services/assetService';
 import type { Asset } from '@/types/asset';
 
@@ -42,6 +45,14 @@ const filteredAssets = computed<Asset[]>(() =>
     : assets.value,
 );
 
+const options = computed<DropdownOption[]>(() =>
+  filteredAssets.value.map((a) => ({
+    value: String(a.id),
+    label: a.name,
+    description: `#${a.id}`,
+  })),
+);
+
 onMounted(async () => {
   isLoading.value = true;
   try {
@@ -55,24 +66,21 @@ onMounted(async () => {
 </script>
 
 <template>
-  <select
-    :value="modelValue"
-    :disabled="disabled || isLoading"
-    class="bg-surface-alt rounded-lg border border-default px-3 py-2 text-primary text-sm"
-    @change="(e) => emit('update:modelValue', (e.target as HTMLSelectElement).value)"
-  >
-    <option value="">
-      {{ isLoading ? $t('asset-kind-attribute-asset-loading') : $t('asset-kind-attribute-asset-none') }}
-    </option>
-    <option v-for="a in filteredAssets" :key="a.id" :value="String(a.id)">
-      {{ a.name }} (#{{ a.id }})
-    </option>
-  </select>
-  <p v-if="loadError" class="text-xs text-status-error">{{ loadError }}</p>
-  <p
-    v-else-if="!isLoading && assetKind && filteredAssets.length === 0"
-    class="text-xs text-tertiary"
-  >
-    {{ $t('asset-kind-attribute-asset-empty-for-scope', { kind: assetKind }) }}
-  </p>
+  <div class="flex flex-col gap-1">
+    <SearchableDropdown
+      :model-value="modelValue"
+      :options="options"
+      :placeholder="isLoading ? $t('asset-kind-attribute-asset-loading') : $t('asset-kind-attribute-asset-none')"
+      :disabled="disabled || isLoading"
+      size="sm"
+      @update:model-value="(v) => emit('update:modelValue', v)"
+    />
+    <p v-if="loadError" class="text-xs text-status-error">{{ loadError }}</p>
+    <p
+      v-else-if="!isLoading && assetKind && filteredAssets.length === 0"
+      class="text-xs text-tertiary"
+    >
+      {{ $t('asset-kind-attribute-asset-empty-for-scope', { kind: assetKind }) }}
+    </p>
+  </div>
 </template>

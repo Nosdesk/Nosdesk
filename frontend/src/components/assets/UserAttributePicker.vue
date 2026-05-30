@@ -4,19 +4,20 @@
  * `{ "type": "string", "format": "user-uuid" }`. Emits the
  * selected user's UUID as the v-model value.
  *
- * Pragmatic v1 implementation: a `<select>` populated with every
- * user fetched via `userService.getAllUsers()`. For workspaces
- * with hundreds of users this is awkward but functional; a
- * typeahead combobox replacement (mirroring the ticket-sidebar
- * `UserPicker`) is a follow-up polish.
+ * Backed by `SearchableDropdown` because the user list grows
+ * unboundedly in larger workspaces and a scroll-only `<select>`
+ * stops being usable past ~30 entries. The typeahead match runs
+ * against name + email so admins can search by either.
  *
- * Loading + empty + error states are all degenerate to a plain
- * disabled select rendering the existing value (if any) so the
- * form still renders during the fetch and never traps the admin.
+ * Loading + error states render as a disabled dropdown so the
+ * surrounding form layout never shifts.
  */
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 
+import SearchableDropdown, {
+  type DropdownOption,
+} from '@/components/common/SearchableDropdown.vue';
 import userService from '@/services/userService';
 import type { User } from '@/types/user';
 
@@ -35,6 +36,17 @@ const users = ref<User[]>([]);
 const isLoading = ref(false);
 const loadError = ref('');
 
+const options = computed<DropdownOption[]>(() =>
+  users.value.map((u) => ({
+    value: u.uuid,
+    label: u.name,
+    // SearchableDropdown matches against label + description, so
+    // putting the email here makes "alex@" find Alex's row even
+    // when the displayed label is just the name.
+    description: u.email ?? undefined,
+  })),
+);
+
 onMounted(async () => {
   isLoading.value = true;
   try {
@@ -48,18 +60,15 @@ onMounted(async () => {
 </script>
 
 <template>
-  <select
-    :value="modelValue"
-    :disabled="disabled || isLoading"
-    class="bg-surface-alt rounded-lg border border-default px-3 py-2 text-primary text-sm"
-    @change="(e) => emit('update:modelValue', (e.target as HTMLSelectElement).value)"
-  >
-    <option value="">
-      {{ isLoading ? $t('asset-kind-attribute-user-loading') : $t('asset-kind-attribute-user-none') }}
-    </option>
-    <option v-for="u in users" :key="u.uuid" :value="u.uuid">
-      {{ u.name }} <span v-if="u.email">({{ u.email }})</span>
-    </option>
-  </select>
-  <p v-if="loadError" class="text-xs text-status-error">{{ loadError }}</p>
+  <div class="flex flex-col gap-1">
+    <SearchableDropdown
+      :model-value="modelValue"
+      :options="options"
+      :placeholder="isLoading ? $t('asset-kind-attribute-user-loading') : $t('asset-kind-attribute-user-none')"
+      :disabled="disabled || isLoading"
+      size="sm"
+      @update:model-value="(v) => emit('update:modelValue', v)"
+    />
+    <p v-if="loadError" class="text-xs text-status-error">{{ loadError }}</p>
+  </div>
 </template>
