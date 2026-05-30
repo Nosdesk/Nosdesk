@@ -86,6 +86,21 @@ the panel; Enter inserts the active item.
               class="w-full bg-surface-alt border border-default rounded-md px-2 py-1.5 text-sm text-primary placeholder:text-tertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info"
             />
           </div>
+          <!-- One-line warning when the active row references a
+               variable not bound in the current ticket context.
+               Updates live as the user arrows through matches so the
+               warning travels with the active row. -->
+          <div
+            v-if="activeMissingVars.length > 0"
+            class="px-3 py-1.5 text-xs text-status-warning bg-status-warning/10 border-b border-default"
+            role="status"
+          >
+            {{
+              $t('ticket-picker-canned-missing-vars', {
+                names: activeMissingVars.join(', '),
+              })
+            }}
+          </div>
           <ul
             v-if="filteredResponses.length > 0"
             class="flex flex-col"
@@ -104,8 +119,17 @@ the panel; Enter inserts the active item.
                 i === activeIndex ? 'bg-surface-hover' : 'hover:bg-surface-hover',
               ]"
             >
-              <span class="text-sm font-medium text-primary truncate">{{ r.title }}</span>
-              <span class="text-xs text-tertiary line-clamp-2">{{ r.body }}</span>
+              <span
+                class="text-sm font-medium text-primary truncate"
+                v-html="highlightTitle(r.title)"
+              />
+              <!-- Render the substituted body so the agent sees the
+                   final text they're about to insert; variables that
+                   would resolve are visible inline. -->
+              <span
+                class="text-xs text-tertiary line-clamp-2"
+                v-html="highlightPreview(previewBody(r))"
+              />
             </li>
           </ul>
           <div
@@ -124,12 +148,15 @@ the panel; Enter inserts the active item.
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
+import { useQuery } from '@pinia/colada';
 import {
   cannedResponsesService,
   renderTemplate,
-  type CannedResponse,
+  variablesUsed,
+  type CannedResponseListItem,
   type TemplateVars,
 } from '@/services/cannedResponsesService';
+import { highlightTerms } from '@/utils/highlight';
 
 const { $t } = useFluent();
 
@@ -150,6 +177,11 @@ const shortcutLabel = isMac ? '⌘/' : 'Ctrl+/';
 const props = defineProps<{
   /** Template context for `{{variable}}` substitution on insert. */
   vars: TemplateVars;
+  /** Optional ticket id passed through to the workspace-local
+   * insertion log so the admin page can correlate which templates
+   * are inserted on which tickets. Fire-and-forget; logging
+   * failures never block the insert. */
+  ticketId?: number;
 }>();
 
 const emit = defineEmits<{
@@ -160,26 +192,80 @@ const triggerEl = ref<HTMLButtonElement | null>(null);
 const panelEl = ref<HTMLDivElement | null>(null);
 const searchInputEl = ref<HTMLInputElement | null>(null);
 const isOpen = ref(false);
-const loading = ref(false);
-const error = ref('');
-const responses = ref<CannedResponse[]>([]);
 const searchQuery = ref('');
 const activeIndex = ref(0);
+
+// Shared with the admin CannedResponsesView and EditView so an
+// admin save invalidates the picker's view for every open composer
+// in the session, no manual refetch needed. Eager-fetches once per
+// session on first picker mount; subsequent ticket views read the
+// cached list instantly.
+const CANNED_RESPONSES_KEY = ['canned-responses'] as const;
+const listQuery = useQuery({
+  key: CANNED_RESPONSES_KEY,
+  query: () => cannedResponsesService.list(),
+});
+const responses = computed<CannedResponseListItem[]>(() =>
+  Array.isArray(listQuery.data.value) ? listQuery.data.value : [],
+);
+const loading = computed(
+  () => listQuery.status.value === 'pending' && listQuery.data.value === undefined,
+);
+const error = computed(() =>
+  listQuery.error.value ? $t('ticket-picker-canned-load-error') : '',
+);
+
+// Parsed search terms shared by the filter and the hit highlighter.
+const searchTerms = computed<string[]>(() =>
+  searchQuery.value
+    .toLowerCase()
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
 
 // Substring filter on title + first 150 chars of body, case-
 // insensitive, multi-term AND. Body slice is enough to disambiguate
 // titles without scanning huge templates on every keystroke; <1000
 // items is instant client-side so no debounce needed.
 const filteredResponses = computed(() => {
-  const q = searchQuery.value.trim();
-  if (!q) return responses.value;
-  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return responses.value;
+  if (searchTerms.value.length === 0) return responses.value;
   return responses.value.filter((r) => {
     const haystack = `${r.title.toLowerCase()} ${r.body.slice(0, 150).toLowerCase()}`;
-    return terms.every((t) => haystack.includes(t));
+    return searchTerms.value.every((t) => haystack.includes(t));
   });
 });
+
+/**
+ * The template body rendered against the current ticket context.
+ * The picker displays this in each row so the agent sees the final
+ * text they're about to insert; `{{customer_name}}` becomes the
+ * customer's actual name in the preview (or vanishes to the empty
+ * string when the value is missing, which the warn-banner below
+ * also surfaces).
+ */
+function previewBody(r: CannedResponseListItem): string {
+  return renderTemplate(r.body, props.vars);
+}
+
+/**
+ * Allow-list variables the active row references that don't have a
+ * value bound in the current ticket context. If non-empty, the
+ * picker shows a one-line warning so the agent knows the rendered
+ * text will have empty slots where those names would go.
+ */
+const activeMissingVars = computed<string[]>(() => {
+  const r = filteredResponses.value[activeIndex.value];
+  if (!r) return [];
+  const used = variablesUsed(r.body);
+  return used.filter((name) => {
+    const v = (props.vars as Record<string, unknown>)[name];
+    return v == null || v === '';
+  });
+});
+
+const highlightTitle = (text: string): string => highlightTerms(text, searchTerms.value);
+const highlightPreview = (text: string): string => highlightTerms(text, searchTerms.value);
 
 // Reset highlight to the top of the (newly filtered) list whenever
 // the query changes so Enter picks the most relevant match.
@@ -192,10 +278,6 @@ watch(searchQuery, () => {
  * the teleported panel anchored to the button it logically belongs to.
  */
 const triggerRect = ref<DOMRect | null>(null);
-// Cache the fetch — list doesn't change mid-session often enough to
-// warrant refetching on every dropdown open.
-let loaded = false;
-
 /**
  * Inline style for the teleported dropdown. Positions the panel's
  * bottom-right against the trigger's top-right with an 8px gap so it
@@ -238,22 +320,11 @@ async function toggleOpen() {
   captureTriggerRect();
   isOpen.value = true;
   activeIndex.value = 0;
-  if (!loaded) {
-    loading.value = true;
-    error.value = '';
-    try {
-      responses.value = await cannedResponsesService.list();
-      loaded = true;
-    } catch {
-      error.value = $t('ticket-picker-canned-load-error');
-    } finally {
-      loading.value = false;
-    }
-  }
-  // Focus the search input so the user can start typing immediately
-  // (standard combobox UX). Falls back to the panel itself when the
-  // input isn't rendered yet (loading / error / empty-library
-  // states), so arrow keys / Esc / Enter still work.
+  // The list query auto-fetches on first picker mount; nothing to
+  // kick off here. Focus the search input so the user can start
+  // typing immediately (standard combobox UX). Falls back to the
+  // panel itself when the input isn't rendered yet (loading / error
+  // / empty-library states), so arrow keys / Esc / Enter still work.
   await nextTick();
   (searchInputEl.value ?? panelEl.value)?.focus();
 }
@@ -266,11 +337,16 @@ function closePicker(returnFocus: boolean) {
   if (returnFocus) triggerEl.value?.focus();
 }
 
-function choose(r: CannedResponse) {
+function choose(r: CannedResponseListItem) {
   // Render variables now so the tech sees the final text in the
   // composer before sending. Unknown tokens are preserved so they
   // can edit if they want to.
   emit('insert', renderTemplate(r.body, props.vars));
+  // Fire-and-forget usage log so the admin page's "Inserts (30d)"
+  // column tracks this use. The service swallows transport errors
+  // and the backend treats every failure path as 200, so this never
+  // blocks the user-facing insert.
+  void cannedResponsesService.recordInsertion(r.id, props.ticketId);
   closePicker(true);
 }
 
@@ -381,3 +457,15 @@ watch(isOpen, (open) => {
   }
 });
 </script>
+
+<style scoped>
+/* `<mark>` lives inside the teleported panel. Vue 3 carries scoped
+   data-attributes to teleported descendants, so this still applies
+   despite the dropdown rendering outside the picker's DOM subtree. */
+:deep(mark) {
+  background-color: rgb(var(--color-accent) / 0.25);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+</style>

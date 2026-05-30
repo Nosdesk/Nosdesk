@@ -2724,6 +2724,7 @@ ticket-picker-canned-load-error = Kan sjablonen niet laden
 ticket-picker-canned-search-placeholder = Zoek een standaardantwoord…
 ticket-picker-canned-search-aria = Zoek standaardantwoord
 ticket-picker-canned-no-matches = Geen resultaten voor "{ $query }"
+ticket-picker-canned-missing-vars = Dit sjabloon gebruikt {"{{"}{ $names }{"}}"} waarvoor het huidige ticket geen waarde heeft. Die plekken blijven leeg.
 
 # Ticket picker: apparaat modaal (DeviceModal)
 ticket-picker-device-title = Activum toevoegen

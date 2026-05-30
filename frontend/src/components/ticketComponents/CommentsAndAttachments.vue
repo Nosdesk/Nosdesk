@@ -635,6 +635,7 @@ const handlePastedFiles = async (files: File[]) => {
                             <!-- Canned Responses Picker -->
                             <CannedResponsePicker
                                 :vars="cannedResponseVars"
+                                :ticket-id="ticketId"
                                 @insert="insertCannedResponse"
                             />
 

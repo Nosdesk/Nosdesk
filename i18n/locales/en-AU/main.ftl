@@ -2655,6 +2655,7 @@ ticket-picker-canned-load-error = Couldn't load templates
 ticket-picker-canned-search-placeholder = Search canned responses…
 ticket-picker-canned-search-aria = Search canned responses
 ticket-picker-canned-no-matches = No matches for "{ $query }"
+ticket-picker-canned-missing-vars = This template uses {"{{"}{ $names }{"}}"} which the current ticket has no value for. Those slots will be empty.
 
 # Ticket picker: device modal (DeviceModal)
 ticket-picker-device-title = Add asset

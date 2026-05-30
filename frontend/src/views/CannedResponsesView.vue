@@ -27,8 +27,8 @@ import cannedResponsesService, {
   type CannedResponseListItem,
   type CannedResponseStarter,
 } from '@/services/cannedResponsesService';
-import { escapeHtml, escapeRegex } from '@/utils/escape';
 import { extractErrorMessage } from '@/utils/errors';
+import { highlightTerms } from '@/utils/highlight';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -102,13 +102,11 @@ function toggleSort(key: SortKey): void {
 }
 
 // Hit highlighter for the title column. Body matches drive the
-// filter but the body is shown collapsed on the row.
+// filter but the body is shown collapsed on the row, so it doesn't
+// get the highlight pass here.
 function highlight(value: string): string {
-  if (searchTerms.value.length === 0) return escapeHtml(value);
-  const pattern = new RegExp(`(${searchTerms.value.map(escapeRegex).join('|')})`, 'gi');
-  return escapeHtml(value).replace(pattern, '<mark>$1</mark>');
+  return highlightTerms(value, searchTerms.value);
 }
-// escapeHtml / escapeRegex live in utils/escape; imported above.
 
 // Mutation feedback (delete) lives in local refs. Create / update
 // feedback is owned by the editor view and surfaces on its next

@@ -2733,6 +2733,7 @@ ticket-picker-canned-load-error = Échec du chargement des modèles
 ticket-picker-canned-search-placeholder = Rechercher une réponse…
 ticket-picker-canned-search-aria = Rechercher une réponse préenregistrée
 ticket-picker-canned-no-matches = Aucun résultat pour « { $query } »
+ticket-picker-canned-missing-vars = Ce modèle utilise {"{{"}{ $names }{"}}"} pour lesquels le ticket actuel n'a pas de valeur. Ces emplacements resteront vides.
 
 # Ticket picker: modale d'appareil (DeviceModal)
 ticket-picker-device-title = Ajouter un actif
