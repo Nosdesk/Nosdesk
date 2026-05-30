@@ -15,6 +15,8 @@ import QRCode from 'qrcode';
 import UserPicker from "@/components/ticketComponents/UserPicker.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
 import ContentEditable from "@/components/ticketComponents/ContentEditable.vue";
+import BaseDropdown from "@/components/common/BaseDropdown.vue";
+import Button from "@/components/common/Button.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import Icon from "@/components/common/Icon.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
@@ -378,11 +380,26 @@ const recurrenceSelectValue = computed<string>(() => {
   return RECURRENCE_PRESETS.value.some(p => p.value === rule) ? rule : '__custom__';
 });
 
-function handleRecurrenceChange(event: Event): void {
-  const value = (event.target as HTMLSelectElement).value;
+function handleRecurrenceChange(value: string): void {
   if (value === '__custom__') return; // no-op; custom rules are read-only in this picker
   emit('update:recurrenceRule', value || null);
 }
+
+// One hint string folded into the dropdown's `description` slot so
+// the two old inline `<span>` notes (custom-rule readout / respawn
+// note) don't need separate markup and inherit the dropdown's own
+// description-text styling. Empty string -> no description rendered.
+const recurrenceHint = computed<string | undefined>(() => {
+  if (recurrenceSelectValue.value === '__custom__') {
+    return t('ticket-detail-recurrence-custom-note', {
+      rule: props.ticket.recurrence_rule ?? '',
+    });
+  }
+  if (props.ticket.recurrence_rule) {
+    return t('ticket-detail-recurrence-respawn-note');
+  }
+  return undefined;
+});
 
 // ---- Source / channel readout ----------------------------------
 //
@@ -762,32 +779,33 @@ watchEffect(async () => {
 
           <!-- Status and Priority Section -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <!-- Status -->
+            <!-- Status. Flat treatment per sidebar convention: the
+                 CustomDropdown trigger already carries its own
+                 hover-tint + rounded corners + status chip; the
+                 previous outer card was redundant chrome that read
+                 as form-mode in what's really a property display.
+                 Same call for Priority and Category below. -->
             <div class="flex flex-col gap-1.5">
               <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-status') }}</h3>
-              <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
-                <CustomDropdown
-                  :value="workflowDropdownValue"
-                  :options="workflowDropdownOptions"
-                  type="status"
-                  @update:value="handleStatusDropdownChange"
-                  class="w-full"
-                />
-              </div>
+              <CustomDropdown
+                :value="workflowDropdownValue"
+                :options="workflowDropdownOptions"
+                type="status"
+                @update:value="handleStatusDropdownChange"
+                class="w-full"
+              />
             </div>
 
             <!-- Priority -->
             <div class="flex flex-col gap-1.5">
               <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-priority') }}</h3>
-              <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
-                <CustomDropdown
-                  :value="selectedPriority"
-                  :options="priorityOptions"
-                  type="priority"
-                  @update:value="(v: string) => emit('update:selectedPriority', v as TicketPriority)"
-                  class="w-full"
-                />
-              </div>
+              <CustomDropdown
+                :value="selectedPriority"
+                :options="priorityOptions"
+                type="priority"
+                @update:value="(v: string) => emit('update:selectedPriority', v as TicketPriority)"
+                class="w-full"
+              />
             </div>
           </div>
 
@@ -834,82 +852,104 @@ watchEffect(async () => {
                composition stays uniform; the headerActions slot
                carries the inline preview ("Due Jan 14 · Weekly")
                so the value reads without an open. -->
-          <SectionCard content-padding="">
-            <template #title>
-              <button
-                type="button"
-                class="flex items-center gap-1.5 text-[13px] font-semibold text-primary"
-                :aria-expanded="schedulingOpen"
-                @click="schedulingOpen = !schedulingOpen"
-              >
+          <!-- Scheduling. Flat collapsible matching the Status /
+               Priority / Category sibling pattern; deliberately not
+               wrapped in SectionCard, whose header `border-b` is
+               correct for dashboard widgets but doubles up against
+               a disclosure body (the "thicker border when collapsed"
+               issue surfaced in design review).
+               Design draws on the Linear / Front sidebar recipe:
+                 - chevron-leading header strip with hover-tint
+                   affordance (the only sidebar element with that
+                   hover; signals interactivity vs. the flat sibling
+                   labels);
+                 - no borders anywhere — separation comes from the
+                   parent's sibling-section gap and from indented
+                   body content;
+                 - preview pill only renders when collapsed (once
+                   the body is open, the preview is redundant);
+                 - body hugs the header (smaller top padding than
+                   inter-field gap), so expanded reads as one unit. -->
+          <div class="flex flex-col gap-1">
+            <button
+              type="button"
+              class="flex items-center justify-between gap-2 -mx-2 px-2 py-1 rounded-md hover:bg-surface-hover transition-colors text-left"
+              :aria-expanded="schedulingOpen"
+              @click="schedulingOpen = !schedulingOpen"
+            >
+              <span class="flex items-center gap-1.5 min-w-0">
                 <Icon
                   name="chevronDown"
-                  class="w-3 h-3 text-tertiary transition-transform"
+                  class="w-3 h-3 text-tertiary transition-transform shrink-0"
                   :class="{ '-rotate-90': !schedulingOpen }"
                 />
-                {{ t('ticket-detail-scheduling-label') }}
-              </button>
-            </template>
-            <template #headerActions>
-              <span class="text-[11px] text-tertiary truncate">
+                <h3 class="text-xs font-medium text-tertiary">
+                  {{ t('ticket-detail-scheduling-label') }}
+                </h3>
+              </span>
+              <span
+                v-if="!schedulingOpen"
+                class="text-xs text-tertiary truncate"
+              >
                 {{ schedulingPreview || t('ticket-detail-scheduling-none') }}
               </span>
-            </template>
-            <div v-if="schedulingOpen" class="px-3 py-3 flex flex-col gap-3 border-t border-default">
-              <label class="flex flex-col gap-1">
-                <span class="text-[11px] text-tertiary">{{ t('ticket-detail-scheduling-due-date') }}</span>
-                <div class="flex items-center gap-1">
+            </button>
+
+            <div v-if="schedulingOpen" class="flex flex-col gap-3 pt-1 pl-5">
+              <!-- Due date: picker + ghost clear button. The clear
+                   only renders when a date is set so the row has no
+                   trailing dead space in the empty case. -->
+              <div class="flex flex-col gap-1.5">
+                <h3 class="text-xs font-medium text-tertiary">
+                  {{ t('ticket-detail-scheduling-due-date') }}
+                </h3>
+                <div class="flex items-center gap-2">
                   <DatePicker
                     v-model="dueDateValue"
-                    size="md"
+                    size="sm"
                     block
                     :aria-label="t('ticket-detail-scheduling-due-date')"
                   />
-                  <button
+                  <Button
                     v-if="ticket.due_date"
-                    type="button"
-                    class="text-xs text-tertiary hover:text-primary px-2 py-1"
-                    :title="t('ticket-detail-scheduling-clear-due')"
+                    variant="ghost"
+                    size="sm"
+                    icon="close"
+                    :aria-label="t('ticket-detail-scheduling-clear-due')"
                     @click="emit('update:dueDate', null)"
-                  >×</button>
+                  />
                 </div>
-              </label>
-              <label class="flex flex-col gap-1">
-                <span class="text-[11px] text-tertiary">{{ t('ticket-detail-scheduling-recurrence') }}</span>
-                <select
-                  class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
-                  :value="recurrenceSelectValue"
-                  @change="handleRecurrenceChange"
-                >
-                  <option v-for="preset in RECURRENCE_PRESETS" :key="preset.value" :value="preset.value">
-                    {{ preset.label }}
-                  </option>
-                </select>
-                <span
-                  v-if="recurrenceSelectValue === '__custom__'"
-                  class="text-[10px] text-tertiary italic"
-                >{{ t('ticket-detail-recurrence-custom-note', { rule: ticket.recurrence_rule ?? '' }) }}</span>
-                <span
-                  v-else-if="ticket.recurrence_rule"
-                  class="text-[10px] text-tertiary italic"
-                >{{ t('ticket-detail-recurrence-respawn-note') }}</span>
-              </label>
+              </div>
+
+              <!-- Recurrence: dropdown + optional hint folded into
+                   the dropdown's `description` slot so the spacing
+                   matches the Due-date row exactly. -->
+              <div class="flex flex-col gap-1.5">
+                <h3 class="text-xs font-medium text-tertiary">
+                  {{ t('ticket-detail-scheduling-recurrence') }}
+                </h3>
+                <BaseDropdown
+                  :model-value="recurrenceSelectValue"
+                  :options="RECURRENCE_PRESETS"
+                  :description="recurrenceHint"
+                  size="sm"
+                  @update:model-value="(v) => handleRecurrenceChange(v as string)"
+                />
+              </div>
             </div>
-          </SectionCard>
+          </div>
 
           <!-- Category Section -->
           <div v-if="categoryOptions && categoryOptions.length > 0" class="flex flex-col gap-1.5">
             <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-category') }}</h3>
-            <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
-              <CustomDropdown
-                :value="selectedCategory?.toString() || ''"
-                :options="categoryOptions"
-                type="category"
-                @update:value="emit('update:selectedCategory', $event)"
-                class="w-full"
-                :placeholder="t('ticket-detail-category-placeholder')"
-              />
-            </div>
+            <CustomDropdown
+              :value="selectedCategory?.toString() || ''"
+              :options="categoryOptions"
+              type="category"
+              @update:value="emit('update:selectedCategory', $event)"
+              class="w-full"
+              :placeholder="t('ticket-detail-category-placeholder')"
+            />
           </div>
 
           <!-- Cycle membership chip. Only rendered when the ticket
