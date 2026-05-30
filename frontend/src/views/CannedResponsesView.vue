@@ -191,13 +191,11 @@ function relativeTime(iso: string): string {
           </p>
         </div>
         <div class="flex items-center gap-2 self-start sm:self-auto">
-          <Button variant="secondary" @click="openStarters">
-            <Icon name="document" />
-            <span>{{ $t('admin-canned-responses-browse-starters') }}</span>
+          <Button variant="secondary" icon="document" @click="openStarters">
+            {{ $t('admin-canned-responses-browse-starters') }}
           </Button>
-          <Button @click="openCreate">
-            <Icon name="add" />
-            <span>{{ $t('admin-canned-responses-create') }}</span>
+          <Button icon="add" @click="openCreate">
+            {{ $t('admin-canned-responses-create') }}
           </Button>
         </div>
       </div>

@@ -250,11 +250,14 @@ pub async fn record_insertion(
     HttpResponse::Ok().finish()
 }
 
-/// GET /api/admin/canned-responses/starter-pack — admin-only,
-/// static catalog. Returns a curated list of starter templates the
-/// admin can pick from when creating a new canned response. No DB
-/// reads; no writes; selecting a starter only pre-fills the editor
-/// on the frontend so every saved row remains the admin's choice.
+/// GET /api/admin/canned-response-starters — admin-only, static
+/// catalog. Returns a curated list of starter templates the admin
+/// can pick from when creating a new canned response. No DB reads;
+/// no writes; selecting a starter only pre-fills the editor on the
+/// frontend so every saved row remains the admin's choice. Lives
+/// on its own path (not nested under `/admin/canned-responses/`)
+/// to avoid being shadowed by the sibling `{id}` route under
+/// Actix's `.route()` chain ordering.
 pub async fn starter_catalog(req: HttpRequest) -> HttpResponse {
     if let Err(resp) = require_admin(&req) {
         return resp;

@@ -1465,7 +1465,15 @@ async fn main() -> std::io::Result<()> {
                     .route("/canned-responses", web::get().to(handlers::canned_responses::list_canned))
                     .route("/canned-responses/{id}/insertions", web::post().to(handlers::canned_responses::record_insertion))
                     .route("/admin/canned-responses", web::post().to(handlers::canned_responses::create_canned))
-                    .route("/admin/canned-responses/starter-pack", web::get().to(handlers::canned_responses::starter_catalog))
+                    // Sits at its own path (not nested under
+                    // /admin/canned-responses/) so the `{id}` route
+                    // below can't shadow it via wildcard matching.
+                    // Actix's `.route()` chain registers each call as
+                    // a separate Resource and the wildcard sibling
+                    // wins over the literal sibling on the same path
+                    // level; keeping the starters at a distinct path
+                    // sidesteps that ambiguity entirely.
+                    .route("/admin/canned-response-starters", web::get().to(handlers::canned_responses::starter_catalog))
                     .route("/admin/canned-responses/{id}", web::patch().to(handlers::canned_responses::update_canned))
                     .route("/admin/canned-responses/{id}", web::delete().to(handlers::canned_responses::delete_canned))
                     .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))

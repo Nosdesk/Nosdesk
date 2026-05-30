@@ -90,8 +90,10 @@ export const cannedResponsesService = {
     }
   },
   async getStarterCatalog(): Promise<CannedResponseStarter[]> {
+    // Sits at its own path on the backend (not under
+    // /admin/canned-responses/) so the {id} sibling can't shadow it.
     const { data } = await apiClient.get<CannedResponseStarter[]>(
-      '/admin/canned-responses/starter-pack',
+      '/admin/canned-response-starters',
     );
     return data;
   },
