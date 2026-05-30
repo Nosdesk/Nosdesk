@@ -32,6 +32,7 @@ export type AttributeKind =
   | 'select'
   | 'multi_select'
   | 'user'
+  | 'asset'
   | 'raw';
 
 export const ATTRIBUTE_KINDS_ORDERED: Exclude<AttributeKind, 'raw'>[] = [
@@ -46,6 +47,7 @@ export const ATTRIBUTE_KINDS_ORDERED: Exclude<AttributeKind, 'raw'>[] = [
   'select',
   'multi_select',
   'user',
+  'asset',
 ];
 
 export interface AttributeDef {
@@ -65,6 +67,10 @@ export interface AttributeDef {
   maximum?: number;
   /** For `select` / `multi_select`: enum values. */
   enumValues?: string[];
+  /** For `asset` references: optional asset-kind slug to scope
+   * the picker on the data-entry side. Empty / undefined means
+   * "any asset of any kind". */
+  assetKindScope?: string;
   /** For `kind: "raw"`: the original JSON object for the property.
    * Lets unrecognised shapes round-trip without loss. */
   raw?: Record<string, unknown>;
@@ -195,6 +201,15 @@ function propToDef(
         description: stringOrUndefined(prop.description),
       };
     }
+    if (format === 'asset-ref') {
+      return {
+        name,
+        kind: 'asset',
+        required,
+        description: stringOrUndefined(prop.description),
+        assetKindScope: stringOrUndefined(prop.assetKind),
+      };
+    }
     if (format === 'uri') {
       return {
         name,
@@ -286,6 +301,15 @@ function defToProp(def: AttributeDef): Record<string, unknown> {
       return { ...base, type: 'string', format: 'date-time' };
     case 'user':
       return { ...base, type: 'string', format: 'user-uuid' };
+    case 'asset': {
+      const out: Record<string, unknown> = {
+        ...base,
+        type: 'string',
+        format: 'asset-ref',
+      };
+      if (def.assetKindScope) out.assetKind = def.assetKindScope;
+      return out;
+    }
     case 'number': {
       const out: Record<string, unknown> = { ...base, type: 'integer' };
       if (def.minimum != null) out.minimum = def.minimum;

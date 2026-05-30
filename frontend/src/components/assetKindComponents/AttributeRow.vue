@@ -21,6 +21,7 @@ import {
   type AttributeDef,
   type AttributeKind,
 } from './attributeSchema';
+import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -90,6 +91,14 @@ const isEnumKind = computed(
 );
 const isText = computed(() => props.modelValue.kind === 'text');
 const isRaw = computed(() => props.modelValue.kind === 'raw');
+const isAssetRef = computed(() => props.modelValue.kind === 'asset');
+
+// Pull the asset-kinds registry so the asset-ref scope dropdown
+// can offer the actual slugs available. Cache-shared via the same
+// useAssetKindsQuery the admin list + AssetView use, so opening
+// the row is instant on a warm cache and an admin's edits to the
+// registry land here without a manual refetch.
+const { kinds: availableAssetKinds } = useAssetKindsQuery();
 </script>
 
 <template>
@@ -258,6 +267,32 @@ const isRaw = computed(() => props.modelValue.kind === 'raw');
         />
       </label>
     </div>
+
+    <!-- Asset reference: optional scope to a specific asset kind.
+         Empty scope means the picker offers all assets across all
+         kinds. Source list comes from the registry so admin renames
+         flow through on next mount. -->
+    <label v-if="isAssetRef" class="flex flex-col gap-1 text-sm">
+      <span class="font-medium text-primary">
+        {{ t('asset-kind-attribute-row-asset-scope') }}
+      </span>
+      <select
+        :value="modelValue.assetKindScope ?? ''"
+        class="block w-full py-1.5 px-2 text-sm rounded-lg bg-surface-alt border border-default text-primary hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+        @change="(e) => {
+          const v = (e.target as HTMLSelectElement).value;
+          patch({ assetKindScope: v || undefined });
+        }"
+      >
+        <option value="">{{ t('asset-kind-attribute-row-asset-scope-any') }}</option>
+        <option v-for="k in availableAssetKinds" :key="k.slug" :value="k.slug">
+          {{ k.label }} ({{ k.slug }})
+        </option>
+      </select>
+      <span class="text-xs text-tertiary">
+        {{ t('asset-kind-attribute-row-asset-scope-hint') }}
+      </span>
+    </label>
 
     <!-- Select / Multi-select: enum value editor. -->
     <div v-if="isEnumKind" class="flex flex-col gap-2">

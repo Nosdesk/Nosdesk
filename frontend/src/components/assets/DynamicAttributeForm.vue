@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import UserAttributePicker from '@/components/assets/UserAttributePicker.vue';
+import AssetAttributePicker from '@/components/assets/AssetAttributePicker.vue';
 
 /**
  * Render form inputs for a constrained JSON Schema (the subset
@@ -8,6 +9,7 @@ import UserAttributePicker from '@/components/assets/UserAttributePicker.vue';
  * property types map to inputs as follows:
  *
  * - string + format user-uuid                       -> user picker
+ * - string + format asset-ref (+ optional assetKind) -> asset picker
  * - string + format date / date-time / email / uri  -> typed input
  * - string + enum                                   -> select
  * - string                                          -> text input
@@ -33,6 +35,10 @@ type SchemaProperty = {
   pattern?: string;
   items?: SchemaProperty;
   default?: unknown;
+  /** Custom Nosdesk extension: scopes `format: "asset-ref"` to
+   * a specific asset-kind slug for the picker. The backend
+   * validator allows but doesn't enforce this. */
+  assetKind?: string;
 };
 
 type Schema = {
@@ -139,6 +145,16 @@ function boolValue(key: string): boolean {
       <UserAttributePicker
         v-if="prop.format === 'user-uuid'"
         :model-value="stringValue(key)"
+        :disabled="disabled"
+        @update:model-value="(v) => updateField(key, v)"
+      />
+
+      <!-- asset reference -> asset picker, optionally scoped to a
+           specific asset kind via the schema's `assetKind` hint. -->
+      <AssetAttributePicker
+        v-else-if="prop.format === 'asset-ref'"
+        :model-value="stringValue(key)"
+        :asset-kind="prop.assetKind"
         :disabled="disabled"
         @update:model-value="(v) => updateField(key, v)"
       />
