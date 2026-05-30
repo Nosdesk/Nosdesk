@@ -1457,9 +1457,15 @@ async fn main() -> std::io::Result<()> {
                     .route("/dashboard/stats", web::get().to(handlers::dashboard::get_stats))
 
                     // Canned responses — reads open to any authenticated
-                    // user (composer picker); writes admin-only.
+                    // user (composer picker); writes admin-only. The
+                    // insertions log endpoint is open (any user can
+                    // record their own picker use, workspace-local);
+                    // the starter catalog is admin-only since it's
+                    // only consumed by the admin create flow.
                     .route("/canned-responses", web::get().to(handlers::canned_responses::list_canned))
+                    .route("/canned-responses/{id}/insertions", web::post().to(handlers::canned_responses::record_insertion))
                     .route("/admin/canned-responses", web::post().to(handlers::canned_responses::create_canned))
+                    .route("/admin/canned-responses/starter-pack", web::get().to(handlers::canned_responses::starter_catalog))
                     .route("/admin/canned-responses/{id}", web::patch().to(handlers::canned_responses::update_canned))
                     .route("/admin/canned-responses/{id}", web::delete().to(handlers::canned_responses::delete_canned))
                     .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))

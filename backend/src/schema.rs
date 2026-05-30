@@ -331,6 +331,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    canned_response_insertions (id) {
+        id -> Int8,
+        canned_response_id -> Int4,
+        user_uuid -> Nullable<Uuid>,
+        ticket_id -> Nullable<Int4>,
+        inserted_at -> Timestamptz,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
     canned_responses (id) {
         id -> Int4,
         #[max_length = 255]
@@ -1663,6 +1674,10 @@ diesel::joinable!(audit_log -> workspaces (workspace_id));
 diesel::joinable!(audit_log_default -> workspaces (workspace_id));
 diesel::joinable!(backup_jobs -> users (created_by));
 diesel::joinable!(backup_jobs -> workspaces (workspace_id));
+diesel::joinable!(canned_response_insertions -> canned_responses (canned_response_id));
+diesel::joinable!(canned_response_insertions -> tickets (ticket_id));
+diesel::joinable!(canned_response_insertions -> users (user_uuid));
+diesel::joinable!(canned_response_insertions -> workspaces (workspace_id));
 diesel::joinable!(canned_responses -> users (created_by));
 diesel::joinable!(canned_responses -> workspaces (workspace_id));
 diesel::joinable!(category_group_visibility -> groups (group_id));
@@ -1832,6 +1847,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     audit_log,
     audit_log_default,
     backup_jobs,
+    canned_response_insertions,
     canned_responses,
     category_group_visibility,
     channel_credentials,
