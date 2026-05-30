@@ -29,10 +29,12 @@ import cannedResponsesService, {
 } from '@/services/cannedResponsesService';
 import { extractErrorMessage } from '@/utils/errors';
 import { highlightTerms } from '@/utils/highlight';
+import { useToastStore } from '@/stores/toast';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const router = useRouter();
+const toast = useToastStore();
 
 // Pinia Colada keys the canned-response list. The picker will read
 // this same key in a follow-up commit so admin saves invalidate it
@@ -108,10 +110,9 @@ function highlight(value: string): string {
   return highlightTerms(value, searchTerms.value);
 }
 
-// Mutation feedback (delete) lives in local refs. Create / update
-// feedback is owned by the editor view and surfaces on its next
-// mount via Pinia Colada invalidation.
-const successMessage = ref('');
+// Errors stay inline as a banner above the list (sticky, actionable).
+// Success goes through the corner toast; the row vanishing from the
+// list is the primary confirmation, the toast is the secondary cue.
 const errorMessage = ref('');
 
 // Browse-starters modal. Selecting a starter navigates to the
@@ -152,11 +153,10 @@ async function doDelete(): Promise<void> {
   isDeleting.value = true;
   try {
     await cannedResponsesService.remove(deleting.value.id);
-    successMessage.value = t('admin-canned-responses-success-deleted');
+    toast.success(t('admin-canned-responses-success-deleted'));
     showDeleteConfirm.value = false;
     deleting.value = null;
     await queryCache.invalidateQueries({ key: CANNED_RESPONSES_KEY });
-    setTimeout(() => (successMessage.value = ''), 3000);
   } catch (error) {
     errorMessage.value = extractErrorMessage(
       error,
@@ -200,7 +200,6 @@ function relativeTime(iso: string): string {
         </div>
       </div>
 
-      <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
       <AlertMessage
         v-if="loadError && responses.length === 0"

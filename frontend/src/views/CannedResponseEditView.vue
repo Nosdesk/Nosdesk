@@ -28,10 +28,12 @@ import cannedResponsesService, {
   type CannedResponseListItem,
 } from '@/services/cannedResponsesService';
 import { extractErrorMessage } from '@/utils/errors';
+import { useToastStore } from '@/stores/toast';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const route = useRoute();
+const toast = useToastStore();
 const router = useRouter();
 const queryCache = useQueryCache();
 
@@ -64,8 +66,10 @@ const existing = computed<CannedResponseListItem | null>(() => {
 const form = ref({ title: '', body: '' });
 const hasHydrated = ref(false);
 const isSaving = ref(false);
+// Errors stay inline above the form (sticky, actionable, points
+// at the field). Success goes through the corner toast and the
+// view unmounts immediately; the list re-render is the confirmation.
 const formError = ref('');
-const successMessage = ref('');
 
 // Hydrate the form from the matching row once the list resolves.
 // Watch covers the case where the user navigated direct via URL
@@ -156,10 +160,12 @@ async function submit(): Promise<void> {
       await cannedResponsesService.update(editingId.value, { title, body });
     }
     await queryCache.invalidateQueries({ key: CANNED_RESPONSES_KEY });
-    successMessage.value = isCreating.value
-      ? t('admin-canned-responses-success-created')
-      : t('admin-canned-responses-success-updated');
-    setTimeout(() => router.push({ name: 'admin-canned-responses' }), 600);
+    toast.success(
+      isCreating.value
+        ? t('admin-canned-responses-success-created')
+        : t('admin-canned-responses-success-updated'),
+    );
+    router.push({ name: 'admin-canned-responses' });
   } catch (error) {
     formError.value = extractErrorMessage(error, t('admin-canned-responses-error-save'));
   } finally {
@@ -188,7 +194,6 @@ function goBack(): void {
         <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ pageTitle }}</h1>
       </div>
 
-      <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
       <AlertMessage v-if="formError" type="error" :message="formError" />
 
       <!-- "Row not found" guard: an admin URL-pasted into an id
