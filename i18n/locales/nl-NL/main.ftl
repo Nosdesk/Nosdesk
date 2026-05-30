@@ -665,6 +665,8 @@ admin-nav-workflow-title = Workflow
 admin-nav-workflow-description = Voeg ticketstatussen toe binnen de standaard workflowcategorieën
 admin-nav-sla-title = SLA
 admin-nav-sla-description = Servicelevel-beleid en kalenders voor werktijden
+admin-nav-canned-responses-title = Standaardantwoorden
+admin-nav-canned-responses-description = Herbruikbare antwoordsjablonen met variabelen
 admin-nav-api-tokens-title = API-tokens
 admin-nav-api-tokens-description = Beheer API-tokens voor programmatische toegang
 admin-nav-webhooks-title = Webhooks
@@ -898,6 +900,50 @@ admin-api-tokens-revoke-modal-title = Token intrekken
 admin-api-tokens-revoke-confirm-message = Weet u zeker dat u het token "{ $name }" wilt intrekken?
 admin-api-tokens-revoke-warning = Deze actie kan niet ongedaan worden gemaakt. Systemen die dit token gebruiken verliezen toegang.
 admin-api-tokens-revoking = Intrekken...
+
+# Admin: Standaardantwoorden (CannedResponsesView). Herbruikbare
+# antwoordsjablonen die de samensteller-selector op aanvraag
+# invoegt. Werkruimtebrede gedeelde bibliotheek; schrijven alleen
+# voor beheerders.
+admin-canned-responses-title = Standaardantwoorden
+admin-canned-responses-description = Herbruikbare antwoordsjablonen die technici met één klik in de ticketsamensteller kunnen invoegen. {"{{"}variable{"}}"}-tokens worden bij het invoegen vervangen.
+admin-canned-responses-loading = Sjablonen laden...
+admin-canned-responses-create = Nieuw sjabloon
+admin-canned-responses-create-title = Nieuw standaardantwoord
+admin-canned-responses-edit-title = Standaardantwoord bewerken
+admin-canned-responses-create-submit = Aanmaken
+admin-canned-responses-save = Wijzigingen opslaan
+admin-canned-responses-cancel = Annuleren
+admin-canned-responses-search-placeholder = Zoeken op titel of inhoud...
+admin-canned-responses-search-aria = Standaardantwoorden zoeken
+admin-canned-responses-column-name = Naam
+admin-canned-responses-column-updated = Bijgewerkt
+admin-canned-responses-column-inserts = Invoegingen
+admin-canned-responses-column-inserts-title = Aantal invoegingen in de laatste 30 dagen
+admin-canned-responses-delete-title = Sjabloon verwijderen
+admin-canned-responses-delete-aria = Sjabloon { $name } verwijderen
+admin-canned-responses-delete-confirm-title = Standaardantwoord verwijderen
+admin-canned-responses-delete-confirm-message = Definitief "{ $name }" verwijderen? Technici zien het daarna niet meer in de samensteller.
+admin-canned-responses-delete-confirm-button = Verwijderen
+admin-canned-responses-empty-title = Nog geen standaardantwoorden
+admin-canned-responses-empty-description = Maak uw eerste antwoordsjabloon aan, dan kunnen technici het met één klik invoegen vanuit de samensteller.
+admin-canned-responses-no-matches-title = Geen overeenkomende sjablonen
+admin-canned-responses-no-matches-description = Niets komt overeen met "{ $query }". Probeer een ander woord.
+admin-canned-responses-field-title = Titel
+admin-canned-responses-field-title-placeholder = bv. Wachtwoord opnieuw instellen
+admin-canned-responses-field-body = Inhoud
+admin-canned-responses-field-body-placeholder = Beste {"{{"}customer_name{"}}"}, ...
+admin-canned-responses-field-body-hint = Ondersteunde variabelen: { $variables }
+admin-canned-responses-warn-unknown-variables = Onbekende variabelen: { $names }. Ze verschijnen letterlijk in klantenantwoorden; corrigeer of verwijder ze.
+admin-canned-responses-error-load = Kan standaardantwoorden niet laden
+admin-canned-responses-error-save = Opslaan mislukt
+admin-canned-responses-error-delete = Verwijderen mislukt
+admin-canned-responses-error-title-required = Titel is verplicht
+admin-canned-responses-error-body-required = Inhoud is verplicht
+admin-canned-responses-error-unknown-variables = Onbekende variabelen: { $names }. Verwijder of corrigeer ze voor het opslaan.
+admin-canned-responses-success-created = Standaardantwoord aangemaakt
+admin-canned-responses-success-updated = Standaardantwoord opgeslagen
+admin-canned-responses-success-deleted = Standaardantwoord verwijderd
 
 # Beheer: SLA.
 admin-sla-title = SLA
@@ -4378,6 +4424,7 @@ route-title-admin-assignment-rules = Toewijzingsregels
 route-title-admin-workflow = Werkstroom
 route-title-admin-asset-kinds = Activatypen
 route-title-admin-api-tokens = API-tokens
+route-title-admin-canned-responses = Standaardantwoorden
 route-title-admin-webhooks = Webhooks
 route-title-admin-sla = SLA
 route-title-admin-plugins = Plug-ins

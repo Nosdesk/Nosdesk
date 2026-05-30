@@ -61,6 +61,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         icon: 'clock',
         route: '/admin/sla',
         keywords: ['sla', 'service level', 'response time', 'resolution time', 'breach', 'policies', 'calendars', 'working hours']
+      },
+      {
+        titleKey: 'admin-nav-canned-responses-title',
+        descriptionKey: 'admin-nav-canned-responses-description',
+        icon: 'comment',
+        route: '/admin/canned-responses',
+        keywords: ['canned', 'responses', 'templates', 'replies', 'reusable', 'snippets', 'saved replies', 'macros']
       }
     ]
   },

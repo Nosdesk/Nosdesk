@@ -668,6 +668,8 @@ admin-nav-workflow-title = Workflow
 admin-nav-workflow-description = Ajoutez des états de ticket nommés dans les catégories de workflow standard
 admin-nav-sla-title = SLA
 admin-nav-sla-description = Politiques de niveau de service et calendriers d'heures ouvrées
+admin-nav-canned-responses-title = Réponses prédéfinies
+admin-nav-canned-responses-description = Modèles de réponse réutilisables avec variables substituées
 admin-nav-api-tokens-title = Jetons d'API
 admin-nav-api-tokens-description = Gérez les jetons d'API pour l'accès programmatique
 admin-nav-webhooks-title = Webhooks
@@ -901,6 +903,50 @@ admin-api-tokens-revoke-modal-title = Révoquer le jeton
 admin-api-tokens-revoke-confirm-message = Confirmez-vous la révocation du jeton « { $name } » ?
 admin-api-tokens-revoke-warning = Cette action est irréversible. Les systèmes utilisant ce jeton perdront l'accès.
 admin-api-tokens-revoking = Révocation...
+
+# Admin : Réponses prédéfinies (CannedResponsesView). Modèles de
+# réponse réutilisables que le sélecteur du composeur insère à la
+# demande. Bibliothèque partagée au niveau de l'espace de travail ;
+# écriture réservée aux administrateurs.
+admin-canned-responses-title = Réponses prédéfinies
+admin-canned-responses-description = Modèles de réponse réutilisables que les techniciens peuvent insérer dans le composeur de tickets. Les variables {"{{"}variable{"}}"} sont substituées au moment de l'insertion.
+admin-canned-responses-loading = Chargement des modèles...
+admin-canned-responses-create = Nouveau modèle
+admin-canned-responses-create-title = Nouvelle réponse prédéfinie
+admin-canned-responses-edit-title = Modifier la réponse prédéfinie
+admin-canned-responses-create-submit = Créer
+admin-canned-responses-save = Enregistrer
+admin-canned-responses-cancel = Annuler
+admin-canned-responses-search-placeholder = Rechercher par titre ou contenu...
+admin-canned-responses-search-aria = Rechercher des réponses prédéfinies
+admin-canned-responses-column-name = Nom
+admin-canned-responses-column-updated = Mis à jour
+admin-canned-responses-column-inserts = Insertions
+admin-canned-responses-column-inserts-title = Nombre d'insertions dans les 30 derniers jours
+admin-canned-responses-delete-title = Supprimer le modèle
+admin-canned-responses-delete-aria = Supprimer le modèle { $name }
+admin-canned-responses-delete-confirm-title = Supprimer la réponse prédéfinie
+admin-canned-responses-delete-confirm-message = Supprimer définitivement « { $name } » ? Les techniciens ne la verront plus dans le sélecteur du composeur.
+admin-canned-responses-delete-confirm-button = Supprimer
+admin-canned-responses-empty-title = Aucune réponse prédéfinie pour l'instant
+admin-canned-responses-empty-description = Créez votre premier modèle de réponse et les techniciens pourront l'insérer depuis le composeur en un clic.
+admin-canned-responses-no-matches-title = Aucun modèle correspondant
+admin-canned-responses-no-matches-description = Rien ne correspond à « { $query } ». Essayez un autre mot.
+admin-canned-responses-field-title = Titre
+admin-canned-responses-field-title-placeholder = par ex. Réinitialisation du mot de passe
+admin-canned-responses-field-body = Contenu
+admin-canned-responses-field-body-placeholder = Bonjour {"{{"}customer_name{"}}"}, ...
+admin-canned-responses-field-body-hint = Variables prises en charge : { $variables }
+admin-canned-responses-warn-unknown-variables = Variables inconnues : { $names }. Elles apparaîtront telles quelles dans les réponses aux clients ; corrigez-les ou supprimez-les.
+admin-canned-responses-error-load = Échec du chargement des réponses prédéfinies
+admin-canned-responses-error-save = Échec de l'enregistrement
+admin-canned-responses-error-delete = Échec de la suppression
+admin-canned-responses-error-title-required = Le titre est obligatoire
+admin-canned-responses-error-body-required = Le contenu est obligatoire
+admin-canned-responses-error-unknown-variables = Variables inconnues : { $names }. Supprimez-les ou corrigez-les avant d'enregistrer.
+admin-canned-responses-success-created = Réponse prédéfinie créée
+admin-canned-responses-success-updated = Réponse prédéfinie enregistrée
+admin-canned-responses-success-deleted = Réponse prédéfinie supprimée
 
 # Admin : SLA.
 admin-sla-title = SLA
@@ -4387,6 +4433,7 @@ route-title-admin-assignment-rules = Règles d'attribution
 route-title-admin-workflow = Flux de travail
 route-title-admin-asset-kinds = Types d'actifs
 route-title-admin-api-tokens = Jetons d'API
+route-title-admin-canned-responses = Réponses prédéfinies
 route-title-admin-webhooks = Webhooks
 route-title-admin-sla = SLA
 route-title-admin-plugins = Extensions

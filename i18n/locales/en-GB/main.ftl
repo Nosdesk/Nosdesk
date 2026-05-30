@@ -657,6 +657,8 @@ admin-nav-workflow-title = Workflow
 admin-nav-workflow-description = Add named ticket states inside the standard workflow categories
 admin-nav-sla-title = SLA
 admin-nav-sla-description = Service-level policies and working-hours calendars
+admin-nav-canned-responses-title = Canned Responses
+admin-nav-canned-responses-description = Reusable reply templates with substituted variables
 admin-nav-api-tokens-title = API Tokens
 admin-nav-api-tokens-description = Manage API tokens for programmatic access
 admin-nav-webhooks-title = Webhooks
@@ -890,6 +892,49 @@ admin-api-tokens-revoke-modal-title = Revoke Token
 admin-api-tokens-revoke-confirm-message = Are you sure you want to revoke the token "{ $name }"?
 admin-api-tokens-revoke-warning = This action cannot be undone. Any systems using this token will lose access.
 admin-api-tokens-revoking = Revoking...
+
+# Admin: Canned Responses (CannedResponsesView). Reusable reply
+# templates the composer picker inserts on demand. Workspace-wide
+# shared library; admin-only writes.
+admin-canned-responses-title = Canned Responses
+admin-canned-responses-description = Reusable reply templates techs can insert into the ticket composer. Substitute {"{{"}variable{"}}"} tokens at insert time.
+admin-canned-responses-loading = Loading templates...
+admin-canned-responses-create = New template
+admin-canned-responses-create-title = New canned response
+admin-canned-responses-edit-title = Edit canned response
+admin-canned-responses-create-submit = Create
+admin-canned-responses-save = Save changes
+admin-canned-responses-cancel = Cancel
+admin-canned-responses-search-placeholder = Search by title or body...
+admin-canned-responses-search-aria = Search canned responses
+admin-canned-responses-column-name = Name
+admin-canned-responses-column-updated = Updated
+admin-canned-responses-column-inserts = Inserts
+admin-canned-responses-column-inserts-title = Times inserted in the last 30 days
+admin-canned-responses-delete-title = Delete template
+admin-canned-responses-delete-aria = Delete template { $name }
+admin-canned-responses-delete-confirm-title = Delete canned response
+admin-canned-responses-delete-confirm-message = Permanently delete "{ $name }"? Techs will no longer see it in the composer picker.
+admin-canned-responses-delete-confirm-button = Delete
+admin-canned-responses-empty-title = No canned responses yet
+admin-canned-responses-empty-description = Create your first reply template and techs can insert it from the ticket composer with one click.
+admin-canned-responses-no-matches-title = No matching templates
+admin-canned-responses-no-matches-description = Nothing matches "{ $query }". Try a different word.
+admin-canned-responses-field-title = Title
+admin-canned-responses-field-title-placeholder = e.g. Password reset
+admin-canned-responses-field-body = Body
+admin-canned-responses-field-body-placeholder = Hi {"{{"}customer_name{"}}"}, ...
+admin-canned-responses-field-body-hint = Supported variables: { $variables }
+admin-canned-responses-warn-unknown-variables = Unknown variables: { $names }. They will appear verbatim in customer replies; correct or remove them.
+admin-canned-responses-error-load = Failed to load canned responses
+admin-canned-responses-error-save = Failed to save canned response
+admin-canned-responses-error-delete = Failed to delete canned response
+admin-canned-responses-error-title-required = Title is required
+admin-canned-responses-error-body-required = Body is required
+admin-canned-responses-error-unknown-variables = Unknown variables: { $names }. Remove or correct them before saving.
+admin-canned-responses-success-created = Canned response created
+admin-canned-responses-success-updated = Canned response saved
+admin-canned-responses-success-deleted = Canned response deleted
 
 # Admin: SLA.
 admin-sla-title = SLA
@@ -4298,6 +4343,7 @@ route-title-admin-assignment-rules = Assignment rules
 route-title-admin-workflow = Workflow
 route-title-admin-asset-kinds = Asset kinds
 route-title-admin-api-tokens = API tokens
+route-title-admin-canned-responses = Canned responses
 route-title-admin-webhooks = Webhooks
 route-title-admin-sla = SLA
 route-title-admin-plugins = Plugins

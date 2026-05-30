@@ -610,6 +610,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-api-tokens' }
         },
         {
+          path: 'canned-responses',
+          name: 'admin-canned-responses',
+          component: () => import('../views/CannedResponsesView.vue'),
+          meta: { titleKey: 'route-title-admin-canned-responses' }
+        },
+        {
           path: 'webhooks',
           name: 'admin-webhooks',
           component: () => import('../views/WebhooksView.vue'),
