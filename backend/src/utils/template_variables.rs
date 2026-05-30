@@ -29,20 +29,44 @@ pub const CANNED_RESPONSE_VARIABLES: &[&str] = &[
     "ticket_id",
     "ticket_title",
     "customer_name",
+    "customer_first_name",
     "tech_name",
+    "tech_first_name",
     "app_name",
 ];
 
 /// Variables the outbound channel pipeline substitutes when
 /// appending an agent's signature. Scoped to per-agent metadata +
 /// the workspace name; deliberately omits ticket-scoped tokens
-/// since a signature is boilerplate, not a templated reply.
-pub const SIGNATURE_VARIABLES: &[&str] = &["tech_name", "tech_email", "app_name"];
+/// since a signature is boilerplate, not a templated reply. The
+/// first-name flavour lets admins write "Cheers, Alex" without
+/// the full last name in the auto-signed footer.
+pub const SIGNATURE_VARIABLES: &[&str] =
+    &["tech_name", "tech_first_name", "tech_email", "app_name"];
 
 /// Variables the auto-acknowledgement renderer substitutes when
 /// emitting the "we got your message" reply. No `tech_name`: the
 /// auto-ack is system-authored, there's no agent on hand yet.
-pub const AUTO_ACK_VARIABLES: &[&str] = &["ticket_id", "ticket_title", "customer_name", "app_name"];
+pub const AUTO_ACK_VARIABLES: &[&str] = &[
+    "ticket_id",
+    "ticket_title",
+    "customer_name",
+    "customer_first_name",
+    "app_name",
+];
+
+/// Take the first whitespace-separated token of a full name.
+/// "Mary Jane Smith" → "Mary"; "Alex" → "Alex"; "" → "". Empty
+/// input returns empty; the substitute helper leaves an empty
+/// substitution in place so missing context is visible to the
+/// reader rather than silently dropped.
+pub fn first_name(full_name: &str) -> String {
+    full_name
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
 
 /// Whitespace-tolerant token matcher: `{{ name }}` and `{{name}}`
 /// both match the same way the frontend mirror does.
@@ -176,5 +200,29 @@ mod tests {
             &[("tech_name", "Sam")],
         );
         assert_eq!(out, "Sam Sam Sam");
+    }
+
+    #[test]
+    fn first_name_returns_first_whitespace_token() {
+        assert_eq!(first_name("Mary Jane Smith"), "Mary");
+        assert_eq!(first_name("Alex"), "Alex");
+        assert_eq!(first_name(""), "");
+        assert_eq!(first_name("   "), "");
+        assert_eq!(first_name("\t Jane\tDoe"), "Jane");
+    }
+
+    #[test]
+    fn first_name_variables_are_on_relevant_allow_lists() {
+        // Catches accidental list drift: customer_first_name belongs
+        // anywhere customer_name does; same for tech_first_name vs
+        // tech_name. A future contributor adding `customer_name` to
+        // a new list would expect to add `customer_first_name` too.
+        assert!(CANNED_RESPONSE_VARIABLES.contains(&"customer_first_name"));
+        assert!(CANNED_RESPONSE_VARIABLES.contains(&"tech_first_name"));
+        assert!(SIGNATURE_VARIABLES.contains(&"tech_first_name"));
+        assert!(AUTO_ACK_VARIABLES.contains(&"customer_first_name"));
+        // Symmetric: the auto-ack still doesn't carry tech vars.
+        assert!(!AUTO_ACK_VARIABLES.contains(&"tech_first_name"));
+        assert!(!AUTO_ACK_VARIABLES.contains(&"tech_name"));
     }
 }

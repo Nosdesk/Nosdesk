@@ -152,7 +152,7 @@ import { useQuery } from '@pinia/colada';
 import {
   cannedResponsesService,
   renderTemplate,
-  variablesUsed,
+  unboundVariables,
   type CannedResponseListItem,
   type TemplateVars,
 } from '@/services/cannedResponsesService';
@@ -249,19 +249,18 @@ function previewBody(r: CannedResponseListItem): string {
 }
 
 /**
- * Allow-list variables the active row references that don't have a
- * value bound in the current ticket context. If non-empty, the
- * picker shows a one-line warning so the agent knows the rendered
- * text will have empty slots where those names would go.
+ * Allow-list variables the active row references that would
+ * substitute to empty against the current ticket context. The
+ * resolver in `unboundVariables` handles derived variables
+ * (e.g. `customer_first_name` is empty iff `customer_name` is
+ * empty) so the picker doesn't need to know which names are
+ * derived. If non-empty, a one-line warning above the result
+ * list tells the agent which slots will be empty.
  */
 const activeMissingVars = computed<string[]>(() => {
   const r = filteredResponses.value[activeIndex.value];
   if (!r) return [];
-  const used = variablesUsed(r.body);
-  return used.filter((name) => {
-    const v = (props.vars as Record<string, unknown>)[name];
-    return v == null || v === '';
-  });
+  return unboundVariables(r.body, props.vars);
 });
 
 const highlightTitle = (text: string): string => highlightTerms(text, searchTerms.value);

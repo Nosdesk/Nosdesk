@@ -74,10 +74,12 @@ fn render_signature(conn: &mut DbConnection, user_uuid: Uuid, template: String) 
     let app_name = crate::repository::site_settings::get_site_settings(conn)
         .map(|s| s.app_name)
         .unwrap_or_else(|_| "Nosdesk".to_string());
+    let tech_first_name = crate::utils::template_variables::first_name(&user.name);
     Some(crate::utils::template_variables::substitute(
         &template,
         &[
             ("tech_name", &user.name),
+            ("tech_first_name", &tech_first_name),
             ("tech_email", &tech_email),
             ("app_name", &app_name),
         ],

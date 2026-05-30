@@ -235,12 +235,14 @@ fn render_template(
     customer_name: &str,
 ) -> String {
     let ticket_id = ticket.id.to_string();
+    let customer_first_name = crate::utils::template_variables::first_name(customer_name);
     crate::utils::template_variables::substitute(
         template,
         &[
             ("ticket_id", &ticket_id),
             ("ticket_title", &ticket.title),
             ("customer_name", customer_name),
+            ("customer_first_name", &customer_first_name),
             ("app_name", &settings.app_name),
         ],
     )

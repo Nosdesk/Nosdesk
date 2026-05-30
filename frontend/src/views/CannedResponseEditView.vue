@@ -234,7 +234,7 @@ function goBack(): void {
             />
             <p
               v-if="unknownVariables.length > 0"
-              class="text-xs text-status-warning mt-1"
+              class="text-xs text-status-warning"
             >
               {{
                 $t('admin-canned-responses-warn-unknown-variables', {

@@ -181,12 +181,12 @@ function relativeTime(iso: string): string {
   <div class="flex-1">
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <!-- Heading + create CTAs -->
-      <div class="mb-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="flex flex-col gap-1">
           <h1 class="text-xl sm:text-2xl font-bold text-primary">
             {{ $t('admin-canned-responses-title') }}
           </h1>
-          <p class="text-secondary text-sm sm:text-base mt-1">
+          <p class="text-secondary text-sm sm:text-base">
             {{ $t('admin-canned-responses-description') }}
           </p>
         </div>
@@ -302,9 +302,12 @@ function relativeTime(iso: string): string {
           :key="row.id"
           class="flex flex-col sm:grid sm:grid-cols-[1fr_140px_120px_56px] sm:items-center border-b border-default last:border-b-0 hover:bg-surface-hover transition-colors"
         >
-          <button class="text-left px-4 pt-3 pb-1 sm:py-3 min-w-0" @click="openEdit(row)">
+          <button
+            class="text-left px-4 pt-3 pb-1 sm:py-3 min-w-0 flex flex-col gap-0.5"
+            @click="openEdit(row)"
+          >
             <div class="font-medium text-primary truncate" v-html="highlight(row.title)" />
-            <div class="text-xs text-tertiary truncate mt-0.5">
+            <div class="text-xs text-tertiary truncate">
               {{ row.body.length > 120 ? row.body.slice(0, 120) + '…' : row.body }}
             </div>
           </button>

@@ -86,12 +86,46 @@ function variableNodeView(node: PMNode): NodeView {
   return { dom };
 }
 
+// Chip-aware delete keymap. Sits before baseKeymap so the chip
+// cases win; everything else falls through to default behaviour.
+//
+// Backspace right after a chip deletes the chip in one stroke
+// (rather than PM's default "first stroke selects, second stroke
+// deletes" two-step). Same for Delete right before a chip. When a
+// NodeSelection of a chip is already active (e.g. the user clicked
+// the chip), either key removes it via the standard deleteSelection
+// path in baseKeymap, so we only need to handle the cursor-adjacent
+// cases here.
+const chipDeleteKeymap = keymap({
+  Backspace: (state, dispatch) => {
+    if (!state.selection.empty) return false;
+    const { $from } = state.selection;
+    const before = $from.nodeBefore;
+    if (!before || before.type !== templateSchema.nodes.variable_token) return false;
+    if (dispatch) {
+      dispatch(state.tr.delete($from.pos - before.nodeSize, $from.pos));
+    }
+    return true;
+  },
+  Delete: (state, dispatch) => {
+    if (!state.selection.empty) return false;
+    const { $from } = state.selection;
+    const after = $from.nodeAfter;
+    if (!after || after.type !== templateSchema.nodes.variable_token) return false;
+    if (dispatch) {
+      dispatch(state.tr.delete($from.pos, $from.pos + after.nodeSize));
+    }
+    return true;
+  },
+});
+
 function buildState(value: string): EditorState {
   return EditorState.create({
     doc: stringToDoc(value),
     plugins: [
       history(),
       keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Mod-Shift-z': redo }),
+      chipDeleteKeymap,
       keymap(baseKeymap),
       inputRules({ rules: [variableInputRule] }),
       new Plugin({
@@ -148,6 +182,11 @@ watch(
  * allows the chip in the surrounding context before dispatching,
  * so the toolbar pill becomes a no-op rather than a crash when
  * the cursor sits in a node that forbids inline atoms.
+ *
+ * After insert, leave the cursor positioned right after the chip
+ * (PM's `replaceSelectionWith` default) so the user can keep
+ * typing context immediately. Selecting the chip post-insert
+ * would create a NodeSelection which most users wouldn't expect.
  */
 function insertVariable(name: string): void {
   if (!view) return;
@@ -168,24 +207,28 @@ const showPlaceholder = computed(() => props.modelValue === '');
 </script>
 
 <template>
-  <div class="template-editor">
+  <div class="template-editor flex flex-col gap-2">
     <!-- Toolbar pills above the editor. Click any to drop a chip at
-         the current selection. The 5 allowed variables only; this is
-         the same allow-list the save handler enforces. -->
-    <div class="flex flex-wrap items-center gap-1.5 mb-2">
-      <span class="text-xs text-secondary mr-1">
+         the current selection. Allow-list comes from the service so
+         it matches the validator the save handler enforces. The
+         label sits in its own gap-2 group so the visual separation
+         from the first pill is bigger than the inter-pill gap. -->
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs text-secondary">
         {{ t('admin-canned-responses-editor-insert-label') }}
       </span>
-      <button
-        v-for="name in CANNED_RESPONSE_VARIABLES"
-        :key="name"
-        type="button"
-        class="px-2 py-1 text-xs rounded-md bg-surface-alt text-secondary hover:text-primary hover:bg-surface-hover border border-default font-mono transition-colors"
-        :aria-label="t('admin-canned-responses-editor-insert-variable-aria', { name })"
-        @click="insertVariable(name)"
-      >
-        {{ pillLabel(name) }}
-      </button>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button
+          v-for="name in CANNED_RESPONSE_VARIABLES"
+          :key="name"
+          type="button"
+          class="px-2 py-1 text-xs rounded-md bg-surface-alt text-secondary hover:text-primary hover:bg-surface-hover border border-default font-mono transition-colors"
+          :aria-label="t('admin-canned-responses-editor-insert-variable-aria', { name })"
+          @click="insertVariable(name)"
+        >
+          {{ pillLabel(name) }}
+        </button>
+      </div>
     </div>
     <div class="editor-shell relative border border-default rounded-lg bg-surface">
       <div
@@ -214,6 +257,9 @@ const showPlaceholder = computed(() => props.modelValue === '');
 .editor-root :deep(p:last-child) {
   margin-bottom: 0;
 }
+/* The chip sits in flowing inline text, not a flex container, so
+   the 1px horizontal margin is for inline rhythm against
+   surrounding glyphs (gap doesn't apply across inline-flow). */
 .editor-root :deep(.variable-chip) {
   display: inline-block;
   padding: 0 6px;
@@ -225,11 +271,23 @@ const showPlaceholder = computed(() => props.modelValue === '');
   font-size: 0.85em;
   vertical-align: baseline;
   white-space: nowrap;
-  cursor: default;
-  user-select: all;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
 }
+.editor-root :deep(.variable-chip:hover) {
+  background-color: rgb(var(--color-accent) / 0.25);
+}
+/* Stronger "I am selected, press Backspace to remove me" cue:
+   solid accent fill + white text + ring. Less subtle than the
+   previous outline-only treatment, which competed with the
+   chip's existing tinted background for the reader's attention. */
 .editor-root :deep(.variable-chip.ProseMirror-selectednode) {
-  outline: 2px solid rgb(var(--color-accent) / 0.6);
-  outline-offset: 1px;
+  background-color: rgb(var(--color-accent));
+  color: white;
+  box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.35);
 }
 </style>

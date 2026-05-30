@@ -124,24 +124,42 @@ export const CANNED_RESPONSE_VARIABLES = [
   'ticket_id',
   'ticket_title',
   'customer_name',
+  'customer_first_name',
   'tech_name',
+  'tech_first_name',
   'app_name',
 ] as const;
 
 export type CannedResponseVariable = (typeof CANNED_RESPONSE_VARIABLES)[number];
 
 /**
+ * Take the first whitespace-separated token of a full name.
+ * "Mary Jane Smith" → "Mary"; empty input returns empty. The
+ * picker derives `*_first_name` variants from the matching full-
+ * name field so admins don't pass twice.
+ */
+function firstWord(value: string | undefined): string {
+  return (value ?? '').trim().split(/\s+/)[0] ?? '';
+}
+
+/**
  * Plain `{{variable}}` substitution, no Handlebars, no HTML
  * escaping (the composer is plain-text / markdown). Unknown tokens
  * are left intact so a tech editing the template spots their own
  * typos in the result they're about to send.
+ *
+ * `customer_first_name` and `tech_first_name` are derived from
+ * the matching `*_name` field rather than separately passed; the
+ * caller only needs to supply the full names once.
  */
 export function renderTemplate(template: string, vars: TemplateVars): string {
   const lookup: Record<string, string> = {
     ticket_id: vars.ticket_id != null ? String(vars.ticket_id) : '',
     ticket_title: vars.ticket_title ?? '',
     customer_name: vars.customer_name ?? '',
+    customer_first_name: firstWord(vars.customer_name),
     tech_name: vars.tech_name ?? '',
+    tech_first_name: firstWord(vars.tech_name),
     app_name: vars.app_name ?? '',
   };
   return template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
@@ -190,6 +208,24 @@ export function variablesUsed(body: string): CannedResponseVariable[] {
     }
   }
   return Array.from(seen).sort() as CannedResponseVariable[];
+}
+
+/**
+ * Allow-listed variables `body` references that would substitute
+ * to empty against the current ticket context. The check resolves
+ * each name through `renderTemplate` so derived variables (e.g.
+ * `customer_first_name` is empty iff `customer_name` is empty)
+ * are handled correctly without the caller knowing about the
+ * derivation rules.
+ */
+export function unboundVariables(
+  body: string,
+  vars: TemplateVars,
+): CannedResponseVariable[] {
+  return variablesUsed(body).filter((name) => {
+    const resolved = renderTemplate(`{{${name}}}`, vars);
+    return resolved.trim() === '';
+  });
 }
 
 export default cannedResponsesService;
