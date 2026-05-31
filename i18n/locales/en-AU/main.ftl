@@ -2515,6 +2515,7 @@ settings-auth-methods-sessions-load-error = Couldn't load active sessions
 
 # Shared common chrome.
 common-modal-close = Close modal
+form-textarea-resize-grip-label = Drag to resize
 
 # Editor: toolbar (CollaborativeEditor)
 editor-toolbar-text-style = Text style
@@ -3212,6 +3213,7 @@ ticket-detail-add-assignee = Add assignee
 ticket-detail-claim = Claim
 ticket-detail-claim-title = Take this one yourself
 ticket-detail-sla-label = SLA
+ticket-detail-sla-paused-target = target { $target }
 ticket-detail-scheduling-label = Scheduling
 ticket-detail-scheduling-none = None
 ticket-detail-scheduling-due-date = Due date
@@ -3237,11 +3239,12 @@ ticket-detail-resolution-draft-from-notes-title = { $count ->
     [one] Pull { $count } internal note into the resolution draft
    *[other] Pull { $count } internal notes into the resolution draft
   }
-ticket-detail-resolution-placeholder-active = What fixed it? Jot it down for the next person.
-ticket-detail-resolution-placeholder-draft = Notes on the fix can go here while you're working the ticket.
+ticket-detail-resolution-placeholder = What fixed this?
 ticket-detail-audit-created = Created
-ticket-detail-audit-modified = Last Modified
+ticket-detail-audit-created-by = Created by { $name }
+ticket-detail-audit-modified = Updated
 ticket-detail-audit-closed = Closed
+ticket-detail-audit-closed-by = Closed by { $name }
 ticket-detail-print-status = Status
 ticket-detail-print-priority = Priority
 ticket-detail-print-category = Category
@@ -3370,7 +3373,9 @@ ticket-field-watchers-watch = Watch
 ticket-field-watchers-watch-title = Watch this ticket for updates
 ticket-field-watchers-unwatch-title = Stop watching this ticket
 ticket-field-watchers-notify-internal = Notify on internal notes
+ticket-field-watchers-notify-internal-hint = Get pinged on private staff replies
 ticket-field-watchers-public-only = Public replies only
+ticket-field-watchers-prefs-title = Notification preferences
 ticket-field-watchers-toggle-on = ON
 ticket-field-watchers-toggle-off = OFF
 ticket-field-watchers-pref-load-error = Couldn't load preference

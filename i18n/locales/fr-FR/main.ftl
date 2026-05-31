@@ -2594,6 +2594,7 @@ settings-auth-methods-sessions-load-error = Échec du chargement des sessions ac
 
 # Habillage commun.
 common-modal-close = Fermer la fenêtre
+form-textarea-resize-grip-label = Glisser pour redimensionner
 
 # Éditeur : barre d'outils (CollaborativeEditor)
 editor-toolbar-text-style = Style de texte
@@ -3290,6 +3291,7 @@ ticket-detail-add-assignee = Ajouter un destinataire
 ticket-detail-claim = Prendre
 ticket-detail-claim-title = M'attribuer ce ticket
 ticket-detail-sla-label = SLA
+ticket-detail-sla-paused-target = échéance { $target }
 ticket-detail-scheduling-label = Planification
 ticket-detail-scheduling-none = Aucune
 ticket-detail-scheduling-due-date = Échéance
@@ -3315,11 +3317,12 @@ ticket-detail-resolution-draft-from-notes-title = { $count ->
     [one] Ajouter { $count } note interne au brouillon de résolution
    *[other] Ajouter { $count } notes internes au brouillon de résolution
   }
-ticket-detail-resolution-placeholder-active = Notez ce qui a corrigé le problème : la réponse pour le prochain intervenant.
-ticket-detail-resolution-placeholder-draft = Vous pouvez rédiger ici vos notes sur la résolution pendant le traitement.
+ticket-detail-resolution-placeholder = Qu'est-ce qui a résolu le problème ?
 ticket-detail-audit-created = Créé
-ticket-detail-audit-modified = Dernière modification
+ticket-detail-audit-created-by = Créé par { $name }
+ticket-detail-audit-modified = Mis à jour
 ticket-detail-audit-closed = Fermé
+ticket-detail-audit-closed-by = Fermé par { $name }
 ticket-detail-print-status = Statut
 ticket-detail-print-priority = Priorité
 ticket-detail-print-category = Catégorie
@@ -3448,7 +3451,9 @@ ticket-field-watchers-watch = Suivre
 ticket-field-watchers-watch-title = Suivre ce ticket pour recevoir les mises à jour
 ticket-field-watchers-unwatch-title = Arrêter de suivre ce ticket
 ticket-field-watchers-notify-internal = Notifier sur les notes internes
+ticket-field-watchers-notify-internal-hint = Recevoir une alerte sur les réponses privées du personnel
 ticket-field-watchers-public-only = Réponses publiques uniquement
+ticket-field-watchers-prefs-title = Préférences de notification
 ticket-field-watchers-toggle-on = ACTIVÉ
 ticket-field-watchers-toggle-off = DÉSACTIVÉ
 ticket-field-watchers-pref-load-error = Échec du chargement de la préférence

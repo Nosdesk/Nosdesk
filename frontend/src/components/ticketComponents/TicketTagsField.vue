@@ -168,7 +168,9 @@ function chipClass(tag: Tag): string {
 </script>
 
 <template>
-  <div class="flex flex-col gap-1.5">
+  <!-- gap-1 (4px) hugs the chip row to its heading, matching
+       PropertyChipRow. See TicketDetails for the 1:2:3 scale. -->
+  <div class="flex flex-col gap-1">
     <!-- Header is the click target for the picker. Same
          negative-margin idiom as PropertyChipRow: `-mx-2 px-2`
          extends the button 8px past the property-list
@@ -183,9 +185,12 @@ function chipClass(tag: Tag): string {
       @click="openPicker"
     >
       <h3 class="text-xs font-medium text-tertiary group-hover:text-secondary transition-colors">{{ t('ticket-field-tags-label') }}</h3>
+      <!-- Matches PropertyChipRow: `+` at low opacity at rest, full
+           on hover, so the row reads as interactive without
+           shouting. -->
       <Icon
         name="add"
-        class="w-3.5 h-3.5 text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
+        class="w-3.5 h-3.5 text-tertiary opacity-40 group-hover:opacity-100 transition-opacity"
         aria-hidden="true"
       />
     </button>

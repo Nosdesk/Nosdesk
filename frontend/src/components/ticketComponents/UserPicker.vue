@@ -377,12 +377,15 @@ const sectionStarts = computed(() => {
 
 <template>
   <div ref="containerRef" class="relative w-full">
-    <!-- Trigger row: avatar + input + clear -->
+    <!-- Trigger row: avatar + input + clear. Desktop sizing is the
+         compact-row scale used by the sidebar's property panel
+         (32px row + 20px avatar); mobile keeps the WCAG 2.5.8
+         touch-target floor (44px row + 28px avatar). -->
     <div
-      class="flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 min-h-[44px] sm:min-h-[40px] cursor-text"
+      class="flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 min-h-[44px] sm:min-h-[32px] cursor-text"
       @click="inputRef?.focus()"
     >
-      <div class="flex-shrink-0 w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center">
+      <div class="flex-shrink-0 w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center">
         <button
           v-if="modelValue && picker.selectedDisplayName.value && !isOpen"
           type="button"
@@ -395,13 +398,13 @@ const sectionStarts = computed(() => {
             :fallbackName="picker.selected.value?.name"
             :fallbackAvatar="picker.selected.value?.avatar_thumb || picker.selected.value?.avatar_url || null"
             :showName="false"
-            size="sm"
+            size="xs"
             :clickable="false"
           />
         </button>
         <div
           v-else
-          class="w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-surface border border-subtle flex items-center justify-center transition-colors"
+          class="w-7 h-7 sm:w-5 sm:h-5 rounded-full bg-surface border border-subtle flex items-center justify-center transition-colors"
           :class="{ 'border-accent/50 bg-accent/5': isOpen }"
         >
           <Icon name="user" size="xs" class="text-tertiary" />

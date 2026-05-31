@@ -68,6 +68,18 @@ const selectedOption = computed(() =>
   props.options.find((option) => option.value === props.value),
 )
 
+// True when the trigger should read as "no value selected" —
+// either no option matches `value`, OR the matching option's
+// value is the empty-string sentinel (which call sites use to
+// represent "uncategorised" / "no priority"; see
+// `categoryOptions` in TicketView.vue). Without the empty-string
+// branch the placeholder would render in primary body weight
+// because the dropdown technically has a "selection", which is
+// the design-review issue surfaced for the Category row.
+const isEmptySelection = computed(
+  () => !props.value || !selectedOption.value,
+)
+
 const sheetTitle = computed(() => {
   if (props.placeholder) return props.placeholder
   switch (props.type) {
@@ -99,10 +111,15 @@ function selectOption(option: DropdownOption) {
       ref="triggerRef"
       type="button"
       @click="toggle"
-      class="w-full px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-[40px] bg-transparent text-primary text-left flex items-center justify-between hover:bg-surface-hover active:bg-surface-alt transition-colors rounded-lg cursor-pointer"
+      class="group w-full px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-[40px] bg-transparent text-primary text-left flex items-center justify-between hover:bg-surface-hover active:bg-surface-alt transition-colors rounded-lg cursor-pointer"
     >
       <div class="flex items-center gap-2.5 sm:gap-2">
-        <template v-if="type === 'status'">
+        <!-- Indicator only renders when a real value is selected.
+             Empty-selection state (including the "" sentinel option
+             used by Category) has no chip dot; the placeholder copy
+             carries the meaning. Stops the empty-row "shouting in
+             primary body weight" pattern flagged in design review. -->
+        <template v-if="!isEmptySelection && type === 'status'">
           <StatusIndicator
             v-if="isLegacyStatusValue(value)"
             :status="value as 'open' | 'in-progress' | 'closed'"
@@ -115,15 +132,25 @@ function selectOption(option: DropdownOption) {
           />
         </template>
         <PriorityIndicator
-          v-else-if="type === 'priority'"
+          v-else-if="!isEmptySelection && type === 'priority'"
           :priority="value as 'low' | 'medium' | 'high'"
           size="sm"
         />
-        <span class="text-sm font-medium">{{ selectedOption?.label || $t('ticket-chip-dropdown-select') }}</span>
+        <span
+          class="text-sm"
+          :class="isEmptySelection
+            ? 'text-tertiary'
+            : 'text-primary font-medium'"
+        >{{ selectedOption?.label || placeholder || $t('ticket-chip-dropdown-select') }}</span>
       </div>
+      <!-- Chevron hidden at rest, revealed on hover (or whenever the
+           menu is open so the user sees the rotation cue). Always
+           visible on coarse pointers (touch) since there's no hover
+           state to reveal with. Matches the "display, click to edit"
+           register the rest of the sidebar settled on. -->
       <svg
-        class="w-4 h-4 text-tertiary transition-transform duration-200"
-        :class="{ 'rotate-180': isOpen }"
+        class="w-4 h-4 text-tertiary transition-all duration-200 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
+        :class="{ 'rotate-180 opacity-100': isOpen }"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"

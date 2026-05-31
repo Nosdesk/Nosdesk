@@ -2585,6 +2585,7 @@ settings-auth-methods-sessions-load-error = Kan actieve sessies niet laden
 
 # Gemeenschappelijke onderdelen.
 common-modal-close = Venster sluiten
+form-textarea-resize-grip-label = Sleep om te schalen
 
 # Editor: werkbalk (CollaborativeEditor)
 editor-toolbar-text-style = Tekststijl
@@ -3281,6 +3282,7 @@ ticket-detail-add-assignee = Toegewezene toevoegen
 ticket-detail-claim = Claimen
 ticket-detail-claim-title = Ken dit ticket aan jezelf toe
 ticket-detail-sla-label = SLA
+ticket-detail-sla-paused-target = doel { $target }
 ticket-detail-scheduling-label = Planning
 ticket-detail-scheduling-none = Geen
 ticket-detail-scheduling-due-date = Vervaldatum
@@ -3306,11 +3308,12 @@ ticket-detail-resolution-draft-from-notes-title = { $count ->
     [one] { $count } interne notitie aan het oplossingsconcept toevoegen
    *[other] { $count } interne notities aan het oplossingsconcept toevoegen
   }
-ticket-detail-resolution-placeholder-active = Leg vast wat het probleem heeft opgelost: het antwoord dat de volgende nodig heeft.
-ticket-detail-resolution-placeholder-draft = Hier kun je notities over de oplossing maken terwijl je het ticket behandelt.
+ticket-detail-resolution-placeholder = Wat heeft dit opgelost?
 ticket-detail-audit-created = Aangemaakt
-ticket-detail-audit-modified = Laatst gewijzigd
+ticket-detail-audit-created-by = Aangemaakt door { $name }
+ticket-detail-audit-modified = Bijgewerkt
 ticket-detail-audit-closed = Gesloten
+ticket-detail-audit-closed-by = Gesloten door { $name }
 ticket-detail-print-status = Status
 ticket-detail-print-priority = Prioriteit
 ticket-detail-print-category = Categorie
@@ -3439,7 +3442,9 @@ ticket-field-watchers-watch = Volgen
 ticket-field-watchers-watch-title = Volg dit ticket voor updates
 ticket-field-watchers-unwatch-title = Niet meer volgen
 ticket-field-watchers-notify-internal = Melden bij interne notities
+ticket-field-watchers-notify-internal-hint = Krijg een melding bij privéreacties van medewerkers
 ticket-field-watchers-public-only = Alleen openbare reacties
+ticket-field-watchers-prefs-title = Meldingsvoorkeuren
 ticket-field-watchers-toggle-on = AAN
 ticket-field-watchers-toggle-off = UIT
 ticket-field-watchers-pref-load-error = Kan voorkeur niet laden

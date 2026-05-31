@@ -2504,6 +2504,7 @@ settings-auth-methods-sessions-load-error = Failed to load active sessions
 # Modal.vue. Kept under the "common-*" namespace so primitives
 # don't depend on feature-specific FTL slices.
 common-modal-close = Close modal
+form-textarea-resize-grip-label = Drag to resize
 
 # Editor: toolbar (CollaborativeEditor)
 editor-toolbar-text-style = Text Style
@@ -3200,6 +3201,7 @@ ticket-detail-add-assignee = Add assignee
 ticket-detail-claim = Claim
 ticket-detail-claim-title = Assign this ticket to yourself
 ticket-detail-sla-label = SLA
+ticket-detail-sla-paused-target = target { $target }
 ticket-detail-scheduling-label = Scheduling
 ticket-detail-scheduling-none = None
 ticket-detail-scheduling-due-date = Due date
@@ -3225,11 +3227,12 @@ ticket-detail-resolution-draft-from-notes-title = { $count ->
     [one] Append { $count } internal note to the resolution draft
    *[other] Append { $count } internal notes to the resolution draft
   }
-ticket-detail-resolution-placeholder-active = Capture what fixed this: the answer the next person will need.
-ticket-detail-resolution-placeholder-draft = Notes on the fix can be drafted here while you work the ticket.
+ticket-detail-resolution-placeholder = What fixed this?
 ticket-detail-audit-created = Created
-ticket-detail-audit-modified = Last Modified
+ticket-detail-audit-created-by = Created by { $name }
+ticket-detail-audit-modified = Updated
 ticket-detail-audit-closed = Closed
+ticket-detail-audit-closed-by = Closed by { $name }
 ticket-detail-print-status = Status
 ticket-detail-print-priority = Priority
 ticket-detail-print-category = Category
@@ -3358,7 +3361,9 @@ ticket-field-watchers-watch = Watch
 ticket-field-watchers-watch-title = Watch this ticket for updates
 ticket-field-watchers-unwatch-title = Stop watching this ticket
 ticket-field-watchers-notify-internal = Notify on internal notes
+ticket-field-watchers-notify-internal-hint = Get pinged on private staff replies
 ticket-field-watchers-public-only = Public replies only
+ticket-field-watchers-prefs-title = Notification preferences
 ticket-field-watchers-toggle-on = ON
 ticket-field-watchers-toggle-off = OFF
 ticket-field-watchers-pref-load-error = Failed to load preference

@@ -15,11 +15,11 @@ import QRCode from 'qrcode';
 import UserPicker from "@/components/ticketComponents/UserPicker.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
+import FormTextarea from "@/components/common/FormTextarea.vue";
 import Button from "@/components/common/Button.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import Icon from "@/components/common/Icon.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
-import UserCell from "@/components/views/UserCell.vue";
 import TicketTagsField from "@/components/ticketComponents/TicketTagsField.vue";
 import TicketWatchersField from "@/components/ticketComponents/TicketWatchersField.vue";
 import TicketDevicesField from "@/components/ticketComponents/TicketAssetsField.vue";
@@ -35,7 +35,8 @@ import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
 import { useAuthStore } from "@/stores/auth";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
-import { formatCompactDate } from "@/utils/dateUtils";
+import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@/utils/dateUtils";
+import { useUsersDirectory } from "@/composables/useUsersDirectory";
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -421,6 +422,27 @@ const sourceLabel = computed<string | null>(() => {
 // duplicating the logic.
 const slaState = computed(() => deriveSlaState(props.ticket.sla ?? null));
 
+// Extra context appended to the SLA pill in non-active states.
+// `compactLabel` already carries the live countdown for on-track /
+// at-risk tickets; here we surface the analogue for breached
+// ("Nd ago" against the missed target) and paused ("target Tue
+// 12:00 PM" so the user knows what the timer will resume against).
+// Active states return null and the existing countdown span
+// renders unchanged.
+const slaPillDetail = computed<string | null>(() => {
+  const sla = props.ticket.sla;
+  const state = slaState.value;
+  if (!sla || !state) return null;
+  if (state.breached) {
+    const elapsed = formatCompactRelativeTime(sla.target_at);
+    return elapsed ? `${elapsed} ago` : null;
+  }
+  if (state.paused) {
+    return t('ticket-detail-sla-paused-target', { target: state.target });
+  }
+  return null;
+});
+
 // ---- Cycle pill -------------------------------------------------
 
 const router = useRouter();
@@ -492,12 +514,49 @@ const isTerminalState = computed<boolean>(() => {
 
 // ---- Audit timestamps -------------------------------------------
 //
-// `formatCompactDate` returns a short relative-or-date string the
-// list view's date cells use. Pairing with the actor uuid (via
-// `<UserCell>` which already exists for the table) gives the audit
-// block a consistent feel with the rest of the app.
+// Footer renders inline bylines ("Created by Alex · 4 May") instead
+// of the earlier stacked grid. Resolves actor names through the
+// shared directory composable so the byline reads as a sentence;
+// falls back to a plain verb when the actor uuid is missing or
+// hasn't resolved yet (UserAvatar handles its own missing-data
+// state, so the avatar slot stays quiet while the line still
+// reads). `formatCompactDate` returns a short relative-or-date
+// string the list view's date cells share.
+const { getUserHandle } = useUsersDirectory();
+
+const createdByName = computed<string | null>(() => {
+  const uuid = props.ticket.created_by;
+  if (!uuid) return null;
+  return getUserHandle(uuid).user.value?.name ?? null;
+});
+
+const closedByName = computed<string | null>(() => {
+  const uuid = props.ticket.closed_by;
+  if (!uuid) return null;
+  return getUserHandle(uuid).user.value?.name ?? null;
+});
+
 const closedDateLabel = computed<string>(() =>
   props.ticket.closed_at ? formatCompactDate(props.ticket.closed_at) : ''
+);
+
+// Audit footer uses relative time as the visible label ("4 weeks
+// ago") and tucks the absolute timestamp into a `title` tooltip.
+// Linear / GitHub / Plain converge on this pattern: relative reads
+// instantly during triage, absolute precision available on hover
+// for forensic reads. Fall back to the parent's pre-formatted
+// absolute string when the raw ISO isn't available (e.g. older
+// payload shapes). The parent's `createdDate`/`modifiedDate`
+// strings still drive the print layout (which wants the absolute
+// form on paper).
+const createdRelative = computed<string>(() =>
+  props.ticket.created ? formatRelativeTime(props.ticket.created) : props.createdDate
+);
+const modifiedRelative = computed<string>(() =>
+  props.ticket.modified ? formatRelativeTime(props.ticket.modified) : props.modifiedDate
+);
+const closedRelative = computed<string>(() =>
+  props.ticket.closed_at ? formatRelativeTime(props.ticket.closed_at) : ''
 );
 
 // Generate QR code for ticket URL (for print)
@@ -631,7 +690,36 @@ watchEffect(async () => {
       <template #title>{{ t('ticket-detail-section-details') }}</template>
 
       <template #default>
+        <!--
+          4 unlabelled clusters + Resolution + Audit footer.
+          Convergent practice (Linear / Plain / Front / GitHub):
+          at ~14 properties, gap-as-separator reads as structure
+          without typographic noise of cluster headings. The
+          single `border-t` is reserved for the audit footer,
+          the only block with a categorically different register
+          (system-asserted facts vs editable properties).
+
+          Spacing scale (1:2:3 hierarchy):
+            - Label-to-value in a row: gap-1 (4px) — label hugs value
+            - Intra-cluster sibling rows: gap-2 (8px) — siblings breathe
+            - Inter-cluster: gap-3 (12px) — silent grouping
+
+          Heading band: every property heading sits in a 24px
+          zone (min-h-6 inline-flex items-center on bare `<h3>`,
+          PropertyChipRow's existing py-1 button = 24px). Without
+          this normalisation, bare h3 (16px) sat next to button-
+          style headings (24px) and the row cadence felt jagged.
+
+          Padding split (unchanged): SectionCard uses px-1 py-3,
+          this container adds px-2 back. Net horizontal inset to
+          plain labels is 12px, matching the original p-3. The
+          8px is the breathing area interactive headers extend
+          into via their own -mx-2 px-2.
+        -->
         <div class="flex flex-col gap-3 px-2">
+
+          <!-- Cluster A — Identity. Who is this ticket about. -->
+          <div class="flex flex-col gap-2">
           <!-- Title removed from the sidebar (research finding,
                2026-05-31): every comparable product (Linear, Jira,
                GitHub, Front, Help Scout, Asana, Notion, ClickUp,
@@ -657,7 +745,7 @@ watchEffect(async () => {
                which is operationally meaningful for techs. -->
           <div
             v-if="sourceLabel"
-            class="flex items-center justify-between gap-2 text-xs"
+            class="flex items-center justify-between gap-2 text-xs min-h-6"
           >
             <span class="text-tertiary font-medium">{{ t('ticket-detail-source-label') }}</span>
             <span
@@ -679,28 +767,24 @@ watchEffect(async () => {
                by TicketsTable. -->
           <div class="@container grid grid-cols-1 @sm:grid-cols-2 gap-3">
             <!-- Requester -->
-            <div class="flex flex-col gap-1.5">
+            <div class="group/req flex flex-col gap-1">
               <div class="flex items-center justify-between">
-                <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-requester') }}</h3>
-                <div class="print:hidden flex items-center gap-0.5">
-                  <button
-                    v-if="selectedRequester"
-                    @click="emit('update:requester', '')"
-                    class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
-                    type="button"
-                    :title="t('ticket-detail-clear-requester')"
-                  >
-                    <Icon name="close" />
-                  </button>
-                  <button
-                    @click="requesterRef?.focus()"
-                    class="p-1 text-tertiary hover:text-accent hover:bg-accent-muted rounded transition-colors"
-                    type="button"
-                    :title="t('ticket-detail-add-requester')"
-                  >
-                    <Icon name="add" />
-                  </button>
-                </div>
+                <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('ticket-detail-prop-requester') }}</h3>
+                <!-- `+` was redundant (the UserPicker below is itself
+                     a click target that opens the search); kept only
+                     the `X` clear. Hidden at rest on hover-capable
+                     pointers, revealed on group-hover; always visible
+                     on coarse pointers (touch) since there's no hover
+                     to reveal with. -->
+                <button
+                  v-if="selectedRequester"
+                  @click="emit('update:requester', '')"
+                  class="print:hidden p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors opacity-0 group-hover/req:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+                  type="button"
+                  :title="t('ticket-detail-clear-requester')"
+                >
+                  <Icon name="close" />
+                </button>
               </div>
               <!-- UserPicker's trigger has no built-in hover-tint
                    (unlike CustomDropdown). A light wrapper provides
@@ -723,15 +807,17 @@ watchEffect(async () => {
             </div>
 
             <!-- Assignee -->
-            <div class="flex flex-col gap-1.5">
+            <div class="group/ass flex flex-col gap-1">
               <div class="flex items-center justify-between">
-                <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-assignee') }}</h3>
+                <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('ticket-detail-prop-assignee') }}</h3>
                 <div class="print:hidden flex items-center gap-1">
                   <!-- One-click self-assign for staff. Only surfaced
                        on unassigned tickets, taking an unassigned
                        ticket is the daily-driver case, while reassign-
                        from-someone-else is a deliberate action that
-                       should go through the picker. -->
+                       should go through the picker. Stays always-
+                       visible (not hover-revealed) because Claim is a
+                       primary affordance, not a power-user shortcut. -->
                   <button
                     v-if="canSelfAssign && !selectedAssignee"
                     @click="toggleSelfAssign"
@@ -741,22 +827,17 @@ watchEffect(async () => {
                   >
                     {{ t('ticket-detail-claim') }}
                   </button>
+                  <!-- `+` was redundant; kept only the clear. Hover-
+                       revealed on fine pointers, always shown on
+                       touch. -->
                   <button
                     v-if="selectedAssignee"
                     @click="emit('update:assignee', '')"
-                    class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
+                    class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors opacity-0 group-hover/ass:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                     type="button"
                     :title="t('ticket-detail-clear-assignee')"
                   >
                     <Icon name="close" />
-                  </button>
-                  <button
-                    @click="assigneeRef?.focus()"
-                    class="p-1 text-tertiary hover:text-accent hover:bg-accent-muted rounded transition-colors"
-                    type="button"
-                    :title="t('ticket-detail-add-assignee')"
-                  >
-                    <Icon name="add" />
                   </button>
                 </div>
               </div>
@@ -774,6 +855,10 @@ watchEffect(async () => {
               </div>
             </div>
           </div>
+          </div><!-- /Cluster A -->
+
+          <!-- Cluster B — Triage. Operational state used for triage. -->
+          <div class="flex flex-col gap-2">
 
           <!-- Status and Priority Section -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -783,8 +868,8 @@ watchEffect(async () => {
                  previous outer card was redundant chrome that read
                  as form-mode in what's really a property display.
                  Same call for Priority and Category below. -->
-            <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-status') }}</h3>
+            <div class="flex flex-col gap-1">
+              <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('ticket-detail-prop-status') }}</h3>
               <CustomDropdown
                 :value="workflowDropdownValue"
                 :options="workflowDropdownOptions"
@@ -795,8 +880,8 @@ watchEffect(async () => {
             </div>
 
             <!-- Priority -->
-            <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-priority') }}</h3>
+            <div class="flex flex-col gap-1">
+              <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('ticket-detail-prop-priority') }}</h3>
               <CustomDropdown
                 :value="selectedPriority"
                 :options="priorityOptions"
@@ -816,7 +901,7 @@ watchEffect(async () => {
                `deriveSlaState` (shared with the list cell). -->
           <div
             v-if="slaState"
-            class="flex items-center justify-between gap-2 text-xs"
+            class="flex items-center justify-between gap-2 text-xs min-h-6"
             :title="slaState.detail"
           >
             <span class="text-tertiary font-medium">{{ t('ticket-detail-sla-label') }}</span>
@@ -831,10 +916,17 @@ watchEffect(async () => {
             >
               <Icon name="clock" class="w-3.5 h-3.5" />
               <span class="font-medium">{{ slaState.statusLabel }}</span>
+              <!-- Countdown for active timers; pause/breach detail
+                   otherwise. Either way the suffix sits in tertiary
+                   text after a bullet for the same visual weight. -->
               <span
                 v-if="!slaState.breached && !slaState.paused"
                 class="text-tertiary tabular-nums"
               >· {{ slaState.compactLabel }}</span>
+              <span
+                v-else-if="slaPillDetail"
+                class="text-tertiary tabular-nums"
+              >· {{ slaPillDetail }}</span>
             </button>
             <SlaExplainPopover
               :anchor="slaPillRef"
@@ -881,7 +973,7 @@ watchEffect(async () => {
                   class="w-3 h-3 text-tertiary transition-transform shrink-0"
                   :class="{ '-rotate-90': !schedulingOpen }"
                 />
-                <h3 class="text-xs font-medium text-tertiary">
+                <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">
                   {{ t('ticket-detail-scheduling-label') }}
                 </h3>
               </span>
@@ -897,8 +989,8 @@ watchEffect(async () => {
               <!-- Due date: picker + ghost clear button. The clear
                    only renders when a date is set so the row has no
                    trailing dead space in the empty case. -->
-              <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-tertiary">
+              <div class="flex flex-col gap-1">
+                <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">
                   {{ t('ticket-detail-scheduling-due-date') }}
                 </h3>
                 <div class="flex items-center gap-2">
@@ -922,8 +1014,8 @@ watchEffect(async () => {
               <!-- Recurrence: dropdown + optional hint folded into
                    the dropdown's `description` slot so the spacing
                    matches the Due-date row exactly. -->
-              <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-tertiary">
+              <div class="flex flex-col gap-1">
+                <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">
                   {{ t('ticket-detail-scheduling-recurrence') }}
                 </h3>
                 <BaseDropdown
@@ -936,10 +1028,14 @@ watchEffect(async () => {
               </div>
             </div>
           </div>
+          </div><!-- /Cluster B -->
+
+          <!-- Cluster C — Classification. How the ticket is bucketed. -->
+          <div class="flex flex-col gap-2">
 
           <!-- Category Section -->
-          <div v-if="categoryOptions && categoryOptions.length > 0" class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-prop-category') }}</h3>
+          <div v-if="categoryOptions && categoryOptions.length > 0" class="flex flex-col gap-1">
+            <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">{{ t('ticket-detail-prop-category') }}</h3>
             <CustomDropdown
               :value="selectedCategory?.toString() || ''"
               :options="categoryOptions"
@@ -957,7 +1053,7 @@ watchEffect(async () => {
                route lands). -->
           <div
             v-if="ticket.cycle"
-            class="flex items-center justify-between gap-2 text-xs"
+            class="flex items-center justify-between gap-2 text-xs min-h-6"
           >
             <span class="text-tertiary font-medium">{{ t('ticket-detail-cycle-label') }}</span>
             <button
@@ -979,6 +1075,10 @@ watchEffect(async () => {
             :tag-ids="ticket.tag_ids ?? []"
             @update:tag-ids="(v) => emit('update:tag-ids', v)"
           />
+          </div><!-- /Cluster C -->
+
+          <!-- Cluster D — Relations. People + things linked to this ticket. -->
+          <div class="flex flex-col gap-2">
 
           <!-- Watchers. The "I want to be told about this without
                owning it" affordance. Bell toggle for the current
@@ -1009,19 +1109,23 @@ watchEffect(async () => {
             @asset-updated="(id) => emit('asset-usage-recorded', id)"
           />
 
-          <div
-            @dragenter.prevent
-            @dragover.prevent
-          >
-            <TicketLinkedTicketsField
-              :linked-ticket-ids="ticket.linkedTickets ?? []"
-              :show-drop-affordance="!!showLinkDropAffordance"
-              :is-drop-target="!!isLinkDropTarget"
-              :drag-label="linkDropDragLabel"
-              @add="emit('add-linked-ticket')"
-              @remove="(id) => emit('remove-linked-ticket', id)"
-            />
-          </div>
+          <!-- Drag/drop drop-target lives on TicketView's wrapper
+               around the whole sidebar (handlers + drop event are
+               on the parent), so this row no longer needs its own
+               `@dragenter.prevent @dragover.prevent` wrapper. That
+               wrapper was leftover from before the sidebar-wide
+               drop zone landed; removing it makes Linked Tickets a
+               uniform sibling of the other Relations rows so the
+               cluster's `gap-2` applies cleanly with no inert div
+               in the flex flow. -->
+          <TicketLinkedTicketsField
+            :linked-ticket-ids="ticket.linkedTickets ?? []"
+            :show-drop-affordance="!!showLinkDropAffordance"
+            :is-drop-target="!!isLinkDropTarget"
+            :drag-label="linkDropDragLabel"
+            @add="emit('add-linked-ticket')"
+            @remove="(id) => emit('remove-linked-ticket', id)"
+          />
 
           <TicketProjectsField
             :project-ids="normalisedProjectIds"
@@ -1033,6 +1137,7 @@ watchEffect(async () => {
             :ticket-id="ticket.id"
             @add="emit('save-as-doc')"
           />
+          </div><!-- /Cluster D -->
 
           <!-- Resolution notes. Free-text "what fixed this?"
                capture, distinct from the comment thread because
@@ -1042,7 +1147,7 @@ watchEffect(async () => {
                treatment elevates when the ticket has landed in a
                terminal workflow state (done / cancelled) so the
                closure surface reads as a finished record. -->
-          <div class="flex flex-col gap-1.5">
+          <div class="flex flex-col gap-1">
             <!-- Heading row uses the same `-mx-2 px-2` outer
                  extent as PropertyChipRow / TicketTagsField
                  buttons so all property headings share one box
@@ -1079,62 +1184,87 @@ watchEffect(async () => {
                 >{{ t('ticket-detail-resolution-closed') }}</span>
               </div>
             </div>
-            <textarea
+            <!-- Auto-resize from 2 rows up to 12, so an empty
+                 resolution is compact (the common case mid-
+                 investigation) and grows as content lands. Opts
+                 into the manual grip (`resize="vertical"`) because
+                 Resolution is a long-form authoring surface where
+                 a tech may want more workspace than the 12-row
+                 cap; once dragged taller it stays that way via
+                 the manualMinHeight floor in FormTextarea. -->
+            <FormTextarea
               v-model="localResolutionNotes"
-              :placeholder="isTerminalState
-                ? t('ticket-detail-resolution-placeholder-active')
-                : t('ticket-detail-resolution-placeholder-draft')"
-              rows="3"
+              :placeholder="t('ticket-detail-resolution-placeholder')"
+              :rows="2"
+              :max-rows="12"
+              resize="vertical"
               maxlength="4000"
-              class="w-full bg-surface-alt rounded-lg border text-sm text-primary px-2.5 py-2 outline-none transition-colors resize-y min-h-[3.5rem] focus:border-accent"
-              :class="isTerminalState
-                ? 'border-default'
-                : 'border-subtle hover:border-default'"
               @blur="handleResolutionBlur"
             />
           </div>
 
-          <!-- Audit / timestamps. Pairs each timestamp with the
-               actor who effected it (UserCell renders avatar +
-               name from the sync engine pool). Closed row is
-               conditional — only present once the ticket has
-               actually been closed. The audit section grew from a
-               single Created/Modified row pair so consumers can
-               answer "who did this last and when" without opening
-               the activity timeline. -->
-          <!-- Audit block uses the same `-mx-2 px-2` outer extent
-               so its labels (Created / Last Modified / Closed) sit
-               at the same x as the rest of the property list,
-               and the border-t spans the full visual row width. -->
-          <div class="pt-2 border-t border-default flex flex-col gap-2 -mx-2 px-2">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="flex flex-col gap-1">
-                <span class="text-xs text-tertiary font-medium">{{ t('ticket-detail-audit-created') }}</span>
-                <span class="text-secondary text-sm font-medium">{{ createdDate }}</span>
-                <UserCell
-                  v-if="ticket.created_by"
-                  :uuid="ticket.created_by"
-                  size="xxs"
-                />
-              </div>
-
-              <div class="flex flex-col gap-1">
-                <span class="text-xs text-tertiary font-medium">{{ t('ticket-detail-audit-modified') }}</span>
-                <span class="text-secondary text-sm font-medium">{{ modifiedDate }}</span>
-              </div>
+          <!-- Audit footer. Inline bylines under a single border-t,
+               one line per fact, dimmer than property labels. Pattern
+               matches Linear / GitHub / Plain: position + dim weight
+               communicate "footer" without needing a heading. Each
+               line falls back to a plain verb when the actor uuid
+               is missing or hasn't resolved yet — UserAvatar handles
+               its own missing-data state, so the avatar slot stays
+               quiet but the line still reads. The outer container
+               keeps `-mx-2 px-2` so the border-t spans the visual
+               row width. `whitespace-nowrap` per line stops the
+               timestamp from wrapping mid-time at narrow widths. -->
+          <div class="pt-3 border-t border-default flex flex-col gap-1 -mx-2 px-2">
+            <!-- Created row. Relative time scans instantly during
+                 triage; the absolute timestamp lives in the line's
+                 `title` for forensic reads on hover. -->
+            <div
+              class="flex items-center gap-1.5 text-[11px] text-tertiary whitespace-nowrap"
+              :title="createdDate"
+            >
+              <UserAvatar
+                v-if="ticket.created_by"
+                :uuid="ticket.created_by"
+                size="xxs"
+                :show-name="false"
+                :clickable="true"
+              />
+              <span class="truncate">{{ createdByName
+                ? t('ticket-detail-audit-created-by', { name: createdByName })
+                : t('ticket-detail-audit-created') }}</span>
+              <span aria-hidden="true">·</span>
+              <span class="tabular-nums">{{ createdRelative }}</span>
             </div>
 
+            <!-- Updated row. No actor data available today
+                 (would need a `modified_by` column to byline). -->
+            <div
+              class="flex items-center gap-1.5 text-[11px] text-tertiary whitespace-nowrap"
+              :title="modifiedDate"
+            >
+              <span>{{ t('ticket-detail-audit-modified') }}</span>
+              <span aria-hidden="true">·</span>
+              <span class="tabular-nums">{{ modifiedRelative }}</span>
+            </div>
+
+            <!-- Closed row (only for terminal-state tickets). -->
             <div
               v-if="ticket.closed_at"
-              class="flex flex-col gap-1"
+              class="flex items-center gap-1.5 text-[11px] text-tertiary whitespace-nowrap"
+              :title="closedDateLabel"
             >
-              <span class="text-xs text-tertiary font-medium">{{ t('ticket-detail-audit-closed') }}</span>
-              <span class="text-secondary text-sm font-medium">{{ closedDateLabel }}</span>
-              <UserCell
+              <UserAvatar
                 v-if="ticket.closed_by"
                 :uuid="ticket.closed_by"
                 size="xxs"
+                :show-name="false"
+                :clickable="true"
               />
+              <span class="truncate">{{ closedByName
+                ? t('ticket-detail-audit-closed-by', { name: closedByName })
+                : t('ticket-detail-audit-closed') }}</span>
+              <span aria-hidden="true">·</span>
+              <span class="tabular-nums">{{ closedRelative }}</span>
             </div>
           </div>
         </div>
