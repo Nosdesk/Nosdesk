@@ -14,7 +14,6 @@ import {
 import QRCode from 'qrcode';
 import UserPicker from "@/components/ticketComponents/UserPicker.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
-import ContentEditable from "@/components/ticketComponents/ContentEditable.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import Button from "@/components/common/Button.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
@@ -179,9 +178,6 @@ const emit = defineEmits<{
   (e: "update:selectedCategory", value: string): void;
   (e: "update:requester", value: string): void;
   (e: "update:assignee", value: string): void;
-  (e: "update:title", value: string): void;
-  (e: "titleFocus"): void;
-  (e: "titleBlur"): void;
   /** ISO string (start-of-day in user TZ) or null when cleared. */
   (e: "update:dueDate", value: string | null): void;
   /** RRULE string or null when cleared. */
@@ -282,11 +278,6 @@ const selectedRequester = computed(() =>
 const selectedAssignee = computed(() =>
   props.ticket.assignee_user?.uuid || props.ticket.assignee || ""
 );
-
-// Handle title update
-const handleTitleUpdate = (newTitle: string) => {
-  emit('update:title', newTitle);
-};
 
 // Print-friendly display values
 const statusLabel = computed(() => {
@@ -641,28 +632,22 @@ watchEffect(async () => {
 
       <template #default>
         <div class="flex flex-col gap-3 px-2">
-          <!-- Title Section.
-               The origin-channel hint that lived here as a header
-               badge moved to a dedicated `Source` metadata row
-               (below) so the title cell stays focused on the title
-               and the channel reads as a proper field rather than
-               a header decoration. -->
-          <div class="flex flex-col gap-1.5">
-            <h3 class="text-xs font-medium text-tertiary">{{ t('ticket-detail-title-label') }}</h3>
-            <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
-              <!-- 255 mirrors the backend's `tickets.title
-                   VARCHAR(255) NOT NULL` cap. Enforcing it
-                   client-side means the user sees the limit at
-                   typing-time rather than getting a 500 on save. -->
-              <ContentEditable
-                :modelValue="ticket.title || ''"
-                :max-length="255"
-                @update:modelValue="handleTitleUpdate"
-                @focus="emit('titleFocus')"
-                @blur="emit('titleBlur')"
-              />
-            </div>
-          </div>
+          <!-- Title removed from the sidebar (research finding,
+               2026-05-31): every comparable product (Linear, Jira,
+               GitHub, Front, Help Scout, Asana, Notion, ClickUp,
+               Monday, Trello — 10/10) puts the title in the main
+               content area as a click-to-edit heading and never
+               duplicates it in the sidebar. The SiteHeader at the
+               top of the page already provides editable-title via
+               `titleManager.onTicketTitleSave`, so the sidebar
+               duplicate was redundant and forced the only
+               remaining "carded" field in an otherwise-flat panel.
+               Trade-off: the sidebar field was the only path that
+               wired through `titleAutoSave` (SSE typing preview to
+               other viewers + 3s/8s debounced commits). SiteHeader
+               commits on blur via direct PATCH, no preview. If
+               typing-preview collaboration matters, future work is
+               to rewire SiteHeader through `titleAutoSave`. -->
 
           <!-- Source / channel row. Only rendered for tickets
                opened via an ingestion pipeline (email / chat /
@@ -684,8 +669,15 @@ watchEffect(async () => {
             </span>
           </div>
 
-          <!-- Assignment Section -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <!-- Assignment Section. Container query rather than the
+               viewport `sm:` breakpoint so the two-column pairing
+               only kicks in when the sidebar itself is wide enough,
+               not when the browser window happens to be wide. A
+               narrow embedded sidebar (split layout, drawer, etc.)
+               now stacks Requester above Assignee even on a 1440px
+               viewport. Matches the @container pattern already used
+               by TicketsTable. -->
+          <div class="@container grid grid-cols-1 @sm:grid-cols-2 gap-3">
             <!-- Requester -->
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">

@@ -15,7 +15,6 @@ import type { Ticket } from "@/types/ticket";
 import { useTicketData } from "@/composables/useTicketData";
 import { useTicketUiStore } from "@/stores/ticketUi";
 import { useTicketSSE } from "@/composables/useTicketSSE";
-import { useFieldAutoSave } from "@/composables/useFieldAutoSave";
 import { useTicketDevices } from "@/composables/useTicketAssets";
 import { useTicketRelationships } from "@/composables/useTicketRelationships";
 import { useTicketComments } from "@/composables/useTicketComments";
@@ -131,8 +130,6 @@ const {
     isConnected,
     recentlyAddedCommentIds,
     otherViewers,
-    startEditing,
-    stopEditing,
 } = useTicketSSE(
     ticket,
     ticketId,
@@ -397,50 +394,11 @@ const { addComment, deleteAttachment, deleteComment } = useTicketComments(
 //   - commit:  persist the final value via PATCH, which is what
 //     stamps the activity log. Fires on idle (3s of no typing),
 //     on blur, or on a hard 8s cap to bound unsaved work.
-// Local UI updates immediately on every keystroke regardless.
-const titleAutoSave = useFieldAutoSave<string>({
-    preview: async (value) => {
-        if (!ticket.value) return;
-        await ticketService.previewTicketField(ticket.value.id, 'title', value);
-    },
-    commit: async (value) => {
-        if (!ticket.value) return;
-        await ticketService.updateTicket(ticket.value.id, { title: value });
-    },
-});
-
-const handleTitleFocus = () => {
-    startEditing('title');
-    // Baseline the autosaver against the value at focus time so a
-    // user who types and reverts back to the original skips a
-    // redundant commit. `seed` doesn't schedule any network work,
-    // unlike `update`, so focusing-without-typing stays free.
-    if (ticket.value) {
-        titleAutoSave.seed(ticket.value.title);
-    }
-};
-
-const handleTitleBlur = async () => {
-    stopEditing('title');
-    // Flush any pending commit immediately. `commitNow` is a no-op
-    // when the value matches the last successful commit, so a
-    // focus-without-typing blur stays free.
-    try {
-        await titleAutoSave.commitNow();
-    } catch (error) {
-        console.error('Failed to save title:', error);
-    }
-};
-
-const handleTitleUpdate = (newTitle: string) => {
-    // Local optimistic update first: the editor IS the user, no need
-    // to wait for a round trip to reflect their own keystroke.
-    if (ticket.value) {
-        ticket.value.title = newTitle;
-        titleManager.setTicket(ticket.value);
-    }
-    titleAutoSave.update(newTitle);
-};
+// Title editing moved to the SiteHeader (commit handler wired
+// via `titleManager.onTicketTitleSave` further up). The previous
+// sidebar Title field was deleted as part of the sidebar's flat-
+// property-panel redesign; if SSE typing-preview ever returns,
+// rewire SiteHeader through a `useFieldAutoSave` pipeline here.
 
 // Emit ticket updates - pass the full reactive ticket object
 const emit = defineEmits<{
@@ -668,9 +626,6 @@ useCreateTicketAction();
                                 @update:resolutionNotes="updateResolutionNotes"
                                 @update:tag-ids="updateTags"
                                 @toggle-watch="handleToggleWatch"
-                                @update:title="handleTitleUpdate"
-                                @titleFocus="handleTitleFocus"
-                                @titleBlur="handleTitleBlur"
                                 @add-device="showDeviceModal = true"
                                 @remove-device="removeDevice"
                                 @add-linked-ticket="showLinkedTicketModal = true"
