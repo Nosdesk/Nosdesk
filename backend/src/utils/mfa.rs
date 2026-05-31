@@ -74,11 +74,28 @@ pub fn generate_totp_secret() -> SecretString {
     SecretString::new(secret)
 }
 
-/// Generate backup codes for MFA recovery - async version for performance
-pub async fn generate_backup_codes_async() -> (Vec<String>, Vec<String>) {
+/// Generate backup codes for MFA recovery — async version for
+/// performance.
+///
+/// Returns `(plaintext, hashed)` where `plaintext` is wrapped in
+/// [`zeroize::Zeroizing`] so its backing allocations get wiped on
+/// drop. Per the F2C deferred audit work and the convergent
+/// Rust-crypto position (research-backed, see
+/// `docs/auth-convergence.md`), this is **shallow** protection:
+/// `Zeroize` here wipes the *source* `Vec<String>` when the
+/// handler returns or unwinds. The clones that `serde_json::json!`
+/// makes into a `Value` tree, and the actix-web response body
+/// buffer, are NOT covered — they're freed unwiped before this
+/// wrapper's `Drop` runs. We accept that: the response body is
+/// ~64 bytes alive for microseconds, and the AES KEK itself is in
+/// the env vars for the whole process lifetime, so any attacker
+/// who can read freed heap pages already wins. The realistic
+/// benefit of the wrap is panic-safety between codes generation
+/// and response send.
+pub async fn generate_backup_codes_async() -> (zeroize::Zeroizing<Vec<String>>, Vec<String>) {
     use tokio::task;
 
-    let mut plaintext_codes = Vec::new();
+    let mut plaintext_codes: Vec<String> = Vec::new();
     let mut hash_futures = Vec::new();
 
     // Generate all codes first
@@ -107,7 +124,7 @@ pub async fn generate_backup_codes_async() -> (Vec<String>, Vec<String>) {
         hashed_codes.push(hash);
     }
 
-    (plaintext_codes, hashed_codes)
+    (zeroize::Zeroizing::new(plaintext_codes), hashed_codes)
 }
 
 /// QR code generation result containing both SVG and matrix data
@@ -405,20 +422,30 @@ pub fn should_require_mfa(user_role: &UserRole) -> bool {
 }
 
 /// Check if user has MFA enabled and enforce policy
-/// Considers both TOTP and passkeys as valid MFA methods
+/// Considers both TOTP and passkeys as valid MFA methods.
+///
+/// Returns an error not just on policy violation but also on DB
+/// errors from the passkey-count lookup — the security gate must
+/// not silently downgrade to "no passkeys → no MFA → policy
+/// failed" when we actually don't know. The caller can
+/// distinguish via `anyhow` `chain()` if needed; in practice the
+/// caller surfaces both as a 5xx and tells the user to retry.
 pub async fn validate_mfa_policy(user: &User, conn: &mut crate::db::DbConnection) -> Result<()> {
-    if should_require_mfa(&user.role) && !user.mfa_enabled && !user_has_passkeys(conn, &user.uuid) {
-        return Err(anyhow!(
-            "MFA is required for {} users. Please enable MFA on your account.",
-            match user.role {
-                UserRole::Admin => "administrator",
-                UserRole::Technician => "technician",
-                UserRole::AuditReviewer => "audit reviewer",
-                UserRole::User => "user",
-            }
-        ));
+    if !should_require_mfa(&user.role) || user.mfa_enabled {
+        return Ok(());
     }
-    Ok(())
+    if user_has_passkeys(conn, &user.uuid)? {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "MFA is required for {} users. Please enable MFA on your account.",
+        match user.role {
+            UserRole::Admin => "administrator",
+            UserRole::Technician => "technician",
+            UserRole::AuditReviewer => "audit reviewer",
+            UserRole::User => "user",
+        }
+    ))
 }
 
 /// Check if user has TOTP MFA enabled
@@ -427,10 +454,28 @@ pub fn user_has_mfa_enabled(user: &User) -> bool {
 }
 
 /// Check if user has any passkeys registered.
-pub fn user_has_passkeys(conn: &mut crate::db::DbConnection, user_uuid: &Uuid) -> bool {
+///
+/// Returns `Result<bool>` rather than `bool` so a DB error
+/// during the count query propagates up to the caller instead of
+/// silently collapsing to "no passkeys" and downgrading the
+/// security gate. The pre-fix `unwrap_or(false)` here is the
+/// exact pattern the nosdesk-com F2C.1 C1 audit finding flagged
+/// as CRITICAL: a passkey-only user could be granted a
+/// password-only session if the count query transiently failed
+/// (connection pool exhausted, replica lag, network blip). The
+/// rule (Bowyer / "fail closed on security gates"): a gate that
+/// can't read its own state must deny, not downgrade.
+///
+/// Callers that previously used `if user_has_passkeys(...) {
+/// return passkey_required }` now use `?` to propagate the DB
+/// error as an internal-error response.
+pub fn user_has_passkeys(
+    conn: &mut crate::db::DbConnection,
+    user_uuid: &Uuid,
+) -> Result<bool> {
     crate::repository::passkey_credentials::count_for_user(conn, user_uuid)
         .map(|n| n > 0)
-        .unwrap_or(false)
+        .map_err(|e| anyhow!("Failed to check passkey registration: {:?}", e))
 }
 
 /// Log security events for MFA attempts

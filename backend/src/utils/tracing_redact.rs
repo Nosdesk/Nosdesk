@@ -370,6 +370,17 @@ mod tests {
             "refresh_token",
             "access_token",
             "placeholder_key",
+            // MFA recovery codes — shown to the user exactly once
+            // in the enrol / regenerate response and never again.
+            // The handlers also wrap them in Zeroizing so the
+            // source allocation is wiped on drop, but defence in
+            // depth: a future log line that accidentally captures
+            // the response field name must NOT survive the
+            // allowlist filter.
+            "backup_code",
+            "backup_codes",
+            "recovery_code",
+            "recovery_codes",
             // Contact.
             "phone",
             "phone_number",

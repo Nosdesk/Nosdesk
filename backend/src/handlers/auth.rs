@@ -388,10 +388,21 @@ pub async fn login(
         return HttpResponse::Ok().json(response);
     }
 
-    // Check if user has passkeys registered - require passkey verification
-    if mfa::user_has_passkeys(&mut conn, &user.uuid) {
-        let response = jwt_helpers::create_passkey_mfa_required_response(user.uuid);
-        return HttpResponse::Ok().json(response);
+    // Check if user has passkeys registered — require passkey verification.
+    // Propagate the lookup error rather than silently treating it as
+    // "no passkeys" (the F2C.1 C1 fails-OPEN finding). A transient DB
+    // error here used to downgrade a passkey-only user to a password-
+    // only session; now it surfaces as a 5xx and the user retries.
+    match mfa::user_has_passkeys(&mut conn, &user.uuid) {
+        Ok(true) => {
+            let response = jwt_helpers::create_passkey_mfa_required_response(user.uuid);
+            return HttpResponse::Ok().json(response);
+        }
+        Ok(false) => {}
+        Err(e) => {
+            error!(error = ?e, user_uuid = %user.uuid, "Failed to check passkey registration during login");
+            return errors::internal("Login could not complete; please retry");
+        }
     }
 
     // Check MFA policy enforcement (for users without MFA enabled)
@@ -545,8 +556,19 @@ pub async fn recovery_login(
         warn!(error = %e, "Failed to clear login attempts after successful recovery auth");
     }
 
-    // Verify the user actually has passkeys or MFA (this endpoint is for recovery)
-    if !mfa::user_has_passkeys(&mut conn, &user.uuid) && !mfa::user_has_mfa_enabled(&user) {
+    // Verify the user actually has passkeys or MFA (this endpoint
+    // is for recovery). Same fail-CLOSED rule as the main login
+    // gate: propagate the DB lookup error instead of treating it
+    // as "no passkeys", otherwise the recovery endpoint could be
+    // tricked into accepting credentials on a transient DB blip.
+    let has_passkeys = match mfa::user_has_passkeys(&mut conn, &user.uuid) {
+        Ok(b) => b,
+        Err(e) => {
+            error!(error = ?e, user_uuid = %user.uuid, "Failed to check passkey registration during recovery login");
+            return errors::internal("Recovery could not complete; please retry");
+        }
+    };
+    if !has_passkeys && !mfa::user_has_mfa_enabled(&user) {
         return errors::bad_request("No MFA configured for this account");
     }
 
@@ -1372,7 +1394,11 @@ pub async fn mfa_enable(
             HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": "MFA enabled successfully",
-                "backup_codes": backup_codes_plaintext
+                // &* derefs through `Zeroizing<Vec<String>>` to
+                // `&Vec<String>` for serde. The Zeroizing wrapper
+                // wipes the source allocation when this handler
+                // returns/unwinds.
+                "backup_codes": &*backup_codes_plaintext,
             }))
         }
         Err(e) => {
@@ -1517,10 +1543,15 @@ pub async fn mfa_regenerate_backup_codes(
         backup_codes_hashed,
     ) {
         Ok(_) => {
-            let response = crate::models::MfaRegenerateBackupCodesResponse {
-                backup_codes: backup_codes_plaintext,
-            };
-            HttpResponse::Ok().json(response)
+            // Inline the response rather than building the typed
+            // struct so we can pass `&*backup_codes_plaintext`
+            // through serde without first cloning into a
+            // non-Zeroizing Vec — the source allocation gets
+            // wiped on handler exit. Wire shape identical to
+            // `MfaRegenerateBackupCodesResponse { backup_codes }`.
+            HttpResponse::Ok().json(json!({
+                "backup_codes": &*backup_codes_plaintext,
+            }))
         }
         Err(e) => {
             error!(error = ?e, "Error regenerating backup codes");
@@ -1827,7 +1858,13 @@ pub async fn mfa_enable_login(
                 &mut conn,
             ) {
                 Ok((mut response, tokens)) => {
-                    response.backup_codes = Some(backup_codes_plaintext);
+                    // Clone the inner Vec out of the Zeroizing
+                    // wrapper to satisfy the response struct's
+                    // field type. The clone is no worse than
+                    // serde's implicit clone during serialisation;
+                    // the source allocation still gets wiped via
+                    // the wrapper's Drop on handler exit.
+                    response.backup_codes = Some((*backup_codes_plaintext).clone());
                     build_auth_cookie_response(response, &tokens)
                 }
                 Err(error_response) => error_response,

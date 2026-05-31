@@ -1296,7 +1296,9 @@ pub async fn finish_passkey_setup_login(
                 }
             });
             if backup_codes_saved {
-                response_json["backup_codes"] = json!(plaintext_codes);
+                // Deref through Zeroizing — serde sees the inner
+                // Vec; the wrapper wipes its allocation on drop.
+                response_json["backup_codes"] = json!(&*plaintext_codes);
             }
 
             super::auth::build_auth_cookie_response(response_json, &tokens)
