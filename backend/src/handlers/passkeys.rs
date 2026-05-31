@@ -1241,28 +1241,25 @@ pub async fn finish_passkey_setup_login(
         return errors::internal("Failed to save passkey");
     }
 
-    // Generate backup codes for recovery (passkey users need these too)
+    // Generate backup codes for recovery (passkey users need
+    // these too). Writes directly to the dedicated
+    // `user_recovery_codes` table; failure logs but doesn't fail
+    // the registration because the passkey is already saved
+    // (worst case: user proceeds with no recovery codes and is
+    // prompted to regenerate later).
     let (plaintext_codes, hashed_codes) = mfa::generate_backup_codes_async().await;
-    let hashed_json = serde_json::Value::Array(
-        hashed_codes
-            .into_iter()
-            .map(serde_json::Value::String)
-            .collect(),
-    );
-    let mfa_update = crate::models::UserMfaUpdate {
-        mfa_enabled: None,
-        mfa_secret: None,
-        mfa_backup_codes: Some(hashed_json),
-        updated_at: Some(chrono::Utc::now().naive_utc()),
-    };
-    let backup_codes_saved = match repository::update_user_mfa(&user.uuid, mfa_update, &mut conn) {
+    let backup_codes_saved = match repository::user_recovery_codes::replace_all(
+        &mut conn,
+        &user.uuid,
+        hashed_codes,
+    ) {
         Ok(_) => true,
         Err(e) => {
             warn!(
                 "Failed to save backup codes for passkey user {}: {:?}",
                 user.uuid, e
             );
-            false // Don't fail the registration - passkey is already saved
+            false
         }
     };
 

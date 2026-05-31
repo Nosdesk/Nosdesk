@@ -73,7 +73,6 @@ impl NewUserBuilder {
             microsoft_uuid: self.microsoft_uuid,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
         };
         (new_user, self.email)
     }
@@ -92,7 +91,6 @@ impl NewUserBuilder {
             microsoft_uuid: self.microsoft_uuid,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
         }
     }
 }
@@ -152,7 +150,8 @@ mod tests {
         let user = NewUserBuilder::new("Bob".into(), "b@b.com".into(), UserRole::User).build();
         assert!(!user.mfa_enabled);
         assert!(user.mfa_secret.is_none());
-        assert!(user.mfa_backup_codes.is_none());
+        // Recovery codes are now their own table (user_recovery_codes);
+        // the NewUserBuilder no longer carries them.
     }
 
     #[test]

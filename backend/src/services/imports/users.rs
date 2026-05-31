@@ -112,7 +112,6 @@ impl Importer for UserImporter {
                             microsoft_uuid: None,
                             mfa_secret: None,
                             mfa_enabled: false,
-                            mfa_backup_codes: None,
                         })
                         .execute(conn)?;
                     diesel::insert_into(user_emails::table)

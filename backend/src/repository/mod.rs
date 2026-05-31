@@ -43,6 +43,7 @@ pub mod user_helpers; // Helper functions for user/email operations
 pub mod user_locale;
 pub mod user_preferences;
 pub mod user_profile;
+pub mod user_recovery_codes;
 pub mod users;
 pub mod workflow_states;
 pub mod workspaces;

@@ -524,11 +524,15 @@ pub fn update_user_mfa(
 /// "set NULL"; we write the clearing SQL directly to avoid the
 /// ambiguity.
 pub fn clear_user_mfa(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<usize, Error> {
+    // Recovery codes have moved to `user_recovery_codes`; caller
+    // wipes them via `repository::user_recovery_codes::delete_all_for_user`
+    // alongside (or before) this call. The two writes don't need a
+    // shared transaction — losing recovery codes after MFA is
+    // already off is benign.
     diesel::update(users::table.filter(users::uuid.eq(user_uuid)))
         .set((
             users::mfa_secret.eq::<Option<String>>(None),
             users::mfa_enabled.eq(false),
-            users::mfa_backup_codes.eq::<Option<serde_json::Value>>(None),
             users::updated_at.eq(chrono::Utc::now().naive_utc()),
         ))
         .execute(conn)

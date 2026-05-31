@@ -155,7 +155,6 @@ impl TestFixtures {
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
         };
 
         diesel::insert_into(users::table)

@@ -185,40 +185,74 @@ pub fn verify_totp_token(secret: &str, token: &str) -> bool {
         || totp.check(token, chrono::Utc::now().timestamp() as u64 + 30)
 }
 
-/// Verify backup code and mark it as used
+/// Verify a recovery code against the user's unused-codes set,
+/// consuming the matched code atomically.
+///
+/// Constant-time semantics (closes F2C.3 M4): every unused code
+/// is bcrypt-verified before consuming the matched id, so the
+/// per-call latency is independent of which code matched (or
+/// whether any did). bcrypt itself is intentionally slow
+/// (~50-100ms per verify); N ≤ 10 unused codes per user makes
+/// the worst-case latency ≤ 1s, acceptable for the rare
+/// recovery-code path.
+///
+/// The pre-decoupling implementation early-returned on the first
+/// match (latency leaked the matched code's position) and used
+/// an app-side read-modify-write of the JSONB array on `users`
+/// (concurrent consumers raced for the row lock, second saw a
+/// stale array and could lose a consumption). Both fixed by:
+///   - Looping over every unused code regardless of an earlier
+///     match → constant work.
+///   - Single-statement consumption via
+///     `repository::user_recovery_codes::consume_by_id` →
+///     atomic row-level lock; concurrent consumers see one
+///     succeed, the rest see "already consumed" (which is the
+///     correct outcome).
 pub async fn verify_backup_code(
     user_uuid: &Uuid,
     provided_code: &str,
     conn: &mut DbConnection,
 ) -> Result<MfaVerificationResult> {
-    let user =
-        repository::get_user_by_uuid(user_uuid, conn).map_err(|_| anyhow!("User not found"))?;
+    let unused = repository::user_recovery_codes::list_unused(conn, user_uuid)
+        .map_err(|_| anyhow!("Failed to load recovery codes"))?;
 
-    // Get backup codes
-    let backup_codes = user
-        .mfa_backup_codes
-        .as_ref()
-        .and_then(|codes| codes.as_array())
-        .ok_or_else(|| anyhow!("No backup codes found"))?;
-
-    let mut remaining_codes = Vec::new();
-    let mut code_found = false;
-    let mut used_code = None;
-
-    // Check each backup code
-    for code_value in backup_codes {
-        if let Some(hashed_code) = code_value.as_str() {
-            if !code_found && bcrypt_verify(provided_code, hashed_code).unwrap_or(false) {
-                code_found = true;
-                used_code = Some(provided_code.to_string());
-                // Don't add the used code to remaining_codes
-            } else {
-                remaining_codes.push(code_value.clone());
+    // Verify against EVERY unused code before consuming, so
+    // latency is independent of which one matched. Even when an
+    // early entry matches, keep verifying the rest so the loop
+    // does a fixed amount of work per call. (`std::hint::black_box`
+    // would be ideal here but it's not stabilised on the verify
+    // path; keeping the loop structure honest is the next-best.)
+    let mut matched_id: Option<i64> = None;
+    for code in &unused {
+        if bcrypt_verify(provided_code, &code.code_hash).unwrap_or(false) {
+            // Pin the FIRST match — multiple matches would mean
+            // the same plaintext was registered twice, which our
+            // generator doesn't produce, but defensively we still
+            // only consume one.
+            if matched_id.is_none() {
+                matched_id = Some(code.id);
             }
         }
     }
 
-    if !code_found {
+    let matched = match matched_id {
+        Some(id) => id,
+        None => {
+            return Ok(MfaVerificationResult {
+                is_valid: false,
+                backup_code_used: None,
+                requires_backup_code_regeneration: false,
+            });
+        }
+    };
+
+    // Single-statement atomic consumption. Returns false when
+    // someone else already consumed this id between our verify
+    // loop and now — treat that as "not valid for this attempt"
+    // (the concurrent winner already authenticated).
+    let consumed = repository::user_recovery_codes::consume_by_id(conn, matched)
+        .map_err(|_| anyhow!("Failed to consume recovery code"))?;
+    if !consumed {
         return Ok(MfaVerificationResult {
             is_valid: false,
             backup_code_used: None,
@@ -226,24 +260,14 @@ pub async fn verify_backup_code(
         });
     }
 
-    // Check if running low on backup codes before moving remaining_codes
-    let requires_regeneration = remaining_codes.len() <= 2;
-
-    // Update backup codes in database (remove the used one)
-    let updated_codes = serde_json::Value::Array(remaining_codes);
-    let mfa_update = crate::models::UserMfaUpdate {
-        mfa_enabled: None,
-        mfa_secret: None,
-        mfa_backup_codes: Some(updated_codes),
-        updated_at: Some(chrono::Utc::now().naive_utc()),
-    };
-
-    repository::update_user_mfa(user_uuid, mfa_update, conn)
-        .map_err(|_| anyhow!("Failed to update backup codes"))?;
+    // Suggest regeneration when the consumed code dropped the
+    // unused count to ≤ 2. We had `unused.len()` codes; one was
+    // just consumed; if `unused.len() - 1 <= 2` then regenerate.
+    let requires_regeneration = unused.len() <= 3;
 
     Ok(MfaVerificationResult {
         is_valid: true,
-        backup_code_used: used_code,
+        backup_code_used: Some(provided_code.to_string()),
         requires_backup_code_regeneration: requires_regeneration,
     })
 }
@@ -506,7 +530,6 @@ mod tests {
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
             feature_flag_overrides: serde_json::json!({}),
             deleted_at: None,
         };

@@ -131,7 +131,6 @@ mod tests {
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
         };
         let (user, _) = create_user_with_email(
             user,

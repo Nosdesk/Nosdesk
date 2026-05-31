@@ -207,7 +207,6 @@ pub fn find_or_create_guest_user(
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
         };
 
         match create_user_with_email(
@@ -485,7 +484,6 @@ mod tests {
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
         };
 
         let (user, email_record) = create_user_with_email(

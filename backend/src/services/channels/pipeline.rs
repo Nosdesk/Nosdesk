@@ -1817,7 +1817,6 @@ mod tests {
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
         };
         create_user_with_email(
             admin,
@@ -1866,7 +1865,6 @@ mod tests {
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
         };
         let (tech, _) = create_user_with_email(
             tech_user,
@@ -1952,7 +1950,6 @@ My printer is literally on fire.
             microsoft_uuid: None,
             mfa_secret: None,
             mfa_enabled: false,
-            mfa_backup_codes: None,
         };
         create_user_with_email(
             tech,

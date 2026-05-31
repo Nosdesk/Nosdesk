@@ -2786,14 +2786,13 @@ pub async fn get_user_security_info(
         Err(_) => return errors::not_found_msg("User not found"),
     };
 
-    // MFA status
+    // MFA status. Indexed unused-codes count via
+    // `repository::user_recovery_codes::count_unused`.
     let mfa_enabled = user.mfa_enabled;
-    let has_backup_codes = user
-        .mfa_backup_codes
-        .as_ref()
-        .and_then(|v| v.as_array())
-        .map(|a| !a.is_empty())
-        .unwrap_or(false);
+    let has_backup_codes =
+        repository::user_recovery_codes::count_unused(&mut conn, &user.uuid)
+            .map(|n| n > 0)
+            .unwrap_or(false);
 
     // Passkey info
     let passkey_data = match crate::utils::webauthn::load_user_passkey_data(&mut conn, &user.uuid) {
@@ -2929,10 +2928,17 @@ pub async fn admin_disable_user_mfa(
         return errors::bad_request("MFA is not enabled for this user");
     }
 
+    // Codes-first to avoid a window where MFA is off but recovery
+    // codes still exist; see `mfa_disable` in handlers/auth.rs.
+    if let Err(e) =
+        repository::user_recovery_codes::delete_all_for_user(&mut conn, &user.uuid)
+    {
+        error!(error = ?e, "Error clearing recovery codes during admin MFA disable");
+        return errors::internal("Failed to disable MFA");
+    }
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(false),
         mfa_secret: None,
-        mfa_backup_codes: Some(serde_json::Value::Null),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 

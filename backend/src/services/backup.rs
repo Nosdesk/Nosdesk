@@ -51,7 +51,8 @@ const SERVER_SCHEMA_HASH: &str = env!("NOSDESK_SCHEMA_HASH");
 /// normally — the whole archive is sealed by AES-GCM, so a
 /// sidecar would just add complexity for no gain.
 const SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
-    ("users", &["mfa_secret", "mfa_backup_codes"]),
+    ("users", &["mfa_secret"]),
+    ("user_recovery_codes", &["code_hash"]),
     ("user_auth_identities", &["password_hash", "metadata"]),
     ("refresh_tokens", &["token_hash"]),
     ("reset_tokens", &["token_hash", "metadata"]),

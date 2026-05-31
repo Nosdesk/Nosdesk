@@ -1335,24 +1335,35 @@ pub async fn mfa_enable(
         }
     };
 
-    // Generate backup codes now that verification succeeded
+    // Generate backup codes now that verification succeeded.
+    // bcrypt hashing happens off the request thread via
+    // spawn_blocking; the plaintext set is returned to the client
+    // once for them to record.
     let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
-
-    // Use pre-hashed backup codes from setup phase
-    // Note: backup_codes from frontend are plaintext from setup, hashed here for storage
-    // This maintains security while keeping the API simple
-
-    let backup_codes_json = match serde_json::to_value(&backup_codes_hashed) {
-        Ok(json) => json,
-        Err(_) => return errors::internal("Failed to serialize backup codes"),
-    };
 
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(true),
         mfa_secret: Some(encrypted_secret),
-        mfa_backup_codes: Some(backup_codes_json),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
+
+    // Two writes: enable MFA on `users`, replace the
+    // recovery-codes set in `user_recovery_codes`. Done in
+    // sequence, not a shared transaction, because the
+    // recovery-codes table doesn't share a connection-level
+    // transaction with the users update here. A failure on the
+    // codes write after the user update succeeded would leave
+    // the user MFA-active with zero recovery codes (lockout
+    // risk); we therefore order codes-FIRST so a failed codes
+    // write leaves MFA still disabled and the user can retry.
+    if let Err(e) = repository::user_recovery_codes::replace_all(
+        &mut conn,
+        &user_uuid,
+        backup_codes_hashed,
+    ) {
+        tracing::error!("Failed to store recovery codes: {:?}", e);
+        return errors::internal("Failed to enable MFA");
+    }
 
     match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
         Ok(_) => {
@@ -1366,6 +1377,13 @@ pub async fn mfa_enable(
         }
         Err(e) => {
             tracing::error!("Failed to enable MFA in database: {:?}", e);
+            // Best-effort: roll back the recovery-codes write so
+            // the user isn't left with codes for an MFA that
+            // didn't get enabled.
+            let _ = repository::user_recovery_codes::delete_all_for_user(
+                &mut conn,
+                &user_uuid,
+            );
             errors::internal("Failed to enable MFA")
         }
     }
@@ -1415,11 +1433,19 @@ pub async fn mfa_disable(
         return errors::bad_request("Invalid password");
     }
 
-    // Disable MFA
+    // Disable MFA: clear the secret + flip the flag on `users`,
+    // wipe recovery codes from the dedicated table. Recovery
+    // codes go FIRST so a failed delete doesn't leave codes
+    // for an MFA setup that's about to be removed.
+    if let Err(e) =
+        repository::user_recovery_codes::delete_all_for_user(&mut conn, &user_uuid)
+    {
+        error!(error = ?e, "Error clearing recovery codes during MFA disable");
+        return errors::internal("Failed to disable MFA");
+    }
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(false),
-        mfa_secret: None,                                // Clear the secret
-        mfa_backup_codes: Some(serde_json::Value::Null), // Clear backup codes
+        mfa_secret: None,
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
@@ -1480,18 +1506,16 @@ pub async fn mfa_regenerate_backup_codes(
         return errors::bad_request("Invalid password");
     }
 
-    // Generate new backup codes
+    // Generate new backup codes. The replace_all repo call is
+    // a single transaction (delete-all + bulk-insert), so the
+    // user is never left mid-rotation with a partial set.
     let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
-    let backup_codes_json = serde_json::to_value(&backup_codes_hashed).unwrap();
 
-    let mfa_update = crate::models::UserMfaUpdate {
-        mfa_enabled: None, // Don't change MFA enabled status
-        mfa_secret: None,  // Don't change secret
-        mfa_backup_codes: Some(backup_codes_json),
-        updated_at: Some(chrono::Utc::now().naive_utc()),
-    };
-
-    match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
+    match repository::user_recovery_codes::replace_all(
+        &mut conn,
+        &user_uuid,
+        backup_codes_hashed,
+    ) {
         Ok(_) => {
             let response = crate::models::MfaRegenerateBackupCodesResponse {
                 backup_codes: backup_codes_plaintext,
@@ -1529,13 +1553,13 @@ pub async fn mfa_status(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -
         Err(_) => return errors::not_found_msg("User not found"),
     };
 
-    // Check if user has backup codes
-    let has_backup_codes = user
-        .mfa_backup_codes
-        .as_ref()
-        .and_then(|codes| codes.as_array())
-        .map(|array| !array.is_empty())
-        .unwrap_or(false);
+    // Check if user has any unused recovery codes left. Indexed
+    // count via the partial index on (user_uuid) WHERE used_at
+    // IS NULL.
+    let has_backup_codes =
+        repository::user_recovery_codes::count_unused(&mut conn, &user_uuid)
+            .map(|n| n > 0)
+            .unwrap_or(false);
 
     let response = crate::models::MfaStatusResponse {
         enabled: user.mfa_enabled,
@@ -1755,21 +1779,25 @@ pub async fn mfa_enable_login(
     // Generate backup codes now that verification succeeded
     let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
 
-    let backup_codes_json = match serde_json::to_value(&backup_codes_hashed) {
-        Ok(json) => json,
-        Err(_) => return errors::internal("Failed to serialize backup codes"),
-    };
+    // Enable MFA in database. Recovery codes write goes FIRST
+    // (same ordering rationale as `mfa_enable` above — failed
+    // codes write leaves MFA disabled, never the reverse).
+    let user_uuid = user.uuid;
 
-    // Enable MFA in database
+    if let Err(e) = repository::user_recovery_codes::replace_all(
+        &mut conn,
+        &user_uuid,
+        backup_codes_hashed,
+    ) {
+        tracing::error!("Failed to store recovery codes during login MFA enable: {:?}", e);
+        return errors::internal("Failed to enable MFA");
+    }
+
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(true),
         mfa_secret: Some(encrypted_secret),
-        mfa_backup_codes: Some(backup_codes_json),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
-
-    // Store user UUID before moving
-    let user_uuid = user.uuid;
 
     match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
         Ok(_) => {

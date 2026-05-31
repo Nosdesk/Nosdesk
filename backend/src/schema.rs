@@ -1477,6 +1477,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_recovery_codes (id) {
+        id -> Int8,
+        user_uuid -> Uuid,
+        code_hash -> Text,
+        used_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     user_ticket_views (id) {
         id -> Int4,
         user_uuid -> Uuid,
@@ -1512,7 +1522,6 @@ diesel::table! {
         #[max_length = 255]
         mfa_secret -> Nullable<Varchar>,
         mfa_enabled -> Bool,
-        mfa_backup_codes -> Nullable<Jsonb>,
         feature_flag_overrides -> Jsonb,
         deleted_at -> Nullable<Timestamptz>,
     }
@@ -1816,6 +1825,7 @@ diesel::joinable!(tickets -> workspaces (workspace_id));
 diesel::joinable!(user_groups -> groups (group_id));
 diesel::joinable!(user_groups -> workspaces (workspace_id));
 diesel::joinable!(user_preferences -> users (user_uuid));
+diesel::joinable!(user_recovery_codes -> users (user_uuid));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
 diesel::joinable!(user_ticket_views -> workspaces (workspace_id));
@@ -1915,6 +1925,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     user_emails,
     user_groups,
     user_preferences,
+    user_recovery_codes,
     user_ticket_views,
     users,
     webhook_deliveries,
