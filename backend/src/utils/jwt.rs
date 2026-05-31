@@ -108,17 +108,15 @@ impl JwtUtils {
         // Parse UUID from claims
         let user_uuid = parse_uuid(&claims.sub).map_err(|_| JwtError::InvalidUserUuid)?;
 
-        // Get user from database to ensure they still exist and are active
-        let user =
-            repository::get_user_by_uuid(&user_uuid, conn).map_err(|_| JwtError::UserNotFound)?;
-
-        // Soft-deleted users keep their row (audit / history) but
-        // are not allowed to act with cached tokens. Existing
-        // sessions stop working immediately on soft-delete, which
-        // is the property the admin "delete user" flow promises.
-        if user.deleted_at.is_some() {
-            return Err(JwtError::UserNotFound);
-        }
+        // Get user from database to ensure they still exist and are
+        // active. Soft-deleted users keep their row (audit / history)
+        // but are not allowed to act with cached tokens. Existing
+        // sessions stop working immediately on soft-delete, which is
+        // the property the admin "delete user" flow promises.
+        // `find_active_by_uuid` returns NotFound for both
+        // "row missing" and "row soft-deleted" — same outcome here.
+        let user = repository::users::find_active_by_uuid(&user_uuid, conn)
+            .map_err(|_| JwtError::UserNotFound)?;
 
         // Verify role hasn't changed since token was issued
         let current_role = role_to_string(&user.role);

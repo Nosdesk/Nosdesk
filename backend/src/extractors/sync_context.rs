@@ -89,7 +89,10 @@ impl FromRequest for SyncContext {
                 .get()
                 .map_err(|e| SyncContextError::DatabaseError(e.to_string()))?;
 
-            let user = crate::repository::users::get_user_by_uuid(&user_uuid, &mut conn)
+            // Active-only — F2C.2 H4. Soft-deleted user can't be
+            // the actor for a sync session even if they hold a
+            // cached auth token.
+            let user = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn)
                 .map_err(|_| SyncContextError::UserNotFound)?;
 
             let allowed_groups = crate::sync::groups::allowed_for_user(&mut conn, &user)

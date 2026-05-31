@@ -295,8 +295,11 @@ pub async fn verify_mfa_token(
     token: &str,
     conn: &mut DbConnection,
 ) -> Result<MfaVerificationResult> {
-    let user =
-        repository::get_user_by_uuid(user_uuid, conn).map_err(|_| anyhow!("User not found"))?;
+    // Active-only — a soft-deleted user must not complete MFA
+    // verification even if they hold a pending-MFA cookie from
+    // a successful password step. F2C.2 H4.
+    let user = repository::users::find_active_by_uuid(user_uuid, conn)
+        .map_err(|_| anyhow!("User not found"))?;
 
     if !user.mfa_enabled {
         return Err(anyhow!("MFA is not enabled for this user"));

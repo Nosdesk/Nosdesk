@@ -487,7 +487,7 @@ pub async fn oauth_callback(
                     ) {
                         Ok(Some(existing_user_uuid)) => {
                             // Found an existing identity - verify the user still exists
-                            match crate::repository::users::get_user_by_uuid(
+                            match crate::repository::users::find_active_by_uuid(
                                 &existing_user_uuid,
                                 &mut conn,
                             ) {
@@ -671,7 +671,7 @@ pub async fn oauth_callback(
                     ) {
                         Ok(Some(existing_user_uuid)) => {
                             // Found an existing identity - verify the user still exists
-                            match crate::repository::users::get_user_by_uuid(
+                            match crate::repository::users::find_active_by_uuid(
                                 &existing_user_uuid,
                                 &mut conn,
                             ) {
@@ -1164,7 +1164,7 @@ async fn find_or_create_oauth_user(
     ) {
         Ok(Some(user_uuid)) => {
             // User found by identity, return the user
-            match crate::repository::users::get_user_by_uuid(&user_uuid, conn) {
+            match crate::repository::users::find_active_by_uuid(&user_uuid, conn) {
                 Ok(user) => return Ok(user),
                 Err(e) => return Err(format!("Error retrieving user: {e:?}")),
             }
@@ -1324,7 +1324,7 @@ async fn add_oauth_identity_to_user(
     };
 
     // First find the user by UUID
-    let user = match crate::repository::get_user_by_uuid(&parsed_uuid, conn) {
+    let user = match crate::repository::users::find_active_by_uuid(&parsed_uuid, conn) {
         Ok(user) => user,
         Err(e) => return Err(format!("User not found: {e:?}")),
     };
@@ -1428,7 +1428,7 @@ pub async fn oauth_connect(
         Err(_) => return errors::bad_request("Invalid user UUID in token"),
     };
 
-    let user = match crate::repository::get_user_by_uuid(&user_uuid, &mut conn) {
+    let user = match crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(e) => {
             error!(user_uuid = %user_uuid, error = ?e, "Failed to find user by UUID");

@@ -207,9 +207,45 @@ pub fn get_paginated_users(
 }
 
 // Note: get_user_by_id removed - users table now uses UUID as primary key
-// Use get_user_by_uuid instead
+// Use get_user_by_uuid instead.
+//
+// **Active-vs-any semantics.** `get_user_by_uuid` returns the row
+// regardless of `deleted_at`. Use it ONLY for non-auth-gated paths
+// that need to render or reference soft-deleted users (audit log,
+// comment history, ticket assignee/requester display, admin
+// "view-deleted" surfaces).
+//
+// For any path where the user's row drives an *authentication
+// decision* — login, MFA verify, JWT validation, API token auth,
+// passkey ceremony, password reset, OAuth callback — call
+// [`find_active_by_uuid`] below instead. Otherwise a user
+// soft-deleted between credential enrolment and the next auth
+// attempt can still authenticate (F2C.2 H4 finding from the
+// cross-codebase audit, see `docs/auth-convergence.md`).
 pub fn get_user_by_uuid(uuid: &Uuid, conn: &mut DbConnection) -> Result<User, Error> {
     users::table.find(uuid).first::<User>(conn)
+}
+
+/// Fetch a user row only if the account is active (i.e. `deleted_at
+/// IS NULL`). The active-only variant of [`get_user_by_uuid`].
+///
+/// Returns `Error::NotFound` for both "row doesn't exist" and
+/// "row exists but is soft-deleted" — callers in auth paths
+/// should treat both as "this user can't authenticate" without
+/// distinguishing (don't leak deletion state in error messages
+/// or response timing). The fail-closed direction.
+///
+/// **Use this in every auth gate.** The sibling repo's F2C audit
+/// flagged "soft-deleted user can still authenticate via passkey"
+/// as HIGH because the passkey login path looked up the user
+/// without filtering `deleted_at`. The whole class of bug —
+/// password reset, MFA verify, OAuth callback completion — has
+/// the same shape.
+pub fn find_active_by_uuid(uuid: &Uuid, conn: &mut DbConnection) -> Result<User, Error> {
+    users::table
+        .find(uuid)
+        .filter(users::deleted_at.is_null())
+        .first::<User>(conn)
 }
 
 // This function now delegates to user_helpers module since email is in user_emails table

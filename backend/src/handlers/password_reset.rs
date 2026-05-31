@@ -209,8 +209,12 @@ pub async fn reset_password_with_token(
         }
     };
 
-    // Get the user
-    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
+    // Get the user — active-only. A soft-deleted user with a
+    // valid reset token must not be allowed to set a new password
+    // and re-enter the system. F2C.2 H4. Surfaced upstream as
+    // the same generic "Invalid or expired token" so deletion
+    // state doesn't leak through the response.
+    let user = match repository::users::find_active_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(e) => {
             error!(

@@ -141,8 +141,13 @@ impl FromRequest for AuthContext {
                 .get()
                 .map_err(|e| AuthContextError::DatabaseError(e.to_string()))?;
 
-            // Fetch user from database to get current role and groups
-            let user = crate::repository::users::get_user_by_uuid(&user_uuid, &mut conn)
+            // Fetch user from database to get current role and groups.
+            // Active-only — F2C.2 H4: a soft-deleted user with a
+            // cached cookie/JWT must not get a request-scoped auth
+            // context. The error type collapses "row missing" and
+            // "row soft-deleted" into one `UserNotFound` to avoid
+            // leaking deletion state.
+            let user = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn)
                 .map_err(|_| AuthContextError::UserNotFound)?;
 
             // Fetch user's group memberships

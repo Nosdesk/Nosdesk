@@ -138,7 +138,7 @@ pub async fn start_passkey_registration(
     };
 
     // Get user from database
-    let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
+    let user = match repository::users::find_active_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
         Err(_) => {
             return errors::not_found_msg("User not found");
@@ -264,7 +264,7 @@ pub async fn finish_passkey_registration(
         Err(e) => return e,
     };
 
-    if repository::get_user_by_uuid(&user_uuid, &mut conn).is_err() {
+    if repository::users::find_active_by_uuid(&user_uuid, &mut conn).is_err() {
         return errors::not_found_msg("User not found");
     }
 
@@ -666,7 +666,15 @@ fn find_user_by_credential_id(
     let row = repository::passkey_credentials::find_by_credential_id(conn, credential_id)
         .ok()
         .flatten()?;
-    let user = repository::get_user_by_uuid(&row.user_uuid, conn).ok()?;
+    // Active-only — the literal F2C.2 H4 finding: a user
+    // soft-deleted between credential enrolment and the next
+    // authentication must not be able to complete login via
+    // passkey just because the credential row still references
+    // them. Treat "user soft-deleted" and "user gone" as the same
+    // "invalid passkey" outcome upstream (callers return
+    // `unauthorized("Invalid passkey")`) so deletion state
+    // doesn't leak through the response.
+    let user = repository::users::find_active_by_uuid(&row.user_uuid, conn).ok()?;
     let email = repository::user_helpers::get_primary_email(&user.uuid, conn)?;
     Some((user, email))
 }
@@ -696,7 +704,7 @@ pub async fn list_passkeys(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
         Err(e) => return e,
     };
 
-    if repository::get_user_by_uuid(&user_uuid, &mut conn).is_err() {
+    if repository::users::find_active_by_uuid(&user_uuid, &mut conn).is_err() {
         return errors::not_found_msg("User not found");
     }
 
@@ -756,7 +764,7 @@ pub async fn rename_passkey(
         Err(e) => return e,
     };
 
-    if repository::get_user_by_uuid(&user_uuid, &mut conn).is_err() {
+    if repository::users::find_active_by_uuid(&user_uuid, &mut conn).is_err() {
         return errors::not_found_msg("User not found");
     }
 
@@ -804,7 +812,7 @@ pub async fn delete_passkey(
         Err(e) => return e,
     };
 
-    if repository::get_user_by_uuid(&user_uuid, &mut conn).is_err() {
+    if repository::users::find_active_by_uuid(&user_uuid, &mut conn).is_err() {
         return errors::not_found_msg("User not found");
     }
 

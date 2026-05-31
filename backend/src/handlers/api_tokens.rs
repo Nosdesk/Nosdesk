@@ -86,7 +86,10 @@ pub async fn create_api_token(
     let scopes = body.scopes.clone();
 
     let result = tc.run(|conn| {
-        match crate::repository::get_user_by_uuid(&user_uuid, conn) {
+        // Active-only — don't let an admin (or a self-issuance
+        // path racing a delete) mint a token for a soft-deleted
+        // user. F2C.2 H4.
+        match crate::repository::users::find_active_by_uuid(&user_uuid, conn) {
             Ok(_) => {}
             Err(Error::NotFound) => return Ok(Outcome::TargetUserNotFound),
             Err(e) => return Err(e),
