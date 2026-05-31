@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Result};
 use base32;
 use base64::{engine::general_purpose, Engine as _};
-use bcrypt::{hash as bcrypt_hash, verify as bcrypt_verify, DEFAULT_COST};
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::Argon2;
+use bcrypt::verify as bcrypt_verify;
 use qrcode::{render::svg, QrCode};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng, RngCore};
@@ -92,32 +94,56 @@ pub fn generate_totp_secret() -> SecretString {
 /// who can read freed heap pages already wins. The realistic
 /// benefit of the wrap is panic-safety between codes generation
 /// and response send.
+///
+/// Output shape: **10 codes × 10 mixed-case alphanumeric chars**,
+/// hashed with **argon2id** (OWASP minimum profile, m=19 MiB t=2
+/// p=1). Matches Stripe / GitHub / Google defaults at ~59 bits
+/// of entropy per code; argon2id replaces the previous bcrypt
+/// hash for consistency with the password module (memory-hardness
+/// adds margin against GPU/ASIC parallel attack even though the
+/// per-code entropy is the dominant security property).
+///
+/// Verify-path forward compatibility: `verify_backup_code` detects
+/// the hash format prefix (`$argon2id$` vs `$2b$`) so codes
+/// generated before this migration keep working until consumed.
+/// Recovery codes are single-use; no data migration needed.
 pub async fn generate_backup_codes_async() -> (zeroize::Zeroizing<Vec<String>>, Vec<String>) {
     use tokio::task;
 
     let mut plaintext_codes: Vec<String> = Vec::new();
     let mut hash_futures = Vec::new();
 
-    // Generate all codes first
-    for _ in 0..8 {
+    // Generate all codes first. 10 codes × 10 chars mixed-case
+    // alphanumeric → ~59 bits/code. The `Alphanumeric` distribution
+    // already produces mixed-case [a-zA-Z0-9]; the legacy
+    // implementation force-uppercased to 36-char alphabet (~41
+    // bits) which we now drop for the full ~62-char alphabet.
+    for _ in 0..10 {
         let code: String = thread_rng()
             .sample_iter(&Alphanumeric)
-            .take(8)
+            .take(10)
             .map(char::from)
-            .collect::<String>()
-            .to_uppercase();
+            .collect();
 
         let code_clone = code.clone();
         plaintext_codes.push(code);
 
-        // Create async hash task to avoid blocking
-        let hash_future = task::spawn_blocking(move || {
-            bcrypt_hash(&code_clone, DEFAULT_COST).expect("Failed to hash backup code")
+        // argon2id hash off the request thread. spawn_blocking
+        // because argon2 is intentionally slow (~100ms with the
+        // OWASP minimum profile); awaiting it on the runtime
+        // thread would block other tasks. Default `Argon2::default()`
+        // uses Argon2id with OWASP-spec parameters.
+        let hash_future = task::spawn_blocking(move || -> String {
+            let salt = SaltString::generate(&mut rand::rngs::OsRng);
+            Argon2::default()
+                .hash_password(code_clone.as_bytes(), &salt)
+                .expect("Failed to hash recovery code with argon2id")
+                .to_string()
         });
         hash_futures.push(hash_future);
     }
 
-    // Wait for all hashing to complete
+    // Wait for all hashing to complete in parallel
     let mut hashed_codes = Vec::new();
     for future in hash_futures {
         let hash = future.await.expect("Hash task failed");
@@ -125,6 +151,29 @@ pub async fn generate_backup_codes_async() -> (zeroize::Zeroizing<Vec<String>>, 
     }
 
     (zeroize::Zeroizing::new(plaintext_codes), hashed_codes)
+}
+
+/// Verify a recovery-code plaintext against a stored hash,
+/// dispatching to argon2id or bcrypt based on the hash format
+/// prefix. New codes (post-migration) are argon2id; pre-migration
+/// codes are bcrypt and continue to verify correctly until
+/// consumed.
+///
+/// Returns false on hash-parse errors so an unexpected/corrupt
+/// hash string doesn't return Err (which would break the
+/// constant-time verify loop's "check every code" guarantee).
+fn verify_recovery_code_hash(plaintext: &str, stored_hash: &str) -> bool {
+    if stored_hash.starts_with("$argon2") {
+        match PasswordHash::new(stored_hash) {
+            Ok(parsed) => Argon2::default()
+                .verify_password(plaintext.as_bytes(), &parsed)
+                .is_ok(),
+            Err(_) => false,
+        }
+    } else {
+        // Legacy bcrypt hash (`$2a$` / `$2b$` / `$2y$` prefixes).
+        bcrypt_verify(plaintext, stored_hash).unwrap_or(false)
+    }
 }
 
 /// QR code generation result containing both SVG and matrix data
@@ -241,7 +290,12 @@ pub async fn verify_backup_code(
     // path; keeping the loop structure honest is the next-best.)
     let mut matched_id: Option<i64> = None;
     for code in &unused {
-        if bcrypt_verify(provided_code, &code.code_hash).unwrap_or(false) {
+        // Format-aware verify (argon2id for new codes, bcrypt for
+        // pre-migration codes). Mixing formats in one verify loop
+        // makes per-call latency depend on the format mix, but
+        // that only leaks "how many pre-vs-post-migration codes
+        // this user has" which has no attack value.
+        if verify_recovery_code_hash(provided_code, &code.code_hash) {
             // Pin the FIRST match — multiple matches would mean
             // the same plaintext was registered twice, which our
             // generator doesn't produce, but defensively we still
@@ -645,6 +699,46 @@ mod tests {
         assert!(qr.svg_data_url.starts_with("data:image/svg+xml;base64,"));
         assert!(qr.matrix.size > 0);
         assert_eq!(qr.matrix.data.len(), qr.matrix.size * qr.matrix.size);
+    }
+
+    // ---- Recovery code hash format dispatch -----------------------
+    //
+    // Migration property: verify_recovery_code_hash must accept both
+    // argon2id (new) and bcrypt (pre-migration) hashes so existing
+    // user codes keep working until consumed.
+
+    #[test]
+    fn verify_dispatches_argon2id_hash() {
+        // Generate an argon2id hash inline and verify against it.
+        let plaintext = "TEST1234ab";
+        let salt = SaltString::generate(&mut rand::rngs::OsRng);
+        let hash = Argon2::default()
+            .hash_password(plaintext.as_bytes(), &salt)
+            .unwrap()
+            .to_string();
+        assert!(hash.starts_with("$argon2id$"));
+        assert!(verify_recovery_code_hash(plaintext, &hash));
+        assert!(!verify_recovery_code_hash("wrong-code", &hash));
+    }
+
+    #[test]
+    fn verify_dispatches_legacy_bcrypt_hash() {
+        // A bcrypt hash with `$2b$` prefix; verified via the legacy
+        // path. Use a low cost to keep the test fast.
+        let plaintext = "LEGACY12";
+        let hash =
+            bcrypt::hash(plaintext, 4).expect("bcrypt hash failed");
+        assert!(hash.starts_with("$2b$"));
+        assert!(verify_recovery_code_hash(plaintext, &hash));
+        assert!(!verify_recovery_code_hash("wrong-code", &hash));
+    }
+
+    #[test]
+    fn verify_rejects_corrupt_hash_string_without_panic() {
+        // A malformed hash string must not panic the verify loop —
+        // returning false keeps the constant-time guarantee.
+        assert!(!verify_recovery_code_hash("anything", "not-a-real-hash"));
+        assert!(!verify_recovery_code_hash("anything", "$argon2id$malformed"));
     }
 }
 
