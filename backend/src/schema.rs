@@ -884,6 +884,8 @@ diesel::table! {
         backup_state -> Bool,
         created_at -> Timestamptz,
         last_used_at -> Nullable<Timestamptz>,
+        sign_count -> Int8,
+        backup_state_changed_at -> Nullable<Timestamptz>,
     }
 }
 

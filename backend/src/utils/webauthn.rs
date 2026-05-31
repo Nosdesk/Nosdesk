@@ -256,22 +256,149 @@ pub fn rename_credential(
     }
 }
 
-/// Stamp `last_used_at` after a successful authentication.
-/// Same not-found semantics as [`rename_credential`].
-pub fn touch_last_used(
+/// Outcome of [`update_credential_post_auth`]. Returned so the
+/// caller can emit a security event when the WebAuthn `backup_state`
+/// flag flips (a possible clone-detection signal per WebAuthn L3
+/// §6.1.3 — the credential may now be backed up to a different
+/// ecosystem than the one that registered it).
+#[derive(Debug, Default)]
+pub struct CredentialPostAuthOutcome {
+    /// `Some((previous, current))` when `backup_state` differed from
+    /// the previously-stored value, `None` otherwise. The caller
+    /// should record a `passkey_backup_state_changed` security
+    /// event when present.
+    pub backup_state_flip: Option<(bool, bool)>,
+    /// Previously-stored sign counter; informational, useful for
+    /// telemetry / audit. Caller can compare against the new value
+    /// (`auth_result.counter()`) to confirm the bump landed.
+    pub previous_sign_count: i64,
+    /// New sign counter that was persisted.
+    pub new_sign_count: i64,
+}
+
+/// Persist the WebAuthn `AuthenticationResult` back to the
+/// credential row after a successful login. Writes the bumped sign
+/// counter (both the denormalised `sign_count` column and the
+/// counter embedded inside the `credential` JSONB blob so library
+/// rehydration stays consistent), the current `backup_state` /
+/// `backup_eligible` flags, and `last_used_at`.
+///
+/// Without this hook, the WebAuthn clone-detection property
+/// (assertion counter must exceed the stored counter) is inoperative
+/// — the library checks the counter on each authentication, but if
+/// the stored value never advances past the registration baseline,
+/// the check has no teeth. Calling this after every successful
+/// `finish_passkey_authentication` /
+/// `finish_discoverable_authentication` closes the gap.
+///
+/// Returns a [`CredentialPostAuthOutcome`] describing observable
+/// state changes (currently: `backup_state` flips) so the handler
+/// can emit the matching security event. Failure to find the
+/// credential is mapped to `Ok(default)` rather than `Err` — the
+/// credential lookup happened upstream during the ceremony so a
+/// late-race delete is unusual, and dropping the post-auth update
+/// shouldn't block an otherwise-successful login.
+///
+/// Counter regression (asserted counter ≤ stored) is enforced by
+/// webauthn-rs inside `finish_*_authentication` itself; a
+/// successful `AuthenticationResult` already implies the regression
+/// check passed. We don't need to re-check here, only persist.
+pub fn update_credential_post_auth(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
-    credential_id: &str,
-) -> Result<bool> {
+    auth_result: &AuthenticationResult,
+) -> Result<CredentialPostAuthOutcome> {
+    // `cred_id()` returns `&HumanBinaryData` (raw bytes); the
+    // `credential_id` column stores the canonical base64url form.
+    // HumanBinaryData has no Display impl, so encode via the base64
+    // crate directly.
+    let credential_id = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(auth_result.cred_id().as_ref());
+    let row = match repo::find_by_credential_id(conn, &credential_id) {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            tracing::warn!(
+                user_uuid = %user_uuid,
+                credential_id = %credential_id,
+                "post-auth credential lookup returned no row; skipping update"
+            );
+            return Ok(CredentialPostAuthOutcome::default());
+        }
+        Err(e) => return Err(anyhow!("Failed to look up credential for post-auth update: {:?}", e)),
+    };
+
+    // Defensive sanity check: the credential we're about to update
+    // really belongs to the user we're authenticating. The handler
+    // already establishes this via the credential→user lookup
+    // earlier in the flow, but mismatches here would indicate a
+    // larger flow break (or a races-with-delete-and-recreate
+    // pathological case) and we'd rather refuse than corrupt.
+    if row.user_uuid != *user_uuid {
+        return Err(anyhow!(
+            "post-auth credential user mismatch (stored {:?}, expected {:?})",
+            row.user_uuid,
+            user_uuid
+        ));
+    }
+
+    let new_sign_count = auth_result.counter() as i64;
+    let new_backup_state = auth_result.backup_state();
+    let new_backup_eligible = auth_result.backup_eligible();
+    let _ = new_backup_eligible; // tracked on the row at registration; not mutated here
+
+    let backup_state_flip = if row.backup_state != new_backup_state {
+        Some((row.backup_state, new_backup_state))
+    } else {
+        None
+    };
+
+    // Rewrite the embedded counter inside the `credential` JSONB so
+    // a subsequent rehydration of the `Passkey` sees the bumped
+    // value (the library's regression check reads it from there).
+    // The blob's shape is `{"cred": {"counter": <u32>, ...}, ...}`
+    // per webauthn-rs's Passkey serialisation; we touch only that
+    // one field, leaving everything else byte-identical.
+    let updated_credential_json = sync_counter_into_credential_blob(row.credential, new_sign_count);
+
     let change = PasskeyCredentialUpdate {
         name: None,
         last_used_at: Some(Some(Utc::now())),
+        credential: Some(updated_credential_json),
+        sign_count: Some(new_sign_count),
+        backup_state: Some(new_backup_state),
+        backup_state_changed_at: backup_state_flip.map(|_| Some(Utc::now())),
     };
-    match repo::update_for_user(conn, user_uuid, credential_id, change) {
-        Ok(_) => Ok(true),
-        Err(diesel::result::Error::NotFound) => Ok(false),
-        Err(e) => Err(anyhow!("Failed to touch passkey last_used_at: {:?}", e)),
+
+    repo::update_for_user(conn, user_uuid, &credential_id, change)
+        .map_err(|e| anyhow!("Failed to persist post-auth credential update: {:?}", e))?;
+
+    Ok(CredentialPostAuthOutcome {
+        backup_state_flip,
+        previous_sign_count: row.sign_count,
+        new_sign_count,
+    })
+}
+
+/// Sync the bumped counter into the embedded `cred.counter` of the
+/// stored credential JSONB. Best-effort: if the blob shape diverges
+/// from what we expect (a manual schema change, a webauthn-rs
+/// serialisation format bump), we return the original blob untouched
+/// so the column-level `sign_count` still holds the authoritative
+/// value and the next library rehydration of `Passkey` falls back
+/// to whatever the blob says. The library's regression check then
+/// degrades to "blob counter" but the security event for backup-
+/// state flips still fires off the column.
+fn sync_counter_into_credential_blob(
+    mut blob: serde_json::Value,
+    new_counter: i64,
+) -> serde_json::Value {
+    if let Some(cred) = blob.get_mut("cred").and_then(|c| c.as_object_mut()) {
+        cred.insert(
+            "counter".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(new_counter)),
+        );
     }
+    blob
 }
 
 /// Delete a credential. Returns true if a row was actually removed.
@@ -506,5 +633,69 @@ mod tests {
             "Windows"
         );
         assert_eq!(generate_passkey_name(None), "Passkey");
+    }
+
+    // ---- sync_counter_into_credential_blob -------------------------
+    //
+    // Pure JSON-rewriter tests for the helper that keeps the embedded
+    // `cred.counter` in lockstep with the denormalised `sign_count`
+    // column. The library's `Passkey::deserialize` reads its counter
+    // from this blob, so a divergence between the two would let a
+    // rehydrated Passkey present a stale counter to the next
+    // verification — re-opening the clone-detection gap this whole
+    // change-set exists to close.
+
+    #[test]
+    fn sync_counter_bumps_existing_counter() {
+        let blob = serde_json::json!({
+            "cred": { "counter": 42, "cred_id": "abc", "user_verified": true },
+            "other_field": "preserved",
+        });
+        let bumped = sync_counter_into_credential_blob(blob, 100);
+        assert_eq!(bumped["cred"]["counter"], serde_json::json!(100));
+        assert_eq!(bumped["cred"]["cred_id"], serde_json::json!("abc"));
+        assert_eq!(bumped["cred"]["user_verified"], serde_json::json!(true));
+        assert_eq!(bumped["other_field"], serde_json::json!("preserved"));
+    }
+
+    #[test]
+    fn sync_counter_inserts_when_missing() {
+        // Some `Passkey` shapes omit `counter` until the first
+        // authentication. Insert rather than ignore so the next
+        // rehydration sees the column-authoritative value.
+        let blob = serde_json::json!({
+            "cred": { "cred_id": "abc" },
+        });
+        let bumped = sync_counter_into_credential_blob(blob, 7);
+        assert_eq!(bumped["cred"]["counter"], serde_json::json!(7));
+    }
+
+    #[test]
+    fn sync_counter_leaves_unexpected_shape_alone() {
+        // If the blob's shape diverges from what we expect (a manual
+        // schema change, a webauthn-rs serialisation bump), we return
+        // it untouched and let the column-level `sign_count` carry
+        // the authoritative value. Better than corrupting the blob.
+        let blob = serde_json::json!({ "no_cred_key": "here" });
+        let bumped = sync_counter_into_credential_blob(blob.clone(), 999);
+        assert_eq!(bumped, blob);
+
+        let blob = serde_json::json!({ "cred": "not an object" });
+        let bumped = sync_counter_into_credential_blob(blob.clone(), 999);
+        assert_eq!(bumped, blob);
+
+        let blob = serde_json::json!([1, 2, 3]);
+        let bumped = sync_counter_into_credential_blob(blob.clone(), 999);
+        assert_eq!(bumped, blob);
+    }
+
+    #[test]
+    fn sync_counter_handles_zero() {
+        // u32 → i64 round-trip at the boundary value. Some
+        // authenticators don't implement a counter and always return
+        // 0; the helper must accept that without losing information.
+        let blob = serde_json::json!({ "cred": { "counter": 5 } });
+        let bumped = sync_counter_into_credential_blob(blob, 0);
+        assert_eq!(bumped["cred"]["counter"], serde_json::json!(0));
     }
 }

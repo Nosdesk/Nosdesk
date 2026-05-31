@@ -504,8 +504,10 @@ pub async fn finish_passkey_login(
 
     let webauthn = &*WEBAUTHN;
 
-    // Check if this is a discoverable authentication (has session_id)
-    if let Some(ref session_id) = body.session_id {
+    // Run the appropriate finish ceremony and capture the
+    // AuthenticationResult so we can persist the bumped sign counter
+    // + observed backup_state back to the credential row.
+    let auth_result = if let Some(ref session_id) = body.session_id {
         // Discoverable authentication flow
         let auth_state = match webauthn::get_discoverable_auth_state(session_id).await {
             Ok(state) => state,
@@ -536,11 +538,12 @@ pub async fn finish_passkey_login(
         let discoverable_key: DiscoverableKey = stored_cred.credential.clone().into();
         let creds = vec![discoverable_key];
         match webauthn.finish_discoverable_authentication(&auth_response, auth_state, &creds) {
-            Ok(_result) => {
+            Ok(result) => {
                 debug!(
                     "Discoverable passkey authentication successful for user {}",
                     user.uuid
                 );
+                result
             }
             Err(e) => {
                 error!(
@@ -549,7 +552,7 @@ pub async fn finish_passkey_login(
                 );
                 return errors::unauthorized("Authentication failed");
             }
-        };
+        }
     } else {
         // Non-discoverable authentication flow - try to get state by email
         // Since we found the user by credential ID, get their email
@@ -571,19 +574,53 @@ pub async fn finish_passkey_login(
 
         // Complete non-discoverable authentication
         match webauthn.finish_passkey_authentication(&auth_response, &auth_state) {
-            Ok(_result) => {
+            Ok(result) => {
                 debug!("Passkey authentication successful for user {}", user.uuid);
+                result
             }
             Err(e) => {
                 error!("Failed to complete passkey authentication: {:?}", e);
                 return errors::unauthorized("Authentication failed");
             }
-        };
-    }
+        }
+    };
 
-    // Stamp last_used_at; failure is not fatal to the login flow.
-    if let Err(e) = webauthn::touch_last_used(&mut conn, &user.uuid, credential_id) {
-        warn!("Failed to update passkey after auth: {:?}", e);
+    // Persist the bumped sign counter + current backup_state back
+    // to the credential row. Replaces the earlier
+    // `touch_last_used`-only post-auth which left WebAuthn's clone-
+    // detection property inoperative (counter never advanced past
+    // registration). Failure is logged but not fatal to the
+    // otherwise-successful login.
+    let post_auth = match webauthn::update_credential_post_auth(&mut conn, &user.uuid, &auth_result) {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            warn!("Failed to persist post-auth credential update: {:?}", e);
+            webauthn::CredentialPostAuthOutcome::default()
+        }
+    };
+
+    // If the credential's WebAuthn `backup_state` flag flipped
+    // between authentications, the credential may now be backed up
+    // to a different ecosystem than the one that registered it
+    // (WebAuthn L3 §6.1.3 clone-detection signal). Emit a security
+    // event so the user / operator can review.
+    if let Some((previous_backup_state, new_backup_state)) = post_auth.backup_state_flip {
+        let _ = crate::utils::security_events::record_security_event(
+            &mut conn,
+            crate::utils::security_events::SecurityEventInput {
+                user_uuid: Some(user.uuid),
+                event_type: "passkey_backup_state_changed",
+                severity: "warning",
+                details: Some(serde_json::json!({
+                    "credential_id": credential_id,
+                    "previous_backup_state": previous_backup_state,
+                    "new_backup_state": new_backup_state,
+                    "reason": "WebAuthn backup_state flip; credential may now be synced to a different ecosystem",
+                })),
+                request: Some(&req),
+                session_id: None,
+            },
+        );
     }
 
     // Create session + tokens, return response with auth cookies
