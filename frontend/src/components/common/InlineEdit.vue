@@ -9,6 +9,12 @@ interface Props {
   prefix?: string;
   showEditHint?: boolean;
   truncate?: boolean;
+  /** Cap the display mode to N lines with ellipsis past that.
+   * Overrides `truncate` when set. `2` is the recommended value
+   * for header titles: a long title wraps once instead of being
+   * lost to ellipsis, but never grows the row beyond two lines.
+   * Unset = unlimited wrap (the previous `truncate: false` default). */
+  maxLines?: 1 | 2;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -112,7 +118,17 @@ const textSizeClasses = {
         class="w-full font-semibold px-1 py-0.5 rounded-lg hover:bg-surface-hover transition-all duration-150 border-2 border-transparent"
         :class="[
           textSizeClasses[textSize],
-          truncate ? 'truncate' : 'break-words',
+          // `maxLines` takes precedence over `truncate`. line-clamp-2
+          // wraps to two lines with ellipsis past that, paired with
+          // leading-tight so two lines comfortably fit in a header
+          // row sized for one. Falls back to single-line truncate or
+          // unlimited break-words depending on the legacy
+          // `truncate` flag.
+          maxLines === 2
+            ? 'line-clamp-2 leading-tight break-words'
+            : maxLines === 1 || truncate
+              ? 'truncate'
+              : 'break-words',
           {
             'cursor-pointer': canEdit,
             'cursor-default': !canEdit,
@@ -120,7 +136,7 @@ const textSizeClasses = {
             'text-tertiary italic': !modelValue
           }
         ]"
-        :title="truncate && modelValue ? modelValue : undefined"
+        :title="(maxLines || truncate) && modelValue ? modelValue : undefined"
       >
         {{ modelValue || placeholder }}
       </div>

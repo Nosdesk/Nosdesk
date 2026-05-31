@@ -159,17 +159,25 @@ const handleCreateClick = () => {
 
 <template>
   <header class="bg-surface border-b border-default relative z-header">
-    <div class="flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 md:px-6 gap-2">
+    <!-- min-height instead of fixed height so long titles wrap to
+         two lines (line-clamp-2 in the title elements below) and
+         grow the header up to ~80px rather than getting lost to a
+         single-line ellipsis. py-2 keeps the title from touching
+         the top/bottom edge once wrapped. -->
+    <div class="flex items-center justify-between min-h-14 sm:min-h-16 px-3 sm:px-4 md:px-6 py-2 gap-2">
       <!-- Left side - Title area -->
       <div class="flex items-center flex-1 min-w-0">
         <template v-if="isTicketView && props.ticket">
           <div class="flex items-center gap-2 min-w-0 flex-1">
             <ItemIdentifier :id="props.ticket.id" size="md" class="flex-shrink-0" />
-            <!-- Editable ticket title in header - truncated to fit -->
+            <!-- Editable ticket title in header: wraps to a second
+                 line when long instead of getting lost to ellipsis.
+                 maxLines=2 caps the wrap so the header tops out
+                 around ~80px rather than growing unboundedly. -->
             <HeaderTitle
               :initialTitle="props.ticket.title || t('ui-site-header-untitled-ticket')"
               :placeholder-text="t('ui-site-header-ticket-title-placeholder')"
-              :truncate="true"
+              :max-lines="2"
               @update-title="handleUpdateTicketTitle"
               class="min-w-0 flex-1"
             />
@@ -178,8 +186,13 @@ const handleCreateClick = () => {
         <template v-else-if="isDeviceView && props.device">
           <div class="flex items-center gap-2 min-w-0 flex-1">
             <ItemIdentifier :id="props.device.id" size="md" class="flex-shrink-0" />
-            <!-- Display device hostname as read-only in header -->
-            <h1 class="text-xl font-semibold text-primary truncate flex-1 min-w-0">
+            <!-- Display device hostname as read-only in header.
+                 line-clamp-2 + leading-tight so a long hostname
+                 wraps once rather than ellipsing. -->
+            <h1
+              class="text-xl font-semibold text-primary line-clamp-2 leading-tight break-words flex-1 min-w-0"
+              :title="(props.device.attributes?.hostname as string | undefined) || undefined"
+            >
               {{ (props.device.attributes?.hostname as string | undefined) || t('ui-site-header-unknown-device') }}
             </h1>
           </div>
@@ -194,7 +207,7 @@ const handleCreateClick = () => {
             <HeaderTitle
               :initialTitle="props.document.title"
               :placeholder-text="t('ui-site-header-document-title-placeholder')"
-              :truncate="true"
+              :max-lines="2"
               @update-title="handleUpdateDocumentTitle"
               @update-title-preview="handlePreviewDocumentTitle"
               class="min-w-0 flex-1"
@@ -207,7 +220,10 @@ const handleCreateClick = () => {
             <svg v-if="props.titleIcon === 'pdf'" class="w-6 h-6 text-status-error flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
             </svg>
-            <h1 class="text-xl font-semibold text-primary truncate">{{ displayTitle }}</h1>
+            <h1
+              class="text-xl font-semibold text-primary line-clamp-2 leading-tight break-words"
+              :title="displayTitle"
+            >{{ displayTitle }}</h1>
           </div>
         </template>
       </div>

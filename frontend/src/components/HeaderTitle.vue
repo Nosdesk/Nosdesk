@@ -13,6 +13,8 @@ interface Props {
   prefix?: string;
   placeholderText?: string;
   truncate?: boolean;
+  /** Cap display to N lines, ellipsis past that. See InlineEdit. */
+  maxLines?: 1 | 2;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -43,6 +45,7 @@ const handleTitleUpdate = (newValue: string) => {
     :placeholder="placeholderText || t('ui-header-title-placeholder')"
     text-size="xl"
     :truncate="truncate"
+    :max-lines="maxLines"
     @update:modelValue="handleTitleUpdate"
   />
 </template>
