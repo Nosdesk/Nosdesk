@@ -235,11 +235,18 @@ const handleCreateClick = () => {
              single primary action (e.g. "Add reply" on a ticket)
              so a navigation utility doesn't out-shout the page
              content. Hover lifts to a soft accent background. -->
+        <!-- Label collapses to icon-only below md (768px) per
+             industry convention (Jira, Asana, Stripe all use a
+             single breakpoint label-hide). `title` mirrors the
+             aria-label so the visible name comes back as a
+             tooltip when the label is hidden, matching Primer's
+             icon-button guidance. -->
         <button
           v-if="props.showCreateButton"
           @click="handleCreateClick"
           class="group flex create-button px-2.5 py-1.5 sm:px-3 text-sm font-medium text-secondary border border-default rounded-lg hover:text-primary hover:border-accent hover:bg-accent-muted transition-colors items-center gap-2"
           :aria-label="t('ui-site-header-create-aria', { action: resolvedCreateButtonText })"
+          :title="resolvedCreateButtonText"
         >
           <CreateActionIcon :icon="props.createButtonIcon" />
           <span class="create-button-text">{{ resolvedCreateButtonText }}</span>
@@ -306,8 +313,12 @@ const handleCreateClick = () => {
   will-change: transform;
 }
 
-/* Compact the create button below 640px (sm breakpoint) - icon only */
-@media (max-width: 639px) {
+/* Collapse the create button label below md (767px) so the long
+   locales ("Nouveau ticket" / "Nieuw ticket") never crowd the
+   header. The icon, aria-label, and title tooltip preserve the
+   action's identity at narrow widths. Matches the Jira / Asana /
+   Stripe responsive convention for top-right primary CTAs. */
+@media (max-width: 767px) {
   .create-button-text {
     display: none;
   }
