@@ -59,6 +59,25 @@ const assetsById = computed(() => {
   return out;
 });
 
+/**
+ * Render-gate: the section only earns sidebar real estate when
+ * there's something to show or do. Nothing about asset usage is
+ * interactive in the empty case (no stock-tracked assets linked,
+ * no history yet), so a "No stock-tracked assets linked to this
+ * ticket" message is just noise that competes with the actually-
+ * present fields for the reader's attention. When content arrives,
+ * the section pops in cleanly below the Assets row above.
+ *
+ * Errors stay visible regardless so admins notice a load failure
+ * rather than silently missing usage data they expected to see.
+ */
+const hasContent = computed(
+  () =>
+    history.value.length > 0 ||
+    stockTrackedAssets.value.length > 0 ||
+    errorMessage.value !== '',
+);
+
 async function reload() {
   loading.value = true;
   errorMessage.value = '';
@@ -152,10 +171,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
-    <!-- Header row mirrors the other sidebar field labels -->
+  <!-- Nests visually under the sibling Assets row by sharing the
+       same lowercase-tertiary label style and tight proximity.
+       The whole section disappears in the empty-no-stock case
+       (see `hasContent` in the script) so the sidebar never shows
+       a redundant "no stock-tracked assets linked" filler line. -->
+  <div v-if="hasContent" class="flex flex-col gap-3">
     <div class="flex items-center gap-2">
-      <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
+      <h3 class="text-xs font-medium text-tertiary">
         {{ $t('ticket-asset-usage-heading') }}
       </h3>
       <span v-if="history.length > 0" class="text-xs text-tertiary">
@@ -165,7 +188,10 @@ onUnmounted(() => {
 
     <p v-if="errorMessage" class="text-xs text-status-error">{{ errorMessage }}</p>
 
-    <!-- Recorded history -->
+    <!-- Recorded history. The "no history yet" case only renders
+         when there are stock-tracked assets to record against; the
+         outer hasContent gate keeps the whole block out of the
+         sidebar when both are empty. -->
     <div v-if="history.length > 0" class="flex flex-col gap-1.5">
       <div
         v-for="row in history"
@@ -186,10 +212,7 @@ onUnmounted(() => {
         </span>
       </div>
     </div>
-    <p v-else-if="!loading && stockTrackedAssets.length === 0" class="text-xs text-tertiary italic">
-      {{ $t('ticket-asset-usage-empty-no-stock') }}
-    </p>
-    <p v-else-if="!loading" class="text-xs text-tertiary italic">
+    <p v-else-if="!loading && stockTrackedAssets.length > 0" class="text-xs text-tertiary italic">
       {{ $t('ticket-asset-usage-empty-no-history') }}
     </p>
 

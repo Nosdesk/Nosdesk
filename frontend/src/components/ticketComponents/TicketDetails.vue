@@ -710,7 +710,13 @@ watchEffect(async () => {
                   </button>
                 </div>
               </div>
-              <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
+              <!-- UserPicker's trigger has no built-in hover-tint
+                   (unlike CustomDropdown). A light wrapper provides
+                   the row-wide editability cue without the heavier
+                   permanent border + background the previous version
+                   carried, matching the flat-panel pattern adopted
+                   for Status / Priority / Category / Scheduling. -->
+              <div class="rounded-lg hover:bg-surface-hover transition-colors">
                 <UserPicker
                   ref="requesterRef"
                   :modelValue="selectedRequester"
@@ -762,7 +768,7 @@ watchEffect(async () => {
                   </button>
                 </div>
               </div>
-              <div class="bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors">
+              <div class="rounded-lg hover:bg-surface-hover transition-colors">
                 <UserPicker
                   ref="assigneeRef"
                   :modelValue="selectedAssignee"
