@@ -186,7 +186,7 @@ services:
 
   # Frontend Build Service - Development (for live reloading)
   frontend-watch:
-    image: node:20-alpine
+    image: node:24-alpine
     working_dir: /app
     networks:
       - nosdesk-network
@@ -200,8 +200,6 @@ services:
       # from frontend/src/i18n/index.ts (three `..` from there
       # reach `/`, where this mount lives).
       - ./i18n:/i18n:ro
-    environment:
-      - CHOKIDAR_USEPOLLING=true # Required for file watching in Docker on macOS/Windows
     command: sh -c "npm install && npm run dev:unified"
 
 volumes:

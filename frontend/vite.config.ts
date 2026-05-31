@@ -67,8 +67,17 @@ export default defineConfig({
     // watch mode regardless of how it was invoked — including
     // a plain `vite build`, which would then hang waiting for
     // changes instead of completing.
+    // `watcher.usePolling` is Rolldown's option (Vite 8's build
+    // watcher is Rolldown, not chokidar). Required for Docker on
+    // macOS: the FSEvents -> VirtioFS -> inotify bridge drops
+    // events over time (docker/for-mac#4811), silently stalling
+    // the watcher. `server.watch` polling below only covers
+    // `vite dev`, and `CHOKIDAR_USEPOLLING` is a no-op here.
     watch: isWatchBuild
-      ? { include: ['src/**', '../i18n/locales/**'] }
+      ? {
+          include: ['src/**', '../i18n/locales/**'],
+          watcher: { usePolling: true, interval: 300 },
+        }
       : null,
     rolldownOptions: {
       output: {
