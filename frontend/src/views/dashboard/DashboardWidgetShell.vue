@@ -207,7 +207,7 @@ function onHandlePointerDown(e: PointerEvent) {
             :class="[
               'h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[10px] font-semibold transition-colors',
               currentSpan === size
-                ? 'bg-accent text-white'
+                ? 'bg-accent text-on-accent'
                 : 'text-tertiary hover:text-primary',
             ]"
             :title="t('dashboard-widget-shell-size-option-title', { size })"

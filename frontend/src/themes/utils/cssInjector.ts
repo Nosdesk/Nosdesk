@@ -20,7 +20,21 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
     colors.accent = accentOverride
     colors.accentHover = adjustColor(accentOverride, theme.meta.isDark ? 15 : -15)
     colors.accentMuted = hexToRgba(accentOverride, 0.2)
+    // Workspace-branding overrides reset the on-accent text colour
+    // — the theme-provided one was paired with the theme's accent,
+    // not the override.
+    colors.accentForeground = undefined
   }
+
+  // On-accent foreground: text colour rendered on `bg-accent`
+  // (button labels, badges). If the theme didn't pin one, pick
+  // black or white via WCAG luminance against the actual accent
+  // fill. This makes the choice Just Work for any accent value,
+  // including workspace-branding overrides — and keeps themes
+  // whose accent is dark (e.g. epaper's `#000000`) from rendering
+  // invisible black-on-black labels, which was the symptom that
+  // surfaced this whole token.
+  const onAccent = colors.accentForeground ?? pickAccentForeground(colors.accent)
 
   // Build CSS variables
   const cssVars = `
@@ -45,6 +59,7 @@ export function applyTheme(theme: Theme, accentOverride?: string): void {
   --color-accent: ${colors.accent};
   --color-accent-hover: ${colors.accentHover};
   --color-accent-muted: ${colors.accentMuted};
+  --color-on-accent: ${onAccent};
 
   /* Status colors */
   --color-status-success: ${colors.success};
@@ -102,6 +117,39 @@ ${colors.syntax ? Object.entries(colors.syntax).map(([key, value]) => `
 
   // Store active theme ID for reference
   root.dataset.theme = theme.meta.id
+}
+
+/**
+ * Pick `#000000` or `#ffffff` for text rendered on top of `accent`,
+ * choosing whichever scores higher WCAG contrast against the
+ * accent fill. Uses the standard WCAG 2.x relative-luminance
+ * formula (sRGB → linear via the per-channel piecewise transform,
+ * then weighted sum), then compares the resulting (L+0.05)/0.05
+ * (black contrast) to 1.05/(L+0.05) (white contrast).
+ *
+ * The brand orange `#FF6B1A` scores 7.4:1 with black vs 2.85:1
+ * with white — picks black. Epaper's `#000000` accent scores
+ * 21:1 with white vs undefined-but-zero with black — picks
+ * white. Slate's cyan `#06B6D4` scores 9.2:1 black vs 2.3:1
+ * white — black. So on. Every theme's accent gets an AA-passing
+ * foreground without per-theme bookkeeping.
+ */
+function pickAccentForeground(accent: string): string {
+  const hex = accent.replace('#', '')
+  if (hex.length !== 6) return '#000000' // bail to default on malformed input
+
+  const toLinear = (c: number) => {
+    const cs = c / 255
+    return cs <= 0.03928 ? cs / 12.92 : Math.pow((cs + 0.055) / 1.055, 2.4)
+  }
+  const r = toLinear(parseInt(hex.slice(0, 2), 16))
+  const g = toLinear(parseInt(hex.slice(2, 4), 16))
+  const b = toLinear(parseInt(hex.slice(4, 6), 16))
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+  const whiteContrast = 1.05 / (luminance + 0.05)
+  const blackContrast = (luminance + 0.05) / 0.05
+  return whiteContrast > blackContrast ? '#ffffff' : '#000000'
 }
 
 /**

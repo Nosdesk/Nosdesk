@@ -52,7 +52,7 @@ const emit = defineEmits<{
     <button
       v-if="showReset !== false"
       type="button"
-      class="px-2 py-1 text-xs font-medium text-white bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
+      class="px-2 py-1 text-xs font-medium text-on-accent bg-accent rounded-md hover:opacity-90 focus:ring-2 focus:outline-none focus:ring-accent"
       @click="emit('reset')"
     >
       Reset

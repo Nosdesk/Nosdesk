@@ -229,7 +229,7 @@ const handleSubmit = () => {
           </button>
           <button
             type="submit"
-            class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
+            class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
           >
             {{ isEditMode() ? $t('admin-categories-edit-save') : $t('admin-categories-edit-create') }}
           </button>

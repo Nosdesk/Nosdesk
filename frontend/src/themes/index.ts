@@ -21,6 +21,7 @@ import { catppuccinLatteTheme, catppuccinMochaTheme } from './presets/catppuccin
 import { oneDarkTheme } from './presets/one-dark'
 import { ePaperTheme } from './presets/epaper'
 import { pureBlackTheme } from './presets/pure-black'
+import { slateTheme } from './presets/slate'
 import { solarizedLightTheme, solarizedDarkTheme } from './presets/solarized'
 import { nossalDarkTheme } from './presets/nossal'
 import { redHorizonTheme } from './presets/red-horizon'
@@ -81,6 +82,7 @@ export const themeRegistry: Map<string, Theme> = new Map([
   ['nossal-dark', nossalDarkTheme],
   ['epaper', ePaperTheme],
   ['pure-black', pureBlackTheme],
+  ['slate', slateTheme],
   ['red-horizon', redHorizonTheme],
   // Seasonal themes
   ['christmas', christmasTheme],

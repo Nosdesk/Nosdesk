@@ -441,7 +441,7 @@ const formatLastUpdated = (dateString: string): string => {
                 <div class="text-xs text-tertiary truncate">{{ (device.attributes?.hostname as string | undefined) }}</div>
               </div>
               <div v-if="device.isRequesterDevice" class="flex-shrink-0">
-                <span class="text-xs bg-accent text-white px-2 py-0.5 rounded-full">{{ t('asset-modal-owner') }}</span>
+                <span class="text-xs bg-accent text-on-accent px-2 py-0.5 rounded-full">{{ t('asset-modal-owner') }}</span>
               </div>
             </div>
 
@@ -519,7 +519,7 @@ const formatLastUpdated = (dateString: string): string => {
                     <div class="min-w-0">
                       <div class="flex items-center gap-2">
                         <span class="font-medium text-primary truncate">{{ device.name }}</span>
-                        <span v-if="device.isRequesterDevice" class="text-xs bg-accent text-white px-1.5 py-0.5 rounded">{{ t('asset-modal-owner') }}</span>
+                        <span v-if="device.isRequesterDevice" class="text-xs bg-accent text-on-accent px-1.5 py-0.5 rounded">{{ t('asset-modal-owner') }}</span>
                       </div>
                       <div class="text-xs text-tertiary truncate">{{ device.manufacturer }} {{ device.model }}</div>
                     </div>

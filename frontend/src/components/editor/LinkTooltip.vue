@@ -229,7 +229,7 @@ onBeforeUnmount(() => {
       />
       <button
         @click="handleApply"
-        class="px-3 py-1.5 bg-accent text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium"
+        class="px-3 py-1.5 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors text-sm font-medium"
         :title="t('editor-link-tooltip-apply')"
       >
         {{ t('editor-link-tooltip-apply') }}

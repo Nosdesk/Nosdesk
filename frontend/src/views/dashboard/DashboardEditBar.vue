@@ -59,7 +59,7 @@ function doReset() {
 
     <button
       type="button"
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:opacity-90 transition-opacity"
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-on-accent hover:opacity-90 transition-opacity"
       @click="done"
     >
       {{ t('dashboard-edit-bar-done') }}

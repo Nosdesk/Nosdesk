@@ -160,7 +160,7 @@ onMounted(loadCollections)
         <button
           type="submit"
           :disabled="!newCollectionName.trim()"
-          class="px-4 py-1.5 text-xs rounded-md bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+          class="px-4 py-1.5 text-xs rounded-md bg-accent text-on-accent hover:opacity-90 transition-opacity disabled:opacity-50"
         >
           {{ $t('docs-collection-browser-create') }}
         </button>

@@ -471,7 +471,7 @@ const generatePdfThumbnail = async () => {
           <!-- Animation indicator for GIF and APNG -->
           <div
             v-if="isAnimatedImage(attachment.name)"
-            class="absolute top-2 left-2 bg-accent/80 px-2 py-1 rounded text-xs text-white font-medium animate-pulse"
+            class="absolute top-2 left-2 bg-accent/80 px-2 py-1 rounded text-xs text-on-accent font-medium animate-pulse"
           >
             {{ $t('ticket-media-attachment-animated-badge') }}
           </div>
@@ -571,7 +571,7 @@ const generatePdfThumbnail = async () => {
             :href="authenticatedUrl"
             target="_blank"
             :download="attachment.name"
-            class="flex items-center gap-1 p-2 bg-accent text-white hover:opacity-90 rounded transition-colors"
+            class="flex items-center gap-1 p-2 bg-accent text-on-accent hover:opacity-90 rounded transition-colors"
             :title="$t('ticket-media-attachment-download-pdf')"
             @click.stop
           >
@@ -605,7 +605,7 @@ const generatePdfThumbnail = async () => {
       <button
         type="button"
         @click.stop="emit('submit')"
-        class="px-3 py-1.5 bg-accent text-white text-sm rounded hover:opacity-90 transition-colors"
+        class="px-3 py-1.5 bg-accent text-on-accent text-sm rounded hover:opacity-90 transition-colors"
       >
         {{ $t('ticket-media-attachment-submit-video') }}
       </button>
@@ -633,7 +633,7 @@ const generatePdfThumbnail = async () => {
           <!-- Animation indicator for GIF/APNG -->
           <div
             v-if="isAnimatedImage(attachment.name)"
-            class="absolute top-2 right-2 bg-accent px-3 py-1 rounded-full text-xs text-white font-medium animate-pulse"
+            class="absolute top-2 right-2 bg-accent px-3 py-1 rounded-full text-xs text-on-accent font-medium animate-pulse"
           >
             {{ $t('ticket-media-attachment-animated-badge') }}
           </div>
@@ -650,7 +650,7 @@ const generatePdfThumbnail = async () => {
             target="_blank"
             :download="attachment.name"
             :class="isAnimatedImage(attachment.name)
-              ? 'px-4 py-2 bg-accent text-white text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2'
+              ? 'px-4 py-2 bg-accent text-on-accent text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2'
               : 'px-4 py-2 bg-surface-alt text-primary text-sm rounded hover:bg-surface-hover transition-colors flex items-center gap-2'"
           >
             <Icon name="download" />

@@ -58,10 +58,17 @@
   --color-secondary: #4b5563;
   --color-tertiary: #6b7280;
 
-  /* Accent colors (default orange - can be overridden by branding) */
-  --color-accent: #EE9902;
-  --color-accent-hover: #d68800;
-  --color-accent-muted: rgba(238, 153, 2, 0.18);
+  /* Accent colors — brand orange (#FF6B1A family). Hover steps DOWN
+     to primary-600 for light backgrounds; the theme store overrides
+     all three when a different theme is active. Workspace branding
+     overrides at the theme-injector layer. */
+  --color-accent: #FF6B1A;
+  --color-accent-hover: #EB5808;
+  --color-accent-muted: rgba(255, 107, 26, 0.15);
+  /* Text rendered on `bg-accent`. Black scores 7.4:1 AAA against
+     `#FF6B1A`; white scores 2.85:1 (fails AA). The theme injector
+     overrides this per-theme via WCAG-luminance pick. */
+  --color-on-accent: #000000;
 
   /* Brand colors */
   --color-brand-gold: #FDBD10;
@@ -121,10 +128,12 @@
     --color-secondary: #4b5563;
     --color-tertiary: #6b7280;
 
-    /* Accent colors (default orange - can be overridden by branding) */
-    --color-accent: #EE9902;
-    --color-accent-hover: #d68800;
-    --color-accent-muted: rgba(238, 153, 2, 0.18);
+    /* Accent colors — brand orange (#FF6B1A family); see @theme block
+       above. Light-mode hover steps DOWN for darker fill. */
+    --color-accent: #FF6B1A;
+    --color-accent-hover: #EB5808;
+    --color-accent-muted: rgba(255, 107, 26, 0.15);
+    --color-on-accent: #000000;
 
     /* Status colors */
     --color-status-success: #00C951;
@@ -175,28 +184,34 @@
     --shadow-outer-light: rgba(255, 255, 255, 0.7);
   }
 
-  /* Dark theme overrides - these are defaults before theme injection */
+  /* Dark theme overrides — SSR defaults applied before the theme
+     store JS loads. Mirrors `themes/base/dark.ts`. Near-black
+     elevation hierarchy (brand spec) replaces the previous slate
+     palette; users who prefer slate now opt into the `slate`
+     preset explicitly. */
   .dark {
-    /* Background layers */
-    --color-app: #0f172a;
-    --color-surface: #1e293b;
-    --color-surface-alt: #334155;
-    --color-surface-hover: rgba(51, 65, 85, 0.5);
+    /* Backgrounds — brand-spec elevation tiers */
+    --color-app: #08090a;
+    --color-surface: #0e0f11;
+    --color-surface-alt: #15171a;
+    --color-surface-hover: #1c1e22;
 
-    /* Borders - subtle in dark mode */
-    --color-default: #334155;
-    --color-subtle: #293548;
-    --color-strong: #475569;
+    /* Borders */
+    --color-default: #1f2125;
+    --color-subtle: #15171a;
+    --color-strong: #2a2d33;
 
     /* Text colors */
-    --color-primary: #f9fafb;
-    --color-secondary: #cbd5e1;
-    --color-tertiary: #94a3b8;
+    --color-primary: #f7f8f8;
+    --color-secondary: #b8bcc0;
+    --color-tertiary: #82878d;
 
-    /* Accent colors (default orange - can be overridden by branding) */
-    --color-accent: #EE9902;
-    --color-accent-hover: #ffaa22;
-    --color-accent-muted: rgba(238, 153, 2, 0.22);
+    /* Accent — brand orange (#FF6B1A family). Hover steps UP for
+       lift against the dark surface. */
+    --color-accent: #FF6B1A;
+    --color-accent-hover: #FF7A2D;
+    --color-accent-muted: rgba(255, 107, 26, 0.20);
+    --color-on-accent: #000000;
 
     /* Status colors - brighter for dark mode */
     --color-status-success: #00C951;
@@ -291,6 +306,13 @@
   .border-accent { border-color: var(--color-accent); }
   .bg-accent-hover { background-color: var(--color-accent-hover); }
   .bg-accent-muted { background-color: var(--color-accent-muted); }
+  /* Theme-aware on-accent text colour. Use this (not `text-black`
+     or `text-white`) wherever you put text on `bg-accent`. Each
+     theme picks the AA-passing colour for its accent fill via
+     WCAG luminance — automatic for brand orange / cyan / dark /
+     light, and explicitly white for themes whose accent is dark
+     (epaper, gruvbox-dark) so labels don't disappear. */
+  .text-on-accent { color: var(--color-on-accent); }
   .focus\:ring-accent:focus { --tw-ring-color: var(--color-accent); }
 
   /* Brand color utilities */

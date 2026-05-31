@@ -14,19 +14,26 @@ const router = useRouter();
 const toasts = computed(() => toastStore.visibleToasts);
 
 const getToastClasses = (type: Toast['type']) => {
-  const base = 'pointer-events-auto w-full max-w-sm rounded-lg shadow-lg ring-1 overflow-hidden transition-all';
+  // Opaque `bg-surface` base across every type — the previous
+  // `bg-status-*/10` translucent fills inherited whatever was
+  // behind them, which read as "frosted glass" rather than a
+  // first-class surface. Type is conveyed via the coloured
+  // border + ring + icon (kept), not via background tint. The
+  // `notification` type already shipped opaque, so this just
+  // brings success / warning / error / default into line.
+  const base = 'pointer-events-auto w-full max-w-sm rounded-lg bg-surface shadow-lg ring-1 overflow-hidden transition-all';
 
   switch (type) {
     case 'success':
-      return `${base} bg-status-success/10 ring-status-success/30 border border-status-success/30`;
+      return `${base} ring-status-success/30 border border-status-success/30`;
     case 'warning':
-      return `${base} bg-status-warning/10 ring-status-warning/30 border border-status-warning/30`;
+      return `${base} ring-status-warning/30 border border-status-warning/30`;
     case 'error':
-      return `${base} bg-status-error/10 ring-status-error/30 border border-status-error/30`;
+      return `${base} ring-status-error/30 border border-status-error/30`;
     case 'notification':
-      return `${base} bg-surface ring-default border border-default hover:border-strong`;
+      return `${base} ring-default border border-default hover:border-strong`;
     default:
-      return `${base} bg-accent/10 ring-accent/30 border border-accent/30`;
+      return `${base} ring-accent/30 border border-accent/30`;
   }
 };
 

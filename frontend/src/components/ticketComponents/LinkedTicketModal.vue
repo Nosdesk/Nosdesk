@@ -163,7 +163,7 @@ const getPriorityClass = (priority: TicketPriority) => {
         <p class="text-status-error text-sm mb-3">{{ error }}</p>
         <button
           @click="loadTickets(1, false)"
-          class="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:opacity-90"
+          class="px-4 py-2 text-sm bg-accent text-on-accent rounded-lg hover:opacity-90"
         >
           {{ $t('ticket-picker-linked-try-again') }}
         </button>

@@ -533,7 +533,7 @@ const handleOidcLogoutClick = async () => {
             <button
               type="submit"
               :disabled="isLoading || !mfaToken.trim()"
-              class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               <Spinner v-if="loadingAction === 'mfa'" class="-ml-1 mr-2 text-white" />
               <span v-if="loadingAction === 'mfa'">{{ $t("login-mfa-verifying") }}</span>
@@ -593,7 +593,7 @@ const handleOidcLogoutClick = async () => {
               <button
                 type="submit"
                 :disabled="isLoading || !recoveryCode.trim()"
-                class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                class="flex-2 py-3 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
                 <Spinner v-if="loadingAction === 'mfa'" class="text-white" />
                 <span v-if="loadingAction === 'mfa'">{{ $t("login-mfa-verifying") }}</span>
@@ -609,7 +609,7 @@ const handleOidcLogoutClick = async () => {
             type="button"
             @click="handlePasskeyMfaVerify"
             :disabled="isLoading"
-            class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+            class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Spinner v-if="loadingAction === 'passkey'" />
             <Icon v-else name="key" size="md" />
@@ -699,7 +699,7 @@ const handleOidcLogoutClick = async () => {
         <button
           type="submit"
           :disabled="isLoading"
-          class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <span v-if="loadingAction === 'login'">{{ $t("login-submitting") }}</span>
           <span v-else>{{ $t("login-submit") }}</span>

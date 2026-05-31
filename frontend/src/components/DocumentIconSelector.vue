@@ -1074,7 +1074,7 @@ onUnmounted(() => {
               @click.stop="!hasDragged && (activeCategory = key)"
               class="px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-colors flex-shrink-0"
               :class="activeCategory === key
-                ? 'bg-accent text-white'
+                ? 'bg-accent text-on-accent'
                 : 'text-secondary hover:text-primary hover:bg-surface-hover'"
             >
               {{ category.label }}

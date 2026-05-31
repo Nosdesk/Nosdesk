@@ -31,10 +31,14 @@ export const lightTheme: Theme = {
     secondary: '#4b5563',
     tertiary: '#6b7280',
 
-    // Accent (default orange - can be overridden by branding)
-    accent: '#EE9902',
-    accentHover: '#d68800',
-    accentMuted: 'rgba(238, 153, 2, 0.18)',
+    // Accent — brand orange (#FF6B1A family). Can be overridden by
+    // workspace branding. On light backgrounds, hover steps DOWN to
+    // primary-600 (#EB5808) so contrast stays above 5:1 against the
+    // typed-on-the-button text. See `docs/auth-convergence.md` peer
+    // doc `nosdesk-com/docs/brand.md` §6 for the WCAG-on-fill rule.
+    accent: '#FF6B1A',
+    accentHover: '#EB5808',
+    accentMuted: 'rgba(255, 107, 26, 0.15)',
 
     // Status
     success: '#00C951',

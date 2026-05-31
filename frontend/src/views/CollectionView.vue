@@ -246,7 +246,7 @@ const deleteModalTitle = computed(() =>
           v-if="collection"
           @click="createPageInCollection"
           :disabled="creating"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-on-accent hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Icon v-if="!creating" name="add" />
           <Spinner v-else />

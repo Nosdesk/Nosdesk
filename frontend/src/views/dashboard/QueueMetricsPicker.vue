@@ -120,7 +120,7 @@ function save() {
           :disabled="!canSave"
           :class="[
             'px-3 py-1.5 text-xs font-medium rounded-md transition-opacity',
-            canSave ? 'bg-accent text-white hover:opacity-90' : 'bg-accent/40 text-white cursor-not-allowed',
+            canSave ? 'bg-accent text-on-accent hover:opacity-90' : 'bg-accent/40 text-on-accent cursor-not-allowed',
           ]"
           @click="save"
         >

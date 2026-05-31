@@ -289,7 +289,7 @@ onMounted(() => {
         </div>
         <button
           @click="openCreateModal"
-          class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:opacity-90 font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+          class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:opacity-90 font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
           <Icon name="add" />
           {{ $t('admin-assignment-rules-new') }}
@@ -584,7 +584,7 @@ onMounted(() => {
           <button
             @click="saveRule"
             :disabled="isSaving"
-            class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
+            class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
           >
             {{ isSaving ? $t('admin-assignment-rules-modal-saving') : editingRule ? $t('admin-assignment-rules-modal-update') : $t('admin-assignment-rules-modal-create') }}
           </button>

@@ -116,7 +116,7 @@ const icons = {
     <button
       v-if="actionLabel"
       @click="emit('action')"
-      class="font-medium text-white bg-accent rounded-lg hover:bg-accent-hover focus:ring-2 focus:outline-none focus:ring-accent/50 flex items-center justify-center gap-2 transition-colors"
+      class="font-medium text-on-accent bg-accent rounded-lg hover:bg-accent-hover focus:ring-2 focus:outline-none focus:ring-accent/50 flex items-center justify-center gap-2 transition-colors"
       :class="{
         'px-5 py-2.5 text-sm min-w-[140px]': variant === 'page' || !variant,
         'px-4 py-2 text-sm min-w-[120px]': variant === 'card',

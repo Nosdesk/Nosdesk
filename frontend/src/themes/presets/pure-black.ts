@@ -31,10 +31,14 @@ export const pureBlackTheme: Theme = {
     secondary: '#b3b3b3',
     tertiary: '#808080',
 
-    // Accent (default orange - can be overridden by branding)
-    accent: '#EE9902',
-    accentHover: '#ffaa22',
-    accentMuted: 'rgba(238, 153, 2, 0.25)',
+    // Accent — brand orange (#FF6B1A family). Hover steps UP to
+    // primary-400 (#FF7A2D) so the lift is visible against the
+    // pure-black surface. Muted alpha bumped to 0.25 because pure
+    // black gives no surface tone to mix against — slightly more
+    // ink keeps the muted variant readable.
+    accent: '#FF6B1A',
+    accentHover: '#FF7A2D',
+    accentMuted: 'rgba(255, 107, 26, 0.25)',
 
     // Status
     success: '#00C951',

@@ -245,7 +245,7 @@ const getRequiredEnvVars = () => {
               <button
                 @click="sendTestEmail"
                 :disabled="sendingTest || !testEmailAddress"
-                class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:opacity-90 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
+                class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:opacity-90 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 whitespace-nowrap"
               >
                 <Spinner v-if="sendingTest" />
                 <!-- Custom paper-plane "send" glyph; not a registry action icon. -->

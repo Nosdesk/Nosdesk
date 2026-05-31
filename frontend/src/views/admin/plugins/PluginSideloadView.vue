@@ -237,7 +237,7 @@ const installButtonLabel = computed(() =>
         type="button"
         :disabled="!file || installing"
         @click="executeInstall"
-        class="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+        class="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent transition-colors hover:bg-accent-hover disabled:opacity-50"
       >
         <svg
           v-if="installing"

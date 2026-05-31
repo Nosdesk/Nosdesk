@@ -364,7 +364,7 @@ watch(
                     <RouterLink
                         v-if="isOwnProfile"
                         to="/profile/settings"
-                        class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-1"
+                        class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors text-sm font-medium flex items-center gap-1"
                     >
                         <Icon name="settings" />
                         {{ $t('user-profile-action-profile-settings') }}
@@ -374,7 +374,7 @@ watch(
                     <RouterLink
                         v-else-if="canEditRole && userProfile && !isOwnProfile"
                         :to="`/users/${userProfile.uuid}/settings`"
-                        class="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium flex items-center gap-2"
+                        class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium flex items-center gap-2"
                     >
                         <Icon name="settings" />
                         {{ $t('user-profile-action-user-settings') }}
@@ -647,7 +647,7 @@ watch(
                                         !editValues.email ||
                                         (!sendInvitation && (manualPassword.length < 8 || manualPassword !== confirmPassword))
                                     "
-                                    class="px-5 py-2.5 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                    class="px-5 py-2.5 text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
                                     <Spinner v-if="isSaving" />
                                     <Icon v-else name="add" />

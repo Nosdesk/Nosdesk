@@ -156,7 +156,7 @@ const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined
       <RouterLink
         v-if="plugins.length > 0"
         to="/admin/plugins/registry"
-        class="flex items-center gap-1.5 self-start rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover sm:self-auto"
+        class="flex items-center gap-1.5 self-start rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent transition-colors hover:bg-accent-hover sm:self-auto"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

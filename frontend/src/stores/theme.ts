@@ -212,16 +212,38 @@ export const useThemeStore = defineStore('theme', () => {
   }
 
   /**
-   * Load theme from user profile
-   * Skipped if deviceLocalTheme is enabled (per-device theme isolation)
+   * Load theme from user profile.
+   *
+   * Skipped entirely if `deviceLocalTheme` is enabled (per-device
+   * isolation: localStorage is the only source of truth).
+   *
+   * Also skipped when this device already has a local theme choice
+   * stored in `localStorage`. This is what keeps a refresh from
+   * silently clobbering the user's just-set theme if the
+   * sync-to-backend round-trip failed or is in-flight: localStorage
+   * is the device's source of truth after the first explicit pick.
+   * `/me` only seeds the theme on FIRST load on a new device (when
+   * `localStorage.theme` is unset) — that's how cross-device sync
+   * still works for a fresh login, without the "load from backend
+   * on every page-load" path that's been clobbering local choices
+   * the rest of the time.
+   *
+   * Pre-fix this used to call `setTheme(user.theme)` every time
+   * `/me` returned. If the backend had a stale value (sync silently
+   * 4xx'd, race against an in-flight save, etc.) the next refresh
+   * would clobber the localStorage value the user actually saw work.
    */
   function loadThemeFromUser(user: User | null): void {
     if (deviceLocalTheme.value) {
       logger.debug('Skipping theme sync from user profile (device-local theme enabled)')
       return
     }
+    if (localStorage.getItem('theme') !== null) {
+      logger.debug('Skipping theme load from user profile (local choice already set)')
+      return
+    }
     if (user && user.theme) {
-      logger.debug('Loading theme from user profile:', user.theme)
+      logger.debug('Seeding theme from user profile (first load on this device):', user.theme)
       setTheme(user.theme as ThemeMode)
     }
   }

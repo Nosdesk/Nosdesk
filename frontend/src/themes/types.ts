@@ -29,6 +29,13 @@ export interface ThemeColors {
   accent: string
   accentHover: string
   accentMuted: string
+  /** Text colour to render on the accent fill (e.g. button labels
+   *  on `bg-accent`). Optional — when omitted, the CSS injector
+   *  picks black or white via WCAG luminance against the accent.
+   *  Provide explicitly only when you want to override the
+   *  automatic pick (e.g. a brand wants white-on-orange even when
+   *  black scores higher contrast). */
+  accentForeground?: string
 
   // Status colors
   success: string

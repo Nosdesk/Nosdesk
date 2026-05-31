@@ -481,7 +481,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
         </div>
         <button
           @click="openCreateModal"
-          class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+          class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
           <Icon name="add" />
           <span class="hidden xs:inline">{{ $t('admin-webhooks-create') }}</span>
@@ -786,7 +786,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
           <button
             type="submit"
             :disabled="isSaving"
-            class="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
+            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
           >
             {{ isSaving ? $t('admin-webhooks-form-creating') : $t('admin-webhooks-form-create') }}
           </button>
@@ -828,7 +828,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
         <div class="flex justify-end pt-2">
           <button
             @click="showSecretCreated = false"
-            class="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors"
+            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors"
           >
             {{ $t('admin-webhooks-secret-done') }}
           </button>
@@ -989,7 +989,7 @@ const deliveryStatusLabel = (delivery: WebhookDelivery): string => {
           <button
             type="submit"
             :disabled="isSaving"
-            class="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
+            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
           >
             {{ isSaving ? $t('admin-webhooks-form-saving') : $t('admin-webhooks-form-save') }}
           </button>

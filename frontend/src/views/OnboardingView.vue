@@ -314,7 +314,7 @@ onUnmounted(() => {
           <button
             type="submit"
             :disabled="!canSubmit"
-            class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <span v-if="isLoading" class="flex items-center gap-2">
               <Spinner class="-ml-1 mr-2 text-white" />

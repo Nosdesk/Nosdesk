@@ -38,7 +38,7 @@
             </div>
             <button
               @click="goToLogin"
-              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium mt-2"
+              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-on-accent rounded-lg transition-colors font-medium mt-2"
             >
               {{ $t('password-reset-success-cta') }}
             </button>
@@ -135,7 +135,7 @@
             <!-- Submit Button -->
             <button
               type="submit"
-              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+              class="w-full px-6 py-3 bg-accent hover:opacity-90 text-on-accent rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
               :disabled="loading || !isFormValid"
             >
               <Spinner v-if="loading" size="md" />

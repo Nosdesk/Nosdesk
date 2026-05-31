@@ -12,7 +12,7 @@
     </div>
     <RouterLink
       to="/login"
-      class="inline-flex items-center justify-center px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg text-sm font-medium transition-colors"
+      class="inline-flex items-center justify-center px-4 py-2 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors"
     >
       {{ $t('feature-disabled-sign-in') }}
     </RouterLink>

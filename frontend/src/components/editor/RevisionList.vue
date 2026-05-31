@@ -317,7 +317,7 @@ onMounted(() => {
           v-if="selectedRevision?.id === revision.id"
           @click.stop="confirmRestore(revision)"
           :disabled="isRestoring"
-          class="mt-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
+          class="mt-2 w-full px-3 py-1.5 text-xs font-medium text-on-accent bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
         >
           {{ isRestoring ? t('editor-revisions-restoring') : t('editor-revisions-restore-button') }}
         </button>

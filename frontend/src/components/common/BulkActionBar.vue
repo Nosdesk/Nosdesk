@@ -109,7 +109,7 @@ const countCopy = computed(() => {
         <!-- Count pill + scope toggles -->
         <div class="flex items-center gap-3 pl-2 pr-3 border-r border-default">
           <div
-            class="flex items-center justify-center min-w-6 h-6 px-2 bg-accent text-white text-xs font-bold rounded-full"
+            class="flex items-center justify-center min-w-6 h-6 px-2 bg-accent text-on-accent text-xs font-bold rounded-full"
           >
             {{ selectedCount }}
           </div>

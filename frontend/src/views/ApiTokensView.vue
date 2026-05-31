@@ -201,7 +201,7 @@ onMounted(() => {
         </div>
         <button
           @click="openCreateModal"
-          class="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+          class="px-3 py-1.5 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors flex items-center gap-1.5 self-start sm:self-auto"
         >
           <Icon name="add" />
           <span class="hidden xs:inline">{{ $t('admin-api-tokens-create') }}</span>
@@ -408,7 +408,7 @@ onMounted(() => {
           <button
             type="submit"
             :disabled="isSaving"
-            class="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
+            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors disabled:opacity-50"
           >
             {{ isSaving ? $t('admin-api-tokens-modal-creating') : $t('admin-api-tokens-create') }}
           </button>
@@ -450,7 +450,7 @@ onMounted(() => {
         <div class="flex justify-end pt-2">
           <button
             @click="showTokenCreated = false"
-            class="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors"
+            class="px-4 py-2 bg-accent text-on-accent rounded-lg text-sm hover:bg-accent-hover font-medium transition-colors"
           >
             {{ $t('admin-api-tokens-done') }}
           </button>

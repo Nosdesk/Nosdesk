@@ -279,7 +279,7 @@ onMounted(async () => {
         <!-- Animation badge for GIF/APNG -->
         <div
           v-if="isAnimatedImage"
-          class="absolute top-3 left-3 bg-accent/80 px-2 py-1 rounded text-xs text-white font-medium animate-pulse z-20"
+          class="absolute top-3 left-3 bg-accent/80 px-2 py-1 rounded text-xs text-on-accent font-medium animate-pulse z-20"
         >
           {{ $t('ticket-media-file-animated-badge') }}
         </div>
@@ -331,7 +331,7 @@ onMounted(async () => {
           <a
             :href="src"
             target="_blank"
-            class="px-3 py-1.5 bg-accent text-white text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2"
+            class="px-3 py-1.5 bg-accent text-on-accent text-sm rounded hover:opacity-90 transition-colors flex items-center gap-2"
             :download="filename"
           >
             <Icon name="download" />

@@ -693,7 +693,7 @@ onMounted(() => {
 
                 <button
                   @click="showUserSelectionModal = true"
-                  class="w-full px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                  class="w-full px-4 py-2.5 bg-accent text-on-accent rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -710,7 +710,7 @@ onMounted(() => {
 
                 <button
                   @click="showUserSelectionModal = true"
-                  class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
+                  class="px-4 py-2.5 bg-accent text-on-accent rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
                   <Icon name="add" />
                   {{ $t('asset-detail-action-assign-user') }}
@@ -728,7 +728,7 @@ onMounted(() => {
                 <button
                   v-if="device.is_editable"
                   @click="showUserSelectionModal = true"
-                  class="w-full px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                  class="w-full px-4 py-2.5 bg-accent text-on-accent rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -746,7 +746,7 @@ onMounted(() => {
                 <button
                   v-if="device.is_editable"
                   @click="showUserSelectionModal = true"
-                  class="px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
+                  class="px-4 py-2.5 bg-accent text-on-accent rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
                   <Icon name="add" />
                   {{ $t('asset-detail-action-assign-user') }}

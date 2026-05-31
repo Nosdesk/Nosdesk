@@ -739,7 +739,7 @@ onMounted(() => {
                   <button
                     type="submit"
                     :disabled="saving || !hasGeneralChanges"
-                    class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+                    class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     <Spinner v-if="saving" />
                     {{ $t('admin-groups-config-save-changes') }}
@@ -855,7 +855,7 @@ onMounted(() => {
                   <button
                     @click="saveMembers"
                     :disabled="savingMembers || !hasMemberChanges"
-                    class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+                    class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     <Spinner v-if="savingMembers" />
                     {{ $t('admin-groups-config-save-members') }}
@@ -921,7 +921,7 @@ onMounted(() => {
                 <button
                   @click="saveDevices"
                   :disabled="savingDevices || !hasDeviceChanges"
-                  class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   <Spinner v-if="savingDevices" />
                   {{ $t('admin-groups-config-save-devices') }}
@@ -987,7 +987,7 @@ onMounted(() => {
                 <button
                   @click="saveIncludes"
                   :disabled="savingIncludes || !hasIncludeChanges"
-                  class="px-4 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   <Spinner v-if="savingIncludes" />
                   {{ $t('admin-groups-config-save-includes') }}

@@ -892,7 +892,7 @@ defineExpose({
                     <div class="flex flex-col gap-6 justify-center">
                         <div class="flex items-center justify-center py-8">
                             <div class="flex flex-col items-center gap-4">
-                                <div class="bg-accent rounded-full p-4 text-white">
+                                <div class="bg-accent rounded-full p-4 text-on-accent">
                                     <Spinner size="lg" />
                                 </div>
                                 <div class="text-center">

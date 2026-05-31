@@ -654,7 +654,7 @@ const handlePastedFiles = async (files: File[]) => {
                                     :class="[
                                         'px-2.5 py-1 rounded transition-colors',
                                         !isInternal
-                                            ? 'bg-accent text-white'
+                                            ? 'bg-accent text-on-accent'
                                             : 'text-secondary hover:text-primary'
                                     ]"
                                     :title="$t('ticket-comments-public-reply-title')"

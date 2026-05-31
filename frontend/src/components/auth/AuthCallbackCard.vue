@@ -103,7 +103,7 @@ const toggleTechnicalDetails = () => {
             @click="emit('action', action.action)"
             class="w-full px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
             :class="index === 0
-              ? 'bg-accent text-white hover:bg-accent/90'
+              ? 'bg-accent text-on-accent hover:bg-accent/90'
               : 'bg-surface-alt text-secondary hover:bg-surface-hover border border-default'"
           >
             {{ action.label }}

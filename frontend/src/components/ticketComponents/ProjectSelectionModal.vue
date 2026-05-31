@@ -228,7 +228,7 @@ const selectProject = (project: Project) => {
             >
               <!-- Already added indicator -->
               <div v-if="existingProjectIds?.includes(project.id)" class="absolute -top-1 right-2 z-10">
-                <div class="bg-accent text-white text-xs px-2 py-0.5 rounded-b-md shadow-sm">
+                <div class="bg-accent text-on-accent text-xs px-2 py-0.5 rounded-b-md shadow-sm">
                   Already Added
                 </div>
               </div>

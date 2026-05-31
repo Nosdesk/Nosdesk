@@ -167,7 +167,7 @@ function formatDateTime(iso: string): string {
                 />
                 <button
                     type="submit"
-                    class="h-9 px-4 rounded bg-accent text-white text-sm font-medium disabled:opacity-50"
+                    class="h-9 px-4 rounded bg-accent text-on-accent text-sm font-medium disabled:opacity-50"
                     :disabled="isAdding || !newEmail.trim()"
                 >
                     {{ isAdding ? $t('admin-suppressions-adding') : $t('admin-suppressions-add') }}

@@ -139,7 +139,7 @@ const handleSubmit = () => {
         </button>
         <button
           type="submit"
-          class="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:opacity-90"
+          class="px-4 py-2 text-sm bg-accent text-on-accent rounded-lg hover:opacity-90"
         >
           {{ $t('ticket-picker-device-add') }}
         </button>

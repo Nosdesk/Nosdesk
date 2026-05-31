@@ -45,7 +45,7 @@
         </div>
         <button
           @click="goToLogin"
-          class="px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg text-sm font-medium transition-colors"
+          class="px-4 py-2 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors"
         >
           {{ $t('accept-invitation-go-to-signin') }}
         </button>
@@ -93,7 +93,7 @@
         </div>
         <button
           @click="goToLogin"
-          class="px-4 py-2 bg-accent hover:opacity-90 text-white rounded-lg text-sm font-medium transition-colors"
+          class="px-4 py-2 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors"
         >
           {{ $t('accept-invitation-go-to-signin') }}
         </button>
@@ -203,7 +203,7 @@
 
           <button
             type="submit"
-            class="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-accent hover:opacity-90 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            class="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-accent hover:opacity-90 text-on-accent rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             :disabled="loading || !isFormValid"
           >
             <Spinner v-if="loading" />

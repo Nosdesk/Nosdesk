@@ -233,7 +233,7 @@ onMounted(() => {
         <button
           @click="handleRegisterPasskey"
           :disabled="isRegistering"
-          class="w-full py-3 px-4 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          class="w-full py-3 px-4 bg-accent text-on-accent rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           <Spinner v-if="isRegistering" />
           {{ isRegistering ? $t('auth-passkey-setup-creating-button') : $t('auth-passkey-setup-create-button') }}
@@ -288,7 +288,7 @@ onMounted(() => {
 
         <button
           @click="acknowledgeBackupCodes"
-          class="w-full py-3 px-4 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
+          class="w-full py-3 px-4 bg-accent text-on-accent rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
         >
           {{ $t('auth-passkey-setup-backup-codes-acknowledge') }}
         </button>
@@ -326,7 +326,7 @@ onMounted(() => {
 
         <button
           @click="completeSetup"
-          class="w-full py-3 px-4 bg-accent text-white rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
+          class="w-full py-3 px-4 bg-accent text-on-accent rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent font-medium transition-colors"
         >
           {{ $t('auth-passkey-setup-success-cta') }}
         </button>

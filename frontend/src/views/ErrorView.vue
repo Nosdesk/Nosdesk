@@ -1166,7 +1166,7 @@ const debugMeta = computed(() => ({
           </button>
           <button
             @click="goHome"
-            class="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:opacity-90 transition-colors"
+            class="px-4 py-2 text-sm font-medium bg-accent text-on-accent rounded-lg hover:opacity-90 transition-colors"
           >
             {{ $t('error-page-go-home') }}
           </button>

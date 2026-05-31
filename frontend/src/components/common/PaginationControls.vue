@@ -243,7 +243,7 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
                   :class="[
                     'py-0.5 text-sm rounded transition-colors w-8 text-center',
                     page === currentPage
-                      ? 'bg-accent text-white'
+                      ? 'bg-accent text-on-accent'
                       : 'bg-surface-alt text-primary hover:bg-surface-hover'
                   ]"
                 >

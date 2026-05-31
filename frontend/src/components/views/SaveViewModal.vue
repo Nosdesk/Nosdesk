@@ -86,7 +86,7 @@ async function save(): Promise<void> {
         <button
           type="submit"
           :disabled="!canSave"
-          class="px-4 py-2 text-sm rounded-lg text-white bg-accent hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          class="px-4 py-2 text-sm rounded-lg text-on-accent bg-accent hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           <Spinner v-if="saving" size="sm" />
           <span>{{ saving ? $t('views-save-as-saving') : $t('views-save-as-save') }}</span>
