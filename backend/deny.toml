@@ -28,6 +28,16 @@ ignore = [
     # primitives we exercise are unaffected. Revisit when rsa ships a
     # fix or openidconnect migrates away.
     { id = "RUSTSEC-2023-0071", reason = "signature verify only, not decrypt" },
+    # RUSTSEC-2024-0436 — paste 1.0.15 unmaintained. Informational
+    # only; no vulnerability. Previously pulled via image → ravif →
+    # rav1e → paste; trimmed by setting `image` to default-features
+    # = false (webp/jpeg/png/rayon only). `cargo tree -i paste` is
+    # empty, so it isn't in the shipped binary. Still listed because
+    # the crate remains in Cargo.lock under the inactive `avif`
+    # feature gate and audit tooling that reads the lockfile surfaces
+    # it. Revisit if a consumer re-enables avif or paste re-enters
+    # the active tree.
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained, not in active build, lockfile-only" },
 ]
 
 [bans]
