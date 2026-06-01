@@ -27,7 +27,12 @@ RUN case "$TARGETARCH" in \
     ldconfig && \
     rm -rf /tmp/pdfium
 
-# Install useful development tools with BuildKit cache mounts
+# Install useful development tools with BuildKit cache mounts.
+# `rustfmt` and `clippy` need explicit rustup component adds because
+# the slim rust image ships without them; without these, `cargo fmt`
+# inside the container silently no-ops and we ship formatting drift
+# that only fails in CI.
+RUN rustup component add rustfmt clippy
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo install diesel_cli --no-default-features --features postgres --locked && \
     cargo install bacon --locked
