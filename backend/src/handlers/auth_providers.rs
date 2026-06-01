@@ -18,7 +18,6 @@ use diesel::prelude::*;
 use crate::config_utils;
 use crate::oidc;
 use crate::repository::user_auth_identities;
-use crate::utils;
 
 // Structure for OAuth logout requests
 #[derive(Deserialize, Debug)]
@@ -1118,13 +1117,27 @@ async fn get_microsoft_user_info(access_token: &str) -> Result<serde_json::Value
 }
 
 // Helper function to find or create a user from OAuth profile
+/// Lazy OIDC user provisioning, called from the OAuth callback when
+/// a user logs in. Extracts identity claims from the provider's
+/// user_info JSON (MS Graph shape) and delegates to the shared
+/// `services::oauth_provisioning::find_or_create_projected_user` —
+/// same core code path the M5 eager-projection endpoint uses, so
+/// lazy and eager calls converge to the same row.
+///
+/// OAuth-created users land as workspace `member` regardless of the
+/// global role (which stays `User`). Owner / admin grants come from
+/// the eager-projection path during workspace provisioning, not
+/// from first-login.
 async fn find_or_create_oauth_user(
     user_info: &serde_json::Value,
     provider: &AuthProvider,
     conn: &mut DbConnection,
     workspace_id: i32,
 ) -> Result<crate::models::User, String> {
-    // Extract email from user info
+    use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
+
+    // Extract email from user info (MS Graph uses `mail` for cloud
+    // accounts, `userPrincipalName` for hybrid AD)
     let email = match user_info
         .get("mail")
         .or_else(|| user_info.get("userPrincipalName"))
@@ -1136,7 +1149,6 @@ async fn find_or_create_oauth_user(
         None => return Err("No email in user info".to_string()),
     };
 
-    // Extract name from user info
     let name = match user_info.get("displayName") {
         Some(name) => match name.as_str() {
             Some(n) => n.to_string(),
@@ -1145,7 +1157,9 @@ async fn find_or_create_oauth_user(
         None => return Err("No name in user info".to_string()),
     };
 
-    // Extract unique identifier for Microsoft (object ID)
+    // MS Graph object id maps onto OIDC `sub`. We're storing it in
+    // `user_auth_identities.external_id`; same value as the OIDC
+    // sub claim would be for a true OIDC client.
     let provider_user_id = match user_info.get("id") {
         Some(id) => match id.as_str() {
             Some(i) => i.to_string(),
@@ -1154,160 +1168,27 @@ async fn find_or_create_oauth_user(
         None => return Err("No id in user info".to_string()),
     };
 
-    use crate::models::NewUserAuthIdentity;
-
-    // First try to find the user by their external identity
-    match user_auth_identities::find_user_by_identity(
-        &provider.provider_type,
-        &provider_user_id,
-        conn,
-    ) {
-        Ok(Some(user_uuid)) => {
-            // User found by identity, return the user
-            match crate::repository::users::find_active_by_uuid(&user_uuid, conn) {
-                Ok(user) => return Ok(user),
-                Err(e) => return Err(format!("Error retrieving user: {e:?}")),
-            }
-        }
-        Ok(None) => {
-            // No identity found, look for the user by email as a fallback
-            match crate::repository::get_user_by_email(&email, conn) {
-                Ok(user) => {
-                    // User found by email, create an identity for them
-                    let new_identity = NewUserAuthIdentity {
-                        user_uuid: user.uuid,
-                        provider_type: provider.provider_type.clone(),
-                        external_id: provider_user_id.clone(),
-                        email: Some(email.clone()),
-                        metadata: Some(user_info.clone()),
-                        password_hash: None, // No password for OAuth identities
-                    };
-
-                    match crate::repository::user_auth_identities::create_identity(
-                        new_identity,
-                        conn,
-                    ) {
-                        Ok(_) => {
-                            // Identity created. Now mirror the OAuth-provided
-                            // email into user_emails so MFA, recovery, and
-                            // search can find the user by it later. Only
-                            // insert when the lookup explicitly returns
-                            // NotFound — any other error means we couldn't
-                            // tell whether the email exists, and treating
-                            // every error as "not found" would either
-                            // duplicate rows (on transient errors) or
-                            // mask a real DB problem.
-                            match crate::repository::user_emails::find_user_by_any_email(
-                                conn, &email,
-                            ) {
-                                Err(diesel::result::Error::NotFound) => {
-                                    let new_email = crate::models::NewUserEmail {
-                                        user_uuid: user.uuid,
-                                        email: email.to_lowercase(),
-                                        email_type: "work".to_string(),
-                                        is_primary: false,
-                                        is_verified: true,
-                                        source: Some(provider.provider_type.clone()),
-                                    };
-                                    if let Err(e) =
-                                        diesel::insert_into(crate::schema::user_emails::table)
-                                            .values(&new_email)
-                                            .execute(conn)
-                                    {
-                                        // Surface to ERROR (not WARN) — the
-                                        // user can still log in but their
-                                        // email row is missing, which silently
-                                        // breaks MFA-by-email and recovery.
-                                        // Loud log gives operators a chance
-                                        // to manually fix.
-                                        error!(
-                                            provider = %provider.provider_type,
-                                            user_uuid = %user.uuid,
-                                            error = ?e,
-                                            "Failed to insert OAuth email into user_emails; user can log in but email-based flows will not find them",
-                                        );
-                                    }
-                                }
-                                Ok(_) => {
-                                    // Email already linked to a user; no insert needed.
-                                }
-                                Err(e) => {
-                                    error!(
-                                        provider = %provider.provider_type,
-                                        user_uuid = %user.uuid,
-                                        error = ?e,
-                                        "Failed to look up OAuth email in user_emails; skipping insert",
-                                    );
-                                }
-                            }
-
-                            return Ok(user);
-                        }
-                        Err(e) => {
-                            warn!(error = ?e, "Failed to create user identity, will create new user");
-                            // Continue to create a new user
-                        }
-                    }
-                }
-                Err(_) => {
-                    // User not found by email, create a new one
-                }
-            }
-        }
-        Err(e) => {
-            warn!(error = ?e, "Failed to find user by identity, will create new user");
-            // Continue to create a new user
-        }
-    }
-
-    // Create a new user
-    use crate::models::UserRole;
-    // Removed unused import: use uuid::Uuid;
-
-    // Generate a secure random password for the user
+    // Random password lands on the identity row so the legacy
+    // password-fallback path doesn't see a NULL hash. Eager path
+    // omits this; users provisioned ahead of first login don't
+    // need a fallback secret since they're going to authenticate
+    // via OIDC anyway.
     let random_password = format!("{:x}", rand::random::<u128>());
-    let password_hash = match crate::utils::auth::hash_password(&random_password) {
-        Ok(hash) => hash,
-        Err(e) => return Err(format!("Failed to hash password: {e}")),
+    let password_hash = crate::utils::auth::hash_password(&random_password)
+        .map_err(|e| format!("Failed to hash password: {e}"))?;
+
+    let input = ProjectedUserInput {
+        iss: provider.provider_type.clone(),
+        sub: provider_user_id,
+        email,
+        name: Some(name),
+        role: "member".to_string(),
+        workspace_id,
+        password_hash: Some(password_hash),
+        metadata: Some(user_info.clone()),
     };
 
-    // Create local user (password will be stored in user_auth_identities)
-    let new_user = utils::NewUserBuilder::local_user(name, email.clone(), UserRole::User).build();
-
-    match crate::repository::create_user(new_user, conn) {
-        Ok(user) => {
-            // Item U: add membership for the resolved workspace
-            // so the cookie auth gate finds the user on their
-            // first login. OAuth-created users always start as
-            // workspace 'member' (global role mapping is the
-            // separate UserRole::User assignment above).
-            if let Err(e) = crate::repository::workspaces::add_membership(
-                conn,
-                workspace_id,
-                user.uuid,
-                "member",
-            ) {
-                return Err(format!(
-                    "User created but failed to add workspace membership: {e:?}"
-                ));
-            }
-            // Create an identity for the new user
-            let new_identity = NewUserAuthIdentity {
-                user_uuid: user.uuid,
-                provider_type: provider.provider_type.clone(),
-                external_id: provider_user_id,
-                email: Some(email),
-                metadata: Some(user_info.clone()),
-                password_hash: Some(password_hash), // Add the password hash to the identity
-            };
-
-            match crate::repository::user_auth_identities::create_identity(new_identity, conn) {
-                Ok(_) => Ok(user),
-                Err(e) => Err(format!("User created but failed to create identity: {e:?}")),
-            }
-        }
-        Err(e) => Err(format!("Failed to create user: {e:?}")),
-    }
+    find_or_create_projected_user(conn, input).map(|outcome| outcome.into_user())
 }
 
 // Helper function to add an OAuth identity to an existing user

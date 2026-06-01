@@ -1411,6 +1411,10 @@ async fn main() -> std::io::Result<()> {
                         "/workspaces/create",
                         web::post().to(handlers::internal_workspaces::create_workspace),
                     )
+                    .route(
+                        "/workspaces/{slug}/upsert_projected_user",
+                        web::post().to(handlers::internal_workspaces::upsert_projected_user),
+                    )
             )
 
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===

@@ -7,6 +7,7 @@ pub mod channels;
 pub mod email_queue;
 pub mod imports;
 pub mod notifications;
+pub mod oauth_provisioning;
 pub mod plugins;
 pub mod presence;
 pub mod recurrence;

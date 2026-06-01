@@ -29,6 +29,7 @@ use crate::handlers::errors;
 use crate::middleware::api_token::PlatformScope;
 use crate::models::NewWorkspace;
 use crate::repository::workspaces::{self, CreateWorkspaceError};
+use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
 
 /// Application-layer slug rule (M5 handoff Task 3). Stricter than
 /// the DB CHECK (`^[a-z0-9](...){0,62}[a-z0-9]$`):
@@ -185,6 +186,150 @@ pub async fn create_workspace(
         Err(CreateWorkspaceError::Db(e)) => {
             error!(error = ?e, "workspaces/create: db insert failed");
             errors::internal("Failed to create workspace")
+        }
+    }
+}
+
+// =====================================================================
+// upsert_projected_user (M5 Task 4)
+// =====================================================================
+//
+// `POST /api/internal/v1/workspaces/{slug}/upsert_projected_user` —
+// D8.4 eager owner projection. Creates the `users` row + membership
+// grant ahead of the user's first OIDC login so the
+// `workspace_members.user_uuid` FK has a target when the control
+// plane writes the parent row at provision time.
+
+#[derive(Debug, Deserialize)]
+pub struct UpsertProjectedUserRequest {
+    /// OIDC `iss` (issuer URL or stable provider identifier).
+    /// Stored as `user_auth_identities.provider_type`.
+    pub iss: String,
+    /// OIDC `sub` (stable per-user identifier from the IdP).
+    /// Stored as `user_auth_identities.external_id`.
+    pub sub: String,
+    pub email: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    /// One of `owner`, `admin`, `member`. First-write-wins on the
+    /// `workspace_members` row — re-projecting an existing
+    /// membership does NOT silently escalate or downgrade the role
+    /// (handoff doc Task 4 gotcha).
+    pub role: String,
+}
+
+#[derive(Debug, Serialize)]
+struct UpsertProjectedUserResponse {
+    user_uuid: Uuid,
+    workspace_id: i32,
+    role: String,
+    /// `true` if this call minted the local user row; `false` if
+    /// the user already existed (via `(iss, sub)` identity match
+    /// or by email fallback).
+    created: bool,
+}
+
+fn valid_role(role: &str) -> bool {
+    matches!(role, "owner" | "admin" | "member")
+}
+
+pub async fn upsert_projected_user(
+    req: HttpRequest,
+    _: PlatformScope,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+    body: web::Json<UpsertProjectedUserRequest>,
+) -> impl Responder {
+    if req.headers().get(IDEMPOTENCY_HEADER).is_none() {
+        return errors::bad_request(
+            "Idempotency-Key header is required for provisioning callbacks",
+        );
+    }
+
+    let slug = path.into_inner();
+    let UpsertProjectedUserRequest {
+        iss,
+        sub,
+        email,
+        name,
+        role,
+    } = body.into_inner();
+
+    if iss.trim().is_empty() || sub.trim().is_empty() {
+        return errors::bad_request("iss and sub must both be non-empty");
+    }
+    if email.trim().is_empty() {
+        return errors::bad_request("email must be non-empty");
+    }
+    if !valid_role(&role) {
+        return errors::bad_request("role must be one of: owner, admin, member");
+    }
+
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = ?e, "upsert_projected_user: db pool exhausted");
+            return errors::internal("Database connection failed");
+        }
+    };
+
+    // Resolve workspace by slug. Done first so the 404 path is
+    // distinct from "we tried but failed downstream"; matches the
+    // handoff's "unknown workspace returns 404" acceptance.
+    let workspace = match workspaces::find_by_slug(&mut conn, &slug) {
+        Ok(Some(ws)) => ws,
+        Ok(None) => {
+            warn!(slug = %slug, "upsert_projected_user: workspace not found");
+            return errors::not_found_msg(format!("workspace '{slug}' not found"));
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "upsert_projected_user: workspace lookup failed");
+            return errors::internal("Workspace lookup failed");
+        }
+    };
+
+    let input = ProjectedUserInput {
+        iss,
+        sub,
+        email,
+        name,
+        role: role.clone(),
+        workspace_id: workspace.id,
+        // Eager-projected users authenticate exclusively via OIDC
+        // on first login; no fallback password is set so the
+        // identity row carries NULL where the lazy path puts a
+        // random hash. Loss of the OIDC config later doesn't
+        // strand them — operators reset via the admin tools.
+        password_hash: None,
+        metadata: None,
+    };
+
+    match find_or_create_projected_user(&mut conn, input) {
+        Ok(outcome) => {
+            let created = outcome.is_created();
+            let user = outcome.into_user();
+            info!(
+                user_uuid = %user.uuid,
+                workspace_id = workspace.id,
+                role = %role,
+                created,
+                "upsert_projected_user: ok"
+            );
+            let payload = UpsertProjectedUserResponse {
+                user_uuid: user.uuid,
+                workspace_id: workspace.id,
+                role,
+                created,
+            };
+            if created {
+                HttpResponse::Created().json(payload)
+            } else {
+                HttpResponse::Ok().json(payload)
+            }
+        }
+        Err(e) => {
+            error!(error = %e, slug = %slug, "upsert_projected_user: provisioning failed");
+            errors::internal("Failed to project user")
         }
     }
 }
