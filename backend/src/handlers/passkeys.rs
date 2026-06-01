@@ -591,7 +591,8 @@ pub async fn finish_passkey_login(
     // detection property inoperative (counter never advanced past
     // registration). Failure is logged but not fatal to the
     // otherwise-successful login.
-    let post_auth = match webauthn::update_credential_post_auth(&mut conn, &user.uuid, &auth_result) {
+    let post_auth = match webauthn::update_credential_post_auth(&mut conn, &user.uuid, &auth_result)
+    {
         Ok(outcome) => outcome,
         Err(e) => {
             warn!("Failed to persist post-auth credential update: {:?}", e);
@@ -1256,20 +1257,17 @@ pub async fn finish_passkey_setup_login(
     // (worst case: user proceeds with no recovery codes and is
     // prompted to regenerate later).
     let (plaintext_codes, hashed_codes) = mfa::generate_backup_codes_async().await;
-    let backup_codes_saved = match repository::user_recovery_codes::replace_all(
-        &mut conn,
-        &user.uuid,
-        hashed_codes,
-    ) {
-        Ok(_) => true,
-        Err(e) => {
-            warn!(
-                "Failed to save backup codes for passkey user {}: {:?}",
-                user.uuid, e
-            );
-            false
-        }
-    };
+    let backup_codes_saved =
+        match repository::user_recovery_codes::replace_all(&mut conn, &user.uuid, hashed_codes) {
+            Ok(_) => true,
+            Err(e) => {
+                warn!(
+                    "Failed to save backup codes for passkey user {}: {:?}",
+                    user.uuid, e
+                );
+                false
+            }
+        };
 
     info!(
         "Passkey registered during MFA setup for user {}: {}",

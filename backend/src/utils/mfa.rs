@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use base32;
-use base64::{engine::general_purpose, Engine as _};
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
+use base32;
+use base64::{engine::general_purpose, Engine as _};
 use bcrypt::verify as bcrypt_verify;
 use qrcode::{render::svg, QrCode};
 use rand::distributions::Alphanumeric;
@@ -569,10 +569,7 @@ pub fn user_has_mfa_enabled(user: &User) -> bool {
 /// Callers that previously used `if user_has_passkeys(...) {
 /// return passkey_required }` now use `?` to propagate the DB
 /// error as an internal-error response.
-pub fn user_has_passkeys(
-    conn: &mut crate::db::DbConnection,
-    user_uuid: &Uuid,
-) -> Result<bool> {
+pub fn user_has_passkeys(conn: &mut crate::db::DbConnection, user_uuid: &Uuid) -> Result<bool> {
     crate::repository::passkey_credentials::count_for_user(conn, user_uuid)
         .map(|n| n > 0)
         .map_err(|e| anyhow!("Failed to check passkey registration: {:?}", e))
@@ -772,8 +769,7 @@ mod tests {
         // A bcrypt hash with `$2b$` prefix; verified via the legacy
         // path. Use a low cost to keep the test fast.
         let plaintext = "LEGACY12";
-        let hash =
-            bcrypt::hash(plaintext, 4).expect("bcrypt hash failed");
+        let hash = bcrypt::hash(plaintext, 4).expect("bcrypt hash failed");
         assert!(hash.starts_with("$2b$"));
         assert!(verify_recovery_code_hash(plaintext, &hash));
         assert!(!verify_recovery_code_hash("wrong-code", &hash));
@@ -784,7 +780,10 @@ mod tests {
         // A malformed hash string must not panic the verify loop —
         // returning false keeps the constant-time guarantee.
         assert!(!verify_recovery_code_hash("anything", "not-a-real-hash"));
-        assert!(!verify_recovery_code_hash("anything", "$argon2id$malformed"));
+        assert!(!verify_recovery_code_hash(
+            "anything",
+            "$argon2id$malformed"
+        ));
     }
 }
 

@@ -36,10 +36,7 @@ fn install_env() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         if std::env::var("JWT_SECRET").is_err() {
-            std::env::set_var(
-                "JWT_SECRET",
-                "test-jwt-secret-32-characters-min-for-tests",
-            );
+            std::env::set_var("JWT_SECRET", "test-jwt-secret-32-characters-min-for-tests");
         }
         std::env::set_var("ENVIRONMENT", "test");
     });
@@ -90,10 +87,7 @@ struct WorkspaceGuc;
 impl diesel::r2d2::CustomizeConnection<diesel::pg::PgConnection, diesel::r2d2::Error>
     for WorkspaceGuc
 {
-    fn on_acquire(
-        &self,
-        conn: &mut diesel::pg::PgConnection,
-    ) -> Result<(), diesel::r2d2::Error> {
+    fn on_acquire(&self, conn: &mut diesel::pg::PgConnection) -> Result<(), diesel::r2d2::Error> {
         use diesel::RunQueryDsl;
         diesel::sql_query("SELECT set_config('app.workspace_id', '1', false)")
             .execute(conn)
@@ -159,7 +153,11 @@ async fn platform_scope_extractor_gates_routes_correctly() {
         .send()
         .await
         .expect("send platform→platform");
-    assert_eq!(resp.status(), 200, "platform token should reach platform route");
+    assert_eq!(
+        resp.status(),
+        200,
+        "platform token should reach platform route"
+    );
 
     // 2. User token + platform route: 403
     let resp = client

@@ -1378,11 +1378,9 @@ pub async fn mfa_enable(
     // the user MFA-active with zero recovery codes (lockout
     // risk); we therefore order codes-FIRST so a failed codes
     // write leaves MFA still disabled and the user can retry.
-    if let Err(e) = repository::user_recovery_codes::replace_all(
-        &mut conn,
-        &user_uuid,
-        backup_codes_hashed,
-    ) {
+    if let Err(e) =
+        repository::user_recovery_codes::replace_all(&mut conn, &user_uuid, backup_codes_hashed)
+    {
         tracing::error!("Failed to store recovery codes: {:?}", e);
         return errors::internal("Failed to enable MFA");
     }
@@ -1406,10 +1404,7 @@ pub async fn mfa_enable(
             // Best-effort: roll back the recovery-codes write so
             // the user isn't left with codes for an MFA that
             // didn't get enabled.
-            let _ = repository::user_recovery_codes::delete_all_for_user(
-                &mut conn,
-                &user_uuid,
-            );
+            let _ = repository::user_recovery_codes::delete_all_for_user(&mut conn, &user_uuid);
             errors::internal("Failed to enable MFA")
         }
     }
@@ -1463,9 +1458,7 @@ pub async fn mfa_disable(
     // wipe recovery codes from the dedicated table. Recovery
     // codes go FIRST so a failed delete doesn't leave codes
     // for an MFA setup that's about to be removed.
-    if let Err(e) =
-        repository::user_recovery_codes::delete_all_for_user(&mut conn, &user_uuid)
-    {
+    if let Err(e) = repository::user_recovery_codes::delete_all_for_user(&mut conn, &user_uuid) {
         error!(error = ?e, "Error clearing recovery codes during MFA disable");
         return errors::internal("Failed to disable MFA");
     }
@@ -1542,11 +1535,7 @@ pub async fn mfa_regenerate_backup_codes(
     // user is never left mid-rotation with a partial set.
     let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
 
-    match repository::user_recovery_codes::replace_all(
-        &mut conn,
-        &user_uuid,
-        backup_codes_hashed,
-    ) {
+    match repository::user_recovery_codes::replace_all(&mut conn, &user_uuid, backup_codes_hashed) {
         Ok(_) => {
             // Inline the response rather than building the typed
             // struct so we can pass `&*backup_codes_plaintext`
@@ -1592,10 +1581,9 @@ pub async fn mfa_status(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -
     // Check if user has any unused recovery codes left. Indexed
     // count via the partial index on (user_uuid) WHERE used_at
     // IS NULL.
-    let has_backup_codes =
-        repository::user_recovery_codes::count_unused(&mut conn, &user_uuid)
-            .map(|n| n > 0)
-            .unwrap_or(false);
+    let has_backup_codes = repository::user_recovery_codes::count_unused(&mut conn, &user_uuid)
+        .map(|n| n > 0)
+        .unwrap_or(false);
 
     let response = crate::models::MfaStatusResponse {
         enabled: user.mfa_enabled,
@@ -1817,12 +1805,13 @@ pub async fn mfa_enable_login(
     // codes write leaves MFA disabled, never the reverse).
     let user_uuid = user.uuid;
 
-    if let Err(e) = repository::user_recovery_codes::replace_all(
-        &mut conn,
-        &user_uuid,
-        backup_codes_hashed,
-    ) {
-        tracing::error!("Failed to store recovery codes during login MFA enable: {:?}", e);
+    if let Err(e) =
+        repository::user_recovery_codes::replace_all(&mut conn, &user_uuid, backup_codes_hashed)
+    {
+        tracing::error!(
+            "Failed to store recovery codes during login MFA enable: {:?}",
+            e
+        );
         return errors::internal("Failed to enable MFA");
     }
 

@@ -312,8 +312,8 @@ pub fn update_credential_post_auth(
     // `credential_id` column stores the canonical base64url form.
     // HumanBinaryData has no Display impl, so encode via the base64
     // crate directly.
-    let credential_id = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(auth_result.cred_id().as_ref());
+    let credential_id =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(auth_result.cred_id().as_ref());
     let row = match repo::find_by_credential_id(conn, &credential_id) {
         Ok(Some(row)) => row,
         Ok(None) => {
@@ -324,7 +324,12 @@ pub fn update_credential_post_auth(
             );
             return Ok(CredentialPostAuthOutcome::default());
         }
-        Err(e) => return Err(anyhow!("Failed to look up credential for post-auth update: {:?}", e)),
+        Err(e) => {
+            return Err(anyhow!(
+                "Failed to look up credential for post-auth update: {:?}",
+                e
+            ))
+        }
     };
 
     // Defensive sanity check: the credential we're about to update

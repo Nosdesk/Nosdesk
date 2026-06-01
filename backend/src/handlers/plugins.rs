@@ -62,8 +62,10 @@ pub(crate) fn encrypt_plugin_secret(
     plugin_uuid: &Uuid,
     setting_key: &str,
 ) -> Result<String, encryption::CryptoError> {
-    let blob = encryption::keyring()
-        .encrypt(plaintext.as_bytes(), &plugin_secret_aad(plugin_uuid, setting_key))?;
+    let blob = encryption::keyring().encrypt(
+        plaintext.as_bytes(),
+        &plugin_secret_aad(plugin_uuid, setting_key),
+    )?;
     Ok(hex::encode(blob))
 }
 
@@ -580,9 +582,7 @@ pub async fn set_plugin_setting(
             HttpResponse::Ok().json(PluginSettingResponse::from(setting))
         }
         Ok(SetOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
-        Ok(SetOutcome::EncryptionFailed) => {
-            errors::internal("Failed to encrypt plugin secret")
-        }
+        Ok(SetOutcome::EncryptionFailed) => errors::internal("Failed to encrypt plugin secret"),
         Ok(SetOutcome::NonStringSecret) => {
             errors::bad_request("Secret settings must be string values")
         }

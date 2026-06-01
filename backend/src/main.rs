@@ -296,7 +296,9 @@ async fn main() -> std::io::Result<()> {
         }
     }
     match crate::utils::encryption::init_keyring() {
-        Ok(kr) => info!(versions = ?kr.versions(), current = kr.current_version(), "Keyring initialised"),
+        Ok(kr) => {
+            info!(versions = ?kr.versions(), current = kr.current_version(), "Keyring initialised")
+        }
         Err(e) => {
             error!(error = %e, "Keyring initialisation failed");
             if std::env::var("ENCRYPTION_KEY").is_ok()

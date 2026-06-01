@@ -106,12 +106,7 @@ pub fn replace_all(
 /// the `mfa_disable` flow to clear the recovery-code roster when
 /// the second factor is removed.
 // sync-audit-only: MFA disable wipes recovery codes; not observed by other clients
-pub fn delete_all_for_user(
-    conn: &mut DbConnection,
-    user_uuid: &Uuid,
-) -> Result<usize, Error> {
-    diesel::delete(
-        user_recovery_codes::table.filter(user_recovery_codes::user_uuid.eq(user_uuid)),
-    )
-    .execute(conn)
+pub fn delete_all_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<usize, Error> {
+    diesel::delete(user_recovery_codes::table.filter(user_recovery_codes::user_uuid.eq(user_uuid)))
+        .execute(conn)
 }

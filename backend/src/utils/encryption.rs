@@ -107,7 +107,11 @@ mod key_validation_tests {
         // 64-char ASCII passphrase decoded as 32 bytes would land
         // entirely in the printable range.
         let mut k = [0u8; 32];
-        for (i, b) in b"this is a very long but not-random passphrase!  ".iter().take(32).enumerate() {
+        for (i, b) in b"this is a very long but not-random passphrase!  "
+            .iter()
+            .take(32)
+            .enumerate()
+        {
             k[i] = *b;
         }
         assert!(matches!(
@@ -122,10 +126,9 @@ mod key_validation_tests {
         // Has both control bytes and high bytes, fails all three
         // footgun checks (correctly).
         let k = [
-            0x9f, 0x2c, 0xa8, 0x01, 0x4d, 0xe7, 0xfb, 0x33,
-            0x18, 0xb5, 0x60, 0x9c, 0x7a, 0x21, 0xd4, 0x88,
-            0xe3, 0x4f, 0x96, 0x2b, 0xc0, 0x55, 0x71, 0x0d,
-            0x84, 0xa9, 0x12, 0x67, 0xeb, 0x3a, 0xcc, 0xf5,
+            0x9f, 0x2c, 0xa8, 0x01, 0x4d, 0xe7, 0xfb, 0x33, 0x18, 0xb5, 0x60, 0x9c, 0x7a, 0x21,
+            0xd4, 0x88, 0xe3, 0x4f, 0x96, 0x2b, 0xc0, 0x55, 0x71, 0x0d, 0x84, 0xa9, 0x12, 0x67,
+            0xeb, 0x3a, 0xcc, 0xf5,
         ];
         assert!(validate_key_material(&k).is_ok());
     }
@@ -259,11 +262,15 @@ impl Keyring {
     pub fn from_env() -> Result<Self, KeyringError> {
         let mut keys: HashMap<u16, [u8; 32]> = HashMap::new();
         for (k, v) in std::env::vars() {
-            let Some(suffix) = k.strip_prefix("MFA_KEK_V") else { continue };
+            let Some(suffix) = k.strip_prefix("MFA_KEK_V") else {
+                continue;
+            };
             // Skip non-numeric suffixes (e.g. MFA_KEK_VERSION). Version 0
             // is reserved as a sentinel for "no kek_id encoded" should
             // anyone need it in the future.
-            let Ok(version) = suffix.parse::<u16>() else { continue };
+            let Ok(version) = suffix.parse::<u16>() else {
+                continue;
+            };
             if version == 0 {
                 continue;
             }

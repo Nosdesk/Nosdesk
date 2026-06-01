@@ -1945,7 +1945,10 @@ async fn process_inbound_binary(
 
     match protocol.handle(&awareness, &bin) {
         Ok(messages) => {
-            trace!(response_count = messages.len(), "protocol.handle() succeeded");
+            trace!(
+                response_count = messages.len(),
+                "protocol.handle() succeeded"
+            );
 
             let content_after = {
                 let txn = awareness.doc().transact();
