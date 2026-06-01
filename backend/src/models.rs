@@ -132,7 +132,7 @@ impl FromSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowSt
 // self-hosted). See docs/multi-tenant-migration-plan.md for
 // the full picture.
 
-#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::workspaces)]
 pub struct Workspace {
     pub id: i32,
@@ -177,7 +177,7 @@ pub struct NewWorkspace {
 /// member of multiple workspaces; the role here is workspace-
 /// scoped and layered on top of the user's global role
 /// (`UserRole`).
-#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Insertable)]
+#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::schema::workspace_members)]
 #[diesel(primary_key(workspace_id, user_uuid))]
 pub struct WorkspaceMember {

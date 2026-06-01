@@ -296,6 +296,148 @@ pub fn hard_delete_workspace(
     .execute(conn)
 }
 
+// =====================================================================
+// Phase 4 W3: membership management
+// =====================================================================
+
+/// List every workspace the user is a member of, joined to the
+/// workspace row itself for the frontend switcher. Filters
+/// archived workspaces (the switcher shouldn't surface a workspace
+/// that's queued for hard delete). Returns rows in stable order
+/// (workspace.id asc) so the switcher's display order is
+/// deterministic across renders.
+pub fn list_memberships_for_user(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+) -> QueryResult<Vec<(WorkspaceMember, Workspace)>> {
+    workspace_members::table
+        .inner_join(workspaces::table.on(workspaces::id.eq(workspace_members::workspace_id)))
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .filter(workspaces::archived_at.is_null())
+        .order(workspaces::id.asc())
+        .select((WorkspaceMember::as_select(), Workspace::as_select()))
+        .load::<(WorkspaceMember, Workspace)>(conn)
+}
+
+/// List every membership row for a workspace. Used by the admin
+/// member-management UI.
+pub fn list_workspace_members(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> QueryResult<Vec<WorkspaceMember>> {
+    workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .order(workspace_members::user_uuid.asc())
+        .load(conn)
+}
+
+/// Count owner-role memberships in a workspace. Used by
+/// [`remove_membership`] and [`update_membership_role`] to enforce
+/// the "at least one owner" invariant — a workspace with zero
+/// owners has no one who can manage it.
+pub fn count_workspace_owners(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> QueryResult<i64> {
+    workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::role.eq("owner"))
+        .count()
+        .get_result(conn)
+}
+
+// sync-audit-only: workspace_members lifecycle is operator-side; emit comes in Phase 4 W3 once the WorkspaceMember aggregate ships
+/// Remove a user's membership in a workspace. Refuses to remove
+/// the last `owner` row by returning `Ok(0)` with no rows deleted
+/// (the handler maps this to 409). Returns the number of rows
+/// removed (0 if the user wasn't a member or removal would orphan
+/// the workspace, 1 on success).
+pub fn remove_membership(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<usize> {
+    // Need the row first so we can check whether removing it would
+    // leave the workspace owner-less.
+    let existing = workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .first::<WorkspaceMember>(conn)
+        .optional()?;
+    let row = match existing {
+        Some(r) => r,
+        None => return Ok(0),
+    };
+
+    if row.role == "owner" {
+        let owners = count_workspace_owners(conn, workspace_id)?;
+        if owners <= 1 {
+            return Ok(0);
+        }
+    }
+
+    diesel::delete(
+        workspace_members::table
+            .filter(workspace_members::workspace_id.eq(workspace_id))
+            .filter(workspace_members::user_uuid.eq(user_uuid)),
+    )
+    .execute(conn)
+}
+
+/// Outcome of [`update_membership_role`] so the handler can map
+/// each failure mode to the right HTTP shape without parsing
+/// errors.
+#[derive(Debug)]
+pub enum UpdateMembershipRoleResult {
+    Updated(WorkspaceMember),
+    /// No row matched `(workspace_id, user_uuid)`.
+    NotFound,
+    /// Demoting this row would leave the workspace owner-less.
+    LastOwner,
+}
+
+// sync-audit-only: workspace_members lifecycle is operator-side
+/// Change a member's role. Refuses to demote the last `owner` for
+/// the same reason [`remove_membership`] refuses to delete it.
+/// `new_role` is the validated string form
+/// (`"owner"` / `"admin"` / `"agent"` / `"member"`) — callers
+/// should round-trip through [`WorkspaceRole::as_str`] to avoid
+/// typo classes of bugs.
+pub fn update_membership_role(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+    new_role: &str,
+) -> QueryResult<UpdateMembershipRoleResult> {
+    let existing = workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .first::<WorkspaceMember>(conn)
+        .optional()?;
+    let row = match existing {
+        Some(r) => r,
+        None => return Ok(UpdateMembershipRoleResult::NotFound),
+    };
+
+    // Demoting an owner whose owner-count is exactly 1 would leave
+    // the workspace orphaned.
+    if row.role == "owner" && new_role != "owner" {
+        let owners = count_workspace_owners(conn, workspace_id)?;
+        if owners <= 1 {
+            return Ok(UpdateMembershipRoleResult::LastOwner);
+        }
+    }
+
+    let updated = diesel::update(
+        workspace_members::table
+            .filter(workspace_members::workspace_id.eq(workspace_id))
+            .filter(workspace_members::user_uuid.eq(user_uuid)),
+    )
+    .set(workspace_members::role.eq(new_role))
+    .get_result::<WorkspaceMember>(conn)?;
+    Ok(UpdateMembershipRoleResult::Updated(updated))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,5 +612,178 @@ mod tests {
         std::env::set_var("WORKSPACE_HARD_DELETE_GRACE_DAYS", "7");
         assert_eq!(purge_grace_window(), Duration::from_secs(7 * 86_400));
         std::env::remove_var("WORKSPACE_HARD_DELETE_GRACE_DAYS");
+    }
+
+    // -----------------------------------------------------------------
+    // Phase 4 W3: membership management tests
+    // -----------------------------------------------------------------
+
+    fn fresh_user(conn: &mut DbConnection, name: &str) -> Uuid {
+        use crate::models::{NewUser, UserRole};
+        use crate::schema::users;
+        let new = NewUser {
+            uuid: Uuid::new_v4(),
+            name: name.to_string(),
+            role: UserRole::User,
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_secret_kek_id: None,
+            mfa_enabled: false,
+            platform_role: None,
+        };
+        let user_uuid = new.uuid;
+        as_admin(conn, |c| {
+            diesel::insert_into(users::table)
+                .values(&new)
+                .execute(c)
+        })
+        .expect("insert user");
+        user_uuid
+    }
+
+    #[test]
+    fn list_memberships_for_user_returns_workspace_join() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let user = fresh_user(&mut conn, "membership-test");
+        let ws_a = fresh_workspace(&mut conn, "memship-a");
+        let ws_b = fresh_workspace(&mut conn, "memship-b");
+        let archived = fresh_workspace(&mut conn, "memship-archived");
+
+        as_admin(&mut conn, |c| add_membership(c, ws_a.id, user, "admin")).expect("add a");
+        as_admin(&mut conn, |c| add_membership(c, ws_b.id, user, "agent")).expect("add b");
+        as_admin(&mut conn, |c| add_membership(c, archived.id, user, "member"))
+            .expect("add archived");
+        as_admin(&mut conn, |c| archive_workspace(c, archived.id)).expect("archive");
+
+        let rows = as_admin(&mut conn, |c| list_memberships_for_user(c, user))
+            .expect("list memberships");
+        let slugs: Vec<&str> = rows.iter().map(|(_, w)| w.slug.as_str()).collect();
+        assert!(slugs.contains(&"memship-a"));
+        assert!(slugs.contains(&"memship-b"));
+        assert!(
+            !slugs.contains(&"memship-archived"),
+            "archived workspace must not appear in /me/workspaces switcher list"
+        );
+    }
+
+    #[test]
+    fn count_workspace_owners_reflects_promotion() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "ownercount");
+        let u1 = fresh_user(&mut conn, "owner1");
+        let u2 = fresh_user(&mut conn, "owner2");
+
+        as_admin(&mut conn, |c| add_membership(c, ws.id, u1, "owner")).expect("add owner");
+        assert_eq!(
+            as_admin(&mut conn, |c| count_workspace_owners(c, ws.id)).expect("count"),
+            1
+        );
+        as_admin(&mut conn, |c| add_membership(c, ws.id, u2, "owner")).expect("add 2nd owner");
+        assert_eq!(
+            as_admin(&mut conn, |c| count_workspace_owners(c, ws.id)).expect("count"),
+            2
+        );
+    }
+
+    #[test]
+    fn remove_membership_refuses_last_owner() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "lastowner");
+        let owner = fresh_user(&mut conn, "soleowner");
+        as_admin(&mut conn, |c| add_membership(c, ws.id, owner, "owner")).expect("add owner");
+
+        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, owner))
+            .expect("remove");
+        assert_eq!(n, 0, "must refuse to remove last owner");
+        assert!(membership(&mut conn, ws.id, owner)
+            .expect("probe")
+            .is_some());
+    }
+
+    #[test]
+    fn remove_membership_allows_owner_when_another_exists() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "twoowners");
+        let owner_a = fresh_user(&mut conn, "ownera");
+        let owner_b = fresh_user(&mut conn, "ownerb");
+        as_admin(&mut conn, |c| add_membership(c, ws.id, owner_a, "owner")).expect("add a");
+        as_admin(&mut conn, |c| add_membership(c, ws.id, owner_b, "owner")).expect("add b");
+
+        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, owner_a))
+            .expect("remove");
+        assert_eq!(n, 1);
+        assert!(membership(&mut conn, ws.id, owner_a)
+            .expect("probe")
+            .is_none());
+    }
+
+    #[test]
+    fn remove_membership_returns_zero_for_unknown_user() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "noop-remove");
+        let ghost = Uuid::new_v4();
+
+        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, ghost))
+            .expect("remove ghost");
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn update_membership_role_refuses_demoting_last_owner() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "demote-lastowner");
+        let owner = fresh_user(&mut conn, "soledemote");
+        as_admin(&mut conn, |c| add_membership(c, ws.id, owner, "owner")).expect("add");
+
+        let outcome = as_admin(&mut conn, |c| {
+            update_membership_role(c, ws.id, owner, "admin")
+        })
+        .expect("update");
+        assert!(matches!(outcome, UpdateMembershipRoleResult::LastOwner));
+    }
+
+    #[test]
+    fn update_membership_role_allows_role_change_with_multiple_owners() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "demote-ok");
+        let a = fresh_user(&mut conn, "co-owner-a");
+        let b = fresh_user(&mut conn, "co-owner-b");
+        as_admin(&mut conn, |c| add_membership(c, ws.id, a, "owner")).expect("add a");
+        as_admin(&mut conn, |c| add_membership(c, ws.id, b, "owner")).expect("add b");
+
+        let outcome = as_admin(&mut conn, |c| {
+            update_membership_role(c, ws.id, a, "admin")
+        })
+        .expect("update");
+        match outcome {
+            UpdateMembershipRoleResult::Updated(m) => assert_eq!(m.role, "admin"),
+            other => panic!("expected Updated, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn update_membership_role_returns_not_found_for_missing_row() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "update-missing");
+        let ghost = Uuid::new_v4();
+
+        let outcome = as_admin(&mut conn, |c| {
+            update_membership_role(c, ws.id, ghost, "member")
+        })
+        .expect("update ghost");
+        assert!(matches!(outcome, UpdateMembershipRoleResult::NotFound));
     }
 }

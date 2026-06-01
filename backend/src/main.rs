@@ -1490,6 +1490,21 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/workspaces/{id}/archive", web::post().to(handlers::admin_workspaces::archive_workspace))
                     .route("/admin/workspaces/{id}/restore", web::post().to(handlers::admin_workspaces::restore_workspace))
 
+                    // Workspace membership (admin only, Phase 4 W3).
+                    // Cross-tenant membership management for the
+                    // platform admin. Workspace-admin self-service
+                    // member management is a separate route under
+                    // /api/workspaces/{id}/members (later workstream).
+                    .route("/admin/workspaces/{id}/members", web::get().to(handlers::admin_workspaces::list_members))
+                    .route("/admin/workspaces/{id}/members", web::post().to(handlers::admin_workspaces::add_member))
+                    .route("/admin/workspaces/{id}/members/{user_uuid}", web::patch().to(handlers::admin_workspaces::update_member_role))
+                    .route("/admin/workspaces/{id}/members/{user_uuid}", web::delete().to(handlers::admin_workspaces::remove_member))
+
+                    // Caller's own workspace memberships — backs
+                    // the frontend workspace switcher. Authenticated,
+                    // no admin gate. Phase 4 W3.
+                    .route("/me/workspaces", web::get().to(handlers::admin_workspaces::list_my_workspaces))
+
                     // Guest access controls (admin only)
                     .route("/admin/guest-settings", web::get().to(handlers::guest_settings::get_guest_settings))
                     .route("/admin/guest-settings", web::patch().to(handlers::guest_settings::update_guest_settings))
