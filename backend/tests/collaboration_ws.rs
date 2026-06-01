@@ -99,8 +99,30 @@ impl diesel::r2d2::CustomizeConnection<diesel::pg::PgConnection, diesel::r2d2::E
 /// Wrap the test sandbox DB url in a real `backend::db::Pool` so
 /// `ws_handler` can fetch a connection for JWT validation, and
 /// fixtures can insert seed rows.
+/// Init the at-rest Keyring once per process. test_helpers' equivalent
+/// is `#[cfg(test)]`-gated and thus invisible to integration tests.
+fn ensure_test_keyring() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        if std::env::var("MFA_KEK_V1").is_err() {
+            std::env::set_var(
+                "MFA_KEK_V1",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            );
+        }
+        if let Err(e) = backend::utils::encryption::init_keyring() {
+            panic!("ensure_test_keyring: init_keyring failed: {e}");
+        }
+    });
+}
+
 fn build_pool(url: &str) -> backend::db::Pool {
     use diesel::r2d2::{ConnectionManager, Pool};
+    // YjsAppState construction touches the Keyring via the periodic
+    // save loop's encryption paths; init once per process so we
+    // never panic with `keyring not initialised`.
+    ensure_test_keyring();
     let mgr = ConnectionManager::<diesel::pg::PgConnection>::new(url);
     Pool::builder()
         .max_size(4)

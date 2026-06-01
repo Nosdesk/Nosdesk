@@ -147,6 +147,27 @@ fn ensure_migrated(url: &str) {
     });
 }
 
+/// Initialise the at-rest Keyring once per test process. `MFA_KEK_V1`
+/// is a stable test key. Mirrors the helper in `src/test_helpers.rs`
+/// which is `#[cfg(test)]`-gated and therefore invisible to integration
+/// tests; the `std::sync::Once` lets us call this from every test
+/// fixture without tripping `init_keyring`'s "called twice" panic.
+fn ensure_test_keyring() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        if std::env::var("MFA_KEK_V1").is_err() {
+            std::env::set_var(
+                "MFA_KEK_V1",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            );
+        }
+        if let Err(e) = backend::utils::encryption::init_keyring() {
+            panic!("ensure_test_keyring: init_keyring failed: {e}");
+        }
+    });
+}
+
 fn build_pool() -> Pool {
     dotenvy::dotenv().ok();
     // Require a dedicated test DB — see `src/test_helpers.rs` for the
@@ -156,6 +177,13 @@ fn build_pool() -> Pool {
     let url = std::env::var("TEST_DATABASE_URL")
         .expect("TEST_DATABASE_URL must be set for integration tests");
     ensure_migrated(&url);
+    // channel_credentials writes go through the at-rest Keyring;
+    // production initialises it in `main.rs::init_keyring`, but
+    // integration tests don't run main. test_helpers is
+    // `#[cfg(test)]`-gated and so invisible to this binary (integration
+    // tests are compiled as external crates against the lib), so we
+    // inline the same Once-guarded init here.
+    ensure_test_keyring();
     let manager = ConnectionManager::<diesel::PgConnection>::new(url);
     r2d2::Pool::builder()
         .max_size(4)

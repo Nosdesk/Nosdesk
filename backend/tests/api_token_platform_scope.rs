@@ -96,8 +96,31 @@ impl diesel::r2d2::CustomizeConnection<diesel::pg::PgConnection, diesel::r2d2::E
     }
 }
 
+/// Init the at-rest Keyring once per process. test_helpers' equivalent
+/// is `#[cfg(test)]`-gated and thus invisible to integration tests.
+fn ensure_test_keyring() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        if std::env::var("MFA_KEK_V1").is_err() {
+            std::env::set_var(
+                "MFA_KEK_V1",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            );
+        }
+        if let Err(e) = backend::utils::encryption::init_keyring() {
+            panic!("ensure_test_keyring: init_keyring failed: {e}");
+        }
+    });
+}
+
 fn build_pool(url: &str) -> backend::db::Pool {
     use diesel::r2d2::{ConnectionManager, Pool};
+    // Defensive: this test's auth path doesn't touch encryption today,
+    // but a future refactor that adds an encrypted column to api_tokens
+    // (e.g. encrypted scopes) would silently start panicking here
+    // without this init. The Once guard makes it free.
+    ensure_test_keyring();
     let mgr = ConnectionManager::<diesel::pg::PgConnection>::new(url);
     Pool::builder()
         .max_size(4)
