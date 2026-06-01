@@ -14,12 +14,19 @@ use crate::repository::api_tokens::{get_valid_api_token, hash_token, update_toke
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
 
-/// Marker struct to indicate request was authenticated via API token
-/// This is used by CSRF middleware to skip validation for API token requests
+/// Marker struct to indicate request was authenticated via API token.
+/// Used by CSRF middleware to skip validation for API token requests
+/// and by the platform-scope extractor below to gate internal-only
+/// provisioning endpoints.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct ApiTokenAuth {
     pub token_uuid: uuid::Uuid,
+    /// Mirrors `api_tokens.is_platform_scoped`. True only for tokens
+    /// minted operator-side for the control plane → product
+    /// provisioning callbacks. Handlers that require it must use
+    /// the `PlatformScope` extractor.
+    pub is_platform_scoped: bool,
 }
 
 /// Extract Bearer token from Authorization header
@@ -42,12 +49,24 @@ fn extract_client_ip(req: &ServiceRequest) -> Option<IpAddr> {
     crate::utils::client_ip::from_service_request(req)
 }
 
-/// Try to authenticate request via Bearer token
-/// Returns Ok(Some(Claims)) if authenticated, Ok(None) if no Bearer token, Err on auth failure
+/// Outcome of a successful Bearer auth: the synthesised Claims plus
+/// the `is_platform_scoped` mirror from the api_tokens row. The flag
+/// can't ride on `Claims` (which is a JWT body shape and goes over
+/// the wire for cookie auth) so we surface it separately and the
+/// middleware stitches it into `ApiTokenAuth` for downstream
+/// extractors.
+pub struct BearerAuthOutcome {
+    pub claims: Claims,
+    pub is_platform_scoped: bool,
+}
+
+/// Try to authenticate request via Bearer token.
+/// Returns Ok(Some(outcome)) if authenticated, Ok(None) if no Bearer
+/// token, Err on auth failure.
 pub fn try_bearer_auth(
     req: &ServiceRequest,
     pool: &web::Data<Pool>,
-) -> Result<Option<Claims>, Error> {
+) -> Result<Option<BearerAuthOutcome>, Error> {
     // Check for Bearer token
     let token = match extract_bearer_token(req) {
         Some(t) => t,
@@ -171,10 +190,14 @@ pub fn try_bearer_auth(
     info!(
         user = %claims.sub,
         token_uuid = %api_token.uuid,
+        is_platform_scoped = api_token.is_platform_scoped,
         "API token authentication successful"
     );
 
-    Ok(Some(claims))
+    Ok(Some(BearerAuthOutcome {
+        claims,
+        is_platform_scoped: api_token.is_platform_scoped,
+    }))
 }
 
 /// Middleware function that supports both Bearer token and cookie authentication
@@ -190,18 +213,32 @@ pub async fn dual_auth_middleware(
 
     // Try Bearer token authentication first
     match try_bearer_auth(&req, &pool)? {
-        Some(claims) => {
+        Some(BearerAuthOutcome {
+            claims,
+            is_platform_scoped,
+        }) => {
             // Item U: workspace membership 403 gate. Bearer-token
             // requests go through the same check as cookie-auth so
             // an API token issued in workspace A can't be used to
             // probe workspace B's subdomain.
-            let mut conn = pool.get().map_err(|_| {
-                actix_web::error::ErrorInternalServerError("Database connection failed")
-            })?;
-            crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
-            // Mark this request as authenticated via API token
+            //
+            // Platform-scoped tokens skip this check by design —
+            // they're cross-workspace (M5 provisioning callbacks).
+            // The PlatformScope extractor is what gates actual
+            // platform-only endpoints; the membership skip here
+            // just means platform tokens don't need to belong to
+            // the target subdomain's workspace.
+            if !is_platform_scoped {
+                let mut conn = pool.get().map_err(|_| {
+                    actix_web::error::ErrorInternalServerError("Database connection failed")
+                })?;
+                crate::middleware::cookie_auth::enforce_workspace_membership(
+                    &req, &mut conn, &claims,
+                )?;
+            }
             req.extensions_mut().insert(ApiTokenAuth {
                 token_uuid: uuid::Uuid::parse_str(&claims.sub).unwrap_or_default(),
+                is_platform_scoped,
             });
             request_context::populate(&req, &claims);
             req.extensions_mut().insert(claims);
@@ -241,4 +278,57 @@ pub async fn dual_auth_middleware(
     req.extensions_mut().insert(claims);
 
     next.call(req).await
+}
+
+// =====================================================================
+// PlatformScope extractor
+// =====================================================================
+//
+// Add `_: PlatformScope` to a handler's signature to gate it on a
+// platform-scoped api_token. The dual_auth_middleware must have run
+// first and inserted ApiTokenAuth into request extensions; if the
+// request is unauthenticated, used cookie auth, or used a user-bound
+// API token, the extractor returns 403.
+//
+// The handler is still responsible for using `with_actor_bypass_context`
+// for its writes — the extractor only enforces that the caller is
+// allowed to do so. The bypass elevates the connection to
+// `nosdesk_admin` (BYPASSRLS) inside a transaction, which is what
+// makes the cross-workspace reach auditable at the Postgres layer
+// (matches the existing pattern used by admin / system-actor flows).
+//
+// Per the M5 product-side handoff (Task 1) + D8.6 in the control-plane
+// account-billing-architecture doc.
+
+use actix_web::{FromRequest, HttpRequest};
+use std::future::{ready, Ready};
+
+/// Zero-sized extractor: presence in a handler signature gates the
+/// route on a platform-scoped API token. Construction has no fields
+/// — successful extraction is the signal.
+pub struct PlatformScope;
+
+impl FromRequest for PlatformScope {
+    type Error = Error;
+    type Future = Ready<Result<Self, Error>>;
+
+    fn from_request(req: &HttpRequest, _payload: &mut actix_web::dev::Payload) -> Self::Future {
+        let is_platform = req
+            .extensions()
+            .get::<ApiTokenAuth>()
+            .map(|t| t.is_platform_scoped)
+            .unwrap_or(false);
+        if is_platform {
+            ready(Ok(PlatformScope))
+        } else {
+            warn!(
+                path = %req.path(),
+                method = %req.method(),
+                "platform-scope required, request lacks platform-scoped api_token"
+            );
+            ready(Err(actix_web::error::ErrorForbidden(
+                "platform-scoped api_token required",
+            )))
+        }
+    }
 }
