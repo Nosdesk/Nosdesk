@@ -24,10 +24,10 @@ use serde_json::json;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::db::Pool;
+use crate::db::{DbConnection, Pool};
 use crate::handlers::errors;
 use crate::middleware::api_token::PlatformScope;
-use crate::models::NewWorkspace;
+use crate::models::{NewWorkspace, Workspace};
 use crate::repository::workspaces::{self, CreateWorkspaceError};
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
 
@@ -83,6 +83,52 @@ fn validate_slug(slug: &str) -> Result<(), SlugError> {
 /// missing-header is its no-op condition).
 const IDEMPOTENCY_HEADER: &str = "Idempotency-Key";
 
+/// Return a 400 response if the request is missing the
+/// `Idempotency-Key` header. Centralises the contract check so the
+/// three M5 mutating handlers don't each spell it out.
+fn require_idempotency_key(req: &HttpRequest) -> Option<HttpResponse> {
+    if req.headers().get(IDEMPOTENCY_HEADER).is_none() {
+        Some(errors::bad_request(
+            "Idempotency-Key header is required for provisioning callbacks",
+        ))
+    } else {
+        None
+    }
+}
+
+/// Pull a connection from the pool, mapping exhaustion to a 500
+/// with a consistent error log. `context` is the operation tag used
+/// in the log message.
+fn pool_conn(pool: &web::Data<Pool>, context: &str) -> Result<DbConnection, HttpResponse> {
+    pool.get().map_err(|e| {
+        error!(error = ?e, context = context, "db pool exhausted");
+        errors::internal("Database connection failed")
+    })
+}
+
+/// Resolve a workspace by slug or return the appropriate HTTP
+/// response. 404 if the slug doesn't match, 500 on a query error.
+/// `context` is the operation tag used in the error log.
+fn resolve_workspace_or_respond(
+    conn: &mut DbConnection,
+    slug: &str,
+    context: &str,
+) -> Result<Workspace, HttpResponse> {
+    match workspaces::find_by_slug(conn, slug) {
+        Ok(Some(ws)) => Ok(ws),
+        Ok(None) => {
+            warn!(slug = %slug, context = context, "workspace not found");
+            Err(errors::not_found_msg(format!(
+                "workspace '{slug}' not found"
+            )))
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, context = context, "workspace lookup failed");
+            Err(errors::internal("Workspace lookup failed"))
+        }
+    }
+}
+
 /// Request body for `POST /api/internal/v1/workspaces/create`.
 /// `owner_user_uuid` / `owner_email` / `owner_name` are accepted so
 /// the request shape matches the M5 plan, but THIS endpoint does
@@ -121,10 +167,8 @@ pub async fn create_workspace(
     // pass through" semantics is fine for non-critical routes but
     // wrong for provisioning, where a missing header means the
     // caller has bypassed retry safety and we'd rather refuse.
-    if req.headers().get(IDEMPOTENCY_HEADER).is_none() {
-        return errors::bad_request(
-            "Idempotency-Key header is required for provisioning callbacks",
-        );
+    if let Some(resp) = require_idempotency_key(&req) {
+        return resp;
     }
 
     let CreateWorkspaceRequest {
@@ -142,12 +186,9 @@ pub async fn create_workspace(
         return errors::bad_request("name must not be empty");
     }
 
-    let mut conn = match pool.get() {
+    let mut conn = match pool_conn(&pool, "workspaces/create") {
         Ok(c) => c,
-        Err(e) => {
-            error!(error = ?e, "workspaces/create: db pool exhausted");
-            return errors::internal("Database connection failed");
-        }
+        Err(resp) => return resp,
     };
 
     // Pre-mint the UUID so the response (and the eventual
@@ -240,10 +281,8 @@ pub async fn upsert_projected_user(
     path: web::Path<String>,
     body: web::Json<UpsertProjectedUserRequest>,
 ) -> impl Responder {
-    if req.headers().get(IDEMPOTENCY_HEADER).is_none() {
-        return errors::bad_request(
-            "Idempotency-Key header is required for provisioning callbacks",
-        );
+    if let Some(resp) = require_idempotency_key(&req) {
+        return resp;
     }
 
     let slug = path.into_inner();
@@ -265,27 +304,17 @@ pub async fn upsert_projected_user(
         return errors::bad_request("role must be one of: owner, admin, member");
     }
 
-    let mut conn = match pool.get() {
+    let mut conn = match pool_conn(&pool, "upsert_projected_user") {
         Ok(c) => c,
-        Err(e) => {
-            error!(error = ?e, "upsert_projected_user: db pool exhausted");
-            return errors::internal("Database connection failed");
-        }
+        Err(resp) => return resp,
     };
 
     // Resolve workspace by slug. Done first so the 404 path is
     // distinct from "we tried but failed downstream"; matches the
     // handoff's "unknown workspace returns 404" acceptance.
-    let workspace = match workspaces::find_by_slug(&mut conn, &slug) {
-        Ok(Some(ws)) => ws,
-        Ok(None) => {
-            warn!(slug = %slug, "upsert_projected_user: workspace not found");
-            return errors::not_found_msg(format!("workspace '{slug}' not found"));
-        }
-        Err(e) => {
-            error!(error = ?e, slug = %slug, "upsert_projected_user: workspace lookup failed");
-            return errors::internal("Workspace lookup failed");
-        }
+    let workspace = match resolve_workspace_or_respond(&mut conn, &slug, "upsert_projected_user") {
+        Ok(ws) => ws,
+        Err(resp) => return resp,
     };
 
     let input = ProjectedUserInput {
@@ -380,10 +409,8 @@ pub async fn set_custom_domain(
     path: web::Path<String>,
     body: web::Json<CustomDomainRequest>,
 ) -> impl Responder {
-    if req.headers().get(IDEMPOTENCY_HEADER).is_none() {
-        return errors::bad_request(
-            "Idempotency-Key header is required for provisioning callbacks",
-        );
+    if let Some(resp) = require_idempotency_key(&req) {
+        return resp;
     }
 
     let slug = path.into_inner();
@@ -403,26 +430,16 @@ pub async fn set_custom_domain(
         None => None,
     };
 
-    let mut conn = match pool.get() {
+    let mut conn = match pool_conn(&pool, "custom_domain") {
         Ok(c) => c,
-        Err(e) => {
-            error!(error = ?e, "custom_domain: db pool exhausted");
-            return errors::internal("Database connection failed");
-        }
+        Err(resp) => return resp,
     };
 
     // Capture the previous value so we can invalidate its cache key
     // even when the operator is clearing or changing the hostname.
-    let previous = match workspaces::find_by_slug(&mut conn, &slug) {
-        Ok(Some(ws)) => ws,
-        Ok(None) => {
-            warn!(slug = %slug, "custom_domain: workspace not found");
-            return errors::not_found_msg(format!("workspace '{slug}' not found"));
-        }
-        Err(e) => {
-            error!(error = ?e, slug = %slug, "custom_domain: workspace lookup failed");
-            return errors::internal("Workspace lookup failed");
-        }
+    let previous = match resolve_workspace_or_respond(&mut conn, &slug, "custom_domain") {
+        Ok(ws) => ws,
+        Err(resp) => return resp,
     };
 
     let updated = match workspaces::update_custom_domain(
