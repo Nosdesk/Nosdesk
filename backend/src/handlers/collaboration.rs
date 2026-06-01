@@ -110,10 +110,27 @@ use crate::utils::redis_yjs_cache::RedisYjsCache;
 
 // How often heartbeat checks are performed (server-side connection health monitoring)
 // Note: y-websocket client maintains its own keepalive via resyncInterval (20s)
-// This server-side heartbeat is for detecting truly dead connections
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
-// How long before lack of client response causes a timeout
-const CLIENT_TIMEOUT: Duration = Duration::from_secs(60);
+// This server-side heartbeat is for detecting truly dead connections.
+//
+// Overridable via env (`NOSDESK_WS_HEARTBEAT_MS` /
+// `NOSDESK_WS_CLIENT_TIMEOUT_MS`) so integration tests don't sit on
+// the 20s/60s wall clock. The Lazy resolves once at first access;
+// production code never sets these. Defaults match the original
+// constants exactly.
+static HEARTBEAT_INTERVAL: once_cell::sync::Lazy<Duration> = once_cell::sync::Lazy::new(|| {
+    std::env::var("NOSDESK_WS_HEARTBEAT_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::from_secs(20))
+});
+static CLIENT_TIMEOUT: once_cell::sync::Lazy<Duration> = once_cell::sync::Lazy::new(|| {
+    std::env::var("NOSDESK_WS_CLIENT_TIMEOUT_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::from_secs(60))
+});
 // Minimum time between saves for the same document
 const MIN_SAVE_INTERVAL: Duration = Duration::from_secs(5);
 // Maximum time a document can have pending changes before forcing a save
@@ -1031,7 +1048,7 @@ impl YjsAppState {
             };
 
             for (session_id, info) in room.iter() {
-                if now.duration_since(info.last_active) > CLIENT_TIMEOUT * 5 {
+                if now.duration_since(info.last_active) > *CLIENT_TIMEOUT * 5 {
                     stale_sessions.push((session_id.clone(), info.user_uuid));
                 }
             }
@@ -1546,14 +1563,14 @@ impl YjsWebSocket {
 
     // Handle heartbeat
     fn hb(&self, ctx: &mut <Self as Actor>::Context) {
-        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+        ctx.run_interval(*HEARTBEAT_INTERVAL, |act, ctx| {
             let time_since_last_hb = Instant::now().duration_since(act.hb);
 
             trace!(session_id = %act.id, idle_secs = time_since_last_hb.as_secs(),
                 "WebSocket heartbeat check");
 
             // Add grace period: warn at CLIENT_TIMEOUT, disconnect at CLIENT_TIMEOUT + 30s
-            if time_since_last_hb > CLIENT_TIMEOUT + Duration::from_secs(30) {
+            if time_since_last_hb > *CLIENT_TIMEOUT + Duration::from_secs(30) {
                 warn!(session_id = %act.id, idle_secs = time_since_last_hb.as_secs(),
                     "WebSocket Client heartbeat TIMEOUT, disconnecting");
 
@@ -1577,7 +1594,7 @@ impl YjsWebSocket {
             act.pings_sent += 1;
             ctx.ping(b"");
 
-            if time_since_last_hb > CLIENT_TIMEOUT {
+            if time_since_last_hb > *CLIENT_TIMEOUT {
                 warn!(session_id = %act.id, idle_secs = time_since_last_hb.as_secs(),
                     "WebSocket Client heartbeat WARNING");
             }
@@ -1719,7 +1736,7 @@ impl Actor for YjsWebSocket {
     fn started(&mut self, ctx: &mut Self::Context) {
         info!(session_id = %self.id, doc_id = %self.doc_id,
             heartbeat_interval_secs = HEARTBEAT_INTERVAL.as_secs(),
-            timeout_secs = (CLIENT_TIMEOUT + Duration::from_secs(30)).as_secs(),
+            timeout_secs = (*CLIENT_TIMEOUT + Duration::from_secs(30)).as_secs(),
             "WebSocket STARTED");
 
         self.hb(ctx);

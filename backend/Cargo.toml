@@ -181,5 +181,12 @@ unic-langid = "0.9"
 # For testing only
 [dev-dependencies]
 actix-rt = "2.10.0"
+# actix-test ships a real WS client (`srv.ws_at(path)`) so the
+# collaboration integration tests don't need a separate
+# tungstenite stack; the awc re-export from actix-test provides
+# the Sink<ws::Message> + Stream<ws::Frame> client framing.
+actix-test = "0.1"
+awc = "3"
+futures-util = "0.3"
 mockall = "0.13.0"
 tempfile = "3"
