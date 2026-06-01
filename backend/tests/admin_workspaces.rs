@@ -46,6 +46,7 @@ fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: UserRole) ->
         mfa_secret: None,
         mfa_secret_kek_id: None,
         mfa_enabled: false,
+        platform_role: None,
     };
     diesel::insert_into(users::table)
         .values(&new_user)

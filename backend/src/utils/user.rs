@@ -74,6 +74,7 @@ impl NewUserBuilder {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: None,
         };
         (new_user, self.email)
     }
@@ -93,6 +94,7 @@ impl NewUserBuilder {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: None,
         }
     }
 }

@@ -673,6 +673,7 @@ mod tests {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: "user".to_string(),
             feature_flag_overrides: serde_json::json!({}),
             deleted_at: None,
         };

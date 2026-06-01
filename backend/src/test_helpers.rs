@@ -191,6 +191,7 @@ impl TestFixtures {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: None,
         };
 
         diesel::insert_into(users::table)
@@ -427,6 +428,7 @@ pub fn create_test_claims(user: &User) -> crate::models::Claims {
         name: user.name.clone(),
         email: String::new(),
         role: user.role.as_str().to_string(),
+        platform_role: Some(user.platform_role.clone()),
         scope: "full".to_string(),
         sid: None,
         exp: (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp() as usize,

@@ -875,6 +875,7 @@ fn parse_topics_authorized(
                     name: String::new(),
                     email: String::new(),
                     role: String::from("user"),
+                    platform_role: None,
                     scope: String::new(),
                     sid: None,
                     exp: 0,

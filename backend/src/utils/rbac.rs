@@ -106,6 +106,151 @@ pub fn require_admin(req: &HttpRequest) -> Result<Claims, HttpResponse> {
     Ok(claims)
 }
 
+// =====================================================================
+// Phase 4 W2: split-role gating
+// =====================================================================
+
+/// True when the principal holds the platform-admin role (the new
+/// home for the privilege previously expressed as `users.role =
+/// 'admin'`). Reads [`Claims::platform_role`] (W2's new field) and
+/// falls back to the legacy `claims.role == "admin"` when the new
+/// field is absent, so JWTs issued before the W2 sweep still
+/// authenticate correctly.
+pub fn is_platform_admin(claims: &Claims) -> bool {
+    if let Some(pr) = claims.platform_role.as_deref() {
+        pr == "platform_admin"
+    } else {
+        claims.role == "admin"
+    }
+}
+
+/// Gate for endpoints that require platform-admin privilege:
+/// workspace lifecycle (W1 admin handlers), hosted billing,
+/// cross-tenant operator tools. The Phase 4 successor to
+/// [`require_admin`]; new code should call this directly. The two
+/// resolve to the same decision today (since `users.role = admin`
+/// rows backfill to `platform_role = platform_admin`); they will
+/// diverge in W3 when workspace-admin-only flows are introduced.
+pub fn require_platform_admin(req: &HttpRequest) -> Result<Claims, HttpResponse> {
+    let claims = require_auth(req)?;
+
+    if !is_platform_admin(&claims) {
+        return Err(HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": "This action requires platform-admin privileges"
+        })));
+    }
+
+    Ok(claims)
+}
+
+/// Gate for workspace-scoped endpoints. Looks up the caller's
+/// `workspace_members.role` for the resolved [`WorkspaceContext`]
+/// and compares to `min` per the role ordering (Owner > Admin >
+/// Agent > Member).
+///
+/// Returns the membership row on success so the handler can read
+/// the actual role without a second query. Returns 401 if there
+/// are no claims, 403 if the user has no membership in the
+/// resolved workspace or their role doesn't meet `min`, 500 on a
+/// DB failure.
+///
+/// **Note:** this looks up the membership row via the request's
+/// extracted [`WorkspaceContext`] + [`Pool`]; handlers must wrap
+/// the relevant routes in a workspace-resolving middleware before
+/// this can succeed. For W2 the resolver is the existing
+/// `workspace_context` middleware (added in 3a); W3 will tighten
+/// the contract by requiring the resolver to also stamp the
+/// membership row up front to save the duplicate query.
+pub fn require_workspace_role(
+    req: &HttpRequest,
+    min: crate::models::WorkspaceRole,
+) -> Result<Claims, HttpResponse> {
+    use actix_web::web;
+    use diesel::result::Error as DieselError;
+    use uuid::Uuid;
+
+    let claims = require_auth(req)?;
+    let user_uuid = match Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => {
+            return Err(HttpResponse::Unauthorized().json(json!({
+                "error": "Unauthorized",
+                "message": "Token subject is not a valid user identifier"
+            })));
+        }
+    };
+
+    let workspace_id = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|wc| wc.workspace_id);
+    let workspace_id = match workspace_id {
+        Some(id) => id,
+        None => {
+            return Err(HttpResponse::InternalServerError().json(json!({
+                "error": "Internal server error",
+                "message": "WorkspaceContext missing — route is mis-wired"
+            })));
+        }
+    };
+
+    let pool = match req.app_data::<web::Data<crate::db::Pool>>() {
+        Some(p) => p,
+        None => {
+            return Err(HttpResponse::InternalServerError().json(json!({
+                "error": "Internal server error",
+                "message": "Database pool not in app data"
+            })));
+        }
+    };
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(_) => {
+            return Err(HttpResponse::InternalServerError().json(json!({
+                "error": "Internal server error",
+                "message": "Database connection failed"
+            })));
+        }
+    };
+
+    let membership =
+        match crate::repository::workspaces::membership(&mut conn, workspace_id, user_uuid) {
+            Ok(Some(m)) => m,
+            Ok(None) => {
+                return Err(HttpResponse::Forbidden().json(json!({
+                    "error": "Forbidden",
+                    "message": "You are not a member of this workspace"
+                })));
+            }
+            Err(DieselError::NotFound) => {
+                return Err(HttpResponse::Forbidden().json(json!({
+                    "error": "Forbidden",
+                    "message": "You are not a member of this workspace"
+                })));
+            }
+            Err(_) => {
+                return Err(HttpResponse::InternalServerError().json(json!({
+                    "error": "Internal server error",
+                    "message": "Workspace membership lookup failed"
+                })));
+            }
+        };
+
+    let actual = crate::models::WorkspaceRole::from_db(&membership.role);
+    if !actual.meets(min) {
+        return Err(HttpResponse::Forbidden().json(json!({
+            "error": "Forbidden",
+            "message": format!(
+                "This action requires {} privileges or higher in this workspace",
+                min.as_str()
+            )
+        })));
+    }
+
+    Ok(claims)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,6 +261,7 @@ mod tests {
             name: "Test User".to_string(),
             email: "test@example.com".to_string(),
             role: role.to_string(),
+            platform_role: None,
             scope: "full".to_string(),
             sid: None,
             exp: 0,

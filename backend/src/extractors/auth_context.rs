@@ -61,6 +61,7 @@ impl AuthContext {
                 name: "test-user".into(),
                 email: "test@example.com".into(),
                 role: role.as_str().to_string(),
+                platform_role: None,
                 scope: "full".into(),
                 sid: None,
                 exp: 9999999999,

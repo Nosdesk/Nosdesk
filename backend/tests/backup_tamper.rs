@@ -79,6 +79,7 @@ fn restore_rejects_tampered_row_payload() {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+        platform_role: None,
         })
         .execute(&mut *conn)
         .expect("seed Alice");

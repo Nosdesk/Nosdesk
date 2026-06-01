@@ -1818,6 +1818,7 @@ mod tests {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: None,
         };
         create_user_with_email(
             admin,
@@ -1867,6 +1868,7 @@ mod tests {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: None,
         };
         let (tech, _) = create_user_with_email(
             tech_user,
@@ -1953,6 +1955,7 @@ My printer is literally on fire.
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: None,
         };
         create_user_with_email(
             tech,

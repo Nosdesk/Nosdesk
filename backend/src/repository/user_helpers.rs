@@ -208,6 +208,7 @@ pub fn find_or_create_guest_user(
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: None,
         };
 
         match create_user_with_email(
@@ -486,6 +487,7 @@ mod tests {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: None,
         };
 
         let (user, email_record) = create_user_with_email(

@@ -113,6 +113,7 @@ impl Importer for UserImporter {
                             mfa_secret: None,
                             mfa_secret_kek_id: None,
                             mfa_enabled: false,
+            platform_role: None,
                         })
                         .execute(conn)?;
                     diesel::insert_into(user_emails::table)

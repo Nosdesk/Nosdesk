@@ -1536,6 +1536,8 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         mfa_secret -> Nullable<Bytea>,
         mfa_secret_kek_id -> Nullable<Int2>,
+        #[max_length = 32]
+        platform_role -> Varchar,
     }
 }
 

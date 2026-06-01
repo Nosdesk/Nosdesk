@@ -1721,6 +1721,96 @@ impl FromSql<crate::schema::sql_types::UserRole, Pg> for UserRole {
     }
 }
 
+// =====================================================================
+// Phase 4 W2: split-role model. PlatformRole + WorkspaceRole sit
+// alongside the legacy UserRole during the sweep, then UserRole is
+// deleted in the cleanup migration.
+// =====================================================================
+
+/// Platform-wide privilege role. Replaces the global `users.role`
+/// for non-workspace gating. Only two values: `platform_admin`
+/// (super-user across the instance) and `user` (default, no
+/// platform privileges). Stored on `users.platform_role`
+/// (VARCHAR(32)) — string at the DB layer, enum at the application
+/// layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlatformRole {
+    PlatformAdmin,
+    User,
+}
+
+impl PlatformRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PlatformAdmin => "platform_admin",
+            Self::User => "user",
+        }
+    }
+
+    /// Parse a database string into a `PlatformRole`. Unknown values
+    /// fall back to `User` — defensive against legacy rows or a
+    /// hand-edited CHECK that hasn't caught up. The CHECK constraint
+    /// makes this branch unreachable in practice but the caller still
+    /// gets a typed value either way.
+    pub fn from_db(s: &str) -> Self {
+        match s {
+            "platform_admin" => Self::PlatformAdmin,
+            _ => Self::User,
+        }
+    }
+
+    pub fn is_platform_admin(&self) -> bool {
+        matches!(self, Self::PlatformAdmin)
+    }
+}
+
+/// Per-workspace privilege role. Stored on `workspace_members.role`
+/// (VARCHAR(32) CHECK IN ('owner', 'admin', 'agent', 'member')).
+/// The ordering implements escalation: `Owner > Admin > Agent > Member`,
+/// so `require_workspace_role(Agent)` admits owners and admins as well.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceRole {
+    /// File tickets, read docs. Default for new workspace members.
+    Member,
+    /// Handle tickets (was global `technician` in the pre-W2 model).
+    Agent,
+    /// Manage workspace members + settings.
+    Admin,
+    /// One per workspace. Can delete the workspace.
+    Owner,
+}
+
+impl WorkspaceRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::Admin => "admin",
+            Self::Agent => "agent",
+            Self::Member => "member",
+        }
+    }
+
+    /// Parse a database string into a `WorkspaceRole`. Unknown
+    /// values fall back to `Member` — same defensive shape as
+    /// [`PlatformRole::from_db`].
+    pub fn from_db(s: &str) -> Self {
+        match s {
+            "owner" => Self::Owner,
+            "admin" => Self::Admin,
+            "agent" => Self::Agent,
+            _ => Self::Member,
+        }
+    }
+
+    /// True if `self` meets or exceeds `min` per the role ordering
+    /// (Owner > Admin > Agent > Member).
+    pub fn meets(&self, min: WorkspaceRole) -> bool {
+        *self >= min
+    }
+}
+
 // User model - updated to match the actual database schema
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::users)]
@@ -1765,6 +1855,13 @@ pub struct User {
     /// they MUST agree on read or the row is rejected.
     pub mfa_secret: Option<Vec<u8>>,
     pub mfa_secret_kek_id: Option<i16>,
+    /// Platform-wide privilege role (Phase 4 W2). Values:
+    /// `"platform_admin"` (super-user — workspace lifecycle,
+    /// instance settings, hosted billing) or `"user"` (default).
+    /// Read via [`PlatformRole::from_str`] for typed access. Will
+    /// supersede [`UserRole`] for non-workspace privilege gating
+    /// once the post-W2 sweep removes the legacy column.
+    pub platform_role: String,
 }
 
 // New user for creation
@@ -1784,6 +1881,12 @@ pub struct NewUser {
     pub mfa_secret: Option<Vec<u8>>,
     pub mfa_secret_kek_id: Option<i16>,
     pub mfa_enabled: bool,
+    /// Phase 4 W2: platform-wide privilege role. `None` leaves the
+    /// DB default (`'user'`) so existing callers don't need to
+    /// thread the value through. W2-aware callers set
+    /// `Some("platform_admin".into())` for the bootstrap / hosted
+    /// signup paths.
+    pub platform_role: Option<String>,
     // mfa_backup_codes lives in `user_recovery_codes` now.
 }
 
@@ -2237,7 +2340,14 @@ pub struct Claims {
     pub sub: String,   // Subject (user UUID as string for JWT compatibility)
     pub name: String,  // User's name
     pub email: String, // User's email
-    pub role: String,  // User's role
+    pub role: String,  // User's role (LEGACY pre-W2 — `admin` / `technician` / `user`). Sweep callers off this onto `platform_role`; this field disappears in the W2 cleanup migration.
+    /// Phase 4 W2: platform-wide privilege role. Values:
+    /// `"platform_admin"` / `"user"`. `Option` so existing JWTs
+    /// without this claim still deserialize during the rollout
+    /// window; once every issued token carries it, the field flips
+    /// to `String` and the legacy `role` field is removed.
+    #[serde(default)]
+    pub platform_role: Option<String>,
     #[serde(default = "default_scope")]
     // Default to "full" for backward compatibility with existing tokens
     pub scope: String, // Token scope: "full" for normal sessions

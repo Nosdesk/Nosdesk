@@ -41,6 +41,7 @@ impl JwtUtils {
             name: user.name.clone(),
             email: String::new(),
             role: role_to_string(&user.role).to_string(),
+            platform_role: Some(user.platform_role.clone()),
             scope: "full".to_string(),
             sid: Some(session_id.to_string()),
             exp: now + 15 * 60, // 15 minutes
@@ -68,6 +69,12 @@ impl JwtUtils {
             name: "SSE_TOKEN".to_string(),
             email: String::new(),
             role: role.to_string(),
+            // SSE tokens are minted from cookie auth where we
+            // don't have the user row handy; the legacy `role`
+            // field is sufficient for what SSE handlers gate on
+            // today. W2 sweep will revisit if SSE needs platform-
+            // role checks.
+            platform_role: None,
             scope: "sse".to_string(),
             sid: None,
             exp: now + 3600,
@@ -607,6 +614,7 @@ mod tests {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: "user".to_string(),
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
             password_changed_at: None,
@@ -647,6 +655,7 @@ mod tests {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
+            platform_role: "user".to_string(),
             created_at: chrono::Utc::now().naive_utc(),
             updated_at: chrono::Utc::now().naive_utc(),
             password_changed_at: None,

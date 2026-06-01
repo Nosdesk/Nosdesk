@@ -181,6 +181,7 @@ pub fn try_bearer_auth(
         name: user.name,
         email,
         role: user.role.as_str().to_string(),
+        platform_role: Some(user.platform_role.clone()),
         scope,
         sid: None,
         exp: (now + chrono::Duration::hours(24)).timestamp() as usize,
