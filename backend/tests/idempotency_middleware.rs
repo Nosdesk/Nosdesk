@@ -18,7 +18,7 @@
 #![allow(clippy::expect_used)]
 
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Once};
+use std::sync::Arc;
 
 use actix_web::{web, App, HttpResponse};
 use diesel::prelude::*;
@@ -28,57 +28,11 @@ use backend::middleware::idempotency::idempotency_middleware;
 
 mod common;
 
-/// Init the at-rest Keyring once per process. Middleware doesn't
-/// touch the keyring, but the WorkspaceGucCustomizer below sets the
-/// workspace GUC which other code paths sometimes use; defensive.
-fn ensure_test_keyring() {
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        if std::env::var("MFA_KEK_V1").is_err() {
-            std::env::set_var(
-                "MFA_KEK_V1",
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            );
-        }
-        if let Err(e) = backend::utils::encryption::init_keyring() {
-            panic!("ensure_test_keyring: init_keyring failed: {e}");
-        }
-    });
-}
-
-/// Connection customizer mirroring tests/common/mod.rs's private one
-/// so audit triggers don't trip on the inserts we do via the test
-/// handler.
-#[derive(Debug)]
-struct WorkspaceGuc;
-
-impl diesel::r2d2::CustomizeConnection<diesel::pg::PgConnection, diesel::r2d2::Error>
-    for WorkspaceGuc
-{
-    fn on_acquire(&self, conn: &mut diesel::pg::PgConnection) -> Result<(), diesel::r2d2::Error> {
-        use diesel::RunQueryDsl;
-        diesel::sql_query("SELECT set_config('app.workspace_id', '1', false)")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-        Ok(())
-    }
-}
-
-fn build_pool(url: &str) -> backend::db::Pool {
-    use diesel::r2d2::{ConnectionManager, Pool};
-    ensure_test_keyring();
-    let mgr = ConnectionManager::<diesel::pg::PgConnection>::new(url);
-    Pool::builder()
-        .max_size(4)
-        .connection_customizer(Box::new(WorkspaceGuc))
-        .build(mgr)
-        .expect("build backend Pool")
-}
-
 #[actix_web::test]
 async fn idempotency_caches_post_response_and_replays_on_retry() {
+    common::ensure_test_keyring();
     let test_db = common::TestDb::new();
-    let pool = build_pool(test_db.url());
+    let pool = test_db.pool_with_size(4);
 
     // Each handler invocation bumps the counter; the test asserts the
     // counter reflects how many times the *handler* ran, distinct

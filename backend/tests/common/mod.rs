@@ -51,6 +51,32 @@ impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for WorkspaceGucCustom
 pub type TestPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type TestPooledConn = PooledConnection<ConnectionManager<PgConnection>>;
 
+/// Init the at-rest Keyring + JWT secret once per process.
+/// `backend::test_helpers::ensure_test_keyring` is `#[cfg(test)]`-
+/// gated inside the crate so it's invisible to integration tests
+/// (separate crate). This helper is the integration-tests-side twin.
+///
+/// Idempotent under `Once`, safe to call from every test fn at the
+/// top, even those that don't touch encryption (defensive against
+/// future encrypted-column additions that would silently panic).
+pub fn ensure_test_keyring() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        if std::env::var("MFA_KEK_V1").is_err() {
+            std::env::set_var(
+                "MFA_KEK_V1",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            );
+        }
+        if std::env::var("JWT_SECRET").is_err() {
+            std::env::set_var("JWT_SECRET", "test-jwt-secret-32-characters-min-for-tests");
+        }
+        if let Err(e) = backend::utils::encryption::init_keyring() {
+            panic!("ensure_test_keyring: init_keyring failed: {e}");
+        }
+    });
+}
+
 const TEMPLATE_NAME: &str = "nosdesk_test_template";
 
 /// Resolve the base test database URL from env. Same precedence
@@ -159,9 +185,18 @@ impl TestDb {
     /// `PooledConnection`), which is what backup_service and
     /// every repository fn expect.
     pub fn pool(&self) -> TestPool {
+        self.pool_with_size(1)
+    }
+
+    /// Pool variant for tests that need to hold more than one
+    /// connection at a time (e.g. an actix-test server handling
+    /// concurrent requests). M5 integration tests use size 4 so
+    /// the middleware stack can grab a conn for the idempotency
+    /// cache check while the handler still owns its own.
+    pub fn pool_with_size(&self, max_size: u32) -> TestPool {
         let manager = ConnectionManager::<PgConnection>::new(&self.url);
         r2d2::Pool::builder()
-            .max_size(1)
+            .max_size(max_size)
             .connection_customizer(Box::new(WorkspaceGucCustomizer))
             .build(manager)
             .expect("build sandbox pool")
@@ -259,6 +294,53 @@ pub fn insert_user(conn: &mut PgConnection, name: &str) -> backend::models::User
         .values(&new_user)
         .get_result(conn)
         .expect("insert user")
+}
+
+/// Mint an `api_tokens` row directly so the test can choose
+/// `is_platform_scoped` (the repo helper is user-scope-only).
+/// Returns the raw token string for use in the Authorization header.
+pub fn mint_api_token(
+    conn: &mut PgConnection,
+    user: &backend::models::User,
+    name: &str,
+    is_platform_scoped: bool,
+) -> String {
+    use backend::models::NewApiToken;
+    use backend::repository::api_tokens::{get_token_prefix, hash_token};
+    use backend::schema::api_tokens;
+    let raw = format!("nsk_test_{}", Uuid::new_v4().simple());
+    let new_token = NewApiToken {
+        token_hash: hash_token(&raw),
+        token_prefix: get_token_prefix(&raw),
+        user_uuid: user.uuid,
+        name: name.to_string(),
+        scopes: Some(vec![Some("full".to_string())]),
+        created_by: user.uuid,
+        expires_at: None,
+        is_platform_scoped,
+    };
+    diesel::insert_into(api_tokens::table)
+        .values(&new_token)
+        .execute(conn)
+        .expect("insert api_token");
+    raw
+}
+
+/// Insert a workspaces row with a freshly-generated UUID. Returns
+/// the inserted row's id.
+pub fn mint_workspace(conn: &mut PgConnection, slug: &str, name: &str) -> i32 {
+    use backend::models::NewWorkspace;
+    use backend::schema::workspaces;
+    let new_ws = NewWorkspace {
+        uuid: Uuid::now_v7(),
+        slug: slug.to_string(),
+        name: name.to_string(),
+    };
+    diesel::insert_into(workspaces::table)
+        .values(&new_ws)
+        .returning(workspaces::id)
+        .get_result::<i32>(conn)
+        .expect("insert workspace")
 }
 
 /// Seed a stock-tracked asset with the Phase E columns set.

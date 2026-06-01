@@ -21,103 +21,14 @@
 
 #![allow(clippy::expect_used)]
 
-use std::sync::Once;
-
 use actix_web::{web, App};
 use diesel::prelude::*;
 use serde_json::json;
 
 use backend::handlers::internal_workspaces;
 use backend::middleware::{dual_auth_middleware, idempotency_middleware};
-use backend::models::{NewApiToken, NewWorkspace, User};
-use backend::repository::api_tokens::{get_token_prefix, hash_token};
 
 mod common;
-
-fn ensure_test_keyring() {
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        if std::env::var("MFA_KEK_V1").is_err() {
-            std::env::set_var(
-                "MFA_KEK_V1",
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            );
-        }
-        if std::env::var("JWT_SECRET").is_err() {
-            std::env::set_var("JWT_SECRET", "test-jwt-secret-32-characters-min-for-tests");
-        }
-        if let Err(e) = backend::utils::encryption::init_keyring() {
-            panic!("ensure_test_keyring: init_keyring failed: {e}");
-        }
-    });
-}
-
-#[derive(Debug)]
-struct WorkspaceGuc;
-
-impl diesel::r2d2::CustomizeConnection<diesel::pg::PgConnection, diesel::r2d2::Error>
-    for WorkspaceGuc
-{
-    fn on_acquire(&self, conn: &mut diesel::pg::PgConnection) -> Result<(), diesel::r2d2::Error> {
-        use diesel::RunQueryDsl;
-        diesel::sql_query("SELECT set_config('app.workspace_id', '1', false)")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-        Ok(())
-    }
-}
-
-fn build_pool(url: &str) -> backend::db::Pool {
-    use diesel::r2d2::{ConnectionManager, Pool};
-    ensure_test_keyring();
-    let mgr = ConnectionManager::<diesel::pg::PgConnection>::new(url);
-    Pool::builder()
-        .max_size(4)
-        .connection_customizer(Box::new(WorkspaceGuc))
-        .build(mgr)
-        .expect("build pool")
-}
-
-fn mint_token(
-    conn: &mut diesel::pg::PgConnection,
-    user: &User,
-    name: &str,
-    is_platform_scoped: bool,
-) -> String {
-    use backend::schema::api_tokens;
-    let raw = format!("nsk_test_{}", uuid::Uuid::new_v4().simple());
-    let new_token = NewApiToken {
-        token_hash: hash_token(&raw),
-        token_prefix: get_token_prefix(&raw),
-        user_uuid: user.uuid,
-        name: name.to_string(),
-        scopes: Some(vec![Some("full".to_string())]),
-        created_by: user.uuid,
-        expires_at: None,
-        is_platform_scoped,
-    };
-    diesel::insert_into(api_tokens::table)
-        .values(&new_token)
-        .execute(conn)
-        .expect("insert api_token");
-    raw
-}
-
-/// Mint a workspace with a stable slug. The endpoint resolves by
-/// slug, so the test needs a real workspaces row to target.
-fn mint_workspace(conn: &mut diesel::pg::PgConnection, slug: &str, name: &str) -> i32 {
-    use backend::schema::workspaces;
-    let new_ws = NewWorkspace {
-        uuid: uuid::Uuid::now_v7(),
-        slug: slug.to_string(),
-        name: name.to_string(),
-    };
-    diesel::insert_into(workspaces::table)
-        .values(&new_ws)
-        .returning(workspaces::id)
-        .get_result::<i32>(conn)
-        .expect("insert workspace")
-}
 
 fn count_memberships(pool: &backend::db::Pool, workspace_id: i32, user_uuid: uuid::Uuid) -> i64 {
     use backend::schema::workspace_members;
@@ -143,13 +54,16 @@ fn membership_role(pool: &backend::db::Pool, workspace_id: i32, user_uuid: uuid:
 
 #[actix_web::test]
 async fn upsert_projected_user_full_contract() {
+    common::ensure_test_keyring();
     let test_db = common::TestDb::new();
-    let pool = build_pool(test_db.url());
+    let pool = test_db.pool_with_size(4);
 
     let admin = common::insert_user(&mut pool.get().expect("conn"), "M5Admin");
-    let platform_token = mint_token(&mut pool.get().expect("conn"), &admin, "ctrl-plane", true);
-    let user_token = mint_token(&mut pool.get().expect("conn"), &admin, "user", false);
-    let acme_id = mint_workspace(&mut pool.get().expect("conn"), "acme", "Acme");
+    let platform_token =
+        common::mint_api_token(&mut pool.get().expect("conn"), &admin, "ctrl-plane", true);
+    let user_token =
+        common::mint_api_token(&mut pool.get().expect("conn"), &admin, "user", false);
+    let acme_id = common::mint_workspace(&mut pool.get().expect("conn"), "acme", "Acme");
 
     let pool_for_app = pool.clone();
     let srv = actix_test::start(move || {

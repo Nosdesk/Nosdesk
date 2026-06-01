@@ -17,117 +17,11 @@
 
 #![allow(clippy::expect_used)]
 
-use std::sync::Once;
-
 use actix_web::{web, App, HttpResponse};
-use diesel::prelude::*;
 
 use backend::middleware::api_token::{dual_auth_middleware, PlatformScope};
-use backend::models::{NewApiToken, User};
-use backend::repository::api_tokens::{get_token_prefix, hash_token};
 
 mod common;
-
-/// Set JWT_SECRET before the lazy_static resolves. The crypto
-/// keyring isn't touched by these tests (no MFA / no at-rest
-/// encryption code path), so the legacy collaboration_ws-style
-/// MFA_KEK_V1 setup isn't needed here.
-fn install_env() {
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        if std::env::var("JWT_SECRET").is_err() {
-            std::env::set_var("JWT_SECRET", "test-jwt-secret-32-characters-min-for-tests");
-        }
-        std::env::set_var("ENVIRONMENT", "test");
-    });
-}
-
-/// Mint an API token row directly via Diesel so the test can set
-/// `is_platform_scoped` explicitly without going through the (user-
-/// scope-only) `create_api_token` repository helper. Returns the raw
-/// token string so the test can put it in the Authorization header.
-fn mint_token(
-    conn: &mut diesel::pg::PgConnection,
-    user: &User,
-    name: &str,
-    is_platform_scoped: bool,
-) -> String {
-    use backend::schema::api_tokens;
-    // Token format matches the repo's `generate_api_token`: nsk_ prefix
-    // + opaque random body. The exact body doesn't matter — only that
-    // hashing it matches what get_valid_api_token looks up.
-    let raw = format!("nsk_test_{}", uuid::Uuid::new_v4().simple());
-    let token_hash = hash_token(&raw);
-    let token_prefix = get_token_prefix(&raw);
-
-    let new_token = NewApiToken {
-        token_hash,
-        token_prefix,
-        user_uuid: user.uuid,
-        name: name.to_string(),
-        scopes: Some(vec![Some("full".to_string())]),
-        created_by: user.uuid,
-        expires_at: None,
-        is_platform_scoped,
-    };
-
-    diesel::insert_into(api_tokens::table)
-        .values(&new_token)
-        .execute(conn)
-        .expect("insert api_token");
-    raw
-}
-
-/// Pins `app.workspace_id = 1` on every newly-acquired connection so
-/// audit triggers don't trip the NOT-NULL on `audit_log.workspace_id`.
-/// Mirrors the customizer in `tests/common/mod.rs` (private there).
-#[derive(Debug)]
-struct WorkspaceGuc;
-
-impl diesel::r2d2::CustomizeConnection<diesel::pg::PgConnection, diesel::r2d2::Error>
-    for WorkspaceGuc
-{
-    fn on_acquire(&self, conn: &mut diesel::pg::PgConnection) -> Result<(), diesel::r2d2::Error> {
-        use diesel::RunQueryDsl;
-        diesel::sql_query("SELECT set_config('app.workspace_id', '1', false)")
-            .execute(conn)
-            .map_err(diesel::r2d2::Error::QueryError)?;
-        Ok(())
-    }
-}
-
-/// Init the at-rest Keyring once per process. test_helpers' equivalent
-/// is `#[cfg(test)]`-gated and thus invisible to integration tests.
-fn ensure_test_keyring() {
-    use std::sync::Once;
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        if std::env::var("MFA_KEK_V1").is_err() {
-            std::env::set_var(
-                "MFA_KEK_V1",
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            );
-        }
-        if let Err(e) = backend::utils::encryption::init_keyring() {
-            panic!("ensure_test_keyring: init_keyring failed: {e}");
-        }
-    });
-}
-
-fn build_pool(url: &str) -> backend::db::Pool {
-    use diesel::r2d2::{ConnectionManager, Pool};
-    // Defensive: this test's auth path doesn't touch encryption today,
-    // but a future refactor that adds an encrypted column to api_tokens
-    // (e.g. encrypted scopes) would silently start panicking here
-    // without this init. The Once guard makes it free.
-    ensure_test_keyring();
-    let mgr = ConnectionManager::<diesel::pg::PgConnection>::new(url);
-    Pool::builder()
-        .max_size(4)
-        .connection_customizer(Box::new(WorkspaceGuc))
-        .build(mgr)
-        .expect("build backend Pool")
-}
 
 /// Handler gated on platform scope. Successful extraction means the
 /// caller's API token had `is_platform_scoped = true`. The body just
@@ -146,14 +40,16 @@ async fn any_auth_handler() -> HttpResponse {
 
 #[actix_web::test]
 async fn platform_scope_extractor_gates_routes_correctly() {
-    install_env();
+    common::ensure_test_keyring();
+    std::env::set_var("ENVIRONMENT", "test");
 
     let test_db = common::TestDb::new();
-    let pool = build_pool(test_db.url());
+    let pool = test_db.pool_with_size(4);
     let user = common::insert_user(&mut pool.get().expect("conn"), "PlatformProbe");
 
-    let platform_token = mint_token(&mut pool.get().expect("conn"), &user, "platform", true);
-    let user_token = mint_token(&mut pool.get().expect("conn"), &user, "user", false);
+    let platform_token =
+        common::mint_api_token(&mut pool.get().expect("conn"), &user, "platform", true);
+    let user_token = common::mint_api_token(&mut pool.get().expect("conn"), &user, "user", false);
 
     let pool_for_app = pool.clone();
     let srv = actix_test::start(move || {
