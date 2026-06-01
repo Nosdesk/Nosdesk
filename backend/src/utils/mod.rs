@@ -22,6 +22,7 @@ pub mod pdf;
 pub mod rate_limit;
 pub mod rbac;
 pub mod redis_yjs_cache;
+pub mod reserved_slugs;
 pub mod reset_tokens;
 pub mod safe_http;
 pub mod security_events;

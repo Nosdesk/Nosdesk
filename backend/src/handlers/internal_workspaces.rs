@@ -30,6 +30,7 @@ use crate::middleware::api_token::PlatformScope;
 use crate::models::{NewWorkspace, Workspace};
 use crate::repository::workspaces::{self, CreateWorkspaceError};
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
+use crate::utils::reserved_slugs;
 
 /// Application-layer slug rule (M5 handoff Task 3). Stricter than
 /// the DB CHECK (`^[a-z0-9](...){0,62}[a-z0-9]$`):
@@ -50,6 +51,7 @@ enum SlugError {
     BadLength,
     BadShape,
     ConsecutiveHyphens,
+    Reserved,
 }
 
 impl SlugError {
@@ -60,6 +62,7 @@ impl SlugError {
                 "slug must be lowercase letters, digits, and hyphens; start with a letter and end with a letter or digit"
             }
             Self::ConsecutiveHyphens => "slug must not contain consecutive hyphens",
+            Self::Reserved => "slug is reserved, please choose another",
         }
     }
 }
@@ -73,6 +76,9 @@ fn validate_slug(slug: &str) -> Result<(), SlugError> {
     }
     if slug.contains("--") {
         return Err(SlugError::ConsecutiveHyphens);
+    }
+    if reserved_slugs::is_reserved(slug) {
+        return Err(SlugError::Reserved);
     }
     Ok(())
 }
@@ -542,5 +548,15 @@ mod slug_tests {
             validate_slug("abc--def"),
             Err(SlugError::ConsecutiveHyphens)
         ));
+    }
+
+    #[test]
+    fn rejects_reserved_slugs() {
+        for s in ["api", "app", "www", "admin", "staging"] {
+            assert!(
+                matches!(validate_slug(s), Err(SlugError::Reserved)),
+                "expected {s} to be reserved"
+            );
+        }
     }
 }

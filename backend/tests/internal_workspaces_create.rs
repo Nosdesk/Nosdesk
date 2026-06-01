@@ -182,4 +182,25 @@ async fn workspaces_create_full_contract() {
         1,
         "exactly one workspace row should exist for the slug"
     );
+
+    // --- 6: reserved slug -> 400 (Phase 4 W4) ---
+    let resp = client
+        .post(&url)
+        .insert_header(("Authorization", format!("Bearer {platform_token}")))
+        .insert_header(("Idempotency-Key", format!("provision-{}", uuid::Uuid::new_v4())))
+        .insert_header(("Content-Type", "application/json"))
+        .send_json(&json!({
+            "slug": "api", // reserved
+            "name": "API",
+            "owner_user_uuid": owner.uuid,
+            "owner_email": "x@y.z",
+        }))
+        .await
+        .expect("send reserved");
+    assert_eq!(resp.status(), 400, "reserved slug must 400");
+    assert_eq!(
+        count_workspaces_with_slug(&pool, "api"),
+        0,
+        "reserved slug must not produce a row"
+    );
 }
