@@ -50,9 +50,12 @@ quick-xml = "0.36"  # SVG validator for plugin icons
 semver = "1.0"      # engines.nosdesk constraint matching
 maxminddb = "0.28"  # offline IP geolocation for session display (operator-supplied .mmdb via GEOIP_DB_PATH)
 
-# WebSocket dependencies for collaborative editing
-actix-web-actors = "4.3.1"  # WebSocket actors for Actix
-actix = "0.13.5"            # Actor framework
+# WebSocket dependency for collaborative editing. The deprecated
+# actix-web-actors crate (which pulled in the full `actix` actor
+# framework) was replaced with the lighter actorless `actix-ws`
+# during the YjsWebSocket migration; see `handlers/collaboration.rs`
+# for the session_task implementation.
+actix-ws = "0.4"
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }  # Stream wrappers for tokio types
 tokio-util = "0.7"  # CancellationToken used by the periodic scheduler + future graceful-shutdown wiring

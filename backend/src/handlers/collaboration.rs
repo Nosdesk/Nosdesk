@@ -1,14 +1,14 @@
-use actix::{Actor, ActorContext, Addr, AsyncContext, Handler, Message, Running, StreamHandler};
 use actix_web::{web, Error, HttpRequest, HttpResponse, Responder};
-use actix_web_actors::ws;
+use actix_ws::{AggregatedMessage, CloseReason};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use futures::StreamExt;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::panic;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 use yrs::sync::{Awareness, DefaultProtocol, Protocol};
@@ -415,10 +415,15 @@ type SessionId = String;
 /// Per-session bookkeeping kept on the collaboration side. The
 /// user identity + ticket presence live in
 /// `services::presence::PresenceRegistry`; this map only carries
-/// what the transport needs (the actor address and the last
+/// what the transport needs (the outbound channel and the last
 /// activity Instant for stale-cleanup).
+///
+/// `tx` is the write side of the per-connection mpsc the
+/// session_task drains and forwards to the wire. Cloning the
+/// Sender is cheap; `broadcast` collects clones under the read
+/// lock and pushes after release.
 struct SessionInfo {
-    addr: Addr<YjsWebSocket>,
+    tx: mpsc::UnboundedSender<Bytes>,
     last_active: Instant,
     /// User who owns this session. Forwarded to the presence
     /// registry on add / remove so the registry can deduplicate
@@ -469,11 +474,13 @@ impl YjsAppState {
                 crate::services::presence::PresenceRegistry::with_default_resolver(),
             ),
         };
-        // Start the periodic cleanup and save task
+        // Start the periodic cleanup and save task. `actix_web::rt::spawn`
+        // schedules onto the actix runtime, same as the old
+        // `actix::spawn` did, but without the actix-actor framework
+        // dependency.
         let state_clone = state.clone();
-        actix::spawn(async move {
-            use actix::clock::interval;
-            let mut interval = interval(Duration::from_secs(30)); // Check every 30 seconds (was 10)
+        actix_web::rt::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
             loop {
                 interval.tick().await;
                 state_clone.cleanup_stale_sessions().await;
@@ -919,7 +926,7 @@ impl YjsAppState {
         &self,
         doc_id: &str,
         session_id: &str,
-        addr: Addr<YjsWebSocket>,
+        tx: mpsc::UnboundedSender<Bytes>,
         user_uuid: Uuid,
     ) {
         let mut sessions = self.sessions.write().await;
@@ -933,7 +940,7 @@ impl YjsAppState {
         room.insert(
             session_id.to_string(),
             SessionInfo {
-                addr,
+                tx,
                 last_active: Instant::now(),
                 user_uuid,
             },
@@ -1145,24 +1152,30 @@ impl YjsAppState {
             return;
         }
 
-        // Collect addresses while holding lock
-        let recipients: Vec<Addr<YjsWebSocket>> = {
+        // Collect sender clones while holding the read lock; the
+        // mpsc::UnboundedSender is cheap to clone (Arc internally).
+        // Cloning under the lock lets us release it before doing the
+        // (non-blocking) per-recipient send.
+        let recipients: Vec<mpsc::UnboundedSender<Bytes>> = {
             let sessions = self.sessions.read().await;
 
             if let Some(room) = sessions.get(doc_id) {
                 room.iter()
                     .filter(|(id, _)| *id != sender_id)
-                    .map(|(_, info)| info.addr.clone())
+                    .map(|(_, info)| info.tx.clone())
                     .collect()
             } else {
                 Vec::new()
             }
-        }; // Lock released here
+        };
 
-        // Send to all recipients without holding lock
+        // `send` on an unbounded mpsc only fails if the receiver was
+        // dropped (the session task exited). That can race with our
+        // snapshot above; ignore the error and let the next
+        // cleanup_stale_sessions sweep evict the dead row.
         let msg_bytes = Bytes::copy_from_slice(msg);
-        for addr in recipients {
-            addr.do_send(YjsMessage(msg_bytes.clone()));
+        for tx in recipients {
+            let _ = tx.send(msg_bytes.clone());
         }
     }
 
@@ -1212,7 +1225,7 @@ impl YjsAppState {
         let redis_cache = self.redis_cache.clone();
         let doc_id_clone = doc_id.to_string();
         let content_for_redis = binary_content.clone();
-        actix::spawn(async move {
+        actix_web::rt::spawn(async move {
             redis_cache
                 .set_document(&doc_id_clone, &content_for_redis)
                 .await;
@@ -1230,7 +1243,7 @@ impl YjsAppState {
                 // Save ticket article content Yjs snapshot to PostgreSQL (snapshot-based persistence)
                 // Note: This does NOT update the ticket's modified timestamp - that only happens
                 // when revisions are created (indicating actual content changes)
-                actix::spawn(async move {
+                actix_web::rt::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
                             let actor = yjs_session_actor(workspace_id);
@@ -1258,7 +1271,7 @@ impl YjsAppState {
             }
             DocumentType::Documentation(doc_page_id) => {
                 // Save documentation page Yjs state
-                actix::spawn(async move {
+                actix_web::rt::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
                             let actor = yjs_session_actor(workspace_id);
@@ -1287,7 +1300,7 @@ impl YjsAppState {
             }
             DocumentType::Collection(collection_id) => {
                 // Save collection description Yjs state
-                actix::spawn(async move {
+                actix_web::rt::spawn(async move {
                     match pool.get() {
                         Ok(mut conn) => {
                             let actor = yjs_session_actor(workspace_id);
@@ -1355,7 +1368,7 @@ impl YjsAppState {
             DocumentType::Ticket(ticket_id) => {
                 let contributor_count = contributor_vec.len();
                 let actor = yjs_session_actor(workspace_id);
-                actix::spawn(async move {
+                actix_web::rt::spawn(async move {
                     // Six interleaved repo calls against RLS-enabled
                     // tables (article_contents, article_content_revisions,
                     // tickets). Run them in one workspace-pinned txn
@@ -1446,7 +1459,7 @@ impl YjsAppState {
             DocumentType::Documentation(doc_page_id) => {
                 let contributor_count = contributor_vec.len();
                 let actor = yjs_session_actor(workspace_id);
-                actix::spawn(async move {
+                actix_web::rt::spawn(async move {
                     let outcome = match pool.get() {
                         Ok(mut conn) => crate::sync::session::with_actor_context::<
                             _,
@@ -1515,421 +1528,22 @@ impl YjsAppState {
     }
 }
 
-// Message type for WebSocket communications
-#[derive(Message)]
-#[rtype(result = "()")]
-struct YjsMessage(Bytes);
+// =================================================================
+// WebSocket session task (actix-ws, ex-actor implementation).
+//
+// One task per connection. Owns the `Session` (write side) and
+// drains both the inbound `AggregatedMessageStream` and a per-
+// session `mpsc::UnboundedReceiver<Bytes>` that other sessions
+// push broadcast / awareness frames into via the YjsAppState
+// session map. tokio::select! multiplexes inbound + outbound +
+// heartbeat tick in a single loop, replacing the actor's
+// Stream/Handler/run_interval triplet.
+// =================================================================
 
-// WebSocket actor
-struct YjsWebSocket {
-    id: String,
-    doc_id: String,
-    app_state: YjsAppState,
-    hb: Instant,
-    user_uuid: Uuid,            // User UUID for contributor tracking
-    yjs_client_id: Option<u64>, // Yjs clientID from awareness, used for cleanup on disconnect
-    /// Workspace the requesting user is scoped to (resolved from
-    /// `WorkspaceContext` at handshake). Threaded into every DB
-    /// touch so per-doc writes run RLS-enforced under
-    /// `with_actor_context` rather than the legacy
-    /// `with_actor_bypass_context`.
-    workspace_id: i32,
-    // Statistics for debugging
-    messages_received: u32,
-    pings_sent: u32,
-    pongs_received: u32,
-    started_at: Instant,
-}
-
-impl YjsWebSocket {
-    fn new(doc_id: String, app_state: YjsAppState, user_uuid: Uuid, workspace_id: i32) -> Self {
-        let id = Uuid::now_v7().to_string();
-        let now = Instant::now();
-
-        YjsWebSocket {
-            id,
-            doc_id,
-            app_state,
-            hb: now,
-            user_uuid,
-            yjs_client_id: None,
-            workspace_id,
-            messages_received: 0,
-            pings_sent: 0,
-            pongs_received: 0,
-            started_at: now,
-        }
-    }
-
-    // Handle heartbeat
-    fn hb(&self, ctx: &mut <Self as Actor>::Context) {
-        ctx.run_interval(*HEARTBEAT_INTERVAL, |act, ctx| {
-            let time_since_last_hb = Instant::now().duration_since(act.hb);
-
-            trace!(session_id = %act.id, idle_secs = time_since_last_hb.as_secs(),
-                "WebSocket heartbeat check");
-
-            // Add grace period: warn at CLIENT_TIMEOUT, disconnect at CLIENT_TIMEOUT + 30s
-            if time_since_last_hb > *CLIENT_TIMEOUT + Duration::from_secs(30) {
-                warn!(session_id = %act.id, idle_secs = time_since_last_hb.as_secs(),
-                    "WebSocket Client heartbeat TIMEOUT, disconnecting");
-
-                // Spawn async removal
-                let app_state = act.app_state.clone();
-                let doc_id = act.doc_id.clone();
-                let session_id = act.id.clone();
-                actix::spawn(async move {
-                    app_state.remove_session(&doc_id, &session_id).await;
-                });
-
-                ctx.stop();
-                return;
-            }
-
-            // Send WebSocket PING to verify connection health
-            // Note: y-websocket client handles its own keepalive via resyncInterval
-            // This PING is for detecting dead connections at the WebSocket protocol level
-            trace!(session_id = %act.id, ping_num = act.pings_sent + 1,
-                idle_secs = time_since_last_hb.as_secs(), "WebSocket sending PING");
-            act.pings_sent += 1;
-            ctx.ping(b"");
-
-            if time_since_last_hb > *CLIENT_TIMEOUT {
-                warn!(session_id = %act.id, idle_secs = time_since_last_hb.as_secs(),
-                    "WebSocket Client heartbeat WARNING");
-            }
-        });
-    }
-
-    // Process incoming messages using the built-in protocol
-    // Simplified to match the working nosdesk-old version - let yrs do the heavy lifting!
-    fn process_message(&mut self, msg: &[u8], ctx: &mut ws::WebsocketContext<Self>) {
-        if msg.is_empty() {
-            return;
-        }
-
-        // CRITICAL: Update heartbeat timestamp BEFORE spawning async work
-        // Otherwise the heartbeat checker thinks the connection is idle
-        self.hb = Instant::now();
-
-        let app_state = self.app_state.clone();
-        let doc_id = self.doc_id.clone();
-        let session_id = self.id.clone();
-        let msg_vec = msg.to_vec();
-        let is_sync_message = msg.first() == Some(&0); // MESSAGE_SYNC
-        let user_uuid = self.user_uuid; // Capture for contributor tracking
-        let workspace_id = self.workspace_id;
-
-        // Spawn async work
-        let addr = ctx.address();
-        actix::spawn(async move {
-            // Update session activity
-            app_state
-                .update_session_activity(&doc_id, &session_id)
-                .await;
-
-            // Get the awareness for this document
-            let awareness = app_state
-                .get_or_create_awareness(&doc_id, workspace_id)
-                .await;
-
-            // DIAGNOSTIC: Check content BEFORE processing message
-            let content_before = {
-                let txn = awareness.doc().transact();
-                if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                    fragment.get_string(&txn)
-                } else {
-                    String::from("(no fragment)")
-                }
-            };
-
-            // Use the built-in protocol handler to process the message
-            // DefaultProtocol is stateless - create new instance
-            let protocol = DefaultProtocol;
-
-            // DIAGNOSTIC: Log incoming message details
-            let msg_type = if msg_vec.is_empty() { 255 } else { msg_vec[0] };
-            trace!(msg_type, bytes = msg_vec.len(), "Processing message");
-
-            // Log sync message type for debugging
-            if msg_type == 0 && msg_vec.len() > 1 {
-                let sync_step = msg_vec[1];
-                match sync_step {
-                    0 => trace!("SYNC_STEP_1 (state vector request)"),
-                    1 => trace!("SYNC_STEP_2 (state response)"),
-                    2 => trace!(
-                        bytes = msg_vec.len() - 2,
-                        "SYNC_UPDATE (incremental change)"
-                    ),
-                    _ => trace!(sync_step, "Unknown sync step"),
-                }
-            }
-
-            match protocol.handle(&awareness, &msg_vec) {
-                Ok(messages) => {
-                    trace!(
-                        response_count = messages.len(),
-                        "protocol.handle() succeeded"
-                    );
-
-                    // DIAGNOSTIC: Check content AFTER processing message
-                    let content_after = {
-                        let txn = awareness.doc().transact();
-                        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                            fragment.get_string(&txn)
-                        } else {
-                            String::from("(no fragment)")
-                        }
-                    };
-
-                    let content_changed = content_before != content_after;
-                    if content_changed {
-                        debug!(before = %crate::utils::utf8_trunc::char_prefix(&content_before, 50),
-                            after = %crate::utils::utf8_trunc::char_prefix(&content_after, 50),
-                            "Content changed");
-                    } else if msg_type == 0 && msg_vec.len() > 1 && msg_vec[1] == 2 {
-                        // SYNC_UPDATE didn't apply - request full state from client
-                        // This happens when state vectors are misaligned (e.g., after server restart)
-                        debug!(
-                            "SYNC_UPDATE did not change content - requesting client's full state"
-                        );
-                        use yrs::sync::Message;
-                        let sync_message = Message::Sync(yrs::sync::SyncMessage::SyncStep1(
-                            StateVector::default(),
-                        ));
-                        let encoded = sync_message.encode_v1();
-                        addr.do_send(YjsMessage(Bytes::from(encoded)));
-                    }
-
-                    // Send any response messages back to the client
-                    for message in messages {
-                        let encoded = message.encode_v1();
-                        addr.do_send(YjsMessage(Bytes::from(encoded)));
-                    }
-
-                    // Broadcast the entire message to other clients
-                    app_state.broadcast(&doc_id, &session_id, &msg_vec).await;
-
-                    // Mark document as changed after sync updates (even if failed)
-                    // This ensures the backend saves whatever state it has
-                    if is_sync_message || content_changed {
-                        app_state.mark_document_changed(&doc_id).await;
-                    }
-
-                    // Track contributor only when content actually changed
-                    // This ensures revisions are only created for sessions with real edits
-                    if content_changed {
-                        app_state.add_contributor(&doc_id, user_uuid).await;
-                    }
-                }
-                Err(e) => {
-                    error!(error = ?e, "Error handling protocol message");
-                }
-            }
-        });
-    }
-}
-
-impl Actor for YjsWebSocket {
-    type Context = ws::WebsocketContext<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        info!(session_id = %self.id, doc_id = %self.doc_id,
-            heartbeat_interval_secs = HEARTBEAT_INTERVAL.as_secs(),
-            timeout_secs = (*CLIENT_TIMEOUT + Duration::from_secs(30)).as_secs(),
-            "WebSocket STARTED");
-
-        self.hb(ctx);
-
-        // Register session and send initial sync + awareness state
-        let app_state = self.app_state.clone();
-        let doc_id = self.doc_id.clone();
-        let session_id = self.id.clone();
-        let user_uuid = self.user_uuid;
-        let workspace_id = self.workspace_id;
-        let addr = ctx.address();
-        actix::spawn(async move {
-            app_state
-                .register_session(&doc_id, &session_id, addr.clone(), user_uuid)
-                .await;
-
-            // Per the yjs sync protocol spec, the server should proactively send
-            // SyncStep1 + all known awareness states to newly connected clients.
-            // This ensures the client immediately discovers other connected users.
-            //
-            // IMPORTANT: Each message must be sent as a separate WebSocket frame.
-            // y-websocket's readMessage() parses one message per frame, so packing
-            // multiple messages into a single buffer (as Protocol::start() does)
-            // would cause only the first message to be read.
-            let awareness = app_state
-                .get_or_create_awareness(&doc_id, workspace_id)
-                .await;
-            use yrs::sync::{Message, SyncMessage};
-
-            // 1. Send SyncStep1 with the server's state vector
-            let sv = awareness.doc().transact().state_vector();
-            let sync_msg = Message::Sync(SyncMessage::SyncStep1(sv));
-            addr.do_send(YjsMessage(Bytes::from(sync_msg.encode_v1())));
-
-            // 2. Send all known awareness states (other connected clients)
-            match awareness.update() {
-                Ok(awareness_update) => {
-                    let awareness_msg = Message::Awareness(awareness_update);
-                    addr.do_send(YjsMessage(Bytes::from(awareness_msg.encode_v1())));
-                    debug!(doc_id = %doc_id,
-                        "Sent initial SyncStep1 + awareness to new client");
-                }
-                Err(e) => {
-                    debug!(doc_id = %doc_id, error = ?e,
-                        "Sent SyncStep1 but no awareness states to send");
-                }
-            }
-        });
-    }
-
-    fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        let time_since_last_hb = Instant::now().duration_since(self.hb);
-        let connection_duration = Instant::now().duration_since(self.started_at);
-
-        info!(session_id = %self.id, doc_id = %self.doc_id,
-            connection_duration_secs = connection_duration.as_secs(),
-            idle_secs = time_since_last_hb.as_secs(),
-            messages_received = self.messages_received,
-            pings_sent = self.pings_sent,
-            pongs_received = self.pongs_received,
-            "WebSocket STOPPING");
-
-        // Spawn async cleanup work
-        let app_state = self.app_state.clone();
-        let doc_id = self.doc_id.clone();
-        let session_id = self.id.clone();
-        let yjs_client_id = self.yjs_client_id;
-        let workspace_id = self.workspace_id;
-
-        actix::spawn(async move {
-            // Remove the session first
-            app_state.remove_session(&doc_id, &session_id).await;
-
-            // Clean up the disconnected client's awareness state and notify remaining clients.
-            // Per the yjs protocol, disconnecting clients should propagate state=null.
-            // On abrupt disconnects (refresh, network loss), the client can't send this itself,
-            // so the server must do it.
-            if let Some(client_id) = yjs_client_id {
-                let awareness = app_state
-                    .get_or_create_awareness(&doc_id, workspace_id)
-                    .await;
-                let yrs_client_id = yrs::ClientID::new(client_id);
-                awareness.remove_state(yrs_client_id);
-
-                // Encode and broadcast the removal (state=null) to remaining clients
-                if let Ok(update) = awareness.update_with_clients([yrs_client_id]) {
-                    use yrs::sync::Message;
-                    let msg = Message::Awareness(update).encode_v1();
-                    app_state.broadcast(&doc_id, &session_id, &msg).await;
-                    debug!(doc_id = %doc_id, yjs_client_id = client_id,
-                        "Removed awareness state and notified remaining clients");
-                }
-            }
-
-            // Only force save if this was the last session in the room
-            // The periodic save task will handle regular saves
-            let should_force_save = {
-                let sessions = app_state.sessions.read().await;
-                if let Some(room) = sessions.get(&doc_id) {
-                    room.is_empty() // Only force save if room is now empty
-                } else {
-                    true // Room doesn't exist, so it was the last session
-                }
-            };
-
-            if should_force_save {
-                debug!(doc_id = %doc_id, "Last session for document, performing final save");
-                app_state.force_save_document(&doc_id).await;
-            }
-        });
-
-        Running::Stop
-    }
-}
-
-impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for YjsWebSocket {
-    fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
-        match msg {
-            Ok(ws::Message::Ping(msg)) => {
-                trace!(session_id = %self.id, "WebSocket received PING");
-                self.hb = Instant::now();
-                self.messages_received += 1;
-                ctx.pong(&msg);
-            }
-            Ok(ws::Message::Pong(_)) => {
-                trace!(session_id = %self.id, "WebSocket received PONG");
-                self.hb = Instant::now();
-                self.pongs_received += 1;
-                self.messages_received += 1;
-            }
-            Ok(ws::Message::Binary(bin)) => {
-                trace!(session_id = %self.id, bytes = bin.len(), "WebSocket received BINARY message");
-                self.hb = Instant::now();
-                self.messages_received += 1;
-
-                // Capture the yjs clientID from the first awareness message (msg type 1).
-                // This is needed to clean up the awareness state on disconnect.
-                if self.yjs_client_id.is_none() && bin.first() == Some(&1) && bin.len() > 1 {
-                    use yrs::encoding::read::Cursor;
-                    use yrs::sync::AwarenessUpdate;
-                    use yrs::updates::decoder::DecoderV1 as ADecV1;
-                    if let Ok(update) =
-                        AwarenessUpdate::decode(&mut ADecV1::new(Cursor::new(&bin[1..])))
-                    {
-                        if let Some(&client_id) = update.clients.keys().next() {
-                            // yrs 0.26 ClientID is a 53-bit newtype; store the
-                            // underlying u64 so the rest of the file (and
-                            // disconnect handler) can pass it back into
-                            // ClientID::new() without churn.
-                            let client_id_u64 = client_id.get();
-                            self.yjs_client_id = Some(client_id_u64);
-                            debug!(session_id = %self.id, yjs_client_id = client_id_u64,
-                                "Captured yjs clientID from awareness");
-                        }
-                    }
-                }
-
-                self.process_message(&bin, ctx);
-            }
-            Ok(ws::Message::Close(reason)) => {
-                debug!(session_id = %self.id, reason = ?reason, "WebSocket received CLOSE message");
-                ctx.close(reason);
-                ctx.stop();
-            }
-            Ok(ws::Message::Text(text)) => {
-                warn!(session_id = %self.id, text = %text, "WebSocket received unexpected TEXT message");
-            }
-            Ok(ws::Message::Continuation(_)) => {
-                trace!(session_id = %self.id, "WebSocket received CONTINUATION");
-            }
-            Ok(ws::Message::Nop) => {
-                trace!(session_id = %self.id, "WebSocket received NOP");
-            }
-            Err(e) => {
-                error!(session_id = %self.id, error = ?e, "WebSocket protocol error");
-                ctx.stop();
-            }
-        }
-    }
-}
-
-impl Handler<YjsMessage> for YjsWebSocket {
-    type Result = ();
-
-    fn handle(&mut self, msg: YjsMessage, ctx: &mut Self::Context) {
-        ctx.binary(msg.0);
-    }
-}
-
-// WebSocket connection handler - entry point for WebSocket requests
+/// WebSocket connection handler — entry point for WebSocket requests.
 pub async fn ws_handler(
     req: HttpRequest,
-    stream: web::Payload,
+    body: web::Payload,
     app_state: web::Data<YjsAppState>,
     ws: crate::extractors::WorkspaceContext,
     path: web::Path<String>,
@@ -1994,18 +1608,389 @@ pub async fn ws_handler(
     };
 
     debug!(doc_id = %doc_id, user_uuid = %user_uuid, workspace_id = ws.workspace_id, "WebSocket authentication successful");
-    let actor = YjsWebSocket::new(
+
+    // Hand off to actix-ws: returns (HttpResponse, Session, MessageStream).
+    // The response is returned to the framework synchronously so the
+    // 101 Upgrade lands; the session_task runs detached and owns the
+    // socket for its lifetime.
+    let (response, session, msg_stream) = actix_ws::handle(&req, body)?;
+
+    // 1 MiB frame limit (matches the old WsResponseBuilder.frame_size()).
+    // Yjs documents with history can exceed the 64 KiB default.
+    // `aggregate_continuations` collapses fragmented frames into single
+    // AggregatedMessage::{Binary,Text} so process_message sees one whole
+    // payload, matching the old StreamHandler semantics.
+    let msg_stream = msg_stream
+        .max_frame_size(1024 * 1024)
+        .aggregate_continuations()
+        .max_continuation_size(1024 * 1024);
+
+    let session_id = Uuid::now_v7().to_string();
+    let workspace_id = ws.workspace_id;
+    let app_state_inner = app_state.get_ref().clone();
+
+    actix_web::rt::spawn(session_task(
+        session_id,
         doc_id,
-        app_state.get_ref().clone(),
+        app_state_inner,
         user_uuid,
-        ws.workspace_id,
+        workspace_id,
+        session,
+        msg_stream,
+    ));
+
+    Ok(response)
+}
+
+/// Per-connection async task. Replaces the Actor + StreamHandler +
+/// Handler<YjsMessage> triplet from the actix-web-actors era.
+async fn session_task(
+    session_id: String,
+    doc_id: String,
+    app_state: YjsAppState,
+    user_uuid: Uuid,
+    workspace_id: i32,
+    mut session: actix_ws::Session,
+    mut msg_stream: actix_ws::AggregatedMessageStream,
+) {
+    let started_at = Instant::now();
+    let mut last_hb = started_at;
+    let mut messages_received: u32 = 0;
+    let mut pings_sent: u32 = 0;
+    let mut pongs_received: u32 = 0;
+    let mut yjs_client_id: Option<u64> = None;
+
+    info!(
+        session_id = %session_id, doc_id = %doc_id,
+        heartbeat_interval_secs = HEARTBEAT_INTERVAL.as_secs(),
+        timeout_secs = (*CLIENT_TIMEOUT + Duration::from_secs(30)).as_secs(),
+        "WebSocket STARTED"
     );
 
-    // Use WsResponseBuilder to configure larger frame size for Yjs documents
-    // Default is 64KB, but Yjs documents with history can grow larger
-    ws::WsResponseBuilder::new(actor, &req, stream)
-        .frame_size(1024 * 1024) // 1MB max frame size
-        .start()
+    // Per-session outbound channel. The write side lives in the
+    // YjsAppState session map (so `broadcast` can target this
+    // connection); the read side is drained by the loop below and
+    // forwarded to the wire. Unbounded because (a) sends are small,
+    // (b) sender-side backpressure would block other sessions'
+    // broadcasts, which is worse than letting one slow consumer's
+    // backlog grow.
+    let (tx, mut rx) = mpsc::unbounded_channel::<Bytes>();
+    app_state
+        .register_session(&doc_id, &session_id, tx.clone(), user_uuid)
+        .await;
+
+    // Per the yjs sync protocol spec, the server proactively sends
+    // SyncStep1 + all known awareness states to newly-connected
+    // clients. Each message goes as its own frame because
+    // y-websocket's readMessage() parses one message per frame —
+    // packing them would lose all but the first.
+    {
+        let awareness = app_state
+            .get_or_create_awareness(&doc_id, workspace_id)
+            .await;
+        use yrs::sync::{Message, SyncMessage};
+
+        let sv = awareness.doc().transact().state_vector();
+        let sync_msg = Message::Sync(SyncMessage::SyncStep1(sv));
+        let _ = tx.send(Bytes::from(sync_msg.encode_v1()));
+
+        match awareness.update() {
+            Ok(awareness_update) => {
+                let awareness_msg = Message::Awareness(awareness_update);
+                let _ = tx.send(Bytes::from(awareness_msg.encode_v1()));
+                debug!(doc_id = %doc_id, "Sent initial SyncStep1 + awareness to new client");
+            }
+            Err(e) => {
+                debug!(doc_id = %doc_id, error = ?e,
+                    "Sent SyncStep1 but no awareness states to send");
+            }
+        }
+    }
+
+    let mut heartbeat = tokio::time::interval(*HEARTBEAT_INTERVAL);
+    // First tick fires immediately; skip it so we don't ping before the
+    // client has even drained the initial sync.
+    heartbeat.tick().await;
+
+    let close_reason: Option<CloseReason> = loop {
+        tokio::select! {
+            // Outbound: broadcast payloads from `app_state.broadcast`,
+            // self-generated protocol responses, awareness updates, etc.
+            // `rx.recv()` returns None when every Sender clone is dropped,
+            // which only happens during cleanup. Send failures (peer hung
+            // up mid-flight) collapse the loop.
+            Some(out) = rx.recv() => {
+                if session.binary(out).await.is_err() {
+                    debug!(session_id = %session_id, "session.binary failed; client gone");
+                    break None;
+                }
+            }
+            // Inbound frame from the client.
+            msg = msg_stream.next() => match msg {
+                Some(Ok(AggregatedMessage::Ping(payload))) => {
+                    trace!(session_id = %session_id, "WebSocket received PING");
+                    last_hb = Instant::now();
+                    messages_received += 1;
+                    if session.pong(&payload).await.is_err() {
+                        break None;
+                    }
+                }
+                Some(Ok(AggregatedMessage::Pong(_))) => {
+                    trace!(session_id = %session_id, "WebSocket received PONG");
+                    last_hb = Instant::now();
+                    pongs_received += 1;
+                    messages_received += 1;
+                }
+                Some(Ok(AggregatedMessage::Binary(bin))) => {
+                    trace!(session_id = %session_id, bytes = bin.len(),
+                        "WebSocket received BINARY message");
+                    last_hb = Instant::now();
+                    messages_received += 1;
+
+                    // Capture the yjs clientID from the first awareness
+                    // message (msg type 1). Needed to clean up the
+                    // awareness state on disconnect.
+                    if yjs_client_id.is_none()
+                        && bin.first() == Some(&1)
+                        && bin.len() > 1
+                    {
+                        use yrs::encoding::read::Cursor;
+                        use yrs::sync::AwarenessUpdate;
+                        use yrs::updates::decoder::DecoderV1 as ADecV1;
+                        if let Ok(update) =
+                            AwarenessUpdate::decode(&mut ADecV1::new(Cursor::new(&bin[1..])))
+                        {
+                            if let Some(&client_id) = update.clients.keys().next() {
+                                let client_id_u64 = client_id.get();
+                                yjs_client_id = Some(client_id_u64);
+                                debug!(session_id = %session_id, yjs_client_id = client_id_u64,
+                                    "Captured yjs clientID from awareness");
+                            }
+                        }
+                    }
+
+                    // Process the Yjs message off the loop so heartbeat
+                    // ticks and outbound broadcasts to this session
+                    // don't stall on protocol work. Same shape as the
+                    // old `actix::spawn` inside process_message.
+                    let app_state_c = app_state.clone();
+                    let doc_id_c = doc_id.clone();
+                    let session_id_c = session_id.clone();
+                    let tx_c = tx.clone();
+                    actix_web::rt::spawn(process_inbound_binary(
+                        bin,
+                        app_state_c,
+                        doc_id_c,
+                        session_id_c,
+                        user_uuid,
+                        workspace_id,
+                        tx_c,
+                    ));
+                }
+                Some(Ok(AggregatedMessage::Text(text))) => {
+                    warn!(session_id = %session_id, text = %text,
+                        "WebSocket received unexpected TEXT message");
+                }
+                Some(Ok(AggregatedMessage::Close(reason))) => {
+                    debug!(session_id = %session_id, reason = ?reason,
+                        "WebSocket received CLOSE message");
+                    break reason;
+                }
+                Some(Err(e)) => {
+                    error!(session_id = %session_id, error = ?e, "WebSocket protocol error");
+                    break None;
+                }
+                None => {
+                    debug!(session_id = %session_id, "Inbound stream ended");
+                    break None;
+                }
+            },
+            // Heartbeat tick: send a PING and check for client timeout.
+            _ = heartbeat.tick() => {
+                let idle = Instant::now().duration_since(last_hb);
+                trace!(session_id = %session_id, idle_secs = idle.as_secs(),
+                    "WebSocket heartbeat check");
+
+                // Grace period: warn at CLIENT_TIMEOUT, disconnect at + 30s
+                if idle > *CLIENT_TIMEOUT + Duration::from_secs(30) {
+                    warn!(session_id = %session_id, idle_secs = idle.as_secs(),
+                        "WebSocket Client heartbeat TIMEOUT, disconnecting");
+                    break None;
+                }
+
+                trace!(session_id = %session_id, ping_num = pings_sent + 1,
+                    idle_secs = idle.as_secs(), "WebSocket sending PING");
+                pings_sent += 1;
+                if session.ping(b"").await.is_err() {
+                    debug!(session_id = %session_id, "session.ping failed; client gone");
+                    break None;
+                }
+
+                if idle > *CLIENT_TIMEOUT {
+                    warn!(session_id = %session_id, idle_secs = idle.as_secs(),
+                        "WebSocket Client heartbeat WARNING");
+                }
+            }
+            else => break None,
+        }
+    };
+
+    let connection_duration = Instant::now().duration_since(started_at);
+    let idle = Instant::now().duration_since(last_hb);
+    info!(
+        session_id = %session_id, doc_id = %doc_id,
+        connection_duration_secs = connection_duration.as_secs(),
+        idle_secs = idle.as_secs(),
+        messages_received, pings_sent, pongs_received,
+        "WebSocket STOPPING"
+    );
+
+    // Cleanup mirrors the old Actor::stopping logic. Drop the
+    // outbound Sender so `broadcast` invocations from other tasks
+    // don't lodge a Bytes into a channel whose receiver is gone.
+    drop(tx);
+
+    app_state.remove_session(&doc_id, &session_id).await;
+
+    // Clean up the disconnected client's awareness state and notify
+    // remaining clients. On abrupt disconnects (refresh, network loss)
+    // the client can't send this itself, so the server must.
+    if let Some(client_id) = yjs_client_id {
+        let awareness = app_state
+            .get_or_create_awareness(&doc_id, workspace_id)
+            .await;
+        let yrs_client_id = yrs::ClientID::new(client_id);
+        awareness.remove_state(yrs_client_id);
+
+        if let Ok(update) = awareness.update_with_clients([yrs_client_id]) {
+            use yrs::sync::Message;
+            let msg = Message::Awareness(update).encode_v1();
+            app_state.broadcast(&doc_id, &session_id, &msg).await;
+            debug!(doc_id = %doc_id, yjs_client_id = client_id,
+                "Removed awareness state and notified remaining clients");
+        }
+    }
+
+    // Force-save when this was the last session for the document.
+    let should_force_save = {
+        let sessions = app_state.sessions.read().await;
+        sessions
+            .get(&doc_id)
+            .map(|room| room.is_empty())
+            .unwrap_or(true)
+    };
+    if should_force_save {
+        debug!(doc_id = %doc_id, "Last session for document, performing final save");
+        app_state.force_save_document(&doc_id).await;
+    }
+
+    let _ = session.close(close_reason).await;
+}
+
+/// Process a single inbound binary frame from a client. Runs in a
+/// spawned task so the per-session loop stays responsive to
+/// heartbeat ticks and outbound broadcasts while this DB / protocol
+/// work happens. Self-replies (sync responses, fallback SyncStep1
+/// requests) flow back through `tx` rather than directly through
+/// the `Session`, so the session_task's outbound arm orders them
+/// against other broadcasts the same way it always did.
+async fn process_inbound_binary(
+    bin: Bytes,
+    app_state: YjsAppState,
+    doc_id: String,
+    session_id: String,
+    user_uuid: Uuid,
+    workspace_id: i32,
+    tx: mpsc::UnboundedSender<Bytes>,
+) {
+    if bin.is_empty() {
+        return;
+    }
+
+    let is_sync_message = bin.first() == Some(&0); // MESSAGE_SYNC
+
+    app_state
+        .update_session_activity(&doc_id, &session_id)
+        .await;
+
+    let awareness = app_state
+        .get_or_create_awareness(&doc_id, workspace_id)
+        .await;
+
+    // Diagnostic: check fragment text BEFORE protocol.handle so we can
+    // detect "content actually changed" precisely (some sync messages
+    // are no-ops).
+    let content_before = {
+        let txn = awareness.doc().transact();
+        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+            fragment.get_string(&txn)
+        } else {
+            String::from("(no fragment)")
+        }
+    };
+
+    let protocol = DefaultProtocol;
+    let msg_type = bin.first().copied().unwrap_or(255);
+    trace!(msg_type, bytes = bin.len(), "Processing message");
+
+    if msg_type == 0 && bin.len() > 1 {
+        let sync_step = bin[1];
+        match sync_step {
+            0 => trace!("SYNC_STEP_1 (state vector request)"),
+            1 => trace!("SYNC_STEP_2 (state response)"),
+            2 => trace!(bytes = bin.len() - 2, "SYNC_UPDATE (incremental change)"),
+            _ => trace!(sync_step, "Unknown sync step"),
+        }
+    }
+
+    match protocol.handle(&awareness, &bin) {
+        Ok(messages) => {
+            trace!(response_count = messages.len(), "protocol.handle() succeeded");
+
+            let content_after = {
+                let txn = awareness.doc().transact();
+                if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
+                    fragment.get_string(&txn)
+                } else {
+                    String::from("(no fragment)")
+                }
+            };
+
+            let content_changed = content_before != content_after;
+            if content_changed {
+                debug!(before = %crate::utils::utf8_trunc::char_prefix(&content_before, 50),
+                    after = %crate::utils::utf8_trunc::char_prefix(&content_after, 50),
+                    "Content changed");
+            } else if msg_type == 0 && bin.len() > 1 && bin[1] == 2 {
+                // SYNC_UPDATE didn't apply — request the client's full
+                // state. Happens when state vectors are misaligned
+                // (e.g. after server restart).
+                debug!("SYNC_UPDATE did not change content - requesting client's full state");
+                use yrs::sync::Message;
+                let sync_message =
+                    Message::Sync(yrs::sync::SyncMessage::SyncStep1(StateVector::default()));
+                let _ = tx.send(Bytes::from(sync_message.encode_v1()));
+            }
+
+            for message in messages {
+                let encoded = message.encode_v1();
+                let _ = tx.send(Bytes::from(encoded));
+            }
+
+            // Broadcast the entire inbound message to other clients.
+            app_state.broadcast(&doc_id, &session_id, &bin).await;
+
+            if is_sync_message || content_changed {
+                app_state.mark_document_changed(&doc_id).await;
+            }
+            if content_changed {
+                app_state.add_contributor(&doc_id, user_uuid).await;
+            }
+        }
+        Err(e) => {
+            error!(error = ?e, "Error handling protocol message");
+        }
+    }
 }
 
 // ============= Revision History API Endpoints =============
