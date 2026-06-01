@@ -33,6 +33,7 @@ pub mod tracing_redact;
 pub mod user;
 pub mod utf8_trunc;
 pub mod webauthn;
+pub mod workspace_slug;
 
 use crate::models::UserRole;
 use uuid::Uuid;
