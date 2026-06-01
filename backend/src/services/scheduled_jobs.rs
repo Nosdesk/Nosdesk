@@ -109,6 +109,37 @@ pub async fn msgraph_delta_sync(pool: Pool) -> Result<()> {
 /// Retention defaults to 30 days; configurable via
 /// `CSP_REPORT_RETENTION_DAYS` env var so deployments with stricter
 /// audit / compliance requirements can dial it up or down.
+/// Drop `idempotency_keys` rows past the retention window so the
+/// cache table doesn't accumulate stale rows forever. Default 24h
+/// horizon; the M5 control-plane retries either succeed within
+/// seconds-to-minutes or escalate to operator attention, so a day
+/// is plenty. Override via `IDEMPOTENCY_KEY_RETENTION_HOURS`.
+pub async fn prune_idempotency_keys(pool: Pool) -> Result<()> {
+    let hours = retention_hours("IDEMPOTENCY_KEY_RETENTION_HOURS", 24);
+    let horizon = chrono::Utc::now().naive_utc() - chrono::Duration::hours(hours.into());
+    let mut conn = pool.get().context("db pool")?;
+    let removed = crate::repository::idempotency_keys::prune_older_than(&mut conn, horizon)
+        .context("prune idempotency keys")?;
+    if removed > 0 {
+        info!(
+            count = removed,
+            retention_hours = hours,
+            "scheduler: idempotency keys pruned"
+        );
+    }
+    Ok(())
+}
+
+/// Same shape as `retention_days` but the unit is hours; used by the
+/// short-horizon caches (idempotency, etc).
+fn retention_hours(env_var: &str, default: i32) -> i32 {
+    std::env::var(env_var)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|h: &i32| *h > 0)
+        .unwrap_or(default)
+}
+
 pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
     let days = retention_days("CSP_REPORT_RETENTION_DAYS", 30);
     // csp_reports is RLS-enabled and this prune crosses every

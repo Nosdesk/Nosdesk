@@ -704,6 +704,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    idempotency_keys (key) {
+        key -> Text,
+        response_body -> Jsonb,
+        response_status -> Int2,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     import_jobs (id) {
         id -> Uuid,
         #[max_length = 32]
@@ -1885,6 +1894,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     email_suppressions,
     group_includes,
     groups,
+    idempotency_keys,
     import_jobs,
     knowledge_gap_signals,
     knowledge_gaps,

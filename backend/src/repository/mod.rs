@@ -21,6 +21,7 @@ pub mod documentation_subscriptions;
 pub mod email_suppressions;
 pub mod feature_flags;
 pub mod groups;
+pub mod idempotency_keys;
 pub mod imports;
 pub mod knowledge_gaps;
 pub mod linked_tickets;

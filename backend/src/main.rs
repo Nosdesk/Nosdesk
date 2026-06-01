@@ -1027,6 +1027,20 @@ async fn main() -> std::io::Result<()> {
             move || jobs::prune_csp_reports(p.clone()),
         );
 
+        // Hourly: prune Idempotency-Key cache rows past the retention
+        // horizon (default 24h). M5 provisioning retries either
+        // succeed in minutes or escalate to ops; old keys serve no
+        // purpose and shouldn't accumulate. Hourly instead of daily
+        // because the table is small and the sweep is cheap.
+        let p = pool.clone();
+        spawn_periodic(
+            "idempotency_keys.prune",
+            Duration::from_secs(60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::prune_idempotency_keys(p.clone()),
+        );
+
         // Every 60s: sweep expired leases on the outbound email queue.
         // A worker that crashed mid-send leaves a row in `sending` with
         // a 5-minute lease; the sweep moves expired-lease rows back to
