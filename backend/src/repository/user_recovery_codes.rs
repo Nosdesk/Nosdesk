@@ -73,6 +73,7 @@ pub fn consume_by_id(conn: &mut DbConnection, id: i64) -> Result<bool, Error> {
 /// freshly-hashed batch. Used by enrol + regenerate flows. Atomic
 /// per Postgres semantics — a failure rolls back so the user is
 /// never left with zero codes mid-rotation.
+// sync-audit-only: MFA enrol / regenerate is a private auth event; recovery code hashes never need to fan out to other workspace clients
 pub fn replace_all(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
