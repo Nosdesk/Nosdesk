@@ -152,6 +152,20 @@ pub struct Workspace {
     pub organisation_id: Option<i32>,
 }
 
+/// Insertable for a new workspace row. The product owns workspace
+/// identity per the M5 locked decision: callers must pre-generate
+/// the UUID rather than relying on the DB default so the same UUID
+/// can be mirrored into the control plane's instance row.
+/// `plan` is omitted so the DB column default (`'free'`) applies;
+/// the control plane's plan-management surface mutates it later.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::workspaces)]
+pub struct NewWorkspace {
+    pub uuid: Uuid,
+    pub slug: String,
+    pub name: String,
+}
+
 /// Per-workspace membership for a global user. A user can be a
 /// member of multiple workspaces; the role here is workspace-
 /// scoped and layered on top of the user's global role

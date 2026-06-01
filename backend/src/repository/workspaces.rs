@@ -1,21 +1,66 @@
 //! Workspace lookup + membership repository.
 //!
-//! Read-only surface for Phase 2a: the middleware needs to
-//! resolve a workspace from a slug (hosted mode) or load the
-//! bootstrap workspace at boot (self-hosted). Write paths
-//! (create / archive / lifecycle) are deferred to Phase 5.
-//!
-//! `workspaces` is a global table — it doesn't carry a
-//! workspace_id of its own. The membership join table is
-//! likewise a meta-table; the membership row IS the
-//! workspace-scope assertion for a user.
+//! Reads + the M5 internal-provisioning write path. `workspaces` is
+//! a global table — it doesn't carry a workspace_id of its own. The
+//! membership join table is likewise a meta-table; the membership
+//! row IS the workspace-scope assertion for a user.
 
 use diesel::prelude::*;
+use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{Workspace, WorkspaceMember};
+use crate::models::{NewWorkspace, Workspace, WorkspaceMember};
 use crate::schema::{workspace_members, workspaces};
+
+/// Returned by [`create_workspace`] so the caller can distinguish a
+/// slug-collision from other DB failures without parsing error
+/// strings.
+#[derive(Debug)]
+pub enum CreateWorkspaceError {
+    /// The requested slug is already taken by another (active OR
+    /// tombstoned) workspace row. UNIQUE on `workspaces.slug`
+    /// enforces this at the DB layer; we surface it as a typed
+    /// outcome so the handler can return a 409 with non-enumerable
+    /// wording instead of a 500.
+    SlugTaken,
+    Db(DieselError),
+}
+
+impl From<DieselError> for CreateWorkspaceError {
+    fn from(e: DieselError) -> Self {
+        match e {
+            DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) => Self::SlugTaken,
+            other => Self::Db(other),
+        }
+    }
+}
+
+impl std::fmt::Display for CreateWorkspaceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SlugTaken => write!(f, "slug already taken"),
+            Self::Db(e) => write!(f, "db error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for CreateWorkspaceError {}
+
+// sync-audit-only: workspaces row creation is operator-side / control-plane provisioning; never propagated through the per-workspace sync stream (the workspace doesn't exist there yet to receive it)
+/// Insert a workspace row. Caller supplies a product-generated UUID
+/// per the locked-decision in `docs/m5-product-side-handoff.md` (the
+/// product owns workspace identity; the control plane mirrors).
+/// `plan` is omitted so the DB default (`'free'`) applies.
+pub fn create_workspace(
+    conn: &mut DbConnection,
+    record: &NewWorkspace,
+) -> Result<Workspace, CreateWorkspaceError> {
+    diesel::insert_into(workspaces::table)
+        .values(record)
+        .get_result::<Workspace>(conn)
+        .map_err(CreateWorkspaceError::from)
+}
 
 /// Load a workspace by id. Returns `None` if the workspace
 /// doesn't exist or is soft-archived.
