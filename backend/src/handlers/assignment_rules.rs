@@ -6,10 +6,12 @@ use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::models::{AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, NewAssignmentRule};
+use crate::models::{
+    AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, NewAssignmentRule, WorkspaceRole,
+};
 use crate::repository;
 use crate::services::assignment::AssignmentEngine;
-use crate::utils::rbac::require_admin;
+use crate::utils::rbac::require_workspace_role;
 
 // ============================================================================
 // List Rules
@@ -17,7 +19,7 @@ use crate::utils::rbac::require_admin;
 
 /// Get all assignment rules with details (admin only)
 pub async fn get_all_rules(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -37,7 +39,7 @@ pub async fn get_rule(
     mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -86,7 +88,7 @@ pub async fn create_rule(
     auth: AuthContext,
     body: web::Json<CreateAssignmentRuleRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -209,7 +211,7 @@ pub async fn update_rule(
     path: web::Path<i32>,
     body: web::Json<UpdateAssignmentRuleRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -305,7 +307,7 @@ pub async fn delete_rule(
     mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -339,7 +341,7 @@ pub async fn reorder_rules(
     mut tc: TenantConn,
     body: web::Json<ReorderRulesRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -391,7 +393,7 @@ pub async fn preview_assignment(
     mut tc: TenantConn,
     body: web::Json<PreviewAssignmentRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -463,7 +465,7 @@ pub async fn preview_assignment(
 
 /// Get recent assignment logs (admin only)
 pub async fn get_assignment_logs(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 

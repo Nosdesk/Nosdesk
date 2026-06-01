@@ -178,7 +178,21 @@ pub struct TestFixtures;
 
 impl TestFixtures {
     /// Insert a minimal user and return it.
+    ///
+    /// Also seeds a `workspace_members` row in the bootstrap workspace
+    /// (id=1) so post-W2 gates (`require_workspace_role`) resolve
+    /// against the role the test wants. Mapping: Admin → admin,
+    /// Technician → agent, User → member, AuditReviewer → member.
+    /// Handler-level unit tests' cfg(test) fallback in
+    /// `require_workspace_role` pins workspace_id to 1.
     pub fn create_user(conn: &mut DbConnection, name: &str, role: UserRole) -> User {
+        // Mirror the W2 backfill rule: role=admin → platform_admin,
+        // anything else → user. Without this the DB default ('user')
+        // wins and admin-gated handlers reject the test caller.
+        let platform_role = match role {
+            UserRole::Admin => Some("platform_admin".to_string()),
+            _ => None,
+        };
         let new_user = NewUser {
             uuid: Uuid::new_v4(),
             name: name.to_string(),
@@ -191,13 +205,32 @@ impl TestFixtures {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-            platform_role: None,
+            platform_role,
         };
 
-        diesel::insert_into(users::table)
+        let user: User = diesel::insert_into(users::table)
             .values(&new_user)
             .get_result(conn)
-            .expect("Failed to create test user")
+            .expect("Failed to create test user");
+
+        let workspace_role = match role {
+            UserRole::Admin => "admin",
+            UserRole::Technician => "agent",
+            UserRole::User => "member",
+            UserRole::AuditReviewer => "member",
+        };
+        diesel::insert_into(crate::schema::workspace_members::table)
+            .values((
+                crate::schema::workspace_members::workspace_id.eq(1),
+                crate::schema::workspace_members::user_uuid.eq(user.uuid),
+                crate::schema::workspace_members::role.eq(workspace_role),
+                crate::schema::workspace_members::accepted_at.eq(Some(chrono::Utc::now())),
+            ))
+            .on_conflict_do_nothing()
+            .execute(conn)
+            .expect("seed workspace_members for test user");
+
+        user
     }
 
     /// Insert a group and return it.

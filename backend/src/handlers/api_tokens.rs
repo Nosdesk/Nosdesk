@@ -9,13 +9,13 @@ use uuid::Uuid;
 
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::models::{Claims, CreateApiTokenRequest};
+use crate::models::{Claims, CreateApiTokenRequest, WorkspaceRole};
 use crate::repository::api_tokens;
-use crate::utils::rbac::require_admin;
+use crate::utils::rbac::require_workspace_role;
 
 /// List all API tokens (admin only)
 pub async fn list_api_tokens(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -39,7 +39,7 @@ pub async fn create_api_token(
     mut tc: TenantConn,
     body: web::Json<CreateApiTokenRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -127,7 +127,7 @@ pub async fn get_api_token(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -167,7 +167,7 @@ pub async fn revoke_api_token(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 

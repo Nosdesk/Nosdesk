@@ -289,7 +289,10 @@ pub fn insert_user(conn: &mut PgConnection, name: &str) -> backend::models::User
         mfa_secret: None,
         mfa_secret_kek_id: None,
         mfa_enabled: false,
-        platform_role: None,
+        // Mirror the W2 backfill: role=Admin → platform_admin.
+        // Without this the DB default ('user') wins and platform-
+        // admin-gated handlers reject the test caller.
+        platform_role: Some("platform_admin".to_string()),
     };
     diesel::insert_into(users::table)
         .values(&new_user)

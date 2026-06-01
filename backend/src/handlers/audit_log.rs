@@ -10,6 +10,7 @@
 
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
+use crate::models::WorkspaceRole;
 use crate::repository::audit_log as repo;
 use crate::utils::rbac;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
@@ -55,7 +56,7 @@ pub async fn list(
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
 

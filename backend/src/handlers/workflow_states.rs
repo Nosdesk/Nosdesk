@@ -18,9 +18,10 @@ use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::models::{
     Claims, NewWorkflowState, WorkflowState, WorkflowStateCategory, WorkflowStateUpdate,
+    WorkspaceRole,
 };
 use crate::repository::workflow_states as repo;
-use crate::utils::rbac::require_admin;
+use crate::utils::rbac::require_workspace_role;
 
 #[derive(Debug, Serialize)]
 pub struct WorkflowStatesResponse {
@@ -84,7 +85,7 @@ pub async fn create(
     body: web::Json<CreateBody>,
     req: HttpRequest,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -159,7 +160,7 @@ pub async fn patch(
     req: HttpRequest,
 ) -> impl Responder {
     let id = path.into_inner();
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -218,7 +219,7 @@ pub async fn patch(
 /// DELETE /api/admin/workflow-states/{id}
 pub async fn archive(mut tc: TenantConn, path: web::Path<i32>, req: HttpRequest) -> impl Responder {
     let id = path.into_inner();
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 

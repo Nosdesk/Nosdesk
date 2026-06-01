@@ -5,10 +5,9 @@
 //! platform-scoped API token from the control plane. This one is keyed
 //! on a logged-in admin user's session/JWT.
 //!
-//! Auth gate is currently `require_admin` (global `users.role = admin`).
-//! W2 will rename `users.role` to `users.platform_role` and swap this
-//! gate to `require_platform_admin`. The handlers themselves don't
-//! change at that point.
+//! Auth gate is `require_platform_admin`, the W2 successor to the
+//! legacy `require_admin` that read the now-deprecated `users.role`
+//! column. The handlers themselves don't otherwise differ.
 //!
 //! Every write path uses [`PlatformConn`](crate::extractors::PlatformConn)
 //! so the `nosdesk_admin` BYPASSRLS role handles the cross-tenant
@@ -67,7 +66,7 @@ pub async fn list_workspaces(
     mut pc: PlatformConn,
     query: web::Query<ListWorkspacesQuery>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     match pc.run(|conn| workspaces::list_workspaces(conn, query.include_archived)) {
@@ -93,7 +92,7 @@ pub async fn create_workspace(
     mut pc: PlatformConn,
     body: web::Json<CreateWorkspaceRequest>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     let CreateWorkspaceRequest { slug, name } = body.into_inner();
@@ -146,7 +145,7 @@ pub async fn rename_workspace(
     path: web::Path<i32>,
     body: web::Json<RenameWorkspaceRequest>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     let id = path.into_inner();
@@ -173,7 +172,7 @@ pub async fn archive_workspace(
     mut pc: PlatformConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     let id = path.into_inner();
@@ -195,7 +194,7 @@ pub async fn restore_workspace(
     mut pc: PlatformConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     let id = path.into_inner();
@@ -227,7 +226,7 @@ pub async fn hard_delete_workspace(
     path: web::Path<i32>,
     query: web::Query<HardDeleteQuery>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     let id = path.into_inner();
@@ -289,10 +288,9 @@ pub async fn hard_delete_workspace(
 // =====================================================================
 //
 // Mounted under /api/admin/workspaces/{id}/members. Gated on
-// require_admin today (W2 will swap to require_platform_admin once
-// the legacy column comes out); workspace-admin-side member
-// management lives on a separate route under /api/workspaces/{id}/
-// members in a later workstream.
+// require_platform_admin; workspace-admin-side member management
+// lives on a separate route under /api/workspaces/{id}/members in a
+// later workstream.
 
 #[derive(Debug, Serialize)]
 struct MemberSummary {
@@ -320,7 +318,7 @@ pub async fn list_members(
     mut pc: PlatformConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     let workspace_id = path.into_inner();
@@ -358,7 +356,7 @@ pub async fn add_member(
     path: web::Path<i32>,
     body: web::Json<AddMemberRequest>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     let workspace_id = path.into_inner();
@@ -445,7 +443,7 @@ pub async fn update_member_role(
     path: web::Path<(i32, Uuid)>,
     body: web::Json<UpdateMemberRoleRequest>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     let (workspace_id, user_uuid) = path.into_inner();
@@ -486,7 +484,7 @@ pub async fn remove_member(
     mut pc: PlatformConn,
     path: web::Path<(i32, Uuid)>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
     let (workspace_id, user_uuid) = path.into_inner();

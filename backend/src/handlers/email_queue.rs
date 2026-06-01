@@ -8,10 +8,11 @@
 //! - `POST   /api/admin/email-queue/{id}/cancel` — operator action: mark
 //!   suppressed with a "cancelled by admin" reason
 //!
-//! All admin-gated via the standard `require_admin` flow.
+//! All workspace-admin-gated via `rbac::require_workspace_role`.
 
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
+use crate::models::WorkspaceRole;
 use crate::repository::outbound_emails as repo;
 use crate::utils::rbac;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
@@ -99,7 +100,7 @@ pub async fn list(
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
 
@@ -163,7 +164,7 @@ pub struct StatusCount {
 
 /// `GET /api/admin/email-queue/stats` — top stats card data.
 pub async fn stats(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     // Fold both counts into one tc.run so they ride a single RLS
@@ -198,7 +199,7 @@ pub async fn retry_now(
     mut tc: TenantConn,
     path: web::Path<i64>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();
@@ -214,7 +215,7 @@ pub async fn retry_now(
 
 /// `POST /api/admin/email-queue/{id}/cancel` — mark suppressed.
 pub async fn cancel(req: HttpRequest, mut tc: TenantConn, path: web::Path<i64>) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();

@@ -17,10 +17,10 @@ use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::models::{
     CannedResponse, CannedResponseStarter, CannedResponseUpdate, NewCannedResponse,
-    NewCannedResponseInsertion,
+    NewCannedResponseInsertion, WorkspaceRole,
 };
 use crate::repository::canned_responses as repo;
-use crate::utils::rbac::require_admin;
+use crate::utils::rbac::require_workspace_role;
 use crate::utils::template_variables::{unknown_variables, CANNED_RESPONSE_VARIABLES};
 
 /// Body for `POST /api/canned-responses`. Validation is trivial —
@@ -85,7 +85,7 @@ pub async fn create_canned(
     body: web::Json<CreateRequest>,
     req: HttpRequest,
 ) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let creator = req
@@ -135,7 +135,7 @@ pub async fn update_canned(
     body: web::Json<UpdateRequest>,
     req: HttpRequest,
 ) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();
@@ -185,7 +185,7 @@ pub async fn delete_canned(
     path: web::Path<i32>,
     req: HttpRequest,
 ) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();
@@ -259,7 +259,7 @@ pub async fn record_insertion(
 /// to avoid being shadowed by the sibling `{id}` route under
 /// Actix's `.route()` chain ordering.
 pub async fn starter_catalog(req: HttpRequest) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     HttpResponse::Ok().json(starters::CATALOG)

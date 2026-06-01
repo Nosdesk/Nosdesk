@@ -19,11 +19,11 @@ use tracing::{error, info, warn};
 use crate::db::DbConnection;
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::models::{Channel, ChannelUpdate, NewChannel, CRED_TYPE_IMAP_PASSWORD};
+use crate::models::{Channel, ChannelUpdate, NewChannel, WorkspaceRole, CRED_TYPE_IMAP_PASSWORD};
 use crate::repository::channels as channels_repo;
 use crate::services::channels::email_imap::{test_imap_connection, ImapChannelConfig};
 use crate::services::channels::supervisor::ChannelControl;
-use crate::utils::rbac::require_admin;
+use crate::utils::rbac::require_workspace_role;
 
 // ---------- Response / request DTOs ----------
 
@@ -132,7 +132,7 @@ fn validate_config(provider: &str, config: &JsonValue) -> Result<(), String> {
 
 /// GET /api/admin/channels
 pub async fn list_channels(mut tc: TenantConn, req: HttpRequest) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     // Fold list + per-row credential probe into one transaction so
@@ -158,7 +158,7 @@ pub async fn get_channel(
     path: web::Path<i32>,
     req: HttpRequest,
 ) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();
@@ -185,7 +185,7 @@ pub async fn create_channel(
     control: web::Data<ChannelControl>,
     req: HttpRequest,
 ) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
 
@@ -264,7 +264,7 @@ pub async fn update_channel(
     control: web::Data<ChannelControl>,
     req: HttpRequest,
 ) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let channel_id = path.into_inner();
@@ -348,7 +348,7 @@ pub async fn delete_channel(
     control: web::Data<ChannelControl>,
     req: HttpRequest,
 ) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let channel_id = path.into_inner();
@@ -377,7 +377,7 @@ pub async fn clear_credential(
     control: web::Data<ChannelControl>,
     req: HttpRequest,
 ) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let channel_id = path.into_inner();
@@ -416,7 +416,7 @@ pub async fn test_connection(
     body: web::Json<TestConnectionRequest>,
     req: HttpRequest,
 ) -> HttpResponse {
-    if let Err(resp) = require_admin(&req) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let channel_id = path.into_inner();

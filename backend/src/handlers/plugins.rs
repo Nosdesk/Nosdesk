@@ -17,7 +17,7 @@ use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{
     Claims, PluginActivityResponse, PluginResponse, PluginSettingResponse, PluginStorageResponse,
-    SetPluginDataRequest, UpdatePluginRequest,
+    SetPluginDataRequest, UpdatePluginRequest, WorkspaceRole,
 };
 use crate::repository::plugin_publishers;
 use crate::repository::plugins as plugin_repo;
@@ -25,7 +25,7 @@ use crate::services::plugins::{install, registry, signing, trust};
 use crate::sync::actor::ActorContext;
 use crate::sync::session as actor_session;
 use crate::utils::encryption;
-use crate::utils::rbac::require_admin;
+use crate::utils::rbac::{require_auth, require_workspace_role};
 
 /// Query parameters for pagination
 #[derive(Debug, Deserialize)]
@@ -132,7 +132,7 @@ fn workspace_pinned_actor(req: &HttpRequest, system_ref: &'static str) -> ActorC
 
 /// List all plugins (admin only)
 pub async fn list_plugins(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -201,7 +201,7 @@ pub async fn get_plugin(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -255,7 +255,7 @@ pub async fn update_plugin(
     path: web::Path<Uuid>,
     body: web::Json<UpdatePluginRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -376,7 +376,10 @@ pub async fn uninstall_plugin(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    let claims = match require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
+    let claims = match require_auth(&req) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -472,7 +475,7 @@ pub async fn get_plugin_settings(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -514,7 +517,7 @@ pub async fn set_plugin_setting(
     path: web::Path<Uuid>,
     body: web::Json<SetPluginDataRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -599,7 +602,7 @@ pub async fn delete_plugin_setting(
     mut tc: TenantConn,
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -792,7 +795,7 @@ pub async fn get_plugin_activity(
     path: web::Path<Uuid>,
     query: web::Query<PaginationQuery>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -1019,7 +1022,7 @@ pub async fn install_plugin_from_zip(
     pool: web::Data<Pool>,
     mut payload: Multipart,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
     if !web_sideload_enabled() {
@@ -1202,7 +1205,7 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
 /// each gated endpoint. Admin-only because the flags hint at the
 /// instance's threat-model posture.
 pub async fn get_admin_config(req: HttpRequest) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
     HttpResponse::Ok().json(serde_json::json!({
@@ -1217,7 +1220,7 @@ pub async fn get_admin_config(req: HttpRequest) -> impl Responder {
 /// detector), and the top-5 publishers by install count for
 /// revocation-blast-radius visibility.
 pub async fn get_signing_overview(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -1247,7 +1250,7 @@ pub async fn get_registry(
     req: HttpRequest,
     cache: web::Data<registry::SharedCache>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
     if registry::configured_url().is_none() {
@@ -1282,7 +1285,7 @@ pub async fn refresh_registry(
     pool: web::Data<Pool>,
     cache: web::Data<registry::SharedCache>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
     let base_url = match registry::configured_url() {
@@ -1338,7 +1341,7 @@ pub async fn install_from_registry(
     cache: web::Data<registry::SharedCache>,
     body: web::Json<InstallFromRegistryRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
     let claims = match req.extensions().get::<Claims>().cloned() {

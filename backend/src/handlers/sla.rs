@@ -26,25 +26,18 @@
 //!
 //! All writes gate on admin via the AuthContext.
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use diesel::prelude::*;
 use serde::Serialize;
 use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::models::{SlaPolicy, Ticket, WorkflowState};
+use crate::models::{SlaPolicy, Ticket, WorkflowState, WorkspaceRole};
 use crate::repository::sla_admin::{
     self, SlaPolicyBody, WorkingCalendarBody, WorkingCalendarHolidayBody,
 };
-
-fn require_admin(auth: &AuthContext) -> Option<HttpResponse> {
-    if auth.is_admin() {
-        None
-    } else {
-        Some(errors::forbidden("Admin role required"))
-    }
-}
+use crate::utils::rbac::require_workspace_role;
 
 // ---- Policies ----
 
@@ -62,8 +55,9 @@ pub async fn create_policy(
     mut tc: TenantConn,
     body: web::Json<SlaPolicyBody>,
     auth: AuthContext,
+    req: HttpRequest,
 ) -> impl Responder {
-    if let Some(resp) = require_admin(&auth) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let actor_uuid = auth.user_uuid;
@@ -80,9 +74,10 @@ pub async fn update_policy(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SlaPolicyBody>,
-    auth: AuthContext,
+    _auth: AuthContext,
+    req: HttpRequest,
 ) -> impl Responder {
-    if let Some(resp) = require_admin(&auth) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();
@@ -98,9 +93,10 @@ pub async fn update_policy(
 pub async fn delete_policy(
     mut tc: TenantConn,
     path: web::Path<i32>,
-    auth: AuthContext,
+    _auth: AuthContext,
+    req: HttpRequest,
 ) -> impl Responder {
-    if let Some(resp) = require_admin(&auth) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();
@@ -129,8 +125,9 @@ pub async fn create_calendar(
     mut tc: TenantConn,
     body: web::Json<WorkingCalendarBody>,
     auth: AuthContext,
+    req: HttpRequest,
 ) -> impl Responder {
-    if let Some(resp) = require_admin(&auth) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let actor_uuid = auth.user_uuid;
@@ -147,9 +144,10 @@ pub async fn update_calendar(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<WorkingCalendarBody>,
-    auth: AuthContext,
+    _auth: AuthContext,
+    req: HttpRequest,
 ) -> impl Responder {
-    if let Some(resp) = require_admin(&auth) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();
@@ -165,9 +163,10 @@ pub async fn update_calendar(
 pub async fn delete_calendar(
     mut tc: TenantConn,
     path: web::Path<i32>,
-    auth: AuthContext,
+    _auth: AuthContext,
+    req: HttpRequest,
 ) -> impl Responder {
-    if let Some(resp) = require_admin(&auth) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();
@@ -201,9 +200,10 @@ pub async fn create_holiday(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<WorkingCalendarHolidayBody>,
-    auth: AuthContext,
+    _auth: AuthContext,
+    req: HttpRequest,
 ) -> impl Responder {
-    if let Some(resp) = require_admin(&auth) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let calendar_id = path.into_inner();
@@ -223,9 +223,10 @@ pub async fn create_holiday(
 pub async fn delete_holiday(
     mut tc: TenantConn,
     path: web::Path<i32>,
-    auth: AuthContext,
+    _auth: AuthContext,
+    req: HttpRequest,
 ) -> impl Responder {
-    if let Some(resp) = require_admin(&auth) {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let id = path.into_inner();
@@ -267,9 +268,13 @@ pub async fn policy_match_counts(mut tc: TenantConn, _auth: AuthContext) -> impl
 /// partitioned by pill state. Gated to technicians + admins so the
 /// dashboard widget can show "3 breached, 7 at risk" at a glance
 /// without exposing workspace-level urgency to end-users.
-pub async fn workspace_summary(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    if !auth.is_technician_or_admin() {
-        return errors::forbidden("Technician or admin role required");
+pub async fn workspace_summary(
+    mut tc: TenantConn,
+    _auth: AuthContext,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Agent) {
+        return resp;
     }
     let result = tc
         .run(|conn| crate::services::sla::scan_open_ticket_buckets(conn, POLICY_MATCH_SCAN_LIMIT));

@@ -6,9 +6,9 @@ use tracing::debug;
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
-use crate::models::{NewProject, ProjectUpdate};
+use crate::models::{NewProject, ProjectUpdate, WorkspaceRole};
 use crate::repository;
-use crate::utils::rbac::{require_admin, require_technician_or_admin};
+use crate::utils::rbac::require_workspace_role;
 
 #[derive(Deserialize)]
 pub struct GetProjectQuery {
@@ -71,7 +71,7 @@ pub async fn create_project(
     mut tc: TenantConn,
     project: web::Json<NewProject>,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
@@ -88,7 +88,7 @@ pub async fn update_project(
     path: web::Path<i32>,
     project_update: web::Json<ProjectUpdate>,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
@@ -108,7 +108,7 @@ pub async fn delete_project(
     mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -161,7 +161,7 @@ pub async fn add_ticket_to_project(
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<SseState>,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
@@ -199,7 +199,7 @@ pub async fn remove_ticket_from_project(
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<SseState>,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
@@ -245,7 +245,7 @@ pub async fn update_ticket_order(
     path: web::Path<i32>,
     body: web::Json<UpdateTicketOrderRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_technician_or_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 

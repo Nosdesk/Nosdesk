@@ -13,11 +13,11 @@ use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{
     CreateWebhookRequest, UpdateWebhookRequest, Webhook, WebhookCreatedResponse,
-    WebhookDeliveryResponse, WebhookResponse, WebhookUpdate,
+    WebhookDeliveryResponse, WebhookResponse, WebhookUpdate, WorkspaceRole,
 };
 use crate::repository::webhooks as webhook_repo;
 use crate::services::webhooks::{generate_secret, WebhookEventType, WebhookService};
-use crate::utils::rbac::require_admin;
+use crate::utils::rbac::require_workspace_role;
 
 /// Query parameters for pagination
 #[derive(Debug, Deserialize)]
@@ -74,7 +74,7 @@ fn validate_events(events: &[String]) -> Result<(), HttpResponse> {
 
 /// List all webhooks (admin only)
 pub async fn list_webhooks(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -97,7 +97,7 @@ pub async fn create_webhook(
     auth: AuthContext,
     body: web::Json<CreateWebhookRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -154,7 +154,7 @@ pub async fn create_webhook(
 
 /// Get available event types
 pub async fn get_event_types(req: HttpRequest) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -167,7 +167,7 @@ pub async fn get_webhook(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -190,7 +190,7 @@ pub async fn update_webhook(
     path: web::Path<Uuid>,
     body: web::Json<UpdateWebhookRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -259,7 +259,7 @@ pub async fn delete_webhook(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -291,7 +291,7 @@ pub async fn get_deliveries(
     path: web::Path<Uuid>,
     query: web::Query<PaginationQuery>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -347,7 +347,7 @@ pub async fn test_webhook(
     webhook_service: web::Data<WebhookService>,
     path: web::Path<Uuid>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 

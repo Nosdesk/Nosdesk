@@ -5,11 +5,11 @@ use uuid::Uuid;
 
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::models::{Claims, GroupUpdate, NewGroup};
+use crate::models::{Claims, GroupUpdate, NewGroup, WorkspaceRole};
 use crate::repository;
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
-use crate::utils::rbac::require_admin;
+use crate::utils::rbac::require_workspace_role;
 
 // ============================================================================
 // Group Detail Endpoint (All authenticated users)
@@ -47,7 +47,7 @@ pub async fn get_group_details(
 
 /// Get all groups with member counts
 pub async fn get_all_groups(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -63,7 +63,7 @@ pub async fn get_group(
     mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -92,7 +92,7 @@ pub async fn create_group(
     mut tc: TenantConn,
     body: web::Json<CreateGroupRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -127,7 +127,7 @@ pub async fn update_group(
     path: web::Path<i32>,
     body: web::Json<GroupUpdate>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -149,7 +149,7 @@ pub async fn delete_group(
     mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -175,7 +175,7 @@ pub async fn unmanage_group(
     mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -231,7 +231,7 @@ pub async fn set_group_members(
     path: web::Path<i32>,
     body: web::Json<SetGroupMembersRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -316,7 +316,7 @@ pub async fn set_user_groups(
     path: web::Path<String>,
     body: web::Json<SetUserGroupsRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -359,7 +359,7 @@ pub async fn get_group_includes(
     mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -394,7 +394,7 @@ pub async fn set_group_includes(
     path: web::Path<i32>,
     body: web::Json<SetGroupIncludesRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -471,7 +471,7 @@ pub async fn set_group_devices(
     path: web::Path<i32>,
     body: web::Json<SetGroupDevicesRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 

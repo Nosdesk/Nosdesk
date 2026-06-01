@@ -34,6 +34,12 @@ mod common;
 
 fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: UserRole) -> User {
     use backend::schema::users;
+    // Mirror the W2 backfill rule so role=Admin gets platform_admin
+    // instead of the DB default 'user'.
+    let platform_role = match role {
+        UserRole::Admin => Some("platform_admin".to_string()),
+        _ => None,
+    };
     let new_user = NewUser {
         uuid: uuid::Uuid::new_v4(),
         name: name.to_string(),
@@ -46,7 +52,7 @@ fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: UserRole) ->
         mfa_secret: None,
         mfa_secret_kek_id: None,
         mfa_enabled: false,
-        platform_role: None,
+        platform_role,
     };
     diesel::insert_into(users::table)
         .values(&new_user)

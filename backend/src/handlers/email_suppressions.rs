@@ -5,9 +5,9 @@
 //!   POST   /api/admin/email-suppressions          add manually
 //!   DELETE /api/admin/email-suppressions/{email}  remove one
 //!
-//! Admin-gated via `rbac::require_admin`; no per-tech access (a tech
-//! seeing the suppression list could reveal email addresses they
-//! shouldn't know about).
+//! Workspace-admin-gated via `rbac::require_workspace_role`; no
+//! per-agent access (an agent seeing the suppression list could
+//! reveal email addresses they shouldn't know about).
 
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use chrono::{DateTime, Utc};
@@ -16,7 +16,9 @@ use tracing::warn;
 
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::models::{email_suppression_reason, EmailSuppression, NewEmailSuppression};
+use crate::models::{
+    email_suppression_reason, EmailSuppression, NewEmailSuppression, WorkspaceRole,
+};
 use crate::repository::email_suppressions as repo;
 use crate::utils::rbac;
 
@@ -65,7 +67,7 @@ pub async fn list(
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
@@ -114,7 +116,7 @@ pub async fn create(
     mut tc: TenantConn,
     body: web::Json<CreateBody>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let email = body.email.trim().to_string();
@@ -140,7 +142,7 @@ pub async fn delete(
     mut tc: TenantConn,
     path: web::Path<String>,
 ) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
     let email = path.into_inner();

@@ -4,9 +4,9 @@ use serde::Deserialize;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::models::{NewTicketCategory, TicketCategoryUpdate};
+use crate::models::{NewTicketCategory, TicketCategoryUpdate, WorkspaceRole};
 use crate::repository;
-use crate::utils::rbac::require_admin;
+use crate::utils::rbac::require_workspace_role;
 
 // ============================================================================
 // Category Endpoints for Regular Users
@@ -30,7 +30,7 @@ pub async fn get_categories(mut tc: TenantConn, auth: AuthContext) -> impl Respo
 
 /// Get all categories with visibility info (admin only)
 pub async fn get_all_categories_admin(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -46,7 +46,7 @@ pub async fn get_category_admin(
     mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -77,7 +77,7 @@ pub async fn create_category(
     auth: AuthContext,
     body: web::Json<CreateCategoryRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -170,7 +170,7 @@ pub async fn update_category(
     path: web::Path<i32>,
     body: web::Json<UpdateCategoryRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -243,7 +243,7 @@ pub async fn delete_category(
     mut tc: TenantConn,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -279,7 +279,7 @@ pub async fn reorder_categories(
     mut tc: TenantConn,
     body: web::Json<ReorderCategoriesRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
@@ -319,7 +319,7 @@ pub async fn set_category_visibility(
     path: web::Path<i32>,
     body: web::Json<SetCategoryVisibilityRequest>,
 ) -> impl Responder {
-    if let Err(e) = require_admin(&req) {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 

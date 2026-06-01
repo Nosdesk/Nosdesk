@@ -26,7 +26,7 @@ use crate::extractors::{PlatformConn, TenantConn};
 #[allow(unused_imports)]
 use crate::handlers; // keep helpers reachable for tests
 use crate::handlers::errors;
-use crate::models::{Claims, NewCspReport};
+use crate::models::{Claims, NewCspReport, WorkspaceRole};
 use crate::repository::csp_reports as repo;
 use crate::utils::rbac;
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
@@ -287,7 +287,7 @@ pub async fn report_violation(
 
 /// Admin: list recent aggregated violations.
 pub async fn list_violations(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(resp) = rbac::require_admin(&req) {
+    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
         return resp;
     }
 

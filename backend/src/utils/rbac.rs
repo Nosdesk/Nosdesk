@@ -188,10 +188,24 @@ pub fn require_workspace_role(
     let workspace_id = match workspace_id {
         Some(id) => id,
         None => {
-            return Err(HttpResponse::InternalServerError().json(json!({
-                "error": "Internal server error",
-                "message": "WorkspaceContext missing — route is mis-wired"
-            })));
+            // Handler-level unit tests build a minimal App without
+            // WorkspaceContextMiddleware (see TenantConn for the
+            // mirror pattern). Fall back to the bootstrap workspace
+            // so the gate can still be exercised against the
+            // workspace_members row claims_for() seeds. Gated to
+            // cfg(test) so a production route mis-wiring fails
+            // fast with a 500 instead of silently degrading.
+            #[cfg(test)]
+            {
+                1
+            }
+            #[cfg(not(test))]
+            {
+                return Err(HttpResponse::InternalServerError().json(json!({
+                    "error": "Internal server error",
+                    "message": "WorkspaceContext missing — route is mis-wired"
+                })));
+            }
         }
     };
 
