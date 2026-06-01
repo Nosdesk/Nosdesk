@@ -429,6 +429,20 @@ export const useAuthStore = defineStore('auth', () => {
       logger.error('Failed to reset workflow states on logout', e);
     }
 
+    try {
+      const { useMyWorkspacesStore } = await import('@/stores/myWorkspaces');
+      useMyWorkspacesStore().reset();
+    } catch (e) {
+      logger.error('Failed to reset workspace memberships on logout', e);
+    }
+
+    try {
+      const { resetWorkspaceCapabilities } = await import('@/composables/useWorkspaceCapabilities');
+      resetWorkspaceCapabilities();
+    } catch (e) {
+      logger.error('Failed to reset workspace capabilities on logout', e);
+    }
+
     // Tear down the sync runtime so a different user signing in
     // afterwards doesn't briefly see the previous user's pool. The
     // IDB handle is closed here; per-user database scoping means a

@@ -19,6 +19,7 @@ import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
 import Icon from "@/components/common/Icon.vue";
 import UnreadBadge from "@/components/common/UnreadBadge.vue";
+import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.vue";
 
 // Global search
 const { openSearch } = useGlobalSearch();
@@ -372,6 +373,8 @@ const isOverflowRouteActive = computed(() =>
                     :aria-label="$t('nav-logo-alt-collapsed')"
                 />
             </RouterLink>
+
+            <WorkspaceSwitcher :collapsed="isCollapsed" />
 
             <!-- Search Button - above nav links -->
             <button
