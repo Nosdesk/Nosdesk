@@ -621,6 +621,22 @@ const router = createRouter({
           component: () => import('../views/ApiTokensView.vue'),
           meta: { titleKey: 'route-title-admin-api-tokens' }
         },
+        // Workspaces lifecycle + member management (Phase 4 W1/W3).
+        // Both views are scaffolded stubs — data layer wired, template
+        // ready for Cursor to flesh out the UI.
+        {
+          path: 'workspaces',
+          name: 'admin-workspaces',
+          component: () => import('../views/admin/AdminWorkspacesView.vue'),
+          meta: { titleKey: 'route-title-admin-workspaces' }
+        },
+        {
+          path: 'workspaces/:id(\\d+)/members',
+          name: 'admin-workspace-members',
+          component: () => import('../views/admin/AdminWorkspaceMembersView.vue'),
+          props: true,
+          meta: { titleKey: 'route-title-admin-workspace-members' }
+        },
         {
           path: 'canned-responses',
           name: 'admin-canned-responses',

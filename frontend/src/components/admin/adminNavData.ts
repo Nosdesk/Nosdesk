@@ -161,6 +161,13 @@ export const adminNavGroups: AdminNavGroup[] = [
     labelKey: 'admin-nav-group-system',
     items: [
       {
+        titleKey: 'admin-nav-workspaces-title',
+        descriptionKey: 'admin-nav-workspaces-description',
+        icon: 'folder',
+        route: '/admin/workspaces',
+        keywords: ['workspaces', 'tenants', 'lifecycle', 'archive', 'members', 'multi-tenant']
+      },
+      {
         titleKey: 'admin-nav-guest-access-title',
         descriptionKey: 'admin-nav-guest-access-description',
         icon: 'user',
