@@ -1,10 +1,14 @@
-//! Workspace lookup + membership repository.
+//! Workspace lookup + membership + lifecycle repository.
 //!
-//! Reads + the M5 internal-provisioning write path. `workspaces` is
-//! a global table — it doesn't carry a workspace_id of its own. The
-//! membership join table is likewise a meta-table; the membership
-//! row IS the workspace-scope assertion for a user.
+//! Reads, the M5 internal-provisioning write path, and the Phase 4
+//! W1 admin lifecycle ops (archive / restore / rename / hard-delete).
+//! `workspaces` is a global table — it doesn't carry a workspace_id
+//! of its own. The membership join table is likewise a meta-table;
+//! the membership row IS the workspace-scope assertion for a user.
 
+use std::time::Duration;
+
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use uuid::Uuid;
@@ -168,4 +172,303 @@ pub fn add_membership(
     .bind::<diesel::sql_types::Uuid, _>(user_uuid)
     .bind::<diesel::sql_types::Text, _>(role)
     .execute(conn)
+}
+
+// =====================================================================
+// Phase 4 W1: workspace lifecycle ops
+// =====================================================================
+
+/// List every workspace. `include_archived = false` filters out
+/// soft-archived rows (the admin UI default); `true` returns all
+/// rows so the admin can see the tombstoned set before hard delete.
+pub fn list_workspaces(
+    conn: &mut DbConnection,
+    include_archived: bool,
+) -> QueryResult<Vec<Workspace>> {
+    let mut query = workspaces::table.into_boxed();
+    if !include_archived {
+        query = query.filter(workspaces::archived_at.is_null());
+    }
+    query.order(workspaces::id.asc()).load(conn)
+}
+
+// sync-audit-only: workspace lifecycle is operator-side; the workspace itself disappearing isn't an event the tenant's sync stream can carry
+/// Soft-archive a workspace. Sets `archived_at = NOW()` and returns
+/// the updated row. The workspace stops appearing in routing
+/// lookups (`find_by_slug` / `find_by_custom_domain` / `find_by_id`
+/// all filter `archived_at IS NULL`) but rows persist so an
+/// accidental archive is reversible until the grace window elapses
+/// and the scheduler hard-deletes. Returns `Ok(None)` if no row
+/// matches `id` (already gone, or never existed).
+pub fn archive_workspace(
+    conn: &mut DbConnection,
+    id: i32,
+) -> QueryResult<Option<Workspace>> {
+    diesel::update(workspaces::table.filter(workspaces::id.eq(id)))
+        .set(workspaces::archived_at.eq(Some(Utc::now())))
+        .get_result::<Workspace>(conn)
+        .optional()
+}
+
+// sync-audit-only: workspace lifecycle is operator-side
+/// Clear `archived_at` so the workspace is routable again. Used by
+/// the admin restore path when an archive was accidental. Safe to
+/// call on an already-active workspace (idempotent — the column is
+/// already NULL so this is a no-op write).
+pub fn restore_workspace(
+    conn: &mut DbConnection,
+    id: i32,
+) -> QueryResult<Option<Workspace>> {
+    diesel::update(workspaces::table.filter(workspaces::id.eq(id)))
+        .set(workspaces::archived_at.eq::<Option<DateTime<Utc>>>(None))
+        .get_result::<Workspace>(conn)
+        .optional()
+}
+
+// sync-audit-only: workspace lifecycle is operator-side
+/// Rename a workspace. Only the display `name` changes — the slug
+/// is intentionally not editable here (it has DNS implications +
+/// drives link rot). Returns the updated row, or `Ok(None)` if no
+/// workspace matched `id`.
+pub fn rename_workspace(
+    conn: &mut DbConnection,
+    id: i32,
+    new_name: &str,
+) -> QueryResult<Option<Workspace>> {
+    diesel::update(workspaces::table.filter(workspaces::id.eq(id)))
+        .set(workspaces::name.eq(new_name))
+        .get_result::<Workspace>(conn)
+        .optional()
+}
+
+/// Default grace window between archive and hard delete.
+const DEFAULT_HARD_DELETE_GRACE_DAYS: u64 = 30;
+
+/// Grace window between `archived_at` and irreversible delete.
+/// Reads `WORKSPACE_HARD_DELETE_GRACE_DAYS` from the environment,
+/// falling back to 30 days. The scheduler reads this on every tick
+/// so operators can change it without a restart.
+pub fn purge_grace_window() -> Duration {
+    let days = std::env::var("WORKSPACE_HARD_DELETE_GRACE_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_HARD_DELETE_GRACE_DAYS);
+    Duration::from_secs(days * 24 * 60 * 60)
+}
+
+/// List archived workspaces whose grace window has elapsed and are
+/// therefore eligible for hard delete. `cutoff` is the latest
+/// `archived_at` value that still qualifies (i.e. the function
+/// returns rows with `archived_at <= cutoff`). The scheduler
+/// computes `cutoff = NOW() - purge_grace_window()` and passes it
+/// in so the value is testable.
+pub fn list_workspaces_pending_purge(
+    conn: &mut DbConnection,
+    cutoff: DateTime<Utc>,
+) -> QueryResult<Vec<Workspace>> {
+    workspaces::table
+        .filter(workspaces::archived_at.is_not_null())
+        .filter(workspaces::archived_at.le(Some(cutoff)))
+        .order(workspaces::archived_at.asc())
+        .load(conn)
+}
+
+// sync-audit-only: workspace lifecycle is operator-side
+/// Hard-delete a workspace. Refuses unless the row is archived AND
+/// its `archived_at` is older than `cutoff` — the cutoff guard is
+/// part of the WHERE clause so a race against a restore can't
+/// purge a freshly-active workspace. Cascades via the existing
+/// `ON DELETE CASCADE` FKs on every tenant table; no manual
+/// cascade logic here. Returns the number of rows deleted (0 if
+/// the workspace was never archived, never existed, or the
+/// archived_at predates the cutoff).
+pub fn hard_delete_workspace(
+    conn: &mut DbConnection,
+    id: i32,
+    cutoff: DateTime<Utc>,
+) -> QueryResult<usize> {
+    diesel::delete(
+        workspaces::table
+            .filter(workspaces::id.eq(id))
+            .filter(workspaces::archived_at.is_not_null())
+            .filter(workspaces::archived_at.le(Some(cutoff))),
+    )
+    .execute(conn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sync::actor::ActorContext;
+    use crate::sync::session::with_actor_bypass_context;
+    use crate::test_helpers::setup_test_pool;
+
+    /// Workspaces lifecycle writes require the `nosdesk_admin`
+    /// BYPASSRLS role; `nosdesk_app` only has SELECT on the
+    /// workspaces table (see migration `2026-05-24-140000_tighten_app_grants`).
+    /// Production handlers go through `PlatformConn::run` which
+    /// wraps every closure in `with_actor_bypass_context`; the
+    /// unit tests do the same so they exercise the realistic shape.
+    fn as_admin<T, E>(
+        conn: &mut DbConnection,
+        f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<diesel::result::Error>,
+    {
+        let actor = ActorContext::system("test:repo:workspaces");
+        with_actor_bypass_context(conn, &actor, f)
+    }
+
+    fn fresh_workspace(conn: &mut DbConnection, slug: &str) -> Workspace {
+        let record = NewWorkspace {
+            uuid: Uuid::now_v7(),
+            slug: slug.to_string(),
+            name: format!("Workspace {slug}"),
+        };
+        as_admin(conn, |c| create_workspace(c, &record)).expect("create workspace")
+    }
+
+    #[test]
+    fn archive_sets_archived_at_and_hides_from_find() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let ws = fresh_workspace(&mut conn, "archtest");
+        assert!(ws.archived_at.is_none());
+
+        let archived = as_admin(&mut conn, |c| archive_workspace(c, ws.id))
+            .expect("archive")
+            .expect("row updated");
+        assert!(archived.archived_at.is_some());
+
+        // find_by_slug filters archived rows out.
+        let lookup = find_by_slug(&mut conn, "archtest").expect("find");
+        assert!(lookup.is_none(), "archived workspace should not resolve by slug");
+    }
+
+    #[test]
+    fn restore_clears_archived_at() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let ws = fresh_workspace(&mut conn, "restoretest");
+        as_admin(&mut conn, |c| archive_workspace(c, ws.id)).expect("archive");
+
+        let restored = as_admin(&mut conn, |c| restore_workspace(c, ws.id))
+            .expect("restore")
+            .expect("row updated");
+        assert!(restored.archived_at.is_none());
+        assert!(find_by_slug(&mut conn, "restoretest").expect("find").is_some());
+    }
+
+    #[test]
+    fn rename_changes_name_only() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let ws = fresh_workspace(&mut conn, "renametest");
+        let renamed = as_admin(&mut conn, |c| rename_workspace(c, ws.id, "New Display Name"))
+            .expect("rename")
+            .expect("row updated");
+        assert_eq!(renamed.name, "New Display Name");
+        assert_eq!(renamed.slug, ws.slug, "slug must not change");
+    }
+
+    #[test]
+    fn hard_delete_refuses_unarchived_row() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let ws = fresh_workspace(&mut conn, "noarchive");
+        let n = as_admin(&mut conn, |c| hard_delete_workspace(c, ws.id, Utc::now()))
+            .expect("hard-delete query");
+        assert_eq!(n, 0, "active workspace must not be hard-deleted");
+        assert!(find_by_id(&mut conn, ws.id).expect("find").is_some());
+    }
+
+    #[test]
+    fn hard_delete_refuses_inside_grace_window() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let ws = fresh_workspace(&mut conn, "gracewindow");
+        as_admin(&mut conn, |c| archive_workspace(c, ws.id)).expect("archive");
+
+        // Cutoff is 1 hour ago; the workspace was just archived, so
+        // its archived_at is newer than the cutoff. Delete refuses.
+        let cutoff = Utc::now() - chrono::Duration::hours(1);
+        let n = as_admin(&mut conn, |c| hard_delete_workspace(c, ws.id, cutoff))
+            .expect("hard-delete query");
+        assert_eq!(n, 0, "freshly-archived workspace must survive cutoff");
+    }
+
+    #[test]
+    fn hard_delete_succeeds_past_grace_window() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let ws = fresh_workspace(&mut conn, "purgable");
+        as_admin(&mut conn, |c| archive_workspace(c, ws.id)).expect("archive");
+
+        // Cutoff is in the future, so every archived row qualifies.
+        let cutoff = Utc::now() + chrono::Duration::hours(1);
+        let n = as_admin(&mut conn, |c| hard_delete_workspace(c, ws.id, cutoff))
+            .expect("hard-delete query");
+        assert_eq!(n, 1);
+        assert!(find_by_id(&mut conn, ws.id).expect("find").is_none());
+    }
+
+    #[test]
+    fn list_pending_purge_filters_by_cutoff() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let _active = fresh_workspace(&mut conn, "stayactive");
+        let archived = fresh_workspace(&mut conn, "willpurge");
+        as_admin(&mut conn, |c| archive_workspace(c, archived.id)).expect("archive");
+
+        let pending = as_admin(&mut conn, |c| {
+            list_workspaces_pending_purge(c, Utc::now() + chrono::Duration::hours(1))
+        })
+        .expect("list pending");
+        assert!(pending.iter().any(|w| w.id == archived.id));
+        assert!(
+            !pending.iter().any(|w| w.slug == "stayactive"),
+            "active workspaces must not appear in pending-purge list"
+        );
+    }
+
+    #[test]
+    fn list_workspaces_excludes_archived_by_default() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let active = fresh_workspace(&mut conn, "listactive");
+        let archived = fresh_workspace(&mut conn, "listarchived");
+        as_admin(&mut conn, |c| archive_workspace(c, archived.id)).expect("archive");
+
+        let visible = list_workspaces(&mut conn, false).expect("list");
+        assert!(visible.iter().any(|w| w.id == active.id));
+        assert!(!visible.iter().any(|w| w.id == archived.id));
+
+        let all = list_workspaces(&mut conn, true).expect("list all");
+        assert!(all.iter().any(|w| w.id == active.id));
+        assert!(all.iter().any(|w| w.id == archived.id));
+    }
+
+    #[test]
+    fn purge_grace_window_reads_env_var() {
+        // Default when unset.
+        std::env::remove_var("WORKSPACE_HARD_DELETE_GRACE_DAYS");
+        assert_eq!(
+            purge_grace_window(),
+            Duration::from_secs(DEFAULT_HARD_DELETE_GRACE_DAYS * 86_400)
+        );
+
+        // Honors the override.
+        std::env::set_var("WORKSPACE_HARD_DELETE_GRACE_DAYS", "7");
+        assert_eq!(purge_grace_window(), Duration::from_secs(7 * 86_400));
+        std::env::remove_var("WORKSPACE_HARD_DELETE_GRACE_DAYS");
+    }
 }

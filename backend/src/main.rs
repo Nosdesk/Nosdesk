@@ -1122,6 +1122,19 @@ async fn main() -> std::io::Result<()> {
             move || jobs::purge_soft_deleted_users(p.clone(), s.clone(), sse.clone()),
         );
 
+        // Daily: hard-delete workspaces whose archive grace window
+        // (default 30 days, `WORKSPACE_HARD_DELETE_GRACE_DAYS` to
+        // override) has elapsed. Mirrors purge_soft_deleted_users;
+        // BYPASSRLS role for the cross-tenant cascade.
+        let p = pool.clone();
+        spawn_periodic(
+            "workspaces.purge_archived",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::purge_archived_workspaces(p.clone()),
+        );
+
         // Daily: backfill avatar thumbnails missing on disk or unset in
         // the DB. Restores rebuild thumbnails eagerly (they're not in the
         // backup payload); this is the idempotent safety net that heals
@@ -1465,6 +1478,17 @@ async fn main() -> std::io::Result<()> {
                     // Branding configuration (admin only)
                     .route("/admin/branding/config", web::get().to(handlers::branding::get_branding_config))
                     .route("/admin/branding/config", web::patch().to(handlers::branding::update_branding_config))
+
+                    // Workspace lifecycle (admin only, Phase 4 W1).
+                    // GET / POST list + create; per-id rename /
+                    // archive / restore / hard-delete. Hard-delete
+                    // requires ?confirm=<slug> matching the row.
+                    .route("/admin/workspaces", web::get().to(handlers::admin_workspaces::list_workspaces))
+                    .route("/admin/workspaces", web::post().to(handlers::admin_workspaces::create_workspace))
+                    .route("/admin/workspaces/{id}", web::patch().to(handlers::admin_workspaces::rename_workspace))
+                    .route("/admin/workspaces/{id}", web::delete().to(handlers::admin_workspaces::hard_delete_workspace))
+                    .route("/admin/workspaces/{id}/archive", web::post().to(handlers::admin_workspaces::archive_workspace))
+                    .route("/admin/workspaces/{id}/restore", web::post().to(handlers::admin_workspaces::restore_workspace))
 
                     // Guest access controls (admin only)
                     .route("/admin/guest-settings", web::get().to(handlers::guest_settings::get_guest_settings))

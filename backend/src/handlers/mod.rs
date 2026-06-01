@@ -33,6 +33,7 @@ pub mod guest_settings;
 pub mod health;
 pub mod helpers;
 pub mod image_proxy;
+pub mod admin_workspaces;
 pub mod imports;
 pub mod internal_workspaces;
 pub mod invitation;

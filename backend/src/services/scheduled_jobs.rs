@@ -363,6 +363,79 @@ pub async fn purge_soft_deleted_users(
     Ok(())
 }
 
+/// Hard-delete archived workspaces whose grace window has elapsed
+/// (Phase 4 W1). Mirrors `purge_soft_deleted_users`: BYPASSRLS role
+/// elevation for the cross-tenant DELETE, per-row error isolation,
+/// system-actor audit attribution. Cascade-deletes every tenant row
+/// via the existing ON DELETE CASCADE FKs.
+///
+/// Grace window default is 30 days; operators override via
+/// `WORKSPACE_HARD_DELETE_GRACE_DAYS`. See
+/// `repository::workspaces::purge_grace_window` for the precedence.
+pub async fn purge_archived_workspaces(pool: Pool) -> Result<()> {
+    let mut conn = pool.get().context("db pool")?;
+    let grace = crate::repository::workspaces::purge_grace_window();
+    let cutoff = chrono::Utc::now()
+        - chrono::Duration::from_std(grace).unwrap_or(chrono::Duration::days(30));
+    let pending =
+        crate::repository::workspaces::list_workspaces_pending_purge(&mut conn, cutoff)
+            .context("list workspaces pending purge")?;
+    if pending.is_empty() {
+        return Ok(());
+    }
+
+    // Workspace hard-delete is intrinsically cross-tenant: the
+    // cascading DELETE touches every tenant table at once. We need
+    // the nosdesk_admin BYPASSRLS role for the txn so RLS doesn't
+    // hide rows from the cascade.
+    let actor = crate::sync::actor::ActorContext::system("scheduler:workspace_purge");
+    let mut purged = 0usize;
+    let mut failed = 0usize;
+    for ws in pending {
+        let result = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |conn| crate::repository::workspaces::hard_delete_workspace(conn, ws.id, cutoff),
+        );
+        match result {
+            Ok(n) if n > 0 => {
+                purged += 1;
+                info!(
+                    workspace_id = ws.id,
+                    slug = %ws.slug,
+                    archived_at = ?ws.archived_at,
+                    "scheduler:workspace_purge: hard-deleted"
+                );
+            }
+            Ok(_) => {
+                // Race against a restore that fired between the
+                // list and the delete. Not an error.
+                info!(
+                    workspace_id = ws.id,
+                    slug = %ws.slug,
+                    "scheduler:workspace_purge: skipped (no longer eligible)"
+                );
+            }
+            Err(e) => {
+                failed += 1;
+                warn!(
+                    workspace_id = ws.id,
+                    slug = %ws.slug,
+                    error = ?e,
+                    "scheduler:workspace_purge: delete failed (will retry next tick)"
+                );
+            }
+        }
+    }
+    info!(
+        purged,
+        failed,
+        grace_days = grace.as_secs() / 86_400,
+        "scheduler: archived workspaces sweep complete"
+    );
+    Ok(())
+}
+
 const SLA_BREACH_ACTOR_REF: &str = "scheduler:sla_breach";
 /// Per-tick cap on each timer scan. With both response + resolution
 /// scans running, a workspace can process up to 2×LIMIT breaches per
