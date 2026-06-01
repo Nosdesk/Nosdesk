@@ -492,7 +492,7 @@ pub async fn cleanup_temp_files(req: actix_web::HttpRequest) -> actix_web::Resul
         None => return Ok(errors::unauthorized("Authentication required")),
     };
 
-    if claims.role != "admin" {
+    if !crate::utils::rbac::is_platform_admin(&claims) {
         return Ok(errors::forbidden(
             "Only administrators can cleanup temp files",
         ));

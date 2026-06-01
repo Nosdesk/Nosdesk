@@ -83,8 +83,7 @@ pub async fn get_auth_providers(db_pool: web::Data<Pool>, req: HttpRequest) -> i
         Err(_) => return errors::unauthorized("Authentication required"),
     };
 
-    // Check if the user is an admin
-    if claims.role != "admin" {
+    if !crate::utils::rbac::is_platform_admin(&claims) {
         return errors::forbidden("Only administrators can manage authentication providers");
     }
 

@@ -16,6 +16,7 @@ use crate::models::{
 use crate::repository::backup as backup_repo;
 use crate::services::avatar_thumbnails::{backfill_thumbnails, BackfillMode};
 use crate::services::backup as backup_service;
+use crate::utils::rbac::is_platform_admin;
 
 /// Start a backup export job
 /// POST /api/admin/backup/export
@@ -32,7 +33,7 @@ pub async fn start_export(
     };
 
     // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
 
@@ -138,7 +139,7 @@ pub async fn get_jobs(mut tc: TenantConn, req: actix_web::HttpRequest) -> impl R
     };
 
     // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
 
@@ -166,7 +167,7 @@ pub async fn get_job(
     };
 
     // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
 
@@ -196,7 +197,7 @@ pub async fn download_backup(
     };
 
     // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
 
@@ -254,7 +255,7 @@ pub async fn upload_restore(
     };
 
     // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
 
@@ -366,7 +367,7 @@ pub async fn preview_restore(
     };
 
     // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
 
@@ -422,7 +423,7 @@ pub async fn execute_restore(
     };
 
     // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
 
@@ -572,7 +573,7 @@ pub async fn delete_job(
     };
 
     // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
 

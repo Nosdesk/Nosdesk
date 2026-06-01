@@ -83,7 +83,7 @@ pub fn admin_user_conn(
 ) -> Result<(Claims, User, DbConnection), HttpResponse> {
     let (claims, _caller_uuid, mut conn) = auth_conn(req, pool)?;
 
-    if claims.role != "admin" {
+    if !crate::utils::rbac::is_platform_admin(&claims) {
         return Err(errors::forbidden("Admin access required"));
     }
 

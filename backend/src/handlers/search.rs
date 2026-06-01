@@ -13,6 +13,7 @@ use crate::repository::search_query_log;
 use crate::services::search::{EntityType, SearchQuery, SearchService};
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
+use crate::utils::rbac::{is_platform_admin, is_technician_or_admin};
 
 /// Search across all indexed entities
 ///
@@ -58,12 +59,12 @@ pub async fn search(
 
     // Internal-note hits are gated by role. Admin and Technician
     // need them for triage / search-as-you-think workflows; end-
-    // users (UserRole::User, serialised in claims as "user") must
-    // never see them via full-text search. Unknown / future roles
-    // default to staff-equivalent here because the migration adds
-    // them to the privileged tier; revisit if non-staff roles
-    // expand.
-    let include_internal = !matches!(claims.role.as_str(), "user");
+    // users must never see them via full-text search. Unknown /
+    // future roles default to staff-equivalent here because the
+    // migration adds them to the privileged tier; revisit if
+    // non-staff roles expand.
+    let is_end_user = !is_technician_or_admin(&claims);
+    let include_internal = !is_end_user;
 
     match search_service.search(&query, include_internal) {
         Ok(mut response) => {
@@ -72,7 +73,7 @@ pub async fn search(
             // visibility predicate matches every ticket). Comment
             // hits are filtered by the parent ticket id parsed out
             // of the result URL (`/tickets/{id}`).
-            if claims.role.as_str() == "user" {
+            if is_end_user {
                 use crate::repository::ticket_visibility::{self, VisibilityContext};
 
                 let vis_opt = VisibilityContext::from_claims(&claims);
@@ -188,8 +189,7 @@ pub async fn rebuild_index(
         None => return errors::unauthorized("Authentication required"),
     };
 
-    // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         warn!(user = %claims.sub, "Non-admin user attempted to rebuild search index");
         return errors::forbidden("Admin access required");
     }
@@ -264,8 +264,7 @@ pub async fn get_stats(
         None => return errors::unauthorized("Authentication required"),
     };
 
-    // Check if user is admin
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Admin access required");
     }
 

@@ -293,7 +293,7 @@ pub async fn get_user_groups(
         None => return errors::unauthorized("Authentication required"),
     };
 
-    if claims.sub != user_uuid_str && claims.role != "admin" {
+    if claims.sub != user_uuid_str && !crate::utils::rbac::is_platform_admin(&claims) {
         return errors::forbidden("Not authorized to access this resource");
     }
 

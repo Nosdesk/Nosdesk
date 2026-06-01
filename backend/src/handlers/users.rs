@@ -14,6 +14,7 @@ use crate::db::DbConnection;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword};
+use crate::utils::rbac::is_platform_admin;
 use crate::repository;
 use crate::repository::user_emails as user_emails_repo;
 use crate::services::search::indexing_tasks;
@@ -836,7 +837,7 @@ fn require_admin_target(
         .get::<crate::models::Claims>()
         .cloned()
         .ok_or_else(|| errors::unauthorized("Authentication required"))?;
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return Err(errors::forbidden(
             "Only administrators can perform this action",
         ));
@@ -1125,7 +1126,7 @@ pub async fn get_user_auth_identities_by_uuid(
     };
 
     // Ensure the user is authorized (either accessing their own identities or is an admin)
-    if claims.sub != user_uuid && claims.role != "admin" {
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
         warn!(requesting_user = %claims.sub, target_user = %user_uuid, "Authorization failed: user tried to access identities of another user");
         return errors::forbidden("Not authorized to access this resource");
     }
@@ -1235,7 +1236,7 @@ pub async fn delete_user_auth_identity_by_uuid(
     };
 
     // Ensure the user is authorized (either accessing their own identities or is an admin)
-    if claims.sub != user_uuid && claims.role != "admin" {
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
         return errors::forbidden("Not authorized to access this resource");
     }
 
@@ -1548,7 +1549,7 @@ pub async fn cleanup_stale_images(
         None => return errors::unauthorized("Authentication required"),
     };
 
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Only administrators can cleanup stale images");
     }
 
@@ -1643,7 +1644,7 @@ pub async fn regenerate_avatar_thumbnails(
         None => return errors::unauthorized("Authentication required"),
     };
 
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Only administrators can regenerate thumbnails");
     }
 
@@ -1809,7 +1810,7 @@ pub async fn update_user_by_uuid(
     };
 
     // Authorization: Users can only update their own profile, admins can update anyone
-    if claims.sub != user_uuid && claims.role != "admin" {
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
         return errors::forbidden("You can only update your own profile");
     }
 
@@ -2091,7 +2092,7 @@ pub async fn get_user_emails(
     };
 
     // Check authorization (user can access their own emails, admins can access any)
-    if claims.sub != user_uuid && claims.role != "admin" {
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
         return errors::forbidden("Not authorized to access this resource");
     }
 
@@ -2136,7 +2137,7 @@ pub async fn add_user_email(
     };
 
     // Authorization: Users can only add emails to their own account, admins can add to anyone
-    if claims.sub != user_uuid && claims.role != "admin" {
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
         return errors::forbidden("Not authorized");
     }
 
@@ -2213,7 +2214,7 @@ pub async fn update_user_email(
     };
 
     // Authorization
-    if claims.sub != user_uuid && claims.role != "admin" {
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
         return errors::forbidden("Not authorized");
     }
 
@@ -2283,7 +2284,7 @@ pub async fn delete_user_email(
     };
 
     // Authorization
-    if claims.sub != user_uuid && claims.role != "admin" {
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
         return errors::forbidden("Not authorized");
     }
 
@@ -2348,7 +2349,7 @@ pub async fn resend_invitation(
     };
 
     // Only admins can resend invitations
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden("Only administrators can resend invitations");
     }
 
@@ -2474,7 +2475,7 @@ pub async fn get_user_with_emails(
     };
 
     // Check authorization
-    if claims.sub != user_uuid && claims.role != "admin" {
+    if claims.sub != user_uuid && !is_platform_admin(&claims) {
         return errors::forbidden("Not authorized to access this resource");
     }
 
@@ -2611,7 +2612,7 @@ pub async fn bulk_users(
     };
 
     // Only admins can perform bulk operations
-    if claims.role != "admin" {
+    if !is_platform_admin(&claims) {
         return errors::forbidden(
             "Forbidden: Only administrators can perform bulk user operations",
         );
@@ -2772,7 +2773,7 @@ pub async fn get_user_security_info(
     let target_uuid_str = path.into_inner();
 
     // Authorization: self or admin
-    if claims.sub != target_uuid_str && claims.role != "admin" {
+    if claims.sub != target_uuid_str && !is_platform_admin(&claims) {
         return errors::forbidden("Not authorized to access this resource");
     }
 

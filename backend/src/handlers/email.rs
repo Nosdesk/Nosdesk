@@ -21,8 +21,7 @@ pub async fn get_email_config(_tc: TenantConn, req: HttpRequest) -> impl Respond
         None => return errors::unauthorized("Authentication required"),
     };
 
-    // Check if the user is an admin
-    if claims.role != "admin" {
+    if !crate::utils::rbac::is_platform_admin(&claims) {
         return errors::forbidden("Only administrators can view email configuration");
     }
 
@@ -61,8 +60,7 @@ pub async fn send_test_email(
         None => return errors::unauthorized("Authentication required"),
     };
 
-    // Check if the user is an admin
-    if claims.role != "admin" {
+    if !crate::utils::rbac::is_platform_admin(&claims) {
         return errors::forbidden("Only administrators can send test emails");
     }
 
