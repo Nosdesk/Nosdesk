@@ -86,7 +86,11 @@ function autoSizeBounds(): { min: number; max: number } | null {
 // scrollHeight against the natural content size; otherwise removing
 // content wouldn't shrink the field. Then clamp the next height to
 // the [min, max] range, treating the user's last drag as a floor.
-function resize(): void {
+//
+// Named `autoGrow` rather than `resize` because the latter is also
+// the prop name on this component; `vue/no-dupe-keys` flags the
+// collision since either could be referenced from the template.
+function autoGrow(): void {
   if (props.maxRows === 0 && manualMinHeight.value === null) return;
   const el = textareaRef.value;
   if (!el) return;
@@ -99,11 +103,11 @@ function resize(): void {
 }
 
 onMounted(() => {
-  void nextTick(resize);
+  void nextTick(autoGrow);
 });
 
 watch(model, () => {
-  void nextTick(resize);
+  void nextTick(autoGrow);
 });
 
 // --- Custom drag-to-resize -------------------------------------
