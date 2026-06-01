@@ -150,6 +150,13 @@ pub struct Workspace {
     /// organisations-as-parent-of-workspaces tier. NULL on
     /// every workspace today.
     pub organisation_id: Option<i32>,
+    /// Customer-owned hostname (e.g. `support.acme.com`) that
+    /// routes to this workspace. NULL when the workspace is
+    /// reached via its `<slug>.nosdesk.app` subdomain only.
+    /// Managed by the control plane via the
+    /// `PATCH /api/internal/v1/workspaces/{slug}/custom-domain`
+    /// endpoint (M5 Task 5).
+    pub custom_domain: Option<String>,
 }
 
 /// Insertable for a new workspace row. The product owns workspace

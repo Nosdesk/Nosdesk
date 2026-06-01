@@ -84,6 +84,39 @@ pub fn find_by_slug(conn: &mut DbConnection, slug: &str) -> QueryResult<Option<W
         .optional()
 }
 
+/// Load a workspace by its custom domain hostname (e.g.
+/// `support.acme.com`). Used by the hosted-mode middleware to
+/// route requests on customer-owned domains to their workspace
+/// (M5 Task 5). Returns `None` for hostnames not mapped to any
+/// active workspace; the middleware falls back to the subdomain
+/// lookup on miss.
+pub fn find_by_custom_domain(
+    conn: &mut DbConnection,
+    hostname: &str,
+) -> QueryResult<Option<Workspace>> {
+    workspaces::table
+        .filter(workspaces::custom_domain.eq(hostname))
+        .filter(workspaces::archived_at.is_null())
+        .first(conn)
+        .optional()
+}
+
+// sync-audit-only: control-plane provisioning callback; never propagated through the per-workspace sync stream
+/// Set or clear the custom-domain hostname for the workspace
+/// matching `slug`. `None` clears the field; `Some(host)` sets it
+/// (UNIQUE constraint enforces no two workspaces share the same
+/// hostname). Returns the updated workspace row.
+pub fn update_custom_domain(
+    conn: &mut DbConnection,
+    slug: &str,
+    hostname: Option<&str>,
+) -> QueryResult<Option<Workspace>> {
+    diesel::update(workspaces::table.filter(workspaces::slug.eq(slug)))
+        .set(workspaces::custom_domain.eq(hostname))
+        .get_result::<Workspace>(conn)
+        .optional()
+}
+
 /// Check whether a user is a member of a given workspace.
 /// Returns the membership row when present, `None` otherwise.
 /// Wired into the cookie auth middleware as a 403 short-circuit

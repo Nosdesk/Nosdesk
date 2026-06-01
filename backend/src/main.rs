@@ -1415,6 +1415,10 @@ async fn main() -> std::io::Result<()> {
                         "/workspaces/{slug}/upsert_projected_user",
                         web::post().to(handlers::internal_workspaces::upsert_projected_user),
                     )
+                    .route(
+                        "/workspaces/{slug}/custom-domain",
+                        web::patch().to(handlers::internal_workspaces::set_custom_domain),
+                    )
             )
 
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===

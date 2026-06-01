@@ -1658,6 +1658,7 @@ diesel::table! {
         created_at -> Timestamptz,
         archived_at -> Nullable<Timestamptz>,
         organisation_id -> Nullable<Int4>,
+        custom_domain -> Nullable<Text>,
     }
 }
 

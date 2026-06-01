@@ -15,33 +15,79 @@
 //!   and lets existing single-tenant deployments upgrade
 //!   without any operational change.
 //!
-//! - **`hosted`**: parse the `Host` header, extract the
-//!   subdomain segment, look the workspace up by slug. If the
-//!   subdomain is empty (apex domain) or doesn't resolve to a
-//!   workspace, no context is attached — apex-domain routes
-//!   take `Option<WorkspaceContext>` and handle that case;
+//! - **`hosted`**: parse the `Host` header, look up the workspace
+//!   in two passes: (1) full-hostname match against
+//!   `workspaces.custom_domain` for customers on Standard tier
+//!   with their own domain; (2) subdomain match against
+//!   `workspaces.slug` for the default `<slug>.nosdesk.app` shape.
+//!   If neither matches, no context is attached — apex-domain
+//!   routes take `Option<WorkspaceContext>` and handle that;
 //!   workspace-required routes get a 404 via the extractor.
 //!
-//! 2a is the skeleton: middleware runs, context lands in
-//! extensions, but no handler reads it yet. Behaviour is
-//! preserved end-to-end. 2c-d wire handlers + repos.
-//!
-//! Caching: per-request DB lookups on every hosted request
-//! are wasteful but tractable for 2a. 2e introduces a moka
-//! cache keyed by slug with a short TTL.
+//! Caching: a 60-second TTL DashMap keyed by either `host:<full
+//! hostname>` or `slug:<subdomain>` so a busy tenant doesn't
+//! hit Postgres on every request. The custom-domain PATCH
+//! endpoint (M5 Task 5) invalidates the relevant entries so a
+//! freshly-verified domain routes correctly within one request
+//! rather than waiting up to 60s.
 
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     web, Error, HttpMessage,
 };
+use dashmap::DashMap;
 use futures::future::LocalBoxFuture;
+use once_cell::sync::Lazy;
 use std::future::{ready, Ready};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tracing::warn;
 
 use crate::db::Pool;
 use crate::extractors::WorkspaceContext;
 use crate::repository::workspaces as workspace_repo;
+
+/// Process-wide TTL cache for workspace lookups. Keys are
+/// `host:<full hostname>` (custom-domain matches) or
+/// `slug:<subdomain>` (default-subdomain matches). Negative-cache
+/// entries (lookups that resolved to None) are NOT stored — we'd
+/// rather pay the DB roundtrip than serve "unknown workspace" from
+/// a cached miss after the operator just provisioned the slug.
+struct CachedContext {
+    ctx: WorkspaceContext,
+    expires: Instant,
+}
+
+static WORKSPACE_CACHE: Lazy<DashMap<String, CachedContext>> = Lazy::new(DashMap::new);
+const CACHE_TTL: Duration = Duration::from_secs(60);
+
+fn cache_get(key: &str) -> Option<WorkspaceContext> {
+    let entry = WORKSPACE_CACHE.get(key)?;
+    if entry.expires > Instant::now() {
+        Some(entry.ctx.clone())
+    } else {
+        None
+    }
+}
+
+fn cache_put(key: String, ctx: WorkspaceContext) {
+    WORKSPACE_CACHE.insert(
+        key,
+        CachedContext {
+            ctx,
+            expires: Instant::now() + CACHE_TTL,
+        },
+    );
+}
+
+/// Drop a cache entry. Called by the custom-domain PATCH handler
+/// (M5 Task 5) so a freshly-set or cleared hostname routes
+/// correctly on the next request. The pattern can be either
+/// `host:<hostname>` or `slug:<slug>`; cleared mappings call this
+/// with the previous hostname so the stale entry doesn't linger.
+pub fn invalidate_cache_key(key: &str) {
+    WORKSPACE_CACHE.remove(key);
+}
 
 /// Deployment topology. Drives whether workspace context comes
 /// from a process-wide bootstrap (self-hosted) or per-request
@@ -194,12 +240,23 @@ async fn resolve_context(
     match config.mode {
         DeploymentMode::SelfHosted => config.bootstrap.as_deref().cloned(),
         DeploymentMode::Hosted => {
-            let host = req
+            let host_raw = req
                 .headers()
                 .get(actix_web::http::header::HOST)?
                 .to_str()
                 .ok()?;
-            let slug = subdomain_from_host(host)?;
+            // Normalise: strip port, lowercase. Host headers are
+            // case-insensitive per RFC 7230 §5.4 but we store
+            // `custom_domain` lowercase, so normalise the lookup
+            // key to match.
+            let host_no_port = host_raw.split(':').next()?.to_ascii_lowercase();
+
+            // --- Pass 1: custom-domain full-hostname match ---
+            let host_key = format!("host:{host_no_port}");
+            if let Some(ctx) = cache_get(&host_key) {
+                return Some(ctx);
+            }
+
             let pool = req.app_data::<web::Data<Pool>>()?;
             let mut conn = match pool.get() {
                 Ok(c) => c,
@@ -208,17 +265,36 @@ async fn resolve_context(
                     return None;
                 }
             };
+
+            if let Ok(Some(ws)) = workspace_repo::find_by_custom_domain(&mut conn, &host_no_port) {
+                let ctx = workspace_to_context(ws);
+                cache_put(host_key, ctx.clone());
+                return Some(ctx);
+            }
+
+            // --- Pass 2: subdomain match against slug ---
+            let slug = subdomain_from_host(&host_no_port)?;
+            let slug_key = format!("slug:{slug}");
+            if let Some(ctx) = cache_get(&slug_key) {
+                return Some(ctx);
+            }
             let ws = workspace_repo::find_by_slug(&mut conn, slug)
                 .ok()
                 .flatten()?;
-            Some(WorkspaceContext {
-                workspace_id: ws.id,
-                workspace_uuid: ws.uuid,
-                slug: ws.slug,
-                name: ws.name,
-                organisation_id: ws.organisation_id,
-            })
+            let ctx = workspace_to_context(ws);
+            cache_put(slug_key, ctx.clone());
+            Some(ctx)
         }
+    }
+}
+
+fn workspace_to_context(ws: crate::models::Workspace) -> WorkspaceContext {
+    WorkspaceContext {
+        workspace_id: ws.id,
+        workspace_uuid: ws.uuid,
+        slug: ws.slug,
+        name: ws.name,
+        organisation_id: ws.organisation_id,
     }
 }
 

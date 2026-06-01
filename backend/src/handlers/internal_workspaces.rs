@@ -334,6 +334,146 @@ pub async fn upsert_projected_user(
     }
 }
 
+// =====================================================================
+// PATCH /api/internal/v1/workspaces/{slug}/custom-domain (M5 Task 5)
+// =====================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct CustomDomainRequest {
+    /// New custom-domain hostname, or `null` to clear. The control
+    /// plane has already verified DNS + Fly Certs by the time it
+    /// calls this; we only do structural validation here.
+    pub hostname: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CustomDomainResponse {
+    workspace_uuid: Uuid,
+    slug: String,
+    custom_domain: Option<String>,
+}
+
+/// Lightweight FQDN check: lowercase, contains a dot, no leading /
+/// trailing dot or hyphen, ASCII only. Loose by intent — the
+/// control plane does the heavy validation (DNS resolution,
+/// certificate provisioning); this layer rejects garbage that
+/// could break downstream code paths.
+fn looks_like_fqdn(s: &str) -> bool {
+    let len = s.len();
+    if !(3..=253).contains(&len) {
+        return false;
+    }
+    if !s.contains('.') {
+        return false;
+    }
+    if s.starts_with('.') || s.ends_with('.') || s.starts_with('-') || s.ends_with('-') {
+        return false;
+    }
+    s.chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
+}
+
+pub async fn set_custom_domain(
+    req: HttpRequest,
+    _: PlatformScope,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+    body: web::Json<CustomDomainRequest>,
+) -> impl Responder {
+    if req.headers().get(IDEMPOTENCY_HEADER).is_none() {
+        return errors::bad_request(
+            "Idempotency-Key header is required for provisioning callbacks",
+        );
+    }
+
+    let slug = path.into_inner();
+    let hostname_normalised = match body.into_inner().hostname {
+        Some(h) => {
+            let trimmed = h.trim().to_ascii_lowercase();
+            if trimmed.is_empty() {
+                None
+            } else if !looks_like_fqdn(&trimmed) {
+                return errors::bad_request(
+                    "hostname must be a lowercase ASCII FQDN (e.g. support.acme.com)",
+                );
+            } else {
+                Some(trimmed)
+            }
+        }
+        None => None,
+    };
+
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = ?e, "custom_domain: db pool exhausted");
+            return errors::internal("Database connection failed");
+        }
+    };
+
+    // Capture the previous value so we can invalidate its cache key
+    // even when the operator is clearing or changing the hostname.
+    let previous = match workspaces::find_by_slug(&mut conn, &slug) {
+        Ok(Some(ws)) => ws,
+        Ok(None) => {
+            warn!(slug = %slug, "custom_domain: workspace not found");
+            return errors::not_found_msg(format!("workspace '{slug}' not found"));
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "custom_domain: workspace lookup failed");
+            return errors::internal("Workspace lookup failed");
+        }
+    };
+
+    let updated = match workspaces::update_custom_domain(
+        &mut conn,
+        &slug,
+        hostname_normalised.as_deref(),
+    ) {
+        Ok(Some(ws)) => ws,
+        Ok(None) => {
+            // Shouldn't happen — we just looked up by the same slug.
+            return errors::not_found_msg(format!("workspace '{slug}' not found"));
+        }
+        Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::UniqueViolation,
+            _,
+        )) => {
+            warn!(slug = %slug, hostname = ?hostname_normalised, "custom_domain: hostname already in use");
+            return HttpResponse::Conflict().json(serde_json::json!({
+                "error": "hostname_taken",
+                "message": "this hostname is already mapped to a workspace",
+            }));
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "custom_domain: update failed");
+            return errors::internal("Failed to update custom domain");
+        }
+    };
+
+    // Invalidate cache for both the previous and current host
+    // mappings so the next request sees the change immediately.
+    // Subdomain (slug) cache stays — the slug-to-workspace mapping
+    // hasn't changed.
+    if let Some(prev) = previous.custom_domain.as_deref() {
+        crate::middleware::workspace_context::invalidate_cache_key(&format!("host:{prev}"));
+    }
+    if let Some(new) = updated.custom_domain.as_deref() {
+        crate::middleware::workspace_context::invalidate_cache_key(&format!("host:{new}"));
+    }
+
+    info!(
+        slug = %updated.slug,
+        custom_domain = ?updated.custom_domain,
+        "custom_domain: updated"
+    );
+    HttpResponse::Ok().json(CustomDomainResponse {
+        workspace_uuid: updated.uuid,
+        slug: updated.slug,
+        custom_domain: updated.custom_domain,
+    })
+}
+
 #[cfg(test)]
 mod slug_tests {
     use super::*;
