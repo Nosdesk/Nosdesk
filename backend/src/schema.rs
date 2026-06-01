@@ -1662,6 +1662,17 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    yjs_snapshots (id) {
+        id -> Int8,
+        workspace_id -> Int4,
+        document_id -> Text,
+        snapshot -> Bytea,
+        state_vector -> Bytea,
+        created_at -> Timestamptz,
+    }
+}
+
 diesel::joinable!(active_sessions -> users (user_uuid));
 diesel::joinable!(api_tokens -> workspaces (workspace_id));
 diesel::joinable!(article_content_revisions -> article_contents (article_content_id));
@@ -1854,6 +1865,7 @@ diesel::joinable!(working_calendars -> users (created_by));
 diesel::joinable!(working_calendars -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
 diesel::joinable!(workspace_members -> workspaces (workspace_id));
+diesel::joinable!(yjs_snapshots -> workspaces (workspace_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     active_sessions,
@@ -1949,4 +1961,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     working_calendars,
     workspace_members,
     workspaces,
+    yjs_snapshots,
 );
