@@ -821,6 +821,46 @@ admin-workspaces-delete-type-label = Type { $slug } to confirm
 empty-workspaces-title = No workspaces yet
 empty-workspaces-description = Create a workspace to onboard a new tenant.
 
+# Admin: Workspace members (AdminWorkspaceMembersView).
+admin-workspace-members-title = Members
+admin-workspace-members-back = Back to workspaces
+admin-workspace-members-workspace-label = { $name } ({ $slug })
+admin-workspace-members-workspace-fallback = Workspace #{ $id }
+admin-workspace-members-description = Invite users and manage their roles in this workspace.
+admin-workspace-members-loading = Loading members…
+admin-workspace-members-error-load = Failed to load members
+admin-workspace-members-archived-notice = This workspace is archived. Restore it before adding new members.
+admin-workspace-members-invite-heading = Add member
+admin-workspace-members-invite-user-label = User
+admin-workspace-members-invite-user-placeholder = Search by name or email…
+admin-workspace-members-invite-role-label = Role
+admin-workspace-members-invite-submit = Add member
+admin-workspace-members-col-user = User
+admin-workspace-members-col-role = Role
+admin-workspace-members-col-invited = Invited
+admin-workspace-members-col-accepted = Accepted
+admin-workspace-members-accepted-pending = Pending
+admin-workspace-members-role-owner = Owner
+admin-workspace-members-role-admin = Admin
+admin-workspace-members-role-agent = Agent
+admin-workspace-members-role-member = Member
+admin-workspace-members-remove = Remove member
+admin-workspace-members-remove-confirm-title = Remove member?
+admin-workspace-members-remove-confirm-message = Remove { $name } from this workspace? They will lose access immediately.
+admin-workspace-members-remove-confirm-label = Remove
+admin-workspace-members-last-owner-hint = Promote another member to owner before changing or removing the only owner.
+admin-workspace-members-error-last-owner = Cannot change or remove the only owner. Promote another member to owner first.
+admin-workspace-members-error-archived = Cannot add members to an archived workspace.
+admin-workspace-members-error-user-required = Select a user to invite.
+admin-workspace-members-already-member = That user is already a member of this workspace.
+admin-workspace-members-added-success = { $name } added to the workspace
+admin-workspace-members-error-add = Failed to add member
+admin-workspace-members-error-role = Failed to update role
+admin-workspace-members-error-remove = Failed to remove member
+
+empty-workspace-members-title = No members yet
+empty-workspace-members-description = Use the form above to add the first member.
+
 admin-nav-guest-access-title = Guest Access
 admin-nav-guest-access-description = Control what unauthenticated visitors can see and submit
 admin-nav-auth-providers-title = Authentication Providers
