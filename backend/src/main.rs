@@ -518,6 +518,17 @@ async fn main() -> std::io::Result<()> {
         .map(|s| s.trim().to_string())
         .collect();
 
+    // Tenant domain suffix for hosted-mode CORS (M5 Task 6). When
+    // set (e.g. `nosdesk.app`), every `<slug>.<tenant_domain>` origin
+    // passes the CORS check. Self-hosted leaves this unset and relies
+    // on FRONTEND_URL alone. Built as an anchored regex below so a
+    // substring-only match (`s.ends_with(".nosdesk.app")`) — the
+    // classic CORS bypass — is impossible.
+    let tenant_domain = env::var("NOSDESK_TENANT_DOMAIN")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
     // Set up database connection pool
     let pool = match std::panic::catch_unwind(db::establish_connection_pool) {
         Ok(pool) => pool,
@@ -1190,10 +1201,28 @@ async fn main() -> std::io::Result<()> {
         "Workspace context middleware initialised"
     );
 
+    // M5 Task 6. Build the allowlist once at boot and share it via
+    // Arc into each worker's CORS closure. The previous code used
+    // `Cors::allowed_origin(&frontend_url)` which is exact-string;
+    // every tenant subdomain preflight failed. `CorsAllowlist`
+    // adds an anchored tenant-subdomain regex; substring bypasses
+    // (`https://acme.nosdesk.app.attacker.com`) can't slip in.
+    let cors_allowlist = std::sync::Arc::new(crate::utils::cors_allowlist::CorsAllowlist::new(
+        std::iter::once(frontend_url.as_str()).chain(additional_origins.iter().map(|s| s.as_str())),
+        tenant_domain.as_deref(),
+    ));
+    info!(
+        host_count = cors_allowlist.exact_count(),
+        tenant_domain = ?tenant_domain,
+        "CORS allowlist initialised"
+    );
+
     let server_result = HttpServer::new(move || {
-        // Configure CORS with specific allowed origins
-        let mut cors = Cors::default()
-            .allowed_origin(&frontend_url)
+        let cors_allowlist = cors_allowlist.clone();
+        let cors = Cors::default()
+            .allowed_origin_fn(move |origin, _req_head| {
+                origin.to_str().ok().is_some_and(|o| cors_allowlist.allows(o))
+            })
             .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
             .allowed_headers(vec![
                 "Authorization",
@@ -1206,11 +1235,6 @@ async fn main() -> std::io::Result<()> {
             .expose_headers(vec!["content-disposition"])
             .supports_credentials()
             .max_age(3600);
-
-        // Add additional allowed origins if specified
-        for origin in &additional_origins {
-            cors = cors.allowed_origin(origin);
-        }
 
         // Configure JSON payload limits for file uploads
         let json_config = web::JsonConfig::default()
