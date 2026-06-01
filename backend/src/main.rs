@@ -271,53 +271,44 @@ async fn main() -> std::io::Result<()> {
     };
     info!("JWT_SECRET validated");
 
-    // Validate the at-rest encryption key (used by MFA, SLA secrets,
-    // any future BYOK-style storage). Surfaces a misconfigured or
-    // missing key at boot rather than as a 500 the first time the
-    // user hits an MFA / encrypted-secret code path. Accepts either
-    // ENCRYPTION_KEY or MFA_ENCRYPTION_KEY (legacy name) — whichever
-    // is set must be valid 64-char hex.
+    // Initialise the at-rest encryption keyring (versioned KEK,
+    // self-describing framed-blob shape; see
+    // `utils::encryption::Keyring` and docs/auth-convergence.md
+    // items 1-3). MFA secrets, channel credentials, plugin signing
+    // keys, and plugin secret settings all decrypt through this.
     //
-    // Production refuses to boot on missing / placeholder / malformed
-    // keys. Dev tolerates a missing key (logs a warning and disables
-    // MFA features) but still validates the format if one is set.
-    let encryption_key_set =
-        std::env::var("ENCRYPTION_KEY").is_ok() || std::env::var("MFA_ENCRYPTION_KEY").is_ok();
-    if std::env::var("MFA_ENCRYPTION_KEY")
+    // Hard cutover at v1: refusal to boot is unconditional. There
+    // is no longer a "MFA disabled in dev if unset" path — every
+    // install must export at least `MFA_KEK_V1`. The legacy
+    // `ENCRYPTION_KEY` / `MFA_ENCRYPTION_KEY` names are no longer
+    // read; rename them at upgrade time.
+    let placeholder_kek_v1 = std::env::var("MFA_KEK_V1")
         .ok()
-        .or_else(|| std::env::var("ENCRYPTION_KEY").ok())
-        .is_some_and(|k| looks_like_placeholder(&k))
-    {
+        .is_some_and(|k| looks_like_placeholder(&k));
+    if placeholder_kek_v1 {
         if environment == "production" {
-            error!("Encryption key appears to be the docker.env.example placeholder");
-            error!("Refusing to start in production with a placeholder encryption key");
+            error!("MFA_KEK_V1 appears to be the docker.env.example placeholder");
+            error!("Refusing to start in production with a placeholder KEK");
             error!("Generate a secure key with: openssl rand -hex 32");
             std::process::exit(1);
         } else {
-            // Log the warning without the key value — even known
-            // placeholder strings shouldn't sit in structured-log
-            // output where a future shipper config might forward
-            // them.
-            warn!("Encryption key looks like a placeholder; MFA / encrypted-secret flows will use it as-is in dev");
+            warn!("MFA_KEK_V1 looks like a placeholder; using it as-is in dev");
         }
     }
-    match crate::utils::encryption::validate_at_startup() {
-        Ok(()) => info!("Encryption key validated"),
+    match crate::utils::encryption::init_keyring() {
+        Ok(kr) => info!(versions = ?kr.versions(), current = kr.current_version(), "Keyring initialised"),
         Err(e) => {
-            if environment == "production" {
-                error!(error = %e, "Encryption key validation failed in production");
-                error!("Generate a secure key with: openssl rand -hex 32");
-                std::process::exit(1);
-            } else if encryption_key_set {
-                error!(error = %e, "Encryption key is set but invalid; MFA / encrypted-secret flows will fail");
-                error!("Fix or unset ENCRYPTION_KEY / MFA_ENCRYPTION_KEY");
-                std::process::exit(1);
+            error!(error = %e, "Keyring initialisation failed");
+            if std::env::var("ENCRYPTION_KEY").is_ok()
+                || std::env::var("MFA_ENCRYPTION_KEY").is_ok()
+            {
+                error!("Note: ENCRYPTION_KEY and MFA_ENCRYPTION_KEY are no longer read.");
+                error!("Rename your existing key to MFA_KEK_V1 and set MFA_KEK_VERSION=1.");
             } else {
-                warn!(
-                    "ENCRYPTION_KEY / MFA_ENCRYPTION_KEY not set - MFA features will be disabled"
-                );
-                warn!("Generate with: openssl rand -hex 32");
+                error!("Generate a key with: openssl rand -hex 32");
+                error!("Export it as MFA_KEK_V1 and set MFA_KEK_VERSION=1.");
             }
+            std::process::exit(1);
         }
     }
 
@@ -594,12 +585,26 @@ async fn main() -> std::io::Result<()> {
     }
 
     // Bootstrap local plugin signing key before provisioning so any
-    // verification path can resolve the `local` trust tier.
+    // verification path can resolve the `local` trust tier. The
+    // singleton row's INSERT fires the workspace-scoped audit trigger,
+    // which requires `app.workspace_id` to be set; pin to the
+    // bootstrap workspace (same pattern as `run_seeds` below).
     {
         let mut conn = pool
             .get()
             .expect("Failed to get connection for local key bootstrap");
-        if let Err(e) = services::plugins::local_key::ensure_local_signing_key(&mut conn) {
+        let actor = backend::sync::actor::ActorContext::system("startup:plugin_local_key")
+            .with_workspace(1);
+        let result = backend::sync::session::with_actor_context::<_, anyhow::Error>(
+            &mut conn,
+            &actor,
+            |conn| {
+                services::plugins::local_key::ensure_local_signing_key(conn)
+                    .map(|_| ())
+                    .map_err(|e| anyhow::anyhow!("{e}"))
+            },
+        );
+        if let Err(e) = result {
             error!(error = %e, "Failed to bootstrap plugin local signing key");
             return Err(std::io::Error::other(format!(
                 "Failed to bootstrap plugin local signing key: {e}"

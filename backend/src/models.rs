@@ -1717,7 +1717,6 @@ pub struct User {
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
-    pub mfa_secret: Option<String>,
     pub mfa_enabled: bool,
     // Recovery codes moved to the dedicated `user_recovery_codes`
     // table (migration `2026-05-31-180000_decouple_user_recovery_codes`).
@@ -1739,6 +1738,12 @@ pub struct User {
     /// rendering the user so the record stays coherent during the
     /// window.
     pub deleted_at: Option<NaiveDateTime>,
+    /// Framed AES-256-GCM blob (`utils::encryption::Keyring` shape).
+    /// AAD = `uuid.as_bytes()` so a row swap fails the tag check.
+    /// `mfa_secret_kek_id` mirrors the version encoded in the blob;
+    /// they MUST agree on read or the row is rejected.
+    pub mfa_secret: Option<Vec<u8>>,
+    pub mfa_secret_kek_id: Option<i16>,
 }
 
 // New user for creation
@@ -1755,7 +1760,8 @@ pub struct NewUser {
     pub banner_url: Option<String>,
     pub avatar_thumb: Option<String>,
     pub microsoft_uuid: Option<Uuid>,
-    pub mfa_secret: Option<String>,
+    pub mfa_secret: Option<Vec<u8>>,
+    pub mfa_secret_kek_id: Option<i16>,
     pub mfa_enabled: bool,
     // mfa_backup_codes lives in `user_recovery_codes` now.
 }
@@ -2834,7 +2840,8 @@ pub struct MfaStatusResponse {
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = crate::schema::users)]
 pub struct UserMfaUpdate {
-    pub mfa_secret: Option<String>,
+    pub mfa_secret: Option<Option<Vec<u8>>>,
+    pub mfa_secret_kek_id: Option<Option<i16>>,
     pub mfa_enabled: Option<bool>,
     pub updated_at: Option<chrono::NaiveDateTime>,
 }
@@ -5147,9 +5154,13 @@ pub struct NewTrustedPublisher {
 pub struct LocalSigningKey {
     pub id: i32,
     pub pubkey: String,
+    /// Framed AES-256-GCM blob (`utils::encryption::Keyring` shape).
+    /// AAD = `b"nosdesk.plugin.local_sk.v1"` (singleton table; no row
+    /// identity to bind beyond the domain tag).
     pub encrypted_sk: Vec<u8>,
     pub fingerprint: String,
     pub created_at: NaiveDateTime,
+    pub encrypted_sk_kek_id: i16,
 }
 
 #[derive(Debug, Insertable)]
@@ -5158,6 +5169,7 @@ pub struct NewLocalSigningKey {
     pub id: i32,
     pub pubkey: String,
     pub encrypted_sk: Vec<u8>,
+    pub encrypted_sk_kek_id: i16,
     pub fingerprint: String,
 }
 
@@ -6036,10 +6048,13 @@ pub struct ChannelCredential {
     pub id: i32,
     pub channel_id: i32,
     pub credential_type: String,
-    pub encrypted_value: String,
     pub expires_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub workspace_id: i32,
+    /// Framed AES-256-GCM blob (`utils::encryption::Keyring` shape).
+    /// AAD = `channel_id.to_be_bytes() ‖ b":" ‖ credential_type.as_bytes()`.
+    pub encrypted_value: Vec<u8>,
+    pub encrypted_kek_id: i16,
 }
 
 #[derive(Debug, Insertable)]
@@ -6047,7 +6062,8 @@ pub struct ChannelCredential {
 pub struct NewChannelCredential {
     pub channel_id: i32,
     pub credential_type: String,
-    pub encrypted_value: String,
+    pub encrypted_value: Vec<u8>,
+    pub encrypted_kek_id: i16,
     pub expires_at: Option<NaiveDateTime>,
 }
 

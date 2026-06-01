@@ -130,6 +130,7 @@ mod tests {
             avatar_thumb: None,
             microsoft_uuid: None,
             mfa_secret: None,
+            mfa_secret_kek_id: None,
             mfa_enabled: false,
         };
         let (user, _) = create_user_with_email(

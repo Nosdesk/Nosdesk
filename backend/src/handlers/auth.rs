@@ -1242,11 +1242,9 @@ pub async fn mfa_setup(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) ->
         Err(_) => return errors::not_found_msg("User not found"),
     };
 
-    // Check if MFA_ENCRYPTION_KEY is set - use the util function
-    if mfa::encrypt_mfa_secret("test").is_err() {
-        tracing::error!("MFA setup failed: encryption key not configured");
-        return errors::internal("MFA not properly configured on server");
-    }
+    // (Encryption-key configuration is now a boot-time invariant —
+    // `init_keyring()` in main.rs refuses to start without MFA_KEK_V1
+    // so there's no per-request check to do here.)
 
     // Generate new TOTP secret (backup codes will be generated after successful verification)
     let secret = mfa::generate_totp_secret();
@@ -1348,9 +1346,10 @@ pub async fn mfa_enable(
         return errors::bad_request("Invalid verification code");
     }
 
-    // Encrypt the MFA secret before storage
-    let encrypted_secret = match mfa::encrypt_mfa_secret(mfa_secret) {
-        Ok(encrypted) => encrypted,
+    // Encrypt the MFA secret before storage. Returns the framed blob
+    // plus the sidecar kek_id we mirror onto `mfa_secret_kek_id`.
+    let (encrypted_secret, kek_id) = match mfa::encrypt_mfa_secret(mfa_secret, &user_uuid) {
+        Ok(pair) => pair,
         Err(e) => {
             tracing::error!("Failed to encrypt MFA secret: {}", e);
             return errors::internal("Failed to secure MFA data");
@@ -1365,7 +1364,8 @@ pub async fn mfa_enable(
 
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(true),
-        mfa_secret: Some(encrypted_secret),
+        mfa_secret: Some(Some(encrypted_secret)),
+        mfa_secret_kek_id: Some(Some(kek_id)),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
@@ -1469,9 +1469,14 @@ pub async fn mfa_disable(
         error!(error = ?e, "Error clearing recovery codes during MFA disable");
         return errors::internal("Failed to disable MFA");
     }
+    // Both columns are cleared together; the CHECK constraint
+    // `(mfa_secret IS NULL) = (mfa_secret_kek_id IS NULL)` requires
+    // they move in lockstep. `Some(None)` is the AsChangeset idiom for
+    // "set this nullable column to NULL"; `None` would mean "leave it".
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(false),
-        mfa_secret: None,
+        mfa_secret: Some(None),
+        mfa_secret_kek_id: Some(None),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
@@ -1674,11 +1679,8 @@ pub async fn mfa_setup_login(
         return errors::bad_request("MFA is not required for this account");
     }
 
-    // Check if MFA_ENCRYPTION_KEY is set
-    if mfa::encrypt_mfa_secret("test").is_err() {
-        tracing::error!("MFA setup failed: encryption key not configured");
-        return errors::internal("MFA not properly configured on server");
-    }
+    // Encryption-key configuration is a boot-time invariant; nothing to
+    // check here.
 
     // Generate new TOTP secret (backup codes will be generated after verification)
     let secret = mfa::generate_totp_secret();
@@ -1799,8 +1801,8 @@ pub async fn mfa_enable_login(
     }
 
     // Encrypt the MFA secret before storage
-    let encrypted_secret = match mfa::encrypt_mfa_secret(mfa_secret) {
-        Ok(encrypted) => encrypted,
+    let (encrypted_secret, kek_id) = match mfa::encrypt_mfa_secret(mfa_secret, &user.uuid) {
+        Ok(pair) => pair,
         Err(e) => {
             tracing::error!("Failed to encrypt MFA secret: {}", e);
             return errors::internal("Failed to secure MFA data");
@@ -1826,7 +1828,8 @@ pub async fn mfa_enable_login(
 
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(true),
-        mfa_secret: Some(encrypted_secret),
+        mfa_secret: Some(Some(encrypted_secret)),
+        mfa_secret_kek_id: Some(Some(kek_id)),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 

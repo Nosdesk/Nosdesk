@@ -252,8 +252,8 @@ pub fn insert_user(conn: &mut PgConnection, name: &str) -> backend::models::User
         avatar_thumb: None,
         microsoft_uuid: None,
         mfa_secret: None,
+        mfa_secret_kek_id: None,
         mfa_enabled: false,
-        mfa_backup_codes: None,
     };
     diesel::insert_into(users::table)
         .values(&new_user)

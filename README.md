@@ -49,8 +49,9 @@ Open `docker.env` and set the required values:
 # Generate these with: openssl rand -base64 32
 JWT_SECRET=your-generated-secret
 
-# Generate with: openssl rand -hex 32
-MFA_ENCRYPTION_KEY=your-generated-key
+# At-rest encryption KEK. Generate with: openssl rand -hex 32
+# Versioned for zero-downtime rotation; see docs for MFA_KEK_VERSION.
+MFA_KEK_V1=your-generated-key
 
 # Change these from the defaults
 POSTGRES_PASSWORD=choose-a-strong-password

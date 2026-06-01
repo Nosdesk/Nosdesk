@@ -206,6 +206,7 @@ pub fn find_or_create_guest_user(
             avatar_thumb: None,
             microsoft_uuid: None,
             mfa_secret: None,
+            mfa_secret_kek_id: None,
             mfa_enabled: false,
         };
 
@@ -483,6 +484,7 @@ mod tests {
             avatar_thumb: None,
             microsoft_uuid: None,
             mfa_secret: None,
+            mfa_secret_kek_id: None,
             mfa_enabled: false,
         };
 

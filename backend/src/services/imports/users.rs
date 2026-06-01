@@ -111,6 +111,7 @@ impl Importer for UserImporter {
                             avatar_thumb: None,
                             microsoft_uuid: None,
                             mfa_secret: None,
+                            mfa_secret_kek_id: None,
                             mfa_enabled: false,
                         })
                         .execute(conn)?;

@@ -80,10 +80,16 @@ fn audit_trigger_redacts_pii_and_credentials() {
     );
 
     // --- UPDATE: change the PII name and set a credential ---
+    // mfa_secret is BYTEA in the framed-blob schema; the redaction
+    // assertion below only cares that the value never appears in the
+    // audit diff, so any non-empty byte payload (paired with a kek_id)
+    // exercises the trigger. The bytes don't have to parse as a real
+    // frame for this test.
     diesel::update(users::table.find(user.uuid))
         .set((
             users::name.eq("Probe Renamed"),
-            users::mfa_secret.eq(Some("ENC::deadbeefcafe")),
+            users::mfa_secret.eq(Some(b"opaque-frame-bytes".to_vec())),
+            users::mfa_secret_kek_id.eq(Some(1i16)),
         ))
         .execute(&mut conn)
         .expect("update user");

@@ -72,6 +72,7 @@ impl NewUserBuilder {
             avatar_thumb: self.avatar_thumb,
             microsoft_uuid: self.microsoft_uuid,
             mfa_secret: None,
+            mfa_secret_kek_id: None,
             mfa_enabled: false,
         };
         (new_user, self.email)
@@ -90,6 +91,7 @@ impl NewUserBuilder {
             avatar_thumb: self.avatar_thumb,
             microsoft_uuid: self.microsoft_uuid,
             mfa_secret: None,
+            mfa_secret_kek_id: None,
             mfa_enabled: false,
         }
     }

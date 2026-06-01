@@ -194,6 +194,22 @@ impl From<diesel::result::Error> for CredentialError {
     }
 }
 
+/// AAD purpose tag for channel credentials. Combined with the channel
+/// id + credential type so an attacker with SQL UPDATE can't swap an
+/// IMAP password ciphertext into a different channel or credential
+/// slot and have it decrypt (RFC 5116 §1.2 bind-context).
+const CHANNEL_CRED_AAD_TAG: &[u8] = b".nosdesk.channel.cred.v1";
+
+fn channel_cred_aad(channel_id: i32, credential_type: &str) -> Vec<u8> {
+    let ct = credential_type.as_bytes();
+    let mut buf = Vec::with_capacity(4 + 1 + ct.len() + CHANNEL_CRED_AAD_TAG.len());
+    buf.extend_from_slice(&channel_id.to_be_bytes());
+    buf.push(b':');
+    buf.extend_from_slice(ct);
+    buf.extend_from_slice(CHANNEL_CRED_AAD_TAG);
+    buf
+}
+
 // sync-audit-only: channel credential lifecycle. The encrypted value must never reach the sync stream; credential changes are observable via the channel_credentials audit trigger (W4) and the parent channel.configured event when the channel row itself changes.
 /// Store (or replace) an encrypted credential for a channel. Upserts on
 /// the `(channel_id, credential_type)` unique index so rotating a password
@@ -207,13 +223,18 @@ pub fn put_credential(
 ) -> Result<(), CredentialError> {
     use crate::schema::channel_credentials::dsl as cc;
 
-    let encrypted =
-        encryption::encrypt(plaintext).map_err(|e| CredentialError::Crypto(e.to_string()))?;
+    let kr = encryption::keyring();
+    let aad = channel_cred_aad(channel_id, credential_type);
+    let encrypted = kr
+        .encrypt(plaintext.as_bytes(), &aad)
+        .map_err(|e| CredentialError::Crypto(e.to_string()))?;
+    let kek_id = kr.current_version() as i16;
 
     let row = NewChannelCredential {
         channel_id,
         credential_type: credential_type.to_string(),
         encrypted_value: encrypted,
+        encrypted_kek_id: kek_id,
         expires_at,
     };
 
@@ -223,6 +244,7 @@ pub fn put_credential(
         .do_update()
         .set((
             cc::encrypted_value.eq(diesel::upsert::excluded(cc::encrypted_value)),
+            cc::encrypted_kek_id.eq(diesel::upsert::excluded(cc::encrypted_kek_id)),
             cc::expires_at.eq(diesel::upsert::excluded(cc::expires_at)),
         ))
         .execute(conn)?;
@@ -232,8 +254,7 @@ pub fn put_credential(
 
 /// Fetch and decrypt a credential. Returns `Ok(None)` if no row exists
 /// for that `(channel_id, credential_type)`, `Err` only on DB failure or
-/// a decryption error (which should mean the `ENCRYPTION_KEY` changed
-/// and stored secrets are now unreadable).
+/// a decryption error (sidecar/blob `kek_id` mismatch, wrong AAD, etc.).
 pub fn get_credential(
     conn: &mut DbConnection,
     channel_id: i32,
@@ -249,9 +270,25 @@ pub fn get_credential(
 
     match row {
         Some(r) => {
-            let plaintext = encryption::decrypt(&r.encrypted_value)
+            // Authoritative kek_id is the one inside the blob; the
+            // sidecar is an indexed mirror. Disagreement means either
+            // a write skipped the sidecar update (bug) or someone
+            // patched the column directly (tampering). Reject either.
+            let blob_kek_id = encryption::Keyring::read_kek_id(&r.encrypted_value)
                 .map_err(|e| CredentialError::Crypto(e.to_string()))?;
-            Ok(Some(plaintext))
+            if blob_kek_id as i16 != r.encrypted_kek_id {
+                return Err(CredentialError::Crypto(format!(
+                    "channel_credentials row #{} sidecar kek_id ({}) disagrees with blob ({})",
+                    r.id, r.encrypted_kek_id, blob_kek_id
+                )));
+            }
+            let aad = channel_cred_aad(channel_id, credential_type);
+            let plaintext_bytes = encryption::keyring()
+                .decrypt(&r.encrypted_value, &aad)
+                .map_err(|e| CredentialError::Crypto(e.to_string()))?;
+            let s = String::from_utf8(plaintext_bytes.to_vec())
+                .map_err(|_| CredentialError::Crypto("credential is not valid UTF-8".into()))?;
+            Ok(Some(s))
         }
         None => Ok(None),
     }
@@ -452,7 +489,9 @@ mod tests {
             .filter(cc::credential_type.eq("imap_password"))
             .first(&mut conn)
             .unwrap();
-        assert_ne!(raw.encrypted_value, "hunter2");
+        // Framed blob, not the plaintext bytes.
+        assert_ne!(raw.encrypted_value.as_slice(), b"hunter2");
+        assert_eq!(raw.encrypted_kek_id, 1);
 
         // Decrypted value round-trips.
         let decrypted = get_credential(&mut conn, ch.id, "imap_password").unwrap();

@@ -54,17 +54,57 @@ pub struct MfaVerificationResult {
     pub requires_backup_code_regeneration: bool,
 }
 
-/// Encrypt MFA secret using AES-256-GCM
-/// Delegates to the encryption module for the actual cryptographic operations.
-pub fn encrypt_mfa_secret(secret: &str) -> Result<String> {
-    encryption::encrypt(secret)
+/// AAD purpose tag for MFA TOTP secrets. Combined with the user UUID so
+/// a cross-user ciphertext swap (attacker with SQL UPDATE) fails the
+/// AEAD tag check. The constant tail also blocks a swap into a different
+/// purpose using the same user_id (e.g. password reset blob).
+const MFA_AAD_TAG: &[u8] = b".nosdesk.mfa.totp.v1";
+
+/// AAD = `user_uuid.as_bytes() ‖ MFA_AAD_TAG`. Pinning ciphertext to a
+/// specific row identity is RFC 5116 §1.2 "bind context" plus the OWASP
+/// Crypto Storage Cheat Sheet recommendation. 16 + 20 = 36 bytes.
+fn mfa_aad(user_uuid: &Uuid) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(16 + MFA_AAD_TAG.len());
+    buf.extend_from_slice(user_uuid.as_bytes());
+    buf.extend_from_slice(MFA_AAD_TAG);
+    buf
 }
 
-/// Decrypt MFA secret using AES-256-GCM
-/// Delegates to the encryption module for the actual cryptographic operations.
-pub fn decrypt_mfa_secret(encrypted_hex: &str) -> Result<SecretString> {
-    let decrypted = encryption::decrypt(encrypted_hex)?;
-    Ok(SecretString::new(decrypted))
+/// Encrypt an MFA TOTP secret. Returns `(blob, kek_id)` for storage in
+/// `users.mfa_secret` and `users.mfa_secret_kek_id`. The kek_id is also
+/// embedded in the blob; the sidecar exists for the rewrap query path.
+pub fn encrypt_mfa_secret(secret: &str, user_uuid: &Uuid) -> Result<(Vec<u8>, i16)> {
+    let kr = encryption::keyring();
+    let aad = mfa_aad(user_uuid);
+    let blob = kr
+        .encrypt(secret.as_bytes(), &aad)
+        .map_err(|e| anyhow!("MFA secret encrypt failed: {e}"))?;
+    Ok((blob, kr.current_version() as i16))
+}
+
+/// Decrypt an MFA TOTP secret stored in `users.mfa_secret`. The caller
+/// must pass the user UUID and the sidecar `kek_id`; we verify the
+/// sidecar matches the blob's encoded kek_id (sidecar is a mirror, not
+/// authoritative) and reject the row on mismatch.
+pub fn decrypt_mfa_secret(
+    blob: &[u8],
+    sidecar_kek_id: i16,
+    user_uuid: &Uuid,
+) -> Result<SecretString> {
+    let blob_kek_id = encryption::Keyring::read_kek_id(blob)
+        .map_err(|e| anyhow!("MFA secret has malformed frame header: {e}"))?;
+    if blob_kek_id as i16 != sidecar_kek_id {
+        return Err(anyhow!(
+            "MFA secret sidecar kek_id ({sidecar_kek_id}) disagrees with blob ({blob_kek_id}); refusing to decrypt"
+        ));
+    }
+    let aad = mfa_aad(user_uuid);
+    let plaintext = encryption::keyring()
+        .decrypt(blob, &aad)
+        .map_err(|e| anyhow!("MFA secret decrypt failed: {e}"))?;
+    let s = String::from_utf8(plaintext.to_vec())
+        .map_err(|_| anyhow!("MFA secret is not valid UTF-8"))?;
+    Ok(SecretString::new(s))
 }
 
 /// Generate a cryptographically secure random string for TOTP secret
@@ -361,7 +401,10 @@ pub async fn verify_mfa_token(
 
     // First try TOTP verification
     if let Some(ref encrypted_secret) = user.mfa_secret {
-        let secret = decrypt_mfa_secret(encrypted_secret)?;
+        let kek_id = user
+            .mfa_secret_kek_id
+            .ok_or_else(|| anyhow!("MFA secret stored without sidecar kek_id; row is corrupt"))?;
+        let secret = decrypt_mfa_secret(encrypted_secret, kek_id, &user.uuid)?;
         if verify_totp_token(secret.as_str(), token) {
             // TOTP replay prevention: check if this code was already used
             if check_totp_replay(user_uuid, token).await {
@@ -631,6 +674,7 @@ mod tests {
             password_changed_at: None,
             microsoft_uuid: None,
             mfa_secret: None,
+            mfa_secret_kek_id: None,
             mfa_enabled: false,
             feature_flag_overrides: serde_json::json!({}),
             deleted_at: None,
@@ -643,12 +687,14 @@ mod tests {
         assert!(!user_has_mfa_enabled(&enabled_no_secret));
 
         let mut has_secret_not_enabled = base_user.clone();
-        has_secret_not_enabled.mfa_secret = Some("secret".into());
+        has_secret_not_enabled.mfa_secret = Some(b"opaque-blob".to_vec());
+        has_secret_not_enabled.mfa_secret_kek_id = Some(1);
         assert!(!user_has_mfa_enabled(&has_secret_not_enabled));
 
         let mut both = base_user.clone();
         both.mfa_enabled = true;
-        both.mfa_secret = Some("secret".into());
+        both.mfa_secret = Some(b"opaque-blob".to_vec());
+        both.mfa_secret_kek_id = Some(1);
         assert!(user_has_mfa_enabled(&both));
     }
 

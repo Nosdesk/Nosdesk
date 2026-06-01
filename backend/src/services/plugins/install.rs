@@ -590,8 +590,6 @@ fn provision_settings_from_env(
     plugin: &Plugin,
     manifest: &PluginManifest,
 ) {
-    use crate::utils::encryption;
-
     let env_prefix = format!("PLUGIN_{}_", plugin.name.to_uppercase().replace('-', "_"));
     let mut settings_count = 0;
 
@@ -607,11 +605,15 @@ fn provision_settings_from_env(
 
         let is_secret = setting_def.setting_type == "secret";
         let json_value = if is_secret {
-            match encryption::encrypt(&value) {
-                Ok(encrypted) => serde_json::Value::String(encrypted),
+            match crate::handlers::plugins::encrypt_plugin_secret(
+                &value,
+                &plugin.uuid,
+                &setting_def.key,
+            ) {
+                Ok(hex_blob) => serde_json::Value::String(hex_blob),
                 Err(e) => {
                     warn!(
-                        "Failed to encrypt secret setting {} for plugin {}: {}. Ensure ENCRYPTION_KEY is set.",
+                        "Failed to encrypt secret setting {} for plugin {}: {}",
                         setting_def.key, plugin.name, e
                     );
                     continue;

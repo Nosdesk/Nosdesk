@@ -75,8 +75,11 @@ pub fn ensure_local_signing_key(conn: &mut DbConnection) -> Result<LocalKeyInfo,
     let pubkey_b64 = BASE64.encode(&pubkey);
     let fingerprint = signing::fingerprint(&pubkey);
 
-    let encrypted = encryption::encrypt_bytes_with_aad(&pkcs8, AAD_CONTEXT)
+    let kr = encryption::keyring();
+    let encrypted = kr
+        .encrypt(&pkcs8, AAD_CONTEXT)
         .map_err(|e| LocalKeyError::Encrypt(e.to_string()))?;
+    let kek_id = kr.current_version() as i16;
 
     plugin_publishers::insert_local_signing_key(
         conn,
@@ -84,6 +87,7 @@ pub fn ensure_local_signing_key(conn: &mut DbConnection) -> Result<LocalKeyInfo,
             id: 1,
             pubkey: pubkey_b64.clone(),
             encrypted_sk: encrypted,
+            encrypted_sk_kek_id: kek_id,
             fingerprint: fingerprint.clone(),
         },
     )

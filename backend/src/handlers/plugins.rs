@@ -34,6 +34,54 @@ pub struct PaginationQuery {
     pub offset: Option<i64>,
 }
 
+/// AAD for plugin secret settings. Binds the ciphertext to
+/// `(plugin.uuid, setting_key)` so a row swap (between plugins or
+/// between setting keys) fails the AEAD tag check. We use the plugin
+/// UUID rather than the autoincrement `id` because the UUID survives
+/// export/reimport and re-installs while `id` does not.
+const PLUGIN_SECRET_AAD_TAG: &[u8] = b".nosdesk.plugin.setting.v1";
+
+pub(crate) fn plugin_secret_aad(plugin_uuid: &Uuid, setting_key: &str) -> Vec<u8> {
+    let k = setting_key.as_bytes();
+    let mut buf = Vec::with_capacity(16 + 1 + k.len() + PLUGIN_SECRET_AAD_TAG.len());
+    buf.extend_from_slice(plugin_uuid.as_bytes());
+    buf.push(b':');
+    buf.extend_from_slice(k);
+    buf.extend_from_slice(PLUGIN_SECRET_AAD_TAG);
+    buf
+}
+
+/// Encrypt a plugin secret setting and return its hex-encoded framed
+/// blob, suitable for storing inside `plugin_data.value` (JSONB string).
+/// We hex-encode rather than promoting the column to BYTEA because
+/// `plugin_data.value` is polymorphic across plugins (booleans, ints,
+/// JSON, secrets), and a sidecar BYTEA column would be NULL for every
+/// non-secret row.
+pub(crate) fn encrypt_plugin_secret(
+    plaintext: &str,
+    plugin_uuid: &Uuid,
+    setting_key: &str,
+) -> Result<String, encryption::CryptoError> {
+    let blob = encryption::keyring()
+        .encrypt(plaintext.as_bytes(), &plugin_secret_aad(plugin_uuid, setting_key))?;
+    Ok(hex::encode(blob))
+}
+
+/// Inverse of `encrypt_plugin_secret`. Returns the plaintext string.
+pub(crate) fn decrypt_plugin_secret(
+    hex_blob: &str,
+    plugin_uuid: &Uuid,
+    setting_key: &str,
+) -> anyhow::Result<String> {
+    let blob = hex::decode(hex_blob)
+        .map_err(|e| anyhow::anyhow!("plugin secret is not valid hex: {e}"))?;
+    let plaintext = encryption::keyring()
+        .decrypt(&blob, &plugin_secret_aad(plugin_uuid, setting_key))
+        .map_err(|e| anyhow::anyhow!("plugin secret decrypt failed: {e}"))?;
+    String::from_utf8(plaintext.to_vec())
+        .map_err(|_| anyhow::anyhow!("plugin secret is not valid UTF-8"))
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -499,11 +547,12 @@ pub async fn set_plugin_setting(
             })
             .unwrap_or(false);
 
-        // Encrypt secret values before storing
+        // Encrypt secret values before storing. AAD binds the
+        // ciphertext to (plugin_uuid, key); see `plugin_secret_aad`.
         let value_to_store = if is_secret {
             match value.as_str() {
-                Some(plaintext) => match encryption::encrypt(plaintext) {
-                    Ok(encrypted) => serde_json::Value::String(encrypted),
+                Some(plaintext) => match encrypt_plugin_secret(plaintext, &plugin.uuid, &key) {
+                    Ok(hex_blob) => serde_json::Value::String(hex_blob),
                     Err(e) => {
                         error!("Failed to encrypt plugin secret: {}", e);
                         return Ok(SetOutcome::EncryptionFailed);
@@ -532,7 +581,7 @@ pub async fn set_plugin_setting(
         }
         Ok(SetOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
         Ok(SetOutcome::EncryptionFailed) => {
-            errors::internal("Failed to encrypt secret. Ensure ENCRYPTION_KEY is configured.")
+            errors::internal("Failed to encrypt plugin secret")
         }
         Ok(SetOutcome::NonStringSecret) => {
             errors::bad_request("Secret settings must be string values")
@@ -851,7 +900,7 @@ pub async fn proxy_plugin_request(
         if setting.is_secret {
             if let Some(value) = setting.value {
                 if let Some(encrypted) = value.as_str() {
-                    match encryption::decrypt(encrypted) {
+                    match decrypt_plugin_secret(encrypted, &plugin.uuid, &setting.key) {
                         Ok(decrypted) => {
                             secrets.insert(setting.key, decrypted);
                         }

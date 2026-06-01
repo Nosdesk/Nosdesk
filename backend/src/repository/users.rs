@@ -565,9 +565,13 @@ pub fn clear_user_mfa(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<usize
     // alongside (or before) this call. The two writes don't need a
     // shared transaction — losing recovery codes after MFA is
     // already off is benign.
+    // The CHECK constraint
+    // `(mfa_secret IS NULL) = (mfa_secret_kek_id IS NULL)` requires we
+    // clear both columns together.
     diesel::update(users::table.filter(users::uuid.eq(user_uuid)))
         .set((
-            users::mfa_secret.eq::<Option<String>>(None),
+            users::mfa_secret.eq::<Option<Vec<u8>>>(None),
+            users::mfa_secret_kek_id.eq::<Option<i16>>(None),
             users::mfa_enabled.eq(false),
             users::updated_at.eq(chrono::Utc::now().naive_utc()),
         ))

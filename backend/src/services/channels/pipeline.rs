@@ -1816,6 +1816,7 @@ mod tests {
             avatar_thumb: None,
             microsoft_uuid: None,
             mfa_secret: None,
+            mfa_secret_kek_id: None,
             mfa_enabled: false,
         };
         create_user_with_email(
@@ -1864,6 +1865,7 @@ mod tests {
             avatar_thumb: None,
             microsoft_uuid: None,
             mfa_secret: None,
+            mfa_secret_kek_id: None,
             mfa_enabled: false,
         };
         let (tech, _) = create_user_with_email(
@@ -1949,6 +1951,7 @@ My printer is literally on fire.
             avatar_thumb: None,
             microsoft_uuid: None,
             mfa_secret: None,
+            mfa_secret_kek_id: None,
             mfa_enabled: false,
         };
         create_user_with_email(

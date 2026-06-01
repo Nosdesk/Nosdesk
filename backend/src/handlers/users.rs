@@ -2936,9 +2936,12 @@ pub async fn admin_disable_user_mfa(
         error!(error = ?e, "Error clearing recovery codes during admin MFA disable");
         return errors::internal("Failed to disable MFA");
     }
+    // Clear both columns: the CHECK constraint requires
+    // (mfa_secret IS NULL) = (mfa_secret_kek_id IS NULL).
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(false),
-        mfa_secret: None,
+        mfa_secret: Some(None),
+        mfa_secret_kek_id: Some(None),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
