@@ -76,7 +76,7 @@ export default defineConfig({
     watch: isWatchBuild
       ? {
           include: ['src/**', '../i18n/locales/**'],
-          watcher: { usePolling: true, interval: 300 },
+          watcher: { usePolling: true, pollInterval: 300 },
         }
       : null,
     rolldownOptions: {
