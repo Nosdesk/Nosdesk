@@ -92,6 +92,40 @@ impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for TestTransaction {
     }
 }
 
+/// Initialise the global at-rest encryption Keyring exactly once per
+/// test process. Any test that touches a code path which calls
+/// `utils::encryption::keyring()` (channel credentials, MFA secrets,
+/// plugin secret settings, plugin local signing key) needs this; in
+/// production `main.rs::init_keyring` runs at boot, but unit tests
+/// don't run main.
+///
+/// Sets `MFA_KEK_V1` to a fixed 64-hex-char test key before delegating
+/// to `init_keyring`. `std::sync::Once` guards against the
+/// "init_keyring called twice" panic when many test fixtures call into
+/// here from the same process.
+fn ensure_test_keyring() {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        // Stable test key — distinct, non-constant, passes the
+        // validate_key_material checks. Reused across every test in
+        // the process so generated frames decrypt back to the
+        // same value if a downstream test reads what an upstream
+        // test wrote.
+        if std::env::var("MFA_KEK_V1").is_err() {
+            std::env::set_var(
+                "MFA_KEK_V1",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            );
+        }
+        // If `main` already initialised the keyring (e.g. an
+        // integration test bringing the server up), respect that.
+        if let Err(e) = crate::utils::encryption::init_keyring() {
+            panic!("ensure_test_keyring: init_keyring failed: {e}");
+        }
+    });
+}
+
 /// Obtain a single pooled connection wrapped in a test transaction.
 ///
 /// Requires `TEST_DATABASE_URL` to point at a dedicated test database.
@@ -103,6 +137,7 @@ impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for TestTransaction {
 /// this env var; see `init-db.sql`.
 pub fn setup_test_connection() -> DbConnection {
     ensure_test_db_migrated();
+    ensure_test_keyring();
 
     let database_url = std::env::var("TEST_DATABASE_URL").expect(
         "TEST_DATABASE_URL must be set (use a dedicated DB, not DATABASE_URL — \
@@ -363,6 +398,7 @@ impl TestFixtures {
 /// calls, otherwise the single-connection pool will deadlock.
 pub fn setup_test_pool() -> crate::db::Pool {
     ensure_test_db_migrated();
+    ensure_test_keyring();
 
     let manager = ConnectionManager::<PgConnection>::new(test_database_url());
     r2d2::Pool::builder()
