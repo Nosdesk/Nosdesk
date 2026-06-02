@@ -529,6 +529,12 @@ pub enum ApplyError {
     UnsupportedActionPhase1 { index: usize, message: String },
     #[error("rule action [{index}] failed: {message}")]
     ActionFailed { index: usize, message: String },
+    /// The actor's user row was not found or is soft-deleted. Distinct
+    /// from a transient DB error so the handler can return 401/410
+    /// instead of 500 when an agent's account is revoked between the
+    /// JWT validation and the apply transaction.
+    #[error("actor user {0} not found or revoked")]
+    AgentRevoked(Uuid),
     #[error("actor has no workspace context")]
     MissingWorkspace,
     #[error("database error: {0}")]
@@ -608,6 +614,11 @@ pub fn apply_manual(
         let mut applied_reply_body_override = false;
 
         for (i, action) in actions.iter().enumerate() {
+            // Executors receive `one_based` so any ActionFailed they
+            // raise carries the index of the failing action rather
+            // than a placeholder. The error envelope downstream
+            // shows the admin which position in the rule's action
+            // list to investigate.
             let one_based = i + 1;
             if suppress.contains(&one_based) {
                 actions_skipped.push(json!({
@@ -636,7 +647,7 @@ pub fn apply_manual(
                     } else {
                         None
                     };
-                    execute_reply(conn, &ticket, actor, &config, override_body)?
+                    execute_reply(conn, one_based, &ticket, actor, &config, override_body)?
                         .map(|c| {
                             if comment_id.is_none() {
                                 comment_id = Some(c);
@@ -645,11 +656,11 @@ pub fn apply_manual(
                         })
                         .unwrap_or_else(|| json!({ "index": one_based, "kind": kind }))
                 }
-                "set_status" => execute_set_status(conn, ticket.id, &config)
+                "set_status" => execute_set_status(conn, one_based, ticket.id, &config)
                     .map(|state_id| {
                         json!({ "index": one_based, "kind": kind, "workflow_state_id": state_id })
                     })?,
-                "assign" => execute_assign(conn, ticket.id, workspace_id, rule.id, &config)
+                "assign" => execute_assign(conn, one_based, ticket.id, &config)
                     .map(|uuid| {
                         json!({ "index": one_based, "kind": kind, "assigned_to_uuid": uuid })
                     })?,
@@ -662,7 +673,7 @@ pub fn apply_manual(
                 "remove_tags" => execute_remove_tags(conn, ticket.id, &config).map(|removed| {
                     json!({ "index": one_based, "kind": kind, "tag_ids_removed": removed })
                 })?,
-                "set_priority" => execute_set_priority(conn, ticket.id, &config)
+                "set_priority" => execute_set_priority(conn, one_based, ticket.id, &config)
                     .map(|p| json!({ "index": one_based, "kind": kind, "priority": p }))?,
                 "stop_processing" => {
                     // No-op for manual apply; only meaningful inside
@@ -798,12 +809,21 @@ pub fn apply_manual(
 /// (when the caller doesn't pass an override), inserts a comment,
 /// and returns the new comment id. Internal vs public is the
 /// action's `visibility` flag (see plan §5.3); the comment row
-/// stamps `is_internal` accordingly. The customer-channel dispatch
-/// for `visibility=public` runs through the existing
-/// `comments::create_comment` observer pipeline, so an outbound
-/// queue row is enqueued for tickets with an email channel.
+/// stamps `is_internal` accordingly. Outbound channel dispatch
+/// (customer email relay) is the apply handler's
+/// post-commit job; this executor only writes the comment row +
+/// emits the comment.created sync event via
+/// `comments::create_comment`.
+///
+/// Substituted template variable values are HTML-escaped before
+/// the substitution so an untrusted value (e.g. a requester whose
+/// IdP-synced display name carries HTML metacharacters) cannot
+/// inject markup into the rendered HTML comment body. The body
+/// template itself (admin-authored, vetted at save) is not
+/// escaped — admins routinely write <br> / <b> deliberately.
 fn execute_reply(
     conn: &mut DbConnection,
+    action_index: usize,
     ticket: &crate::models::Ticket,
     actor: &ActorContext,
     config: &Value,
@@ -821,25 +841,42 @@ fn execute_reply(
                 .map(|s| s.to_string())
         })
         .ok_or_else(|| ApplyError::ActionFailed {
-            index: 0,
+            index: action_index,
             message: "reply action missing body".to_string(),
         })?;
 
-    // Phase 1: render with a context built from the loaded ticket
-    // + actor. The renderer falls back to empty strings for
-    // unknown bindings, so a body referencing customer_name on a
-    // requester-less ticket renders "Hi ,".
     let actor_uuid = actor.uuid.ok_or_else(|| ApplyError::ActionFailed {
-        index: 0,
+        index: action_index,
         message: "manual reply requires an authenticated actor".to_string(),
     })?;
-    let agent = crate::repository::users::find_active_by_uuid(&actor_uuid, conn)?;
+    // The agent's row is required (we need their display name for
+    // template rendering); NotFound (revoked / soft-deleted)
+    // surfaces as AgentRevoked → 401 rather than Db → 500.
+    let agent = crate::repository::users::find_active_by_uuid(&actor_uuid, conn).map_err(|e| {
+        match e {
+            diesel::result::Error::NotFound => ApplyError::AgentRevoked(actor_uuid),
+            other => ApplyError::Db(other),
+        }
+    })?;
+    // Requester is optional — anonymous tickets and revoked
+    // requesters both surface as None and the renderer falls back
+    // to empty bindings. Same .ok() shape as the lazy OIDC path.
     let requester = if let Some(uuid) = ticket.requester_uuid {
         crate::repository::users::find_active_by_uuid(&uuid, conn).ok()
     } else {
         None
     };
-    let app_name = std::env::var("APP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
+    // Pull the workspace-scoped app_name from site_settings; this
+    // mirrors how email signatures and password-reset notices
+    // resolve the brand string. Falls back to "Nosdesk" only if
+    // the row genuinely doesn't carry an app_name.
+    // SiteSettings.app_name is String (not Option) and the row is
+    // singleton-id=1; fall back to "Nosdesk" only if the row read
+    // genuinely fails (extremely rare — get_site_settings returns
+    // Err only on disconnected DB).
+    let app_name = crate::repository::site_settings::get_site_settings(conn)
+        .map(|s| s.app_name)
+        .unwrap_or_else(|_| "Nosdesk".to_string());
     let rendered = crate::services::template_vars::render(
         &raw_body,
         &crate::services::template_vars::TemplateContext {
@@ -874,6 +911,7 @@ fn execute_reply(
 /// `closed_at` stamping for terminal categories.
 fn execute_set_status(
     conn: &mut DbConnection,
+    action_index: usize,
     ticket_id: i32,
     config: &Value,
 ) -> Result<i32, ApplyError> {
@@ -882,7 +920,7 @@ fn execute_set_status(
         .get("workflow_state_id")
         .and_then(|v| v.as_i64())
         .ok_or_else(|| ApplyError::ActionFailed {
-            index: 0,
+            index: action_index,
             message: "set_status missing workflow_state_id".to_string(),
         })? as i32;
     diesel::update(dsl::tickets.find(ticket_id))
@@ -896,9 +934,8 @@ fn execute_set_status(
 /// here and the historical apply rows feed the stateless picker.
 fn execute_assign(
     conn: &mut DbConnection,
+    action_index: usize,
     ticket_id: i32,
-    _workspace_id: i32,
-    _rule_id: i32,
     config: &Value,
 ) -> Result<Uuid, ApplyError> {
     use crate::schema::tickets::dsl;
@@ -912,12 +949,12 @@ fn execute_assign(
             .and_then(|v| v.as_str())
             .and_then(|s| Uuid::parse_str(s).ok())
             .ok_or_else(|| ApplyError::ActionFailed {
-                index: 0,
+                index: action_index,
                 message: "assign(method=direct) missing valid user_uuid".to_string(),
             })?,
         other => {
             return Err(ApplyError::UnsupportedActionPhase1 {
-                index: 0,
+                index: action_index,
                 message: format!(
                     "assign method '{other}' lands in Phase 2 when assignment_rules absorbs here"
                 ),
@@ -997,6 +1034,7 @@ fn execute_remove_tags(
 
 fn execute_set_priority(
     conn: &mut DbConnection,
+    action_index: usize,
     ticket_id: i32,
     config: &Value,
 ) -> Result<String, ApplyError> {
@@ -1005,7 +1043,7 @@ fn execute_set_priority(
         .get("priority")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApplyError::ActionFailed {
-            index: 0,
+            index: action_index,
             message: "set_priority missing priority".to_string(),
         })?;
     // The codebase's TicketPriority enum is Low / Medium / High;
@@ -1020,7 +1058,7 @@ fn execute_set_priority(
         "high" | "urgent" => TicketPriority::High,
         other => {
             return Err(ApplyError::ActionFailed {
-                index: 0,
+                index: action_index,
                 message: format!("unknown priority: {other}"),
             })
         }

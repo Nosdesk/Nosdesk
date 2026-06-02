@@ -1623,10 +1623,15 @@ async fn main() -> std::io::Result<()> {
                     // sibling to avoid the actix route-shadowing
                     // gotcha; same pattern as `/canned-response-starters`
                     // above. `/apply` itself is wired in Wave 6.
-                    // Starter catalog. Literal path registered ahead
-                    // of the wildcard `/rules/{id}` to dodge actix
-                    // shadowing.
-                    .route("/rules/starter-catalog", web::get().to(handlers::rules::list_starter_catalog))
+                    // Starter catalog lives at a distinct path
+                    // (`/admin/rule-starters`) rather than nested
+                    // under `/rules/...` so the wildcard
+                    // `/rules/{id}` GET can't absorb it. Same
+                    // precaution and same shape as the canned-
+                    // response-starters route above; the
+                    // `project_actix_route_shadowing` memory note
+                    // documents why ordering alone isn't enough.
+                    .route("/admin/rule-starters", web::get().to(handlers::rules::list_starter_catalog))
                     .route("/rules", web::get().to(handlers::rules::list_rules))
                     .route("/rules", web::post().to(handlers::rules::create_rule))
                     .route("/rules/{id}/apply", web::post().to(handlers::rules::apply_rule))

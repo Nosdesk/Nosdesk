@@ -816,6 +816,11 @@ pub struct ApplyRuleResponse {
 /// `POST /api/rules/{id}/apply`. Agent role minimum. The route is
 /// registered before the wildcard `/rules/{id}` PUT/DELETE in
 /// main.rs to dodge actix's route-shadowing footgun.
+///
+/// Post-commit side-effects (channel relay for public replies,
+/// SSE field broadcasts) live in this handler, not in the apply
+/// lifecycle, so a slow downstream cannot roll back a committed
+/// rule fire. Errors here are logged and swallowed.
 pub async fn apply_rule(
     req: HttpRequest,
     path: web::Path<i32>,
@@ -839,9 +844,10 @@ pub async fn apply_rule(
         Err(resp) => return resp,
     };
     let body = body.into_inner();
+    let ticket_id = body.ticket_id;
     let input = rules::ApplyInput {
         rule_id,
-        ticket_id: body.ticket_id,
+        ticket_id,
         overrides: rules::ApplyOverrides {
             body: body.overrides.body,
             suppress_actions: body.overrides.suppress_actions,
@@ -853,45 +859,65 @@ pub async fn apply_rule(
         Err(e) => return map_apply_error(e),
     };
 
-    // Post-commit best-effort: broadcast a per-field TicketUpdated
-    // for every action that mutated the ticket (set_status,
-    // assign, unassign, add_tags, remove_tags, set_priority).
-    // Manual reply actions don't change ticket fields; the
-    // existing comments.created sync event handles that path.
-    // Wave 8 connects the apply outcome to a richer SSE shape;
-    // for now the per-field shape covers the common case.
+    // Channel relay: when the apply produced a public-visibility
+    // reply, enqueue the outbound message the same way the regular
+    // comment-create handler does. enqueue_for_comment spawns a
+    // background task, so the response returns immediately. Internal
+    // notes never relay.
+    if let Some(cid) = outcome.comment_id {
+        if let Err(e) =
+            dispatch_rule_reply_for_relay(&pool, ticket_id, cid, &outcome.application).await
+        {
+            tracing::warn!(error = %e, comment_id = cid, "rule reply channel relay enqueue failed");
+        }
+    }
+
+    // SSE: broadcast field names the frontend's useTicketSSE
+    // composable already handles. workflow_state_id needs to
+    // resolve to the state's category string (the frontend's
+    // ticket.status); assignee_uuid maps to the 'assignee' key.
+    // Tag changes have no matching per-field handler today; the
+    // ticket.rule_applied sync event drives activity-feed refresh,
+    // which is the surface that needs to update for tag changes.
     let actor_uuid_str = actor.uuid.map(|u| u.to_string()).unwrap_or_default();
-    if let Some(taken) = outcome.application.actions_taken.as_ref().and_then(|v| v.as_array()) {
+    if let Some(taken) = outcome
+        .application
+        .actions_taken
+        .as_ref()
+        .and_then(|v| v.as_array())
+    {
         for action in taken {
             let Some(kind) = action.get("kind").and_then(|k| k.as_str()) else {
                 continue;
             };
             let (field, value) = match kind {
-                "set_status" => (
-                    "workflow_state_id",
-                    action.get("workflow_state_id").cloned().unwrap_or(Value::Null),
-                ),
+                "set_status" => {
+                    let state_id = action
+                        .get("workflow_state_id")
+                        .and_then(|v| v.as_i64())
+                        .map(|i| i as i32);
+                    let category = state_id
+                        .and_then(|id| resolve_workflow_state_category(&pool, id).ok())
+                        .unwrap_or_default();
+                    ("status", Value::String(category))
+                }
                 "assign" => (
-                    "assignee_uuid",
+                    "assignee",
                     action.get("assigned_to_uuid").cloned().unwrap_or(Value::Null),
                 ),
-                "unassign" => ("assignee_uuid", Value::Null),
-                "add_tags" | "remove_tags" => {
-                    // Tag changes don't map cleanly onto a single
-                    // field event; the frontend's useTicketSSE
-                    // composable refetches the ticket on
-                    // ticket.updated with a tag-shaped value.
-                    ("tag_ids", Value::Null)
-                }
+                "unassign" => ("assignee", Value::Null),
                 "set_priority" => (
                     "priority",
                     action.get("priority").cloned().unwrap_or(Value::Null),
                 ),
+                // add_tags / remove_tags / reply / stop_processing
+                // have no useTicketSSE handler today; activity feed
+                // refresh via ticket.rule_applied covers them.
                 _ => continue,
             };
             sse_state
                 .broadcast_event(crate::handlers::sse::SseEvent::TicketUpdated {
-                    ticket_id: body.ticket_id,
+                    ticket_id,
                     field: field.to_string(),
                     value,
                     updated_by: actor_uuid_str.clone(),
@@ -911,6 +937,85 @@ pub async fn apply_rule(
     })
 }
 
+/// Resolve a workflow_state row's category string for the SSE
+/// payload. Best-effort: a missing row returns the empty string,
+/// the frontend's ticket.status setter accepts that as "unknown"
+/// and falls back to a refetch on the next interaction. Done
+/// outside the apply transaction so RLS-friendliness comes from
+/// the regular pool acquire.
+fn resolve_workflow_state_category(
+    pool: &web::Data<Pool>,
+    state_id: i32,
+) -> Result<String, diesel::result::Error> {
+    use crate::models::WorkflowStateCategory;
+    use crate::schema::workflow_states::dsl as ws;
+    use diesel::prelude::*;
+    let mut conn = pool
+        .get()
+        .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
+    let category: WorkflowStateCategory = ws::workflow_states
+        .find(state_id)
+        .select(ws::category)
+        .first(&mut conn)?;
+    Ok(category.as_str().to_string())
+}
+
+/// Mirror the comment-handler's channel-relay enqueue for a rule-
+/// driven public reply. Loads the ticket + comment fresh from the
+/// pool so the spawn body owns them; the apply transaction has
+/// already committed by this point, so the rows are stable.
+async fn dispatch_rule_reply_for_relay(
+    pool: &web::Data<Pool>,
+    ticket_id: i32,
+    comment_id: i32,
+    application: &crate::models::RuleApplication,
+) -> Result<(), String> {
+    // Internal notes do not relay; reply visibility lives on the
+    // action's channel_metadata blob. Re-read the comment so we
+    // see the canonical row exactly as it was stored.
+    use crate::schema::comments::dsl as c;
+    use crate::schema::tickets::dsl as t;
+    use diesel::prelude::*;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+    let comment: crate::models::Comment = c::comments
+        .find(comment_id)
+        .first(&mut conn)
+        .map_err(|e| e.to_string())?;
+    if comment.is_internal {
+        return Ok(());
+    }
+    // The action's channel_metadata kind=="rule_reply" carries the
+    // visibility we used at apply time. Public + non-internal is
+    // the relay condition; anything else skips silently.
+    let visibility_public = comment
+        .channel_metadata
+        .as_ref()
+        .and_then(|m| m.get("visibility"))
+        .and_then(|v| v.as_str())
+        .map(|v| v == "public")
+        .unwrap_or(false);
+    if !visibility_public {
+        return Ok(());
+    }
+    let ticket: crate::models::Ticket = t::tickets
+        .find(ticket_id)
+        .first(&mut conn)
+        .map_err(|e| e.to_string())?;
+    // Spawn — same shape as the regular comment handler. The
+    // outbound queue worker handles SMTP dispatch + retry.
+    crate::services::channels::outbound::enqueue_for_comment(
+        ticket,
+        comment,
+        pool.get_ref().clone(),
+    );
+    tracing::debug!(
+        application_id = application.id,
+        comment_id,
+        "rule reply enqueued for channel relay"
+    );
+    Ok(())
+}
+
 fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
     let message = err.to_string();
     use rules::ApplyError::*;
@@ -924,6 +1029,11 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
             errors::bad_request_with_code(message, "RULE_ACTION_UNSUPPORTED")
         }
         ActionFailed { .. } => errors::internal_with_code(message, "RULE_ACTION_FAILED"),
+        // Soft-deleted / revoked agents land here distinctly from a
+        // transient DB error so the frontend can clear stale auth
+        // state and prompt for re-login instead of showing a generic
+        // 500.
+        AgentRevoked(_) => errors::unauthorized_with_code(message, "ACTOR_REVOKED"),
         MissingWorkspace => errors::internal("missing workspace context"),
         Db(e) => errors::db_error(&e),
     }
