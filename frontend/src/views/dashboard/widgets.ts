@@ -296,6 +296,20 @@ export function defaultLayoutFor(role: UserRole): DashboardLayout {
  * otherwise first-time users would land on a layout that doesn't
  * match what "Reset to defaults" produces.
  */
+/**
+ * True when a layout entry's id resolves to something this role
+ * can render. Leans on `widgetById` (the single source of truth for
+ * id resolution) so both static registry ids AND synthetic
+ * `saved_view:<uuid>` ids stay in the layout through the merge.
+ * Without this, the saved-view widget the user just pinned would
+ * be silently dropped on the next load — `widgetsForRole` only
+ * lists the static registry.
+ */
+function isAvailableForRole(id: string, role: UserRole): boolean {
+  const def = widgetById(id)
+  return def != null && def.roles.includes(role)
+}
+
 export function mergeWithRegistry(
   stored: DashboardLayout | null | undefined,
   role: UserRole,
@@ -303,11 +317,10 @@ export function mergeWithRegistry(
   if (!stored?.widgets?.length) {
     return defaultLayoutFor(role)
   }
-  const available = new Set(widgetsForRole(role).map((w) => w.id))
   const base = stored.widgets
   const seen = new Set<string>()
   const kept = base
-    .filter((e) => available.has(e.id) && !seen.has(e.id))
+    .filter((e) => !seen.has(e.id) && isAvailableForRole(e.id, role))
     .map((e) => {
       seen.add(e.id)
       const entry: {

@@ -194,20 +194,34 @@ function onMenuSelect(id: string) {
  *  only in edit mode and only when the event target is the widget
  *  root itself (not bubbled up from a focused control inside the
  *  body), so typing "1" into a filter input inside a widget doesn't
- *  silently resize the card. */
+ *  silently resize the card.
+ *
+ *  `stopPropagation` AND `preventDefault` are both required: the
+ *  dashboard's document-level keybindings (useDashboardKeybindings)
+ *  bind 1..=7 to section-anchor jumps, so without stopping the
+ *  bubble the card would resize AND the page would scroll away to
+ *  a section anchor. */
 function onCardKeydown(e: KeyboardEvent) {
   if (!editMode.value) return
   if (e.target !== e.currentTarget) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
-  if (e.key === '1') {
-    e.preventDefault()
-    onResize(1)
-  } else if (e.key === '2') {
-    e.preventDefault()
-    onResize(2)
-  } else if (e.key === '3') {
-    e.preventDefault()
-    onResize(3)
+  const span = sizeKeyToSpan(e.key)
+  if (span === null) return
+  e.preventDefault()
+  e.stopPropagation()
+  onResize(span)
+}
+
+function sizeKeyToSpan(key: string): WidgetSpan | null {
+  switch (key) {
+    case '1':
+      return 1
+    case '2':
+      return 2
+    case '3':
+      return 3
+    default:
+      return null
   }
 }
 </script>

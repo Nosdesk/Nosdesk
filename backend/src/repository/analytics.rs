@@ -158,14 +158,12 @@ fn daily_counts(
 ) -> QueryResult<Vec<i64>> {
     // Pre-compute the expected bucket list so missing-day zeros
     // come from the application, not from a recursive CTE the
-    // Diesel typed builder can't express.
-    let mut buckets: Vec<DateTime<Utc>> = Vec::new();
-    let mut cursor = truncate_day(from);
-    let upper = truncate_day(to);
-    while cursor < upper {
-        buckets.push(cursor);
-        cursor += chrono::Duration::days(1);
-    }
+    // Diesel typed builder can't express. We iterate while
+    // `cursor < to` (not `cursor < truncate_day(to)`) so the day
+    // containing `to` is included whenever `to` is mid-day —
+    // otherwise a "today" preset (to = now) would emit zero
+    // buckets and silently drop every row the SQL filter selects.
+    let buckets = day_buckets(from, to);
     if buckets.is_empty() {
         return Ok(Vec::new());
     }
@@ -210,13 +208,31 @@ fn daily_counts(
         .collect())
 }
 
+/// Floor `ts` to the UTC day boundary. `date_naive().and_hms_opt`
+/// is total-by-construction (no Option chain, no silent fallthrough
+/// to a non-truncated value the way `with_hour(0)` could), matching
+/// the same pattern already used in `repository/ticket_query.rs`.
 fn truncate_day(ts: DateTime<Utc>) -> DateTime<Utc> {
-    use chrono::Timelike;
-    ts.with_hour(0)
-        .and_then(|t| t.with_minute(0))
-        .and_then(|t| t.with_second(0))
-        .and_then(|t| t.with_nanosecond(0))
-        .unwrap_or(ts)
+    ts.date_naive()
+        .and_hms_opt(0, 0, 0)
+        .expect("00:00:00 is always a valid time-of-day")
+        .and_utc()
+}
+
+/// Day-aligned buckets covering `[from, to)`. Includes the day
+/// containing `to` whenever `to` is strictly past midnight — i.e.
+/// "today" with a mid-day `to` gets a today bucket; "last 30 days
+/// ending at midnight" doesn't get a tomorrow bucket. The
+/// timeseries() result and the KPI sparkline both share this so
+/// they can't drift apart on bucket-edge semantics.
+fn day_buckets(from: DateTime<Utc>, to: DateTime<Utc>) -> Vec<DateTime<Utc>> {
+    let mut out = Vec::new();
+    let mut cursor = truncate_day(from);
+    while cursor < to {
+        out.push(cursor);
+        cursor += chrono::Duration::days(1);
+    }
+    out
 }
 
 /// Time-series measure enum. v1 supports a single measure (count);
@@ -592,12 +608,15 @@ pub fn timeseries(conn: &mut DbConnection, q: TimeseriesQuery) -> QueryResult<Ti
     };
 
     let counts = daily_counts(conn, metric, q.from, q.to)?;
-    let mut buckets = Vec::with_capacity(counts.len());
-    let mut cursor = truncate_day(q.from);
-    for value in counts {
-        buckets.push(TimeseriesBucket { ts: cursor, value });
-        cursor += chrono::Duration::days(1);
-    }
+    // Both `counts` and `day_buckets` are derived from the same
+    // (from, to) so their length matches by construction; the zip
+    // here is the single source of (timestamp, value) pairs and
+    // can't drift the way two parallel cursor loops could.
+    let buckets = day_buckets(q.from, q.to)
+        .into_iter()
+        .zip(counts)
+        .map(|(ts, value)| TimeseriesBucket { ts, value })
+        .collect();
 
     Ok(TimeseriesResult { buckets })
 }
@@ -621,6 +640,39 @@ mod tests {
             Some(KpiMetric::TicketsOpen)
         );
         assert_eq!(KpiMetric::parse("bogus"), None);
+    }
+
+    #[test]
+    fn day_buckets_includes_partial_trailing_day() {
+        // `to` is mid-day: the day containing it must appear.
+        let from = "2026-06-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let to = "2026-06-03T14:30:00Z".parse::<DateTime<Utc>>().unwrap();
+        let buckets = day_buckets(from, to);
+        assert_eq!(buckets.len(), 3, "Jun 1, Jun 2, Jun 3 — three days");
+        assert_eq!(
+            buckets[2],
+            "2026-06-03T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+        );
+    }
+
+    #[test]
+    fn day_buckets_excludes_exact_midnight_boundary() {
+        // `to` is exactly midnight: the day "at" the boundary is
+        // NOT included (half-open [from, to)).
+        let from = "2026-06-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let to = "2026-06-04T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let buckets = day_buckets(from, to);
+        assert_eq!(buckets.len(), 3, "Jun 1, Jun 2, Jun 3 — Jun 4 not included");
+    }
+
+    #[test]
+    fn day_buckets_single_day_window() {
+        // "today" preset: from = start_of_today, to = now (mid-day).
+        let from = "2026-06-03T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let to = "2026-06-03T14:30:00Z".parse::<DateTime<Utc>>().unwrap();
+        let buckets = day_buckets(from, to);
+        assert_eq!(buckets.len(), 1, "today preset must emit today's bucket");
+        assert_eq!(buckets[0], from);
     }
 
     #[test]

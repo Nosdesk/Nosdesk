@@ -40,11 +40,15 @@ const props = defineProps<{
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
-const { window: timeWindow, priorWindow } = useTimeRange()
+const { window: timeWindow, priorWindow, compare } = useTimeRange()
 
 const params = computed(() => {
   const w = timeWindow.value
-  const p = priorWindow.value
+  // Only request prior-period numbers when the user has compare
+  // toggled on; skipping the optional params keeps the cache key
+  // narrow for the common "no compare" case.
+  const includePrior = compare.value
+  const p = includePrior ? priorWindow.value : undefined
   return {
     metric: props.metric,
     from: w.from,

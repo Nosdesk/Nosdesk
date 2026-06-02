@@ -15,6 +15,7 @@ nothing.
 import { ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
+import { useToastStore } from '@/stores/toast'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import AddWidgetModal from './AddWidgetModal.vue'
 import Icon from '@/components/common/Icon.vue'
@@ -23,15 +24,26 @@ const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const store = useDashboardLayoutStore()
+const toast = useToastStore()
 
 const showAdd = ref(false)
 const showResetConfirm = ref(false)
 
 async function done() {
-  // Done writes whatever the working copy currently holds. If the
-  // user made no changes, the write is a no-op for the persisted
-  // state but still closes the edit session cleanly.
-  await store.done()
+  // store.done() throws on persistence failure (network error,
+  // auth lost, server 5xx) and leaves the working copy intact so
+  // the user can retry. We surface the failure as an error toast
+  // — without this catch the rejection is unhandled and the user
+  // sees no signal that their click did anything.
+  try {
+    await store.done()
+  } catch (err) {
+    console.error('Dashboard save failed', err)
+    toast.error(
+      t('dashboard-edit-bar-save-error-title'),
+      t('dashboard-edit-bar-save-error-message'),
+    )
+  }
 }
 
 function discard() {

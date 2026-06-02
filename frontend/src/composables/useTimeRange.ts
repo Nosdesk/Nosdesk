@@ -133,13 +133,35 @@ function parseGrain(value: LocationQuery[string]): Grain | null {
  * via the setters writes the URL via `router.replace` so back-button
  * history isn't polluted with range steps.
  */
+/**
+ * Time window. Both ends are ISO-8601 UTC strings: that's the shape
+ * the backend's `chrono::DateTime<Utc>` serde deserialiser expects,
+ * and it's what axios will url-encode without surprises. Any
+ * consumer that needs a Date can do `new Date(window.from)` at the
+ * call site; the inverse (everyone calling toISOString() on a
+ * shared Date object) was the failure mode the analytics endpoints
+ * hit in review.
+ */
+export interface TimeWindow {
+  from: string
+  to: string
+}
+
 export interface TimeRangeHandle {
   preset: ComputedRef<TimeRangePreset>
   grain: ComputedRef<Grain>
   compare: ComputedRef<boolean>
   customFrom: ComputedRef<string | null>
   customTo: ComputedRef<string | null>
-  window: ComputedRef<{ from: Date; to: Date }>
+  /** The active window for the dashboard. */
+  window: ComputedRef<TimeWindow>
+  /**
+   * The matching prior-period window (same span, shifted earlier
+   * by that span). Always derived from `window`; callers showing a
+   * compare overlay read this directly, callers ignoring compare
+   * simply don't reference it.
+   */
+  priorWindow: ComputedRef<TimeWindow>
   setPreset: (next: TimeRangePreset) => void
   setGrainOverride: (next: Grain | null) => void
   setCompare: (next: boolean) => void
@@ -166,12 +188,26 @@ export function useTimeRange(): TimeRangeHandle {
     typeof route.query.to === 'string' ? route.query.to : null,
   )
 
-  const window = computed<{ from: Date; to: Date }>(() =>
-    presetWindow(preset.value, {
+  // `presetWindow` builds Date objects internally (cheaper math);
+  // we stringify here so the public surface is ISO-only.
+  const window = computed<TimeWindow>(() => {
+    const w = presetWindow(preset.value, {
       from: customFrom.value ?? undefined,
       to: customTo.value ?? undefined,
-    }),
-  )
+    })
+    return { from: w.from.toISOString(), to: w.to.toISOString() }
+  })
+
+  const priorWindow = computed<TimeWindow>(() => {
+    const w = window.value
+    const fromMs = Date.parse(w.from)
+    const toMs = Date.parse(w.to)
+    const span = toMs - fromMs
+    return {
+      from: new Date(fromMs - span).toISOString(),
+      to: new Date(fromMs).toISOString(),
+    }
+  })
 
   function writeQuery(patch: Record<string, string | undefined>): void {
     const next: LocationQuery = { ...route.query }
@@ -212,6 +248,7 @@ export function useTimeRange(): TimeRangeHandle {
     customFrom,
     customTo,
     window,
+    priorWindow,
     setPreset,
     setGrainOverride,
     setCompare,

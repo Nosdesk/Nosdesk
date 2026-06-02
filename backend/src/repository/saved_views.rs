@@ -56,15 +56,25 @@ pub fn list_for_scope(
     list_for_scope_dataset(conn, scope, scope_id, "tickets")
 }
 
-/// "Pickable" saved views — every view in the current workspace
-/// whose viz_type is something other than the default list. Backs
-/// the AddWidgetModal "Your saved views" tab where the operator
-/// drops a chart onto the dashboard. The RLS policy on saved_views
-/// already restricts the result to the active workspace_id, so the
-/// query here is just `viz_type <> 'list'`.
-pub fn list_pickable(conn: &mut DbConnection) -> QueryResult<Vec<SavedView>> {
+/// "Pickable" saved views for the AddWidgetModal "Your saved views"
+/// tab: every chart-backed view (viz_type != 'list') the caller can
+/// see. The visibility rules mirror the existing list path —
+/// workspace-scope views are world-readable inside the workspace,
+/// private-scope views are caller-only. Earlier revisions of this
+/// function returned every workspace row regardless of scope; that
+/// leaked other users' private chart views into the picker.
+pub fn list_pickable(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Vec<SavedView>> {
+    let user_id = user_uuid.to_string();
+    // Two predicates ORed inside one query so the result stays
+    // sorted by name once — equivalent to UNION ALL + ORDER BY, but
+    // expressible in the Diesel typed builder without `union`.
     saved_views::table
         .filter(saved_views::viz_type.ne("list"))
+        .filter(
+            saved_views::scope.eq("workspace").or(saved_views::scope
+                .eq("private")
+                .and(saved_views::scope_id.eq(user_id))),
+        )
         .order(saved_views::name.asc())
         .load(conn)
 }
@@ -212,8 +222,60 @@ mod tests {
         chart.viz_config = json!({"metric": "tickets_created"});
         let chart = create(&mut conn, chart).unwrap();
 
-        let pickable = list_pickable(&mut conn).unwrap();
+        let pickable = list_pickable(&mut conn, user.uuid).unwrap();
         assert_eq!(pickable.len(), 1);
         assert_eq!(pickable[0].id, chart.id);
+    }
+
+    #[test]
+    fn list_pickable_hides_other_users_private_views() {
+        let mut conn = setup_test_connection();
+        let alice = TestFixtures::create_user(&mut conn, "sv_alice", UserRole::User);
+        let bob = TestFixtures::create_user(&mut conn, "sv_bob", UserRole::User);
+
+        // Alice's private chart view: should NOT be visible to Bob.
+        let mut alice_chart = private_view_for(alice.uuid, "alice-secret");
+        alice_chart.viz_type = "kpi_tile".into();
+        create(&mut conn, alice_chart).unwrap();
+
+        // Bob's own chart view: should be visible.
+        let mut bob_chart = private_view_for(bob.uuid, "bob-own");
+        bob_chart.viz_type = "kpi_tile".into();
+        let bob_chart = create(&mut conn, bob_chart).unwrap();
+
+        let pickable = list_pickable(&mut conn, bob.uuid).unwrap();
+        assert_eq!(
+            pickable.len(),
+            1,
+            "Bob should only see his own private chart views"
+        );
+        assert_eq!(pickable[0].id, bob_chart.id);
+    }
+
+    #[test]
+    fn list_pickable_includes_workspace_scope_views() {
+        let mut conn = setup_test_connection();
+        let admin = TestFixtures::create_user(&mut conn, "sv_admin", UserRole::Admin);
+        let viewer = TestFixtures::create_user(&mut conn, "sv_viewer", UserRole::User);
+
+        // Workspace-scope chart: visible to every workspace member.
+        let workspace_chart = NewSavedView {
+            scope: "workspace".into(),
+            scope_id: None,
+            name: "ws-chart".into(),
+            shape: json!({"type": "list"}),
+            filter: json!({"predicate": {"combinator": "AND", "children": []}}),
+            created_by: admin.uuid,
+            dataset: "tickets".into(),
+            viz_type: "line".into(),
+            viz_config: json!({}),
+        };
+        let created = create(&mut conn, workspace_chart).unwrap();
+
+        let pickable = list_pickable(&mut conn, viewer.uuid).unwrap();
+        assert!(
+            pickable.iter().any(|v| v.id == created.id),
+            "workspace-scope chart should be visible to any workspace member"
+        );
     }
 }

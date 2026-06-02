@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use tracing::error;
 
-use crate::extractors::TenantConn;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::repository::analytics::{
     self, AnnotationQuery, BreakdownGroupBy, BreakdownQuery, HeatmapQuery, KpiMetric, KpiQuery,
@@ -28,6 +28,25 @@ const TOP_N_MAX: i64 = 50;
 /// is the `audit_log.table_name` literal the trigger writes. Keep
 /// in sync with the analytics overlay docs (§13.2).
 const ANNOTATION_TABLES: &[&str] = &["rules", "sla_policies", "working_calendars"];
+
+/// Reusable guard for analytics endpoints that expose staffing,
+/// admin-edit timelines, or other data an end-customer shouldn't
+/// see. Returns `None` on success (caller continues), `Some(response)`
+/// on denial (caller returns immediately).
+///
+/// Centralising the check here keeps every sensitive endpoint
+/// reading from one place — adding a new staff-only chart kind is
+/// `staff_gate(&auth)?` at the top of the handler, no policy
+/// duplication.
+fn staff_gate(auth: &AuthContext) -> Option<HttpResponse> {
+    if auth.is_technician_or_admin() {
+        None
+    } else {
+        Some(errors::forbidden(
+            "Staffing and admin-activity analytics are restricted to technicians and admins",
+        ))
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct KpiParams {
@@ -155,6 +174,7 @@ pub struct BreakdownParams {
 pub async fn get_breakdown(
     mut tc: TenantConn,
     query: web::Query<BreakdownParams>,
+    auth: AuthContext,
 ) -> impl Responder {
     let params = query.into_inner();
     let Some(group_by) = BreakdownGroupBy::parse(&params.group_by) else {
@@ -162,6 +182,15 @@ pub async fn get_breakdown(
             "group_by must be one of: priority, category_id, assignee_uuid",
         );
     };
+    // Group-by priority / category is workspace aggregate (no
+    // actor info), open to any authenticated user. Group-by
+    // assignee enumerates technicians by ticket volume — staff-
+    // only territory.
+    if matches!(group_by, BreakdownGroupBy::Assignee) {
+        if let Some(deny) = staff_gate(&auth) {
+            return deny;
+        }
+    }
     if params.from >= params.to {
         return errors::bad_request("`from` must be earlier than `to`");
     }
@@ -227,7 +256,13 @@ pub struct AnnotationParams {
 pub async fn get_audit_annotations(
     mut tc: TenantConn,
     query: web::Query<AnnotationParams>,
+    auth: AuthContext,
 ) -> impl Responder {
+    // The annotation overlay surfaces admin config edits (rule /
+    // SLA / working-calendar history). Staff-only by definition.
+    if let Some(deny) = staff_gate(&auth) {
+        return deny;
+    }
     let params = query.into_inner();
     if params.from >= params.to {
         return errors::bad_request("`from` must be earlier than `to`");
@@ -264,7 +299,14 @@ pub async fn get_audit_annotations(
 pub async fn get_leaderboard(
     mut tc: TenantConn,
     query: web::Query<LeaderboardParams>,
+    auth: AuthContext,
 ) -> impl Responder {
+    // Leaderboard always ranks actors (assignee or requester) by
+    // ticket volume, which is staffing/customer-list data an
+    // end-user shouldn't see.
+    if let Some(deny) = staff_gate(&auth) {
+        return deny;
+    }
     let params = query.into_inner();
     let Some(actor) = LeaderboardActor::parse(&params.actor) else {
         return errors::bad_request("actor must be one of: assignee, requester");

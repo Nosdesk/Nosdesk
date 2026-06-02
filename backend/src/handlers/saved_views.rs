@@ -107,11 +107,15 @@ pub async fn list(
     query: web::Query<ListQuery>,
     auth: AuthContext,
 ) -> impl Responder {
-    // Pickable path: workspace's chart-backed saved views, for the
-    // AddWidgetModal "Your saved views" tab. Short-circuits the
-    // ticket-scope merging branches below.
+    // Pickable path: chart-backed saved views the caller can see,
+    // for the AddWidgetModal "Your saved views" tab. The repo
+    // enforces the same scope rules as the ticket-list path
+    // (workspace visible to all, private visible only to the
+    // creator), so this short-circuits the scope-merging branches
+    // below without dropping any visibility guarantees.
     if query.has_viz.unwrap_or(false) {
-        return match tc.run(repo::list_pickable) {
+        let user_uuid = auth.user_uuid;
+        return match tc.run(|conn| repo::list_pickable(conn, user_uuid)) {
             Ok(rows) => HttpResponse::Ok().json(rows),
             Err(e) => {
                 error!(error = %e, "failed to load pickable saved views");

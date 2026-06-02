@@ -136,18 +136,19 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
 
   /** Persist the working copy and close the edit session. The
    *  SSE cross-tab handler fires once on the server's write, not
-   *  per micro-mutation. Returns the auth user's updated row. */
+   *  per micro-mutation. Throws on any failure (auth lost, network
+   *  error, server error) WITHOUT destroying the working copy, so
+   *  the EditBar's catch can surface a user-visible toast and the
+   *  user can retry without losing their edits. */
   async function done() {
     if (!workingCopy.value) return
     if (!auth.user?.uuid) {
-      // Auth lost during edit; the safest action is to drop the
-      // session rather than persist against a stale user. The
-      // working copy is the user's intent; we surface the failure
-      // by reverting rather than silently losing the changes.
-      workingCopy.value = null
-      undoStack.value = []
-      redoStack.value = []
-      return
+      // Auth lost mid-edit. Throwing (rather than silently dropping
+      // the working copy as an earlier version did) gives the
+      // EditBar a chance to tell the user "you've been signed out;
+      // your edits are still here, please sign in to save". The
+      // working copy stays intact for that retry path.
+      throw new Error('Cannot save dashboard layout: not signed in')
     }
     saving.value = true
     try {
@@ -158,17 +159,17 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
         canonicalLayout.value = workingCopy.value
         auth.user.dashboard_layout = workingCopy.value
       }
+      // Only clear edit-session state on a successful write — a
+      // failure preserves workingCopy + stacks so retry is possible.
+      workingCopy.value = null
+      undoStack.value = []
+      redoStack.value = []
     } catch (e) {
       console.error('Failed to persist dashboard layout:', e)
-      // Leave the working copy intact so the user can retry; closing
-      // the session would lose their work without warning.
       throw e
     } finally {
       saving.value = false
     }
-    workingCopy.value = null
-    undoStack.value = []
-    redoStack.value = []
   }
 
   /** Drop the working copy + clear the stacks. View mode reverts
@@ -243,18 +244,62 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
     entry.span = span
   }
 
-  /** Upsert a widget's per-widget config. Opaque to the layout system —
-   *  each widget owns the shape of its own config. Pass `null` to
-   *  clear. */
+  /**
+   * Upsert a widget's per-widget config. Opaque to the layout
+   * system — each widget owns its own config shape; pass `null` to
+   * clear.
+   *
+   * Widget config has different semantics than a drag/resize/move:
+   * it's an in-context settings save (the gear menu on a stat tile,
+   * a chart's data selector) that has to work whether or not the
+   * user has flipped the dashboard into edit mode. So the write
+   * path forks:
+   *   • inside an edit session, write to the working copy so the
+   *     change composes with whatever else the user is editing and
+   *     can be undone / discarded with the rest;
+   *   • outside an edit session, write canonical directly and
+   *     persist immediately (debounced upstream by Pinia Colada /
+   *     the per-widget watcher).
+   *
+   * This restores the pre-Wave-2 contract that useWidgetConfigState
+   * relied on: setting `store.setConfig(id, {...})` from view mode
+   * persists. The earlier rewrite silently dropped view-mode writes,
+   * which broke StaffQueueStats's metric picker.
+   */
   function setConfig(id: string, config: Record<string, unknown> | null) {
-    if (!workingCopy.value) return
-    const entry = workingCopy.value.widgets.find((w) => w.id === id)
+    if (workingCopy.value) {
+      const entry = workingCopy.value.widgets.find((w) => w.id === id)
+      if (!entry) return
+      recordUndo()
+      if (config === null) delete entry.config
+      else entry.config = config
+      return
+    }
+    // View mode: mutate canonical + fire the persist asynchronously.
+    // The mutation is reactive so subscribers update immediately;
+    // the persistConfigOnly() call below is fire-and-forget because
+    // the caller (a watcher inside useWidgetConfigState) doesn't
+    // await it.
+    const entry = canonicalLayout.value.widgets.find((w) => w.id === id)
     if (!entry) return
-    recordUndo()
-    if (config === null) {
-      delete entry.config
-    } else {
-      entry.config = config
+    if (config === null) delete entry.config
+    else entry.config = config
+    void persistConfigOnly()
+  }
+
+  /** Persist the canonical layout as-is (no working-copy interaction).
+   *  Used by the view-mode setConfig path so an in-context config
+   *  change survives a page reload. Failures log + restore the prior
+   *  state from the auth-tracked snapshot so the UI doesn't drift. */
+  async function persistConfigOnly() {
+    if (!auth.user?.uuid) return
+    try {
+      await userService.updateUser(auth.user.uuid, {
+        dashboard_layout: canonicalLayout.value,
+      })
+      auth.user.dashboard_layout = canonicalLayout.value
+    } catch (e) {
+      console.error('Failed to persist widget config:', e)
     }
   }
 
