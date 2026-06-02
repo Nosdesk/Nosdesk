@@ -576,6 +576,122 @@ fn build_marker(
     }
 }
 
+/// Where this ticket was merged to (populated only when the ticket is
+/// itself a merge source).
+#[derive(Debug, serde::Serialize)]
+pub struct MergedIntoInfo {
+    pub destination_id: i32,
+    pub merged_at: Option<chrono::NaiveDateTime>,
+    pub merged_by: Option<Uuid>,
+    pub reason: Option<String>,
+}
+
+/// One merge that consumed sources into this ticket, reconstructed from
+/// the `ticket.merged` sync event.
+#[derive(Debug, serde::Serialize)]
+pub struct MergeEvent {
+    pub event_id: i64,
+    pub merged_at: chrono::DateTime<chrono::Utc>,
+    pub merged_by_user_uuid: Option<Uuid>,
+    pub merged_by_name: Option<String>,
+    pub source_ticket_ids: Vec<i32>,
+    pub reason: Option<String>,
+    pub comments_moved: i64,
+    pub merge_marker_comment_id: Option<i32>,
+}
+
+/// Merge history for a ticket, from both directions.
+#[derive(Debug, serde::Serialize)]
+pub struct MergeHistory {
+    pub merged_into: Option<MergedIntoInfo>,
+    pub merge_events: Vec<MergeEvent>,
+}
+
+/// Build the merge history for `ticket_id`: where it was merged to (if
+/// it's a source) and the merges that consumed other tickets into it.
+/// Reads through RLS, so it only sees the caller's workspace.
+pub fn merge_history_for_ticket(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+) -> QueryResult<MergeHistory> {
+    use crate::schema::tickets;
+    use diesel::sql_types::{BigInt, Integer, Jsonb, Nullable, Text, Timestamptz, Uuid as SqlUuid};
+
+    // Direction 1: this ticket as a source.
+    let row: Option<(Option<i32>, Option<chrono::NaiveDateTime>, Option<Uuid>, Option<String>)> =
+        tickets::table
+            .find(ticket_id)
+            .select((
+                tickets::merged_into_ticket_id,
+                tickets::merged_at,
+                tickets::merged_by_user_uuid,
+                tickets::merge_reason,
+            ))
+            .first(conn)
+            .optional()?;
+
+    let merged_into = row.and_then(|(into, at, by, reason)| {
+        into.map(|destination_id| MergedIntoInfo {
+            destination_id,
+            merged_at: at,
+            merged_by: by,
+            reason,
+        })
+    });
+
+    // Direction 2: merges that consumed sources into this ticket.
+    #[derive(diesel::QueryableByName)]
+    struct EventRow {
+        #[diesel(sql_type = BigInt)]
+        sync_id: i64,
+        #[diesel(sql_type = Timestamptz)]
+        occurred_at: chrono::DateTime<chrono::Utc>,
+        #[diesel(sql_type = Jsonb)]
+        data: serde_json::Value,
+        #[diesel(sql_type = Nullable<SqlUuid>)]
+        actor_uuid: Option<Uuid>,
+        #[diesel(sql_type = Nullable<Text>)]
+        actor_name: Option<String>,
+    }
+
+    let rows: Vec<EventRow> = diesel::sql_query(
+        "SELECT s.sync_id, s.occurred_at, s.data, s.actor_uuid, u.name AS actor_name \
+         FROM sync_actions s \
+         LEFT JOIN users u ON u.uuid = s.actor_uuid \
+         WHERE s.event_type = 'ticket.merged' AND s.aggregate_id = $1::text \
+         ORDER BY s.sync_id DESC LIMIT 50",
+    )
+    .bind::<Integer, _>(ticket_id)
+    .load(conn)?;
+
+    let merge_events = rows
+        .into_iter()
+        .map(|r| {
+            let source_ticket_ids = r.data["source_ticket_ids"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_i64().map(|n| n as i32)).collect())
+                .unwrap_or_default();
+            MergeEvent {
+                event_id: r.sync_id,
+                merged_at: r.occurred_at,
+                merged_by_user_uuid: r.actor_uuid,
+                merged_by_name: r.actor_name,
+                source_ticket_ids,
+                reason: r.data["reason"].as_str().map(str::to_string),
+                comments_moved: r.data["comments_moved"].as_i64().unwrap_or(0),
+                merge_marker_comment_id: r.data["merge_marker_comment_id"]
+                    .as_i64()
+                    .map(|n| n as i32),
+            }
+        })
+        .collect();
+
+    Ok(MergeHistory {
+        merged_into,
+        merge_events,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
