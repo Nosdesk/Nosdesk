@@ -108,6 +108,50 @@ export interface Ticket {
    *  to "watching"; comment notifications fan out to every uuid
    *  in this set (in addition to requester / assignee). */
   watcher_uuids?: string[]
+  /** When this ticket was merged into another, the destination's id;
+   *  null when the ticket is not a merge source. Set together with
+   *  `merged_at` / `merged_by_user_uuid`. A non-null value makes the
+   *  ticket terminal: read-only UI, and future channel replies reroute
+   *  to the destination. */
+  merged_into_ticket_id?: number | null
+  merged_at?: string | null
+  merged_by_user_uuid?: string | null
+  merge_reason?: string | null
+}
+
+/** One merge that consumed sources into a ticket, from the
+ *  `ticket.merged` activity event. */
+export interface TicketMergeEvent {
+  event_id: number
+  merged_at: string
+  merged_by_user_uuid: string | null
+  merged_by_name: string | null
+  source_ticket_ids: number[]
+  reason: string | null
+  comments_moved: number
+  merge_marker_comment_id: number | null
+}
+
+/** Merge history for a ticket, from both directions. */
+export interface MergeHistory {
+  merged_into: {
+    destination_id: number
+    merged_at: string | null
+    merged_by: string | null
+    reason: string | null
+  } | null
+  merge_events: TicketMergeEvent[]
+}
+
+/** Response body of POST /api/tickets/merge. */
+export interface MergeResponse {
+  merge_event_id: number
+  destination_ticket: Ticket
+  merged_sources: Ticket[]
+  comments_moved: number
+  channel_messages_rerouted: number
+  watchers_added_to_destination: number
+  merge_marker_comment_id: number
 }
 
 export interface RecentTicket {

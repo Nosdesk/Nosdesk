@@ -361,6 +361,25 @@ auto-ack-default-template = Your request (#{ $ticket_id }) has been received and
 # the agent ticks "Tell the customer" in the merge dialog.
 merge-notification-customer-template = We're combining your request with a related ticket so our team can respond once. We'll continue to update you on this thread.
 
+# Ticket merge dialog + activity surfaces.
+ticket-merge-dialog-title = Merge { $count ->
+    [one] 1 ticket
+   *[other] { $count } tickets
+  }
+ticket-merge-destination-label = Destination ticket
+ticket-merge-reason-label = Reason (optional)
+ticket-merge-reason-placeholder = What ties these tickets together?
+ticket-merge-notify-customer-label = Tell the customer their ticket was merged
+ticket-merge-notify-customer-help = Sends a templated reply on each source ticket's existing channel thread. Off by default.
+ticket-merge-submit-button = Merge { $count } tickets
+ticket-merge-cancel-button = Cancel
+ticket-merge-conflict-toast = Some of these tickets changed since you opened this dialog. Refresh and retry.
+ticket-merge-success-toast = Merged { $count } tickets into #{ $target_id }
+ticket-merge-marker-comment-header = Merged { $count } tickets into this one
+ticket-merge-banner-merged-into = This ticket was merged into #{ $target_id } by { $actor } on { $when }.
+ticket-merge-banner-open-destination = Open destination
+ticket-merge-sidebar-merged-in = Merged in
+
 # Inbox-time connecting copy. The bare time string ("3:42 PM"),
 # weekday ("Mon"), and relative phrases ("5 minutes ago") all
 # come from Intl.DateTimeFormat / Intl.RelativeTimeFormat in the

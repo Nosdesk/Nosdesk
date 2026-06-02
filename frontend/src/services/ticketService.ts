@@ -1,7 +1,16 @@
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
-import type { Ticket, RecentTicket, Comment, Attachment, Asset, Project } from '@/types/ticket';
+import type {
+  Ticket,
+  RecentTicket,
+  Comment,
+  Attachment,
+  Asset,
+  Project,
+  MergeResponse,
+  MergeHistory,
+} from '@/types/ticket';
 import type { UserInfo } from '@/types/user';
 import type { PaginatedResponse } from '@/types/pagination';
 import type { CommentWithAttachments } from '@/types/comment';
@@ -158,6 +167,37 @@ export const unlinkTicket = async (ticketId: number, linkedTicketId: number): Pr
     await apiClient.delete(`/tickets/${ticketId}/unlink/${linkedTicketId}`);
   } catch (error) {
     logger.error('Failed to unlink tickets', { error, ticketId, linkedTicketId });
+    throw error;
+  }
+};
+
+// Merge one or more source tickets into a destination ticket.
+export interface MergeTicketsInput {
+  destination_ticket_id: number
+  source_ticket_ids: number[]
+  reason: string | null
+  notify_customer: boolean
+  marker_body: string | null
+  expected_state: { ticket_id: number; workflow_state_id: number }[]
+}
+
+export const mergeTickets = async (input: MergeTicketsInput): Promise<MergeResponse> => {
+  try {
+    const response = await apiClient.post('/tickets/merge', input);
+    return response.data;
+  } catch (error) {
+    logger.error('Failed to merge tickets', { error, input });
+    throw error;
+  }
+};
+
+// Fetch the merge history for a ticket (both directions).
+export const fetchMergeHistory = async (ticketId: number): Promise<MergeHistory> => {
+  try {
+    const response = await apiClient.get(`/tickets/${ticketId}/merge-history`);
+    return response.data;
+  } catch (error) {
+    logger.error('Failed to fetch merge history', { error, ticketId });
     throw error;
   }
 };

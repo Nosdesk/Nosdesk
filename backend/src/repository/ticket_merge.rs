@@ -51,6 +51,11 @@ pub struct MergeInput {
     pub notify_customer: bool,
     /// Optional optimistic-lock tokens. Empty means "skip the check".
     pub expected_state: Vec<ExpectedState>,
+    /// Agent-edited body for the merge-marker comment (the merge
+    /// dialog's description area). `None` falls back to the generated
+    /// summary. The structured channel_metadata is always attached so
+    /// the activity card renders regardless.
+    pub marker_body: Option<String>,
 }
 
 /// Counts and identifiers the API echoes back after a successful merge.
@@ -357,7 +362,13 @@ pub fn execute_merge(
         // destination. Inserted directly (not via create_comment) so it
         // does NOT stamp the destination's first_response_at: a merge
         // marker is bookkeeping, not a staff reply to the customer.
-        let marker = build_marker(&destination, &sources, actor, reason.as_deref());
+        let marker = build_marker(
+            &destination,
+            &sources,
+            actor,
+            reason.as_deref(),
+            input.marker_body.as_deref(),
+        );
         let marker_comment: Comment = diesel::insert_into(crate::schema::comments::table)
             .values(&marker)
             .get_result(conn)?;
@@ -523,6 +534,7 @@ fn build_marker(
     sources: &[Ticket],
     actor: &ActorContext,
     reason: Option<&str>,
+    marker_body: Option<&str>,
 ) -> NewComment {
     let source_json: Vec<_> = sources
         .iter()
@@ -546,10 +558,20 @@ fn build_marker(
     if let Some(r) = reason {
         lines.push(format!("Reason: {r}"));
     }
-    let body_text = lines.join("\n");
+    // Agent-edited body wins; otherwise fall back to the generated
+    // summary. Either way the structured metadata below drives the card.
+    let generated = lines.join("\n");
+    let body_text = marker_body
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or(generated);
     let body_html = format!(
         "<p>{}</p>",
-        body_text.replace('&', "&amp;").replace('<', "&lt;").replace('\n', "<br>")
+        body_text
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('\n', "<br>")
     );
 
     let metadata = json!({
@@ -786,6 +808,7 @@ mod tests {
             reason: Some("same outage".to_string()),
             notify_customer: false,
             expected_state: Vec::new(),
+            marker_body: None,
         }
     }
 

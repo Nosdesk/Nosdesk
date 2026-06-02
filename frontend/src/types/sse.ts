@@ -120,6 +120,18 @@ export interface TicketDeletedEventData {
 }
 
 /**
+ * ticket-merged event data. Broadcast when a merge commits so open
+ * viewers react: source viewers show the merged-into banner, the
+ * destination refetches.
+ */
+export interface TicketMergedEventData {
+  target_ticket_id: number
+  source_ticket_ids: number[]
+  actor_uuid: string
+  merge_event_id: number
+}
+
+/**
  * project-assigned / project-unassigned event data
  */
 export interface ProjectEventData {
