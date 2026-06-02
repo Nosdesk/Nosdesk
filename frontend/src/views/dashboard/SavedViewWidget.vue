@@ -131,22 +131,29 @@ const supportsRenderer = computed(() =>
     :flush-body="vizType === 'kpi_tile'"
     :min-body-height="'9rem'"
   >
-    <KpiTile v-if="kpiProps" :metric="kpiProps.metric" />
+    <KpiTile
+      v-if="kpiProps"
+      :metric="kpiProps.metric"
+      :view-uuid="viewUuid"
+    />
     <LineChart
       v-else-if="lineProps"
       :measure="lineProps.measure"
       :time-field="lineProps.timeField"
+      :view-uuid="viewUuid"
     />
     <HorizontalBar
       v-else-if="barProps"
       :group-by="barProps.groupBy"
       :top-n="barProps.topN"
+      :view-uuid="viewUuid"
     />
-    <Heatmap v-else-if="isHeatmap" />
+    <Heatmap v-else-if="isHeatmap" :view-uuid="viewUuid" />
     <Leaderboard
       v-else-if="leaderboardProps"
       :actor="leaderboardProps.actor"
       :top-n="leaderboardProps.topN"
+      :view-uuid="viewUuid"
     />
     <div
       v-else

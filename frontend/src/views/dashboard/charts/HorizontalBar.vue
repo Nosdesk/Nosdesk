@@ -23,6 +23,12 @@ const props = withDefaults(
   defineProps<{
     groupBy: BreakdownGroupBy
     topN?: number
+    /** Saved-view uuid to drill into on row click. When set, each
+     *  row becomes a router-link to `/tickets?view=<uuid>&segment_key=...&segment_value=...`.
+     *  The segment params are advisory: the ticket list applies the
+     *  saved view's predicate; the segment params are picked up by
+     *  Wave 6+ filter merging on the list side. */
+    viewUuid?: string
   }>(),
   {
     topN: 10,
@@ -71,6 +77,18 @@ function bucketLabel(b: BreakdownBucket): string {
   if (b.key === 'unassigned') return t('dashboard-bar-unassigned')
   return b.key
 }
+
+function rowLink(b: BreakdownBucket) {
+  if (!props.viewUuid) return null
+  return {
+    path: '/tickets',
+    query: {
+      view: props.viewUuid,
+      segment_key: props.groupBy,
+      segment_value: b.key,
+    },
+  }
+}
 </script>
 
 <template>
@@ -85,19 +103,24 @@ function bucketLabel(b: BreakdownBucket): string {
       {{ t('dashboard-line-chart-empty') }}
     </div>
     <ul v-else class="flex flex-col gap-1.5">
-      <li
-        v-for="b in buckets"
-        :key="b.key"
-        class="grid grid-cols-[7rem_1fr_3rem] items-center gap-3 text-xs"
-      >
-        <span class="text-secondary truncate" :title="bucketLabel(b)">{{ bucketLabel(b) }}</span>
-        <div class="h-2 rounded-sm bg-surface-alt overflow-hidden">
-          <div
-            class="h-full bg-accent transition-[width] duration-200"
-            :style="{ width: `${(b.value / maxValue) * 100}%` }"
-          />
-        </div>
-        <span class="text-tertiary tabular-nums text-right">{{ b.value }}</span>
+      <li v-for="b in buckets" :key="b.key">
+        <component
+          :is="rowLink(b) ? 'router-link' : 'div'"
+          :to="rowLink(b) ?? undefined"
+          :class="[
+            'grid grid-cols-[7rem_1fr_3rem] items-center gap-3 text-xs px-1 py-0.5 rounded',
+            rowLink(b) ? 'transition-colors hover:bg-surface-hover' : '',
+          ]"
+        >
+          <span class="text-secondary truncate" :title="bucketLabel(b)">{{ bucketLabel(b) }}</span>
+          <div class="h-2 rounded-sm bg-surface-alt overflow-hidden">
+            <div
+              class="h-full bg-accent transition-[width] duration-200"
+              :style="{ width: `${(b.value / maxValue) * 100}%` }"
+            />
+          </div>
+          <span class="text-tertiary tabular-nums text-right">{{ b.value }}</span>
+        </component>
       </li>
     </ul>
   </div>

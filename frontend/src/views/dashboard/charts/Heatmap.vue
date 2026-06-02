@@ -17,6 +17,14 @@ import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
 import { analyticsService, type HeatmapCell } from '@/services/analyticsService'
 
+const props = defineProps<{
+  /** Saved-view uuid for drill-through. v1: the whole heatmap is a
+   *  router-link to `/tickets?view=<uuid>` — per-cell routing
+   *  (`dow=2&hour=14`) lands in a later wave once the list-side
+   *  filter merge knows how to consume it. */
+  viewUuid?: string
+}>()
+
 const fluent = useFluent()
 const t = (k: string) => fluent.$t(k)
 
@@ -73,7 +81,15 @@ function cellAlpha(dow: number, hour: number): number {
     <div v-else-if="isEmpty" class="flex-1 flex items-center justify-center text-tertiary text-xs">
       {{ t('dashboard-line-chart-empty') }}
     </div>
-    <div v-else class="flex flex-col gap-1">
+    <component
+      v-else
+      :is="props.viewUuid ? 'router-link' : 'div'"
+      :to="props.viewUuid ? { path: '/tickets', query: { view: props.viewUuid } } : undefined"
+      :class="[
+        'flex flex-col gap-1',
+        props.viewUuid ? 'transition-colors hover:bg-surface-hover rounded' : '',
+      ]"
+    >
       <div class="grid grid-cols-[2rem_repeat(24,minmax(0,1fr))] gap-px text-[9px] text-tertiary">
         <span aria-hidden="true" />
         <span
@@ -98,6 +114,6 @@ function cellAlpha(dow: number, hour: number): number {
           :title="`${label} ${h}:00 — ${cellValue(dow, h)}`"
         />
       </div>
-    </div>
+    </component>
   </div>
 </template>

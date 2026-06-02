@@ -16,6 +16,7 @@ import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
+import { useLiveKpi } from '@/composables/useLiveKpi'
 import {
   analyticsService,
   type KpiMetric,
@@ -30,6 +31,10 @@ const props = defineProps<{
   /** Optional override for the headline label. Defaults to a
    *  metric-derived localised string. */
   label?: string
+  /** Saved-view uuid to drill into on click. When set, the tile
+   *  becomes a `router-link` to `/tickets?view=<uuid>`; otherwise
+   *  the tile is non-interactive. */
+  viewUuid?: string
 }>()
 
 const fluent = useFluent()
@@ -63,6 +68,12 @@ const query = useQuery({
   ],
   query: () => analyticsService.kpi(params.value),
 })
+
+// Live refresh: ticket mutations (created / updated / deleted) on
+// any tab connected to this workspace nudge the KPI to refetch.
+// Debounced inside the composable so a burst of state changes
+// triggers one trailing fetch.
+useLiveKpi({ onRefresh: () => query.refetch() })
 
 const result = computed<KpiResult | undefined>(() => query.data.value)
 const loading = computed(() => query.status.value === 'pending' && !result.value)
@@ -108,7 +119,16 @@ const sparkPath = computed<string | null>(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-1 p-4">
+  <component
+    :is="viewUuid ? 'router-link' : 'div'"
+    :to="viewUuid ? { path: '/tickets', query: { view: viewUuid } } : undefined"
+    :class="[
+      'flex flex-col gap-1 p-4',
+      viewUuid
+        ? 'transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none'
+        : '',
+    ]"
+  >
     <div class="flex items-baseline justify-between gap-2">
       <span class="text-xs uppercase tracking-wide text-tertiary truncate">
         {{ headlineLabel }}
@@ -148,5 +168,5 @@ const sparkPath = computed<string | null>(() => {
     >
       <path :d="sparkPath" fill="none" stroke="currentColor" stroke-width="1.2" class="text-accent" />
     </svg>
-  </div>
+  </component>
 </template>

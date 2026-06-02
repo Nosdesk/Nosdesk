@@ -26,6 +26,9 @@ const props = withDefaults(
   defineProps<{
     measure: TsMeasure
     timeField: TsTimeField
+    /** Saved-view uuid for drill-through. When set, the chart
+     *  surface becomes a router-link to `/tickets?view=<uuid>`. */
+    viewUuid?: string
   }>(),
   {
     measure: 'count',
@@ -144,8 +147,16 @@ const xLabels = computed(() => {
     <div v-else-if="isEmpty" class="flex-1 flex items-center justify-center text-tertiary text-xs">
       {{ t('dashboard-line-chart-empty') }}
     </div>
-    <svg
+    <component
       v-else
+      :is="props.viewUuid ? 'router-link' : 'div'"
+      :to="props.viewUuid ? { path: '/tickets', query: { view: props.viewUuid } } : undefined"
+      :class="[
+        'block w-full h-full',
+        props.viewUuid ? 'transition-colors hover:bg-surface-hover rounded' : '',
+      ]"
+    >
+    <svg
       :viewBox="`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`"
       preserveAspectRatio="none"
       class="w-full h-full"
@@ -192,5 +203,6 @@ const xLabels = computed(() => {
            the chart reads as a single quantity rather than a stack. -->
       <path :d="chart.path" fill="none" stroke="currentColor" stroke-width="1.5" class="text-accent" />
     </svg>
+    </component>
   </div>
 </template>
