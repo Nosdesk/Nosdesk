@@ -1420,6 +1420,10 @@ diesel::table! {
         sla_response_breached_at -> Nullable<Timestamptz>,
         sla_resolution_target_at -> Nullable<Timestamptz>,
         sla_resolution_breached_at -> Nullable<Timestamptz>,
+        merged_into_ticket_id -> Nullable<Int4>,
+        merged_at -> Nullable<Timestamptz>,
+        merged_by_user_uuid -> Nullable<Uuid>,
+        merge_reason -> Nullable<Text>,
     }
 }
 
