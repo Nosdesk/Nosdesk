@@ -4507,6 +4507,22 @@ dashboard-widget-context-menu-hide = Hide widget
 
 dashboard-add-widget-title = Add widget
 dashboard-add-widget-all-added = All available widgets are already on your dashboard.
+dashboard-add-widget-tab-system = System widgets
+dashboard-add-widget-tab-saved-views = Your saved views
+dashboard-add-widget-saved-views-loading = Loading saved views...
+dashboard-add-widget-saved-views-empty = No chart-backed saved views yet. Build one from the ticket list to pin it here.
+dashboard-widget-saved-view-title = Saved view
+dashboard-widget-saved-view-description = A chart-backed saved view pinned to your dashboard.
+dashboard-saved-view-loading-title = Saved view
+dashboard-saved-view-error = Failed to load saved view.
+dashboard-saved-view-placeholder = Chart renderer ships in a later wave.
+dashboard-saved-view-viz-label-list = List
+dashboard-saved-view-viz-label-kpi_tile = KPI tile
+dashboard-saved-view-viz-label-line = Line chart
+dashboard-saved-view-viz-label-horizontal_bar = Horizontal bar
+dashboard-saved-view-viz-label-heatmap = Heatmap
+dashboard-saved-view-viz-label-leaderboard = Leaderboard
+dashboard-saved-view-viz-label-table = Table
 
 dashboard-staff-queue-title = Queue
 dashboard-staff-queue-configure-aria = Configure queue metrics

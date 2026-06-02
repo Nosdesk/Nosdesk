@@ -1,44 +1,192 @@
 <!--
-Picker for restoring hidden or newly-available widgets to the
-dashboard. Lists every widget that is either missing from the stored
-layout or marked `visible: false`. Clicking an entry toggles it on and
-closes the modal.
+Picker for adding a widget back to the dashboard. Two tabs:
+
+  * **System widgets** — the static registry entries the current
+    role can use that aren't already visible on the canvas (the
+    existing pre-Wave-3 behaviour).
+  * **Your saved views** — workspace saved views whose viz_type is
+    something other than the default list (the workspace's pickable
+    chart-backed views). Clicking one drops a SavedViewWidget onto
+    the canvas with the synthetic id `saved_view:<uuid>`.
+
+Adding via either tab writes through `store.show`, which goes via
+the transactional working copy so the add can be undone / discarded
+like any other edit.
 -->
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
 import Modal from '@/components/Modal.vue'
 import { useFluent } from 'fluent-vue'
+import { useQuery } from '@pinia/colada'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
+import { savedViewWidgetId } from './widgets'
+import { savedViewsService, type SavedView } from '@/services/savedViewsService'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
-defineProps<{ show: boolean }>()
+const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const store = useDashboardLayoutStore()
 
-function choose(id: string) {
+type Tab = 'system' | 'saved-views'
+const tab = ref<Tab>('system')
+
+// Refetch the pickable saved views every time the modal opens so a
+// view promoted to chart-shape in another tab shows up here without
+// a page reload. While closed, the query stays disabled to avoid
+// background polling for a list the user can't see.
+const savedViewsQuery = useQuery({
+  key: () => ['saved-views', 'pickable'],
+  query: () => savedViewsService.listPickable(),
+  enabled: () => props.show,
+})
+
+watch(
+  () => props.show,
+  (open) => {
+    if (!open) tab.value = 'system'
+  },
+)
+
+const pickableSavedViews = computed<SavedView[]>(() => {
+  const rows = savedViewsQuery.data.value ?? []
+  // Saved views already pinned (and visible) shouldn't appear in
+  // the picker. A view that is in the layout but hidden still
+  // shows — the user explicitly chose to add it back.
+  return rows.filter((v) => {
+    const id = savedViewWidgetId(v.uuid)
+    const entry = store.layout.widgets.find((w) => w.id === id)
+    return !entry || !entry.visible
+  })
+})
+
+const isLoadingSavedViews = computed(
+  () => savedViewsQuery.status.value === 'pending' && !savedViewsQuery.data.value,
+)
+const savedViewsError = computed(() =>
+  savedViewsQuery.error.value ? t('dashboard-saved-view-error') : null,
+)
+
+function chooseSystem(id: string) {
   store.show(id)
   emit('close')
 }
+
+function chooseSavedView(view: SavedView) {
+  store.show(savedViewWidgetId(view.uuid))
+  emit('close')
+}
+
+// Adding from a tab the user can't see is confusing — make sure
+// the modal's tab matches what's actually pickable when opened. If
+// system widgets are exhausted but the user has pickable saved
+// views, jump to that tab.
+watch(
+  () => props.show,
+  (open) => {
+    if (!open) return
+    if (store.addable.length === 0 && pickableSavedViews.value.length > 0) {
+      tab.value = 'saved-views'
+    }
+  },
+)
 </script>
 
 <template>
-  <Modal :show="show" :title="t('dashboard-add-widget-title')" size="sm" @close="emit('close')">
-    <div v-if="store.addable.length === 0" class="text-sm text-tertiary py-4 text-center">
-      {{ t('dashboard-add-widget-all-added') }}
-    </div>
-    <ul v-else class="flex flex-col gap-1">
-      <li v-for="w in store.addable" :key="w.id">
+  <Modal :show="show" :title="t('dashboard-add-widget-title')" size="md" @close="emit('close')">
+    <div class="flex flex-col gap-3">
+      <!-- Tabs. Inline counts beside each tab label so the user
+           sees what's pickable in each category without flicking
+           between them. -->
+      <div role="tablist" class="flex gap-1 border-b border-default">
         <button
           type="button"
-          class="w-full text-left flex flex-col gap-0.5 p-3 rounded-lg border border-default hover:border-accent hover:bg-surface-hover transition-colors"
-          @click="choose(w.id)"
+          role="tab"
+          :aria-selected="tab === 'system'"
+          :class="[
+            'px-3 py-1.5 text-xs font-medium transition-colors',
+            tab === 'system'
+              ? 'text-primary border-b-2 border-accent -mb-px'
+              : 'text-tertiary hover:text-primary',
+          ]"
+          @click="tab = 'system'"
         >
-          <span class="text-sm font-medium text-primary">{{ t(w.titleKey) }}</span>
-          <span class="text-xs text-tertiary">{{ t(w.descriptionKey) }}</span>
+          {{ t('dashboard-add-widget-tab-system') }}
+          <span class="text-tertiary ml-1">({{ store.addable.length }})</span>
         </button>
-      </li>
-    </ul>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="tab === 'saved-views'"
+          :class="[
+            'px-3 py-1.5 text-xs font-medium transition-colors',
+            tab === 'saved-views'
+              ? 'text-primary border-b-2 border-accent -mb-px'
+              : 'text-tertiary hover:text-primary',
+          ]"
+          @click="tab = 'saved-views'"
+        >
+          {{ t('dashboard-add-widget-tab-saved-views') }}
+          <span class="text-tertiary ml-1">({{ pickableSavedViews.length }})</span>
+        </button>
+      </div>
+
+      <!-- System widgets tab -->
+      <div v-show="tab === 'system'">
+        <div
+          v-if="store.addable.length === 0"
+          class="text-sm text-tertiary py-4 text-center"
+        >
+          {{ t('dashboard-add-widget-all-added') }}
+        </div>
+        <ul v-else class="flex flex-col gap-1">
+          <li v-for="w in store.addable" :key="w.id">
+            <button
+              type="button"
+              class="w-full text-left flex flex-col gap-0.5 p-3 rounded-lg border border-default hover:border-accent hover:bg-surface-hover transition-colors"
+              @click="chooseSystem(w.id)"
+            >
+              <span class="text-sm font-medium text-primary">{{ t(w.titleKey) }}</span>
+              <span class="text-xs text-tertiary">{{ t(w.descriptionKey) }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Your saved views tab -->
+      <div v-show="tab === 'saved-views'">
+        <div v-if="isLoadingSavedViews" class="text-sm text-tertiary py-4 text-center">
+          {{ t('dashboard-add-widget-saved-views-loading') }}
+        </div>
+        <div
+          v-else-if="savedViewsError"
+          class="text-sm text-status-error py-4 text-center"
+        >
+          {{ savedViewsError }}
+        </div>
+        <div
+          v-else-if="pickableSavedViews.length === 0"
+          class="text-sm text-tertiary py-4 text-center"
+        >
+          {{ t('dashboard-add-widget-saved-views-empty') }}
+        </div>
+        <ul v-else class="flex flex-col gap-1">
+          <li v-for="v in pickableSavedViews" :key="v.uuid">
+            <button
+              type="button"
+              class="w-full text-left flex flex-col gap-0.5 p-3 rounded-lg border border-default hover:border-accent hover:bg-surface-hover transition-colors"
+              @click="chooseSavedView(v)"
+            >
+              <span class="text-sm font-medium text-primary">{{ v.name }}</span>
+              <span class="text-xs text-tertiary">
+                {{ t(`dashboard-saved-view-viz-label-${v.viz_type ?? 'list'}`) }}
+              </span>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
   </Modal>
 </template>

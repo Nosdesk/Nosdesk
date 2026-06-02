@@ -56,6 +56,19 @@ pub fn list_for_scope(
     list_for_scope_dataset(conn, scope, scope_id, "tickets")
 }
 
+/// "Pickable" saved views — every view in the current workspace
+/// whose viz_type is something other than the default list. Backs
+/// the AddWidgetModal "Your saved views" tab where the operator
+/// drops a chart onto the dashboard. The RLS policy on saved_views
+/// already restricts the result to the active workspace_id, so the
+/// query here is just `viz_type <> 'list'`.
+pub fn list_pickable(conn: &mut DbConnection) -> QueryResult<Vec<SavedView>> {
+    saved_views::table
+        .filter(saved_views::viz_type.ne("list"))
+        .order(saved_views::name.asc())
+        .load(conn)
+}
+
 pub fn find_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<SavedView>> {
     saved_views::table
         .filter(saved_views::uuid.eq(uuid))
@@ -105,6 +118,8 @@ mod tests {
             filter: json!({"predicate": {"combinator": "AND", "children": []}}),
             created_by: user_uuid,
             dataset: "tickets".into(),
+            viz_type: "list".into(),
+            viz_config: json!({}),
         }
     }
 
@@ -177,8 +192,28 @@ mod tests {
             name: Some("after".into()),
             shape: None,
             filter: None,
+            viz_type: None,
+            viz_config: None,
         };
         let updated = update(&mut conn, view.uuid, patch).unwrap();
         assert_eq!(updated.name, "after");
+    }
+
+    #[test]
+    fn list_pickable_excludes_default_list_views() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "sv_pickable", UserRole::User);
+
+        // Default list view: should be filtered out.
+        create(&mut conn, private_view_for(user.uuid, "plain-list")).unwrap();
+        // Chart view: should appear in the pickable set.
+        let mut chart = private_view_for(user.uuid, "kpi-chart");
+        chart.viz_type = "kpi_tile".into();
+        chart.viz_config = json!({"metric": "tickets_created"});
+        let chart = create(&mut conn, chart).unwrap();
+
+        let pickable = list_pickable(&mut conn).unwrap();
+        assert_eq!(pickable.len(), 1);
+        assert_eq!(pickable[0].id, chart.id);
     }
 }
