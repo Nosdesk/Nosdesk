@@ -375,6 +375,7 @@ ticket-merge-notify-customer-help = Sends a templated reply on each source ticke
 ticket-merge-submit-button = Merge { $count } tickets
 ticket-merge-cancel-button = Cancel
 ticket-merge-conflict-toast = Some of these tickets changed since you opened this dialog. Refresh and retry.
+ticket-merge-error-toast = Could not merge the tickets. Please try again.
 ticket-merge-success-toast = Merged { $count } tickets into #{ $target_id }
 ticket-merge-marker-comment-header = Merged { $count } tickets into this one
 ticket-merge-banner-merged-into = This ticket was merged into #{ $target_id } by { $actor } on { $when }.

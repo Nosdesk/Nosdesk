@@ -5097,6 +5097,7 @@ ticket-merge-notify-customer-help = Stuurt een standaardantwoord op het bestaand
 ticket-merge-submit-button = { $count } tickets samenvoegen
 ticket-merge-cancel-button = Annuleren
 ticket-merge-conflict-toast = Sommige van deze tickets zijn gewijzigd sinds u dit venster opende. Vernieuw en probeer opnieuw.
+ticket-merge-error-toast = Kan de tickets niet samenvoegen. Probeer het opnieuw.
 ticket-merge-success-toast = { $count } tickets samengevoegd in #{ $target_id }
 ticket-merge-marker-comment-header = { $count } tickets samengevoegd in dit ticket
 ticket-merge-banner-merged-into = Dit ticket is samengevoegd in #{ $target_id } door { $actor } op { $when }.

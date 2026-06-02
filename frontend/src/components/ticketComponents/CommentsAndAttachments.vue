@@ -464,6 +464,7 @@ const handlePastedFiles = async (files: File[]) => {
                   rather than a nested card.
                 -->
                 <div
+                    v-if="!readonly"
                     class="print:hidden border-b relative p-3 transition-colors"
                     :class="
                         isInternal
@@ -527,7 +528,6 @@ const handlePastedFiles = async (files: File[]) => {
                             :placeholder="isInternal ? $t('ticket-comments-placeholder-internal') : $t('ticket-comments-placeholder-public')"
                             min-height="60px"
                             max-height="200px"
-                            :disabled="readonly"
                             @submit="addComment"
                             @paste-files="handlePastedFiles"
                         />
