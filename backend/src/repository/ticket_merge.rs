@@ -21,7 +21,8 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
-    Comment, ContentFormat, NewComment, SyncAggregate, SyncOp, Ticket, WorkflowStateCategory,
+    Comment, ContentFormat, NewComment, NewOutboundEmail, SyncAggregate, SyncOp, Ticket,
+    WorkflowStateCategory,
 };
 use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
@@ -607,6 +608,7 @@ pub struct MergeHistory {
     pub merge_events: Vec<MergeEvent>,
 }
 
+// sync-audit-only: read-only history query, emits nothing
 /// Build the merge history for `ticket_id`: where it was merged to (if
 /// it's a source) and the merges that consumed other tickets into it.
 /// Reads through RLS, so it only sees the caller's workspace.
@@ -690,6 +692,81 @@ pub fn merge_history_for_ticket(
         merged_into,
         merge_events,
     })
+}
+
+/// Enqueue a templated "your request was merged" reply to each source
+/// ticket's customer, on the source's origin email channel. Best-effort
+/// and post-commit; the handler calls this only when the merge dialog's
+/// notify-customer box was ticked. Each outbound binds to the
+/// destination ticket, so a customer reply threads onto the merged
+/// target rather than reopening the source. Sources without an email
+/// channel or a requester email are skipped. Returns the number
+/// enqueued.
+pub fn enqueue_merge_notifications(
+    conn: &mut DbConnection,
+    destination: &Ticket,
+    sources: &[Ticket],
+) -> QueryResult<usize> {
+    use crate::repository::{
+        channels as channels_repo, outbound_emails, site_settings as site_settings_repo,
+        user_helpers,
+    };
+    use crate::services::channels::email_imap::ImapChannelConfig;
+    use crate::services::channels::threading::{format_outbound_message_id, format_outbound_subject};
+
+    let settings = site_settings_repo::get_site_settings(conn)?;
+    let locale = crate::utils::locale::effective_locale(None, &settings.default_locale);
+    let body = crate::utils::i18n::tr(&locale, "merge-notification-customer-template");
+
+    let mut enqueued = 0usize;
+    for source in sources {
+        let (Some(channel_id), Some(requester_uuid)) =
+            (source.origin_channel_id, source.requester_uuid)
+        else {
+            continue;
+        };
+
+        // Email is the only channel that delivers a reply today.
+        let channel = match channels_repo::find(conn, channel_id) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        if channel.provider != "email_imap" {
+            continue;
+        }
+        let reply_domain = match serde_json::from_value::<ImapChannelConfig>(channel.config.clone())
+        {
+            Ok(cfg) => cfg.reply_domain,
+            Err(_) => continue,
+        };
+        let Some(recipient) = user_helpers::get_primary_email(&requester_uuid, conn) else {
+            continue;
+        };
+
+        let message_id = format_outbound_message_id(destination.id, source.id, &reply_domain);
+        let subject = format_outbound_subject(destination.id, &destination.title);
+
+        outbound_emails::enqueue(
+            conn,
+            NewOutboundEmail {
+                channel_id: Some(channel_id),
+                ticket_id: Some(destination.id),
+                comment_id: None,
+                recipient,
+                subject,
+                body_text: body.clone(),
+                body_html: None,
+                message_id,
+                in_reply_to: None,
+                references_list: Vec::new(),
+                headers_json: serde_json::json!({}),
+                correlation_id: None,
+                idempotency_key: None,
+            },
+        )?;
+        enqueued += 1;
+    }
+    Ok(enqueued)
 }
 
 #[cfg(test)]
@@ -1090,5 +1167,56 @@ mod tests {
 
         assert!(sync_rows > 0, "sync_actions rows share the correlation id");
         assert!(audit_rows > 0, "audit_log rows share the correlation id");
+    }
+
+    #[test]
+    fn merge_notifications_enqueue_for_email_sources() {
+        use crate::schema::{channels, outbound_emails, tickets};
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "customer", UserRole::User);
+        TestFixtures::create_user_email(&mut conn, user.uuid, "customer@example.com", true);
+
+        let channel: crate::models::Channel = diesel::insert_into(channels::table)
+            .values(&crate::models::NewChannel {
+                provider: "email_imap".to_string(),
+                name: "mail".to_string(),
+                enabled: true,
+                config: serde_json::json!({
+                    "host": "mail.example.com",
+                    "username": "support@example.com",
+                    "reply_domain": "example.com",
+                }),
+            })
+            .get_result(&mut conn)
+            .unwrap();
+
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        diesel::update(tickets::table.find(src.id))
+            .set(tickets::origin_channel_id.eq(channel.id))
+            .execute(&mut conn)
+            .unwrap();
+        let src: Ticket = tickets::table.find(src.id).first(&mut conn).unwrap();
+
+        let n = enqueue_merge_notifications(&mut conn, &dest, &[src]).unwrap();
+        assert_eq!(n, 1);
+
+        let queued: i64 = outbound_emails::table
+            .filter(outbound_emails::ticket_id.eq(dest.id))
+            .count()
+            .get_result(&mut conn)
+            .unwrap();
+        assert_eq!(queued, 1);
+    }
+
+    #[test]
+    fn merge_notifications_skip_sources_without_channel() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "nochan", UserRole::User);
+        let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+
+        let n = enqueue_merge_notifications(&mut conn, &dest, &[src]).unwrap();
+        assert_eq!(n, 0);
     }
 }

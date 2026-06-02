@@ -68,6 +68,7 @@ pub async fn merge_tickets(
     };
 
     let body = body.into_inner();
+    let notify_customer = body.notify_customer;
     let input = MergeInput {
         destination_ticket_id: body.destination_ticket_id,
         source_ticket_ids: body.source_ticket_ids,
@@ -125,6 +126,21 @@ pub async fn merge_tickets(
                 timestamp: now,
             })
             .await;
+    }
+
+    // Step 15: customer notification, opt-in and best-effort. Runs in
+    // its own transaction so a send-queue hiccup never unwinds the
+    // committed merge.
+    if notify_customer {
+        if let Err(e) = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+            ticket_merge::enqueue_merge_notifications(
+                c,
+                &outcome.destination,
+                &outcome.merged_sources,
+            )
+        }) {
+            tracing::warn!(error = %e, "merge customer notification enqueue failed");
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({
