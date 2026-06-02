@@ -55,6 +55,62 @@ export interface TimeseriesParams {
   to: string
 }
 
+export type BreakdownGroupBy = 'priority' | 'category' | 'assignee'
+
+export interface BreakdownBucket {
+  key: string
+  value: number
+}
+
+export interface BreakdownResult {
+  buckets: BreakdownBucket[]
+}
+
+export interface BreakdownParams {
+  /** The wire name aliases through the backend: `category_id` ->
+   *  `category`, `assignee_uuid` -> `assignee`. The frontend uses
+   *  the shorter forms. */
+  group_by: BreakdownGroupBy
+  from: string
+  to: string
+  top_n?: number
+}
+
+export interface HeatmapCell {
+  /** Day-of-week, 0 = Sunday through 6 = Saturday (Postgres EXTRACT(dow)). */
+  dow: number
+  /** Hour-of-day, 0..=23. */
+  hour: number
+  value: number
+}
+
+export interface HeatmapResult {
+  cells: HeatmapCell[]
+}
+
+export interface HeatmapParams {
+  from: string
+  to: string
+}
+
+export type LeaderboardActor = 'assignee' | 'requester'
+
+export interface LeaderboardRow {
+  actor_uuid: string | null
+  value: number
+}
+
+export interface LeaderboardResult {
+  rows: LeaderboardRow[]
+}
+
+export interface LeaderboardParams {
+  actor: LeaderboardActor
+  from: string
+  to: string
+  top_n?: number
+}
+
 export const analyticsService = {
   async kpi(params: KpiParams): Promise<KpiResult> {
     const { data } = await apiClient.get<KpiResult>('/dashboard/kpi', { params })
@@ -62,6 +118,18 @@ export const analyticsService = {
   },
   async timeseries(params: TimeseriesParams): Promise<TimeseriesResult> {
     const { data } = await apiClient.get<TimeseriesResult>('/dashboard/timeseries', { params })
+    return data
+  },
+  async breakdown(params: BreakdownParams): Promise<BreakdownResult> {
+    const { data } = await apiClient.get<BreakdownResult>('/dashboard/breakdown', { params })
+    return data
+  },
+  async heatmap(params: HeatmapParams): Promise<HeatmapResult> {
+    const { data } = await apiClient.get<HeatmapResult>('/dashboard/heatmap', { params })
+    return data
+  },
+  async leaderboard(params: LeaderboardParams): Promise<LeaderboardResult> {
+    const { data } = await apiClient.get<LeaderboardResult>('/dashboard/leaderboard', { params })
     return data
   },
 }

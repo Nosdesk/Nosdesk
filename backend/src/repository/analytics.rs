@@ -16,10 +16,12 @@
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
 use diesel::prelude::*;
-use diesel::sql_types::{BigInt, Timestamptz};
+use diesel::sql_types::{BigInt, Integer, Timestamptz};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::db::DbConnection;
+use crate::models::TicketPriority;
 use crate::schema::tickets;
 
 /// Metric identifiers the KPI endpoint understands. Each variant
@@ -279,6 +281,236 @@ pub struct TimeseriesResult {
     pub buckets: Vec<TimeseriesBucket>,
 }
 
+/// Group-by field for a categorical breakdown. Each variant is a
+/// typed column on the tickets table; complex group-bys (joins, JSON
+/// expansions) are out of scope for v1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BreakdownGroupBy {
+    Priority,
+    Category,
+    Assignee,
+}
+
+impl BreakdownGroupBy {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "priority" => Some(Self::Priority),
+            "category_id" | "category" => Some(Self::Category),
+            "assignee_uuid" | "assignee" => Some(Self::Assignee),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BreakdownQuery {
+    pub group_by: BreakdownGroupBy,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    /// 1..=50 per the plan; the handler clamps before this is reached.
+    pub top_n: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BreakdownBucket {
+    /// Categorical key as a string (priority enum, category id, or
+    /// assignee uuid). The frontend resolves human labels per kind.
+    pub key: String,
+    pub value: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BreakdownResult {
+    pub buckets: Vec<BreakdownBucket>,
+}
+
+pub fn breakdown(conn: &mut DbConnection, q: BreakdownQuery) -> QueryResult<BreakdownResult> {
+    // Common filter: tickets created in the window. Other time
+    // fields land alongside `time_field` config in a later wave;
+    // for now breakdowns assume created_at as the bucketing field,
+    // matching the most common analytics question ("of tickets
+    // created in this window, what was their breakdown by X").
+    let buckets: Vec<BreakdownBucket> = match q.group_by {
+        BreakdownGroupBy::Priority => {
+            let rows: Vec<(TicketPriority, i64)> = tickets::table
+                .filter(tickets::created_at.ge(q.from))
+                .filter(tickets::created_at.lt(q.to))
+                .group_by(tickets::priority)
+                .select((tickets::priority, sql::<BigInt>("COUNT(*)")))
+                .order(sql::<BigInt>("COUNT(*)").desc())
+                .limit(q.top_n)
+                .load(conn)?;
+            rows.into_iter()
+                .map(|(p, v)| BreakdownBucket {
+                    key: priority_key(p),
+                    value: v,
+                })
+                .collect()
+        }
+        BreakdownGroupBy::Category => {
+            let rows: Vec<(Option<i32>, i64)> = tickets::table
+                .filter(tickets::created_at.ge(q.from))
+                .filter(tickets::created_at.lt(q.to))
+                .group_by(tickets::category_id)
+                .select((tickets::category_id, sql::<BigInt>("COUNT(*)")))
+                .order(sql::<BigInt>("COUNT(*)").desc())
+                .limit(q.top_n)
+                .load(conn)?;
+            rows.into_iter()
+                .map(|(id, v)| BreakdownBucket {
+                    // Null category_id is "uncategorised"; surface
+                    // it as the literal string so the frontend can
+                    // render a localised label.
+                    key: id.map(|n| n.to_string()).unwrap_or_else(|| "none".into()),
+                    value: v,
+                })
+                .collect()
+        }
+        BreakdownGroupBy::Assignee => {
+            let rows: Vec<(Option<Uuid>, i64)> = tickets::table
+                .filter(tickets::created_at.ge(q.from))
+                .filter(tickets::created_at.lt(q.to))
+                .group_by(tickets::assignee_uuid)
+                .select((tickets::assignee_uuid, sql::<BigInt>("COUNT(*)")))
+                .order(sql::<BigInt>("COUNT(*)").desc())
+                .limit(q.top_n)
+                .load(conn)?;
+            rows.into_iter()
+                .map(|(id, v)| BreakdownBucket {
+                    key: id
+                        .map(|u| u.to_string())
+                        .unwrap_or_else(|| "unassigned".into()),
+                    value: v,
+                })
+                .collect()
+        }
+    };
+
+    Ok(BreakdownResult { buckets })
+}
+
+fn priority_key(p: TicketPriority) -> String {
+    match p {
+        TicketPriority::Low => "low".into(),
+        TicketPriority::Medium => "medium".into(),
+        TicketPriority::High => "high".into(),
+    }
+}
+
+/// Heatmap: tickets created bucketed by (weekday, hour). The result
+/// is a flat 7x24 grid; missing cells aren't returned (the frontend
+/// renders zero for absent (dow, hour) pairs).
+#[derive(Debug)]
+pub struct HeatmapQuery {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HeatmapCell {
+    /// Day-of-week 0..=6 (Postgres EXTRACT(dow ...): 0 = Sunday).
+    pub dow: i32,
+    /// Hour-of-day 0..=23.
+    pub hour: i32,
+    pub value: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HeatmapResult {
+    pub cells: Vec<HeatmapCell>,
+}
+
+pub fn heatmap(conn: &mut DbConnection, q: HeatmapQuery) -> QueryResult<HeatmapResult> {
+    // Postgres EXTRACT returns numeric (decimal); cast to integer
+    // so the Diesel typed loader maps cleanly to i32.
+    let rows: Vec<(i32, i32, i64)> = tickets::table
+        .filter(tickets::created_at.ge(q.from))
+        .filter(tickets::created_at.lt(q.to))
+        .group_by((
+            sql::<Integer>("EXTRACT(dow FROM tickets.created_at)::int"),
+            sql::<Integer>("EXTRACT(hour FROM tickets.created_at)::int"),
+        ))
+        .select((
+            sql::<Integer>("EXTRACT(dow FROM tickets.created_at)::int"),
+            sql::<Integer>("EXTRACT(hour FROM tickets.created_at)::int"),
+            sql::<BigInt>("COUNT(*)"),
+        ))
+        .load(conn)?;
+    Ok(HeatmapResult {
+        cells: rows
+            .into_iter()
+            .map(|(dow, hour, value)| HeatmapCell { dow, hour, value })
+            .collect(),
+    })
+}
+
+/// Leaderboard: top-N tickets per actor (assignee or requester).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaderboardActor {
+    Assignee,
+    Requester,
+}
+
+impl LeaderboardActor {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "assignee" | "assignee_uuid" => Some(Self::Assignee),
+            "requester" | "requester_uuid" => Some(Self::Requester),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct LeaderboardQuery {
+    pub actor: LeaderboardActor,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    pub top_n: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LeaderboardRow {
+    pub actor_uuid: Option<Uuid>,
+    pub value: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LeaderboardResult {
+    pub rows: Vec<LeaderboardRow>,
+}
+
+pub fn leaderboard(conn: &mut DbConnection, q: LeaderboardQuery) -> QueryResult<LeaderboardResult> {
+    let rows: Vec<(Option<Uuid>, i64)> = match q.actor {
+        LeaderboardActor::Assignee => tickets::table
+            .filter(tickets::created_at.ge(q.from))
+            .filter(tickets::created_at.lt(q.to))
+            .filter(tickets::assignee_uuid.is_not_null())
+            .group_by(tickets::assignee_uuid)
+            .select((tickets::assignee_uuid, sql::<BigInt>("COUNT(*)")))
+            .order(sql::<BigInt>("COUNT(*)").desc())
+            .limit(q.top_n)
+            .load(conn)?,
+        LeaderboardActor::Requester => tickets::table
+            .filter(tickets::created_at.ge(q.from))
+            .filter(tickets::created_at.lt(q.to))
+            .filter(tickets::requester_uuid.is_not_null())
+            .group_by(tickets::requester_uuid)
+            .select((tickets::requester_uuid, sql::<BigInt>("COUNT(*)")))
+            .order(sql::<BigInt>("COUNT(*)").desc())
+            .limit(q.top_n)
+            .load(conn)?,
+    };
+    Ok(LeaderboardResult {
+        rows: rows
+            .into_iter()
+            .map(|(actor_uuid, value)| LeaderboardRow { actor_uuid, value })
+            .collect(),
+    })
+}
+
 pub fn timeseries(conn: &mut DbConnection, q: TimeseriesQuery) -> QueryResult<TimeseriesResult> {
     // Map the time-field enum to the matching KPI metric so the
     // daily-counts helper produces the buckets without duplicating
@@ -321,6 +553,44 @@ mod tests {
             Some(KpiMetric::TicketsOpen)
         );
         assert_eq!(KpiMetric::parse("bogus"), None);
+    }
+
+    #[test]
+    fn breakdown_group_by_parse_round_trip() {
+        assert_eq!(
+            BreakdownGroupBy::parse("priority"),
+            Some(BreakdownGroupBy::Priority)
+        );
+        assert_eq!(
+            BreakdownGroupBy::parse("category_id"),
+            Some(BreakdownGroupBy::Category)
+        );
+        assert_eq!(
+            BreakdownGroupBy::parse("category"),
+            Some(BreakdownGroupBy::Category)
+        );
+        assert_eq!(
+            BreakdownGroupBy::parse("assignee_uuid"),
+            Some(BreakdownGroupBy::Assignee)
+        );
+        assert_eq!(BreakdownGroupBy::parse("nope"), None);
+    }
+
+    #[test]
+    fn leaderboard_actor_parse_aliases() {
+        assert_eq!(
+            LeaderboardActor::parse("assignee"),
+            Some(LeaderboardActor::Assignee)
+        );
+        assert_eq!(
+            LeaderboardActor::parse("assignee_uuid"),
+            Some(LeaderboardActor::Assignee)
+        );
+        assert_eq!(
+            LeaderboardActor::parse("requester_uuid"),
+            Some(LeaderboardActor::Requester)
+        );
+        assert_eq!(LeaderboardActor::parse("nope"), None);
     }
 
     #[test]

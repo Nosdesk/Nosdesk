@@ -32,8 +32,17 @@ import { useFluent } from 'fluent-vue'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import KpiTile from './charts/KpiTile.vue'
 import LineChart from './charts/LineChart.vue'
+import HorizontalBar from './charts/HorizontalBar.vue'
+import Heatmap from './charts/Heatmap.vue'
+import Leaderboard from './charts/Leaderboard.vue'
 import { savedViewsService, type SavedView, type SavedViewVizType } from '@/services/savedViewsService'
-import type { KpiMetric, TsMeasure, TsTimeField } from '@/services/analyticsService'
+import type {
+  BreakdownGroupBy,
+  KpiMetric,
+  LeaderboardActor,
+  TsMeasure,
+  TsTimeField,
+} from '@/services/analyticsService'
 
 const props = defineProps<{
   viewUuid: string
@@ -81,8 +90,35 @@ const lineProps = computed<{ measure: TsMeasure; timeField: TsTimeField } | null
   return { measure, timeField }
 })
 
-const supportsRenderer = computed(
-  () => vizType.value === 'kpi_tile' || vizType.value === 'line',
+const barProps = computed<{ groupBy: BreakdownGroupBy; topN: number } | null>(() => {
+  if (vizType.value !== 'horizontal_bar') return null
+  const g = vizConfig.value.group_by
+  let groupBy: BreakdownGroupBy
+  if (g === 'priority') groupBy = 'priority'
+  else if (g === 'category_id' || g === 'category') groupBy = 'category'
+  else if (g === 'assignee_uuid' || g === 'assignee') groupBy = 'assignee'
+  else return null
+  const rawN = vizConfig.value.top_n
+  const topN = typeof rawN === 'number' && rawN > 0 ? Math.min(rawN, 50) : 10
+  return { groupBy, topN }
+})
+
+const leaderboardProps = computed<{ actor: LeaderboardActor; topN: number } | null>(() => {
+  if (vizType.value !== 'leaderboard') return null
+  const a = vizConfig.value.actor_field ?? vizConfig.value.actor
+  let actor: LeaderboardActor
+  if (a === 'assignee' || a === 'assignee_uuid') actor = 'assignee'
+  else if (a === 'requester' || a === 'requester_uuid') actor = 'requester'
+  else return null
+  const rawN = vizConfig.value.top_n
+  const topN = typeof rawN === 'number' && rawN > 0 ? Math.min(rawN, 50) : 10
+  return { actor, topN }
+})
+
+const isHeatmap = computed(() => vizType.value === 'heatmap')
+
+const supportsRenderer = computed(() =>
+  ['kpi_tile', 'line', 'horizontal_bar', 'heatmap', 'leaderboard'].includes(vizType.value),
 )
 </script>
 
@@ -100,6 +136,17 @@ const supportsRenderer = computed(
       v-else-if="lineProps"
       :measure="lineProps.measure"
       :time-field="lineProps.timeField"
+    />
+    <HorizontalBar
+      v-else-if="barProps"
+      :group-by="barProps.groupBy"
+      :top-n="barProps.topN"
+    />
+    <Heatmap v-else-if="isHeatmap" />
+    <Leaderboard
+      v-else-if="leaderboardProps"
+      :actor="leaderboardProps.actor"
+      :top-n="leaderboardProps.topN"
     />
     <div
       v-else

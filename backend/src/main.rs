@@ -1607,6 +1607,18 @@ async fn main() -> std::io::Result<()> {
                         "/dashboard/timeseries",
                         web::get().to(handlers::analytics::get_timeseries),
                     )
+                    .route(
+                        "/dashboard/breakdown",
+                        web::get().to(handlers::analytics::get_breakdown),
+                    )
+                    .route(
+                        "/dashboard/heatmap",
+                        web::get().to(handlers::analytics::get_heatmap),
+                    )
+                    .route(
+                        "/dashboard/leaderboard",
+                        web::get().to(handlers::analytics::get_leaderboard),
+                    )
 
                     // Canned responses — reads open to any authenticated
                     // user (composer picker); writes admin-only. The

@@ -15,8 +15,14 @@ use tracing::error;
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::repository::analytics::{
-    self, KpiMetric, KpiQuery, TimeseriesQuery, TsMeasure, TsTimeField,
+    self, BreakdownGroupBy, BreakdownQuery, HeatmapQuery, KpiMetric, KpiQuery, LeaderboardActor,
+    LeaderboardQuery, TimeseriesQuery, TsMeasure, TsTimeField,
 };
+
+/// Per-plan cap on top_n; chosen to keep the chart legible. The
+/// handler clamps incoming values so a too-large request degrades
+/// to the cap rather than a 400.
+const TOP_N_MAX: i64 = 50;
 
 #[derive(Debug, Deserialize)]
 pub struct KpiParams {
@@ -128,6 +134,104 @@ pub async fn get_timeseries(
         Err(e) => {
             error!(error = %e, "timeseries query failed");
             errors::internal("timeseries unavailable")
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BreakdownParams {
+    pub group_by: String,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    #[serde(default)]
+    pub top_n: Option<i64>,
+}
+
+pub async fn get_breakdown(
+    mut tc: TenantConn,
+    query: web::Query<BreakdownParams>,
+) -> impl Responder {
+    let params = query.into_inner();
+    let Some(group_by) = BreakdownGroupBy::parse(&params.group_by) else {
+        return errors::bad_request(
+            "group_by must be one of: priority, category_id, assignee_uuid",
+        );
+    };
+    if params.from >= params.to {
+        return errors::bad_request("`from` must be earlier than `to`");
+    }
+    let top_n = params.top_n.unwrap_or(10).clamp(1, TOP_N_MAX);
+    let q = BreakdownQuery {
+        group_by,
+        from: params.from,
+        to: params.to,
+        top_n,
+    };
+    match tc.run(|conn| analytics::breakdown(conn, q)) {
+        Ok(result) => HttpResponse::Ok().json(result),
+        Err(e) => {
+            error!(error = %e, "breakdown query failed");
+            errors::internal("breakdown unavailable")
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HeatmapParams {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+}
+
+pub async fn get_heatmap(mut tc: TenantConn, query: web::Query<HeatmapParams>) -> impl Responder {
+    let params = query.into_inner();
+    if params.from >= params.to {
+        return errors::bad_request("`from` must be earlier than `to`");
+    }
+    let q = HeatmapQuery {
+        from: params.from,
+        to: params.to,
+    };
+    match tc.run(|conn| analytics::heatmap(conn, q)) {
+        Ok(result) => HttpResponse::Ok().json(result),
+        Err(e) => {
+            error!(error = %e, "heatmap query failed");
+            errors::internal("heatmap unavailable")
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LeaderboardParams {
+    pub actor: String,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    #[serde(default)]
+    pub top_n: Option<i64>,
+}
+
+pub async fn get_leaderboard(
+    mut tc: TenantConn,
+    query: web::Query<LeaderboardParams>,
+) -> impl Responder {
+    let params = query.into_inner();
+    let Some(actor) = LeaderboardActor::parse(&params.actor) else {
+        return errors::bad_request("actor must be one of: assignee, requester");
+    };
+    if params.from >= params.to {
+        return errors::bad_request("`from` must be earlier than `to`");
+    }
+    let top_n = params.top_n.unwrap_or(10).clamp(1, TOP_N_MAX);
+    let q = LeaderboardQuery {
+        actor,
+        from: params.from,
+        to: params.to,
+        top_n,
+    };
+    match tc.run(|conn| analytics::leaderboard(conn, q)) {
+        Ok(result) => HttpResponse::Ok().json(result),
+        Err(e) => {
+            error!(error = %e, "leaderboard query failed");
+            errors::internal("leaderboard unavailable")
         }
     }
 }
