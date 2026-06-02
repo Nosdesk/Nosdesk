@@ -1202,6 +1202,9 @@ diesel::table! {
         #[max_length = 20]
         dataset -> Varchar,
         workspace_id -> Int4,
+        #[max_length = 32]
+        viz_type -> Varchar,
+        viz_config -> Jsonb,
     }
 }
 

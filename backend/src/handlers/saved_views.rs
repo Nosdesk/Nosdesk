@@ -37,6 +37,20 @@ use crate::repository::saved_views as repo;
 const NAME_MIN: usize = 1;
 const NAME_MAX: usize = 120;
 
+/// Viz-type allowlist. Mirrors the DB-level CHECK constraint added
+/// in 2026-06-08-000000_saved_views_viz_columns so the handler
+/// short-circuits with a 400 before the DB raises a constraint
+/// violation. Update both lists in lockstep.
+const VIZ_TYPES: &[&str] = &[
+    "list",
+    "kpi_tile",
+    "line",
+    "horizontal_bar",
+    "heatmap",
+    "leaderboard",
+    "table",
+];
+
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     /// Tickets surface only. When set, includes views with
@@ -50,6 +64,12 @@ pub struct ListQuery {
     /// (workspace + project + private) is skipped because those
     /// scopes only apply to ticket views.
     pub dataset: Option<String>,
+    /// When `true`, the response is the workspace's pickable
+    /// chart-backed saved views (viz_type != 'list'). Backs the
+    /// AddWidgetModal "Your saved views" tab. Mutually exclusive
+    /// with `project_id` / `dataset`; when set, those are ignored.
+    #[serde(default)]
+    pub has_viz: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +83,14 @@ pub struct CreateBody {
     /// with the existing ticket-view UI.
     #[serde(default)]
     pub dataset: Option<String>,
+    /// Renderer for the dashboard SavedViewWidget. Optional on the
+    /// wire (the ticket-list UI doesn't set it); defaults to 'list'.
+    #[serde(default)]
+    pub viz_type: Option<String>,
+    /// Per-renderer config blob. Opaque to the create path; the
+    /// frontend chart-config form validates client-side.
+    #[serde(default)]
+    pub viz_config: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +98,8 @@ pub struct PatchBody {
     pub name: Option<String>,
     pub shape: Option<Value>,
     pub filter: Option<Value>,
+    pub viz_type: Option<String>,
+    pub viz_config: Option<Value>,
 }
 
 pub async fn list(
@@ -77,6 +107,23 @@ pub async fn list(
     query: web::Query<ListQuery>,
     auth: AuthContext,
 ) -> impl Responder {
+    // Pickable path: chart-backed saved views the caller can see,
+    // for the AddWidgetModal "Your saved views" tab. The repo
+    // enforces the same scope rules as the ticket-list path
+    // (workspace visible to all, private visible only to the
+    // creator), so this short-circuits the scope-merging branches
+    // below without dropping any visibility guarantees.
+    if query.has_viz.unwrap_or(false) {
+        let user_uuid = auth.user_uuid;
+        return match tc.run(|conn| repo::list_pickable(conn, user_uuid)) {
+            Ok(rows) => HttpResponse::Ok().json(rows),
+            Err(e) => {
+                error!(error = %e, "failed to load pickable saved views");
+                errors::internal("Failed to load saved views")
+            }
+        };
+    }
+
     // Non-ticket dataset path: private-only, single dataset. The
     // ticket scope-merging branches below don't apply because
     // workspace / project scopes are ticket-specific.
@@ -176,6 +223,11 @@ pub async fn create(
         return errors::forbidden(write_denied_message(&body.scope));
     }
 
+    let viz_type = body.viz_type.as_deref().unwrap_or("list");
+    if let Err(msg) = validate_viz_type(viz_type) {
+        return errors::bad_request(msg);
+    }
+
     let new = NewSavedView {
         scope: body.scope,
         scope_id: body.scope_id,
@@ -184,6 +236,10 @@ pub async fn create(
         filter: body.filter,
         created_by: auth.user_uuid,
         dataset: dataset.to_string(),
+        viz_type: viz_type.to_string(),
+        viz_config: body
+            .viz_config
+            .unwrap_or_else(|| Value::Object(Default::default())),
     };
 
     match tc.run(|conn| repo::create(conn, new)) {
@@ -219,11 +275,18 @@ pub async fn patch(
             return errors::bad_request(msg);
         }
     }
+    if let Some(ref v) = body.viz_type {
+        if let Err(msg) = validate_viz_type(v) {
+            return errors::bad_request(msg);
+        }
+    }
 
     let patch = SavedViewUpdate {
         name: body.name.map(|s| s.trim().to_string()),
         shape: body.shape,
         filter: body.filter,
+        viz_type: body.viz_type,
+        viz_config: body.viz_config,
     };
 
     let result = tc.run(|conn| {
@@ -301,6 +364,14 @@ fn validate_dataset(dataset: &str) -> Result<(), &'static str> {
     match dataset {
         "tickets" | "assets" | "users" => Ok(()),
         _ => Err("dataset must be one of: tickets, assets, users"),
+    }
+}
+
+fn validate_viz_type(viz_type: &str) -> Result<(), &'static str> {
+    if VIZ_TYPES.contains(&viz_type) {
+        Ok(())
+    } else {
+        Err("viz_type must be one of: list, kpi_tile, line, horizontal_bar, heatmap, leaderboard, table")
     }
 }
 

@@ -220,6 +220,16 @@ pub struct SavedView {
     /// datasets so the access model stays ticket-specific.
     pub dataset: String,
     pub workspace_id: i32,
+    /// Renderer the dashboard SavedViewWidget shell uses for this
+    /// view: 'list' (the default, no chart) | 'kpi_tile' | 'line' |
+    /// 'horizontal_bar' | 'heatmap' | 'leaderboard' | 'table'. CHECK-
+    /// constrained at the DB level; the handler validates the same
+    /// allowlist before write.
+    pub viz_type: String,
+    /// Per-renderer config blob: measures, group-by, top-N, grain,
+    /// chart_source tagged union, etc. The shape per viz_type lives
+    /// in docs/dashboard-and-analytics-plan.md §4.2.
+    pub viz_config: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -232,6 +242,8 @@ pub struct NewSavedView {
     pub filter: serde_json::Value,
     pub created_by: Uuid,
     pub dataset: String,
+    pub viz_type: String,
+    pub viz_config: serde_json::Value,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -240,6 +252,8 @@ pub struct SavedViewUpdate {
     pub name: Option<String>,
     pub shape: Option<serde_json::Value>,
     pub filter: Option<serde_json::Value>,
+    pub viz_type: Option<String>,
+    pub viz_config: Option<serde_json::Value>,
 }
 
 /// Cycle: project-scoped, time-boxed bucket of tickets. Tickets

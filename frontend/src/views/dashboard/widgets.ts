@@ -27,6 +27,27 @@ import MyDevicesWidget from './MyAssetsWidget.vue'
 import ChannelHealthWidget from './ChannelHealthWidget.vue'
 import KnowledgeGapsWidget from './KnowledgeGapsWidget.vue'
 import SlaHealthWidget from './SlaHealthWidget.vue'
+import SavedViewWidget from './SavedViewWidget.vue'
+
+/**
+ * Synthetic widget id prefix for saved-view-backed widgets.
+ * Layouts persist `saved_view:<uuid>` instead of a registry id;
+ * `widgetById` recognises the prefix and synthesises a registry
+ * entry on the fly that points at the shared SavedViewWidget shell.
+ */
+export const SAVED_VIEW_WIDGET_PREFIX = 'saved_view:'
+
+export function isSavedViewWidgetId(id: string): boolean {
+  return id.startsWith(SAVED_VIEW_WIDGET_PREFIX)
+}
+
+export function savedViewWidgetId(uuid: string): string {
+  return `${SAVED_VIEW_WIDGET_PREFIX}${uuid}`
+}
+
+function savedViewUuidFromId(id: string): string {
+  return id.slice(SAVED_VIEW_WIDGET_PREFIX.length)
+}
 
 export type WidgetSpan = 1 | 2 | 3
 
@@ -275,6 +296,20 @@ export function defaultLayoutFor(role: UserRole): DashboardLayout {
  * otherwise first-time users would land on a layout that doesn't
  * match what "Reset to defaults" produces.
  */
+/**
+ * True when a layout entry's id resolves to something this role
+ * can render. Leans on `widgetById` (the single source of truth for
+ * id resolution) so both static registry ids AND synthetic
+ * `saved_view:<uuid>` ids stay in the layout through the merge.
+ * Without this, the saved-view widget the user just pinned would
+ * be silently dropped on the next load — `widgetsForRole` only
+ * lists the static registry.
+ */
+function isAvailableForRole(id: string, role: UserRole): boolean {
+  const def = widgetById(id)
+  return def != null && def.roles.includes(role)
+}
+
 export function mergeWithRegistry(
   stored: DashboardLayout | null | undefined,
   role: UserRole,
@@ -282,11 +317,10 @@ export function mergeWithRegistry(
   if (!stored?.widgets?.length) {
     return defaultLayoutFor(role)
   }
-  const available = new Set(widgetsForRole(role).map((w) => w.id))
   const base = stored.widgets
   const seen = new Set<string>()
   const kept = base
-    .filter((e) => available.has(e.id) && !seen.has(e.id))
+    .filter((e) => !seen.has(e.id) && isAvailableForRole(e.id, role))
     .map((e) => {
       seen.add(e.id)
       const entry: {
@@ -312,8 +346,25 @@ export function mergeWithRegistry(
   return { widgets: [...kept, ...missing] }
 }
 
-/** Look up a widget def by id. Returns undefined for unknown ids. */
+/** Look up a widget def by id. Returns undefined for unknown ids.
+ *  Recognises the synthetic `saved_view:<uuid>` prefix by synthesising
+ *  a registry entry that points at the shared SavedViewWidget shell
+ *  with the uuid threaded through as a prop — saved-view widgets
+ *  share one component definition so they don't bloat the static
+ *  registry. */
 export function widgetById(id: string): WidgetDef | undefined {
+  if (isSavedViewWidgetId(id)) {
+    return {
+      id,
+      titleKey: 'dashboard-widget-saved-view-title',
+      descriptionKey: 'dashboard-widget-saved-view-description',
+      component: SavedViewWidget,
+      props: { viewUuid: savedViewUuidFromId(id) },
+      span: 1,
+      roles: ['technician', 'admin', 'user'],
+      defaultVisible: false,
+    }
+  }
   return WIDGET_REGISTRY.find((w) => w.id === id)
 }
 

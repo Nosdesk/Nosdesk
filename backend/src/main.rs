@@ -1595,6 +1595,34 @@ async fn main() -> std::io::Result<()> {
                     // be displayed. Replaces three independent
                     // full-list ticket fetches per dashboard load.
                     .route("/dashboard/stats", web::get().to(handlers::dashboard::get_stats))
+                    // Analytics endpoints (Phase 4). Both run via
+                    // TenantConn so the RLS policy on tickets
+                    // restricts the aggregation source rows to the
+                    // active workspace before any aggregation
+                    // happens. Inputs are validated against the same
+                    // allowlists the chart-config form enforces
+                    // client-side.
+                    .route("/dashboard/kpi", web::get().to(handlers::analytics::get_kpi))
+                    .route(
+                        "/dashboard/timeseries",
+                        web::get().to(handlers::analytics::get_timeseries),
+                    )
+                    .route(
+                        "/dashboard/breakdown",
+                        web::get().to(handlers::analytics::get_breakdown),
+                    )
+                    .route(
+                        "/dashboard/heatmap",
+                        web::get().to(handlers::analytics::get_heatmap),
+                    )
+                    .route(
+                        "/dashboard/leaderboard",
+                        web::get().to(handlers::analytics::get_leaderboard),
+                    )
+                    .route(
+                        "/dashboard/audit-annotations",
+                        web::get().to(handlers::analytics::get_audit_annotations),
+                    )
 
                     // Canned responses — reads open to any authenticated
                     // user (composer picker); writes admin-only. The
