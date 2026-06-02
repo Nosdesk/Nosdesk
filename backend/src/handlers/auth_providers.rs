@@ -1187,7 +1187,18 @@ async fn find_or_create_oauth_user(
         metadata: Some(user_info.clone()),
     };
 
-    find_or_create_projected_user(conn, input).map(|outcome| outcome.into_user())
+    // find_or_create_projected_user runs several writes (the `users`
+    // insert is audited) with no internal transaction, so wrap it in
+    // the actor context here: that opens one transaction, pins
+    // `app.workspace_id` for the audit trigger, and rolls every write
+    // back together on failure. System attribution is correct for both
+    // the create case (no session yet) and the IdP-driven refresh of
+    // an existing user.
+    let actor =
+        crate::sync::actor::ActorContext::system("oauth_callback").with_workspace(workspace_id);
+    crate::sync::session::with_actor_context_str(conn, &actor, |c| {
+        find_or_create_projected_user(c, input).map(|outcome| outcome.into_user())
+    })
 }
 
 // Helper function to add an OAuth identity to an existing user

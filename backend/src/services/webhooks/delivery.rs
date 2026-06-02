@@ -11,6 +11,8 @@ use tokio::sync::mpsc;
 use crate::db::Pool;
 use crate::models::{NewWebhookDelivery, WebhookDeliveryUpdate, WebhookUpdate};
 use crate::repository::webhooks as webhook_repo;
+use crate::sync::actor::ActorContext;
+use crate::sync::session::with_actor_context_str;
 
 use super::signature::sign_payload;
 use super::types::WebhookPayload;
@@ -108,20 +110,32 @@ impl WebhookDeliveryWorker {
 
         // Create delivery record
         let mut conn = self.pool.get().map_err(|e| format!("DB error: {e}"))?;
-        let delivery = webhook_repo::create_delivery(
-            &mut conn,
-            NewWebhookDelivery {
-                webhook_id: task.webhook_id,
-                event_type: task.payload.event_type.clone(),
-                payload: serde_json::to_value(&task.payload).unwrap_or_default(),
-                request_headers: Some(serde_json::json!({
-                    "X-Nosdesk-Signature": "sha256=***",
-                    "X-Nosdesk-Event": &task.payload.event_type,
-                    "X-Nosdesk-Delivery": task.payload.id.to_string(),
-                })),
-                attempt_number: task.attempt,
-            },
-        )?;
+
+        // Resolve the webhook's workspace once so every audited
+        // delivery write (webhook_deliveries + webhooks) carries the
+        // workspace pin the audit trigger requires. The worker runs
+        // outside any request, so the actor is a workspace-scoped
+        // system actor.
+        let webhook = webhook_repo::get_webhook_by_id(&mut conn, task.webhook_id)?;
+        let actor =
+            ActorContext::system("webhook_delivery").with_workspace(webhook.workspace_id);
+
+        let delivery = with_actor_context_str(&mut conn, &actor, |c| {
+            webhook_repo::create_delivery(
+                c,
+                NewWebhookDelivery {
+                    webhook_id: task.webhook_id,
+                    event_type: task.payload.event_type.clone(),
+                    payload: serde_json::to_value(&task.payload).unwrap_or_default(),
+                    request_headers: Some(serde_json::json!({
+                        "X-Nosdesk-Signature": "sha256=***",
+                        "X-Nosdesk-Event": &task.payload.event_type,
+                        "X-Nosdesk-Delivery": task.payload.id.to_string(),
+                    })),
+                    attempt_number: task.attempt,
+                },
+            )
+        })?;
 
         // IP-literal guard. The resolver in the safe_http client
         // refuses to hand back internal IPs for hostnames, but
@@ -139,6 +153,7 @@ impl WebhookDeliveryWorker {
                 None,
                 duration_ms,
                 Some(format!("SSRF guard blocked delivery: {e}")),
+                &actor,
             )?;
             tracing::warn!(
                 webhook_id = task.webhook_id,
@@ -167,6 +182,7 @@ impl WebhookDeliveryWorker {
                         status,
                         response_body,
                         duration_ms,
+                        &actor,
                     )?;
                 } else {
                     // HTTP error - schedule retry
@@ -178,6 +194,7 @@ impl WebhookDeliveryWorker {
                         response_body,
                         duration_ms,
                         None,
+                        &actor,
                     )?;
                 }
             }
@@ -191,6 +208,7 @@ impl WebhookDeliveryWorker {
                     None,
                     duration_ms,
                     Some(e.to_string()),
+                    &actor,
                 )?;
             }
         }
@@ -199,6 +217,7 @@ impl WebhookDeliveryWorker {
     }
 
     /// Handle successful delivery
+    #[allow(clippy::too_many_arguments)]
     fn handle_success(
         &self,
         conn: &mut crate::db::DbConnection,
@@ -207,32 +226,38 @@ impl WebhookDeliveryWorker {
         status: i32,
         response_body: Option<String>,
         duration_ms: i32,
+        actor: &ActorContext,
     ) -> Result<(), String> {
-        // Update delivery record
-        webhook_repo::update_delivery(
-            conn,
-            delivery_id,
-            WebhookDeliveryUpdate {
-                response_status: Some(status),
-                response_body,
-                duration_ms: Some(duration_ms),
-                delivered_at: Some(Utc::now().naive_utc()),
-                next_retry_at: Some(None),
-                ..Default::default()
-            },
-        )?;
+        // Both audited writes in one actor-scoped transaction so the
+        // webhook_deliveries + webhooks audit rows carry the workspace.
+        with_actor_context_str(conn, actor, |c| {
+            // Update delivery record
+            webhook_repo::update_delivery(
+                c,
+                delivery_id,
+                WebhookDeliveryUpdate {
+                    response_status: Some(status),
+                    response_body,
+                    duration_ms: Some(duration_ms),
+                    delivered_at: Some(Utc::now().naive_utc()),
+                    next_retry_at: Some(None),
+                    ..Default::default()
+                },
+            )?;
 
-        // Reset failure count on success
-        webhook_repo::update_webhook(
-            conn,
-            task.webhook_id,
-            WebhookUpdate {
-                last_triggered_at: Some(Utc::now().naive_utc()),
-                failure_count: Some(0),
-                disabled_reason: Some(None),
-                ..Default::default()
-            },
-        )?;
+            // Reset failure count on success
+            webhook_repo::update_webhook(
+                c,
+                task.webhook_id,
+                WebhookUpdate {
+                    last_triggered_at: Some(Utc::now().naive_utc()),
+                    failure_count: Some(0),
+                    disabled_reason: Some(None),
+                    ..Default::default()
+                },
+            )?;
+            Ok(())
+        })?;
 
         tracing::debug!(
             webhook_id = task.webhook_id,
@@ -245,6 +270,7 @@ impl WebhookDeliveryWorker {
     }
 
     /// Handle failed delivery (schedule retry if applicable)
+    #[allow(clippy::too_many_arguments)]
     fn handle_failure(
         &self,
         conn: &mut crate::db::DbConnection,
@@ -254,6 +280,7 @@ impl WebhookDeliveryWorker {
         response_body: Option<String>,
         duration_ms: i32,
         error_message: Option<String>,
+        actor: &ActorContext,
     ) -> Result<(), String> {
         // Calculate next retry time (exponential backoff with jitter)
         let next_retry = if task.attempt < MAX_RETRIES {
@@ -265,43 +292,48 @@ impl WebhookDeliveryWorker {
             None
         };
 
-        // Update delivery record
-        webhook_repo::update_delivery(
-            conn,
-            delivery_id,
-            WebhookDeliveryUpdate {
-                response_status: Some(status),
-                response_body,
-                duration_ms: Some(duration_ms),
-                error_message: error_message.clone(),
-                next_retry_at: Some(next_retry),
+        // The delivery-record update and the failure-count bump are
+        // both audited; run them in one actor-scoped transaction.
+        with_actor_context_str(conn, actor, |c| {
+            // Update delivery record
+            webhook_repo::update_delivery(
+                c,
+                delivery_id,
+                WebhookDeliveryUpdate {
+                    response_status: Some(status),
+                    response_body,
+                    duration_ms: Some(duration_ms),
+                    error_message: error_message.clone(),
+                    next_retry_at: Some(next_retry),
+                    ..Default::default()
+                },
+            )?;
+
+            // Increment failure count
+            let webhook = webhook_repo::get_webhook_by_id(c, task.webhook_id)?;
+            let new_failure_count = webhook.failure_count + 1;
+
+            let mut update = WebhookUpdate {
+                failure_count: Some(new_failure_count),
                 ..Default::default()
-            },
-        )?;
+            };
 
-        // Increment failure count
-        let webhook = webhook_repo::get_webhook_by_id(conn, task.webhook_id)?;
-        let new_failure_count = webhook.failure_count + 1;
+            // Auto-disable if too many consecutive failures
+            if new_failure_count >= AUTO_DISABLE_THRESHOLD {
+                update.enabled = Some(false);
+                update.disabled_reason = Some(Some(format!(
+                    "Auto-disabled after {new_failure_count} consecutive failures"
+                )));
+                tracing::warn!(
+                    webhook_id = task.webhook_id,
+                    failures = new_failure_count,
+                    "Webhook auto-disabled due to consecutive failures"
+                );
+            }
 
-        let mut update = WebhookUpdate {
-            failure_count: Some(new_failure_count),
-            ..Default::default()
-        };
-
-        // Auto-disable if too many consecutive failures
-        if new_failure_count >= AUTO_DISABLE_THRESHOLD {
-            update.enabled = Some(false);
-            update.disabled_reason = Some(Some(format!(
-                "Auto-disabled after {new_failure_count} consecutive failures"
-            )));
-            tracing::warn!(
-                webhook_id = task.webhook_id,
-                failures = new_failure_count,
-                "Webhook auto-disabled due to consecutive failures"
-            );
-        }
-
-        webhook_repo::update_webhook(conn, task.webhook_id, update)?;
+            webhook_repo::update_webhook(c, task.webhook_id, update)?;
+            Ok(())
+        })?;
 
         tracing::warn!(
             webhook_id = task.webhook_id,

@@ -444,11 +444,24 @@ pub fn spawn_sync_loop(pool: Pool, base_url: String, cache: SharedCache) {
                     // indistinguishable empty state.
                     cache.write().await.last_error = Some(msg.clone());
                     if let Ok(mut conn) = pool.get() {
-                        let _ = plugin_publishers::update_registry_state(
+                        // plugin_registry_state is audited with no
+                        // workspace_id of its own; pin the bootstrap
+                        // workspace on the actor (same as the success
+                        // paths) so the audit trigger has a workspace.
+                        let actor = ActorContext::system("scheduler:plugin_registry_sync")
+                            .with_workspace(1);
+                        let _ = actor_session::with_actor_context::<_, RegistryError>(
                             &mut conn,
-                            PluginRegistryStateUpdate {
-                                last_fetch_error: Some(Some(msg)),
-                                ..Default::default()
+                            &actor,
+                            |tx| {
+                                plugin_publishers::update_registry_state(
+                                    tx,
+                                    PluginRegistryStateUpdate {
+                                        last_fetch_error: Some(Some(msg)),
+                                        ..Default::default()
+                                    },
+                                )?;
+                                Ok(())
                             },
                         );
                     }

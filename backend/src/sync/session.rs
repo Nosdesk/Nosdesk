@@ -136,6 +136,44 @@ where
     })
 }
 
+/// [`with_actor_context`] for closures whose error type is `String`.
+///
+/// Several service and repository layers (OAuth provisioning, webhook
+/// delivery) surface `Result<T, String>` rather than a diesel error,
+/// so they can't satisfy `with_actor_context`'s `E: From<Error>`
+/// bound directly. This wrapper runs the closure inside the actor
+/// transaction, rolling back on the closure's `Err` and returning the
+/// original `String` verbatim. A failure to set the actor GUCs
+/// themselves (rare) is stringified.
+pub fn with_actor_context_str<T>(
+    conn: &mut DbConnection,
+    actor: &ActorContext,
+    f: impl FnOnce(&mut DbConnection) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut captured: Option<Result<T, String>> = None;
+    let outcome = with_actor_context(conn, actor, |c| match f(c) {
+        Ok(v) => {
+            captured = Some(Ok(v));
+            Ok(())
+        }
+        Err(e) => {
+            captured = Some(Err(e));
+            // Abort the transaction so partial writes roll back; the
+            // real error is preserved in `captured`.
+            Err(diesel::result::Error::RollbackTransaction)
+        }
+    });
+    match outcome {
+        // Ok, or the intentional rollback we triggered above: the
+        // closure ran, so `captured` holds the real result.
+        Ok(()) | Err(diesel::result::Error::RollbackTransaction) => captured
+            .unwrap_or_else(|| Err("actor-context transaction did not run".to_string())),
+        // set_actor (or the transaction machinery) failed before the
+        // closure produced a result.
+        Err(other) => Err(format!("actor context setup failed: {other}")),
+    }
+}
+
 /// Set up the connection for an async-friendly elevated session:
 /// session-scoped `SET ROLE nosdesk_admin` plus session-scoped
 /// actor + workspace GUCs.

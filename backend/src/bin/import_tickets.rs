@@ -51,9 +51,15 @@ fn main() {
     let mut imported_count = 0;
     let mut failed_count = 0;
 
+    // Each import is wrapped in a bootstrap actor context so the
+    // audited ticket writes get a workspace pin (self-hosted == 1) for
+    // the audit trigger, and the rows are attributed to the CLI.
+    let actor = backend::sync::actor::ActorContext::bootstrap("cli:import_tickets");
     for ticket_json in tickets_json.tickets {
         println!("Importing ticket: {}", ticket_json.title);
-        match repository::import_ticket_from_json(&mut conn, &ticket_json) {
+        match backend::sync::session::with_actor_context(&mut conn, &actor, |c| {
+            repository::import_ticket_from_json(c, &ticket_json)
+        }) {
             Ok(_) => {
                 imported_count += 1;
                 println!("  Success!");
