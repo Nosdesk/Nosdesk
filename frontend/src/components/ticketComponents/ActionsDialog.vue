@@ -21,7 +21,6 @@ import Button from '@/components/common/Button.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
-import Icon from '@/components/common/Icon.vue';
 import rulesService from '@/services/rulesService';
 import { useToastStore } from '@/stores/toast';
 import { extractErrorMessage } from '@/utils/errors';

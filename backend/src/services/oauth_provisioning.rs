@@ -41,7 +41,9 @@ use tracing::error;
 
 use crate::db::DbConnection;
 use crate::models::{NewUserAuthIdentity, NewUserEmail, User, UserRole};
-use crate::repository::{user_auth_identities, user_emails, users as users_repo, workspaces};
+use crate::repository::{
+    user_auth_identities, user_emails, user_helpers, users as users_repo, workspaces,
+};
 use crate::utils::user::NewUserBuilder;
 
 /// Inputs to [`find_or_create_projected_user`]. Both callers build
@@ -186,11 +188,29 @@ pub fn find_or_create_projected_user(
                             .unwrap_or(email.as_str())
                             .to_string()
                     });
-                    let (new_user, _role) =
+                    let (new_user, role) =
                         NewUserBuilder::local_user(display_name, email.clone(), UserRole::User)
                             .build();
-                    let user = users_repo::create_user(new_user, conn)
-                        .map_err(|e| format!("create_user: {e:?}"))?;
+                    // Mint via the sync-wired helper so the OIDC address
+                    // lands as the user's PRIMARY email in user_emails.
+                    // get_user_by_email (step 2 above) and the MFA /
+                    // password-reset flows resolve only the primary
+                    // email, so a user minted without one would miss the
+                    // email fallback on the next projection and get a
+                    // duplicate row. The low-level users_repo::create_user
+                    // writes only the users table and is vestigial for
+                    // exactly this reason. Address is provider-verified,
+                    // so seed it verified; source records the issuer.
+                    let (user, _email) = user_helpers::create_user_with_email(
+                        new_user,
+                        role,
+                        email.clone(),
+                        true,
+                        Some(iss.clone()),
+                        conn,
+                        None,
+                    )
+                    .map_err(|e| format!("create_user: {e:?}"))?;
 
                     let new_identity = NewUserAuthIdentity {
                         user_uuid: user.uuid,
