@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, watch } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardGreeting } from '@/composables/useDashboardGreeting'
@@ -11,6 +11,10 @@ import {
 import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
 import DashboardGrid from './dashboard/DashboardGrid.vue'
 import DashboardEditBar from './dashboard/DashboardEditBar.vue'
+import TimeRangeChipCluster from './dashboard/chrome/TimeRangeChipCluster.vue'
+import CompareToggle from './dashboard/chrome/CompareToggle.vue'
+import AnnotationsToggle from './dashboard/chrome/AnnotationsToggle.vue'
+import RefreshButton from './dashboard/chrome/RefreshButton.vue'
 import Icon from '@/components/common/Icon.vue'
 
 const authStore = useAuthStore()
@@ -21,7 +25,25 @@ const fluent = useFluent()
 // coordinator collects `dataNeeds` from active widgets and fires
 // one /api/dashboard/stats request that serves them all. Widgets
 // inject the handle via `useInjectedDashboardStats()`.
-provide(DASHBOARD_STATS_KEY, useDashboardStats())
+const dashboardStats = useDashboardStats()
+provide(DASHBOARD_STATS_KEY, dashboardStats)
+
+// Refresh timestamp: when the page last successfully re-fetched
+// its non-SSE data. Updates when the user clicks the refresh
+// button or presses R (registered by useDashboardKeybindings in
+// Wave 6+). Wave 1 stamps it on mount and on click; Wave 6 wires
+// up the per-widget refresh-on-event handling.
+const refreshedAt = ref<string | null>(null)
+function refreshPage(): void {
+  // Wave 1: the regular dashboard widgets re-fetch via
+  // useDashboardStats; bump the underlying query's refetch and
+  // stamp the timestamp so the RefreshButton's "Updated X ago"
+  // resets. Wave 4+ widgets that subscribe to chart endpoints
+  // each register their own refetch handler against this same
+  // event in later waves.
+  dashboardStats.refetch?.()
+  refreshedAt.value = new Date().toISOString()
+}
 
 // First name only; the greeting template substitutes `{0}`.
 // "Guest" fallback fires on the rare race where the dashboard
@@ -63,11 +85,15 @@ useCreateTicketAction()
 <template>
   <div class="flex flex-col h-full">
     <div class="flex flex-col gap-3 p-4 sm:px-6">
-      <!-- Greeting + edit affordance. The Edit button is a subtle
-           secondary, customising the dashboard is opt-in, not a
-           primary flow. -->
-      <header class="flex items-start justify-between gap-4">
-        <div>
+      <!-- Chrome row: greeting (left), time-range + compare +
+           annotations + refresh (centre), Edit (right). The chrome
+           row is fixed at the top of every dashboard render; widget
+           additions, time-range switches, and refreshes all happen
+           against this stable header. The Edit button stays subtle
+           per the existing pattern but moves into the chrome row so
+           it sits next to its data-affordance siblings. -->
+      <header class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div class="min-w-0 flex-1">
           <h2 class="text-lg sm:text-xl font-medium text-primary flex items-center gap-3">
             <span v-if="currentTheme === 'red-horizon'" class="hal-eye flex-shrink-0" aria-hidden="true">
               <span class="hal-eye-inner"></span>
@@ -78,15 +104,24 @@ useCreateTicketAction()
             {{ subtitle }}
           </p>
         </div>
-        <button
-          v-if="!dashboardLayout.editMode"
-          type="button"
-          class="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-          @click="enterEditMode"
-        >
-          <Icon name="rename" />
-          {{ $t('dashboard-edit-button') }}
-        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <TimeRangeChipCluster />
+          <CompareToggle />
+          <AnnotationsToggle />
+          <RefreshButton
+            :updated-at="refreshedAt"
+            @refresh="refreshPage"
+          />
+          <button
+            v-if="!dashboardLayout.editMode"
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-md border border-default bg-surface px-2 py-1 text-xs text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
+            @click="enterEditMode"
+          >
+            <Icon name="rename" class="w-3.5 h-3.5" />
+            <span>{{ $t('dashboard-edit-button') }}</span>
+          </button>
+        </div>
       </header>
 
       <DashboardEditBar v-if="dashboardLayout.editMode" />

@@ -5400,3 +5400,40 @@ admin-rule-editor-error-save = Couldn't save the rule.
 admin-rule-editor-error-conflict = This rule reads and writes the same fields. Save anyway to override.
 admin-rule-editor-override-self-ref = I understand this rule may loop
 admin-rule-editor-priority-label = Priority (lower runs first)
+
+# Dashboard chrome row (docs/dashboard-and-analytics-plan.md Wave 1).
+# Time-range chip cluster, compare-to-prior toggle, audit-log
+# annotation overlay toggle, R-refresh button with "Updated X ago"
+# indicator. Seven section anchor labels live alongside; the
+# AnchorRail component reads them when Wave 8 wires it in.
+
+dashboard-time-range-today = Today
+dashboard-time-range-7d = 7d
+dashboard-time-range-30d = 30d
+dashboard-time-range-90d = 90d
+dashboard-time-range-quarter = Quarter
+dashboard-time-range-custom = Custom
+dashboard-time-range-custom-from = From
+dashboard-time-range-custom-to = To
+dashboard-time-range-custom-apply = Apply
+dashboard-time-range-custom-cancel = Cancel
+
+dashboard-compare-toggle-label = Compare
+dashboard-compare-toggle-tooltip = Overlay the same range from the prior period
+
+dashboard-annotations-toggle-label = Annotations
+dashboard-annotations-toggle-tooltip = Mark rule, SLA, and business-hours edits on time-series charts
+
+dashboard-refresh-tooltip = Refresh non-live data (R)
+dashboard-refresh-updated-prefix = Updated
+dashboard-refresh-just-loaded = just now
+dashboard-refresh-unknown = recently
+
+dashboard-anchor-rail-aria-label = Dashboard sections
+dashboard-section-today = Today
+dashboard-section-volume-sla = Volume & SLA
+dashboard-section-queue-health = Queue Health
+dashboard-section-agents = Agents
+dashboard-section-categories = Categories
+dashboard-section-backlog-ageing = Backlog & Ageing
+dashboard-section-audit-activity = Audit Activity
