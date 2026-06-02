@@ -1616,6 +1616,24 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/canned-response-starters", web::get().to(handlers::canned_responses::starter_catalog))
                     .route("/admin/canned-responses/{id}", web::patch().to(handlers::canned_responses::update_canned))
                     .route("/admin/canned-responses/{id}", web::delete().to(handlers::canned_responses::delete_canned))
+
+                    // Rules engine (Phase 1: manual rules + recent
+                    // activity log). The `/state` and `/apply` literal
+                    // sub-paths register before the wildcard `/{id}`
+                    // sibling to avoid the actix route-shadowing
+                    // gotcha; same pattern as `/canned-response-starters`
+                    // above. `/apply` itself is wired in Wave 6.
+                    .route("/rules", web::get().to(handlers::rules::list_rules))
+                    .route("/rules", web::post().to(handlers::rules::create_rule))
+                    .route("/rules/{id}/state", web::patch().to(handlers::rules::transition_state))
+                    .route("/rules/{id}/versions", web::get().to(handlers::rules::list_rule_versions))
+                    .route("/rules/{rule_id}/versions/{version}", web::get().to(handlers::rules::get_rule_version))
+                    .route("/rules/{id}", web::get().to(handlers::rules::get_rule))
+                    .route("/rules/{id}", web::put().to(handlers::rules::update_rule))
+                    .route("/rules/{id}", web::delete().to(handlers::rules::delete_rule))
+                    .route("/rule-applications", web::get().to(handlers::rules::list_rule_applications))
+                    .route("/rule-applications/{id}", web::get().to(handlers::rules::get_rule_application))
+
                     .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))
                     .route("/admin/branding/image", web::delete().to(handlers::branding::delete_branding_image))
 
@@ -1777,6 +1795,8 @@ async fn main() -> std::io::Result<()> {
                     // /tickets/{id} POST, so no wildcard can absorb it.
                     .route("/tickets/merge", web::post().to(handlers::ticket_merge::merge_tickets))
                     .route("/tickets/{id}/merge-history", web::get().to(handlers::ticket_merge::get_merge_history))
+                    .route("/tickets/{ticket_id}/rule-applications", web::get().to(handlers::rules::list_ticket_rule_applications))
+                    .route("/tickets/{id}/applicable-actions", web::get().to(handlers::rules::list_applicable_actions))
                     .route("/tickets/{id}", web::get().to(handlers::get_ticket))
                     .route("/tickets/{id}", web::put().to(handlers::update_ticket))
                     .route("/tickets/{id}", web::patch().to(handlers::update_ticket_partial))

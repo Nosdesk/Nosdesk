@@ -47,6 +47,7 @@ pub mod plugin_collections;
 pub mod plugin_events;
 pub mod plugins;
 pub mod projects;
+pub mod rules;
 pub mod saved_views;
 pub mod scheduler;
 pub mod search;
