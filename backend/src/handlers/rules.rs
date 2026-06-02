@@ -930,6 +930,51 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
 }
 
 // =====================================================================
+// Starter catalog (Wave 8 / unit-19). Admin-only browse of the
+// pre-built rules baked into the binary.
+// =====================================================================
+
+#[derive(Debug, Serialize)]
+pub struct StarterRuleDto {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub trigger_kind: String,
+    pub conditions: Value,
+    pub actions: Value,
+}
+
+/// `GET /api/rules/starter-catalog`. Admin only. Returns the
+/// localised catalog the rules-page "Browse starters" affordance
+/// renders. Locale comes from `Accept-Language`; falls back to
+/// English when the requested locale isn't represented.
+pub async fn list_starter_catalog(req: HttpRequest) -> impl Responder {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
+    let locale = req
+        .headers()
+        .get(actix_web::http::header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "en".to_string());
+
+    let dtos: Vec<StarterRuleDto> = crate::services::starter_catalog::list()
+        .iter()
+        .map(|r| StarterRuleDto {
+            id: r.id.clone(),
+            name: r.name_for(&locale).to_string(),
+            description: r.description_for(&locale).to_string(),
+            trigger_kind: r.trigger_kind.clone(),
+            conditions: r.conditions.clone(),
+            actions: r.actions.clone(),
+        })
+        .collect();
+    HttpResponse::Ok().json(dtos)
+}
+
+// =====================================================================
 // Agent picker (unit-10).
 // =====================================================================
 
