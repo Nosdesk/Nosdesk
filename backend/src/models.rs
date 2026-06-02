@@ -6936,8 +6936,12 @@ pub struct Rule {
     pub trigger_config: serde_json::Value,
     pub conditions: serde_json::Value,
     pub actions: serde_json::Value,
-    pub reads_set: Vec<String>,
-    pub writes_set: Vec<String>,
+    // Postgres TEXT[] elements are nullable by default. The repository
+    // helpers only ever insert non-null values; reads expose the
+    // Option<String> shape Diesel's schema requires. Convert at the
+    // boundary in the API layer if a flat Vec<String> is needed.
+    pub reads_set: Vec<Option<String>>,
+    pub writes_set: Vec<Option<String>>,
     pub state: RuleState,
     pub priority: i32,
     pub last_fired_at: Option<DateTime<Utc>>,
@@ -6962,8 +6966,8 @@ pub struct NewRule {
     pub trigger_config: serde_json::Value,
     pub conditions: serde_json::Value,
     pub actions: serde_json::Value,
-    pub reads_set: Vec<String>,
-    pub writes_set: Vec<String>,
+    pub reads_set: Vec<Option<String>>,
+    pub writes_set: Vec<Option<String>>,
     pub state: RuleState,
     pub priority: i32,
     pub created_by: Option<Uuid>,
@@ -6982,8 +6986,8 @@ pub struct RuleUpdate {
     pub trigger_config: Option<serde_json::Value>,
     pub conditions: Option<serde_json::Value>,
     pub actions: Option<serde_json::Value>,
-    pub reads_set: Option<Vec<String>>,
-    pub writes_set: Option<Vec<String>>,
+    pub reads_set: Option<Vec<Option<String>>>,
+    pub writes_set: Option<Vec<Option<String>>>,
     pub state: Option<RuleState>,
     pub priority: Option<i32>,
     pub last_fired_at: Option<Option<DateTime<Utc>>>,

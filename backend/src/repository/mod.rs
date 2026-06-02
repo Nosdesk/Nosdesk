@@ -28,6 +28,7 @@ pub mod linked_tickets;
 pub mod outbound_emails;
 pub mod passkey_credentials;
 pub mod projects;
+pub mod rules;
 pub mod saved_views;
 pub mod search_query_log;
 pub mod sla;
