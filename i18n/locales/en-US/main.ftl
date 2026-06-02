@@ -357,6 +357,10 @@ settings-localization-save-failed = Failed to save preferences
 # bypasses this entirely (custom copy is the source of truth).
 auto-ack-default-template = Your request (#{ $ticket_id }) has been received and is being reviewed by our support team. To add additional comments, reply to this email.
 
+# Sent to a customer when their ticket is merged into another, only if
+# the agent ticks "Tell the customer" in the merge dialog.
+merge-notification-customer-template = We're combining your request with a related ticket so our team can respond once. We'll continue to update you on this thread.
+
 # Inbox-time connecting copy. The bare time string ("3:42 PM"),
 # weekday ("Mon"), and relative phrases ("5 minutes ago") all
 # come from Intl.DateTimeFormat / Intl.RelativeTimeFormat in the
