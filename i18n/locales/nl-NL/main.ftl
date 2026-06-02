@@ -5082,3 +5082,30 @@ gantt-tickets-of-total-in-view =
     }
 saved-view-name-this = Geef deze weergave een naam
 saved-view-copy-suffix = Kopie van { $name }
+
+# Tickets samenvoegen.
+merge-notification-customer-template = We voegen uw verzoek samen met een gerelateerd ticket zodat ons team in één keer kan reageren. We houden u op de hoogte in dit gesprek.
+ticket-merge-dialog-title = { $count ->
+    [one] 1 ticket samenvoegen
+   *[other] { $count } tickets samenvoegen
+  }
+ticket-merge-destination-label = Doelticket
+ticket-merge-reason-label = Reden (optioneel)
+ticket-merge-reason-placeholder = Wat verbindt deze tickets?
+ticket-merge-notify-customer-label = De klant laten weten dat hun ticket is samengevoegd
+ticket-merge-notify-customer-help = Stuurt een standaardantwoord op het bestaande gesprek van elk bronticket. Standaard uit.
+ticket-merge-submit-button = { $count } tickets samenvoegen
+ticket-merge-cancel-button = Annuleren
+ticket-merge-conflict-toast = Sommige van deze tickets zijn gewijzigd sinds u dit venster opende. Vernieuw en probeer opnieuw.
+ticket-merge-success-toast = { $count } tickets samengevoegd in #{ $target_id }
+ticket-merge-marker-comment-header = { $count } tickets samengevoegd in dit ticket
+ticket-merge-banner-merged-into = Dit ticket is samengevoegd in #{ $target_id } door { $actor } op { $when }.
+ticket-merge-banner-open-destination = Doelticket openen
+ticket-merge-sidebar-merged-in = Samengevoegd in
+ticket-merge-toast-just-merged = Dit ticket is zojuist samengevoegd in #{ $target_id }.
+ticket-list-bulk-merge = Samenvoegen
+ticket-activity-phrase-merged = heeft { $count ->
+    [one] 1 ticket
+   *[other] { $count } tickets
+  } samengevoegd in dit ticket
+ticket-activity-phrase-merged-into = heeft dit ticket samengevoegd in #{ $target_id }

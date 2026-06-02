@@ -5091,3 +5091,30 @@ gantt-tickets-of-total-in-view =
     }
 saved-view-name-this = Nommer cette vue
 saved-view-copy-suffix = Copie de { $name }
+
+# Fusion de tickets.
+merge-notification-customer-template = Nous regroupons votre demande avec un ticket associé afin que notre équipe puisse répondre une seule fois. Nous continuerons à vous tenir informé sur ce fil.
+ticket-merge-dialog-title = Fusionner { $count ->
+    [one] 1 ticket
+   *[other] { $count } tickets
+  }
+ticket-merge-destination-label = Ticket de destination
+ticket-merge-reason-label = Raison (facultatif)
+ticket-merge-reason-placeholder = Qu'est-ce qui relie ces tickets ?
+ticket-merge-notify-customer-label = Informer le client que son ticket a été fusionné
+ticket-merge-notify-customer-help = Envoie une réponse type sur le fil existant de chaque ticket source. Désactivé par défaut.
+ticket-merge-submit-button = Fusionner { $count } tickets
+ticket-merge-cancel-button = Annuler
+ticket-merge-conflict-toast = Certains de ces tickets ont changé depuis l'ouverture de cette fenêtre. Actualisez et réessayez.
+ticket-merge-success-toast = { $count } tickets fusionnés dans le #{ $target_id }
+ticket-merge-marker-comment-header = { $count } tickets fusionnés dans celui-ci
+ticket-merge-banner-merged-into = Ce ticket a été fusionné dans le #{ $target_id } par { $actor } le { $when }.
+ticket-merge-banner-open-destination = Ouvrir la destination
+ticket-merge-sidebar-merged-in = Fusionnés ici
+ticket-merge-toast-just-merged = Ce ticket vient d'être fusionné dans le #{ $target_id }.
+ticket-list-bulk-merge = Fusionner
+ticket-activity-phrase-merged = a fusionné { $count ->
+    [one] 1 ticket
+   *[other] { $count } tickets
+  } dans celui-ci
+ticket-activity-phrase-merged-into = a fusionné ce ticket dans le #{ $target_id }
