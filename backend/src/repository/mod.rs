@@ -1,4 +1,5 @@
 // Domain-specific modules
+pub mod analytics;
 pub mod article_content;
 pub mod asset_audits;
 pub mod asset_kinds;

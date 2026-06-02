@@ -1,5 +1,6 @@
 // Reexport handlers
 pub mod admin_workspaces;
+pub mod analytics;
 pub mod api_tokens;
 pub mod asset_audits;
 pub mod asset_kinds;
