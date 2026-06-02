@@ -14,6 +14,18 @@ pub mod sql_types {
     pub struct ProjectStatus;
 
     #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "rule_application_status"))]
+    pub struct RuleApplicationStatus;
+
+    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "rule_state"))]
+    pub struct RuleState;
+
+    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "rule_trigger_kind"))]
+    pub struct RuleTriggerKind;
+
+    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "sync_aggregate"))]
     pub struct SyncAggregate;
 
@@ -1096,6 +1108,84 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::RuleApplicationStatus;
+
+    rule_applications (id) {
+        id -> Int8,
+        workspace_id -> Int4,
+        rule_id -> Int4,
+        rule_version -> Int4,
+        ticket_id -> Int4,
+        status -> RuleApplicationStatus,
+        correlation_id -> Nullable<Uuid>,
+        actor_uuid -> Nullable<Uuid>,
+        #[max_length = 16]
+        actor_kind -> Varchar,
+        originating_event_id -> Nullable<Uuid>,
+        #[max_length = 64]
+        originating_event_kind -> Nullable<Varchar>,
+        condition_evaluation -> Nullable<Jsonb>,
+        actions_taken -> Nullable<Jsonb>,
+        actions_skipped -> Nullable<Jsonb>,
+        failure_reason -> Nullable<Text>,
+        applied_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::RuleTriggerKind;
+    use super::sql_types::RuleState;
+
+    rule_versions (id) {
+        id -> Int4,
+        rule_id -> Int4,
+        workspace_id -> Int4,
+        version -> Int4,
+        #[max_length = 255]
+        name -> Varchar,
+        description -> Nullable<Text>,
+        trigger_kind -> RuleTriggerKind,
+        trigger_config -> Jsonb,
+        conditions -> Jsonb,
+        actions -> Jsonb,
+        state -> RuleState,
+        priority -> Int4,
+        saved_by -> Nullable<Uuid>,
+        saved_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::RuleTriggerKind;
+    use super::sql_types::RuleState;
+
+    rules (id) {
+        id -> Int4,
+        workspace_id -> Int4,
+        #[max_length = 255]
+        name -> Varchar,
+        description -> Nullable<Text>,
+        trigger_kind -> RuleTriggerKind,
+        trigger_config -> Jsonb,
+        conditions -> Jsonb,
+        actions -> Jsonb,
+        reads_set -> Array<Nullable<Text>>,
+        writes_set -> Array<Nullable<Text>>,
+        state -> RuleState,
+        priority -> Int4,
+        last_fired_at -> Nullable<Timestamptz>,
+        fire_count -> Int4,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        archived_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     saved_views (id) {
         id -> Int4,
         uuid -> Uuid,
@@ -1360,6 +1450,15 @@ diesel::table! {
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
+    ticket_rule_runs (event_id, ticket_id, rule_id) {
+        event_id -> Uuid,
+        ticket_id -> Int4,
+        rule_id -> Int4,
+        fired_at -> Timestamptz,
     }
 }
 
@@ -1809,6 +1908,15 @@ diesel::joinable!(project_tickets -> workspaces (workspace_id));
 diesel::joinable!(projects -> workspaces (workspace_id));
 diesel::joinable!(refresh_tokens -> users (user_uuid));
 diesel::joinable!(reset_tokens -> users (user_uuid));
+diesel::joinable!(rule_applications -> rules (rule_id));
+diesel::joinable!(rule_applications -> tickets (ticket_id));
+diesel::joinable!(rule_applications -> users (actor_uuid));
+diesel::joinable!(rule_applications -> workspaces (workspace_id));
+diesel::joinable!(rule_versions -> rules (rule_id));
+diesel::joinable!(rule_versions -> users (saved_by));
+diesel::joinable!(rule_versions -> workspaces (workspace_id));
+diesel::joinable!(rules -> users (created_by));
+diesel::joinable!(rules -> workspaces (workspace_id));
 diesel::joinable!(saved_views -> users (created_by));
 diesel::joinable!(saved_views -> workspaces (workspace_id));
 diesel::joinable!(search_query_log -> workspaces (workspace_id));
@@ -1928,6 +2036,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     projects,
     refresh_tokens,
     reset_tokens,
+    rule_applications,
+    rule_versions,
+    rules,
     saved_views,
     search_index_state,
     search_query_log,
@@ -1942,6 +2053,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     tags,
     ticket_assets,
     ticket_categories,
+    ticket_rule_runs,
     ticket_tags,
     ticket_watchers,
     tickets,
