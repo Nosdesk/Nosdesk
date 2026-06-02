@@ -184,15 +184,33 @@ CREATE INDEX ticket_rule_runs_age_idx
     ON ticket_rule_runs (fired_at);
 
 -- =====================================================================
--- Versioning triggers: every INSERT + UPDATE on rules writes a
--- rule_versions snapshot row. Numbering is per-rule, monotonically
--- increasing, atomic under the row lock the INSERT/UPDATE takes. We
--- split AFTER INSERT (initial version row, NEW already exists) from
--- BEFORE UPDATE (new version row plus bumping updated_at on the row
--- being written) because AFTER triggers cannot mutate NEW. The
--- WHEN clause on the UPDATE skips no-op writes.
+-- Versioning triggers: every INSERT + meaningful UPDATE on rules
+-- writes a rule_versions snapshot row. Numbering is per-rule,
+-- monotonically increasing, atomic under the row lock the
+-- INSERT/UPDATE takes. We split AFTER INSERT (initial version row,
+-- NEW already exists) from BEFORE UPDATE (new version row plus
+-- bumping updated_at) because AFTER triggers cannot mutate NEW.
+--
+-- The UPDATE trigger's WHEN clause compares ONLY the snapshot-
+-- relevant content columns. Bookkeeping bumps (fire_count,
+-- last_fired_at) from apply_manual must not produce a version row;
+-- those columns change on every fire and would otherwise flood
+-- rule_versions with identical-content snapshots and misnumber
+-- rule_applications.rule_version. The fields below are exactly
+-- what rule_versions records.
+--
+-- saved_by reads from the same `app.actor_uuid` session GUC the
+-- audit trigger uses, so an edit by admin B is credited to B even
+-- though rules.created_by stays pointed at A (the original
+-- creator). The GUC is NULL when the change comes from a system
+-- path that didn't go through with_actor_context; we fall back to
+-- NEW.created_by in that case rather than recording NULL, since
+-- "the original author probably authored this" is a safer default
+-- than "we don't know".
 -- =====================================================================
 CREATE OR REPLACE FUNCTION rules_write_initial_version() RETURNS TRIGGER AS $$
+DECLARE
+    actor UUID := NULLIF(current_setting('app.actor_uuid', true), '')::UUID;
 BEGIN
     INSERT INTO rule_versions (
         rule_id, workspace_id, version, name, description, trigger_kind,
@@ -202,7 +220,7 @@ BEGIN
     VALUES (
         NEW.id, NEW.workspace_id, 1, NEW.name, NEW.description, NEW.trigger_kind,
         NEW.trigger_config, NEW.conditions, NEW.actions, NEW.state, NEW.priority,
-        NEW.created_by, NEW.created_at
+        COALESCE(actor, NEW.created_by), NEW.created_at
     );
     RETURN NULL;
 END;
@@ -211,6 +229,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION rules_write_update_version() RETURNS TRIGGER AS $$
 DECLARE
     next_version INTEGER;
+    actor        UUID := NULLIF(current_setting('app.actor_uuid', true), '')::UUID;
 BEGIN
     SELECT COALESCE(MAX(version), 0) + 1
     INTO next_version
@@ -225,7 +244,7 @@ BEGIN
     VALUES (
         NEW.id, NEW.workspace_id, next_version, NEW.name, NEW.description, NEW.trigger_kind,
         NEW.trigger_config, NEW.conditions, NEW.actions, NEW.state, NEW.priority,
-        NEW.created_by, NOW()
+        COALESCE(actor, NEW.created_by), NOW()
     );
 
     NEW.updated_at := NOW();
@@ -241,7 +260,15 @@ CREATE TRIGGER rules_version_on_insert
 CREATE TRIGGER rules_version_on_update
     BEFORE UPDATE ON rules
     FOR EACH ROW
-    WHEN (OLD.* IS DISTINCT FROM NEW.*)
+    WHEN (
+        (OLD.name, OLD.description, OLD.trigger_kind, OLD.trigger_config,
+         OLD.conditions, OLD.actions, OLD.state, OLD.priority,
+         OLD.archived_at, OLD.reads_set, OLD.writes_set)
+        IS DISTINCT FROM
+        (NEW.name, NEW.description, NEW.trigger_kind, NEW.trigger_config,
+         NEW.conditions, NEW.actions, NEW.state, NEW.priority,
+         NEW.archived_at, NEW.reads_set, NEW.writes_set)
+    )
     EXECUTE FUNCTION rules_write_update_version();
 
 -- =====================================================================
