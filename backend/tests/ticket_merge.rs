@@ -10,6 +10,9 @@
 
 #![allow(clippy::expect_used)]
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use actix_web::dev::Service;
 use actix_web::{web, App, HttpMessage};
 use diesel::prelude::*;
@@ -17,8 +20,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use backend::extractors::WorkspaceContext;
+use backend::handlers::sse::{SseEvent, SseState};
 use backend::middleware::RequestContext;
 use backend::models::{Claims, NewTicket, NewUser, Ticket, User};
+use backend::services::search::SearchService;
 use backend::sync::actor::ActorContext;
 
 mod common;
@@ -93,14 +98,23 @@ fn claims_for(user: &User) -> Claims {
 }
 
 /// Start a test server that runs every request as `user`, with the
-/// workspace context pinned to workspace 1.
-fn spawn(pool: &common::TestPool, user: &User) -> actix_test::TestServer {
+/// workspace context pinned to workspace 1. Returns the shared
+/// `SseState` so a test can subscribe and assert broadcasts.
+fn spawn(pool: &common::TestPool, user: &User) -> (actix_test::TestServer, Arc<SseState>) {
+    let sse = Arc::new(SseState::new());
+    let sse_app = sse.clone();
     let pool = pool.clone();
     let claims = claims_for(user);
     let user_uuid = user.uuid;
-    actix_test::start(move || {
+    let srv = actix_test::start(move || {
         let pool = pool.clone();
         let claims = claims.clone();
+        let sse_app = sse_app.clone();
+        // Per-worker throwaway search index; the merge handler reindexes
+        // sources through it. Leak the tempdir for the server's life.
+        let tmp = tempfile::tempdir().expect("temp search dir");
+        let search = Arc::new(SearchService::new(tmp.path(), &pool).expect("init search"));
+        std::mem::forget(tmp);
         let corr = Uuid::now_v7();
         let actor = ActorContext::user(user_uuid, Some(corr)).with_workspace(WS);
         let ws = WorkspaceContext {
@@ -112,6 +126,8 @@ fn spawn(pool: &common::TestPool, user: &User) -> actix_test::TestServer {
         };
         App::new()
             .app_data(web::Data::new(pool))
+            .app_data(web::Data::from(sse_app))
+            .app_data(web::Data::new(search))
             .wrap_fn(move |req, srv| {
                 req.extensions_mut().insert(ws.clone());
                 req.extensions_mut().insert(claims.clone());
@@ -130,7 +146,8 @@ fn spawn(pool: &common::TestPool, user: &User) -> actix_test::TestServer {
                         web::get().to(backend::handlers::ticket_merge::get_merge_history),
                     ),
             )
-    })
+    });
+    (srv, sse)
 }
 
 #[actix_web::test]
@@ -145,7 +162,8 @@ async fn merge_happy_path_returns_200() {
     let dest = ticket(&mut conn, "Dest", state, agent.uuid);
     let src = ticket(&mut conn, "Source", state, agent.uuid);
 
-    let srv = spawn(&pool, &agent);
+    let (srv, sse) = spawn(&pool, &agent);
+    let mut rx = sse.subscribe_global();
     let client = awc::Client::new();
     let mut resp = client
         .post(srv.url("/api/tickets/merge"))
@@ -163,6 +181,28 @@ async fn merge_happy_path_returns_200() {
     assert_eq!(body["destination_ticket"]["id"], dest.id);
     assert_eq!(body["merged_sources"].as_array().unwrap().len(), 1);
     assert_eq!(body["merged_sources"][0]["id"], src.id);
+
+    // The merge broadcasts a TicketMerged event to connected clients.
+    let mut saw_merged = false;
+    for _ in 0..5 {
+        match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
+            Ok(Ok(env)) => {
+                if let SseEvent::TicketMerged {
+                    target_ticket_id,
+                    source_ticket_ids,
+                    ..
+                } = env.event
+                {
+                    assert_eq!(target_ticket_id, dest.id);
+                    assert_eq!(source_ticket_ids, vec![src.id]);
+                    saw_merged = true;
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    assert!(saw_merged, "expected a TicketMerged SSE event");
 }
 
 #[actix_web::test]
@@ -176,7 +216,7 @@ async fn self_merge_returns_400() {
     let state = default_state_id(&mut conn);
     let t = ticket(&mut conn, "T", state, agent.uuid);
 
-    let srv = spawn(&pool, &agent);
+    let (srv, _sse) = spawn(&pool, &agent);
     let client = awc::Client::new();
     let mut resp = client
         .post(srv.url("/api/tickets/merge"))
@@ -201,7 +241,7 @@ async fn chain_merge_returns_400() {
     let other = ticket(&mut conn, "Other", state, agent.uuid);
     let src = ticket(&mut conn, "Source", state, agent.uuid);
 
-    let srv = spawn(&pool, &agent);
+    let (srv, _sse) = spawn(&pool, &agent);
     let client = awc::Client::new();
 
     let first = client
@@ -234,7 +274,7 @@ async fn non_agent_returns_403() {
     let dest = ticket(&mut conn, "Dest", state, regular.uuid);
     let src = ticket(&mut conn, "Source", state, regular.uuid);
 
-    let srv = spawn(&pool, &regular);
+    let (srv, _sse) = spawn(&pool, &regular);
     let client = awc::Client::new();
     let resp = client
         .post(srv.url("/api/tickets/merge"))
@@ -255,7 +295,7 @@ async fn missing_ticket_returns_404() {
     let state = default_state_id(&mut conn);
     let dest = ticket(&mut conn, "Dest", state, agent.uuid);
 
-    let srv = spawn(&pool, &agent);
+    let (srv, _sse) = spawn(&pool, &agent);
     let client = awc::Client::new();
     let resp = client
         .post(srv.url("/api/tickets/merge"))
@@ -277,7 +317,7 @@ async fn optimistic_conflict_returns_409() {
     let dest = ticket(&mut conn, "Dest", state, agent.uuid);
     let src = ticket(&mut conn, "Source", state, agent.uuid);
 
-    let srv = spawn(&pool, &agent);
+    let (srv, _sse) = spawn(&pool, &agent);
     let client = awc::Client::new();
     let mut resp = client
         .post(srv.url("/api/tickets/merge"))

@@ -195,6 +195,9 @@ impl WebhookEventType {
             // hit /api/sync/delta directly), so no resource_type to
             // report.
             SseEvent::SyncActions { .. } => None,
+            // No dedicated merge webhook contract in v1; the per-source
+            // ticket.updated events already fire for the state change.
+            SseEvent::TicketMerged { .. } => None,
             SseEvent::SlaBreached { .. } => Some(Self::TicketSlaBreached),
         }
     }
