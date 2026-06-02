@@ -97,6 +97,20 @@ impl Importer for UserImporter {
             let role = parse_role(trimmed(row, "role").as_str()).expect("validated above");
             let pronouns = opt_string(row, "pronouns");
 
+            // Map the legacy import "role" column onto the W2
+            // split: admin/technician/user → platform_role +
+            // workspace_members.role. Without this, AuthContext
+            // derives `User` for every imported user because the
+            // new sources of truth are empty.
+            let platform_role = match role {
+                UserRole::Admin => Some("platform_admin".to_string()),
+                _ => None,
+            };
+            let workspace_role = match role {
+                UserRole::Admin => "admin",
+                UserRole::Technician => "agent",
+                _ => "member",
+            };
             match action {
                 RowAction::Create => {
                     let new_uuid = Uuid::new_v4();
@@ -113,7 +127,7 @@ impl Importer for UserImporter {
                             mfa_secret: None,
                             mfa_secret_kek_id: None,
                             mfa_enabled: false,
-            platform_role: None,
+                            platform_role,
                         })
                         .execute(conn)?;
                     diesel::insert_into(user_emails::table)
@@ -126,6 +140,19 @@ impl Importer for UserImporter {
                             source: Some("csv_import".to_string()),
                         })
                         .execute(conn)?;
+                    // Bootstrap workspace membership — same shape as
+                    // admin_setup.rs and create_user_and_email. Pins
+                    // workspace 1 because the importer runs outside
+                    // any request and the GUC-driven column default
+                    // would otherwise be unset.
+                    diesel::sql_query(
+                        "INSERT INTO workspace_members (workspace_id, user_uuid, role) \
+                         VALUES (1, $1, $2) \
+                         ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
+                    )
+                    .bind::<diesel::sql_types::Uuid, _>(new_uuid)
+                    .bind::<diesel::sql_types::Text, _>(workspace_role)
+                    .execute(conn)?;
                     committed += 1;
                 }
                 RowAction::Update(uuid) => {
@@ -134,8 +161,21 @@ impl Importer for UserImporter {
                             users::name.eq(name),
                             users::role.eq(role),
                             users::pronouns.eq(pronouns),
+                            users::platform_role.eq(platform_role
+                                .clone()
+                                .unwrap_or_else(|| "user".to_string())),
                         ))
                         .execute(conn)?;
+                    // Bump the workspace role too so the post-W2
+                    // derivation tracks the imported intent.
+                    diesel::sql_query(
+                        "UPDATE workspace_members \
+                         SET role = $2 \
+                         WHERE workspace_id = 1 AND user_uuid = $1",
+                    )
+                    .bind::<diesel::sql_types::Uuid, _>(uuid)
+                    .bind::<diesel::sql_types::Text, _>(workspace_role)
+                    .execute(conn)?;
                     committed += 1;
                 }
             }

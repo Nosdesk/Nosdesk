@@ -78,6 +78,7 @@ pub fn create_user_with_email(
         // 2026-05-23 migration backfill used.
         let workspace_role = match new_user.role {
             UserRole::Admin => "admin",
+            UserRole::Technician => "agent",
             _ => "member",
         };
         diesel::sql_query(

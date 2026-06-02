@@ -74,7 +74,7 @@ impl NewUserBuilder {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-            platform_role: None,
+            platform_role: platform_role_for(self.role),
         };
         (new_user, self.email)
     }
@@ -94,8 +94,17 @@ impl NewUserBuilder {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-            platform_role: None,
+            platform_role: platform_role_for(self.role),
         }
+    }
+}
+
+/// Mirror the W2 backfill: only legacy admins map to `platform_admin`.
+/// Other roles surface as workspace-scoped roles in `workspace_members`.
+fn platform_role_for(role: UserRole) -> Option<String> {
+    match role {
+        UserRole::Admin => Some("platform_admin".to_string()),
+        _ => None,
     }
 }
 

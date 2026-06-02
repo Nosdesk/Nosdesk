@@ -9,7 +9,8 @@ use std::pin::Pin;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::models::{Claims, UserRole};
+use crate::extractors::WorkspaceContext;
+use crate::models::{Claims, UserRole, WorkspaceRole};
 
 /// Authentication context containing user information and permissions.
 ///
@@ -25,7 +26,14 @@ use crate::models::{Claims, UserRole};
 pub struct AuthContext {
     /// User's UUID
     pub user_uuid: Uuid,
-    /// User's role (Admin, Technician, User)
+    /// Legacy "global" role projection (Admin, Technician, User,
+    /// AuditReviewer). Derived from `platform_role` and the caller's
+    /// `workspace_members.role` in the current workspace: platform
+    /// admin maps to Admin everywhere; workspace owner/admin → Admin;
+    /// agent → Technician; member or no membership → User. Kept so
+    /// existing handlers that branch on `auth.role` / `auth.is_admin`
+    /// keep working post-W2 without code changes; the W2 split itself
+    /// is the source of truth.
     pub role: UserRole,
     /// User's display name
     #[allow(dead_code)]
@@ -38,12 +46,16 @@ pub struct AuthContext {
 }
 
 impl AuthContext {
-    /// Check if user is an admin
+    /// True for platform admins and for workspace admins/owners in
+    /// the current workspace. Existing handlers use this for
+    /// admin-gated tenant operations and the gate continues to do
+    /// what its name says.
     pub fn is_admin(&self) -> bool {
         self.role == UserRole::Admin
     }
 
-    /// Check if user is a technician or admin (has elevated privileges)
+    /// True for anyone at workspace-agent tier or higher (includes
+    /// platform admins).
     pub fn is_technician_or_admin(&self) -> bool {
         self.role == UserRole::Admin || self.role == UserRole::Technician
     }
@@ -68,6 +80,24 @@ impl AuthContext {
                 iat: 0,
             },
         }
+    }
+}
+
+/// Derive the legacy `UserRole` projection from the new W2 split:
+/// platform-admin → Admin; otherwise the workspace_members role
+/// (owner/admin → Admin, agent → Technician, member → User).
+/// No membership in the resolved workspace falls back to User.
+pub(crate) fn derive_role(
+    platform_role: &str,
+    workspace_role: Option<&str>,
+) -> UserRole {
+    if platform_role == "platform_admin" {
+        return UserRole::Admin;
+    }
+    match workspace_role.map(WorkspaceRole::from_db) {
+        Some(WorkspaceRole::Owner) | Some(WorkspaceRole::Admin) => UserRole::Admin,
+        Some(WorkspaceRole::Agent) => UserRole::Technician,
+        Some(WorkspaceRole::Member) | None => UserRole::User,
     }
 }
 
@@ -142,12 +172,12 @@ impl FromRequest for AuthContext {
                 .get()
                 .map_err(|e| AuthContextError::DatabaseError(e.to_string()))?;
 
-            // Fetch user from database to get current role and groups.
-            // Active-only — F2C.2 H4: a soft-deleted user with a
-            // cached cookie/JWT must not get a request-scoped auth
-            // context. The error type collapses "row missing" and
-            // "row soft-deleted" into one `UserNotFound` to avoid
-            // leaking deletion state.
+            // Fetch user from database to get platform_role + name +
+            // active status. Active-only — F2C.2 H4: a soft-deleted
+            // user with a cached cookie/JWT must not get a request-
+            // scoped auth context. The error type collapses "row
+            // missing" and "row soft-deleted" into one
+            // `UserNotFound` to avoid leaking deletion state.
             let user = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn)
                 .map_err(|_| AuthContextError::UserNotFound)?;
 
@@ -156,9 +186,27 @@ impl FromRequest for AuthContext {
                 crate::repository::groups::get_group_ids_for_user(&mut conn, &user_uuid)
                     .unwrap_or_default();
 
+            // Look up the caller's role in the workspace the
+            // request resolved to (set by WorkspaceContextMiddleware).
+            // Apex / unscoped requests have no WorkspaceContext and
+            // get a None workspace role — derive_role then falls
+            // back to platform_role alone.
+            let workspace_role_str = req
+                .extensions()
+                .get::<WorkspaceContext>()
+                .map(|wc| wc.workspace_id)
+                .and_then(|workspace_id| {
+                    crate::repository::workspaces::membership(&mut conn, workspace_id, user_uuid)
+                        .ok()
+                        .flatten()
+                        .map(|m| m.role)
+                });
+
+            let role = derive_role(&user.platform_role, workspace_role_str.as_deref());
+
             Ok(AuthContext {
                 user_uuid,
-                role: user.role,
+                role,
                 name: user.name,
                 group_ids,
                 claims,
