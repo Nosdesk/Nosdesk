@@ -380,6 +380,7 @@ ticket-merge-marker-comment-header = Merged { $count } tickets into this one
 ticket-merge-banner-merged-into = This ticket was merged into #{ $target_id } by { $actor } on { $when }.
 ticket-merge-banner-open-destination = Open destination
 ticket-merge-sidebar-merged-in = Merged in
+ticket-merge-toast-just-merged = This ticket was just merged into #{ $target_id }.
 
 # Inbox-time connecting copy. The bare time string ("3:42 PM"),
 # weekday ("Mon"), and relative phrases ("5 minutes ago") all

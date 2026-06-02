@@ -20,7 +20,11 @@ import {
   type ViewerInfo,
   type ViewersChangedEventData,
   type TicketFieldPreviewedEventData,
+  type TicketMergedEventData,
 } from "@/types/sse";
+import { useToastStore } from "@/stores/toast";
+import { useFluent } from "fluent-vue";
+import { getCommentsByTicketId } from "@/services/ticketService";
 
 // Enable debug logging only in development
 const DEBUG_SSE = import.meta.env.DEV && import.meta.env.VITE_DEBUG_SSE === 'true';
@@ -53,6 +57,8 @@ export function useTicketSSE(
   } = useSSE();
 
   const authStore = useAuthStore();
+  const toast = useToastStore();
+  const fluent = useFluent();
   const titleManager = useTitleManager();
   const recentTicketsStore = useRecentTicketsStore();
   const mutations = useTicketMutations(ticket);
@@ -201,6 +207,33 @@ export function useTicketSSE(
     }
 
     highlightComment(newComment.id);
+  }
+
+  // Handle a merge that involves the open ticket.
+  async function handleTicketMerged(rawData: unknown): Promise<void> {
+    const data = unwrapEventData(rawData as TicketMergedEventData);
+    if (!ticket.value) return;
+    const id = ticket.value.id;
+
+    if (data.source_ticket_ids?.includes(id)) {
+      // This source was just merged. Reflect the terminal state live so
+      // the persistent merged-into banner renders and the composer goes
+      // read-only without a reload.
+      ticket.value.merged_into_ticket_id = data.target_ticket_id;
+      ticket.value.merged_by_user_uuid = data.actor_uuid;
+      ticket.value.merged_at = new Date().toISOString();
+      toast.info(
+        fluent.$t('ticket-merge-toast-just-merged', { target_id: data.target_ticket_id }),
+      );
+    } else if (id === data.target_ticket_id) {
+      // A merge landed on this destination. Refresh the comment timeline
+      // so the merge-marker comment appears.
+      try {
+        ticket.value.commentsAndAttachments = await getCommentsByTicketId(id);
+      } catch {
+        // Best-effort; the next navigation picks it up.
+      }
+    }
   }
 
   // Handle comment deleted
@@ -368,7 +401,8 @@ export function useTicketSSE(
     | "project-assigned"
     | "project-unassigned"
     | "viewers-changed"
-    | "ticket-field-previewed";
+    | "ticket-field-previewed"
+    | "ticket-merged";
 
   // Event handler type for SSE events
   type SSEEventHandler = (data: unknown) => void | Promise<void>;
@@ -387,6 +421,7 @@ export function useTicketSSE(
     "project-unassigned": handleProjectUnassigned,
     "viewers-changed": handleViewersChanged,
     "ticket-field-previewed": handleTicketFieldPreviewed,
+    "ticket-merged": handleTicketMerged,
   };
 
   // Setup event listeners
