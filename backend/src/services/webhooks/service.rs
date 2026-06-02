@@ -103,7 +103,7 @@ impl WebhookService {
         // workspace's subscriptions so cross-workspace bypass is
         // correct.
         let webhooks = crate::sync::session::background_run(
-            &pool,
+            pool,
             "background:webhook_dispatch_query",
             |conn| {
                 webhook_repo::get_webhooks_for_event(conn, event_type_str)

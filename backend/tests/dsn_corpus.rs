@@ -1,3 +1,9 @@
+// The header below uses prose continuation lines whose indentation
+// trips clippy::doc_overindented_list_items but is intentional for
+// readability. Allow on this integration test (lib.rs's crate-wide
+// allow doesn't reach separate test binaries).
+#![allow(clippy::doc_overindented_list_items)]
+
 //! DSN corpus regression test.
 //!
 //! Drives `services::channels::bounce_parser::parse_bounce` against a

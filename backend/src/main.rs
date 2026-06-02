@@ -1,3 +1,16 @@
+// Mirror the crate-level allows in lib.rs so the binary build picks
+// up the same posture. See lib.rs for the rationale.
+#![allow(
+    clippy::too_many_arguments,
+    clippy::large_enum_variant,
+    clippy::type_complexity,
+    clippy::should_implement_trait,
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items,
+    clippy::field_reassign_with_default,
+    clippy::manual_strip
+)]
+
 use backend::db;
 use backend::handlers;
 use backend::middleware;
@@ -1582,6 +1595,34 @@ async fn main() -> std::io::Result<()> {
                     // be displayed. Replaces three independent
                     // full-list ticket fetches per dashboard load.
                     .route("/dashboard/stats", web::get().to(handlers::dashboard::get_stats))
+                    // Analytics endpoints (Phase 4). Both run via
+                    // TenantConn so the RLS policy on tickets
+                    // restricts the aggregation source rows to the
+                    // active workspace before any aggregation
+                    // happens. Inputs are validated against the same
+                    // allowlists the chart-config form enforces
+                    // client-side.
+                    .route("/dashboard/kpi", web::get().to(handlers::analytics::get_kpi))
+                    .route(
+                        "/dashboard/timeseries",
+                        web::get().to(handlers::analytics::get_timeseries),
+                    )
+                    .route(
+                        "/dashboard/breakdown",
+                        web::get().to(handlers::analytics::get_breakdown),
+                    )
+                    .route(
+                        "/dashboard/heatmap",
+                        web::get().to(handlers::analytics::get_heatmap),
+                    )
+                    .route(
+                        "/dashboard/leaderboard",
+                        web::get().to(handlers::analytics::get_leaderboard),
+                    )
+                    .route(
+                        "/dashboard/audit-annotations",
+                        web::get().to(handlers::analytics::get_audit_annotations),
+                    )
 
                     // Canned responses — reads open to any authenticated
                     // user (composer picker); writes admin-only. The
@@ -1603,6 +1644,34 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/canned-response-starters", web::get().to(handlers::canned_responses::starter_catalog))
                     .route("/admin/canned-responses/{id}", web::patch().to(handlers::canned_responses::update_canned))
                     .route("/admin/canned-responses/{id}", web::delete().to(handlers::canned_responses::delete_canned))
+
+                    // Rules engine (Phase 1: manual rules + recent
+                    // activity log). The `/state` and `/apply` literal
+                    // sub-paths register before the wildcard `/{id}`
+                    // sibling to avoid the actix route-shadowing
+                    // gotcha; same pattern as `/canned-response-starters`
+                    // above. `/apply` itself is wired in Wave 6.
+                    // Starter catalog lives at a distinct path
+                    // (`/admin/rule-starters`) rather than nested
+                    // under `/rules/...` so the wildcard
+                    // `/rules/{id}` GET can't absorb it. Same
+                    // precaution and same shape as the canned-
+                    // response-starters route above; the
+                    // `project_actix_route_shadowing` memory note
+                    // documents why ordering alone isn't enough.
+                    .route("/admin/rule-starters", web::get().to(handlers::rules::list_starter_catalog))
+                    .route("/rules", web::get().to(handlers::rules::list_rules))
+                    .route("/rules", web::post().to(handlers::rules::create_rule))
+                    .route("/rules/{id}/apply", web::post().to(handlers::rules::apply_rule))
+                    .route("/rules/{id}/state", web::patch().to(handlers::rules::transition_state))
+                    .route("/rules/{id}/versions", web::get().to(handlers::rules::list_rule_versions))
+                    .route("/rules/{rule_id}/versions/{version}", web::get().to(handlers::rules::get_rule_version))
+                    .route("/rules/{id}", web::get().to(handlers::rules::get_rule))
+                    .route("/rules/{id}", web::put().to(handlers::rules::update_rule))
+                    .route("/rules/{id}", web::delete().to(handlers::rules::delete_rule))
+                    .route("/rule-applications", web::get().to(handlers::rules::list_rule_applications))
+                    .route("/rule-applications/{id}", web::get().to(handlers::rules::get_rule_application))
+
                     .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))
                     .route("/admin/branding/image", web::delete().to(handlers::branding::delete_branding_image))
 
@@ -1760,6 +1829,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets", web::post().to(handlers::create_ticket))
                     .route("/tickets/empty", web::post().to(handlers::create_empty_ticket))
                     .route("/tickets/bulk", web::post().to(handlers::bulk_tickets))
+                    // Literal /tickets/merge before /tickets/{id}; there is no
+                    // /tickets/{id} POST, so no wildcard can absorb it.
+                    .route("/tickets/merge", web::post().to(handlers::ticket_merge::merge_tickets))
+                    .route("/tickets/{id}/merge-history", web::get().to(handlers::ticket_merge::get_merge_history))
+                    .route("/tickets/{ticket_id}/rule-applications", web::get().to(handlers::rules::list_ticket_rule_applications))
+                    .route("/tickets/{id}/applicable-actions", web::get().to(handlers::rules::list_applicable_actions))
                     .route("/tickets/{id}", web::get().to(handlers::get_ticket))
                     .route("/tickets/{id}", web::put().to(handlers::update_ticket))
                     .route("/tickets/{id}", web::patch().to(handlers::update_ticket_partial))

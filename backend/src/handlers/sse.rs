@@ -36,6 +36,16 @@ pub enum SseEvent {
         ticket_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// A merge committed. Open viewers of a source ticket show the
+    /// "merged into #N" banner; the destination's viewers refetch to
+    /// pick up the marker comment and the merged-in sidebar.
+    TicketMerged {
+        target_ticket_id: i32,
+        source_ticket_ids: Vec<i32>,
+        actor_uuid: String,
+        merge_event_id: i64,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
     CommentAdded {
         ticket_id: i32,
         comment: serde_json::Value,
@@ -285,6 +295,7 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::TicketUpdated { .. } => "ticket-updated",
         SseEvent::TicketCreated { .. } => "ticket-created",
         SseEvent::TicketDeleted { .. } => "ticket-deleted",
+        SseEvent::TicketMerged { .. } => "ticket-merged",
         SseEvent::CommentAdded { .. } => "comment-added",
         SseEvent::CommentDeleted { .. } => "comment-deleted",
         SseEvent::AttachmentAdded { .. } => "attachment-added",
@@ -916,11 +927,7 @@ fn lookup_role_for(
     crate::repository::users::get_user_by_uuid(&user_uuid, conn)
         .ok()
         .map(|u| {
-            crate::repository::user_helpers::legacy_role_for_user(
-                conn,
-                u.uuid,
-                &u.platform_role,
-            )
+            crate::repository::user_helpers::legacy_role_for_user(conn, u.uuid, &u.platform_role)
         })
 }
 

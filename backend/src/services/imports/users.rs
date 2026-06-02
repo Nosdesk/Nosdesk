@@ -163,9 +163,8 @@ impl Importer for UserImporter {
                         .set((
                             users::name.eq(name),
                             users::pronouns.eq(pronouns),
-                            users::platform_role.eq(platform_role
-                                .clone()
-                                .unwrap_or_else(|| "user".to_string())),
+                            users::platform_role
+                                .eq(platform_role.clone().unwrap_or_else(|| "user".to_string())),
                         ))
                         .execute(conn)?;
                     // Bump the workspace role too so the post-W2

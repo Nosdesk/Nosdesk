@@ -94,15 +94,23 @@ pub fn link_tickets(conn: &mut DbConnection, ticket1_id: i32, ticket2_id: i32) -
         "Existing links"
     );
 
-    // Create bidirectional links
+    // Create bidirectional links. relation_type defaults to the
+    // generic "related"; the directional merge edge uses
+    // `link_tickets_directional` instead.
     let new_link1 = NewLinkedTicket {
         ticket_id: ticket1.id,
         linked_ticket_id: ticket2.id,
+        relation_type: "related".to_string(),
+        description: None,
+        created_by: None,
     };
 
     let new_link2 = NewLinkedTicket {
         ticket_id: ticket2.id,
         linked_ticket_id: ticket1.id,
+        relation_type: "related".to_string(),
+        description: None,
+        created_by: None,
     };
 
     // Insert both links in a transaction
@@ -132,6 +140,37 @@ pub fn link_tickets(conn: &mut DbConnection, ticket1_id: i32, ticket2_id: i32) -
 
         Ok(())
     })
+}
+
+// sync-pending-wire: merge service emits ticket.merged with the edge in its data blob
+/// Insert a single directed `linked_tickets` edge `ticket_id ->
+/// linked_ticket_id` with an explicit relation_type. Unlike
+/// `link_tickets`, this does NOT mirror the reverse direction:
+/// `duplicate_of` is asymmetric (the source is a duplicate of the
+/// target, not the other way round). Idempotent via
+/// `on_conflict_do_nothing`. The merge service is the first caller.
+pub fn link_tickets_directional(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    linked_ticket_id: i32,
+    relation_type: &str,
+    description: Option<String>,
+    created_by: Option<uuid::Uuid>,
+) -> QueryResult<usize> {
+    use crate::schema::linked_tickets;
+
+    let row = NewLinkedTicket {
+        ticket_id,
+        linked_ticket_id,
+        relation_type: relation_type.to_string(),
+        description,
+        created_by,
+    };
+
+    diesel::insert_into(linked_tickets::table)
+        .values(&row)
+        .on_conflict_do_nothing()
+        .execute(conn)
 }
 
 // sync-pending-wire: needs sync aggregate wiring
@@ -252,6 +291,56 @@ mod tests {
 
         assert!(get_linked_tickets(&mut conn, t1.id).unwrap().is_empty());
         assert!(get_linked_tickets(&mut conn, t2.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn directional_link_writes_relation_type_one_way() {
+        use crate::schema::linked_tickets;
+
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "directional", UserRole::User);
+        let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        let dst = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
+
+        let inserted = link_tickets_directional(
+            &mut conn,
+            src.id,
+            dst.id,
+            "duplicate_of",
+            Some("same outage".to_string()),
+            Some(user.uuid),
+        )
+        .unwrap();
+        assert_eq!(inserted, 1);
+
+        // Forward edge carries the relation_type, description, and author.
+        let forward: (String, Option<String>, Option<uuid::Uuid>) = linked_tickets::table
+            .filter(linked_tickets::ticket_id.eq(src.id))
+            .filter(linked_tickets::linked_ticket_id.eq(dst.id))
+            .select((
+                linked_tickets::relation_type,
+                linked_tickets::description,
+                linked_tickets::created_by,
+            ))
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(forward.0, "duplicate_of");
+        assert_eq!(forward.1.as_deref(), Some("same outage"));
+        assert_eq!(forward.2, Some(user.uuid));
+
+        // No reverse edge: duplicate_of is asymmetric.
+        let reverse: i64 = linked_tickets::table
+            .filter(linked_tickets::ticket_id.eq(dst.id))
+            .filter(linked_tickets::linked_ticket_id.eq(src.id))
+            .count()
+            .get_result(&mut conn)
+            .unwrap();
+        assert_eq!(reverse, 0);
+
+        // Idempotent: a second call conflicts and inserts nothing.
+        let again = link_tickets_directional(&mut conn, src.id, dst.id, "duplicate_of", None, None)
+            .unwrap();
+        assert_eq!(again, 0);
     }
 
     #[test]

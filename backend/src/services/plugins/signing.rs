@@ -44,7 +44,7 @@ pub const SUPPORTED_ENVELOPE_VERSIONS: &[u8] = &[1, 2];
 /// Hard cap on any single decompressed archive entry. Plugin bundles
 /// are expected in the tens of KB; 1 MB is headroom for future minified
 /// frameworks without letting one entry exhaust the worker.
-pub const MAX_ENTRY_SIZE: u64 = 1 * 1024 * 1024;
+pub const MAX_ENTRY_SIZE: u64 = 1024 * 1024;
 
 /// Hard cap on total decompressed bytes across all entries in an
 /// archive. Stops zip bombs: the HTTP layer caps the ciphertext at
@@ -892,7 +892,7 @@ mod tests {
         let entries = read_archive(&zip).unwrap();
         let envelope = sign_entries(&entries, &kp, sources::LOCAL);
         let mut envelope_bytes = serde_json::to_vec(&envelope).unwrap();
-        envelope_bytes.extend(std::iter::repeat(b' ').take(MAX_ENVELOPE_SIZE + 1));
+        envelope_bytes.extend(std::iter::repeat_n(b' ', MAX_ENVELOPE_SIZE + 1));
         let bloated = make_zip(&[("manifest.json", b"{}"), (SIGNATURE_FILE, &envelope_bytes)]);
         match verify_archive(&bloated) {
             Err(SigningError::EnvelopeTooLarge) => {}

@@ -226,7 +226,7 @@ impl PresenceRegistry {
                 last_active_at: v.last_active_at,
             })
             .collect();
-        out.sort_by(|a, b| b.last_active_at.cmp(&a.last_active_at));
+        out.sort_by_key(|p| std::cmp::Reverse(p.last_active_at));
         out
     }
 

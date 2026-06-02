@@ -198,10 +198,7 @@ fn node_to_markdown_with_embeds(
 }
 
 fn get_text_safe(text_ref: &yrs::XmlTextRef, txn: &yrs::Transaction) -> String {
-    match panic::catch_unwind(panic::AssertUnwindSafe(|| text_ref.get_string(txn))) {
-        Ok(s) => s,
-        Err(_) => String::new(),
-    }
+    panic::catch_unwind(panic::AssertUnwindSafe(|| text_ref.get_string(txn))).unwrap_or_default()
 }
 
 /// Convert an XML element to Markdown based on its tag name

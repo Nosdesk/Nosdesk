@@ -28,7 +28,7 @@ fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
 
 // Get all projects with ticket counts
 pub async fn get_all_projects(mut tc: TenantConn) -> impl Responder {
-    match tc.run(|conn| repository::get_projects_with_ticket_count(conn)) {
+    match tc.run(repository::get_projects_with_ticket_count) {
         Ok(projects) => HttpResponse::Ok().json(projects),
         Err(_) => errors::internal("Failed to get projects"),
     }

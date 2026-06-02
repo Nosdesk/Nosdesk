@@ -13,7 +13,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import type { PopoverAnchor } from '@/composables/usePopover';
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces';
 
-const props = withDefaults(
+withDefaults(
   defineProps<{
     /** Icon-only trigger for the collapsed sidebar. */
     collapsed?: boolean;

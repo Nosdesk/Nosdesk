@@ -34,6 +34,9 @@ const props = defineProps<{
      *  ticket context. */
     ticketId?: number;
     recentlyAddedCommentIds?: Set<number>;
+    /** When true the composer is disabled (merged tickets are
+     *  terminal and read-only). Existing comments still render. */
+    readonly?: boolean;
     /** Optional template context for the canned-response picker —
         `{{ticket_id}}`, `{{customer_name}}` etc. substitute at
         insert time. Omit when the composer isn't on a ticket. */
@@ -461,6 +464,7 @@ const handlePastedFiles = async (files: File[]) => {
                   rather than a nested card.
                 -->
                 <div
+                    v-if="!readonly"
                     class="print:hidden border-b relative p-3 transition-colors"
                     :class="
                         isInternal

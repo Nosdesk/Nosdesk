@@ -180,7 +180,7 @@ pub async fn list_enabled_plugins(req: HttpRequest, mut tc: TenantConn) -> impl 
         return errors::unauthorized("Authentication required");
     }
 
-    match tc.run(|conn| plugin_repo::list_enabled_plugins(conn)) {
+    match tc.run(plugin_repo::list_enabled_plugins) {
         Ok(plugins) => {
             let response: Vec<_> = plugins
                 .into_iter()
@@ -1224,7 +1224,7 @@ pub async fn get_signing_overview(req: HttpRequest, mut tc: TenantConn) -> impl 
         return e;
     }
 
-    match tc.run(|conn| plugin_repo::signing_overview(conn)) {
+    match tc.run(plugin_repo::signing_overview) {
         Ok(overview) => HttpResponse::Ok().json(overview),
         Err(e) => {
             error!("Failed to compute plugin signing overview: {}", e);

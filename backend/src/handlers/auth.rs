@@ -291,7 +291,7 @@ pub async fn login(
                     "Account temporarily locked. Try again in {} minutes.",
                     (remaining_seconds / 60) + 1
                 ),
-                remaining_seconds as u64,
+                remaining_seconds,
             );
         }
         Ok(None) => {} // Not locked, continue
@@ -371,7 +371,7 @@ pub async fn login(
                         "Account locked after too many failed attempts. Try again in {} minutes.",
                         LOCKOUT_DURATION_SECONDS / 60
                     ),
-                    LOCKOUT_DURATION_SECONDS as u64,
+                    LOCKOUT_DURATION_SECONDS,
                 );
             }
             return errors::unauthorized("Invalid email or password");
@@ -513,7 +513,7 @@ pub async fn recovery_login(
                     "Account temporarily locked. Try again in {} minutes.",
                     (remaining_seconds / 60) + 1
                 ),
-                remaining_seconds as u64,
+                remaining_seconds,
             );
         }
         Ok(None) => {} // Not locked, continue
@@ -581,19 +581,15 @@ pub async fn recovery_login(
     }
 
     // Verify recovery code directly (bypasses TOTP check)
-    let result = match mfa::verify_backup_code(
-        &user.uuid,
-        &login_data.recovery_code.trim(),
-        &mut conn,
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => {
-            mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
-            return errors::bad_request("Invalid recovery code");
-        }
-    };
+    let result =
+        match mfa::verify_backup_code(&user.uuid, login_data.recovery_code.trim(), &mut conn).await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
+                return errors::bad_request("Invalid recovery code");
+            }
+        };
 
     if !result.is_valid {
         mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
@@ -1685,7 +1681,7 @@ pub async fn mfa_setup_login(
                     "Account temporarily locked. Try again in {} seconds.",
                     remaining_seconds
                 ),
-                remaining_seconds as u64,
+                remaining_seconds,
             );
         }
         Ok(None) => {} // Not locked, continue
@@ -1793,7 +1789,7 @@ pub async fn mfa_enable_login(
                     "Account temporarily locked. Try again in {} seconds.",
                     remaining_seconds
                 ),
-                remaining_seconds as u64,
+                remaining_seconds,
             );
         }
         Ok(None) => {} // Not locked, continue
@@ -1899,7 +1895,10 @@ pub async fn mfa_enable_login(
         match crate::repository::workspaces::primary_workspace_for_user(&mut conn, user_uuid) {
             Ok(ws) => ws,
             Err(e) => {
-                tracing::error!("Failed to resolve primary workspace for MFA enable: {:?}", e);
+                tracing::error!(
+                    "Failed to resolve primary workspace for MFA enable: {:?}",
+                    e
+                );
                 return errors::internal("Failed to enable MFA");
             }
         };
@@ -2003,7 +2002,7 @@ pub async fn get_user_sessions(
     let session_responses: Vec<serde_json::Value> = sessions
         .into_iter()
         .map(|session| {
-            let is_current = current_sid.map_or(false, |sid| session.session_id == sid);
+            let is_current = current_sid == Some(session.session_id);
             json!({
                 "id": session.id,
                 "session_id": session.session_id.to_string(),
@@ -2244,9 +2243,7 @@ pub async fn refresh_token(
     // 3. Reuse detection
     if old_token.is_used {
         let now = chrono::Utc::now().naive_utc();
-        let within_grace = old_token
-            .grace_expires_at
-            .map_or(false, |grace| grace > now);
+        let within_grace = old_token.grace_expires_at.is_some_and(|grace| grace > now);
 
         if !within_grace {
             // Token reuse outside grace period — potential theft!

@@ -70,7 +70,7 @@ pub async fn list_canned(mut tc: TenantConn, _req: HttpRequest) -> HttpResponse 
     // works for any logged-in user. The 30-day insertion counter
     // tags along on every row; the picker ignores it, the admin
     // page surfaces it as a column.
-    match tc.run(|conn| repo::list_with_insert_counts(conn)) {
+    match tc.run(repo::list_with_insert_counts) {
         Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(error = %e, "failed to list canned_responses");

@@ -66,7 +66,11 @@ async fn workspace_member_lifecycle_contract() {
     let pool = test_db.pool_with_size(4);
 
     // Cast of characters.
-    let admin = mint_user(&mut pool.get().expect("conn"), "PlatformAdmin", UserRole::Admin);
+    let admin = mint_user(
+        &mut pool.get().expect("conn"),
+        "PlatformAdmin",
+        UserRole::Admin,
+    );
     let admin_token = common::mint_api_token(
         &mut pool.get().expect("conn"),
         &admin,
@@ -82,12 +86,8 @@ async fn workspace_member_lifecycle_contract() {
     );
     let alice = mint_user(&mut pool.get().expect("conn"), "Alice", UserRole::User);
     let bob = mint_user(&mut pool.get().expect("conn"), "Bob", UserRole::User);
-    let alice_token = common::mint_api_token(
-        &mut pool.get().expect("conn"),
-        &alice,
-        "alice",
-        false,
-    );
+    let alice_token =
+        common::mint_api_token(&mut pool.get().expect("conn"), &alice, "alice", false);
 
     // Two workspaces so the /me/workspaces list has something to filter.
     let ws_acme = common::mint_workspace(&mut pool.get().expect("conn"), "memship-acme", "Acme");

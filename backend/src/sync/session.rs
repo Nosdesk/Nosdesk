@@ -166,8 +166,9 @@ pub fn with_actor_context_str<T>(
     match outcome {
         // Ok, or the intentional rollback we triggered above: the
         // closure ran, so `captured` holds the real result.
-        Ok(()) | Err(diesel::result::Error::RollbackTransaction) => captured
-            .unwrap_or_else(|| Err("actor-context transaction did not run".to_string())),
+        Ok(()) | Err(diesel::result::Error::RollbackTransaction) => {
+            captured.unwrap_or_else(|| Err("actor-context transaction did not run".to_string()))
+        }
         // set_actor (or the transaction machinery) failed before the
         // closure produced a result.
         Err(other) => Err(format!("actor context setup failed: {other}")),

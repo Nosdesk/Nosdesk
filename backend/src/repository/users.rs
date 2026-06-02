@@ -47,11 +47,8 @@ fn emit_user_event(
 ) -> QueryResult<()> {
     let email =
         crate::repository::user_helpers::get_primary_email(&user.uuid, conn).unwrap_or_default();
-    let role = crate::repository::user_helpers::legacy_role_for_user(
-        conn,
-        user.uuid,
-        &user.platform_role,
-    );
+    let role =
+        crate::repository::user_helpers::legacy_role_for_user(conn, user.uuid, &user.platform_role);
     emit::record(
         conn,
         SyncEmit {

@@ -416,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_filename_unicode_length_boundary() {
-        let long_unicode = std::iter::repeat('あ').take(260).collect::<String>();
+        let long_unicode = std::iter::repeat_n('あ', 260).collect::<String>();
         let got = FileValidator::sanitize_filename(&long_unicode).unwrap();
         assert_eq!(got.chars().count(), 255);
     }

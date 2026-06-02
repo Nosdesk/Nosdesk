@@ -120,29 +120,23 @@ fn validate_field_value(
     field_def: &CollectionFieldDefinition,
 ) -> Result<(), String> {
     match field_def.field_type.as_str() {
-        "string" | "date" | "datetime" | "uuid" | "reference" => {
-            if !value.is_string() {
-                return Err(format!(
-                    "Field '{field_name}' must be a string, got {}",
-                    value_type_name(value)
-                ));
-            }
+        "string" | "date" | "datetime" | "uuid" | "reference" if !value.is_string() => {
+            return Err(format!(
+                "Field '{field_name}' must be a string, got {}",
+                value_type_name(value)
+            ));
         }
-        "number" => {
-            if !value.is_number() {
-                return Err(format!(
-                    "Field '{field_name}' must be a number, got {}",
-                    value_type_name(value)
-                ));
-            }
+        "number" if !value.is_number() => {
+            return Err(format!(
+                "Field '{field_name}' must be a number, got {}",
+                value_type_name(value)
+            ));
         }
-        "boolean" => {
-            if !value.is_boolean() {
-                return Err(format!(
-                    "Field '{field_name}' must be a boolean, got {}",
-                    value_type_name(value)
-                ));
-            }
+        "boolean" if !value.is_boolean() => {
+            return Err(format!(
+                "Field '{field_name}' must be a boolean, got {}",
+                value_type_name(value)
+            ));
         }
         "json" => {
             // Any JSON value is valid

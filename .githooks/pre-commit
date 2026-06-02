@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Pre-commit hook: auto-format staged files before they land in a
+# commit, matching what CI's cargo fmt / ESLint steps expect.
+#
+# Activate with `make install-hooks` (sets core.hooksPath to this
+# directory) — one-shot per clone. Bypass with `git commit
+# --no-verify`; CI will reject the result if it's mis-formatted.
+#
+# Hook behaviour:
+#   * Staged .rs files under backend/ → rustfmt in place, then
+#     re-stage the (possibly rewritten) files so the commit sees
+#     the formatted version.
+#   * Staged .{ts,tsx,vue,js,jsx} files under frontend/ → eslint
+#     --fix on the same set, then re-stage.
+#   * Anything else passes through untouched. Frontend-only and
+#     docs-only commits stay fast.
+#
+# Hook never runs the full workspace formatter: rustfmt and eslint
+# both accept individual paths and read their config from the
+# project tree, so only the staged files get touched. Files
+# modified but not staged stay unstaged regardless of what the
+# formatter would do to them.
+
+set -e
+
+repo_root=$(git rev-parse --show-toplevel)
+
+# --- Rust formatting --------------------------------------------------
+staged_rust=$(git diff --cached --name-only --diff-filter=ACM \
+    | grep -E '^backend/.*\.rs$' || true)
+if [ -n "$staged_rust" ]; then
+    if ! command -v rustfmt >/dev/null 2>&1; then
+        echo "pre-commit: rustfmt not found on PATH. Install Rust" >&2
+        echo "             (https://rustup.rs/) or commit with"   >&2
+        echo "             --no-verify (CI will reject)."         >&2
+        exit 1
+    fi
+    echo "pre-commit: rustfmt on $(echo "$staged_rust" | wc -l | tr -d ' ') file(s)..."
+    # rustfmt walks up from each file looking for rustfmt.toml;
+    # backend/rustfmt.toml (or workspace-level) wins automatically.
+    # --edition matches what cargo passes during the workspace
+    # format; pinning explicitly keeps the hook resilient to
+    # rustfmt's edition-detection heuristics drifting.
+    echo "$staged_rust" \
+        | (cd "$repo_root" && xargs rustfmt --edition 2021)
+    # Re-stage so the formatted version lands in the commit.
+    echo "$staged_rust" | (cd "$repo_root" && xargs git add)
+fi
+
+# --- Frontend formatting ---------------------------------------------
+staged_fe=$(git diff --cached --name-only --diff-filter=ACM \
+    | grep -E '^frontend/.*\.(ts|tsx|vue|js|jsx)$' || true)
+if [ -n "$staged_fe" ]; then
+    eslint_bin="$repo_root/frontend/node_modules/.bin/eslint"
+    if [ ! -x "$eslint_bin" ]; then
+        echo "pre-commit: eslint not installed (run 'npm install'"  >&2
+        echo "             in frontend/); skipping the lint pass."  >&2
+        echo "             CI will reject if there are violations." >&2
+    else
+        echo "pre-commit: eslint --fix on $(echo "$staged_fe" | wc -l | tr -d ' ') file(s)..."
+        # ESLint paths are relative to the project root it runs
+        # from; strip the `frontend/` prefix before handing them in.
+        echo "$staged_fe" \
+            | sed 's|^frontend/||' \
+            | (cd "$repo_root/frontend" && xargs "$eslint_bin" --fix --no-warn-ignored)
+        echo "$staged_fe" | (cd "$repo_root" && xargs git add)
+    fi
+fi
+
+exit 0

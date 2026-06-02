@@ -87,7 +87,7 @@ pub async fn list(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
         return errors::forbidden("Admin required");
     }
 
-    match tc.run(|conn| repo::list_kinds(conn)) {
+    match tc.run(repo::list_kinds) {
         Ok(kinds) => HttpResponse::Ok().json(kinds),
         Err(e) => {
             error!(error = %e, "failed to list asset kinds");

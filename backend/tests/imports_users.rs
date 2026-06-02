@@ -12,7 +12,7 @@ use common::{count_table, fixture_path, TestDb};
 fn happy_path_creates_users_and_primary_emails() {
     let db = TestDb::new();
     let mut conn = db.conn();
-    let users_before = count_table(&mut *conn, "users");
+    let users_before = count_table(&mut conn, "users");
 
     let parsed = csv_parser::parse_file(&fixture_path("imports/users_valid.csv")).expect("parse");
     let summary = imports::dry_run(&mut conn, ImportType::Users, &parsed).expect("dry-run");
@@ -23,7 +23,7 @@ fn happy_path_creates_users_and_primary_emails() {
 
     let count = imports::commit(&mut conn, ImportType::Users, &parsed).expect("commit");
     assert_eq!(count, 3);
-    assert_eq!(count_table(&mut *conn, "users"), users_before + 3);
+    assert_eq!(count_table(&mut conn, "users"), users_before + 3);
 
     // Sentinel: Alex's primary email row landed with the
     // right address and source='csv_import'.

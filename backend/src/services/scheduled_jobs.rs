@@ -269,7 +269,7 @@ pub async fn sweep_outbound_email_leases(pool: Pool) -> Result<()> {
     let swept = crate::sync::session::background_run(
         &pool,
         "scheduler:sweep_outbound_email_leases",
-        |conn| crate::repository::outbound_emails::sweep_expired_leases(conn),
+        crate::repository::outbound_emails::sweep_expired_leases,
     )
     .map_err(|e| anyhow::anyhow!("sweep_expired_leases: {e}"))?;
     if swept > 0 {
@@ -377,9 +377,8 @@ pub async fn purge_archived_workspaces(pool: Pool) -> Result<()> {
     let grace = crate::repository::workspaces::purge_grace_window();
     let cutoff = chrono::Utc::now()
         - chrono::Duration::from_std(grace).unwrap_or(chrono::Duration::days(30));
-    let pending =
-        crate::repository::workspaces::list_workspaces_pending_purge(&mut conn, cutoff)
-            .context("list workspaces pending purge")?;
+    let pending = crate::repository::workspaces::list_workspaces_pending_purge(&mut conn, cutoff)
+        .context("list workspaces pending purge")?;
     if pending.is_empty() {
         return Ok(());
     }

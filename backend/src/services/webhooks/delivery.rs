@@ -117,8 +117,7 @@ impl WebhookDeliveryWorker {
         // outside any request, so the actor is a workspace-scoped
         // system actor.
         let webhook = webhook_repo::get_webhook_by_id(&mut conn, task.webhook_id)?;
-        let actor =
-            ActorContext::system("webhook_delivery").with_workspace(webhook.workspace_id);
+        let actor = ActorContext::system("webhook_delivery").with_workspace(webhook.workspace_id);
 
         let delivery = with_actor_context_str(&mut conn, &actor, |c| {
             webhook_repo::create_delivery(

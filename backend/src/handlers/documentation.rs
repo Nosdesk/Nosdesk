@@ -48,10 +48,10 @@ fn collect_children_text(children: impl Iterator<Item = XmlOut>, txn: &yrs::Tran
 fn extract_text_from_xml_node(node: &XmlOut, txn: &yrs::Transaction) -> String {
     match node {
         XmlOut::Text(text_ref) => {
-            match panic::catch_unwind(panic::AssertUnwindSafe(|| text_ref.get_string(txn))) {
-                Ok(s) => s,
-                Err(_) => String::new(),
-            }
+            let s: String =
+                panic::catch_unwind(panic::AssertUnwindSafe(|| text_ref.get_string(txn)))
+                    .unwrap_or_default();
+            s
         }
         XmlOut::Element(elem_ref) => collect_children_text(elem_ref.children(txn), txn),
         XmlOut::Fragment(frag_ref) => collect_children_text(frag_ref.children(txn), txn),
@@ -746,10 +746,11 @@ pub async fn update_documentation_page(
         // Auto-regenerate slug when title changes (unless user explicitly provided a slug)
         let slug = if update_req.slug.is_some() {
             update_req.slug.clone()
-        } else if let Some(ref new_title) = update_req.title {
-            Some(utils::slug::generate_unique_slug(new_title, conn))
         } else {
-            None
+            update_req
+                .title
+                .as_ref()
+                .map(|new_title| utils::slug::generate_unique_slug(new_title, conn))
         };
 
         let page_update = crate::models::DocumentationPageUpdate {
@@ -1351,7 +1352,7 @@ pub async fn export_documentation_pages(mut tc: TenantConn, auth: AuthContext) -
         );
     }
 
-    match tc.run(|conn| repository::get_documentation_pages(conn)) {
+    match tc.run(repository::get_documentation_pages) {
         Ok(pages) => {
             let export_pages: Vec<DocumentationPageExport> = pages
                 .into_iter()

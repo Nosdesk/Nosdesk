@@ -60,7 +60,7 @@ pub enum ProvisionResult {
 /// Stable i64 with no semantic meaning beyond being unique across
 /// every other advisory lock the app uses. Hex spelling decodes to
 /// the ASCII bytes "NosPRVX" so a `pg_locks` query is recognisable.
-const PROVISION_LOCK_KEY: i64 = 0x4e6f73_5052_5658;
+const PROVISION_LOCK_KEY: i64 = 0x004e_6f73_5052_5658;
 
 /// How many times to retry acquiring the lock before giving up.
 /// Tuned to ride out a graceful shutdown of the previous process

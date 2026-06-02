@@ -16,22 +16,32 @@ Why a shell:
     is inherited automatically and is, by definition, consistent with
     every other widget.
 
-Edit-mode affordances (drag grip / hide × / size selector) live in
-the shell's header — they're part of the card, not stickers floating
-over it. The shell doesn't own the drag *logic* (that's
-`usePointerSortable` in the dashboard parent); it only renders the
-controls and emits the events when the parent has flipped edit-mode
-on via `provide()`.
+Edit-mode affordances (docs/dashboard-and-analytics-plan.md decision
+20–22):
+  * Drag handle is a 4px shaded gutter running the full left edge of
+    the card. It reads as a card-affordance rather than a header-
+    affordance, doesn't compete with header content for space, and
+    has the same Fitts-friendly long-axis target Linear / Notion use.
+  * Right-click (or context-menu key) opens a per-widget context menu
+    with resize 1/2/3 and hide. The header no longer carries those
+    controls — fewer floating sticker buttons over the card chrome.
+  * Number keys 1, 2, 3 resize the focused widget. The card itself is
+    tabbable in edit mode so keyboard users can drive sizing without
+    a mouse.
+The shell doesn't own the drag *logic* (that's `usePointerSortable`
+in the dashboard parent); it only renders the affordances and emits
+the events when the parent has flipped edit-mode on via `provide()`.
 -->
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import {
   DASHBOARD_WIDGET_CONTEXT,
   type DashboardWidgetContext,
 } from './widgetContext'
 import type { WidgetSpan } from './widgets'
-import Icon from '@/components/common/Icon.vue'
+import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
+import { ICON_REGISTRY } from '@/components/common/icons'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
@@ -106,8 +116,6 @@ const editMode = computed(() => ctx?.editMode.value ?? false)
 const dragging = computed(() => ctx?.dragging.value ?? false)
 const currentSpan = computed<WidgetSpan>(() => ctx?.currentSpan.value ?? 1)
 
-const SIZES: WidgetSpan[] = [1, 2, 3]
-
 function onResize(span: WidgetSpan) {
   ctx?.onResize(span)
 }
@@ -116,6 +124,105 @@ function onHide() {
 }
 function onHandlePointerDown(e: PointerEvent) {
   ctx?.onHandlePointerDown(e)
+}
+
+// Context menu: anchored at the click point, opened by right-click
+// or the keyboard context-menu key. Sizing radio + hide live here;
+// removing them from the header keeps the chrome quiet while leaving
+// the affordance one gesture away.
+const menuOpen = ref(false)
+const menuX = ref(0)
+const menuY = ref(0)
+
+const menuItems = computed<MenuItem[]>(() => [
+  {
+    id: 'resize-1',
+    label: t('dashboard-widget-context-menu-resize-1'),
+    icon: ICON_REGISTRY.check.d,
+    checked: currentSpan.value === 1,
+    trailing: '1',
+  },
+  {
+    id: 'resize-2',
+    label: t('dashboard-widget-context-menu-resize-2'),
+    icon: ICON_REGISTRY.check.d,
+    checked: currentSpan.value === 2,
+    trailing: '2',
+  },
+  {
+    id: 'resize-3',
+    label: t('dashboard-widget-context-menu-resize-3'),
+    icon: ICON_REGISTRY.check.d,
+    checked: currentSpan.value === 3,
+    trailing: '3',
+  },
+  {
+    id: 'hide',
+    label: t('dashboard-widget-context-menu-hide'),
+    icon: ICON_REGISTRY.close.d,
+    danger: true,
+    divider: true,
+  },
+])
+
+function onContextMenu(e: MouseEvent) {
+  if (!editMode.value) return
+  e.preventDefault()
+  menuX.value = e.clientX
+  menuY.value = e.clientY
+  menuOpen.value = true
+}
+
+function onMenuSelect(id: string) {
+  switch (id) {
+    case 'resize-1':
+      onResize(1)
+      break
+    case 'resize-2':
+      onResize(2)
+      break
+    case 'resize-3':
+      onResize(3)
+      break
+    case 'hide':
+      onHide()
+      break
+  }
+}
+
+/** Keyboard sizing: 1, 2, 3 set the focused widget's span. Active
+ *  only in edit mode and only when the event target is the widget
+ *  root itself (not bubbled up from a focused control inside the
+ *  body), so typing "1" into a filter input inside a widget doesn't
+ *  silently resize the card.
+ *
+ *  `stopPropagation` AND `preventDefault` are both required: the
+ *  dashboard's document-level keybindings (useDashboardKeybindings)
+ *  bind 1..=7 to section-anchor jumps, so without stopping the
+ *  bubble the card would resize AND the page would scroll away to
+ *  a section anchor. */
+function onCardKeydown(e: KeyboardEvent) {
+  if (!editMode.value) return
+  if (e.target !== e.currentTarget) return
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  const span = sizeKeyToSpan(e.key)
+  if (span === null) return
+  e.preventDefault()
+  e.stopPropagation()
+  onResize(span)
+}
+
+function sizeKeyToSpan(key: string): WidgetSpan | null {
+  switch (key) {
+    case '1':
+      return 1
+    case '2':
+      return 2
+    case '3':
+      return 3
+    default:
+      return null
+  }
 }
 </script>
 
@@ -136,8 +243,36 @@ function onHandlePointerDown(e: PointerEvent) {
   />
   <article
     v-else
-    class="bg-surface rounded-xl border border-default overflow-hidden flex flex-col h-full relative"
+    :class="[
+      'bg-surface rounded-xl border overflow-hidden flex h-full relative transition-colors',
+      editMode
+        ? 'border-default hover:border-accent/40 focus-visible:border-accent focus-visible:outline-none'
+        : 'border-default',
+    ]"
+    :tabindex="editMode ? 0 : -1"
+    @contextmenu="onContextMenu"
+    @keydown="onCardKeydown"
   >
+    <!-- Drag-handle gutter: 4px shaded column running the full left
+         edge of the card in edit mode. Touch targets need depth so
+         the actual hit area is wider than the visual stripe — the
+         button is 12px wide, the visible bar is the inner 4px. The
+         gutter doubles as the visual cue that the card is movable;
+         nothing in the header competes for that affordance. -->
+    <button
+      v-if="editMode"
+      type="button"
+      class="group flex-shrink-0 w-3 h-full flex items-stretch justify-center cursor-grab active:cursor-grabbing touch-none focus-visible:outline-none"
+      :aria-label="t('dashboard-widget-shell-drag-label', { title })"
+      @pointerdown="onHandlePointerDown"
+    >
+      <span
+        class="block w-1 h-full bg-default group-hover:bg-accent group-focus-visible:bg-accent transition-colors"
+        aria-hidden="true"
+      />
+    </button>
+
+    <div class="flex flex-col flex-1 min-w-0">
     <!--
       Indeterminate progress bar for background refetches. Positioned
       at the very top of the card, clipped by the shell's rounded
@@ -152,37 +287,20 @@ function onHandlePointerDown(e: PointerEvent) {
       <div class="widget-shimmer-bar h-full w-1/3 bg-accent/80" />
     </div>
     <!--
-      Header: fixed-height pill that houses the drag grip (edit),
-      title, header-actions slot (filter controls, etc.), the
-      "View all" link, the size selector (edit), and hide × (edit).
+      Header: fixed-height pill that houses the title, widget-
+      specific header actions, and the "View all" link. Resize and
+      hide controls have moved to the right-click context menu so
+      the header reads the same in view mode and edit mode (minus
+      the View-all link, which goes quiet in edit mode).
     -->
     <header class="flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt flex-shrink-0">
-      <!-- Drag grip — only in edit mode. Sits to the left of the title
-           so it reads as "this row is draggable" without visual noise. -->
-      <button
-        v-if="editMode"
-        type="button"
-        class="flex items-center justify-center w-5 h-5 rounded text-tertiary hover:text-primary cursor-grab active:cursor-grabbing touch-none"
-        :aria-label="t('dashboard-widget-shell-drag-label', { title })"
-        @pointerdown="onHandlePointerDown"
-      >
-        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
-          <circle cx="5" cy="3" r="1.2" />
-          <circle cx="5" cy="8" r="1.2" />
-          <circle cx="5" cy="13" r="1.2" />
-          <circle cx="11" cy="3" r="1.2" />
-          <circle cx="11" cy="8" r="1.2" />
-          <circle cx="11" cy="13" r="1.2" />
-        </svg>
-      </button>
-
       <h2 class="text-[13px] font-semibold text-primary truncate flex-1 tracking-tight">{{ title }}</h2>
 
       <!-- Widget-specific header controls (e.g. filter dropdowns). -->
       <slot name="headerActions" />
 
-      <!-- "View all" link. Hidden in edit mode to keep the header
-           compact for the edit controls. -->
+      <!-- "View all" link. Hidden in edit mode so the card chrome
+           reads as "this is in flux" rather than "this is live." -->
       <router-link
         v-if="actionTo && !editMode"
         :to="actionTo"
@@ -190,42 +308,6 @@ function onHandlePointerDown(e: PointerEvent) {
       >
         {{ actionLabelText }} →
       </router-link>
-
-      <!-- Edit-mode: size selector + hide. Replace the view-all link. -->
-      <template v-if="editMode">
-        <div
-          role="radiogroup"
-          :aria-label="t('dashboard-widget-shell-size-group-label', { title })"
-          class="inline-flex items-center gap-0.5 p-0.5 rounded-full bg-surface border border-default"
-        >
-          <button
-            v-for="size in SIZES"
-            :key="size"
-            type="button"
-            role="radio"
-            :aria-checked="currentSpan === size"
-            :class="[
-              'h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[10px] font-semibold transition-colors',
-              currentSpan === size
-                ? 'bg-accent text-on-accent'
-                : 'text-tertiary hover:text-primary',
-            ]"
-            :title="t('dashboard-widget-shell-size-option-title', { size })"
-            @click="onResize(size)"
-          >
-            {{ size }}
-          </button>
-        </div>
-        <button
-          type="button"
-          class="flex items-center justify-center w-5 h-5 rounded text-tertiary hover:text-status-error transition-colors"
-          :aria-label="t('dashboard-widget-shell-hide-label', { title })"
-          :title="t('dashboard-widget-shell-hide-label', { title })"
-          @click="onHide"
-        >
-          <Icon name="close" />
-        </button>
-      </template>
     </header>
 
     <!--
@@ -307,6 +389,16 @@ function onHandlePointerDown(e: PointerEvent) {
         </div>
       </Transition>
     </div>
+    </div>
+
+    <ContextMenu
+      :items="menuItems"
+      :x="menuX"
+      :y="menuY"
+      :open="menuOpen"
+      @select="onMenuSelect"
+      @close="menuOpen = false"
+    />
   </article>
 </template>
 

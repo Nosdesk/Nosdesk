@@ -17,6 +17,7 @@ const ALL_SSE_EVENT_TYPES = [
   "ticket-updated",
   "ticket-created",
   "ticket-deleted",
+  "ticket-merged",
   "comment-added",
   "comment-deleted",
   "asset-linked",

@@ -259,7 +259,10 @@ pub async fn reset_password_with_token(
         match crate::repository::workspaces::primary_workspace_for_user(&mut conn, user.uuid) {
             Ok(ws) => ws,
             Err(e) => {
-                error!("Failed to resolve primary workspace for password reset: {:?}", e);
+                error!(
+                    "Failed to resolve primary workspace for password reset: {:?}",
+                    e
+                );
                 return errors::internal("Error updating password");
             }
         };

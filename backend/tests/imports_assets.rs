@@ -30,7 +30,7 @@ struct AssetRow {
 fn happy_path_creates_every_row() {
     let db = TestDb::new();
     let mut conn = db.conn();
-    let assets_before = count_table(&mut *conn, "assets");
+    let assets_before = count_table(&mut conn, "assets");
 
     let parsed = csv_parser::parse_file(&fixture_path("imports/assets_valid.csv")).expect("parse");
 
@@ -46,7 +46,7 @@ fn happy_path_creates_every_row() {
 
     let count = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
     assert_eq!(count, 4);
-    assert_eq!(count_table(&mut *conn, "assets"), assets_before + 4);
+    assert_eq!(count_table(&mut conn, "assets"), assets_before + 4);
 
     // Sentinel: STOCK-001 landed with the right decimal quantity.
     let row: AssetRow = diesel::sql_query(

@@ -31,16 +31,13 @@ pub const SUPPORTED_MANIFEST_VERSION: u32 = 1;
 /// breaking-change signal: every plugin must opt in to v2.
 pub const SUPPORTED_PLUGIN_API_VERSION: &str = "1";
 
-/// All permission strings the v1 backend recognises. Adding a
-/// permission means adding to this list AND adding the
-/// corresponding enforcement in the relevant handler. A plugin
-/// that requests a permission missing here is refused at install,
-/// fail-closed.
-// Permission allowlist enforcement is handled structurally by
-// `crate::services::plugins::types::Permission`: an unknown
-// permission string fails to deserialise into the typed enum, so
-// it never reaches the validator. The list of known capabilities
-// lives in that module's `Permission::parse`.
+// Permission allowlist: the orchestrating doc previously sat above
+// a `&[&str]` constant that we replaced with the typed `Permission`
+// enum in `crate::services::plugins::types`. Unknown permission
+// strings fail to deserialise into the enum, so they never reach
+// the validator. The list of recognised capabilities lives there;
+// adding a new permission means extending that enum plus the
+// matching handler enforcement, not editing a list here.
 
 /// Slot identifiers from the canonical taxonomy declared in
 /// `frontend/src/types/plugin.ts::PLUGIN_SLOTS`. Plugins may

@@ -891,6 +891,77 @@ mod tests {
     use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
+    #[test]
+    fn merged_workflow_state_is_seeded() {
+        use crate::models::WorkflowStateCategory;
+        use crate::schema::workflow_states;
+
+        let mut conn = setup_test_connection();
+        let (name, is_default, pauses_sla): (String, bool, bool) = workflow_states::table
+            .filter(workflow_states::category.eq(WorkflowStateCategory::Merged))
+            .filter(workflow_states::workspace_id.eq(1))
+            .select((
+                workflow_states::name,
+                workflow_states::is_default,
+                workflow_states::pauses_sla,
+            ))
+            .first(&mut conn)
+            .expect("Merged workflow state must be seeded for workspace 1");
+
+        assert_eq!(name, "Merged");
+        // Not the workspace default (only one default allowed per workspace).
+        assert!(!is_default);
+        // Pauses SLA the same way other terminal states do.
+        assert!(pauses_sla);
+    }
+
+    #[test]
+    fn ticket_can_be_marked_merged() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "merger", UserRole::User);
+        let source = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        let target = TestFixtures::create_ticket(&mut conn, "Target", Some(user.uuid), None);
+
+        let now = chrono::Utc::now().naive_utc();
+        let updated = diesel::update(tickets::table.find(source.id))
+            .set((
+                tickets::merged_into_ticket_id.eq(Some(target.id)),
+                tickets::merged_at.eq(Some(now)),
+                tickets::merged_by_user_uuid.eq(Some(user.uuid)),
+                tickets::merge_reason.eq(Some("same outage".to_string())),
+            ))
+            .execute(&mut conn)
+            .expect("setting all merge columns together satisfies the invariant");
+        assert_eq!(updated, 1);
+
+        let reloaded: Ticket = tickets::table.find(source.id).first(&mut conn).unwrap();
+        assert_eq!(reloaded.merged_into_ticket_id, Some(target.id));
+        assert_eq!(reloaded.merged_by_user_uuid, Some(user.uuid));
+        assert_eq!(reloaded.merge_reason.as_deref(), Some("same outage"));
+    }
+
+    #[test]
+    fn partial_merge_state_violates_invariant() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "partial", UserRole::User);
+        let source = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
+        let target = TestFixtures::create_ticket(&mut conn, "Target", Some(user.uuid), None);
+
+        // Setting merged_into_ticket_id without merged_at / merged_by_user_uuid
+        // must be rejected by tickets_merge_complete.
+        let result = diesel::update(tickets::table.find(source.id))
+            .set(tickets::merged_into_ticket_id.eq(Some(target.id)))
+            .execute(&mut conn);
+
+        match result {
+            Err(diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::CheckViolation,
+                _,
+            )) => {}
+            other => panic!("expected CheckViolation, got {other:?}"),
+        }
+    }
+
     /// Insert a ticket with an explicit verification state. The shared
     /// fixture helper always passes `None`, which is the wrong shape for
     /// testing the pending-release path.
@@ -1453,6 +1524,15 @@ mod tests {
             // globally unique.
             "documentation_starred_pages_user_uuid_page_id_key",
             "documentation_subscriptions_user_uuid_page_id_key",
+            // Versioning child table keyed by (rule_id, version).
+            // rule_id is a SERIAL PK on rules (globally unique across
+            // the cluster, so it pins the workspace on its own) and
+            // rule_versions.workspace_id is denormalised from the
+            // parent purely for RLS, not identity. A composite
+            // (workspace_id, rule_id, version) would be redundant.
+            // Same shape as the documentation/article revision keys
+            // above.
+            "rule_versions_rule_id_version_key",
             // sync_actions.client_tx_id_idx is ON ONLY parent,
             // doesn't propagate to partitions. INSERTs route to
             // partitions, so the parent-only index doesn't
