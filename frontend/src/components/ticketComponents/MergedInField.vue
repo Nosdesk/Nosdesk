@@ -2,30 +2,27 @@
 Destination-side cross-reference: lists the source tickets merged into
 this one, under a "Merged in" heading. Sourced from the merge-history
 endpoint (the ticket's linked_tickets only carry ids, not relation
-types). Renders nothing when no merges target this ticket.
+types). Cached per ticket via Pinia Colada, so it renders instantly from
+cache on revisit and revalidates in the background. Renders nothing when
+no merges target this ticket.
 -->
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed } from 'vue'
+import { useQuery } from '@pinia/colada'
 import { fetchMergeHistory } from '@/services/ticketService'
 
 const props = defineProps<{ ticketId: number }>()
 
-const sourceIds = ref<number[]>([])
+const { data } = useQuery({
+  key: () => ['merge-history', props.ticketId],
+  query: () => fetchMergeHistory(props.ticketId),
+})
 
-async function load() {
-  try {
-    const history = await fetchMergeHistory(props.ticketId)
-    const ids = new Set<number>()
-    for (const ev of history.merge_events) {
-      for (const id of ev.source_ticket_ids) ids.add(id)
-    }
-    sourceIds.value = [...ids]
-  } catch {
-    sourceIds.value = []
-  }
-}
-
-watch(() => props.ticketId, load, { immediate: true })
+// Unique source ids across every merge that targeted this ticket.
+const sourceIds = computed<number[]>(() => {
+  const events = data.value?.merge_events ?? []
+  return [...new Set(events.flatMap((ev) => ev.source_ticket_ids))]
+})
 </script>
 
 <template>

@@ -1,24 +1,17 @@
 <!--
 Persistent banner shown above the ticket details panel when the ticket
 is a merge source (merged_into_ticket_id is set). Links through to the
-destination. The ticket is terminal: its comments and article are
-read-only (gated separately in TicketView).
+destination. The ticket is terminal: its comments are read-only (gated
+separately in TicketView).
 -->
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
 import Icon from '@/components/common/Icon.vue'
 
-const props = defineProps<{
+defineProps<{
   targetId: number
   actor?: string | null
   when?: string | null
 }>()
-
-const router = useRouter()
-
-function openDestination() {
-  router.push(`/tickets/${props.targetId}`)
-}
 </script>
 
 <template>
@@ -36,12 +29,11 @@ function openDestination() {
         })
       }}
     </span>
-    <button
-      type="button"
+    <RouterLink
+      :to="`/tickets/${targetId}`"
       class="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-accent hover:bg-accent/10 transition-colors"
-      @click="openDestination"
     >
       {{ $t('ticket-merge-banner-open-destination') }}
-    </button>
+    </RouterLink>
   </div>
 </template>

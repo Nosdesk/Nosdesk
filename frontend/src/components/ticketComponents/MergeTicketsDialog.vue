@@ -13,6 +13,7 @@ import { useFluent } from 'fluent-vue'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import { useToastStore } from '@/stores/toast'
 import { mergeTickets } from '@/services/ticketService'
@@ -46,6 +47,9 @@ const router = useRouter()
 
 const destinationId = ref<number | null>(null)
 const description = ref('')
+// The last auto-generated seed, so we only reseed on a destination
+// change while the agent hasn't edited the buffer.
+const lastSeed = ref('')
 const reason = ref('')
 const notifyCustomer = ref(false)
 const submitting = ref(false)
@@ -80,6 +84,17 @@ function seedDescription() {
     lines.push(`- #${s.id}: ${s.title}`)
   }
   description.value = lines.join('\n')
+  lastSeed.value = description.value
+}
+
+// Snapshot each ticket's workflow_state_id as the optimistic-lock
+// token. Re-taken on a 409 so an immediate retry uses fresh tokens.
+function snapshotStates() {
+  const snap: Record<number, number> = {}
+  for (const t of props.selectedTickets) {
+    if (t.workflow_state_id != null) snap[t.id] = t.workflow_state_id
+  }
+  stateSnapshot.value = snap
 }
 
 watch(
@@ -90,19 +105,16 @@ watch(
     reason.value = ''
     notifyCustomer.value = false
     submitting.value = false
-    const snap: Record<number, number> = {}
-    for (const t of props.selectedTickets) {
-      if (t.workflow_state_id != null) snap[t.id] = t.workflow_state_id
-    }
-    stateSnapshot.value = snap
+    snapshotStates()
     seedDescription()
   },
   { immediate: true },
 )
 
-// Re-seed the description when the agent changes the destination.
+// Re-seed when the destination changes, but only if the agent hasn't
+// edited the buffer (so we never clobber their wording).
 watch(destinationId, () => {
-  if (props.open) seedDescription()
+  if (props.open && description.value === lastSeed.value) seedDescription()
 })
 
 async function submit() {
@@ -130,9 +142,12 @@ async function submit() {
   } catch (err: unknown) {
     const status = (err as { response?: { status?: number } })?.response?.status
     if (status === 409) {
+      // Stale optimistic-lock token. Refresh the snapshot so the agent
+      // can retry immediately without reopening the dialog.
+      snapshotStates()
       toast.warning(fluent.$t('ticket-merge-conflict-toast'))
     } else {
-      toast.error(fluent.$t('ticket-merge-cancel-button'), String(err))
+      toast.error(fluent.$t('ticket-merge-error-toast'))
     }
   } finally {
     submitting.value = false
@@ -162,32 +177,30 @@ async function submit() {
       </label>
 
       <!-- Source list (the non-destination selected tickets) -->
-      <div class="flex flex-col gap-1">
-        <ul class="flex flex-col gap-1">
-          <li
-            v-for="s in sources"
-            :key="s.id"
-            class="flex items-center gap-2 rounded border border-subtle bg-surface-alt px-3 py-2 text-sm"
-          >
-            <span class="text-tertiary">#{{ s.id }}</span>
-            <span class="truncate">{{ s.title }}</span>
-          </li>
-        </ul>
-      </div>
+      <ul class="flex flex-col gap-1" :aria-label="$t('ticket-merge-sidebar-merged-in')">
+        <li
+          v-for="s in sources"
+          :key="s.id"
+          class="flex items-center gap-2 rounded border border-subtle bg-surface-alt px-3 py-2 text-sm"
+        >
+          <span class="text-tertiary">#{{ s.id }}</span>
+          <span class="truncate">{{ s.title }}</span>
+        </li>
+      </ul>
 
       <!-- Description preview (becomes the merge-marker comment body) -->
-      <FormTextarea v-model="description" :rows="5" />
+      <FormTextarea
+        v-model="description"
+        :label="$t('ticket-merge-marker-comment-header', { count })"
+        :rows="5"
+      />
 
       <!-- Reason -->
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-tertiary">{{ $t('ticket-merge-reason-label') }}</span>
-        <input
-          v-model="reason"
-          type="text"
-          :placeholder="$t('ticket-merge-reason-placeholder')"
-          class="w-full px-3 py-2 text-sm rounded border border-default bg-surface focus:outline-none focus:border-accent"
-        />
-      </label>
+      <FormInput
+        v-model="reason"
+        :label="$t('ticket-merge-reason-label')"
+        :placeholder="$t('ticket-merge-reason-placeholder')"
+      />
 
       <!-- Customer notification -->
       <div class="flex flex-col gap-1">
