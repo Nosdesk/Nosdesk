@@ -275,12 +275,11 @@ pub fn count_table(conn: &mut PgConnection, table: &str) -> i64 {
 
 /// Seed a user with a UUID PK. Returns the inserted row.
 pub fn insert_user(conn: &mut PgConnection, name: &str) -> backend::models::User {
-    use backend::models::{NewUser, UserRole};
+    use backend::models::NewUser;
     use backend::schema::users;
     let new_user = NewUser {
         uuid: Uuid::new_v4(),
         name: name.to_string(),
-        role: UserRole::Admin,
         pronouns: None,
         avatar_url: None,
         banner_url: None,
@@ -289,9 +288,10 @@ pub fn insert_user(conn: &mut PgConnection, name: &str) -> backend::models::User
         mfa_secret: None,
         mfa_secret_kek_id: None,
         mfa_enabled: false,
-        // Mirror the W2 backfill: role=Admin → platform_admin.
-        // Without this the DB default ('user') wins and platform-
-        // admin-gated handlers reject the test caller.
+        // Bootstrap admin: `users.role` column was dropped in the
+        // W2 cleanup; platform_admin + the workspace_members row
+        // (seeded by the migration backfill) drive the legacy
+        // projection.
         platform_role: Some("platform_admin".to_string()),
     };
     diesel::insert_into(users::table)

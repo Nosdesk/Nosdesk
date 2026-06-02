@@ -28,6 +28,7 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 
 use backend::extractors::WorkspaceContext;
+use backend::models::UserRole;
 use backend::handlers::collaboration::{ws_handler, YjsAppState};
 use backend::handlers::sse::SseState;
 use backend::services::search::SearchService;
@@ -171,7 +172,8 @@ async fn handshake_broadcast_and_clean_disconnect() {
         },
     )
     .expect("create active session");
-    let token = JwtUtils::create_token(&user, &session_row.session_id).expect("mint JWT");
+    let token = JwtUtils::create_token(&user, UserRole::Admin, &session_row.session_id)
+        .expect("mint JWT");
 
     let state_pool_inner = pool.clone();
 

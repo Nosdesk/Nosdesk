@@ -1,7 +1,35 @@
 use crate::db::DbConnection;
+use crate::extractors::auth_context::derive_role;
 use crate::models::{User, UserEmail, UserRole};
 use diesel::prelude::*;
 use uuid::Uuid;
+
+/// Compute the legacy `UserRole` projection for a user given their
+/// `platform_role` and a DB connection. Looks up the user's
+/// `workspace_members.role` in the bootstrap workspace (id=1) and
+/// folds it together with the platform role per the W2 mapping
+/// (platform_admin → Admin; otherwise workspace owner/admin → Admin,
+/// agent → Technician, member or absent → User).
+///
+/// Single-tenant deployments resolve every request against the
+/// bootstrap workspace, so the lookup is unambiguous. Hosted /
+/// multi-workspace contexts that need a per-workspace derivation
+/// should call `derive_role` directly with the right workspace's
+/// role string.
+pub fn legacy_role_for_user(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    platform_role: &str,
+) -> UserRole {
+    use crate::schema::workspace_members;
+    let workspace_role: Option<String> = workspace_members::table
+        .filter(workspace_members::workspace_id.eq(1))
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .select(workspace_members::role)
+        .first(conn)
+        .ok();
+    derive_role(platform_role, workspace_role.as_deref())
+}
 
 /// Observer fired after a user record is successfully committed to the
 /// database. Implementors react to user creation (e.g. the search
@@ -47,10 +75,14 @@ pub fn get_user_by_email(
         .first::<User>(conn)
 }
 
-/// Create a user with their primary email atomically
-/// This ensures consistency between users and user_emails tables
+/// Create a user with their primary email atomically. `role` is
+/// the legacy `UserRole` projection the caller wants for the new
+/// user; it drives both the `users.platform_role` value and the
+/// initial `workspace_members.role`. The column itself was dropped
+/// in the W2 cleanup migration, so NewUser no longer carries it.
 pub fn create_user_with_email(
     new_user: crate::models::NewUser,
+    role: UserRole,
     email: String,
     email_verified: bool,
     email_source: Option<String>,
@@ -73,10 +105,10 @@ pub fn create_user_with_email(
         // via the column default - so callers must invoke this
         // function under `with_actor_context` (request handlers do
         // this automatically; bootstrap admin sets the GUC
-        // explicitly first). Maps the global user role onto the
-        // workspace membership role using the same shape the
-        // 2026-05-23 migration backfill used.
-        let workspace_role = match new_user.role {
+        // explicitly first). Maps the legacy UserRole projection
+        // onto the workspace membership role using the same shape
+        // the 2026-05-23 migration backfill used.
+        let workspace_role = match role {
             UserRole::Admin => "admin",
             UserRole::Technician => "agent",
             _ => "member",
@@ -121,7 +153,7 @@ pub fn create_user_with_email(
                     "uuid": user.uuid,
                     "name": user.name,
                     "email": user_email.email,
-                    "role": user.role,
+                    "role": role,
                     "pronouns": user.pronouns,
                     "avatar_url": user.avatar_url,
                     "avatar_thumb": user.avatar_thumb,
@@ -200,7 +232,6 @@ pub fn find_or_create_guest_user(
         let new_user = crate::models::NewUser {
             uuid: Uuid::now_v7(),
             name: name.trim().to_string(),
-            role: UserRole::User,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -214,6 +245,7 @@ pub fn find_or_create_guest_user(
 
         match create_user_with_email(
             new_user,
+            UserRole::User,
             email.to_string(),
             false,
             Some(GUEST_EMAIL_SOURCE.to_string()),
@@ -267,13 +299,22 @@ pub fn find_verified_user_by_email(
         .first::<(User, bool)>(conn)
         .optional()?;
 
-    Ok(row.and_then(|(user, is_verified)| {
-        if is_verified || user.role != UserRole::User {
-            Some(user)
-        } else {
-            None
-        }
-    }))
+    let Some((user, is_verified)) = row else {
+        return Ok(None);
+    };
+    if is_verified {
+        return Ok(Some(user));
+    }
+    // Derive the legacy projection: a guest auto-provisioned user
+    // lands as a workspace member with platform_role = 'user'.
+    // Anything else (admin / agent) is a "privileged" account and
+    // the guest path must not impersonate it.
+    let role = legacy_role_for_user(conn, user.uuid, &user.platform_role);
+    if role != UserRole::User {
+        Ok(Some(user))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Internal helper: load the user by email and classify them as reusable or
@@ -302,10 +343,11 @@ fn lookup_for_guest(
     };
 
     // Only reuse accounts that came from a prior guest submission AND are
-    // still unverified AND have the baseline `User` role. Anything else is
-    // a real account — never attach a public submission to it.
+    // still unverified AND have the baseline `User` role (derived from
+    // the W2 split — admin / agent never lose the privilege check).
+    let role = legacy_role_for_user(conn, user.uuid, &user.platform_role);
     let reusable = !is_verified
-        && user.role == UserRole::User
+        && role == UserRole::User
         && source.as_deref() == Some(GUEST_EMAIL_SOURCE);
 
     Ok(Some(if reusable {
@@ -331,12 +373,13 @@ pub fn get_user_with_primary_email(
 ) -> crate::models::UserResponse {
     let primary_email = get_primary_email(&user.uuid, conn);
     let prefs = crate::repository::user_preferences::get(conn, user.uuid).ok();
+    let role = legacy_role_for_user(conn, user.uuid, &user.platform_role);
 
     crate::models::UserResponse {
         uuid: user.uuid,
         name: user.name,
         email: primary_email,
-        role: user.role,
+        role,
         pronouns: user.pronouns,
         avatar_url: user.avatar_url,
         banner_url: user.banner_url,
@@ -396,16 +439,34 @@ pub fn get_users_with_primary_emails(
             .map(|p| (p.user_uuid, p))
             .collect();
 
+    // Batch the workspace_members role lookup so the per-row
+    // legacy-role derivation doesn't do N+1 queries.
+    let workspace_role_map: std::collections::HashMap<Uuid, String> = {
+        use crate::schema::workspace_members;
+        workspace_members::table
+            .filter(workspace_members::workspace_id.eq(1))
+            .filter(workspace_members::user_uuid.eq_any(&user_uuids))
+            .select((workspace_members::user_uuid, workspace_members::role))
+            .load::<(Uuid, String)>(conn)
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
+    };
+
     users
         .into_iter()
         .map(|user| {
             let email = email_map.get(&user.uuid).cloned();
             let prefs = prefs_map.get(&user.uuid);
+            let role = crate::extractors::auth_context::derive_role(
+                &user.platform_role,
+                workspace_role_map.get(&user.uuid).map(String::as_str),
+            );
             crate::models::UserResponse {
                 uuid: user.uuid,
                 name: user.name,
                 email,
-                role: user.role,
+                role,
                 pronouns: user.pronouns,
                 avatar_url: user.avatar_url,
                 banner_url: user.banner_url,
@@ -479,7 +540,6 @@ mod tests {
         let new_user = crate::models::NewUser {
             uuid: Uuid::new_v4(),
             name: "Atomic".into(),
-            role: UserRole::User,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -493,6 +553,7 @@ mod tests {
 
         let (user, email_record) = create_user_with_email(
             new_user,
+            UserRole::User,
             "atomic@test.com".into(),
             true,
             None,
@@ -557,7 +618,9 @@ mod tests {
         match result {
             GuestUserResult::Created(user) => {
                 assert_eq!(user.name, "Fresh User");
-                assert_eq!(user.role, UserRole::User);
+                let derived =
+                    legacy_role_for_user(&mut conn, user.uuid, &user.platform_role);
+                assert_eq!(derived, UserRole::User);
                 // The matching email row should be unverified and tagged
                 // with the guest source so the lookup classifies it as reusable.
                 let email = get_user_by_email("fresh@example.com", &mut conn).unwrap();

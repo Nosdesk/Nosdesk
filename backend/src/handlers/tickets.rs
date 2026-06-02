@@ -34,8 +34,12 @@ fn validate_assignee_role(
 ) -> Result<(), HttpResponse> {
     match crate::repository::users::get_user_by_uuid(assignee_uuid, conn) {
         Ok(user) => {
-            // Check if user has technician or admin role
-            if user.role != UserRole::Technician && user.role != UserRole::Admin {
+            let role = crate::repository::user_helpers::legacy_role_for_user(
+                conn,
+                user.uuid,
+                &user.platform_role,
+            );
+            if role != UserRole::Technician && role != UserRole::Admin {
                 Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
             } else {
                 Ok(())
@@ -57,7 +61,12 @@ fn parse_and_validate_assignee_string(
         // Use the same validation logic but adapted for the update context
         match crate::repository::users::get_user_by_uuid(&uuid, conn) {
             Ok(user) => {
-                if user.role != UserRole::Technician && user.role != UserRole::Admin {
+                let role = crate::repository::user_helpers::legacy_role_for_user(
+                    conn,
+                    user.uuid,
+                    &user.platform_role,
+                );
+                if role != UserRole::Technician && role != UserRole::Admin {
                     Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
                 } else {
                     Ok(uuid)
@@ -71,7 +80,12 @@ fn parse_and_validate_assignee_string(
         // Try to look up by name
         match crate::repository::users::get_user_by_name(assignee_str, conn) {
             Ok(user) => {
-                if user.role != UserRole::Technician && user.role != UserRole::Admin {
+                let role = crate::repository::user_helpers::legacy_role_for_user(
+                    conn,
+                    user.uuid,
+                    &user.platform_role,
+                );
+                if role != UserRole::Technician && role != UserRole::Admin {
                     Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
                 } else {
                     Ok(user.uuid)
@@ -2129,10 +2143,10 @@ mod tests {
         let claims = {
             let mut conn = pool.get().unwrap();
             let admin = TestFixtures::create_user(&mut conn, "ticketadmin", UserRole::Admin);
-            let claims = create_test_claims(&admin);
+            let claims = create_test_claims(&admin, UserRole::Admin);
 
             let user = TestFixtures::create_user(&mut conn, "regularuser", UserRole::User);
-            let _user_claims = create_test_claims(&user);
+            let _user_claims = create_test_claims(&user, UserRole::User);
 
             claims
         }; // conn dropped here — pool free for HTTP handlers
@@ -2245,7 +2259,7 @@ mod tests {
         let claims = {
             let mut conn = pool.get().unwrap();
             let user = TestFixtures::create_user(&mut conn, "notfounduser", UserRole::Technician);
-            create_test_claims(&user)
+            create_test_claims(&user, UserRole::Technician)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -2266,7 +2280,7 @@ mod tests {
         let claims = {
             let mut conn = pool.get().unwrap();
             let user = TestFixtures::create_user(&mut conn, "regularticketuser", UserRole::User);
-            create_test_claims(&user)
+            create_test_claims(&user, UserRole::User)
         }; // conn dropped here
 
         // Verify the claims have the correct role

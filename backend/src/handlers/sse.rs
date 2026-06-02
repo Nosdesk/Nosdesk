@@ -915,7 +915,13 @@ fn lookup_role_for(
 ) -> Option<crate::models::UserRole> {
     crate::repository::users::get_user_by_uuid(&user_uuid, conn)
         .ok()
-        .map(|u| u.role)
+        .map(|u| {
+            crate::repository::user_helpers::legacy_role_for_user(
+                conn,
+                u.uuid,
+                &u.platform_role,
+            )
+        })
 }
 
 // SSE status endpoint

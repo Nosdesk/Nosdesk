@@ -183,7 +183,13 @@ impl AssetResponse {
             is_editable,
             primary_user: user.map(|u| {
                 let name = u.name.clone();
-                let role = u.role.as_str().to_string();
+                let role = repository::user_helpers::legacy_role_for_user(
+                    conn,
+                    u.uuid,
+                    &u.platform_role,
+                )
+                .as_str()
+                .to_string();
 
                 // Fetch primary email from user_emails table
                 let email = repository::user_helpers::get_primary_email(&u.uuid, conn)

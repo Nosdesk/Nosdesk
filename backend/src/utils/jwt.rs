@@ -21,8 +21,16 @@ lazy_static::lazy_static! {
 pub struct JwtUtils;
 
 impl JwtUtils {
-    /// Create a JWT token for a user with full scope (15 min expiry)
-    pub fn create_token(user: &User, session_id: &uuid::Uuid) -> Result<String, JwtError> {
+    /// Create a JWT token for a user with full scope (15 min expiry).
+    /// `role` is the legacy `UserRole` projection the caller computed
+    /// from `users.platform_role` + workspace_members.role; the column
+    /// itself was dropped in the W2 cleanup migration so create_token
+    /// can no longer derive it from the User struct alone.
+    pub fn create_token(
+        user: &User,
+        role: crate::models::UserRole,
+        session_id: &uuid::Uuid,
+    ) -> Result<String, JwtError> {
         // Belt-and-suspenders: refuse to mint a token for a
         // soft-deleted user even if a caller is holding a stale
         // User reference. login_timing already filters these at
@@ -40,7 +48,7 @@ impl JwtUtils {
             sub: uuid_to_string(&user.uuid),
             name: user.name.clone(),
             email: String::new(),
-            role: role_to_string(&user.role).to_string(),
+            role: role.as_str().to_string(),
             platform_role: Some(user.platform_role.clone()),
             scope: "full".to_string(),
             sid: Some(session_id.to_string()),
@@ -125,12 +133,21 @@ impl JwtUtils {
         let user = repository::users::find_active_by_uuid(&user_uuid, conn)
             .map_err(|_| JwtError::UserNotFound)?;
 
-        // Verify role hasn't changed since token was issued
-        let current_role = role_to_string(&user.role);
-        if claims.role != current_role {
+        // Verify role hasn't changed since token was issued. Post-W2
+        // the legacy projection is derived from platform_role +
+        // workspace_members.role; a workspace-membership demotion
+        // (e.g. agent → member) still flips this comparison and
+        // forces a re-login.
+        let current_role = crate::repository::user_helpers::legacy_role_for_user(
+            conn,
+            user.uuid,
+            &user.platform_role,
+        );
+        let current_role_str = current_role.as_str();
+        if claims.role != current_role_str {
             return Err(JwtError::RoleMismatch {
                 token_role: claims.role,
-                current_role: current_role.to_string(),
+                current_role: current_role_str.to_string(),
             });
         }
 
@@ -403,7 +420,12 @@ pub mod helpers {
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
     ) -> Result<LoginTokens, HttpResponse> {
-        let access_token = JwtUtils::create_token(user, session_id).map_err(|_| {
+        let role = crate::repository::user_helpers::legacy_role_for_user(
+            conn,
+            user.uuid,
+            &user.platform_role,
+        );
+        let access_token = JwtUtils::create_token(user, role, session_id).map_err(|_| {
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error generating token"
@@ -605,7 +627,6 @@ mod tests {
         let user = crate::models::User {
             uuid: uuid::Uuid::new_v4(),
             name: "Test User".to_string(),
-            role: crate::models::UserRole::Admin,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -623,7 +644,8 @@ mod tests {
         };
 
         let sid = uuid::Uuid::new_v4();
-        let token = JwtUtils::create_token(&user, &sid).expect("Failed to create token");
+        let token = JwtUtils::create_token(&user, crate::models::UserRole::Admin, &sid)
+            .expect("Failed to create token");
         let claims = JwtUtils::validate_token(&token).expect("Failed to validate token");
 
         assert_eq!(claims.sub, user.uuid.to_string());
@@ -646,7 +668,6 @@ mod tests {
         let user = crate::models::User {
             uuid: uuid::Uuid::new_v4(),
             name: "Soft Deleted".to_string(),
-            role: crate::models::UserRole::Admin,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -664,7 +685,7 @@ mod tests {
         };
 
         let sid = uuid::Uuid::new_v4();
-        match JwtUtils::create_token(&user, &sid) {
+        match JwtUtils::create_token(&user, crate::models::UserRole::Admin, &sid) {
             Err(JwtError::UserNotFound) => {}
             other => panic!("expected UserNotFound for soft-deleted user, got {other:?}"),
         }

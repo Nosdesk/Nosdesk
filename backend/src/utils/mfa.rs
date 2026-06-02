@@ -531,7 +531,12 @@ pub fn should_require_mfa(user_role: &UserRole) -> bool {
 /// distinguish via `anyhow` `chain()` if needed; in practice the
 /// caller surfaces both as a 5xx and tells the user to retry.
 pub async fn validate_mfa_policy(user: &User, conn: &mut crate::db::DbConnection) -> Result<()> {
-    if !should_require_mfa(&user.role) || user.mfa_enabled {
+    let role = crate::repository::user_helpers::legacy_role_for_user(
+        conn,
+        user.uuid,
+        &user.platform_role,
+    );
+    if !should_require_mfa(&role) || user.mfa_enabled {
         return Ok(());
     }
     if user_has_passkeys(conn, &user.uuid)? {
@@ -539,7 +544,7 @@ pub async fn validate_mfa_policy(user: &User, conn: &mut crate::db::DbConnection
     }
     Err(anyhow!(
         "MFA is required for {} users. Please enable MFA on your account.",
-        match user.role {
+        match role {
             UserRole::Admin => "administrator",
             UserRole::Technician => "technician",
             UserRole::AuditReviewer => "audit reviewer",
@@ -661,7 +666,6 @@ mod tests {
         let base_user = User {
             uuid: Uuid::new_v4(),
             name: "test".into(),
-            role: UserRole::User,
             pronouns: None,
             avatar_url: None,
             banner_url: None,

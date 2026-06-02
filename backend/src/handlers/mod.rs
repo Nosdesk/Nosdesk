@@ -737,25 +737,37 @@ pub async fn add_comment_to_ticket(
                     all_candidates.sort();
                     all_candidates.dedup();
 
+                    // Staff = platform admin OR workspace owner/admin/agent
+                    // in workspace 1 (single-tenant OSS). Post-W2 replaces
+                    // the legacy `users.role IN (admin, technician)` filter.
                     let staff_uuids: std::collections::HashSet<Uuid> = tc
                         .run(|conn| {
-                            crate::repository::users::get_users_by_uuids(&all_candidates, conn).map(
-                                |users| {
-                                    users
-                                        .into_iter()
-                                        .filter(|u| {
-                                            matches!(
-                                                u.role,
-                                                crate::models::UserRole::Admin
-                                                    | crate::models::UserRole::Technician
-                                            )
-                                        })
-                                        .map(|u| u.uuid)
-                                        .collect()
-                                },
-                            )
+                            use crate::schema::{users, workspace_members};
+                            use diesel::prelude::*;
+                            users::table
+                                .filter(users::uuid.eq_any(&all_candidates))
+                                .filter(
+                                    users::platform_role.eq("platform_admin").or(
+                                        diesel::dsl::exists(
+                                            workspace_members::table
+                                                .filter(
+                                                    workspace_members::user_uuid.eq(users::uuid),
+                                                )
+                                                .filter(
+                                                    workspace_members::workspace_id.eq(1),
+                                                )
+                                                .filter(workspace_members::role.eq_any(vec![
+                                                    "owner", "admin", "agent",
+                                                ])),
+                                        ),
+                                    ),
+                                )
+                                .select(users::uuid)
+                                .load::<Uuid>(conn)
                         })
-                        .unwrap_or_default();
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect();
 
                     comment_recipients.retain(|u| staff_uuids.contains(u));
                     mentioned_users.retain(|u| staff_uuids.contains(u));

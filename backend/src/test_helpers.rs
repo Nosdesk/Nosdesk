@@ -196,7 +196,6 @@ impl TestFixtures {
         let new_user = NewUser {
             uuid: Uuid::new_v4(),
             name: name.to_string(),
-            role,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -443,24 +442,27 @@ pub fn setup_test_pool() -> crate::db::Pool {
         .expect("Failed to create test pool")
 }
 
-/// Create a JWT token for a test user.
+/// Create a JWT token for a test user with the given role.
 /// Requires JWT_SECRET to be set.
-pub fn create_test_token(user: &User, session_id: &uuid::Uuid) -> String {
+pub fn create_test_token(user: &User, role: UserRole, session_id: &uuid::Uuid) -> String {
     // Ensure JWT_SECRET is set for tests
     if std::env::var("JWT_SECRET").is_err() {
         std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only-32chars");
     }
-    crate::utils::jwt::JwtUtils::create_token(user, session_id)
+    crate::utils::jwt::JwtUtils::create_token(user, role, session_id)
         .expect("Failed to create test token")
 }
 
-/// Create test Claims for injecting into request extensions.
-pub fn create_test_claims(user: &User) -> crate::models::Claims {
+/// Create test Claims for injecting into request extensions. `role`
+/// is the legacy `UserRole` projection that pre-W2 used to live on
+/// `users.role`; tests pass it in directly now that the column is
+/// gone (often the same value used to seed the user).
+pub fn create_test_claims(user: &User, role: UserRole) -> crate::models::Claims {
     crate::models::Claims {
         sub: user.uuid.to_string(),
         name: user.name.clone(),
         email: String::new(),
-        role: user.role.as_str().to_string(),
+        role: role.as_str().to_string(),
         platform_role: Some(user.platform_role.clone()),
         scope: "full".to_string(),
         sid: None,
@@ -483,5 +485,5 @@ pub fn claims_for(pool: &crate::db::Pool, role: UserRole) -> crate::models::Clai
         &format!("permtest-{}", uuid::Uuid::now_v7()),
         role,
     );
-    create_test_claims(&user)
+    create_test_claims(&user, role)
 }

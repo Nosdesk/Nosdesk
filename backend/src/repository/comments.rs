@@ -161,15 +161,31 @@ pub fn create_comment_with_annotation(
         // replies don't race. Internal notes and requester replies
         // don't count — industry convention.
         if !comment.is_internal && parent.first_response_at.is_none() {
-            let role = crate::schema::users::table
-                .find(new_comment.user_uuid)
-                .select(crate::schema::users::role)
-                .first::<crate::models::UserRole>(conn)
-                .ok();
-            let is_staff = matches!(
-                role,
-                Some(crate::models::UserRole::Admin | crate::models::UserRole::Technician)
-            );
+            // "Staff" post-W2: workspace owner/admin/agent in the
+            // current workspace, or any platform admin. Hits
+            // workspace 1 since OSS is single-tenant; multi-tenant
+            // callers would pass the resolved workspace_id here.
+            let is_staff = diesel::dsl::select(diesel::dsl::exists(
+                crate::schema::users::table
+                    .filter(crate::schema::users::uuid.eq(new_comment.user_uuid))
+                    .filter(
+                        crate::schema::users::platform_role
+                            .eq("platform_admin")
+                            .or(diesel::dsl::exists(
+                                crate::schema::workspace_members::table
+                                    .filter(
+                                        crate::schema::workspace_members::user_uuid
+                                            .eq(crate::schema::users::uuid),
+                                    )
+                                    .filter(crate::schema::workspace_members::workspace_id.eq(1))
+                                    .filter(crate::schema::workspace_members::role.eq_any(vec![
+                                        "owner", "admin", "agent",
+                                    ])),
+                            )),
+                    ),
+            ))
+            .get_result::<bool>(conn)
+            .unwrap_or(false);
             if is_staff {
                 let stamped = diesel::update(tickets::table.find(ticket_id))
                     .filter(tickets::first_response_at.is_null())

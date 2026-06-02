@@ -114,11 +114,13 @@ impl Importer for UserImporter {
             match action {
                 RowAction::Create => {
                     let new_uuid = Uuid::new_v4();
+                    // `role` parsed from the CSV row drives platform_role
+                    // + workspace_members.role; the legacy column is gone.
+                    let _ = role;
                     diesel::insert_into(users::table)
                         .values(&NewUser {
                             uuid: new_uuid,
                             name: name.clone(),
-                            role,
                             pronouns: pronouns.clone(),
                             avatar_url: None,
                             banner_url: None,
@@ -159,7 +161,6 @@ impl Importer for UserImporter {
                     diesel::update(users::table.find(uuid))
                         .set((
                             users::name.eq(name),
-                            users::role.eq(role),
                             users::pronouns.eq(pronouns),
                             users::platform_role.eq(platform_role
                                 .clone()

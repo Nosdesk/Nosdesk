@@ -62,7 +62,7 @@ fn restore_rejects_tampered_row_payload() {
     // Need at least one user row with an 'A' somewhere so the
     // tamper helper has a byte to flip. Insert a deterministic
     // name that contains an 'A'.
-    use backend::models::{NewUser, UserRole};
+    use backend::models::NewUser;
     use backend::schema::users;
     use diesel::prelude::*;
     use uuid::Uuid;
@@ -70,7 +70,6 @@ fn restore_rejects_tampered_row_payload() {
         .values(&NewUser {
             uuid: Uuid::new_v4(),
             name: "Alice".to_string(),
-            role: UserRole::Admin,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -79,7 +78,7 @@ fn restore_rejects_tampered_row_payload() {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-        platform_role: None,
+            platform_role: Some("platform_admin".to_string()),
         })
         .execute(&mut *conn)
         .expect("seed Alice");

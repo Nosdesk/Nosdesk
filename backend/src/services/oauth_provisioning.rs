@@ -168,7 +168,7 @@ pub fn find_or_create_projected_user(
                             .unwrap_or(email.as_str())
                             .to_string()
                     });
-                    let new_user =
+                    let (new_user, _role) =
                         NewUserBuilder::local_user(display_name, email.clone(), UserRole::User)
                             .build();
                     let user = users_repo::create_user(new_user, conn)

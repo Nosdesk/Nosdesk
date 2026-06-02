@@ -760,7 +760,7 @@ pub async fn register(
     // Create new user using builder pattern with normalized data
     let (normalized_name, normalized_email) =
         utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let (new_user, email) =
+    let (new_user, role, email) =
         utils::NewUserBuilder::new(normalized_name, normalized_email.clone(), user_role)
             .with_uuid(user_uuid)
             .with_pronouns(utils::normalization::normalize_optional_string(
@@ -778,6 +778,7 @@ pub async fn register(
     // Save user to database with email (atomically creates both user and email entry)
     match repository::user_helpers::create_user_with_email(
         new_user,
+        role,
         email,
         true,
         Some("manual".to_string()),
@@ -2199,7 +2200,12 @@ pub async fn refresh_token(
     };
 
     // 6. Generate new access JWT with same sid
-    let new_access_token = match JwtUtils::create_token(&user, &session_id) {
+    let role = crate::repository::user_helpers::legacy_role_for_user(
+        &mut conn,
+        user.uuid,
+        &user.platform_role,
+    );
+    let new_access_token = match JwtUtils::create_token(&user, role, &session_id) {
         Ok(token) => token,
         Err(_) => {
             return errors::internal("Failed to create access token");
@@ -2425,7 +2431,7 @@ mod tests {
         let (user_uuid, claims) = {
             let mut conn = pool.get().unwrap();
             let user = TestFixtures::create_user(&mut conn, "authuser", UserRole::User);
-            let claims = create_test_claims(&user);
+            let claims = create_test_claims(&user, UserRole::User);
             (user.uuid, claims)
         }; // conn dropped here
 

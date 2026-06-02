@@ -47,6 +47,11 @@ fn emit_user_event(
 ) -> QueryResult<()> {
     let email =
         crate::repository::user_helpers::get_primary_email(&user.uuid, conn).unwrap_or_default();
+    let role = crate::repository::user_helpers::legacy_role_for_user(
+        conn,
+        user.uuid,
+        &user.platform_role,
+    );
     emit::record(
         conn,
         SyncEmit {
@@ -58,7 +63,7 @@ fn emit_user_event(
                 "uuid": user.uuid,
                 "name": user.name,
                 "email": email,
-                "role": user.role,
+                "role": role,
                 "pronouns": user.pronouns,
                 "avatar_url": user.avatar_url,
                 "avatar_thumb": user.avatar_thumb,
@@ -165,13 +170,78 @@ pub fn get_paginated_users(
             .collect(),
     };
 
+    // Build the post-W2 role filter as raw SQL. The legacy
+    // `users.role` column is gone; "effective role" derives from
+    // `users.platform_role` + the caller's `workspace_members.role`
+    // in the bootstrap workspace (id=1). One OR-clause per requested
+    // legacy role; an empty result keeps the filter off entirely.
+    let role_sql_filter: Option<String> = if parsed_roles.is_empty() {
+        None
+    } else {
+        let mut parts: Vec<&'static str> = Vec::new();
+        let mut any = false;
+        for r in &parsed_roles {
+            match r {
+                UserRole::Admin => {
+                    parts.push(
+                        "(users.platform_role = 'platform_admin' \
+                         OR (SELECT role FROM workspace_members \
+                             WHERE workspace_id = 1 AND user_uuid = users.uuid) \
+                            IN ('owner', 'admin'))",
+                    );
+                    any = true;
+                }
+                UserRole::Technician => {
+                    parts.push(
+                        "(users.platform_role <> 'platform_admin' \
+                         AND (SELECT role FROM workspace_members \
+                              WHERE workspace_id = 1 AND user_uuid = users.uuid) \
+                             = 'agent')",
+                    );
+                    any = true;
+                }
+                UserRole::User => {
+                    parts.push(
+                        "(users.platform_role <> 'platform_admin' \
+                         AND COALESCE((SELECT role FROM workspace_members \
+                                       WHERE workspace_id = 1 AND user_uuid = users.uuid), \
+                                      'member') = 'member')",
+                    );
+                    any = true;
+                }
+                // No users carry audit_reviewer in the post-W2 model
+                // yet — the projection is reserved for a future tier.
+                UserRole::AuditReviewer => {}
+            }
+        }
+        if any {
+            Some(parts.join(" OR "))
+        } else {
+            // Caller asked for only audit_reviewer (no matches) —
+            // force an empty result.
+            Some("false".to_string())
+        }
+    };
+
+    // CASE-rank used by sort-by-role: same tier ordering as the
+    // derived projection (admin < technician < user < other).
+    const ROLE_RANK_SQL: &str = "CASE \
+        WHEN users.platform_role = 'platform_admin' THEN 0 \
+        WHEN (SELECT role FROM workspace_members \
+              WHERE workspace_id = 1 AND user_uuid = users.uuid) \
+             IN ('owner', 'admin') THEN 1 \
+        WHEN (SELECT role FROM workspace_members \
+              WHERE workspace_id = 1 AND user_uuid = users.uuid) \
+             = 'agent' THEN 2 \
+        ELSE 3 END";
+
     // Count query with filters
     let mut count_query = users::table.into_boxed();
     if let Some(ref uuids) = search_uuids {
         count_query = count_query.filter(users::uuid.eq_any(uuids.clone()));
     }
-    if !parsed_roles.is_empty() {
-        count_query = count_query.filter(users::role.eq_any(parsed_roles.clone()));
+    if let Some(ref filter) = role_sql_filter {
+        count_query = count_query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
     }
     count_query = match deleted {
         DeletedFilter::Active => count_query.filter(users::deleted_at.is_null()),
@@ -185,8 +255,8 @@ pub fn get_paginated_users(
     if let Some(ref uuids) = search_uuids {
         query = query.filter(users::uuid.eq_any(uuids.clone()));
     }
-    if !parsed_roles.is_empty() {
-        query = query.filter(users::role.eq_any(parsed_roles.clone()));
+    if let Some(ref filter) = role_sql_filter {
+        query = query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
     }
     query = match deleted {
         DeletedFilter::Active => query.filter(users::deleted_at.is_null()),
@@ -196,8 +266,12 @@ pub fn get_paginated_users(
     query = match (sort_field.as_deref(), sort_direction.as_deref()) {
         (Some("name"), Some("asc")) => query.order(users::name.asc()),
         (Some("name"), _) => query.order(users::name.desc()),
-        (Some("role"), Some("asc")) => query.order(users::role.asc()),
-        (Some("role"), _) => query.order(users::role.desc()),
+        (Some("role"), Some("asc")) => {
+            query.order(diesel::dsl::sql::<diesel::sql_types::Integer>(ROLE_RANK_SQL).asc())
+        }
+        (Some("role"), _) => {
+            query.order(diesel::dsl::sql::<diesel::sql_types::Integer>(ROLE_RANK_SQL).desc())
+        }
         _ => query.order(users::name.asc()),
     };
 
@@ -385,7 +459,7 @@ pub fn purge_user(
         // Reassign to first available admin
         let first_admin: Option<User> = users::table
             .into_boxed()
-            .filter(users::role.eq(crate::models::UserRole::Admin))
+            .filter(users::platform_role.eq("platform_admin"))
             .filter(users::uuid.ne(user_uuid))
             .first(conn)
             .optional()?;
@@ -591,7 +665,12 @@ mod tests {
 
         let fetched = get_user_by_uuid(&user.uuid, &mut conn).unwrap();
         assert_eq!(fetched.name, "Alice Test");
-        assert_eq!(fetched.role, UserRole::Technician);
+        let derived = crate::repository::user_helpers::legacy_role_for_user(
+            &mut conn,
+            fetched.uuid,
+            &fetched.platform_role,
+        );
+        assert_eq!(derived, UserRole::Technician);
     }
 
     #[test]
@@ -632,7 +711,6 @@ mod tests {
 
         let update = UserUpdate {
             name: Some("After".to_string()),
-            role: None,
             pronouns: None,
             avatar_url: None,
             banner_url: None,

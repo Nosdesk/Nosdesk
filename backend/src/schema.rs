@@ -26,10 +26,6 @@ pub mod sql_types {
     pub struct TicketPriority;
 
     #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "user_role"))]
-    pub struct UserRole;
-
-    #[derive(diesel::query_builder::QueryId, Clone, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "workflow_state_category"))]
     pub struct WorkflowStateCategory;
 }
@@ -1511,14 +1507,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::UserRole;
-
     users (uuid) {
         uuid -> Uuid,
         #[max_length = 255]
         name -> Varchar,
-        role -> UserRole,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         password_changed_at -> Nullable<Timestamptz>,

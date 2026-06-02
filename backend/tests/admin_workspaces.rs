@@ -41,7 +41,6 @@ fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: UserRole) ->
     let new_user = NewUser {
         uuid: uuid::Uuid::new_v4(),
         name: name.to_string(),
-        role,
         pronouns: None,
         avatar_url: None,
         banner_url: None,

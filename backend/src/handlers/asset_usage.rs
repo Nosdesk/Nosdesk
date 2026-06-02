@@ -292,12 +292,20 @@ pub async fn list_for_ticket(
 /// usage write that triggered the notification; we'd rather a
 /// degraded notification path than a refused usage record.
 fn inventory_alert_recipients(conn: &mut crate::db::DbConnection) -> Vec<uuid::Uuid> {
-    use crate::models::UserRole;
-    use crate::schema::users;
+    use crate::schema::{users, workspace_members};
     use diesel::prelude::*;
     let res: Result<Vec<uuid::Uuid>, diesel::result::Error> = users::table
-        .filter(users::role.eq_any(vec![UserRole::Admin, UserRole::Technician]))
         .filter(users::deleted_at.is_null())
+        .filter(
+            users::platform_role.eq("platform_admin").or(diesel::dsl::exists(
+                workspace_members::table
+                    .filter(workspace_members::user_uuid.eq(users::uuid))
+                    .filter(workspace_members::workspace_id.eq(1))
+                    .filter(
+                        workspace_members::role.eq_any(vec!["owner", "admin", "agent"]),
+                    ),
+            )),
+        )
         .select(users::uuid)
         .load(conn);
     res.unwrap_or_else(|e| {

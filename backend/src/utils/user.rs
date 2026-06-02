@@ -58,14 +58,16 @@ impl NewUserBuilder {
         self
     }
 
-    /// Build and return (NewUser, email) tuple
-    /// Email is returned separately since it goes in user_emails table
-    /// Password must be handled separately in user_auth_identities table
-    pub fn build_with_email(self) -> (NewUser, String) {
+    /// Build and return (NewUser, UserRole, email). UserRole is the
+    /// caller's intended legacy projection; downstream
+    /// `create_user_with_email` consumes it to seed the
+    /// workspace_members row. Email goes to user_emails.
+    /// Password handled separately in user_auth_identities.
+    pub fn build_with_email(self) -> (NewUser, UserRole, String) {
+        let role = self.role;
         let new_user = NewUser {
             uuid: self.uuid,
             name: self.name,
-            role: self.role,
             pronouns: self.pronouns,
             avatar_url: self.avatar_url,
             banner_url: self.banner_url,
@@ -74,18 +76,19 @@ impl NewUserBuilder {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-            platform_role: platform_role_for(self.role),
+            platform_role: platform_role_for(role),
         };
-        (new_user, self.email)
+        (new_user, role, self.email)
     }
 
-    /// Build NewUser only (for cases where email is handled separately)
-    /// Password must be handled separately in user_auth_identities table
-    pub fn build(self) -> NewUser {
-        NewUser {
+    /// Build (NewUser, UserRole) for cases where email is handled
+    /// separately. UserRole is the caller's intended legacy
+    /// projection.
+    pub fn build(self) -> (NewUser, UserRole) {
+        let role = self.role;
+        let new_user = NewUser {
             uuid: self.uuid,
             name: self.name,
-            role: self.role,
             pronouns: self.pronouns,
             avatar_url: self.avatar_url,
             banner_url: self.banner_url,
@@ -94,8 +97,9 @@ impl NewUserBuilder {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-            platform_role: platform_role_for(self.role),
-        }
+            platform_role: platform_role_for(role),
+        };
+        (new_user, role)
     }
 }
 
@@ -152,15 +156,18 @@ mod tests {
 
     #[test]
     fn builder_sets_role() {
-        let user = NewUserBuilder::new("Alice".into(), "alice@example.com".into(), UserRole::Admin)
-            .build();
-        assert_eq!(user.role, UserRole::Admin);
+        let (user, role) =
+            NewUserBuilder::new("Alice".into(), "alice@example.com".into(), UserRole::Admin)
+                .build();
+        assert_eq!(role, UserRole::Admin);
         assert_eq!(user.name, "Alice");
+        assert_eq!(user.platform_role.as_deref(), Some("platform_admin"));
     }
 
     #[test]
     fn builder_defaults_mfa_disabled() {
-        let user = NewUserBuilder::new("Bob".into(), "b@b.com".into(), UserRole::User).build();
+        let (user, _) =
+            NewUserBuilder::new("Bob".into(), "b@b.com".into(), UserRole::User).build();
         assert!(!user.mfa_enabled);
         assert!(user.mfa_secret.is_none());
         // Recovery codes are now their own table (user_recovery_codes);
@@ -169,7 +176,7 @@ mod tests {
 
     #[test]
     fn build_with_email_returns_email_separately() {
-        let (user, email) =
+        let (user, _role, email) =
             NewUserBuilder::new("Carol".into(), "carol@x.com".into(), UserRole::Technician)
                 .build_with_email();
         assert_eq!(email, "carol@x.com");
@@ -178,14 +185,14 @@ mod tests {
 
     #[test]
     fn admin_factory_sets_admin_role() {
-        let user = NewUserBuilder::admin_user("Admin".into(), "a@a.com".into()).build();
-        assert_eq!(user.role, UserRole::Admin);
+        let (_user, role) = NewUserBuilder::admin_user("Admin".into(), "a@a.com".into()).build();
+        assert_eq!(role, UserRole::Admin);
     }
 
     #[test]
     fn microsoft_factory_sets_microsoft_uuid() {
         let ms_uuid = Uuid::new_v4();
-        let user = NewUserBuilder::microsoft_user(
+        let (user, _) = NewUserBuilder::microsoft_user(
             "MS".into(),
             "ms@x.com".into(),
             UserRole::User,
@@ -197,7 +204,7 @@ mod tests {
 
     #[test]
     fn builder_with_methods_override_defaults() {
-        let user = NewUserBuilder::new("D".into(), "d@d.com".into(), UserRole::User)
+        let (user, _) = NewUserBuilder::new("D".into(), "d@d.com".into(), UserRole::User)
             .with_pronouns(Some("they/them".into()))
             .with_avatar(Some("/avatar.png".into()), Some("/thumb.png".into()))
             .with_banner(Some("/banner.png".into()))

@@ -2417,7 +2417,7 @@ async fn update_existing_microsoft_user_optimized(
         } else {
             None
         },
-        role: None,         // Don't change role during sync
+
         pronouns: None,     // Preserve pronouns
         avatar_url: None,   // Preserve avatar
         banner_url: None,   // Preserve banner
@@ -2574,7 +2574,7 @@ async fn link_existing_user_to_microsoft_optimized(
         } else {
             None
         },
-        role: None,
+
         pronouns: None,
         avatar_url: None,
         banner_url: None,
@@ -2703,6 +2703,7 @@ async fn create_new_user_from_microsoft_optimized(
     )
     .with_uuid(user_uuid)
     .build();
+    let (new_user, _role) = new_user;
 
     let created_user = user_repo::create_user(new_user, conn)
         .map_err(|e| format!("Failed to create user: {e}"))?;
@@ -4227,7 +4228,7 @@ async fn update_user_avatar_by_id(
 
         let user_update = crate::models::UserUpdate {
             name: None,
-            role: None,
+
             pronouns: None,
             avatar_url: avatar_url.clone(),
             banner_url: None,
@@ -5137,7 +5138,7 @@ async fn update_existing_microsoft_user_no_photos(
         } else {
             None
         },
-        role: None,
+
         pronouns: None,
         avatar_url: None,
         banner_url: None,
@@ -5203,7 +5204,7 @@ async fn link_existing_user_to_microsoft_no_photos(
     // Update user with Microsoft UUID
     let user_update = crate::models::UserUpdate {
         name: None,
-        role: None,
+
         pronouns: None,
         avatar_url: None,
         banner_url: None,
@@ -5252,7 +5253,7 @@ async fn create_new_user_from_microsoft_no_photos(
     // Create user with Microsoft UUID
     let microsoft_uuid =
         Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?);
-    let new_user = utils::NewUserBuilder::microsoft_user(
+    let (new_user, _role) = utils::NewUserBuilder::microsoft_user(
         name.clone(),
         primary_email,
         crate::models::UserRole::User,

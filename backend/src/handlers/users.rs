@@ -663,7 +663,7 @@ pub async fn create_user(
     // Create new user with normalized data using builder
     let (normalized_name, normalized_email) =
         utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let (new_user, email) =
+    let (new_user, role, email) =
         utils::NewUserBuilder::new(normalized_name.clone(), normalized_email, user_data.role)
             .with_uuid(user_uuid)
             .with_pronouns(user_data.pronouns.as_ref().map(|p| p.trim().to_string()))
@@ -681,6 +681,7 @@ pub async fn create_user(
     // Email starts as unverified - will be verified when user accepts invitation or verifies email
     match repository::user_helpers::create_user_with_email(
         new_user,
+        role,
         email.clone(),
         false,
         Some("manual".to_string()),
@@ -874,7 +875,12 @@ pub async fn delete_user(
     if claims.sub == uuid.as_str() {
         return errors::bad_request("You cannot delete your own account while logged in");
     }
-    if target_user.role == crate::models::UserRole::Admin {
+    let target_role = crate::repository::user_helpers::legacy_role_for_user(
+        &mut conn,
+        target_user.uuid,
+        &target_user.platform_role,
+    );
+    if target_role == crate::models::UserRole::Admin {
         return errors::bad_request(
             "Administrator accounts cannot be deleted for security reasons",
         );
@@ -1016,7 +1022,12 @@ pub async fn purge_user_now(
     if claims.sub == uuid.as_str() {
         return errors::bad_request("You cannot permanently delete your own account");
     }
-    if target.role == crate::models::UserRole::Admin {
+    let target_role = crate::repository::user_helpers::legacy_role_for_user(
+        &mut conn,
+        target.uuid,
+        &target.platform_role,
+    );
+    if target_role == crate::models::UserRole::Admin {
         return errors::bad_request(
             "Administrator accounts cannot be deleted for security reasons",
         );
@@ -1451,7 +1462,7 @@ pub async fn upload_user_image(
 
         let user_update = UserUpdate {
             name: None,
-            role: None,
+
             pronouns: None,
             avatar_url: if image_type == "avatar" {
                 Some(final_url.clone())
@@ -1941,12 +1952,10 @@ pub async fn update_user_by_uuid(
 
     // Update user (core identity fields only — preferences land
     // separately in user_preferences below).
+    // Role changes go through the bulk action / workspace_members
+    // endpoints now; the per-user PATCH no longer mutates role.
     let user_update = UserUpdate {
         name: user_data.name.clone(),
-        role: user_data
-            .role
-            .as_ref()
-            .and_then(|r| utils::parse_role(r).ok()),
         pronouns: user_data.pronouns.clone(),
         avatar_url: user_data.avatar_url.clone(),
         banner_url: user_data.banner_url.clone(),
@@ -2009,7 +2018,12 @@ pub async fn update_user_by_uuid(
             // full object, since it's only delivered to the owning
             // user's own sessions via the per-user topic.
             let updated_by = claims.sub.clone();
-            let role_str = updated_user.role.as_str();
+            let updated_role = crate::repository::user_helpers::legacy_role_for_user(
+                &mut conn,
+                updated_user.uuid,
+                &updated_user.platform_role,
+            );
+            let role_str = updated_role.as_str();
             let updates: [(&str, bool, serde_json::Value); 6] = [
                 (
                     "name",
@@ -2654,7 +2668,12 @@ pub async fn bulk_users(
                     Ok(u) => u,
                     Err(_) => continue,
                 };
-                if target.role == crate::models::UserRole::Admin {
+                let target_role = crate::repository::user_helpers::legacy_role_for_user(
+                    &mut conn,
+                    target.uuid,
+                    &target.platform_role,
+                );
+                if target_role == crate::models::UserRole::Admin {
                     skipped_admin += 1;
                     continue;
                 }
@@ -2714,25 +2733,33 @@ pub async fn bulk_users(
                     Err(_) => continue,
                 };
 
-                let user_update = crate::models::UserUpdate {
-                    name: None,
-                    role: Some(role),
-                    pronouns: None,
-                    avatar_url: None,
-                    banner_url: None,
-                    avatar_thumb: None,
-                    microsoft_uuid: None,
-                    updated_at: Some(chrono::Utc::now().naive_utc()),
+                // Post-W2: bulk role change rewrites
+                // workspace_members.role (workspace 1) and
+                // platform_role. UserUpdate no longer carries `role`.
+                let (workspace_role, platform_role) = match role {
+                    crate::models::UserRole::Admin => ("admin", "platform_admin"),
+                    crate::models::UserRole::Technician => ("agent", "user"),
+                    crate::models::UserRole::User => ("member", "user"),
+                    crate::models::UserRole::AuditReviewer => ("member", "user"),
                 };
+                let role_update_ok = diesel::update(crate::schema::users::table.find(uuid))
+                    .set((
+                        crate::schema::users::platform_role.eq(platform_role),
+                        crate::schema::users::updated_at.eq(chrono::Utc::now().naive_utc()),
+                    ))
+                    .execute(&mut conn)
+                    .is_ok()
+                    && diesel::sql_query(
+                        "UPDATE workspace_members \
+                         SET role = $2 \
+                         WHERE workspace_id = 1 AND user_uuid = $1",
+                    )
+                    .bind::<diesel::sql_types::Uuid, _>(uuid)
+                    .bind::<diesel::sql_types::Text, _>(workspace_role)
+                    .execute(&mut conn)
+                    .is_ok();
 
-                if repository::update_user(
-                    &uuid,
-                    user_update,
-                    &mut conn,
-                    Some(search_service.get_ref()),
-                )
-                .is_ok()
-                {
+                if role_update_ok {
                     updated += 1;
                     // Broadcast SSE event
                     sse_state

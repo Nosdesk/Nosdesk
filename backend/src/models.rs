@@ -1664,18 +1664,13 @@ pub struct CollectionOrder {
     pub display_order: i32,
 }
 
-// User Role Enum
-#[derive(
-    Debug,
-    Serialize,
-    Deserialize,
-    Clone,
-    Copy,
-    PartialEq,
-    diesel::deserialize::FromSqlRow,
-    diesel::expression::AsExpression,
-)]
-#[diesel(sql_type = crate::schema::sql_types::UserRole)]
+/// Legacy `UserRole` projection. The underlying `users.role` column
+/// was dropped in the W2 cleanup migration; this enum stays as the
+/// "effective tier" the API surfaces and handlers branch on. The
+/// real source of truth is `users.platform_role` +
+/// `workspace_members.role`; `AuthContext::role` and
+/// `legacy_role_for_user` derive this enum from those.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum UserRole {
     #[serde(rename = "admin")]
     Admin,
@@ -1698,25 +1693,6 @@ impl UserRole {
             UserRole::Technician => "technician",
             UserRole::User => "user",
             UserRole::AuditReviewer => "audit_reviewer",
-        }
-    }
-}
-
-impl ToSql<crate::schema::sql_types::UserRole, Pg> for UserRole {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
-        out.write_all(self.as_str().as_bytes())?;
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<crate::schema::sql_types::UserRole, Pg> for UserRole {
-    fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
-        match bytes.as_bytes() {
-            b"admin" => Ok(UserRole::Admin),
-            b"technician" => Ok(UserRole::Technician),
-            b"user" => Ok(UserRole::User),
-            b"audit_reviewer" => Ok(UserRole::AuditReviewer),
-            _ => Err("Unrecognized enum variant".into()),
         }
     }
 }
@@ -1819,7 +1795,11 @@ pub struct User {
     pub uuid: Uuid,
     pub name: String,
     // Email removed - now stored in user_emails table only
-    pub role: UserRole,
+    // `role` (UserRole) was the pre-W2 column. W2 split it into
+    // `platform_role` (kept below) and per-workspace
+    // `workspace_members.role`. The legacy projection lives on
+    // `AuthContext::role` (derived) for handler code that branches
+    // on staff vs end-user.
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub password_changed_at: Option<NaiveDateTime>,
@@ -1872,7 +1852,10 @@ pub struct NewUser {
     pub uuid: Uuid,
     pub name: String,
     // Email removed - handled separately via user_emails table
-    pub role: UserRole,
+    // `role` removed by the W2 column drop. Callers thread the
+    // intended `UserRole` through `create_user_with_email` as a
+    // separate parameter and that helper derives platform_role +
+    // seeds the workspace_members row from it.
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
@@ -1909,7 +1892,8 @@ pub struct UserRegistration {
 pub struct UserUpdate {
     pub name: Option<String>,
     // Email removed - update via user_emails table instead
-    pub role: Option<UserRole>,
+    // `role` dropped with the column; admin role changes now go
+    // through workspace_members.role (admin_workspaces handlers).
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
@@ -2073,11 +2057,24 @@ pub struct UserInfoWithAvatar {
 // which does the joins and fills them in.
 impl From<User> for UserResponse {
     fn from(user: User) -> Self {
+        // Best-effort default — the conversion has no DB access so
+        // it can't derive the workspace_role half of the legacy
+        // projection. Callers that need an accurate `role` should
+        // build UserResponse via
+        // `repository::user_helpers::get_user_with_primary_email`
+        // (which has a connection and looks up workspace_members).
+        // Platform admins still surface as Admin here because the
+        // platform_role bit lives on the User struct.
+        let role = if user.platform_role == "platform_admin" {
+            UserRole::Admin
+        } else {
+            UserRole::User
+        };
         UserResponse {
             uuid: user.uuid,
             name: user.name,
             email: None,
-            role: user.role,
+            role,
             pronouns: user.pronouns,
             avatar_url: user.avatar_url,
             banner_url: user.banner_url,

@@ -69,15 +69,21 @@ fn seed_getting_started(conn: &mut DbConnection) {
     };
 
     // We need a system user UUID for created_by. Use the first admin, or a nil UUID.
-    let created_by = repository::users::get_users(conn)
-        .ok()
-        .and_then(|users| {
-            users
-                .into_iter()
-                .find(|u| u.role == crate::models::UserRole::Admin)
-        })
-        .map(|u| u.uuid)
-        .unwrap_or_else(Uuid::nil);
+    // Find the first platform admin to credit the seed content.
+    // Post-W2: platform_role = 'platform_admin' is the source of
+    // truth (workspace owner/admin in workspace 1 would also count
+    // but bootstrap always seeds a platform admin first).
+    let created_by = {
+        use crate::schema::users;
+        use diesel::prelude::*;
+        users::table
+            .filter(users::platform_role.eq("platform_admin"))
+            .filter(users::deleted_at.is_null())
+            .select(users::uuid)
+            .first::<Uuid>(conn)
+            .ok()
+            .unwrap_or_else(Uuid::nil)
+    };
 
     // Create the welcome page. The seed runs once at install with no
     // user context, so resolve the title against DEFAULT_LOCALE; admin

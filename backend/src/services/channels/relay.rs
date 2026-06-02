@@ -123,7 +123,6 @@ mod tests {
         let user = crate::models::NewUser {
             uuid: uuid::Uuid::now_v7(),
             name: "Requester".into(),
-            role: UserRole::User,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -136,6 +135,7 @@ mod tests {
         };
         let (user, _) = create_user_with_email(
             user,
+            UserRole::User,
             "alice@example.com".into(),
             false,
             Some("guest_submission".into()),

@@ -218,6 +218,11 @@ fn stream_bootstrap_inner(
     let primary_email_by_uuid: std::collections::HashMap<uuid::Uuid, String> =
         primary_email_rows.into_iter().collect();
     for user in user_rows {
+        let role = crate::repository::user_helpers::legacy_role_for_user(
+            conn,
+            user.uuid,
+            &user.platform_role,
+        );
         send(
             tx,
             json!({
@@ -225,7 +230,7 @@ fn stream_bootstrap_inner(
                 "uuid": user.uuid,
                 "name": user.name,
                 "email": primary_email_by_uuid.get(&user.uuid).cloned().unwrap_or_default(),
-                "role": user.role,
+                "role": role,
                 "pronouns": user.pronouns,
                 "avatar_url": user.avatar_url,
                 "avatar_thumb": user.avatar_thumb,

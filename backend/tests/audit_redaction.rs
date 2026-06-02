@@ -75,7 +75,7 @@ fn audit_trigger_redacts_pii_and_credentials() {
         "mfa_secret_changed should be false (left null on insert)"
     );
     assert!(
-        after.get("role").is_some(),
+        after.get("platform_role").is_some(),
         "non-redacted columns must still be captured by value"
     );
 

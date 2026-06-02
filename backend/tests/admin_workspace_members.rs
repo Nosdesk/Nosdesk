@@ -34,8 +34,8 @@ mod common;
 
 fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: UserRole) -> User {
     use backend::schema::users;
-    // Mirror the W2 backfill rule so role=Admin gets platform_admin
-    // instead of the DB default 'user'.
+    // Map legacy UserRole onto platform_role for the test fixture.
+    // The `users.role` column itself was dropped in W2 cleanup.
     let platform_role = match role {
         UserRole::Admin => Some("platform_admin".to_string()),
         _ => None,
@@ -43,7 +43,6 @@ fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: UserRole) ->
     let new_user = NewUser {
         uuid: uuid::Uuid::new_v4(),
         name: name.to_string(),
-        role,
         pronouns: None,
         avatar_url: None,
         banner_url: None,

@@ -1809,7 +1809,6 @@ mod tests {
         let admin = crate::models::NewUser {
             uuid: uuid::Uuid::now_v7(),
             name: "Admin".into(),
-            role: UserRole::Admin,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -1818,10 +1817,11 @@ mod tests {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-            platform_role: None,
+            platform_role: Some("platform_admin".to_string()),
         };
         create_user_with_email(
             admin,
+            UserRole::Admin,
             "claimed@example.com".into(),
             true,
             None,
@@ -1859,7 +1859,6 @@ mod tests {
         let tech_user = crate::models::NewUser {
             uuid: uuid::Uuid::now_v7(),
             name: "Tech".into(),
-            role: UserRole::Technician,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -1872,6 +1871,7 @@ mod tests {
         };
         let (tech, _) = create_user_with_email(
             tech_user,
+            UserRole::Technician,
             "tech@yourco.com".into(),
             true,
             None,
@@ -1946,7 +1946,6 @@ My printer is literally on fire.
         let tech = crate::models::NewUser {
             uuid: uuid::Uuid::now_v7(),
             name: "Tech2".into(),
-            role: UserRole::Admin,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -1955,10 +1954,11 @@ My printer is literally on fire.
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-            platform_role: None,
+            platform_role: Some("platform_admin".to_string()),
         };
         create_user_with_email(
             tech,
+            UserRole::Admin,
             "admin2@yourco.com".into(),
             true,
             None,

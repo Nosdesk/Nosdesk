@@ -197,12 +197,24 @@ pub async fn list_for_asset(
 // ---- recipient helpers (parallel to handlers::asset_usage) -
 
 fn inventory_alert_recipients(conn: &mut crate::db::DbConnection) -> Vec<uuid::Uuid> {
-    use crate::models::UserRole;
-    use crate::schema::users;
+    use crate::schema::{users, workspace_members};
     use diesel::prelude::*;
+    // Staff = platform admin OR workspace owner/admin/agent in
+    // bootstrap workspace (single-tenant deployments). Post-W2
+    // replacement for the legacy `users.role IN (admin, technician)`
+    // filter.
     let res: Result<Vec<uuid::Uuid>, diesel::result::Error> = users::table
-        .filter(users::role.eq_any(vec![UserRole::Admin, UserRole::Technician]))
         .filter(users::deleted_at.is_null())
+        .filter(
+            users::platform_role.eq("platform_admin").or(diesel::dsl::exists(
+                workspace_members::table
+                    .filter(workspace_members::user_uuid.eq(users::uuid))
+                    .filter(workspace_members::workspace_id.eq(1))
+                    .filter(
+                        workspace_members::role.eq_any(vec!["owner", "admin", "agent"]),
+                    ),
+            )),
+        )
         .select(users::uuid)
         .load(conn);
     res.unwrap_or_else(|e| {

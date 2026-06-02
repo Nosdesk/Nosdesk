@@ -523,7 +523,7 @@ mod tests {
         let claims = {
             let mut conn = pool.get().unwrap();
             let user = TestFixtures::create_user(&mut conn, name, role);
-            create_test_claims(&user)
+            create_test_claims(&user, role)
         };
         (pool, claims)
     }

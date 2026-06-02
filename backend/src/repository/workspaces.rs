@@ -619,12 +619,11 @@ mod tests {
     // -----------------------------------------------------------------
 
     fn fresh_user(conn: &mut DbConnection, name: &str) -> Uuid {
-        use crate::models::{NewUser, UserRole};
+        use crate::models::NewUser;
         use crate::schema::users;
         let new = NewUser {
             uuid: Uuid::new_v4(),
             name: name.to_string(),
-            role: UserRole::User,
             pronouns: None,
             avatar_url: None,
             banner_url: None,

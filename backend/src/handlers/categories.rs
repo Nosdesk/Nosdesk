@@ -389,7 +389,7 @@ mod tests {
         let claims = {
             let mut conn = pool.get().unwrap();
             let user = TestFixtures::create_user(&mut conn, "catuser", UserRole::User);
-            create_test_claims(&user)
+            create_test_claims(&user, UserRole::User)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -407,7 +407,7 @@ mod tests {
         let claims = {
             let mut conn = pool.get().unwrap();
             let user = TestFixtures::create_user(&mut conn, "regularuser", UserRole::User);
-            create_test_claims(&user)
+            create_test_claims(&user, UserRole::User)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -427,7 +427,7 @@ mod tests {
         let claims = {
             let mut conn = pool.get().unwrap();
             let admin = TestFixtures::create_user(&mut conn, "admincat", UserRole::Admin);
-            create_test_claims(&admin)
+            create_test_claims(&admin, UserRole::Admin)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -447,7 +447,7 @@ mod tests {
         let claims = {
             let mut conn = pool.get().unwrap();
             let admin = TestFixtures::create_user(&mut conn, "createcat", UserRole::Admin);
-            create_test_claims(&admin)
+            create_test_claims(&admin, UserRole::Admin)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -476,7 +476,7 @@ mod tests {
             let mut conn = pool.get().unwrap();
             let admin = TestFixtures::create_user(&mut conn, "delcat", UserRole::Admin);
             let category = TestFixtures::create_category(&mut conn, "DeleteMe");
-            let claims = create_test_claims(&admin);
+            let claims = create_test_claims(&admin, UserRole::Admin);
             (category.id, claims)
         }; // conn dropped here
 
