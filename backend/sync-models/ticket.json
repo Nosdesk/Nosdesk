@@ -25,7 +25,9 @@
     { "type": "ticket.priority_changed", "op": "U" },
     { "type": "ticket.title_changed", "op": "U" },
     { "type": "ticket.category_changed", "op": "U" },
-    { "type": "ticket.verification_changed", "op": "U" }
+    { "type": "ticket.verification_changed", "op": "U" },
+    { "type": "ticket.merged", "op": "U" },
+    { "type": "ticket.merged_into", "op": "U" }
   ],
   "groups": [
     "workspace:1",
