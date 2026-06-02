@@ -277,18 +277,21 @@ pub fn verify_totp_token(secret: &str, token: &str) -> bool {
     let totp = match TOTP::new(
         TotpAlgorithm::SHA1, // SHA1 for compatibility with most authenticator apps
         6,                   // 6-digit codes (industry standard)
-        1,                   // 1 step = 30 seconds
-        30,                  // 30-second window (industry standard)
+        1,                   // skew = 1 step: accept the previous and next code
+        30,                  // 30-second step
         secret_bytes,
     ) {
         Ok(totp) => totp,
         Err(_) => return false,
     };
 
-    // TOTP verification with ±30 second tolerance for clock drift
+    // `check_current` already honours the skew above, so it accepts the
+    // current code plus one step either side (±30s) for clock drift.
+    // The previous code added explicit ±30s offset checks on top of
+    // that, widening the acceptance window to ±90s; rely on the
+    // library's built-in window instead (NIST SP 800-63B favours a
+    // tight validation window).
     totp.check_current(token).unwrap_or(false)
-        || totp.check(token, chrono::Utc::now().timestamp() as u64 - 30)
-        || totp.check(token, chrono::Utc::now().timestamp() as u64 + 30)
 }
 
 /// Verify a recovery code against the user's unused-codes set,
@@ -458,21 +461,29 @@ fn totp_replay_key(user_uuid: &Uuid, token: &str) -> String {
 }
 
 /// Check if TOTP code was already used (replay prevention)
-/// Returns true if replay detected, false if code is fresh
-/// Fails closed in production (assumes replay) for security
+/// Returns true if replay detected, false if code is fresh.
+///
+/// Fails CLOSED by default (a Redis outage is treated as "replay
+/// detected", denying the attempt) because most self-hosted installs
+/// never set `ENVIRONMENT=production`. Operators who want the old
+/// fail-open behaviour for local development set
+/// `NOSDESK_MFA_REPLAY_DEV_FAIL_OPEN=1` explicitly; it is documented as
+/// dev-only.
 async fn check_totp_replay(user_uuid: &Uuid, token: &str) -> bool {
     use redis::AsyncCommands;
 
-    let is_production = std::env::var("ENVIRONMENT")
-        .map(|v| v.to_lowercase() == "production")
-        .unwrap_or(false);
+    // `true` means "treat Redis failures as replay" (deny). Default on;
+    // only the explicit dev flag turns it off.
+    let fail_closed = std::env::var("NOSDESK_MFA_REPLAY_DEV_FAIL_OPEN")
+        .map(|v| v.trim() != "1")
+        .unwrap_or(true);
 
     let redis_url = crate::utils::rate_limit::get_redis_url();
     let client = match redis::Client::open(redis_url.as_str()) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!(error = %e, "Redis connection failed for TOTP replay check");
-            return is_production; // Fail closed in production
+            return fail_closed;
         }
     };
 
@@ -480,12 +491,12 @@ async fn check_totp_replay(user_uuid: &Uuid, token: &str) -> bool {
         Ok(c) => c,
         Err(e) => {
             tracing::error!(error = %e, "Redis async connection failed for TOTP replay check");
-            return is_production; // Fail closed in production
+            return fail_closed;
         }
     };
 
     let key = totp_replay_key(user_uuid, token);
-    con.exists(&key).await.unwrap_or(false)
+    con.exists(&key).await.unwrap_or(fail_closed)
 }
 
 /// Mark TOTP code as used (replay prevention)

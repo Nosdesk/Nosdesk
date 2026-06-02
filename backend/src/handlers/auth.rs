@@ -1295,7 +1295,11 @@ pub async fn mfa_setup(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) ->
         qr_matrix: Some(qr_result.matrix),
     };
 
-    HttpResponse::Ok().json(response)
+    // The body carries the TOTP secret; keep it out of any shared or
+    // disk cache (proxies, the browser bfcache, devtools history).
+    HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-store"))
+        .json(response)
 }
 
 /// MFA Verify Setup - Verify the TOTP token during setup
@@ -1360,6 +1364,14 @@ pub async fn mfa_enable(
         Some(secret) if !secret.is_empty() => secret,
         _ => return errors::bad_request("MFA secret is required"),
     };
+
+    // Per-account rate limit on enrollment TOTP attempts (shares the
+    // bucket with login MFA attempts). Five tries in the window, then
+    // the user must wait, so brute-forcing the 6-digit code during
+    // enrollment isn't viable.
+    if !mfa::check_mfa_rate_limit(&user_uuid).await {
+        return errors::too_many_requests("Too many MFA attempts. Please try again later.", 60);
+    }
 
     // Generate backup codes on the server after successful verification
 
@@ -1724,7 +1736,10 @@ pub async fn mfa_setup_login(
         qr_matrix: Some(qr_result.matrix),
     };
 
-    HttpResponse::Ok().json(response)
+    // The body carries the TOTP secret; keep it out of any cache.
+    HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-store"))
+        .json(response)
 }
 
 /// MFA Enable for Login (Unauthenticated) - Complete MFA setup and login
@@ -1805,6 +1820,13 @@ pub async fn mfa_enable_login(
         Some(secret) if !secret.is_empty() => secret,
         _ => return errors::bad_request("MFA secret is required"),
     };
+
+    // Per-account rate limit on enrollment TOTP attempts (same bucket
+    // as login MFA), so the 6-digit code can't be brute-forced here
+    // either.
+    if !mfa::check_mfa_rate_limit(&user.uuid).await {
+        return errors::too_many_requests("Too many MFA attempts. Please try again later.", 60);
+    }
 
     // Backup codes are generated after verification, not required in request
 
