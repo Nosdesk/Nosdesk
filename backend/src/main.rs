@@ -1625,6 +1625,7 @@ async fn main() -> std::io::Result<()> {
                     // above. `/apply` itself is wired in Wave 6.
                     .route("/rules", web::get().to(handlers::rules::list_rules))
                     .route("/rules", web::post().to(handlers::rules::create_rule))
+                    .route("/rules/{id}/apply", web::post().to(handlers::rules::apply_rule))
                     .route("/rules/{id}/state", web::patch().to(handlers::rules::transition_state))
                     .route("/rules/{id}/versions", web::get().to(handlers::rules::list_rule_versions))
                     .route("/rules/{rule_id}/versions/{version}", web::get().to(handlers::rules::get_rule_version))

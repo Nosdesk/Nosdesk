@@ -784,6 +784,152 @@ pub async fn list_ticket_rule_applications(
 }
 
 // =====================================================================
+// Manual apply (Wave 6 / unit-08). Agent role; the lifecycle in
+// repository::rules::apply_manual owns the transaction.
+// =====================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct ApplyRuleRequest {
+    pub ticket_id: i32,
+    #[serde(default)]
+    pub overrides: ApplyRuleOverrides,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ApplyRuleOverrides {
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub suppress_actions: Vec<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ApplyRuleResponse {
+    pub rule: RuleDto,
+    pub application_id: i64,
+    pub correlation_id: Option<Uuid>,
+    pub comment_id: Option<i32>,
+    pub actions_executed: usize,
+    pub actions_suppressed: usize,
+}
+
+/// `POST /api/rules/{id}/apply`. Agent role minimum. The route is
+/// registered before the wildcard `/rules/{id}` PUT/DELETE in
+/// main.rs to dodge actix's route-shadowing footgun.
+pub async fn apply_rule(
+    req: HttpRequest,
+    path: web::Path<i32>,
+    body: web::Json<ApplyRuleRequest>,
+    pool: web::Data<Pool>,
+    sse_state: web::Data<crate::handlers::sse::SseState>,
+) -> impl Responder {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
+        return e;
+    }
+    let Some(actor) = req
+        .extensions()
+        .get::<RequestContext>()
+        .map(|c| c.actor.clone())
+    else {
+        return errors::unauthorized("Authentication required");
+    };
+    let rule_id = path.into_inner();
+    let mut conn = match errors::db_conn(&pool) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let body = body.into_inner();
+    let input = rules::ApplyInput {
+        rule_id,
+        ticket_id: body.ticket_id,
+        overrides: rules::ApplyOverrides {
+            body: body.overrides.body,
+            suppress_actions: body.overrides.suppress_actions,
+        },
+    };
+
+    let outcome = match rules::apply_manual(&mut conn, input, &actor) {
+        Ok(o) => o,
+        Err(e) => return map_apply_error(e),
+    };
+
+    // Post-commit best-effort: broadcast a per-field TicketUpdated
+    // for every action that mutated the ticket (set_status,
+    // assign, unassign, add_tags, remove_tags, set_priority).
+    // Manual reply actions don't change ticket fields; the
+    // existing comments.created sync event handles that path.
+    // Wave 8 connects the apply outcome to a richer SSE shape;
+    // for now the per-field shape covers the common case.
+    let actor_uuid_str = actor.uuid.map(|u| u.to_string()).unwrap_or_default();
+    if let Some(taken) = outcome.application.actions_taken.as_ref().and_then(|v| v.as_array()) {
+        for action in taken {
+            let Some(kind) = action.get("kind").and_then(|k| k.as_str()) else {
+                continue;
+            };
+            let (field, value) = match kind {
+                "set_status" => (
+                    "workflow_state_id",
+                    action.get("workflow_state_id").cloned().unwrap_or(Value::Null),
+                ),
+                "assign" => (
+                    "assignee_uuid",
+                    action.get("assigned_to_uuid").cloned().unwrap_or(Value::Null),
+                ),
+                "unassign" => ("assignee_uuid", Value::Null),
+                "add_tags" | "remove_tags" => {
+                    // Tag changes don't map cleanly onto a single
+                    // field event; the frontend's useTicketSSE
+                    // composable refetches the ticket on
+                    // ticket.updated with a tag-shaped value.
+                    ("tag_ids", Value::Null)
+                }
+                "set_priority" => (
+                    "priority",
+                    action.get("priority").cloned().unwrap_or(Value::Null),
+                ),
+                _ => continue,
+            };
+            sse_state
+                .broadcast_event(crate::handlers::sse::SseEvent::TicketUpdated {
+                    ticket_id: body.ticket_id,
+                    field: field.to_string(),
+                    value,
+                    updated_by: actor_uuid_str.clone(),
+                    timestamp: chrono::Utc::now(),
+                })
+                .await;
+        }
+    }
+
+    HttpResponse::Ok().json(ApplyRuleResponse {
+        rule: RuleDto::from(outcome.rule),
+        application_id: outcome.application.id,
+        correlation_id: outcome.application.correlation_id,
+        comment_id: outcome.comment_id,
+        actions_executed: outcome.actions_executed,
+        actions_suppressed: outcome.actions_suppressed,
+    })
+}
+
+fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
+    let message = err.to_string();
+    use rules::ApplyError::*;
+    match err {
+        NotFound(_) | TicketNotFound(_) => errors::not_found_msg(message),
+        NotLive(..) => errors::conflict_with_code(message, "RULE_NOT_LIVE"),
+        NotManual(_) => errors::bad_request_with_code(message, "RULE_NOT_MANUAL"),
+        TicketMerged(_) => errors::bad_request_with_code(message, "RULE_TICKET_MERGED"),
+        InvalidOverrideIndex(..) => errors::bad_request_with_code(message, "MANUAL_APPLY_VALIDATION"),
+        UnsupportedActionPhase1 { .. } => {
+            errors::bad_request_with_code(message, "RULE_ACTION_UNSUPPORTED")
+        }
+        ActionFailed { .. } => errors::internal_with_code(message, "RULE_ACTION_FAILED"),
+        MissingWorkspace => errors::internal("missing workspace context"),
+        Db(e) => errors::db_error(&e),
+    }
+}
+
+// =====================================================================
 // Agent picker (unit-10).
 // =====================================================================
 
