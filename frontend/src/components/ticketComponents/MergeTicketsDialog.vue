@@ -16,11 +16,21 @@ import FormTextarea from '@/components/common/FormTextarea.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import { useToastStore } from '@/stores/toast'
 import { mergeTickets } from '@/services/ticketService'
-import type { Ticket } from '@/types/ticket'
+
+/** Minimal ticket shape the dialog needs. Both the API `Ticket` and the
+ *  sync store's `SyncTicket` satisfy it, so the bulk bar can pass either.
+ *  `created` is optional; when absent the oldest-default falls back to
+ *  the lowest id (ids are monotonic, so the smallest is the oldest). */
+export interface MergeDialogTicket {
+  id: number
+  title: string
+  workflow_state_id?: number
+  created?: string
+}
 
 const props = defineProps<{
   open: boolean
-  selectedTickets: Ticket[]
+  selectedTickets: MergeDialogTicket[]
 }>()
 
 const emit = defineEmits<{
@@ -49,11 +59,15 @@ const sources = computed(() =>
   props.selectedTickets.filter((t) => t.id !== destinationId.value),
 )
 
-/** Oldest selected ticket by created timestamp (ISO strings sort
- *  lexicographically). The agent can override via the picker. */
-function oldest(tickets: Ticket[]): Ticket | null {
+/** Oldest selected ticket: by created timestamp when present (ISO
+ *  strings sort lexicographically), else by lowest id. The agent can
+ *  override via the picker. */
+function oldest(tickets: MergeDialogTicket[]): MergeDialogTicket | null {
   if (tickets.length === 0) return null
-  return [...tickets].sort((a, b) => (a.created || '').localeCompare(b.created || ''))[0]
+  return [...tickets].sort((a, b) => {
+    if (a.created && b.created) return a.created.localeCompare(b.created)
+    return a.id - b.id
+  })[0]
 }
 
 function seedDescription() {

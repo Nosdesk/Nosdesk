@@ -299,6 +299,7 @@ ticket-list-bulk-actions-aria = Bulk actions
 ticket-list-bulk-status = Status
 ticket-list-bulk-priority = Priority
 ticket-list-bulk-assign = Assign
+ticket-list-bulk-merge = Merge
 ticket-list-bulk-clear-title = Clear selection (Esc)
 ticket-list-bulk-clear = Clear
 ticket-list-row-density-aria = Row density
