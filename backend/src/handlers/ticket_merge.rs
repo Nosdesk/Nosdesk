@@ -6,14 +6,18 @@
 //! `{ error, code }` envelope. The repository owns the transaction and
 //! the lifecycle order.
 
+use std::sync::Arc;
+
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 
 use crate::db::Pool;
 use crate::handlers::errors;
+use crate::handlers::sse::{SseEvent, SseState};
 use crate::middleware::request_context::RequestContext;
 use crate::models::WorkspaceRole;
 use crate::repository::ticket_merge::{self, ExpectedState, MergeError, MergeInput};
+use crate::services::search::{indexing_tasks, SearchService};
 use crate::utils::rbac::require_workspace_role;
 
 /// `POST /api/tickets/merge` request body. Mirrors
@@ -48,6 +52,8 @@ pub async fn merge_tickets(
     req: HttpRequest,
     body: web::Json<MergeRequest>,
     pool: web::Data<Pool>,
+    sse_state: web::Data<SseState>,
+    search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
@@ -77,18 +83,59 @@ pub async fn merge_tickets(
             .collect(),
     };
 
-    match ticket_merge::execute_merge(&mut conn, input, &actor) {
-        Ok(outcome) => HttpResponse::Ok().json(serde_json::json!({
-            "merge_event_id": outcome.merge_event_id,
-            "destination_ticket": outcome.destination,
-            "merged_sources": outcome.merged_sources,
-            "comments_moved": outcome.comments_moved,
-            "channel_messages_rerouted": outcome.channel_messages_rerouted,
-            "watchers_added_to_destination": outcome.watchers_added_to_destination,
-            "merge_marker_comment_id": outcome.merge_marker_comment_id,
-        })),
-        Err(e) => map_merge_error(e),
+    let outcome = match ticket_merge::execute_merge(&mut conn, input, &actor) {
+        Ok(o) => o,
+        Err(e) => return map_merge_error(e),
+    };
+
+    // Post-commit, best-effort. None of this rolls back the merge.
+    // Reindex the now-merged sources so their search snippet reflects
+    // the terminal state. The destination's ticket fields are unchanged,
+    // so it doesn't need reindexing (and reindexing it with no article
+    // body would drop its article from the index).
+    for source in &outcome.merged_sources {
+        indexing_tasks::spawn_index_ticket(
+            search_service.get_ref().clone(),
+            source.clone(),
+            None,
+        );
     }
+
+    // Broadcast so open viewers react without a reload: the destination
+    // refetches, each source shows the merged-into banner.
+    let actor_uuid = actor.uuid.map(|u| u.to_string()).unwrap_or_default();
+    let now = chrono::Utc::now();
+    let source_ids: Vec<i32> = outcome.merged_sources.iter().map(|t| t.id).collect();
+    sse_state
+        .broadcast_event(SseEvent::TicketMerged {
+            target_ticket_id: outcome.destination.id,
+            source_ticket_ids: source_ids,
+            actor_uuid: actor_uuid.clone(),
+            merge_event_id: outcome.merge_event_id,
+            timestamp: now,
+        })
+        .await;
+    for source in &outcome.merged_sources {
+        sse_state
+            .broadcast_event(SseEvent::TicketUpdated {
+                ticket_id: source.id,
+                field: "workflow_state_id".to_string(),
+                value: serde_json::json!(source.workflow_state_id),
+                updated_by: actor_uuid.clone(),
+                timestamp: now,
+            })
+            .await;
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "merge_event_id": outcome.merge_event_id,
+        "destination_ticket": outcome.destination,
+        "merged_sources": outcome.merged_sources,
+        "comments_moved": outcome.comments_moved,
+        "channel_messages_rerouted": outcome.channel_messages_rerouted,
+        "watchers_added_to_destination": outcome.watchers_added_to_destination,
+        "merge_marker_comment_id": outcome.merge_marker_comment_id,
+    }))
 }
 
 /// `GET /api/tickets/{id}/merge-history`. Agent role or higher.
