@@ -32,6 +32,9 @@ pub struct MergeRequest {
     pub notify_customer: bool,
     #[serde(default)]
     pub expected_state: Vec<ExpectedStateDto>,
+    /// Agent-edited merge-marker comment body from the dialog.
+    #[serde(default)]
+    pub marker_body: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,6 +85,7 @@ pub async fn merge_tickets(
                 workflow_state_id: e.workflow_state_id,
             })
             .collect(),
+        marker_body: body.marker_body,
     };
 
     let outcome = match ticket_merge::execute_merge(&mut conn, input, &actor) {
