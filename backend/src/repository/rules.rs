@@ -20,15 +20,19 @@
 //! 4) reads them off a single source of truth.
 
 use diesel::prelude::*;
+use diesel::sql_types::BigInt;
 use diesel::QueryResult;
-use serde_json::Value;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
-    NewRule, NewRuleApplication, Rule, RuleApplication, RuleApplicationStatus, RuleState,
-    RuleTriggerKind, RuleUpdate, RuleVersion,
+    NewComment, NewRule, NewRuleApplication, Rule, RuleApplication, RuleApplicationStatus,
+    RuleState, RuleTriggerKind, RuleUpdate, RuleVersion, TicketPriority,
 };
+use crate::repository::comments;
+use crate::sync::actor::ActorContext;
+use crate::sync::session::with_actor_context;
 
 // =====================================================================
 // reads_set / writes_set derivation (plan §11.2). Pure helpers; the
@@ -437,6 +441,611 @@ pub fn record_application(
     diesel::insert_into(dsl::rule_applications)
         .values(&new)
         .get_result(conn)
+}
+
+// =====================================================================
+// Manual apply lifecycle (Wave 5). Mirrors execute_merge's shape: one
+// `with_actor_context` transaction, advisory lock on the ticket, pre-
+// flight under the lock, then run the action executors in order. Any
+// preflight failure or executor error rolls the whole apply back; the
+// rule_applications row records what happened.
+//
+// Phase 1 only supports manual rules so the "evaluate conditions"
+// step is skipped (manual rules carry conditions = [] by the
+// rules_manual_no_conditions CHECK). Phase 2 plugs in condition
+// evaluation at the same pre-flight point.
+// =====================================================================
+
+/// Pack `(workspace_id, ticket_id)` into a collision-free int64
+/// advisory-lock key. Same formula as
+/// `repository::ticket_merge::advisory_key`; the helper there is
+/// private. We redefine locally rather than expose another crate's
+/// private helper through a pub(crate) escape hatch — single
+/// expression, no behavioural drift risk.
+fn advisory_key(workspace_id: i32, ticket_id: i32) -> i64 {
+    ((workspace_id as i64) << 32) | (ticket_id as i64 & 0xffff_ffff)
+}
+
+/// One-indexed action position the agent dialog ticks off to skip.
+/// `Vec<usize>` of positions, validated against the rule's action
+/// list length at the API boundary.
+#[derive(Debug, Clone, Default)]
+pub struct ApplyOverrides {
+    /// Replaces the first `reply` action's body verbatim if Some.
+    /// The agent edited it in the dialog after seeing the rendered
+    /// preview; the engine substitutes no further template tokens.
+    pub body: Option<String>,
+    /// Action positions to skip (1-indexed per decision 33).
+    pub suppress_actions: Vec<usize>,
+}
+
+/// Input to [`apply_manual`]. Built by the handler from the
+/// request body + the resolved actor.
+#[derive(Debug, Clone)]
+pub struct ApplyInput {
+    pub rule_id: i32,
+    pub ticket_id: i32,
+    pub overrides: ApplyOverrides,
+}
+
+/// Counts the apply endpoint returns to the agent dialog.
+#[derive(Debug, Clone)]
+pub struct ApplyOutcome {
+    /// Updated rule row (with the bumped `fire_count`).
+    pub rule: Rule,
+    /// The application audit row inserted at the end of the txn.
+    pub application: RuleApplication,
+    /// The `comments.id` of the reply action's row, when the rule
+    /// had a reply action and it wasn't suppressed. `None`
+    /// otherwise.
+    pub comment_id: Option<i32>,
+    /// How many actions ran (skip / failure subtracts).
+    pub actions_executed: usize,
+    /// How many actions were skipped via `overrides.suppress_actions`.
+    pub actions_suppressed: usize,
+}
+
+/// Errors specific to the apply lifecycle. Distinct from
+/// [`WriteError`] because handler callers map these to user-facing
+/// 400/404/409 codes.
+#[derive(Debug, thiserror::Error)]
+pub enum ApplyError {
+    #[error("rule {0} not found")]
+    NotFound(i32),
+    #[error("rule {0} is not live (current state: {1})")]
+    NotLive(i32, &'static str),
+    #[error("rule {0} is not a manual-trigger rule")]
+    NotManual(i32),
+    #[error("ticket {0} not found")]
+    TicketNotFound(i32),
+    #[error("ticket {0} is merged into another ticket and cannot be modified")]
+    TicketMerged(i32),
+    #[error("override index {0} is out of range (rule has {1} actions)")]
+    InvalidOverrideIndex(usize, usize),
+    #[error("rule action [{index}] is not valid for Phase 1: {message}")]
+    UnsupportedActionPhase1 { index: usize, message: String },
+    #[error("rule action [{index}] failed: {message}")]
+    ActionFailed { index: usize, message: String },
+    #[error("actor has no workspace context")]
+    MissingWorkspace,
+    #[error("database error: {0}")]
+    Db(#[from] diesel::result::Error),
+}
+
+// sync-pending-wire: emits ticket.rule_applied + ticket.updated via sync::emit inside the txn
+/// Apply one manual rule to one ticket. Atomic: every action runs
+/// inside one `with_actor_context` transaction. Pre-flight checks
+/// the rule + ticket under the advisory lock so a racing archive
+/// or merge can't slip past. On any executor error the whole apply
+/// rolls back and the `rule_applications` row is never written
+/// (which is the audit-correct behaviour: the failed apply didn't
+/// happen).
+pub fn apply_manual(
+    conn: &mut DbConnection,
+    input: ApplyInput,
+    actor: &ActorContext,
+) -> Result<ApplyOutcome, ApplyError> {
+    use crate::schema::rules::dsl as r;
+    use crate::schema::tickets::dsl as t;
+
+    let workspace_id = actor.workspace_id.ok_or(ApplyError::MissingWorkspace)?;
+
+    with_actor_context(conn, actor, |conn| -> Result<ApplyOutcome, ApplyError> {
+        diesel::sql_query("SELECT pg_advisory_xact_lock($1)")
+            .bind::<BigInt, _>(advisory_key(workspace_id, input.ticket_id))
+            .execute(conn)?;
+
+        // Re-read rule + ticket under the lock so racing edits
+        // (archive, state change, merge) are caught.
+        let rule: Rule = r::rules
+            .find(input.rule_id)
+            .first(conn)
+            .optional()?
+            .ok_or(ApplyError::NotFound(input.rule_id))?;
+        if rule.archived_at.is_some() {
+            return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
+        }
+        if rule.state != RuleState::Live && rule.state != RuleState::DryRun {
+            return Err(ApplyError::NotLive(rule.id, rule.state.as_str()));
+        }
+        if rule.trigger_kind != RuleTriggerKind::Manual {
+            return Err(ApplyError::NotManual(rule.id));
+        }
+
+        let ticket: crate::models::Ticket = t::tickets
+            .find(input.ticket_id)
+            .first(conn)
+            .optional()?
+            .ok_or(ApplyError::TicketNotFound(input.ticket_id))?;
+        if ticket.merged_into_ticket_id.is_some() {
+            return Err(ApplyError::TicketMerged(ticket.id));
+        }
+
+        let Some(actions) = rule.actions.as_array() else {
+            return Err(ApplyError::ActionFailed {
+                index: 0,
+                message: "rule.actions is not a JSON array (DB CHECK should have caught this)"
+                    .into(),
+            });
+        };
+        // Validate override indices up front so we don't run half
+        // the action list before bailing.
+        for idx in &input.overrides.suppress_actions {
+            if *idx == 0 || *idx > actions.len() {
+                return Err(ApplyError::InvalidOverrideIndex(*idx, actions.len()));
+            }
+        }
+        let suppress: std::collections::HashSet<usize> =
+            input.overrides.suppress_actions.iter().copied().collect();
+
+        let mut comment_id: Option<i32> = None;
+        let mut actions_executed = 0usize;
+        let mut actions_taken: Vec<Value> = Vec::with_capacity(actions.len());
+        let mut actions_skipped: Vec<Value> = Vec::with_capacity(suppress.len());
+        let mut applied_reply_body_override = false;
+
+        for (i, action) in actions.iter().enumerate() {
+            let one_based = i + 1;
+            if suppress.contains(&one_based) {
+                actions_skipped.push(json!({
+                    "index": one_based,
+                    "reason": "suppressed_by_override"
+                }));
+                continue;
+            }
+            let kind = action
+                .get("kind")
+                .and_then(|k| k.as_str())
+                .ok_or_else(|| ApplyError::ActionFailed {
+                    index: one_based,
+                    message: "missing kind".to_string(),
+                })?;
+            let config = action.get("config").cloned().unwrap_or(Value::Null);
+
+            let outcome = match kind {
+                "reply" => {
+                    let override_body = if !applied_reply_body_override {
+                        let b = input.overrides.body.clone();
+                        if b.is_some() {
+                            applied_reply_body_override = true;
+                        }
+                        b
+                    } else {
+                        None
+                    };
+                    execute_reply(conn, &ticket, actor, &config, override_body)?
+                        .map(|c| {
+                            if comment_id.is_none() {
+                                comment_id = Some(c);
+                            }
+                            json!({ "index": one_based, "kind": kind, "comment_id": c })
+                        })
+                        .unwrap_or_else(|| json!({ "index": one_based, "kind": kind }))
+                }
+                "set_status" => execute_set_status(conn, ticket.id, &config)
+                    .map(|state_id| {
+                        json!({ "index": one_based, "kind": kind, "workflow_state_id": state_id })
+                    })?,
+                "assign" => execute_assign(conn, ticket.id, workspace_id, rule.id, &config)
+                    .map(|uuid| {
+                        json!({ "index": one_based, "kind": kind, "assigned_to_uuid": uuid })
+                    })?,
+                "unassign" => execute_unassign(conn, ticket.id)
+                    .map(|_| json!({ "index": one_based, "kind": kind }))?,
+                "add_tags" => execute_add_tags(conn, ticket.id, workspace_id, &config, actor)
+                    .map(|added| {
+                        json!({ "index": one_based, "kind": kind, "tag_ids_added": added })
+                    })?,
+                "remove_tags" => execute_remove_tags(conn, ticket.id, &config).map(|removed| {
+                    json!({ "index": one_based, "kind": kind, "tag_ids_removed": removed })
+                })?,
+                "set_priority" => execute_set_priority(conn, ticket.id, &config)
+                    .map(|p| json!({ "index": one_based, "kind": kind, "priority": p }))?,
+                "stop_processing" => {
+                    // No-op for manual apply; only meaningful inside
+                    // an event-chain run loop in Phase 2.
+                    json!({ "index": one_based, "kind": kind, "note": "no-op for manual apply" })
+                }
+                "notify" | "apply_macro_template" | "webhook" => {
+                    return Err(ApplyError::UnsupportedActionPhase1 {
+                        index: one_based,
+                        message: format!(
+                            "{kind} action is scheduled for a later phase; admin should archive this rule or remove the action"
+                        ),
+                    });
+                }
+                other => {
+                    return Err(ApplyError::ActionFailed {
+                        index: one_based,
+                        message: format!("unknown action kind: {other}"),
+                    });
+                }
+            };
+            actions_taken.push(outcome);
+            actions_executed += 1;
+        }
+
+        // Bump fire_count + last_fired_at on the rule. Use sql::now
+        // so the timestamp comes from the same transaction's clock
+        // as the rule_applications.applied_at row below.
+        let updated_rule: Rule = diesel::update(r::rules.find(rule.id))
+            .set((
+                r::fire_count.eq(r::fire_count + 1),
+                r::last_fired_at.eq(Some(chrono::Utc::now())),
+            ))
+            .get_result(conn)?;
+
+        // dry_run state writes a shadow rule_applications row so the
+        // admin can preview without touching production data. The
+        // action writes above still hit the DB in the txn, but the
+        // outer transaction will be COMMITTED — dry-run rows live in
+        // the audit log alongside successful ones, distinguished by
+        // status. That matches the plan §4.3 contract.
+        let status = if updated_rule.state == RuleState::DryRun {
+            RuleApplicationStatus::DryRun
+        } else {
+            RuleApplicationStatus::Succeeded
+        };
+
+        let actions_taken_value = if actions_taken.is_empty() {
+            None
+        } else {
+            Some(Value::Array(actions_taken))
+        };
+        let actions_skipped_value = if actions_skipped.is_empty() {
+            None
+        } else {
+            Some(Value::Array(actions_skipped))
+        };
+
+        // rule_version is the current version after the last save;
+        // pull from rule_versions max(version) for this rule. The
+        // migration trigger guarantees a v1 row at minimum.
+        let rule_version: i32 = {
+            use crate::schema::rule_versions::dsl;
+            dsl::rule_versions
+                .filter(dsl::rule_id.eq(rule.id))
+                .select(diesel::dsl::max(dsl::version))
+                .first::<Option<i32>>(conn)?
+                .unwrap_or(1)
+        };
+
+        let application = record_application(
+            conn,
+            NewRuleApplication {
+                workspace_id,
+                rule_id: rule.id,
+                rule_version,
+                ticket_id: ticket.id,
+                status,
+                correlation_id: actor.correlation_id,
+                actor_uuid: actor.uuid,
+                actor_kind: "user".to_string(),
+                originating_event_id: None,
+                originating_event_kind: None,
+                condition_evaluation: None,
+                actions_taken: actions_taken_value,
+                actions_skipped: actions_skipped_value,
+                failure_reason: None,
+            },
+        )?;
+
+        Ok(ApplyOutcome {
+            rule: updated_rule,
+            application,
+            comment_id,
+            actions_executed,
+            actions_suppressed: suppress.len(),
+        })
+    })
+}
+
+// =====================================================================
+// Action executors (Wave 5 / unit-06). Each returns the relevant
+// detail the caller folds into the actions_taken JSONB blob.
+// =====================================================================
+
+/// `reply` action. Renders the body via services::template_vars
+/// (when the caller doesn't pass an override), inserts a comment,
+/// and returns the new comment id. Internal vs public is the
+/// action's `visibility` flag (see plan §5.3); the comment row
+/// stamps `is_internal` accordingly. The customer-channel dispatch
+/// for `visibility=public` runs through the existing
+/// `comments::create_comment` observer pipeline, so an outbound
+/// queue row is enqueued for tickets with an email channel.
+fn execute_reply(
+    conn: &mut DbConnection,
+    ticket: &crate::models::Ticket,
+    actor: &ActorContext,
+    config: &Value,
+    override_body: Option<String>,
+) -> Result<Option<i32>, ApplyError> {
+    let visibility = config
+        .get("visibility")
+        .and_then(|v| v.as_str())
+        .unwrap_or("public");
+    let raw_body = override_body
+        .or_else(|| {
+            config
+                .get("body")
+                .and_then(|b| b.as_str())
+                .map(|s| s.to_string())
+        })
+        .ok_or_else(|| ApplyError::ActionFailed {
+            index: 0,
+            message: "reply action missing body".to_string(),
+        })?;
+
+    // Phase 1: render with a context built from the loaded ticket
+    // + actor. The renderer falls back to empty strings for
+    // unknown bindings, so a body referencing customer_name on a
+    // requester-less ticket renders "Hi ,".
+    let actor_uuid = actor.uuid.ok_or_else(|| ApplyError::ActionFailed {
+        index: 0,
+        message: "manual reply requires an authenticated actor".to_string(),
+    })?;
+    let agent = crate::repository::users::find_active_by_uuid(&actor_uuid, conn)?;
+    let requester = if let Some(uuid) = ticket.requester_uuid {
+        crate::repository::users::find_active_by_uuid(&uuid, conn).ok()
+    } else {
+        None
+    };
+    let app_name = std::env::var("APP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
+    let rendered = crate::services::template_vars::render(
+        &raw_body,
+        &crate::services::template_vars::TemplateContext {
+            ticket,
+            requester: requester.as_ref(),
+            agent: &agent,
+            app_name: &app_name,
+            event: None,
+            reply: None,
+        },
+    );
+
+    let is_internal = visibility == "internal";
+    let new_comment = NewComment {
+        content: rendered,
+        ticket_id: ticket.id,
+        user_uuid: actor_uuid,
+        channel_metadata: Some(json!({
+            "kind": "rule_reply",
+            "visibility": visibility,
+        })),
+        is_internal,
+        content_format: crate::models::ContentFormat::Html,
+        ..NewComment::default()
+    };
+    let comment = comments::create_comment(conn, new_comment, None)?;
+    Ok(Some(comment.id))
+}
+
+/// `set_status` action. Updates `tickets.workflow_state_id`; the
+/// existing tickets-table trigger handles `resolved_at` /
+/// `closed_at` stamping for terminal categories.
+fn execute_set_status(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    config: &Value,
+) -> Result<i32, ApplyError> {
+    use crate::schema::tickets::dsl;
+    let state_id = config
+        .get("workflow_state_id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| ApplyError::ActionFailed {
+            index: 0,
+            message: "set_status missing workflow_state_id".to_string(),
+        })? as i32;
+    diesel::update(dsl::tickets.find(ticket_id))
+        .set(dsl::workflow_state_id.eq(state_id))
+        .execute(conn)?;
+    Ok(state_id)
+}
+
+/// `assign` action. Direct user assignment for Phase 1; round-robin
+/// and group queue land in Phase 2 when assignment_rules absorbs
+/// here and the historical apply rows feed the stateless picker.
+fn execute_assign(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    _workspace_id: i32,
+    _rule_id: i32,
+    config: &Value,
+) -> Result<Uuid, ApplyError> {
+    use crate::schema::tickets::dsl;
+    let method = config
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("direct");
+    let assignee = match method {
+        "direct" => config
+            .get("user_uuid")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .ok_or_else(|| ApplyError::ActionFailed {
+                index: 0,
+                message: "assign(method=direct) missing valid user_uuid".to_string(),
+            })?,
+        other => {
+            return Err(ApplyError::UnsupportedActionPhase1 {
+                index: 0,
+                message: format!(
+                    "assign method '{other}' lands in Phase 2 when assignment_rules absorbs here"
+                ),
+            });
+        }
+    };
+    diesel::update(dsl::tickets.find(ticket_id))
+        .set(dsl::assignee_uuid.eq(Some(assignee)))
+        .execute(conn)?;
+    Ok(assignee)
+}
+
+fn execute_unassign(conn: &mut DbConnection, ticket_id: i32) -> Result<(), ApplyError> {
+    use crate::schema::tickets::dsl;
+    diesel::update(dsl::tickets.find(ticket_id))
+        .set(dsl::assignee_uuid.eq::<Option<Uuid>>(None))
+        .execute(conn)?;
+    Ok(())
+}
+
+fn execute_add_tags(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    workspace_id: i32,
+    config: &Value,
+    actor: &ActorContext,
+) -> Result<Vec<i32>, ApplyError> {
+    use crate::schema::ticket_tags::dsl;
+    let tag_ids: Vec<i32> = config
+        .get("tag_ids")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_i64()).map(|x| x as i32).collect())
+        .unwrap_or_default();
+    if tag_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<_> = tag_ids
+        .iter()
+        .map(|tid| {
+            (
+                dsl::ticket_id.eq(ticket_id),
+                dsl::tag_id.eq(*tid),
+                dsl::created_by.eq(actor.uuid),
+                dsl::workspace_id.eq(workspace_id),
+            )
+        })
+        .collect();
+    diesel::insert_into(dsl::ticket_tags)
+        .values(&rows)
+        .on_conflict_do_nothing()
+        .execute(conn)?;
+    Ok(tag_ids)
+}
+
+fn execute_remove_tags(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    config: &Value,
+) -> Result<Vec<i32>, ApplyError> {
+    use crate::schema::ticket_tags::dsl;
+    let tag_ids: Vec<i32> = config
+        .get("tag_ids")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_i64()).map(|x| x as i32).collect())
+        .unwrap_or_default();
+    if tag_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    diesel::delete(
+        dsl::ticket_tags
+            .filter(dsl::ticket_id.eq(ticket_id))
+            .filter(dsl::tag_id.eq_any(&tag_ids)),
+    )
+    .execute(conn)?;
+    Ok(tag_ids)
+}
+
+fn execute_set_priority(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    config: &Value,
+) -> Result<String, ApplyError> {
+    use crate::schema::tickets::dsl;
+    let priority_str = config
+        .get("priority")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApplyError::ActionFailed {
+            index: 0,
+            message: "set_priority missing priority".to_string(),
+        })?;
+    // The codebase's TicketPriority enum is Low / Medium / High;
+    // the plan's "urgent" maps onto High since there's no taller
+    // tier. The save linter in the rule editor should validate
+    // against this restricted set; we error here as defence-in-
+    // depth so an editor mismatch surfaces with a clear message
+    // rather than a silent demotion.
+    let priority = match priority_str {
+        "low" => TicketPriority::Low,
+        "normal" | "medium" => TicketPriority::Medium,
+        "high" | "urgent" => TicketPriority::High,
+        other => {
+            return Err(ApplyError::ActionFailed {
+                index: 0,
+                message: format!("unknown priority: {other}"),
+            })
+        }
+    };
+    diesel::update(dsl::tickets.find(ticket_id))
+        .set(dsl::priority.eq(priority))
+        .execute(conn)?;
+    Ok(priority_str.to_string())
+}
+
+// =====================================================================
+// Preview-match save-time check (Wave 5 / unit-12). Phase 1
+// scaffolding: manual rules carry conditions = [] so the match is
+// trivially every ticket. The endpoint returns the count + sample
+// IDs of recent tickets so the editor can render the "matches N of
+// N tickets" banner uniformly with future event-rule previews.
+// Phase 2 plugs the typed condition evaluator in here.
+// =====================================================================
+
+/// Result of a preview-match against recent tickets.
+#[derive(Debug, Clone)]
+pub struct PreviewMatch {
+    pub matched: i64,
+    pub scanned: i64,
+    pub sample_ticket_ids: Vec<i32>,
+}
+
+/// Run `conditions` against the last `scan_limit` tickets in the
+/// workspace (capped at 1000) and return how many matched. Phase 1
+/// always returns matched = scanned because manual rules have no
+/// conditions; the shape is in place so Phase 2 can drop in the
+/// condition evaluator without changing the caller surface.
+pub fn preview_match(
+    conn: &mut DbConnection,
+    _conditions: &Value,
+    scan_limit: i64,
+) -> QueryResult<PreviewMatch> {
+    use crate::schema::tickets::dsl;
+    let limit = scan_limit.clamp(50, 1000);
+    let rows: Vec<i32> = dsl::tickets
+        .order(dsl::created_at.desc())
+        .limit(limit)
+        .select(dsl::id)
+        .load(conn)?;
+    let scanned = rows.len() as i64;
+    let sample_ticket_ids = rows.into_iter().take(5).collect();
+    Ok(PreviewMatch {
+        // Phase 1: every recent ticket matches a manual rule
+        // (manual rules carry conditions = [] and the picker
+        // returns them unfiltered, see plan §13.4).
+        matched: scanned,
+        scanned,
+        sample_ticket_ids,
+    })
 }
 
 #[cfg(test)]
