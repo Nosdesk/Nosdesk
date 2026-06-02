@@ -114,6 +114,20 @@ impl DeploymentMode {
             _ => DeploymentMode::SelfHosted,
         }
     }
+
+    /// Process-wide deployment mode, read from the environment once
+    /// and cached for the lifetime of the process.
+    ///
+    /// This is the single source of truth: anywhere that branches on
+    /// hosted vs. self-hosted should call this rather than re-parsing
+    /// `NOSDESK_DEPLOYMENT_MODE`, so every branch agrees and the env
+    /// var is read exactly once. (`from_env` stays public for the unit
+    /// tests, which need to observe different env values within one
+    /// process.)
+    pub fn current() -> Self {
+        static MODE: std::sync::OnceLock<DeploymentMode> = std::sync::OnceLock::new();
+        *MODE.get_or_init(Self::from_env)
+    }
 }
 
 /// Configuration produced once at server start and shared

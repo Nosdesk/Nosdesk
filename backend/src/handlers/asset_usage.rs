@@ -294,13 +294,22 @@ pub async fn list_for_ticket(
 fn inventory_alert_recipients(conn: &mut crate::db::DbConnection) -> Vec<uuid::Uuid> {
     use crate::schema::{users, workspace_members};
     use diesel::prelude::*;
+    // Staff = platform admin OR workspace owner/admin/agent in the
+    // request's workspace. Runs under TenantConn, which pins
+    // `app.workspace_id`; reading that GUC scopes recipients to the
+    // asset's workspace under hosted multi-tenancy (bootstrap workspace
+    // in single-tenant).
     let res: Result<Vec<uuid::Uuid>, diesel::result::Error> = users::table
         .filter(users::deleted_at.is_null())
         .filter(
             users::platform_role.eq("platform_admin").or(diesel::dsl::exists(
                 workspace_members::table
                     .filter(workspace_members::user_uuid.eq(users::uuid))
-                    .filter(workspace_members::workspace_id.eq(1))
+                    .filter(workspace_members::workspace_id.eq(diesel::dsl::sql::<
+                        diesel::sql_types::Integer,
+                    >(
+                        "NULLIF(current_setting('app.workspace_id', true), '')::int",
+                    )))
                     .filter(
                         workspace_members::role.eq_any(vec!["owner", "admin", "agent"]),
                     ),

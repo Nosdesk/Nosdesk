@@ -1077,8 +1077,17 @@ pub async fn check_setup_status(
                 None
             };
 
+            // Hosted has no self-serve bootstrap: the control plane
+            // provisions admins, so this surface never reports setup as
+            // required (and the /setup/admin route isn't mounted). The
+            // auth-provider flags are still reported for the login UI.
+            let requires_setup = match crate::middleware::DeploymentMode::current() {
+                crate::middleware::DeploymentMode::Hosted => false,
+                crate::middleware::DeploymentMode::SelfHosted => user_count == 0,
+            };
+
             let response = crate::models::OnboardingStatus {
-                requires_setup: user_count == 0,
+                requires_setup,
                 user_count,
                 microsoft_auth_enabled,
                 oidc_enabled,

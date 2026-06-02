@@ -199,17 +199,23 @@ pub async fn list_for_asset(
 fn inventory_alert_recipients(conn: &mut crate::db::DbConnection) -> Vec<uuid::Uuid> {
     use crate::schema::{users, workspace_members};
     use diesel::prelude::*;
-    // Staff = platform admin OR workspace owner/admin/agent in
-    // bootstrap workspace (single-tenant deployments). Post-W2
-    // replacement for the legacy `users.role IN (admin, technician)`
-    // filter.
+    // Staff = platform admin OR workspace owner/admin/agent in the
+    // request's workspace. The handler runs under TenantConn, which
+    // pins `app.workspace_id`, so reading that GUC scopes the recipient
+    // set to the asset's workspace under hosted multi-tenancy (and to
+    // the bootstrap workspace in single-tenant). Post-W2 replacement
+    // for the legacy `users.role IN (admin, technician)` filter.
     let res: Result<Vec<uuid::Uuid>, diesel::result::Error> = users::table
         .filter(users::deleted_at.is_null())
         .filter(
             users::platform_role.eq("platform_admin").or(diesel::dsl::exists(
                 workspace_members::table
                     .filter(workspace_members::user_uuid.eq(users::uuid))
-                    .filter(workspace_members::workspace_id.eq(1))
+                    .filter(workspace_members::workspace_id.eq(diesel::dsl::sql::<
+                        diesel::sql_types::Integer,
+                    >(
+                        "NULLIF(current_setting('app.workspace_id', true), '')::int",
+                    )))
                     .filter(
                         workspace_members::role.eq_any(vec!["owner", "admin", "agent"]),
                     ),

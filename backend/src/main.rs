@@ -645,13 +645,19 @@ async fn main() -> std::io::Result<()> {
             Ok(true) => {
                 // Env-var seed succeeded; reconcile() will see
                 // users and clean up any stale token file.
-                if let Err(e) = utils::bootstrap_token::reconcile(&mut conn) {
+                if let Err(e) = utils::bootstrap_token::reconcile(
+                    &mut conn,
+                    crate::middleware::DeploymentMode::current(),
+                ) {
                     error!(error = ?e, "bootstrap token reconcile failed");
                 }
             }
             Ok(false) => {
                 // No env-seed; fall through to the token path.
-                if let Err(e) = utils::bootstrap_token::reconcile(&mut conn) {
+                if let Err(e) = utils::bootstrap_token::reconcile(
+                    &mut conn,
+                    crate::middleware::DeploymentMode::current(),
+                ) {
                     error!(error = ?e, "bootstrap token reconcile failed");
                 }
             }
@@ -1369,12 +1375,20 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api/auth")
                     .wrap(RateLimiter::default())
-                    .service(
+                    .service({
                         // Restore moved to `nosdesk-cli db restore` (AUD-005).
-                        web::scope("/setup")
-                            .route("/status", web::get().to(handlers::check_setup_status))
-                            .route("/admin", web::post().to(handlers::setup_initial_admin))
-                    )
+                        // The self-serve initial-admin route only exists in
+                        // self-hosted mode; in hosted mode the control plane
+                        // provisions admins, so /setup/admin is never mounted
+                        // (a request to it 404s rather than 403s).
+                        let setup = web::scope("/setup")
+                            .route("/status", web::get().to(handlers::check_setup_status));
+                        match workspace_config.mode {
+                            crate::middleware::DeploymentMode::SelfHosted => setup
+                                .route("/admin", web::post().to(handlers::setup_initial_admin)),
+                            crate::middleware::DeploymentMode::Hosted => setup,
+                        }
+                    })
                                             .route("/login", web::post().to(handlers::login))
                         .route("/logout", web::post().to(handlers::logout))
                         .route("/mfa-login", web::post().to(handlers::mfa_login))

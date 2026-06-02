@@ -2726,6 +2726,13 @@ pub async fn bulk_users(
                 _ => return errors::bad_request("Bad Request: Invalid role value"),
             };
 
+            // Same actor-context wrapping as the "delete" branch above:
+            // the platform_role write hits the audited `users` table, so
+            // it needs `app.workspace_id` pinned. The actor's workspace
+            // (from the request's WorkspaceContext) also scopes the
+            // workspace_members rewrite via the GUC, so the role change
+            // lands in the request's workspace under hosted multi-tenancy.
+            let actor = helpers::actor_for(&req, "users_admin");
             let mut updated = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
@@ -2734,30 +2741,36 @@ pub async fn bulk_users(
                 };
 
                 // Post-W2: bulk role change rewrites
-                // workspace_members.role (workspace 1) and
-                // platform_role. UserUpdate no longer carries `role`.
+                // workspace_members.role and platform_role. UserUpdate
+                // no longer carries `role`.
                 let (workspace_role, platform_role) = match role {
                     crate::models::UserRole::Admin => ("admin", "platform_admin"),
                     crate::models::UserRole::Technician => ("agent", "user"),
                     crate::models::UserRole::User => ("member", "user"),
                     crate::models::UserRole::AuditReviewer => ("member", "user"),
                 };
-                let role_update_ok = diesel::update(crate::schema::users::table.find(uuid))
-                    .set((
-                        crate::schema::users::platform_role.eq(platform_role),
-                        crate::schema::users::updated_at.eq(chrono::Utc::now().naive_utc()),
-                    ))
-                    .execute(&mut conn)
-                    .is_ok()
-                    && diesel::sql_query(
+                let role_update_ok = crate::sync::session::with_actor_context::<
+                    _,
+                    diesel::result::Error,
+                >(&mut conn, &actor, |c| {
+                    diesel::update(crate::schema::users::table.find(uuid))
+                        .set((
+                            crate::schema::users::platform_role.eq(platform_role),
+                            crate::schema::users::updated_at.eq(chrono::Utc::now().naive_utc()),
+                        ))
+                        .execute(c)?;
+                    diesel::sql_query(
                         "UPDATE workspace_members \
                          SET role = $2 \
-                         WHERE workspace_id = 1 AND user_uuid = $1",
+                         WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
+                           AND user_uuid = $1",
                     )
                     .bind::<diesel::sql_types::Uuid, _>(uuid)
                     .bind::<diesel::sql_types::Text, _>(workspace_role)
-                    .execute(&mut conn)
-                    .is_ok();
+                    .execute(c)?;
+                    Ok(())
+                })
+                .is_ok();
 
                 if role_update_ok {
                     updated += 1;

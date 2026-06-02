@@ -10,4 +10,4 @@ pub use cookie_auth::cookie_auth_middleware;
 pub use idempotency::idempotency_middleware;
 pub use request_context::{NosdeskRootSpanBuilder, RequestContext};
 pub use security_headers::SecurityHeaders;
-pub use workspace_context::{WorkspaceContextConfig, WorkspaceContextMiddleware};
+pub use workspace_context::{DeploymentMode, WorkspaceContextConfig, WorkspaceContextMiddleware};
