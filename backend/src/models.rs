@@ -6773,11 +6773,7 @@ impl FromSql<crate::schema::sql_types::RuleState, Pg> for RuleState {
             b"dry_run" => Ok(Self::DryRun),
             b"live" => Ok(Self::Live),
             b"archived" => Ok(Self::Archived),
-            other => Err(format!(
-                "unknown rule_state: {}",
-                String::from_utf8_lossy(other)
-            )
-            .into()),
+            other => Err(format!("unknown rule_state: {}", String::from_utf8_lossy(other)).into()),
         }
     }
 }

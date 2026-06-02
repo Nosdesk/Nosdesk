@@ -258,10 +258,8 @@ fn check_self_referential(
     if override_flag {
         return Ok(());
     }
-    let writes_set: std::collections::HashSet<&str> = writes
-        .iter()
-        .filter_map(|w| w.as_deref())
-        .collect();
+    let writes_set: std::collections::HashSet<&str> =
+        writes.iter().filter_map(|w| w.as_deref()).collect();
     let overlap: Vec<String> = reads
         .iter()
         .filter_map(|r| r.as_deref())
@@ -694,9 +692,7 @@ pub async fn get_rule_version(
     };
     match rules::find_version(&mut conn, rule_id, version) {
         Ok(Some(v)) => HttpResponse::Ok().json(RuleVersionDto::from(v)),
-        Ok(None) => errors::not_found_msg(format!(
-            "rule {rule_id} version {version} not found"
-        )),
+        Ok(None) => errors::not_found_msg(format!("rule {rule_id} version {version} not found")),
         Err(e) => errors::db_error(&e),
     }
 }
@@ -903,7 +899,10 @@ pub async fn apply_rule(
                 }
                 "assign" => (
                     "assignee",
-                    action.get("assigned_to_uuid").cloned().unwrap_or(Value::Null),
+                    action
+                        .get("assigned_to_uuid")
+                        .cloned()
+                        .unwrap_or(Value::Null),
                 ),
                 "unassign" => ("assignee", Value::Null),
                 "set_priority" => (
@@ -1024,7 +1023,9 @@ fn map_apply_error(err: rules::ApplyError) -> HttpResponse {
         NotLive(..) => errors::conflict_with_code(message, "RULE_NOT_LIVE"),
         NotManual(_) => errors::bad_request_with_code(message, "RULE_NOT_MANUAL"),
         TicketMerged(_) => errors::bad_request_with_code(message, "RULE_TICKET_MERGED"),
-        InvalidOverrideIndex(..) => errors::bad_request_with_code(message, "MANUAL_APPLY_VALIDATION"),
+        InvalidOverrideIndex(..) => {
+            errors::bad_request_with_code(message, "MANUAL_APPLY_VALIDATION")
+        }
         UnsupportedActionPhase1 { .. } => {
             errors::bad_request_with_code(message, "RULE_ACTION_UNSUPPORTED")
         }
@@ -1184,7 +1185,10 @@ mod tests {
     #[test]
     fn self_ref_check_flags_overlap() {
         let reads = vec![Some("ticket.priority".to_string())];
-        let writes = vec![Some("ticket.priority".to_string()), Some("ticket.updated_at".to_string())];
+        let writes = vec![
+            Some("ticket.priority".to_string()),
+            Some("ticket.updated_at".to_string()),
+        ];
         let err = check_self_referential(&reads, &writes, false).unwrap_err();
         assert_eq!(err.fields, vec!["ticket.priority"]);
     }

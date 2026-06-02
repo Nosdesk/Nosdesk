@@ -77,18 +77,44 @@ pub fn render(template: &str, ctx: &TemplateContext<'_>) -> String {
     // comment view; `encode_safe` is the same helper the email
     // pipeline uses for outbound quoting.
     let escaped: Vec<(&str, String)> = vec![
-        ("ticket_id", html_escape::encode_safe(&ticket_id).into_owned()),
-        ("ticket_title", html_escape::encode_safe(&ctx.ticket.title).into_owned()),
-        ("customer_name", html_escape::encode_safe(customer_name).into_owned()),
-        ("customer_first_name", html_escape::encode_safe(&customer_first).into_owned()),
-        ("tech_name", html_escape::encode_safe(&ctx.agent.name).into_owned()),
-        ("tech_first_name", html_escape::encode_safe(&agent_first).into_owned()),
-        ("agent_name", html_escape::encode_safe(&ctx.agent.name).into_owned()),
-        ("agent_first_name", html_escape::encode_safe(&agent_first).into_owned()),
-        ("app_name", html_escape::encode_safe(ctx.app_name).into_owned()),
+        (
+            "ticket_id",
+            html_escape::encode_safe(&ticket_id).into_owned(),
+        ),
+        (
+            "ticket_title",
+            html_escape::encode_safe(&ctx.ticket.title).into_owned(),
+        ),
+        (
+            "customer_name",
+            html_escape::encode_safe(customer_name).into_owned(),
+        ),
+        (
+            "customer_first_name",
+            html_escape::encode_safe(&customer_first).into_owned(),
+        ),
+        (
+            "tech_name",
+            html_escape::encode_safe(&ctx.agent.name).into_owned(),
+        ),
+        (
+            "tech_first_name",
+            html_escape::encode_safe(&agent_first).into_owned(),
+        ),
+        (
+            "agent_name",
+            html_escape::encode_safe(&ctx.agent.name).into_owned(),
+        ),
+        (
+            "agent_first_name",
+            html_escape::encode_safe(&agent_first).into_owned(),
+        ),
+        (
+            "app_name",
+            html_escape::encode_safe(ctx.app_name).into_owned(),
+        ),
     ];
-    let mut pairs: Vec<(&str, &str)> =
-        escaped.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let mut pairs: Vec<(&str, &str)> = escaped.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
     // Phase 2 hooks: event and reply bindings stay outside the
     // Phase 1 allow-list. Pre-escape into owned strings whose

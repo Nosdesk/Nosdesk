@@ -117,9 +117,7 @@ mod tests {
 
     #[test]
     fn locale_picker_falls_back_to_english() {
-        let rule = list()
-            .first()
-            .expect("catalog has at least one entry");
+        let rule = list().first().expect("catalog has at least one entry");
         assert_eq!(rule.name_for("en-US"), rule.name_en);
         assert_eq!(rule.name_for("en-GB"), rule.name_en);
         assert_eq!(rule.name_for("fr-FR"), rule.name_fr);

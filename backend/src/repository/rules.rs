@@ -30,12 +30,12 @@ use crate::models::{
     NewComment, NewRule, NewRuleApplication, Rule, RuleApplication, RuleApplicationStatus,
     RuleState, RuleTriggerKind, RuleUpdate, RuleVersion, TicketPriority,
 };
+use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::comments;
 use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 use crate::sync::session::with_actor_context;
-use crate::models::{SyncAggregate, SyncOp};
 
 // =====================================================================
 // reads_set / writes_set derivation (plan §11.2). Pure helpers; the
@@ -140,7 +140,9 @@ pub fn derive_writes_set(actions: &Value) -> Vec<Option<String>> {
         return Vec::new();
     };
     for action in arr {
-        let Some(obj) = action.as_object() else { continue };
+        let Some(obj) = action.as_object() else {
+            continue;
+        };
         let Some(kind) = obj.get("kind").and_then(|k| k.as_str()) else {
             continue;
         };
@@ -305,7 +307,11 @@ pub fn update(
 /// Soft-archive. Sets `archived_at = NOW()` and is the only path
 /// the admin "Delete" button drives; hard delete requires
 /// archived_at to already be set per decision 32 in the plan.
-pub fn archive(conn: &mut DbConnection, id: i32, when: chrono::DateTime<chrono::Utc>) -> Result<Rule, WriteError> {
+pub fn archive(
+    conn: &mut DbConnection,
+    id: i32,
+    when: chrono::DateTime<chrono::Utc>,
+) -> Result<Rule, WriteError> {
     use crate::schema::rules::dsl;
     diesel::update(dsl::rules.find(id))
         .set(dsl::archived_at.eq(Some(when)))
@@ -325,13 +331,10 @@ pub fn archive(conn: &mut DbConnection, id: i32, when: chrono::DateTime<chrono::
 /// via the FK.
 pub fn hard_delete(conn: &mut DbConnection, id: i32) -> Result<(), WriteError> {
     use crate::schema::rules::dsl;
-    let existing: Rule = dsl::rules
-        .find(id)
-        .first(conn)
-        .map_err(|e| match e {
-            diesel::result::Error::NotFound => WriteError::NotFound(id),
-            other => WriteError::Db(other),
-        })?;
+    let existing: Rule = dsl::rules.find(id).first(conn).map_err(|e| match e {
+        diesel::result::Error::NotFound => WriteError::NotFound(id),
+        other => WriteError::Db(other),
+    })?;
     if existing.archived_at.is_none() {
         return Err(WriteError::NotArchived(id));
     }
@@ -407,16 +410,10 @@ pub fn list_applications(
         query = query.filter(dsl::applied_at.le(to));
     }
     let limit = filter.limit.clamp(1, 500);
-    query
-        .order(dsl::applied_at.desc())
-        .limit(limit)
-        .load(conn)
+    query.order(dsl::applied_at.desc()).limit(limit).load(conn)
 }
 
-pub fn find_application(
-    conn: &mut DbConnection,
-    id: i64,
-) -> QueryResult<Option<RuleApplication>> {
+pub fn find_application(conn: &mut DbConnection, id: i64) -> QueryResult<Option<RuleApplication>> {
     use crate::schema::rule_applications::dsl;
     dsl::rule_applications.find(id).first(conn).optional()
 }
@@ -627,13 +624,12 @@ pub fn apply_manual(
                 }));
                 continue;
             }
-            let kind = action
-                .get("kind")
-                .and_then(|k| k.as_str())
-                .ok_or_else(|| ApplyError::ActionFailed {
+            let kind = action.get("kind").and_then(|k| k.as_str()).ok_or_else(|| {
+                ApplyError::ActionFailed {
                     index: one_based,
                     message: "missing kind".to_string(),
-                })?;
+                }
+            })?;
             let config = action.get("config").cloned().unwrap_or(Value::Null);
 
             let outcome = match kind {
@@ -852,12 +848,11 @@ fn execute_reply(
     // The agent's row is required (we need their display name for
     // template rendering); NotFound (revoked / soft-deleted)
     // surfaces as AgentRevoked → 401 rather than Db → 500.
-    let agent = crate::repository::users::find_active_by_uuid(&actor_uuid, conn).map_err(|e| {
-        match e {
+    let agent =
+        crate::repository::users::find_active_by_uuid(&actor_uuid, conn).map_err(|e| match e {
             diesel::result::Error::NotFound => ApplyError::AgentRevoked(actor_uuid),
             other => ApplyError::Db(other),
-        }
-    })?;
+        })?;
     // Requester is optional — anonymous tickets and revoked
     // requesters both surface as None and the renderer falls back
     // to empty bindings. Same .ok() shape as the lazy OIDC path.
@@ -986,7 +981,12 @@ fn execute_add_tags(
     let tag_ids: Vec<i32> = config
         .get("tag_ids")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_i64()).map(|x| x as i32).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_i64())
+                .map(|x| x as i32)
+                .collect()
+        })
         .unwrap_or_default();
     if tag_ids.is_empty() {
         return Ok(Vec::new());
@@ -1018,7 +1018,12 @@ fn execute_remove_tags(
     let tag_ids: Vec<i32> = config
         .get("tag_ids")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_i64()).map(|x| x as i32).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_i64())
+                .map(|x| x as i32)
+                .collect()
+        })
         .unwrap_or_default();
     if tag_ids.is_empty() {
         return Ok(Vec::new());
@@ -1200,10 +1205,7 @@ mod tests {
         let reads = flat(derive_reads_set(&conditions));
         assert_eq!(
             reads,
-            vec![
-                "ticket.workflow_state.category",
-                "ticket.workflow_state_id"
-            ]
+            vec!["ticket.workflow_state.category", "ticket.workflow_state_id"]
         );
     }
 
