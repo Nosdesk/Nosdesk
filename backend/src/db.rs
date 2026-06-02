@@ -11,6 +11,42 @@ use tracing::{error, info, warn};
 pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
 
+/// Connection customizer that clears every app-level GUC when a
+/// connection is established.
+///
+/// `with_actor_context` scopes its GUCs to a transaction (via
+/// `set_config(_, _, true)`), so they normally die at commit/rollback.
+/// This is belt-and-braces: r2d2 runs `on_acquire` each time it gets a
+/// backend from the connection manager, so if a deployment fronts
+/// Postgres with a pooler (PgBouncer/pgcat) that hands back a server
+/// connection another client left with a session-scoped `app.*` GUC
+/// still set, this clears it before the connection enters our pool
+/// rather than letting stale workspace / actor attribution leak in.
+/// Empty-string is equivalent to unset everywhere these GUCs are read
+/// (every reader goes through `NULLIF(current_setting(...), '')`),
+/// matching `sync::session::reset_session_role`.
+#[derive(Debug)]
+struct ResetAppGucs;
+
+impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for ResetAppGucs {
+    fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), r2d2::Error> {
+        for key in [
+            "app.workspace_id",
+            "app.actor_uuid",
+            "app.actor_kind",
+            "app.actor_ref",
+            "app.correlation_id",
+            "app.client_tx_id",
+        ] {
+            diesel::sql_query("SELECT set_config($1, '', false)")
+                .bind::<diesel::sql_types::Text, _>(key)
+                .execute(conn)
+                .map_err(r2d2::Error::QueryError)?;
+        }
+        Ok(())
+    }
+}
+
 // Embed migrations at compile time
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
@@ -116,7 +152,10 @@ pub fn establish_connection_pool() -> Pool {
     info!("Attempting to create database connection pool");
     let manager = ConnectionManager::<PgConnection>::new(database_url);
 
-    match r2d2::Pool::builder().build(manager) {
+    match r2d2::Pool::builder()
+        .connection_customizer(Box::new(ResetAppGucs))
+        .build(manager)
+    {
         Ok(pool) => {
             info!("Database connection pool created successfully");
             pool

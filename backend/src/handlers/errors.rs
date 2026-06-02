@@ -132,6 +132,23 @@ pub fn conflict_with_code(message: impl Into<String>, code: &str) -> HttpRespons
     }))
 }
 
+/// 410 Gone — the resource existed but is permanently no longer
+/// available, and no forwarding address is known. Used for one-shot
+/// endpoints (e.g. initial-admin setup) once they have been consumed:
+/// unlike 404, it tells the client not to retry. Uses the generic
+/// `GONE` code; callers needing a specific code use [`gone_with_code`].
+pub fn gone(message: impl Into<String>) -> HttpResponse {
+    gone_with_code(message, "GONE")
+}
+
+/// 410 Gone with a specific machine-readable code.
+pub fn gone_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
+    HttpResponse::Gone().json(json!({
+        "error": message.into(),
+        "code": code,
+    }))
+}
+
 /// 422 Unprocessable Entity — request was syntactically valid but
 /// semantically invalid (e.g. validation failure on a well-formed
 /// payload). Use 400 for malformed input, 422 for "we understood it

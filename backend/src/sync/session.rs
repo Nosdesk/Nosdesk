@@ -453,6 +453,46 @@ mod tests {
     }
 
     #[test]
+    fn audited_write_without_workspace_context_raises_named_error() {
+        // Layer 2: an audited write that reaches the trigger with no
+        // workspace GUC must fail with the typed NDX01 error that names
+        // the wrapper, not an opaque NOT NULL violation on a partition.
+        let mut conn = setup_test_connection();
+
+        // Elevate to the BYPASSRLS role and clear the workspace pin
+        // setup_test_connection installs: bypass skips RLS so the only
+        // gate left is the AFTER audit trigger, isolating its check.
+        diesel::sql_query("SET LOCAL ROLE nosdesk_admin")
+            .execute(&mut conn)
+            .expect("set bypass role");
+        diesel::sql_query("SELECT set_config('app.workspace_id', '', false) AS set_config")
+            .get_result::<DiscardSetConfig>(&mut conn)
+            .expect("clear workspace GUC");
+
+        let new_user = crate::models::NewUser {
+            uuid: uuid::Uuid::new_v4(),
+            name: "no-context".to_string(),
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_secret_kek_id: None,
+            mfa_enabled: false,
+            platform_role: None,
+        };
+        let err = diesel::insert_into(crate::schema::users::table)
+            .values(&new_user)
+            .execute(&mut conn)
+            .expect_err("audited insert without workspace context must fail");
+
+        let msg = err.to_string();
+        assert!(msg.contains("audit context missing"), "got: {msg}");
+        assert!(msg.contains("with_actor_context"), "got: {msg}");
+    }
+
+    #[test]
     fn with_actor_context_propagates_closure_errors() {
         let mut conn = setup_test_connection();
         let actor = ActorContext::system("scheduler.test");
