@@ -1760,6 +1760,10 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets", web::post().to(handlers::create_ticket))
                     .route("/tickets/empty", web::post().to(handlers::create_empty_ticket))
                     .route("/tickets/bulk", web::post().to(handlers::bulk_tickets))
+                    // Literal /tickets/merge before /tickets/{id}; there is no
+                    // /tickets/{id} POST, so no wildcard can absorb it.
+                    .route("/tickets/merge", web::post().to(handlers::ticket_merge::merge_tickets))
+                    .route("/tickets/{id}/merge-history", web::get().to(handlers::ticket_merge::get_merge_history))
                     .route("/tickets/{id}", web::get().to(handlers::get_ticket))
                     .route("/tickets/{id}", web::put().to(handlers::update_ticket))
                     .route("/tickets/{id}", web::patch().to(handlers::update_ticket_partial))
