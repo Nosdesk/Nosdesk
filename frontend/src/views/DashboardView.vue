@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, provide, ref, watch } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardGreeting } from '@/composables/useDashboardGreeting'
@@ -76,8 +77,26 @@ onMounted(() => dashboardLayout.loadFromUser())
 watch(() => authStore.user?.uuid, () => dashboardLayout.loadFromUser())
 
 function enterEditMode() {
-  dashboardLayout.editMode = true
+  dashboardLayout.beginEdit()
 }
+
+// Navigate-away guard: prompt the user to confirm if they're
+// leaving with pending edits. Discard semantics — they explicitly
+// chose to lose the changes — vs. cancel which keeps them on the
+// dashboard so they can hit Done.
+onBeforeRouteLeave((_to, _from, next) => {
+  if (!dashboardLayout.isDirty) {
+    next()
+    return
+  }
+  const confirmed = window.confirm(fluent.$t('dashboard-leave-confirm'))
+  if (confirmed) {
+    dashboardLayout.discard()
+    next()
+  } else {
+    next(false)
+  }
+})
 
 useCreateTicketAction()
 </script>

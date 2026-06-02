@@ -4485,12 +4485,25 @@ dashboard-widget-shell-hide-label = Hide { $title }
 dashboard-widget-shell-loading-label = Loading { $title }
 
 dashboard-edit-bar-editing = Editing dashboard
+dashboard-edit-bar-unsaved = Unsaved changes
 dashboard-edit-bar-add-widget = Add widget
 dashboard-edit-bar-reset = Reset
 dashboard-edit-bar-done = Done
+dashboard-edit-bar-close = Close
+dashboard-edit-bar-discard = Discard
+dashboard-edit-bar-undo = Undo
+dashboard-edit-bar-redo = Redo
+dashboard-edit-bar-undo-tooltip = Undo last change (Cmd-Z)
+dashboard-edit-bar-redo-tooltip = Redo (Cmd-Shift-Z)
 dashboard-edit-bar-reset-confirm-title = Reset dashboard layout?
 dashboard-edit-bar-reset-confirm-message = Your customised layout will be replaced with the default for your role.
 dashboard-edit-bar-reset-confirm-label = Reset
+dashboard-leave-confirm = You have unsaved changes to your dashboard layout. Leave anyway?
+dashboard-widget-context-menu-aria = { $title } options
+dashboard-widget-context-menu-resize-1 = Resize to 1 column (1)
+dashboard-widget-context-menu-resize-2 = Resize to 2 columns (2)
+dashboard-widget-context-menu-resize-3 = Resize to 3 columns (3)
+dashboard-widget-context-menu-hide = Hide widget
 
 dashboard-add-widget-title = Add widget
 dashboard-add-widget-all-added = All available widgets are already on your dashboard.
