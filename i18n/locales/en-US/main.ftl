@@ -5271,3 +5271,70 @@ gantt-tickets-of-total-in-view =
     }
 saved-view-name-this = Name this view
 saved-view-copy-suffix = { $name } copy
+
+# Rules engine (docs/rules-and-actions-plan.md). Admin Settings →
+# Rules surfaces every rule kind; the agent toolbar surfaces only
+# the manual subset under the label "Actions". Activity log /
+# inspector wording stays consistent with the audit framing
+# established by canned-responses and ticket-merge.
+
+route-title-admin-rules = Rules
+route-title-admin-rules-activity = Rule activity
+route-title-admin-rules-new = New rule
+route-title-admin-rules-edit = Edit rule
+
+admin-rules-title = Rules
+admin-rules-help-intro = One rule entity covers manual quick-actions, on-event automations, and time-based escalations. Manual rules show up in the agent toolbar; everything else fires from the engine.
+admin-rules-new-cta = New rule
+admin-rules-activity-cta = Recent activity
+admin-rules-search-placeholder = Search rules by name
+admin-rules-filter-trigger-all = All triggers
+admin-rules-filter-state-all = All states
+admin-rules-trigger-manual = Manual
+admin-rules-trigger-ticket-created = On ticket created
+admin-rules-trigger-ticket-updated = On ticket updated
+admin-rules-trigger-ticket-replied = On reply
+admin-rules-trigger-time-elapsed = Time elapsed
+admin-rules-state-draft = Draft
+admin-rules-state-dry-run = Dry run
+admin-rules-state-live = Live
+admin-rules-state-archived = Archived
+admin-rules-col-name = Name
+admin-rules-col-trigger = Trigger
+admin-rules-col-state = State
+admin-rules-col-last-fired = Last fired
+admin-rules-col-fire-count = Fires (total)
+admin-rules-last-fired-never = Never
+admin-rules-empty-title = No rules yet
+admin-rules-empty-hint = Create your first rule or browse the starter catalog (coming soon).
+admin-rules-error-load = Couldn't load the rules list.
+admin-rules-error-archive = Couldn't archive that rule.
+admin-rules-error-transition = Couldn't change the state.
+admin-rules-toast-archived = Archived { $name }.
+admin-rules-toast-state-changed = State changed to { $state }.
+admin-rules-action-pause-tooltip = Pause (move to dry run)
+admin-rules-action-resume-tooltip = Resume (back to live)
+admin-rules-action-archive-tooltip = Archive
+admin-rules-archive-confirm-title = Archive rule?
+admin-rules-archive-confirm-body = { $name } will stop firing and be hidden from the picker. The audit history stays. You can permanently delete it later from the archived view.
+admin-rules-archive-confirm-button = Archive
+
+admin-rules-activity-title = Rule activity
+admin-rules-activity-help = Every fire writes one row, whether successful, skipped, suppressed, or failed. Click a row to see the condition evaluation and the actions that ran.
+admin-rules-activity-back = Back to rules
+admin-rules-activity-error-load = Couldn't load the activity log.
+admin-rules-activity-empty-title = No activity yet
+admin-rules-activity-empty-hint = Rules write here as soon as they fire.
+admin-rules-activity-filter-all = All statuses
+admin-rules-activity-limit = Last { $n }
+admin-rules-activity-actor-system = engine
+admin-rules-activity-actor-user = agent
+admin-rules-activity-row-summary = on ticket #{ $ticket_id } by { $actor }
+admin-rules-activity-inspector-empty = No inspector payload (successful fire keeps the audit row tight).
+admin-rules-activity-status-succeeded = Succeeded
+admin-rules-activity-status-dry-run = Dry run
+admin-rules-activity-status-skipped-preflight = Skipped (preflight)
+admin-rules-activity-status-skipped-condition-unmet = Skipped (no match)
+admin-rules-activity-status-suppressed-recursion-budget = Suppressed (recursion)
+admin-rules-activity-status-suppressed-loop-guard = Suppressed (loop guard)
+admin-rules-activity-status-failed = Failed
