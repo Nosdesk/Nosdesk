@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from 'vue'
+import { computed, onMounted, provide, ref, watch, type ComponentPublicInstance } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -12,11 +12,15 @@ import {
 import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
 import DashboardGrid from './dashboard/DashboardGrid.vue'
 import DashboardEditBar from './dashboard/DashboardEditBar.vue'
+import AnchorRail from './dashboard/AnchorRail.vue'
 import TimeRangeChipCluster from './dashboard/chrome/TimeRangeChipCluster.vue'
 import CompareToggle from './dashboard/chrome/CompareToggle.vue'
 import AnnotationsToggle from './dashboard/chrome/AnnotationsToggle.vue'
 import RefreshButton from './dashboard/chrome/RefreshButton.vue'
 import Icon from '@/components/common/Icon.vue'
+import { SECTIONS } from './dashboard/sections'
+import { useAnchorScroll } from '@/composables/useAnchorScroll'
+import { useDashboardKeybindings } from '@/composables/useDashboardKeybindings'
 
 const authStore = useAuthStore()
 const dashboardLayout = useDashboardLayoutStore()
@@ -99,53 +103,99 @@ onBeforeRouteLeave((_to, _from, next) => {
 })
 
 useCreateTicketAction()
+
+// Anchor rail integration: the rail (xl+) lists the canonical
+// SECTIONS and highlights the active one as the user scrolls. The
+// dashboard canvas seeds an H2 marker per section here (Wave 8) so
+// the rail's clicks land somewhere reasonable even before per-
+// section widget grouping ships.
+const anchorScroll = useAnchorScroll()
+function registerAnchor(id: string) {
+  // Vue's template ref accepts `unknown` so the runtime can pass
+  // either an Element (DOM) or a component instance. The
+  // anchor-scroll composable only needs an Element-or-null, so we
+  // narrow at the boundary and silently drop instance-shaped
+  // refs (the H2 only ever yields an Element).
+  return (el: Element | ComponentPublicInstance | null) => {
+    anchorScroll.register(id, el instanceof Element ? el : null)
+  }
+}
+
+useDashboardKeybindings({
+  anchorScroll,
+  onEditMode: enterEditMode,
+  onRefresh: refreshPage,
+})
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="flex flex-col gap-3 p-4 sm:px-6">
-      <!-- Chrome row: greeting (left), time-range + compare +
-           annotations + refresh (centre), Edit (right). The chrome
-           row is fixed at the top of every dashboard render; widget
-           additions, time-range switches, and refreshes all happen
-           against this stable header. The Edit button stays subtle
-           per the existing pattern but moves into the chrome row so
-           it sits next to its data-affordance siblings. -->
-      <header class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div class="min-w-0 flex-1">
-          <h2 class="text-lg sm:text-xl font-medium text-primary flex items-center gap-3">
-            <span v-if="currentTheme === 'red-horizon'" class="hal-eye flex-shrink-0" aria-hidden="true">
-              <span class="hal-eye-inner"></span>
-            </span>
-            <span>{{ formattedGreeting }}</span>
-          </h2>
-          <p class="text-xs text-secondary mt-0.5">
-            {{ subtitle }}
-          </p>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <TimeRangeChipCluster />
-          <CompareToggle />
-          <AnnotationsToggle />
-          <RefreshButton
-            :updated-at="refreshedAt"
-            @refresh="refreshPage"
-          />
-          <button
-            v-if="!dashboardLayout.editMode"
-            type="button"
-            class="inline-flex items-center gap-1.5 rounded-md border border-default bg-surface px-2 py-1 text-xs text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
-            @click="enterEditMode"
+    <!-- Two-column layout on xl+: AnchorRail (left, sticky) and the
+         canvas (right). Below xl the rail collapses (its `hidden
+         xl:flex` class) and the canvas owns the full width. -->
+    <div class="flex gap-6 p-4 sm:px-6">
+      <AnchorRail :anchor-scroll="anchorScroll" class="xl:w-40 xl:flex-shrink-0" />
+
+      <div class="flex flex-col gap-3 flex-1 min-w-0">
+        <!-- Chrome row: greeting (left), time-range + compare +
+             annotations + refresh + Edit (right). Stable across
+             every dashboard render; widget add / time-range
+             switches / refreshes act against the same header. -->
+        <header class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div class="min-w-0 flex-1">
+            <h2 class="text-lg sm:text-xl font-medium text-primary flex items-center gap-3">
+              <span v-if="currentTheme === 'red-horizon'" class="hal-eye flex-shrink-0" aria-hidden="true">
+                <span class="hal-eye-inner"></span>
+              </span>
+              <span>{{ formattedGreeting }}</span>
+            </h2>
+            <p class="text-xs text-secondary mt-0.5">
+              {{ subtitle }}
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <TimeRangeChipCluster />
+            <CompareToggle />
+            <AnnotationsToggle />
+            <RefreshButton
+              :updated-at="refreshedAt"
+              @refresh="refreshPage"
+            />
+            <button
+              v-if="!dashboardLayout.editMode"
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-md border border-default bg-surface px-2 py-1 text-xs text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
+              @click="enterEditMode"
+            >
+              <Icon name="rename" class="w-3.5 h-3.5" />
+              <span>{{ $t('dashboard-edit-button') }}</span>
+            </button>
+          </div>
+        </header>
+
+        <DashboardEditBar v-if="dashboardLayout.editMode" />
+
+        <!-- Section anchor markers. Each marker is the
+             IntersectionObserver target the AnchorRail tracks; the
+             visible H2 doubles as the in-canvas section heading so
+             scrolling top-to-bottom reads the same section
+             structure on rail-less viewports (< xl). The widget-
+             to-section assignment lands in a follow-up; for now
+             every marker sits above the single shared widget grid. -->
+        <div class="flex flex-col gap-2">
+          <h2
+            v-for="section in SECTIONS"
+            :key="section.id"
+            :id="section.id"
+            :ref="registerAnchor(section.id)"
+            class="text-xs uppercase tracking-wide text-tertiary font-semibold scroll-mt-20"
           >
-            <Icon name="rename" class="w-3.5 h-3.5" />
-            <span>{{ $t('dashboard-edit-button') }}</span>
-          </button>
+            {{ $t(section.labelKey) }}
+          </h2>
         </div>
-      </header>
 
-      <DashboardEditBar v-if="dashboardLayout.editMode" />
-
-      <DashboardGrid v-if="authReady" />
+        <DashboardGrid v-if="authReady" />
+      </div>
     </div>
   </div>
 </template>
