@@ -667,10 +667,18 @@ const router = createRouter({
           component: () => import('../views/RuleActivityView.vue'),
           meta: { titleKey: 'route-title-admin-rules-activity' }
         },
-        // admin-rules-new and admin-rules-edit are registered in
-        // Wave 7 once the RuleEditView component lands; the list
-        // view falls back to a console-warning push if those routes
-        // aren't registered yet.
+        {
+          path: 'rules/new',
+          name: 'admin-rules-new',
+          component: () => import('../views/RuleEditView.vue'),
+          meta: { titleKey: 'route-title-admin-rules-new' }
+        },
+        {
+          path: 'rules/:id(\\d+)',
+          name: 'admin-rules-edit',
+          component: () => import('../views/RuleEditView.vue'),
+          meta: { titleKey: 'route-title-admin-rules-edit' }
+        },
         {
           path: 'webhooks',
           name: 'admin-webhooks',

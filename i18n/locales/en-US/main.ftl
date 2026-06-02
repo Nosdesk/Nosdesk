@@ -5338,3 +5338,65 @@ admin-rules-activity-status-skipped-condition-unmet = Skipped (no match)
 admin-rules-activity-status-suppressed-recursion-budget = Suppressed (recursion)
 admin-rules-activity-status-suppressed-loop-guard = Suppressed (loop guard)
 admin-rules-activity-status-failed = Failed
+
+# Activity-feed phrases for the rule fire event. Wave 7 wires
+# ticket.rule_applied into TicketActivity.vue; the dry-run variant
+# distinguishes shadow fires (state = dry_run) from live ones.
+ticket-activity-phrase-rule-applied = applied rule "{ $rule }"
+ticket-activity-phrase-rule-applied-dry-run = previewed rule "{ $rule }" in dry-run
+
+# Actions toolbar (agent surface, decision 26: button label is
+# "Actions" even though the backend entity is Rule).
+ticket-actions-button = Actions
+ticket-actions-dialog-title = Apply an action
+ticket-actions-dialog-picker-placeholder = Find an action...
+ticket-actions-dialog-empty = No live manual rules in this workspace.
+ticket-actions-dialog-action-list-label = This action will:
+ticket-actions-dialog-cancel = Cancel
+ticket-actions-dialog-apply = Apply
+ticket-actions-dialog-applying = Applying...
+ticket-actions-success-toast = Applied "{ $rule }".
+ticket-actions-error-toast = Couldn't apply the action.
+
+# Action summary chips (admin list + agent dialog preview).
+admin-rules-action-chip-reply-public = Reply to customer
+admin-rules-action-chip-reply-internal = Add internal note
+admin-rules-action-chip-set-status = Move to state #{ $state_id }
+admin-rules-action-chip-assign = Assign to user
+admin-rules-action-chip-unassign = Clear assignee
+admin-rules-action-chip-add-tags = Add { $count ->
+    [one] 1 tag
+   *[other] { $count } tags
+  }
+admin-rules-action-chip-remove-tags = Remove { $count ->
+    [one] 1 tag
+   *[other] { $count } tags
+  }
+admin-rules-action-chip-set-priority = Set priority to { $priority }
+admin-rules-action-chip-notify = Send notification
+admin-rules-action-chip-stop-processing = Stop here
+
+# Rule editor (Wave 7).
+admin-rule-editor-title-new = New rule
+admin-rule-editor-title-edit = Edit "{ $name }"
+admin-rule-editor-back = Back to rules
+admin-rule-editor-save = Save
+admin-rule-editor-saving = Saving...
+admin-rule-editor-section-name = What
+admin-rule-editor-section-trigger = When
+admin-rule-editor-section-actions = Then do
+admin-rule-editor-section-state = State
+admin-rule-editor-name-label = Name
+admin-rule-editor-name-placeholder = Acknowledge and escalate to network team
+admin-rule-editor-description-label = Description (optional)
+admin-rule-editor-description-placeholder = Short note about when an agent should reach for this.
+admin-rule-editor-trigger-label = Trigger
+admin-rule-editor-trigger-manual-note = Manual rules show up in the agent Actions toolbar. There's no per-ticket condition; the picker is filtered by category.
+admin-rule-editor-trigger-other-phase = Event triggers and time-elapsed triggers land in Phase 2 of the rules engine; for now they save as Draft but won't fire until the engine subscribes.
+admin-rule-editor-actions-add = Add an action
+admin-rule-editor-actions-empty = This rule needs at least one action.
+admin-rule-editor-action-remove = Remove
+admin-rule-editor-error-save = Couldn't save the rule.
+admin-rule-editor-error-conflict = This rule reads and writes the same fields. Save anyway to override.
+admin-rule-editor-override-self-ref = I understand this rule may loop
+admin-rule-editor-priority-label = Priority (lower runs first)

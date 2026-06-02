@@ -32,7 +32,10 @@ use crate::models::{
 };
 use crate::repository::comments;
 use crate::sync::actor::ActorContext;
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 use crate::sync::session::with_actor_context;
+use crate::models::{SyncAggregate, SyncOp};
 
 // =====================================================================
 // reads_set / writes_set derivation (plan §11.2). Pure helpers; the
@@ -744,9 +747,35 @@ pub fn apply_manual(
                 originating_event_id: None,
                 originating_event_kind: None,
                 condition_evaluation: None,
-                actions_taken: actions_taken_value,
+                actions_taken: actions_taken_value.clone(),
                 actions_skipped: actions_skipped_value,
                 failure_reason: None,
+            },
+        )?;
+
+        // Emit ticket.rule_applied so the activity feed surfaces the
+        // fire alongside ticket.merged + manual events. correlation_id
+        // is set via the actor session GUC; the audit_log + sync_actions
+        // rows for this transaction all share it.
+        let sync_groups = groups::for_ticket(conn, &ticket)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Ticket,
+                aggregate_id: ticket.id.to_string(),
+                op: SyncOp::Update,
+                event_type: "ticket.rule_applied",
+                data: json!({
+                    "rule_id": rule.id,
+                    "rule_version": rule_version,
+                    "rule_name": updated_rule.name,
+                    "actor_uuid": actor.uuid,
+                    "comment_id": comment_id,
+                    "actions_taken": actions_taken_value,
+                    "was_dry_run": status == RuleApplicationStatus::DryRun,
+                }),
+                groups: sync_groups,
+                causation_id: None,
             },
         )?;
 
