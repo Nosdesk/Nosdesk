@@ -22,6 +22,9 @@ import { computed, ref } from 'vue'
 import Popover from '@/components/common/Popover.vue'
 import Icon from '@/components/common/Icon.vue'
 import UserSelectionModal from '@/components/UserSelectionModal.vue'
+import MergeTicketsDialog, {
+  type MergeDialogTicket,
+} from '@/components/ticketComponents/MergeTicketsDialog.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { PRIORITY_OPTIONS } from '@/constants/ticketOptions'
@@ -133,6 +136,24 @@ function pickPriority(priority: string): void {
 function onAssignSelect(user: { uuid: string }): void {
   showAssignModal.value = false
   emit('set-assignee', user.uuid, ids.value)
+}
+
+// ---- Merge ----------------------------------------------------
+const showMergeDialog = ref(false)
+// Resolve the selection to the minimal shape the merge dialog needs.
+// (The sync store's SyncTicket carries id / title / workflow_state_id;
+// merged tickets are filtered out of the list, and the backend rejects
+// an already-merged source, so the count check is enough here.)
+const selectedTickets = computed<MergeDialogTicket[]>(() =>
+  ids.value
+    .map((id) => ticketsStore.byId(id).value)
+    .filter((t): t is NonNullable<typeof t> => !!t)
+    .map((t) => ({ id: t.id, title: t.title, workflow_state_id: t.workflow_state_id })),
+)
+const canMerge = computed(() => selectedTickets.value.length >= 2)
+function onMerged(): void {
+  showMergeDialog.value = false
+  emit('clear')
 }
 </script>
 
@@ -259,6 +280,20 @@ function onAssignSelect(user: { uuid: string }): void {
         <span>{{ $t('ticket-list-bulk-assign') }}</span>
       </button>
 
+      <!-- Merge — only when 2+ tickets are selected and none is
+           already merged. Opens the merge dialog with the selection. -->
+      <template v-if="canMerge">
+        <span class="h-4 w-px bg-default mx-1" aria-hidden="true" />
+        <button
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+          @click="showMergeDialog = true"
+        >
+          <Icon name="link" class="w-3.5 h-3.5" />
+          <span>{{ $t('ticket-list-bulk-merge') }}</span>
+        </button>
+      </template>
+
       <span class="h-4 w-px bg-default mx-1" aria-hidden="true" />
 
       <button
@@ -277,5 +312,12 @@ function onAssignSelect(user: { uuid: string }): void {
     :show="showAssignModal"
     @close="showAssignModal = false"
     @select-user="onAssignSelect"
+  />
+
+  <MergeTicketsDialog
+    :open="showMergeDialog"
+    :selected-tickets="selectedTickets"
+    @close="showMergeDialog = false"
+    @merged="onMerged"
   />
 </template>
