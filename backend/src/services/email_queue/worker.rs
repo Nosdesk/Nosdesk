@@ -75,11 +75,7 @@ pub async fn run_one_drain(
     // workspace pin exists here.
     let claimed =
         crate::sync::session::background_run(&pool, "background:email_queue_claim", |conn| {
-            Ok::<_, diesel::result::Error>(repo::claim_batch(
-                conn,
-                repo::DEFAULT_BATCH_SIZE,
-                LEASE_SECONDS,
-            )?)
+            repo::claim_batch(conn, repo::DEFAULT_BATCH_SIZE, LEASE_SECONDS)
         })
         .map_err(|e| anyhow::anyhow!("claim_batch failed: {e}"))?;
     stats.claimed = claimed.len();

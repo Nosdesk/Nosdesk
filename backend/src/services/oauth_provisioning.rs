@@ -158,10 +158,7 @@ pub fn find_or_create_projected_user(
                             ensure_email_linked(conn, &user, &iss, &email);
                             ProjectionOutcome::Existed(user)
                         }
-                        Err(DieselError::DatabaseError(
-                            DatabaseErrorKind::UniqueViolation,
-                            _,
-                        )) => {
+                        Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
                             return Err(format!(
                                 "OIDC identity ({iss}, {sub}) is already attached to a \
                                  different user; refusing to silently link to the \

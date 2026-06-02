@@ -64,7 +64,7 @@ fn actor_uuid(req: &HttpRequest) -> Option<Uuid> {
 
 /// GET /api/workflow-states
 pub async fn list(mut tc: TenantConn, _req: HttpRequest) -> impl Responder {
-    match tc.run(|conn| repo::list_all(conn)) {
+    match tc.run(repo::list_all) {
         Ok(states) => {
             let active = states
                 .into_iter()
@@ -101,7 +101,7 @@ pub async fn create(
 
     // Pick the next position inside the category so the new state
     // lands at the bottom of its column.
-    let next_position: i32 = match tc.run(|conn| repo::list_all(conn)) {
+    let next_position: i32 = match tc.run(repo::list_all) {
         Ok(rows) => rows
             .iter()
             .filter(|s| s.category == body.category && s.archived_at.is_none())

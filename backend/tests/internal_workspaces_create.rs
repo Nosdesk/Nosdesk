@@ -45,8 +45,7 @@ async fn workspaces_create_full_contract() {
     let owner = common::insert_user(&mut pool.get().expect("conn"), "M5Owner");
     let platform_token =
         common::mint_api_token(&mut pool.get().expect("conn"), &owner, "ctrl-plane", true);
-    let user_token =
-        common::mint_api_token(&mut pool.get().expect("conn"), &owner, "user", false);
+    let user_token = common::mint_api_token(&mut pool.get().expect("conn"), &owner, "user", false);
 
     let pool_for_app = pool.clone();
     let srv = actix_test::start(move || {
@@ -187,7 +186,10 @@ async fn workspaces_create_full_contract() {
     let resp = client
         .post(&url)
         .insert_header(("Authorization", format!("Bearer {platform_token}")))
-        .insert_header(("Idempotency-Key", format!("provision-{}", uuid::Uuid::new_v4())))
+        .insert_header((
+            "Idempotency-Key",
+            format!("provision-{}", uuid::Uuid::new_v4()),
+        ))
         .insert_header(("Content-Type", "application/json"))
         .send_json(&json!({
             "slug": "api", // reserved

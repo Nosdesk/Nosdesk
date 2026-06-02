@@ -1,4 +1,5 @@
 // Reexport handlers
+pub mod admin_workspaces;
 pub mod api_tokens;
 pub mod asset_audits;
 pub mod asset_kinds;
@@ -33,7 +34,6 @@ pub mod guest_settings;
 pub mod health;
 pub mod helpers;
 pub mod image_proxy;
-pub mod admin_workspaces;
 pub mod imports;
 pub mod internal_workspaces;
 pub mod invitation;
@@ -754,12 +754,11 @@ pub async fn add_comment_to_ticket(
                                                 .filter(
                                                     workspace_members::user_uuid.eq(users::uuid),
                                                 )
+                                                .filter(workspace_members::workspace_id.eq(1))
                                                 .filter(
-                                                    workspace_members::workspace_id.eq(1),
-                                                )
-                                                .filter(workspace_members::role.eq_any(vec![
-                                                    "owner", "admin", "agent",
-                                                ])),
+                                                    workspace_members::role
+                                                        .eq_any(vec!["owner", "admin", "agent"]),
+                                                ),
                                         ),
                                     ),
                                 )
@@ -1001,14 +1000,11 @@ pub async fn delete_attachment(
         Ok(attachment) => {
             debug!(attachment = ?attachment, "Found attachment");
 
-            // Extract the storage path from the URL
-            let storage_path = if attachment.url.starts_with("/uploads/temp/") {
-                attachment.url.trim_start_matches("/uploads/").to_string()
-            } else if attachment.url.starts_with("/uploads/tickets/") {
-                attachment.url.trim_start_matches("/uploads/").to_string()
-            } else {
-                attachment.url.trim_start_matches("/uploads/").to_string()
-            };
+            // Extract the storage path from the URL. The branch split
+            // previously logged different cases for temp vs ticket vs
+            // other; both have collapsed to the same trim and there
+            // is no remaining reason to fork.
+            let storage_path = attachment.url.trim_start_matches("/uploads/").to_string();
 
             debug!(storage_path = %storage_path, "Attempting to delete file from storage");
 

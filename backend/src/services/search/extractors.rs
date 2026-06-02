@@ -36,10 +36,10 @@ fn extract_text_from_xml_node(node: &XmlOut, txn: &yrs::Transaction) -> String {
         XmlOut::Text(text_ref) => {
             // XmlTextRef::get_string returns the text content
             // Use panic::catch_unwind because Yjs can panic on corrupted data
-            match panic::catch_unwind(panic::AssertUnwindSafe(|| text_ref.get_string(txn))) {
-                Ok(s) => s,
-                Err(_) => String::new(),
-            }
+            let s: String =
+                panic::catch_unwind(panic::AssertUnwindSafe(|| text_ref.get_string(txn)))
+                    .unwrap_or_default();
+            s
         }
         XmlOut::Element(elem_ref) => {
             // Recursively extract text from element's children

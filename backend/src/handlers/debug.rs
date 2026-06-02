@@ -115,7 +115,7 @@ pub async fn receive_frontend_logs(body: web::Json<FrontendLogsRequest>) -> impl
                     message
                 );
             }
-            "debug" | _ => {
+            _ => {
                 debug!(
                     target: "frontend",
                     timestamp = %timestamp,

@@ -146,7 +146,7 @@ pub mod normalization {
     }
 
     pub fn normalize_optional_string(value: Option<&str>) -> Option<String> {
-        value.map(|s| utils::normalize_string(s))
+        value.map(utils::normalize_string)
     }
 }
 
@@ -166,8 +166,7 @@ mod tests {
 
     #[test]
     fn builder_defaults_mfa_disabled() {
-        let (user, _) =
-            NewUserBuilder::new("Bob".into(), "b@b.com".into(), UserRole::User).build();
+        let (user, _) = NewUserBuilder::new("Bob".into(), "b@b.com".into(), UserRole::User).build();
         assert!(!user.mfa_enabled);
         assert!(user.mfa_secret.is_none());
         // Recovery codes are now their own table (user_recovery_codes);

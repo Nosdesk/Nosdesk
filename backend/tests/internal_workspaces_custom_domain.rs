@@ -42,8 +42,7 @@ async fn custom_domain_set_clear_collide() {
     let admin = common::insert_user(&mut pool.get().expect("conn"), "M5DomainAdmin");
     let platform_token =
         common::mint_api_token(&mut pool.get().expect("conn"), &admin, "ctrl-plane", true);
-    let user_token =
-        common::mint_api_token(&mut pool.get().expect("conn"), &admin, "user", false);
+    let user_token = common::mint_api_token(&mut pool.get().expect("conn"), &admin, "user", false);
     common::mint_workspace(&mut pool.get().expect("conn"), "acme", "Acme");
     common::mint_workspace(&mut pool.get().expect("conn"), "beta", "Beta");
 

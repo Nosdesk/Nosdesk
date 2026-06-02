@@ -542,11 +542,8 @@ pub fn should_require_mfa(user_role: &UserRole) -> bool {
 /// distinguish via `anyhow` `chain()` if needed; in practice the
 /// caller surfaces both as a 5xx and tells the user to retry.
 pub async fn validate_mfa_policy(user: &User, conn: &mut crate::db::DbConnection) -> Result<()> {
-    let role = crate::repository::user_helpers::legacy_role_for_user(
-        conn,
-        user.uuid,
-        &user.platform_role,
-    );
+    let role =
+        crate::repository::user_helpers::legacy_role_for_user(conn, user.uuid, &user.platform_role);
     if !should_require_mfa(&role) || user.mfa_enabled {
         return Ok(());
     }
@@ -642,6 +639,50 @@ fn get_mfa_rate_limit_config() -> (u32, u64) {
         .unwrap_or(900); // Default: 900 seconds (15 minutes)
 
     (max_attempts, window_seconds)
+}
+
+pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
+    use crate::utils::rate_limit::RateLimiter;
+
+    // Get configuration from environment
+    let (max_attempts, window_seconds) = get_mfa_rate_limit_config();
+
+    // Get Redis URL from environment
+    let redis_url = crate::utils::rate_limit::get_redis_url();
+
+    // Generate rate limit key for this user
+    let key = RateLimiter::mfa_attempt_key(user_uuid);
+
+    // Check the rate limit
+    match RateLimiter::check_rate_limit(&redis_url, &key, max_attempts, window_seconds).await {
+        Ok(allowed) => {
+            if !allowed {
+                tracing::warn!(
+                    "MFA rate limit exceeded for user {} ({} attempts in {} seconds)",
+                    user_uuid,
+                    max_attempts,
+                    window_seconds
+                );
+            }
+            allowed
+        }
+        Err(e) => {
+            tracing::error!("MFA rate limit check failed for user {}: {}", user_uuid, e);
+            // Fail-closed in production (security-critical), fail-open in development (convenience)
+            let is_production = std::env::var("ENVIRONMENT")
+                .map(|v| v.to_lowercase() == "production")
+                .unwrap_or(false);
+            if is_production {
+                tracing::warn!(
+                    "Denying MFA attempt due to rate limit check failure (fail-closed mode)"
+                );
+                false
+            } else {
+                tracing::warn!("Allowing MFA attempt due to rate limit check failure (fail-open mode in non-production)");
+                true
+            }
+        }
+    }
 }
 
 /// MFA rate limiting check using Redis
@@ -800,49 +841,5 @@ mod tests {
             "anything",
             "$argon2id$malformed"
         ));
-    }
-}
-
-pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
-    use crate::utils::rate_limit::RateLimiter;
-
-    // Get configuration from environment
-    let (max_attempts, window_seconds) = get_mfa_rate_limit_config();
-
-    // Get Redis URL from environment
-    let redis_url = crate::utils::rate_limit::get_redis_url();
-
-    // Generate rate limit key for this user
-    let key = RateLimiter::mfa_attempt_key(user_uuid);
-
-    // Check the rate limit
-    match RateLimiter::check_rate_limit(&redis_url, &key, max_attempts, window_seconds).await {
-        Ok(allowed) => {
-            if !allowed {
-                tracing::warn!(
-                    "MFA rate limit exceeded for user {} ({} attempts in {} seconds)",
-                    user_uuid,
-                    max_attempts,
-                    window_seconds
-                );
-            }
-            allowed
-        }
-        Err(e) => {
-            tracing::error!("MFA rate limit check failed for user {}: {}", user_uuid, e);
-            // Fail-closed in production (security-critical), fail-open in development (convenience)
-            let is_production = std::env::var("ENVIRONMENT")
-                .map(|v| v.to_lowercase() == "production")
-                .unwrap_or(false);
-            if is_production {
-                tracing::warn!(
-                    "Denying MFA attempt due to rate limit check failure (fail-closed mode)"
-                );
-                false
-            } else {
-                tracing::warn!("Allowing MFA attempt due to rate limit check failure (fail-open mode in non-production)");
-                true
-            }
-        }
     }
 }

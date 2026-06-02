@@ -116,7 +116,7 @@ async fn run(mut rx: mpsc::Receiver<ChannelCmd>, deps: RegistryDeps) {
     match crate::sync::session::background_run(
         &deps.pool,
         "background:channel_supervisor_hydrate",
-        |conn| channels_repo::list_enabled(conn),
+        channels_repo::list_enabled,
     ) {
         Ok(channels) => {
             let count = channels.len();

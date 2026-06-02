@@ -17,8 +17,8 @@ fn encrypted_backup_round_trips_with_correct_password() {
     let mut conn = db.conn();
     with_upload_dir();
 
-    insert_user(&mut *conn, "Encrypted Eve");
-    let asset_id = insert_stock_asset(&mut *conn, "encrypted-asset");
+    insert_user(&mut conn, "Encrypted Eve");
+    let asset_id = insert_stock_asset(&mut conn, "encrypted-asset");
 
     let job_id = seed_backup_job(&mut conn);
     let backup_path =
@@ -58,7 +58,7 @@ fn restore_rejects_wrong_password() {
     let mut conn = db.conn();
     with_upload_dir();
 
-    insert_user(&mut *conn, "Eve");
+    insert_user(&mut conn, "Eve");
     let job_id = seed_backup_job(&mut conn);
     let backup_path = backup_service::create_backup(&mut conn, job_id, Some("password-a"))
         .expect("create_backup");

@@ -69,7 +69,7 @@ pub async fn create_api_token(
             .iter()
             .find(|s| !crate::utils::rbac::is_valid_token_scope(s))
         {
-            return errors::bad_request(&format!("Unknown token scope: {bad}"));
+            return errors::bad_request(format!("Unknown token scope: {bad}"));
         }
     }
 

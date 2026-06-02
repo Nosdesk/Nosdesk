@@ -400,7 +400,7 @@ impl PluginProxyService {
         let body = body_text.and_then(|text| {
             serde_json::from_str::<serde_json::Value>(&text)
                 .ok()
-                .or_else(|| Some(serde_json::Value::String(text)))
+                .or(Some(serde_json::Value::String(text)))
         });
 
         if status >= 400 {

@@ -237,7 +237,7 @@ pub async fn get_tickets(mut tc: TenantConn, auth: AuthContext) -> impl Responde
         return errors::forbidden("Forbidden: Only technicians and admins can access all tickets");
     }
 
-    match tc.run(|conn| repository::get_all_tickets(conn)) {
+    match tc.run(repository::get_all_tickets) {
         Ok(tickets) => HttpResponse::Ok().json(tickets),
         Err(_) => errors::internal("Failed to get tickets"),
     }
@@ -849,7 +849,7 @@ pub async fn create_empty_ticket(
     };
 
     // Create a new ticket with default values using the authenticated user's UUID
-    let default_state = match tc.run(|conn| repository::workflow_states::default_state(conn)) {
+    let default_state = match tc.run(repository::workflow_states::default_state) {
         Ok(s) => s,
         Err(e) => {
             error!(error = ?e, "Failed to resolve default workflow state");
@@ -1228,12 +1228,11 @@ pub async fn update_ticket_partial(
                             let template_id = updated_ticket
                                 .recurrence_template_id
                                 .unwrap_or(updated_ticket.id);
-                            let open_state = match tc
-                                .run(|conn| repository::workflow_states::default_state(conn))
-                            {
-                                Ok(s) => s.id,
-                                Err(_) => updated_ticket.workflow_state_id,
-                            };
+                            let open_state =
+                                match tc.run(repository::workflow_states::default_state) {
+                                    Ok(s) => s.id,
+                                    Err(_) => updated_ticket.workflow_state_id,
+                                };
                             let new_ticket = NewTicket {
                                 title: updated_ticket.title.clone(),
                                 workflow_state_id: open_state,

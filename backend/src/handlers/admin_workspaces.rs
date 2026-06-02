@@ -405,7 +405,9 @@ pub async fn add_member(
         }
     }
 
-    match pc.run(|conn| workspaces::add_membership(conn, workspace_id, user_uuid, parsed_role.as_str())) {
+    match pc
+        .run(|conn| workspaces::add_membership(conn, workspace_id, user_uuid, parsed_role.as_str()))
+    {
         Ok(n) if n > 0 => {
             info!(workspace_id, %user_uuid, role = %parsed_role.as_str(), "admin/workspaces member added");
             HttpResponse::Created().json(serde_json::json!({
@@ -463,15 +465,15 @@ pub async fn update_member_role(
             info!(workspace_id, %user_uuid, role = %parsed_role.as_str(), "admin/workspaces member role updated");
             HttpResponse::Ok().json(MemberSummary::from(m))
         }
-        Ok(UpdateMembershipRoleResult::NotFound) => {
-            errors::not_found_msg(format!(
-                "no membership row for user {user_uuid} in workspace {workspace_id}"
-            ))
+        Ok(UpdateMembershipRoleResult::NotFound) => errors::not_found_msg(format!(
+            "no membership row for user {user_uuid} in workspace {workspace_id}"
+        )),
+        Ok(UpdateMembershipRoleResult::LastOwner) => {
+            HttpResponse::Conflict().json(serde_json::json!({
+                "error": "last_owner",
+                "message": "cannot demote the only owner; promote another member first",
+            }))
         }
-        Ok(UpdateMembershipRoleResult::LastOwner) => HttpResponse::Conflict().json(serde_json::json!({
-            "error": "last_owner",
-            "message": "cannot demote the only owner; promote another member first",
-        })),
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces update_member_role failed");
             errors::internal("Failed to update member role")

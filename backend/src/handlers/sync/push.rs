@@ -73,7 +73,7 @@ pub async fn push(
 ) -> impl Responder {
     let body = body.into_inner();
     if body.len() > MAX_BATCH {
-        return errors::bad_request(&format!("Batch exceeds the {MAX_BATCH}-transaction limit"));
+        return errors::bad_request(format!("Batch exceeds the {MAX_BATCH}-transaction limit"));
     }
 
     // Pull the workspace pin from RequestContext (populated by the

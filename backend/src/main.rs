@@ -1,3 +1,16 @@
+// Mirror the crate-level allows in lib.rs so the binary build picks
+// up the same posture. See lib.rs for the rationale.
+#![allow(
+    clippy::too_many_arguments,
+    clippy::large_enum_variant,
+    clippy::type_complexity,
+    clippy::should_implement_trait,
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items,
+    clippy::field_reassign_with_default,
+    clippy::manual_strip
+)]
+
 use backend::db;
 use backend::handlers;
 use backend::middleware;

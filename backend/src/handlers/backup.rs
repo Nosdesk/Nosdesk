@@ -143,7 +143,7 @@ pub async fn get_jobs(mut tc: TenantConn, req: actix_web::HttpRequest) -> impl R
         return errors::forbidden("Admin access required");
     }
 
-    match tc.run(|conn| backup_repo::get_all_backup_jobs(conn)) {
+    match tc.run(backup_repo::get_all_backup_jobs) {
         Ok(jobs) => {
             let responses: Vec<BackupJobResponse> =
                 jobs.into_iter().map(BackupJobResponse::from).collect();

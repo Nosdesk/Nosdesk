@@ -64,7 +64,7 @@ pub async fn record(
         Ok(q) => q,
         Err(_) => return errors::bad_request("counted_quantity must be a decimal number"),
     };
-    if counted < BigDecimal::from(0) {
+    if counted < 0 {
         return errors::bad_request("counted_quantity cannot be negative");
     }
 
@@ -124,7 +124,7 @@ pub async fn record(
 
             if outcome.crossed_low_stock {
                 if let Some(threshold) = outcome.threshold.as_ref() {
-                    let actor_uuid = recorded_by.unwrap_or_else(uuid::Uuid::nil);
+                    let actor_uuid = auth.user_uuid;
                     let actor_name = tc
                         .run(|conn| Ok(actor_name_for(conn, actor_uuid)))
                         .ok()
@@ -208,18 +208,18 @@ fn inventory_alert_recipients(conn: &mut crate::db::DbConnection) -> Vec<uuid::U
     let res: Result<Vec<uuid::Uuid>, diesel::result::Error> = users::table
         .filter(users::deleted_at.is_null())
         .filter(
-            users::platform_role.eq("platform_admin").or(diesel::dsl::exists(
-                workspace_members::table
-                    .filter(workspace_members::user_uuid.eq(users::uuid))
-                    .filter(workspace_members::workspace_id.eq(diesel::dsl::sql::<
-                        diesel::sql_types::Integer,
-                    >(
-                        "NULLIF(current_setting('app.workspace_id', true), '')::int",
-                    )))
-                    .filter(
-                        workspace_members::role.eq_any(vec!["owner", "admin", "agent"]),
-                    ),
-            )),
+            users::platform_role
+                .eq("platform_admin")
+                .or(diesel::dsl::exists(
+                    workspace_members::table
+                        .filter(workspace_members::user_uuid.eq(users::uuid))
+                        .filter(workspace_members::workspace_id.eq(diesel::dsl::sql::<
+                            diesel::sql_types::Integer,
+                        >(
+                            "NULLIF(current_setting('app.workspace_id', true), '')::int",
+                        )))
+                        .filter(workspace_members::role.eq_any(vec!["owner", "admin", "agent"])),
+                )),
         )
         .select(users::uuid)
         .load(conn);

@@ -338,8 +338,8 @@ mod tests {
         assert_eq!(reverse, 0);
 
         // Idempotent: a second call conflicts and inserts nothing.
-        let again =
-            link_tickets_directional(&mut conn, src.id, dst.id, "duplicate_of", None, None).unwrap();
+        let again = link_tickets_directional(&mut conn, src.id, dst.id, "duplicate_of", None, None)
+            .unwrap();
         assert_eq!(again, 0);
     }
 

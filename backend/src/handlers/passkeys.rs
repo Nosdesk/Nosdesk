@@ -932,7 +932,7 @@ pub async fn start_passkey_setup_login(
                     "Account temporarily locked. Try again in {} seconds.",
                     remaining_seconds
                 ),
-                remaining_seconds as u64,
+                remaining_seconds,
             );
         }
         Ok(None) => {} // Not locked, continue
@@ -1110,7 +1110,7 @@ pub async fn finish_passkey_setup_login(
                     "Account temporarily locked. Try again in {} seconds.",
                     remaining_seconds
                 ),
-                remaining_seconds as u64,
+                remaining_seconds,
             );
         }
         Ok(None) => {} // Not locked, continue

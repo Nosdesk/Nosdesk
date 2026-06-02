@@ -200,7 +200,7 @@ fn markdown_to_yjs(markdown: &str) -> Option<Vec<u8>> {
                     .unwrap_or(false)
                     && l.contains(". ")
                 {
-                    let item_text = l.splitn(2, ". ").nth(1).unwrap_or("");
+                    let item_text = l.split_once(". ").map(|x| x.1).unwrap_or("");
                     let delta = parse_inline_to_delta(item_text);
                     let para = XmlElementPrelim::new("paragraph", vec![delta.into()]);
                     let li = XmlElementPrelim::new("list_item", vec![para.into()]);
@@ -323,7 +323,7 @@ fn parse_inline_spans(text: &str) -> Vec<InlineSpan<'_>> {
     let mut remaining = text;
 
     while !remaining.is_empty() {
-        if let Some(pos) = remaining.find(|c: char| c == '*' || c == '`' || c == '[') {
+        if let Some(pos) = remaining.find(['*', '`', '[']) {
             // Plain text before marker
             if pos > 0 {
                 spans.push(InlineSpan::Plain(&remaining[..pos]));

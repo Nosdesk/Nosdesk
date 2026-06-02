@@ -87,10 +87,7 @@ impl AuthContext {
 /// platform-admin → Admin; otherwise the workspace_members role
 /// (owner/admin → Admin, agent → Technician, member → User).
 /// No membership in the resolved workspace falls back to User.
-pub(crate) fn derive_role(
-    platform_role: &str,
-    workspace_role: Option<&str>,
-) -> UserRole {
+pub(crate) fn derive_role(platform_role: &str, workspace_role: Option<&str>) -> UserRole {
     if platform_role == "platform_admin" {
         return UserRole::Admin;
     }

@@ -702,23 +702,15 @@ pub struct WorkflowStateUpdate {
     diesel::expression::AsExpression,
 )]
 #[diesel(sql_type = crate::schema::sql_types::TicketPriority)]
+#[derive(Default)]
 pub enum TicketPriority {
     #[serde(rename = "low")]
     Low,
     #[serde(rename = "medium")]
+    #[default]
     Medium,
     #[serde(rename = "high")]
     High,
-}
-
-impl Default for TicketPriority {
-    fn default() -> Self {
-        // Medium matches the prior behavior of `parse_ticket_priority`
-        // for unknown strings; new tickets without a stated priority
-        // land in the middle bucket rather than dragging the queue
-        // toward Low or High.
-        TicketPriority::Medium
-    }
 }
 
 impl TicketPriority {
@@ -2369,7 +2361,7 @@ pub struct Claims {
     pub sub: String,   // Subject (user UUID as string for JWT compatibility)
     pub name: String,  // User's name
     pub email: String, // User's email
-    pub role: String,  // User's role (LEGACY pre-W2 — `admin` / `technician` / `user`). Sweep callers off this onto `platform_role`; this field disappears in the W2 cleanup migration.
+    pub role: String, // User's role (LEGACY pre-W2 — `admin` / `technician` / `user`). Sweep callers off this onto `platform_role`; this field disappears in the W2 cleanup migration.
     /// Phase 4 W2: platform-wide privilege role. Values:
     /// `"platform_admin"` / `"user"`. `Option` so existing JWTs
     /// without this claim still deserialize during the rollout

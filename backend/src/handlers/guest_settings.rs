@@ -29,7 +29,7 @@ pub struct UpdateGuestSettingsRequest {
 }
 
 pub async fn get_guest_settings(mut tc: TenantConn) -> impl Responder {
-    match tc.run(|conn| site_settings::get_site_settings(conn)) {
+    match tc.run(site_settings::get_site_settings) {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
             HttpResponse::Ok().json(response)

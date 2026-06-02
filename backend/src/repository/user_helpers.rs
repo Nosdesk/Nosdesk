@@ -351,9 +351,8 @@ fn lookup_for_guest(
     // still unverified AND have the baseline `User` role (derived from
     // the W2 split — admin / agent never lose the privilege check).
     let role = legacy_role_for_user(conn, user.uuid, &user.platform_role);
-    let reusable = !is_verified
-        && role == UserRole::User
-        && source.as_deref() == Some(GUEST_EMAIL_SOURCE);
+    let reusable =
+        !is_verified && role == UserRole::User && source.as_deref() == Some(GUEST_EMAIL_SOURCE);
 
     Ok(Some(if reusable {
         GuestUserResult::Existing(user)
@@ -623,8 +622,7 @@ mod tests {
         match result {
             GuestUserResult::Created(user) => {
                 assert_eq!(user.name, "Fresh User");
-                let derived =
-                    legacy_role_for_user(&mut conn, user.uuid, &user.platform_role);
+                let derived = legacy_role_for_user(&mut conn, user.uuid, &user.platform_role);
                 assert_eq!(derived, UserRole::User);
                 // The matching email row should be unverified and tagged
                 // with the guest source so the lookup classifies it as reusable.
