@@ -82,9 +82,14 @@ pub fn bad_request_with_code(message: impl Into<String>, code: &str) -> HttpResp
 
 /// 401 Unauthorized — caller is unauthenticated.
 pub fn unauthorized(message: impl Into<String>) -> HttpResponse {
+    unauthorized_with_code(message, "AUTH_REQUIRED")
+}
+
+/// 401 Unauthorized with a specific machine-readable code.
+pub fn unauthorized_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
     HttpResponse::Unauthorized().json(json!({
         "error": message.into(),
-        "code": "AUTH_REQUIRED",
+        "code": code,
     }))
 }
 
@@ -178,9 +183,14 @@ pub fn too_many_requests(message: impl Into<String>, retry_after_secs: u64) -> H
 /// `db_error` or a more specific helper when applicable; the raw
 /// 500 should be a last resort.
 pub fn internal(message: impl Into<String>) -> HttpResponse {
+    internal_with_code(message, "INTERNAL_ERROR")
+}
+
+/// 500 Internal Server Error with a specific machine-readable code.
+pub fn internal_with_code(message: impl Into<String>, code: &str) -> HttpResponse {
     HttpResponse::InternalServerError().json(json!({
         "error": message.into(),
-        "code": "INTERNAL_ERROR",
+        "code": code,
     }))
 }
 

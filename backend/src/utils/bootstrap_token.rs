@@ -46,11 +46,12 @@ use rand::RngCore;
 use crate::db::DbConnection;
 use crate::middleware::DeploymentMode;
 
-/// Default TTL — 60 minutes. Long enough that an operator who
-/// walks away to make tea doesn't return to an expired token,
-/// short enough that an exfiltrated log line goes stale within
-/// the same operator's session.
-const DEFAULT_TTL_SECONDS: u64 = 60 * 60;
+/// Default TTL — 30 minutes (matching PocketBase's post-CVE-2024-31218
+/// installer-token window). Long enough for an operator to complete
+/// first-boot setup, short enough that an exfiltrated startup-log line
+/// goes stale quickly. Override with `BOOTSTRAP_TOKEN_TTL_SECONDS` for
+/// slow deployments.
+const DEFAULT_TTL_SECONDS: u64 = 30 * 60;
 
 fn ttl() -> Duration {
     let secs = std::env::var("BOOTSTRAP_TOKEN_TTL_SECONDS")
@@ -145,6 +146,42 @@ pub fn reconcile(conn: &mut DbConnection, mode: DeploymentMode) -> Result<()> {
     write_token_file(&path, &token)?;
     log_setup_line(&token);
     Ok(())
+}
+
+/// Spawn a background task that logs once when an unconsumed bootstrap
+/// token reaches its TTL, then deletes the stale file.
+///
+/// No cancellation channel is needed: [`consume`] deletes the token
+/// file on a successful setup, so when this task wakes it simply checks
+/// whether the file is still present and expired. If setup already
+/// happened (or the token was never minted, e.g. hosted mode), the file
+/// is absent and the task is a no-op. Call once at startup, after
+/// [`reconcile`].
+pub fn spawn_expiry_logger() {
+    tokio::spawn(async move {
+        let path = token_file_path();
+        let Ok(meta) = fs::metadata(&path) else {
+            return; // no token on disk (already consumed, or hosted)
+        };
+        let Ok(modified) = meta.modified() else {
+            return;
+        };
+        let remaining = (modified + ttl())
+            .duration_since(SystemTime::now())
+            .unwrap_or(Duration::ZERO);
+        tokio::time::sleep(remaining).await;
+
+        // consume() deletes the file on success, so a still-present,
+        // expired file means the operator never completed setup.
+        if path.exists() && is_expired(&path) {
+            tracing::warn!(
+                "bootstrap token expired without being consumed; restart the \
+                 backend to mint a fresh one, or use the CLI \
+                 (`nosdesk-cli admin create`) or INITIAL_ADMIN_* env paths"
+            );
+            delete_token_file();
+        }
+    });
 }
 
 /// Compose the setup URL the operator should visit. Uses

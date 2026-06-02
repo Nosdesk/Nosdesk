@@ -455,12 +455,18 @@ where
 
             // Referrer-Policy. Same-origin gets the full referrer,
             // cross-origin gets just the origin (no path). Standard
-            // OWASP recommendation.
+            // OWASP recommendation. The /onboarding route is the lone
+            // exception: it carries the bootstrap token in the query
+            // string, so it gets `no-referrer` to keep the token from
+            // leaking via the Referer header on any same-page subrequest
+            // fired before the SPA strips it from the URL.
             if !headers.contains_key(header::REFERRER_POLICY) {
-                headers.insert(
-                    header::REFERRER_POLICY,
-                    "strict-origin-when-cross-origin".parse().unwrap(),
-                );
+                let policy = if path.starts_with("/onboarding") {
+                    "no-referrer"
+                } else {
+                    "strict-origin-when-cross-origin"
+                };
+                headers.insert(header::REFERRER_POLICY, policy.parse().unwrap());
             }
 
             // Permissions-Policy. Lock down powerful features the
