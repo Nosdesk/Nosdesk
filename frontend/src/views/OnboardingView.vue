@@ -13,6 +13,20 @@ import authService, {
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
 
+// Maps the backend's machine-readable `code` (see
+// handlers::auth::setup_initial_admin) to a localised Fluent message,
+// so onboarding errors render in the operator's language instead of the
+// raw English server string.
+const ERROR_CODE_KEYS: Record<string, string> = {
+  BOOTSTRAP_TOKEN_REQUIRED: 'onboarding-error-token-required',
+  BOOTSTRAP_TOKEN_EXPIRED: 'onboarding-error-token-expired',
+  BOOTSTRAP_TOKEN_MISMATCH: 'onboarding-error-token-mismatch',
+  BOOTSTRAP_TOKEN_NOT_PRESENT: 'onboarding-error-token-not-present',
+  VALIDATION_FAILED: 'onboarding-error-validation',
+  EMAIL_TAKEN: 'onboarding-error-email-taken',
+  SETUP_COMPLETE: 'onboarding-error-setup-complete',
+};
+
 const router = useRouter();
 
 // Auto-login composable. The onboarding view drives its own step
@@ -171,11 +185,17 @@ const handleSetup = async () => {
     console.error('Setup error:', error);
     currentStep.value = 'setup';
 
-    const axiosError = error as { response?: { status?: number; data?: { message?: string; status?: string } } };
-    if (axiosError.response?.data?.message) {
-      errorMessage.value = axiosError.response.data.message;
-    } else if (axiosError.response?.data?.status === 'error') {
-      errorMessage.value = axiosError.response.data.message || t('onboarding-error-setup-failed');
+    const axiosError = error as {
+      response?: { status?: number; data?: { error?: string; code?: string; message?: string } };
+    };
+    const data = axiosError.response?.data;
+    const fluentKey = data?.code ? ERROR_CODE_KEYS[data.code] : undefined;
+    if (fluentKey) {
+      // Localised message keyed on the backend's stable error code.
+      errorMessage.value = t(fluentKey);
+    } else if (data?.error || data?.message) {
+      // Unmapped code: fall back to the server-provided human string.
+      errorMessage.value = data.error || data.message || t('onboarding-error-setup-failed');
     } else {
       errorMessage.value = t('onboarding-error-unexpected');
     }

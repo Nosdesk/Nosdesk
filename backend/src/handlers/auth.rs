@@ -1131,13 +1131,24 @@ pub async fn setup_initial_admin(
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let Some(provided) = bearer.or(x_bootstrap) else {
-        return errors::unauthorized(
-            "Bootstrap token required. Check the server startup logs for the setup URL, or paste the token from `docker compose exec backend cat /app/state/bootstrap.token`."
+        return errors::unauthorized_with_code(
+            "Bootstrap token required. Check the server startup logs for the setup URL, or paste the token from `docker compose exec backend cat /app/state/bootstrap.token`.",
+            "BOOTSTRAP_TOKEN_REQUIRED",
         );
     };
     if let Err(e) = crate::utils::bootstrap_token::verify(provided) {
         warn!(error = %e, "setup_initial_admin: bootstrap token verify failed");
-        return errors::unauthorized("Invalid bootstrap token");
+        // Map the verify failure to a machine-readable code the
+        // frontend localises (the human strings stay non-enumerable).
+        let reason = e.to_string();
+        let code = if reason.contains("expired") {
+            "BOOTSTRAP_TOKEN_EXPIRED"
+        } else if reason.contains("not present") {
+            "BOOTSTRAP_TOKEN_NOT_PRESENT"
+        } else {
+            "BOOTSTRAP_TOKEN_MISMATCH"
+        };
+        return errors::unauthorized_with_code("Invalid bootstrap token", code);
     }
 
     let mut conn = match helpers::db_conn(&db_pool) {
@@ -1167,9 +1178,9 @@ pub async fn setup_initial_admin(
     }
     if !validation_errors.is_empty() {
         return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Validation failed",
-            "errors": validation_errors
+            "error": "Validation failed",
+            "code": "VALIDATION_FAILED",
+            "fields": validation_errors,
         }));
     }
 
@@ -1195,22 +1206,19 @@ pub async fn setup_initial_admin(
             // been consumed. Gone tells the client this is permanent and
             // not worth retrying (the frontend must not auto-redirect on
             // it).
-            return errors::gone(
+            return errors::gone_with_code(
                 "Setup has already been completed; this endpoint is no longer accepting requests.",
+                "SETUP_COMPLETE",
             );
         }
         Err(crate::services::admin_setup::AdminSetupError::DuplicateEmail) => {
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Email address already exists in the system",
-            }));
+            // 409 Conflict, not 500: a taken email is a client-correctable
+            // state, not a server fault.
+            return errors::conflict_with_code("Email already in use", "EMAIL_TAKEN");
         }
         Err(crate::services::admin_setup::AdminSetupError::Db(e)) => {
             error!(error = ?e, "Error creating admin user");
-            return HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error creating admin user",
-            }));
+            return errors::internal_with_code("Internal error during setup", "INTERNAL_ERROR");
         }
     };
 
@@ -1219,6 +1227,26 @@ pub async fn setup_initial_admin(
     // Bootstrap token has done its job; consuming the file is the
     // belt to the count check's braces.
     crate::utils::bootstrap_token::consume();
+
+    // First-admin provenance (workspace-local usage log, not phone-home
+    // telemetry): record who created the bootstrap admin and from where
+    // so a reviewer can later answer "who set this instance up?".
+    let client_ip = crate::utils::client_ip::from_http_request(&req)
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let user_agent = req
+        .headers()
+        .get("user-agent")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("unknown");
+    info!(
+        event = "bootstrap_admin_created",
+        user_uuid = %created_user.uuid,
+        email = %user_email.email,
+        client_ip = %client_ip,
+        user_agent = %user_agent,
+        "bootstrap admin created"
+    );
 
     // Search indexing happens post-commit so a rolled-back insert
     // never leaves an orphan document in tantivy.

@@ -670,6 +670,10 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // Log + clean up an unconsumed bootstrap token when it expires. A
+    // no-op when no token is on disk (setup already done, or hosted).
+    utils::bootstrap_token::spawn_expiry_logger();
+
     // AUD-007: prewarm the dummy bcrypt hash so the first real
     // login attempt doesn't pay the one-shot init cost.
     utils::login_timing::prewarm();
