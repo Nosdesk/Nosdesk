@@ -268,3 +268,128 @@ fn ensure_email_linked(conn: &mut DbConnection, user: &User, provider_type: &str
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::setup_test_connection;
+    use diesel::prelude::*;
+
+    /// Closes the eager-then-lazy half of the (iss, sub) byte-identical
+    /// invariant at the service layer: project a user via the eager
+    /// endpoint's input, then call the same service with a lazy-style
+    /// input (same iss/sub, plus password_hash + metadata as the OIDC
+    /// callback would supply). The second call must hit step 1
+    /// (find_by_identity) and return `Existed` with the same user row,
+    /// not mint a duplicate. Operator misconfiguration of
+    /// `auth_providers.provider_type` is NOT covered here (see
+    /// `docs/m5-integration-contract.md`).
+    #[test]
+    fn lazy_login_finds_eagerly_projected_user() {
+        let mut conn = setup_test_connection();
+        let iss = "https://api.nosdesk.com/";
+        let sub = format!("owner-{}", uuid::Uuid::new_v4());
+        let email = format!("owner+{}@acme.example", uuid::Uuid::new_v4());
+
+        let eager = ProjectedUserInput {
+            iss: iss.to_string(),
+            sub: sub.clone(),
+            email: email.clone(),
+            name: Some("Owner One".to_string()),
+            role: "owner".to_string(),
+            workspace_id: 1,
+            password_hash: None,
+            metadata: None,
+        };
+        let first = find_or_create_projected_user(&mut conn, eager).expect("eager project");
+        assert!(first.is_created(), "eager call must mint the user");
+        let first_uuid = first.into_user().uuid;
+
+        let lazy = ProjectedUserInput {
+            iss: iss.to_string(),
+            sub: sub.clone(),
+            email: email.clone(),
+            name: Some("Owner One renamed by IdP".to_string()),
+            role: "owner".to_string(),
+            workspace_id: 1,
+            password_hash: Some("$2b$12$placeholder".to_string()),
+            metadata: Some(serde_json::json!({ "source": "lazy_oidc_callback" })),
+        };
+        let second = find_or_create_projected_user(&mut conn, lazy).expect("lazy project");
+        assert!(
+            !second.is_created(),
+            "lazy call must resolve the existing user via (iss, sub), not mint a second"
+        );
+        assert_eq!(
+            second.into_user().uuid,
+            first_uuid,
+            "(iss, sub) lookup must return the same user uuid the eager call minted"
+        );
+    }
+
+    /// Same shape as above but asserts the trailing slash matters: a
+    /// lazy lookup with `iss` minus the trailing slash misses, falls
+    /// to the email-fallback branch, and (since this test reuses the
+    /// already-attached email) attaches a SECOND identity row to the
+    /// same user. The user uuid stays the same because of the email
+    /// match, but the duplicate identity row is the symptom an operator
+    /// misconfiguring `auth_providers.provider_type` would see. Locks
+    /// in the byte-identicality requirement: a separate row, not a
+    /// silent reuse, is what diverges on issuer drift.
+    #[test]
+    fn iss_trailing_slash_drift_produces_separate_identity_row() {
+        let mut conn = setup_test_connection();
+        let iss_canonical = "https://api.nosdesk.com/";
+        let iss_drifted = "https://api.nosdesk.com"; // no trailing slash
+        let sub = format!("owner-{}", uuid::Uuid::new_v4());
+        let email = format!("owner+{}@acme.example", uuid::Uuid::new_v4());
+
+        let eager = ProjectedUserInput {
+            iss: iss_canonical.to_string(),
+            sub: sub.clone(),
+            email: email.clone(),
+            name: Some("Owner Two".to_string()),
+            role: "owner".to_string(),
+            workspace_id: 1,
+            password_hash: None,
+            metadata: None,
+        };
+        let first = find_or_create_projected_user(&mut conn, eager).expect("eager project");
+        let first_uuid = first.into_user().uuid;
+
+        let drifted = ProjectedUserInput {
+            iss: iss_drifted.to_string(),
+            sub: sub.clone(),
+            email: email.clone(),
+            name: Some("Owner Two".to_string()),
+            role: "owner".to_string(),
+            workspace_id: 1,
+            password_hash: Some("$2b$12$placeholder".to_string()),
+            metadata: None,
+        };
+        let second =
+            find_or_create_projected_user(&mut conn, drifted).expect("drifted-iss project");
+        assert_eq!(
+            second.into_user().uuid,
+            first_uuid,
+            "email fallback resolves to the same user when the address matches"
+        );
+
+        // Two identity rows now: one per iss value. The canonical row
+        // is what an OIDC login with byte-identical iss would hit;
+        // the drifted row is what a misconfigured `provider_type`
+        // would write. Asserting two rows locks in that the drift
+        // produced divergent state, not a silent merge.
+        use crate::schema::user_auth_identities::dsl as i;
+        let count: i64 = i::user_auth_identities
+            .filter(i::user_uuid.eq(first_uuid))
+            .filter(i::external_id.eq(&sub))
+            .count()
+            .get_result(&mut conn)
+            .expect("count identities");
+        assert_eq!(
+            count, 2,
+            "drifted iss must store a separate identity row, not reuse the canonical one"
+        );
+    }
+}
