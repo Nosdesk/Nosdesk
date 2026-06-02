@@ -15,14 +15,19 @@ use tracing::error;
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::repository::analytics::{
-    self, BreakdownGroupBy, BreakdownQuery, HeatmapQuery, KpiMetric, KpiQuery, LeaderboardActor,
-    LeaderboardQuery, TimeseriesQuery, TsMeasure, TsTimeField,
+    self, AnnotationQuery, BreakdownGroupBy, BreakdownQuery, HeatmapQuery, KpiMetric, KpiQuery,
+    LeaderboardActor, LeaderboardQuery, TimeseriesQuery, TsMeasure, TsTimeField,
 };
 
 /// Per-plan cap on top_n; chosen to keep the chart legible. The
 /// handler clamps incoming values so a too-large request degrades
 /// to the cap rather than a 400.
 const TOP_N_MAX: i64 = 50;
+
+/// Allowlist for the audit-annotation `kinds` parameter. Each entry
+/// is the `audit_log.table_name` literal the trigger writes. Keep
+/// in sync with the analytics overlay docs (§13.2).
+const ANNOTATION_TABLES: &[&str] = &["rules", "sla_policies", "working_calendars"];
 
 #[derive(Debug, Deserialize)]
 pub struct KpiParams {
@@ -207,6 +212,53 @@ pub struct LeaderboardParams {
     pub to: DateTime<Utc>,
     #[serde(default)]
     pub top_n: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AnnotationParams {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    /// Comma-separated kinds from the ANNOTATION_TABLES allowlist.
+    /// Omitting / empty includes every allowed kind.
+    #[serde(default)]
+    pub kinds: Option<String>,
+}
+
+pub async fn get_audit_annotations(
+    mut tc: TenantConn,
+    query: web::Query<AnnotationParams>,
+) -> impl Responder {
+    let params = query.into_inner();
+    if params.from >= params.to {
+        return errors::bad_request("`from` must be earlier than `to`");
+    }
+    let tables: Vec<String> = match params.kinds.as_deref() {
+        None | Some("") => ANNOTATION_TABLES.iter().map(|s| (*s).to_string()).collect(),
+        Some(raw) => {
+            let mut out = Vec::new();
+            for token in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                if !ANNOTATION_TABLES.contains(&token) {
+                    return errors::bad_request(
+                        "kinds must be a subset of: rules, sla_policies, working_calendars",
+                    );
+                }
+                out.push(token.to_string());
+            }
+            out
+        }
+    };
+    let q = AnnotationQuery {
+        from: params.from,
+        to: params.to,
+        tables,
+    };
+    match tc.run(|conn| analytics::audit_annotations(conn, q)) {
+        Ok(result) => HttpResponse::Ok().json(result),
+        Err(e) => {
+            error!(error = %e, "audit annotations query failed");
+            errors::internal("annotations unavailable")
+        }
+    }
 }
 
 pub async fn get_leaderboard(

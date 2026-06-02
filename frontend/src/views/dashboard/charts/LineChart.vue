@@ -15,6 +15,7 @@ import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
+import { useAnnotations } from '@/composables/useAnnotations'
 import {
   analyticsService,
   type TsMeasure,
@@ -40,6 +41,7 @@ const fluent = useFluent()
 const t = (k: string) => fluent.$t(k)
 
 const { window: timeWindow } = useTimeRange()
+const { markers: annotationMarkers } = useAnnotations()
 
 const query = useQuery({
   key: () => [
@@ -108,6 +110,36 @@ function tickY(value: number): number {
   const innerH = VIEWBOX_H - PAD_TOP - PAD_BOTTOM
   return PAD_TOP + innerH - (value / max) * innerH
 }
+
+/**
+ * Annotation lines mapped onto the chart x-axis. Each marker
+ * becomes a vertical line at its `occurred_at` x-coordinate;
+ * markers outside the chart window are filtered out (shouldn't
+ * happen since the annotations query and the chart query share
+ * the same window, but defensive). Faint stroke so the data line
+ * still reads as the primary signal.
+ */
+const annotationLines = computed(() => {
+  const data = buckets.value
+  if (data.length < 2 || annotationMarkers.value.length === 0) return []
+  const innerW = VIEWBOX_W - PAD_LEFT - PAD_RIGHT
+  const windowStart = new Date(timeWindow.value.from).getTime()
+  const windowEnd = new Date(timeWindow.value.to).getTime()
+  const windowMs = windowEnd - windowStart
+  if (windowMs <= 0) return []
+  return annotationMarkers.value
+    .map((m) => {
+      const t = new Date(m.occurred_at).getTime()
+      if (t < windowStart || t > windowEnd) return null
+      const ratio = (t - windowStart) / windowMs
+      return {
+        x: PAD_LEFT + ratio * innerW,
+        kind: m.table_name,
+        pk: m.pk_text,
+      }
+    })
+    .filter((m): m is { x: number; kind: string; pk: string } => m !== null)
+})
 
 const xLabels = computed(() => {
   const data = buckets.value
@@ -198,6 +230,21 @@ const xLabels = computed(() => {
         >
           {{ item.label }}
         </text>
+      </g>
+      <!-- Annotation overlay: a vertical hairline at each
+           audit-log event in the window. Drawn before the data
+           line so the line sits on top and stays readable. -->
+      <g class="text-tertiary" stroke="currentColor" stroke-width="0.6" stroke-dasharray="2,2" opacity="0.7">
+        <line
+          v-for="(a, i) in annotationLines"
+          :key="`anno-${i}`"
+          :x1="a.x"
+          :x2="a.x"
+          :y1="PAD_TOP"
+          :y2="VIEWBOX_H - PAD_BOTTOM"
+        >
+          <title>{{ a.kind }} #{{ a.pk }}</title>
+        </line>
       </g>
       <!-- The line itself. Pure stroke; no fill area underneath so
            the chart reads as a single quantity rather than a stack. -->

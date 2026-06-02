@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::TicketPriority;
-use crate::schema::tickets;
+use crate::schema::{audit_log, tickets};
 
 /// Metric identifiers the KPI endpoint understands. Each variant
 /// corresponds to a single deterministic SQL aggregation; the
@@ -507,6 +507,74 @@ pub fn leaderboard(conn: &mut DbConnection, q: LeaderboardQuery) -> QueryResult<
         rows: rows
             .into_iter()
             .map(|(actor_uuid, value)| LeaderboardRow { actor_uuid, value })
+            .collect(),
+    })
+}
+
+/// Audit-log marker for time-series chart overlays. The annotation
+/// overlay surfaces "this is when the rule was last edited" /
+/// "this is when the SLA policy changed" so a reader can correlate
+/// a step in the chart with a config change.
+#[derive(Debug, Clone, Serialize)]
+pub struct AnnotationMarker {
+    pub occurred_at: DateTime<Utc>,
+    pub table_name: String,
+    pub pk_text: String,
+    pub actor_uuid: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnnotationResult {
+    pub markers: Vec<AnnotationMarker>,
+}
+
+#[derive(Debug)]
+pub struct AnnotationQuery {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    /// Subset of audit_log.table_name values to include. Limited to
+    /// the analytics-relevant config tables (rules, sla_policies,
+    /// working_calendars) at the handler boundary.
+    pub tables: Vec<String>,
+}
+
+pub fn audit_annotations(
+    conn: &mut DbConnection,
+    q: AnnotationQuery,
+) -> QueryResult<AnnotationResult> {
+    if q.tables.is_empty() {
+        return Ok(AnnotationResult {
+            markers: Vec::new(),
+        });
+    }
+    let rows: Vec<(DateTime<Utc>, String, String, Option<Uuid>)> = audit_log::table
+        .filter(audit_log::occurred_at.ge(q.from))
+        .filter(audit_log::occurred_at.lt(q.to))
+        .filter(audit_log::table_name.eq_any(&q.tables))
+        .order(audit_log::occurred_at.asc())
+        .select((
+            audit_log::occurred_at,
+            audit_log::table_name,
+            audit_log::pk_text,
+            audit_log::actor_uuid,
+        ))
+        // Cap so a chatty migration window can't return tens of
+        // thousands of markers; chart overlay needs a handful, not
+        // a forest. Newer markers win the cap by virtue of the ASC
+        // ordering being stable over the cap point.
+        .limit(500)
+        .load(conn)?;
+    Ok(AnnotationResult {
+        markers: rows
+            .into_iter()
+            .map(
+                |(occurred_at, table_name, pk_text, actor_uuid)| AnnotationMarker {
+                    occurred_at,
+                    table_name,
+                    pk_text,
+                    actor_uuid,
+                },
+            )
             .collect(),
     })
 }

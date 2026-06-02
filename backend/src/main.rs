@@ -1619,6 +1619,10 @@ async fn main() -> std::io::Result<()> {
                         "/dashboard/leaderboard",
                         web::get().to(handlers::analytics::get_leaderboard),
                     )
+                    .route(
+                        "/dashboard/audit-annotations",
+                        web::get().to(handlers::analytics::get_audit_annotations),
+                    )
 
                     // Canned responses — reads open to any authenticated
                     // user (composer picker); writes admin-only. The
