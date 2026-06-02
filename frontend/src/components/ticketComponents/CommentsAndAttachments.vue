@@ -34,6 +34,9 @@ const props = defineProps<{
      *  ticket context. */
     ticketId?: number;
     recentlyAddedCommentIds?: Set<number>;
+    /** When true the composer is disabled (merged tickets are
+     *  terminal and read-only). Existing comments still render. */
+    readonly?: boolean;
     /** Optional template context for the canned-response picker —
         `{{ticket_id}}`, `{{customer_name}}` etc. substitute at
         insert time. Omit when the composer isn't on a ticket. */
@@ -524,6 +527,7 @@ const handlePastedFiles = async (files: File[]) => {
                             :placeholder="isInternal ? $t('ticket-comments-placeholder-internal') : $t('ticket-comments-placeholder-public')"
                             min-height="60px"
                             max-height="200px"
+                            :disabled="readonly"
                             @submit="addComment"
                             @paste-files="handlePastedFiles"
                         />

@@ -29,6 +29,8 @@ import TicketDetails from "@/components/ticketComponents/TicketDetails.vue";
 import TicketActivity from "@/components/ticketComponents/TicketActivity.vue";
 import DeviceSelectionModal from "@/components/ticketComponents/AssetSelectionModal.vue";
 import CommentsAndAttachments from "@/components/ticketComponents/CommentsAndAttachments.vue";
+import MergedIntoBanner from "@/components/ticketComponents/MergedIntoBanner.vue";
+import MergedInField from "@/components/ticketComponents/MergedInField.vue";
 import LinkedTicketModal from "@/components/ticketComponents/LinkedTicketModal.vue";
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
 import TicketGapFlag from "@/components/ticketComponents/TicketGapFlag.vue";
@@ -599,6 +601,13 @@ useCreateTicketAction();
                             @drop.prevent="handleLinkDrop"
                             class="contents"
                         >
+                            <MergedIntoBanner
+                                v-if="ticket.merged_into_ticket_id != null"
+                                :target-id="ticket.merged_into_ticket_id"
+                                :actor="ticket.merged_by_user_uuid"
+                                :when="ticket.merged_at"
+                            />
+                            <MergedInField v-if="ticket" :ticket-id="ticket.id" />
                             <TicketDetails
                                 :ticket="ticket"
                                 :created-date="formattedCreatedDate"
@@ -730,6 +739,7 @@ useCreateTicketAction();
                                 :recently-added-comment-ids="
                                     recentlyAddedCommentIds
                                 "
+                                :readonly="ticket.merged_into_ticket_id != null"
                                 @add-comment="addComment"
                                 @delete-attachment="deleteAttachment"
                                 @delete-comment="deleteComment"

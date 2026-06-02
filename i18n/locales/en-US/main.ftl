@@ -3667,6 +3667,11 @@ ticket-activity-phrase-replied-via = replied via { $channel }
 ticket-activity-phrase-comment-via = added a comment via { $channel }
 ticket-activity-phrase-commented = commented on this ticket
 ticket-activity-phrase-comment-deleted = deleted a comment
+ticket-activity-phrase-merged = merged { $count ->
+    [one] 1 ticket
+   *[other] { $count } tickets
+  } into this one
+ticket-activity-phrase-merged-into = merged this ticket into #{ $target_id }
 ticket-activity-phrase-generic = made a change
 
 # Ticket: tag picker sidebar surface (TicketTagsField).

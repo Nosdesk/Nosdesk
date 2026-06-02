@@ -304,6 +304,16 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
     }
     case 'ticket.updated':
       return t('ticket-activity-phrase-updated')
+    case 'ticket.merged': {
+      const count = (data.source_ticket_ids as number[] | undefined)?.length ?? 0
+      return t('ticket-activity-phrase-merged', { count })
+    }
+    case 'ticket.merged_into': {
+      const dest = data.merged_into_ticket_id as number | undefined
+      return dest != null
+        ? t('ticket-activity-phrase-merged-into', { target_id: dest })
+        : t('ticket-activity-phrase-generic')
+    }
     case 'comment.created': {
       if (data.is_internal) return t('ticket-activity-phrase-internal-note')
       const cv = readCreatedVia(ev)
