@@ -44,6 +44,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rand::RngCore;
 
 use crate::db::DbConnection;
+use crate::middleware::DeploymentMode;
 
 /// Default TTL — 60 minutes. Long enough that an operator who
 /// walks away to make tea doesn't return to an expired token,
@@ -102,14 +103,25 @@ fn is_expired(path: &Path) -> bool {
 
 /// Idempotent: call at startup once the DB pool is ready.
 ///
-/// Behaviour, given the users table:
+/// In `Hosted` mode this is a no-op beyond deleting any stale token
+/// file: there is no self-serve bootstrap, so no token is minted.
+///
+/// In `SelfHosted` mode, behaviour given the users table:
 ///   - non-empty → delete any stale token file, return.
 ///   - empty + file exists + not expired → log the setup URL
 ///     again (so a restart surfaces it without rotating the
 ///     value out from under an in-progress operator).
 ///   - empty + file exists + expired → delete + mint fresh.
 ///   - empty + file missing → mint fresh.
-pub fn reconcile(conn: &mut DbConnection) -> Result<()> {
+pub fn reconcile(conn: &mut DbConnection, mode: DeploymentMode) -> Result<()> {
+    if mode == DeploymentMode::Hosted {
+        // No bootstrap path in hosted: the control plane provisions
+        // the first admin per tenant, so there is no URL flow to mint.
+        // Clear any token a prior self-hosted run or restored backup
+        // left on disk.
+        delete_token_file();
+        return Ok(());
+    }
     if has_any_user(conn)? {
         delete_token_file();
         return Ok(());
@@ -335,6 +347,26 @@ mod tests {
             let err = verify("tok").unwrap_err().to_string();
             assert!(err.contains("expired"), "got: {err}");
             std::env::remove_var("BOOTSTRAP_TOKEN_TTL_SECONDS");
+        });
+    }
+
+    #[test]
+    fn reconcile_clears_token_and_does_not_mint_in_hosted_mode() {
+        with_temp_state_dir(|| {
+            let path = token_file_path();
+            write_token_file(&path, "tok").unwrap();
+            assert!(path.exists());
+
+            // Hosted short-circuits before any DB access, so the
+            // connection is never queried; it just satisfies the
+            // signature.
+            let mut conn = crate::test_helpers::setup_test_connection();
+            reconcile(&mut conn, DeploymentMode::Hosted).expect("hosted reconcile");
+
+            assert!(
+                !path.exists(),
+                "hosted reconcile must clear a stale token and mint nothing"
+            );
         });
     }
 

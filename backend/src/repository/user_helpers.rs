@@ -22,8 +22,13 @@ pub fn legacy_role_for_user(
     platform_role: &str,
 ) -> UserRole {
     use crate::schema::workspace_members;
+    // Pinned to the bootstrap workspace: this helper is called from
+    // many pre-request contexts (JWT refresh, middleware, MFA) where no
+    // WorkspaceContext / app.workspace_id GUC is resolved, so it can't
+    // read the workspace from the request. Hosted per-workspace
+    // derivation goes through `derive_role` with the right role string.
     let workspace_role: Option<String> = workspace_members::table
-        .filter(workspace_members::workspace_id.eq(1))
+        .filter(workspace_members::workspace_id.eq(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID))
         .filter(workspace_members::user_uuid.eq(user_uuid))
         .select(workspace_members::role)
         .first(conn)

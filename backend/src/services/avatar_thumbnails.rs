@@ -87,8 +87,13 @@ pub async fn backfill_thumbnails(
     reference: &'static str,
 ) -> BackfillStats {
     // Resolve one workspace per user up front so the (rare) column write
-    // can set `app.workspace_id` — the audited `users` write fails the
-    // audit_log NOT NULL constraint without it.
+    // can pin `app.workspace_id`; the audited `users` write otherwise
+    // trips the audit context guard. The `ORDER BY workspace_id LIMIT 1`
+    // pick is deterministic but arbitrary for a user who belongs to more
+    // than one workspace (only possible under hosted multi-tenancy): the
+    // thumbnail backfill is per-user, not per-workspace, so the audit row
+    // is attributed to the user's lowest-id workspace. Acceptable until
+    // hosted attribution requirements firm up.
     let rows: Vec<AvatarRow> = match diesel::sql_query(
         "SELECT u.uuid::text AS uuid_str, u.avatar_url, u.avatar_thumb, \
                 (SELECT wm.workspace_id FROM workspace_members wm \

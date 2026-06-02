@@ -162,9 +162,9 @@ pub fn create_comment_with_annotation(
         // don't count — industry convention.
         if !comment.is_internal && parent.first_response_at.is_none() {
             // "Staff" post-W2: workspace owner/admin/agent in the
-            // current workspace, or any platform admin. Hits
-            // workspace 1 since OSS is single-tenant; multi-tenant
-            // callers would pass the resolved workspace_id here.
+            // ticket's own workspace, or any platform admin. Scoped to
+            // `parent.workspace_id` so the check is correct under hosted
+            // multi-tenancy, not just the single-tenant bootstrap.
             let is_staff = diesel::dsl::select(diesel::dsl::exists(
                 crate::schema::users::table
                     .filter(crate::schema::users::uuid.eq(new_comment.user_uuid))
@@ -177,7 +177,10 @@ pub fn create_comment_with_annotation(
                                         crate::schema::workspace_members::user_uuid
                                             .eq(crate::schema::users::uuid),
                                     )
-                                    .filter(crate::schema::workspace_members::workspace_id.eq(1))
+                                    .filter(
+                                        crate::schema::workspace_members::workspace_id
+                                            .eq(parent.workspace_id),
+                                    )
                                     .filter(crate::schema::workspace_members::role.eq_any(vec![
                                         "owner", "admin", "agent",
                                     ])),

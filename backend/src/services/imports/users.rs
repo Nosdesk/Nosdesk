@@ -142,14 +142,15 @@ impl Importer for UserImporter {
                             source: Some("csv_import".to_string()),
                         })
                         .execute(conn)?;
-                    // Bootstrap workspace membership — same shape as
-                    // admin_setup.rs and create_user_and_email. Pins
-                    // workspace 1 because the importer runs outside
-                    // any request and the GUC-driven column default
-                    // would otherwise be unset.
+                    // Workspace membership in the request's workspace.
+                    // The import commit runs under TenantConn, which
+                    // pins `app.workspace_id`, so the membership lands
+                    // in the importing user's workspace under hosted
+                    // multi-tenancy (the bootstrap workspace in
+                    // single-tenant).
                     diesel::sql_query(
                         "INSERT INTO workspace_members (workspace_id, user_uuid, role) \
-                         VALUES (1, $1, $2) \
+                         VALUES (NULLIF(current_setting('app.workspace_id', true), '')::int, $1, $2) \
                          ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
                     )
                     .bind::<diesel::sql_types::Uuid, _>(new_uuid)
@@ -172,7 +173,8 @@ impl Importer for UserImporter {
                     diesel::sql_query(
                         "UPDATE workspace_members \
                          SET role = $2 \
-                         WHERE workspace_id = 1 AND user_uuid = $1",
+                         WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
+                           AND user_uuid = $1",
                     )
                     .bind::<diesel::sql_types::Uuid, _>(uuid)
                     .bind::<diesel::sql_types::Text, _>(workspace_role)

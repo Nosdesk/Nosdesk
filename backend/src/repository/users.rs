@@ -175,6 +175,13 @@ pub fn get_paginated_users(
     // `users.platform_role` + the caller's `workspace_members.role`
     // in the bootstrap workspace (id=1). One OR-clause per requested
     // legacy role; an empty result keeps the filter off entirely.
+    // The role filter and sort below derive each user's effective role
+    // from their membership in the bootstrap workspace (workspace_id =
+    // 1). This is correct for single-tenant (the only supported mode
+    // today); the handler has no resolved WorkspaceContext to thread,
+    // so hosted per-workspace role filtering is deferred to the hosted
+    // milestone (it would parameterise these embedded subqueries on the
+    // request's workspace_id).
     let role_sql_filter: Option<String> = if parsed_roles.is_empty() {
         None
     } else {
