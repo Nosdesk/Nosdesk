@@ -1450,6 +1450,9 @@ pub async fn mfa_enable(
     match result {
         Ok(()) => {
             tracing::info!("MFA enabled successfully for user: {}", user_uuid);
+            // Clear the rate-limit bucket so any fumbled enrollment
+            // attempts don't follow the user into their next login.
+            mfa::clear_mfa_rate_limit(&user_uuid).await;
             // Return plaintext backup codes so the client can display them once
             HttpResponse::Ok().json(json!({
                 "status": "success",
@@ -1916,6 +1919,10 @@ pub async fn mfa_enable_login(
                 "MFA enabled successfully for user during login: {}",
                 user_uuid
             );
+            // Drop the enrollment rate-limit bucket — a successful
+            // enrol shouldn't penalise the user's next login
+            // attempt with attempts they've already cleared.
+            mfa::clear_mfa_rate_limit(&user_uuid).await;
 
             // Create session + tokens (same as login, but attach backup codes)
             let session = match create_session_record(&user_uuid, &http_request, &mut conn) {

@@ -286,7 +286,32 @@ pub async fn upsert_projected_user(
         metadata: None,
     };
 
-    match find_or_create_projected_user(&mut conn, input) {
+    // Wrap the projection in the target workspace's actor context.
+    // `find_or_create_projected_user` inserts into the audited
+    // `users` table on the create branch; without the GUC pin the
+    // audit trigger fires NDX01 and provisioning 500s. The actor is
+    // a bootstrap-style system actor scoped to the target workspace
+    // so the audit row records "system projection into <workspace>"
+    // rather than attributing the write to a request user.
+    //
+    // The closure error type collapses the String error from
+    // find_or_create_projected_user into a diesel-shaped error so
+    // with_actor_context's generic E bound is satisfied; we unwrap
+    // it back into a String on the match below.
+    let actor = crate::sync::actor::ActorContext::bootstrap("upsert_projected_user")
+        .with_workspace(workspace.id);
+    let projection = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &actor,
+        move |c| {
+            find_or_create_projected_user(c, input).map_err(|e| {
+                diesel::result::Error::QueryBuilderError(format!("projection: {e}").into())
+            })
+        },
+    )
+    .map_err(|e| e.to_string());
+
+    match projection {
         Ok(outcome) => {
             let created = outcome.is_created();
             let user = outcome.into_user();

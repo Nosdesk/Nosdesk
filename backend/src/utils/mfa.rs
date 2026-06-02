@@ -515,8 +515,13 @@ async fn mark_totp_used(user_uuid: &Uuid, token: &str) {
     };
 
     let key = totp_replay_key(user_uuid, token);
-    // Set with 90-second TTL (TOTP validity window + clock drift tolerance)
-    let _: Result<(), _> = con.set_ex(&key, "1", 90).await;
+    // 120s TTL = the widened ±30s verifier window (90s of validity
+    // per code) plus one full TOTP step of margin for clock drift
+    // between the app server and Redis. A 90s TTL left the very
+    // end of the verifier window unprotected: the replay cache
+    // could evict at T+90 while verify_totp_token still accepted
+    // the same code through T+60 app-time.
+    let _: Result<(), _> = con.set_ex(&key, "1", 120).await;
 }
 
 /// Check if MFA should be required for a user based on OWASP recommendations
@@ -800,6 +805,27 @@ mod tests {
             "anything",
             "$argon2id$malformed"
         ));
+    }
+}
+
+/// Drop the user's MFA rate-limit bucket. Callers on the
+/// successful-enroll and successful-login branches should call this
+/// so a user who fumbled a few codes before getting it right
+/// doesn't carry that history into their next legitimate attempt.
+/// Best-effort: a Redis failure is logged but not surfaced (the
+/// caller has already succeeded; there's no user-facing error to
+/// raise).
+pub async fn clear_mfa_rate_limit(user_uuid: &Uuid) {
+    use crate::utils::rate_limit::RateLimiter;
+
+    let redis_url = crate::utils::rate_limit::get_redis_url();
+    let key = RateLimiter::mfa_attempt_key(user_uuid);
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &key).await {
+        tracing::warn!(
+            user_uuid = %user_uuid,
+            error = %e,
+            "MFA rate-limit clear failed; bucket will expire naturally"
+        );
     }
 }
 
