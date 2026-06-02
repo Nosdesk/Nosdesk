@@ -49,8 +49,15 @@ From the repo root:
 
 ```bash
 cp docker.env.example docker.env  # if you haven't already
+make install-hooks                # one-shot per clone
 make dev
 ```
+
+`make install-hooks` points git at `.githooks/`, so `pre-commit`
+runs rustfmt + eslint --fix on staged files before they land in a
+commit. Without this, CI's `cargo fmt --check` and ESLint steps
+will reject mis-formatted code at the merge gate. Bypass with
+`git commit --no-verify` (CI still gates).
 
 `make dev` runs `docker compose -f compose.yaml -f compose.dev.yaml up
 --watch --build`. First boot does a full cargo build (~5 minutes) and

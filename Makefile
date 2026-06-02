@@ -11,7 +11,8 @@
 COMPOSE := docker compose -f compose.yaml -f compose.dev.yaml
 
 .PHONY: dev dev-bg watch down clean restart restart-frontend migrate schema \
-        test test-frontend logs logs-frontend shell psql mailpit token
+        test test-frontend logs logs-frontend shell psql mailpit token \
+        install-hooks
 
 # Foreground dev stack with `--watch` so source-file syncs are
 # visible and reliable. Ctrl-C to stop (leaves volumes intact).
@@ -109,3 +110,12 @@ mailpit:
 token:
 	@$(COMPOSE) exec backend cat /app/uploads/bootstrap.token 2>/dev/null \
 	  || echo "No bootstrap token. Either setup is complete (run psql to confirm) or the backend hasn't booted yet."
+
+# Wire up the in-repo git hooks (one-shot per clone). Points git
+# at .githooks/ for hook lookups so `pre-commit` runs rustfmt +
+# eslint --fix on staged files before they land in a commit. Avoids
+# the "cargo fmt broke CI again" loop on the merge side.
+install-hooks:
+	@git config core.hooksPath .githooks
+	@echo "Installed: git hooks now resolve from .githooks/"
+	@echo "Bypass any hook with 'git commit --no-verify' (CI will still gate)."
