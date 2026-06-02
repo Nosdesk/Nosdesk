@@ -5110,3 +5110,121 @@ ticket-activity-phrase-merged = heeft { $count ->
    *[other] { $count } tickets
   } samengevoegd in dit ticket
 ticket-activity-phrase-merged-into = heeft dit ticket samengevoegd in #{ $target_id }
+
+# Regels-engine (docs/rules-and-actions-plan.md).
+
+route-title-admin-rules = Regels
+route-title-admin-rules-activity = Regelactiviteit
+route-title-admin-rules-new = Nieuwe regel
+route-title-admin-rules-edit = Regel bewerken
+
+admin-rules-title = Regels
+admin-rules-help-intro = Eén entiteit dekt handmatige snelacties, automatiseringen op events en escalaties op tijd. Handmatige regels verschijnen in de werkbalk van de agent; de rest wordt door de engine geactiveerd.
+admin-rules-new-cta = Nieuwe regel
+admin-rules-activity-cta = Recente activiteit
+admin-rules-search-placeholder = Zoek regels op naam
+admin-rules-filter-trigger-all = Alle triggers
+admin-rules-filter-state-all = Alle statussen
+admin-rules-trigger-manual = Handmatig
+admin-rules-trigger-ticket-created = Bij aanmaken ticket
+admin-rules-trigger-ticket-updated = Bij wijzigen ticket
+admin-rules-trigger-ticket-replied = Bij antwoord
+admin-rules-trigger-time-elapsed = Tijd verstreken
+admin-rules-state-draft = Concept
+admin-rules-state-dry-run = Testrun
+admin-rules-state-live = Actief
+admin-rules-state-archived = Gearchiveerd
+admin-rules-col-name = Naam
+admin-rules-col-trigger = Trigger
+admin-rules-col-state = Status
+admin-rules-col-last-fired = Laatst geactiveerd
+admin-rules-col-fire-count = Activeringen (totaal)
+admin-rules-last-fired-never = Nooit
+admin-rules-empty-title = Nog geen regels
+admin-rules-empty-hint = Maak je eerste regel of blader door de starterscatalogus (binnenkort).
+admin-rules-error-load = Kan de regelslijst niet laden.
+admin-rules-error-archive = Kan deze regel niet archiveren.
+admin-rules-error-transition = Kan de status niet wijzigen.
+admin-rules-toast-archived = { $name } gearchiveerd.
+admin-rules-toast-state-changed = Status gewijzigd naar { $state }.
+admin-rules-action-pause-tooltip = Pauzeren (naar testrun)
+admin-rules-action-resume-tooltip = Hervatten
+admin-rules-action-archive-tooltip = Archiveren
+admin-rules-archive-confirm-title = Regel archiveren?
+admin-rules-archive-confirm-body = { $name } stopt met activeren en wordt verborgen uit de keuzelijst. De auditgeschiedenis blijft bestaan. Je kunt hem later permanent verwijderen via de gearchiveerde weergave.
+admin-rules-archive-confirm-button = Archiveren
+
+admin-rules-activity-title = Regelactiviteit
+admin-rules-activity-help = Elke activering schrijft één regel, ongeacht of die succesvol, overgeslagen, onderdrukt of mislukt is. Klik op een regel om de voorwaardenevaluatie en de uitgevoerde acties te zien.
+admin-rules-activity-back = Terug naar regels
+admin-rules-activity-error-load = Kan het activiteitenlogboek niet laden.
+admin-rules-activity-empty-title = Nog geen activiteit
+admin-rules-activity-empty-hint = Regels schrijven hier zodra ze worden geactiveerd.
+admin-rules-activity-filter-all = Alle statussen
+admin-rules-activity-limit = Laatste { $n }
+admin-rules-activity-actor-system = engine
+admin-rules-activity-actor-user = agent
+admin-rules-activity-row-summary = op ticket #{ $ticket_id } door { $actor }
+admin-rules-activity-inspector-empty = Geen inspectorgegevens (geslaagde activering blijft compact).
+admin-rules-activity-status-succeeded = Geslaagd
+admin-rules-activity-status-dry-run = Testrun
+admin-rules-activity-status-skipped-preflight = Overgeslagen (preflight)
+admin-rules-activity-status-skipped-condition-unmet = Overgeslagen (geen match)
+admin-rules-activity-status-suppressed-recursion-budget = Onderdrukt (recursie)
+admin-rules-activity-status-suppressed-loop-guard = Onderdrukt (lus-guard)
+admin-rules-activity-status-failed = Mislukt
+
+ticket-activity-phrase-rule-applied = heeft regel "{ $rule }" toegepast
+ticket-activity-phrase-rule-applied-dry-run = heeft regel "{ $rule }" als testrun bekeken
+
+ticket-actions-button = Acties
+ticket-actions-dialog-title = Een actie toepassen
+ticket-actions-dialog-picker-placeholder = Zoek een actie...
+ticket-actions-dialog-empty = Geen actieve handmatige regels in deze werkruimte.
+ticket-actions-dialog-action-list-label = Deze actie gaat:
+ticket-actions-dialog-cancel = Annuleren
+ticket-actions-dialog-apply = Toepassen
+ticket-actions-dialog-applying = Bezig met toepassen...
+ticket-actions-success-toast = "{ $rule }" toegepast.
+ticket-actions-error-toast = Kon de actie niet toepassen.
+
+admin-rules-action-chip-reply-public = Antwoord aan klant
+admin-rules-action-chip-reply-internal = Interne notitie toevoegen
+admin-rules-action-chip-set-status = Verplaats naar status #{ $state_id }
+admin-rules-action-chip-assign = Toewijzen aan gebruiker
+admin-rules-action-chip-unassign = Toewijzing wissen
+admin-rules-action-chip-add-tags = Voeg { $count ->
+    [one] 1 tag
+   *[other] { $count } tags
+  } toe
+admin-rules-action-chip-remove-tags = Verwijder { $count ->
+    [one] 1 tag
+   *[other] { $count } tags
+  }
+admin-rules-action-chip-set-priority = Stel prioriteit in op { $priority }
+admin-rules-action-chip-notify = Verstuur melding
+admin-rules-action-chip-stop-processing = Hier stoppen
+
+admin-rule-editor-title-new = Nieuwe regel
+admin-rule-editor-title-edit = "{ $name }" bewerken
+admin-rule-editor-back = Terug naar regels
+admin-rule-editor-save = Opslaan
+admin-rule-editor-saving = Bezig met opslaan...
+admin-rule-editor-section-name = Wat
+admin-rule-editor-section-trigger = Wanneer
+admin-rule-editor-section-actions = Dan doe je
+admin-rule-editor-section-state = Status
+admin-rule-editor-name-label = Naam
+admin-rule-editor-name-placeholder = Bevestigen en escaleren naar het netwerkteam
+admin-rule-editor-description-label = Beschrijving (optioneel)
+admin-rule-editor-description-placeholder = Korte notitie waarvoor een agent deze zou gebruiken.
+admin-rule-editor-trigger-label = Trigger
+admin-rule-editor-trigger-manual-note = Handmatige regels verschijnen in de Actie-werkbalk van de agent. Er is geen voorwaarde per ticket; de selectielijst filtert op categorie.
+admin-rule-editor-trigger-other-phase = Event-getriggerde en tijd-getriggerde regels komen in fase 2 van de regelsengine; ze worden nu opgeslagen als Concept maar activeren pas wanneer de engine zich abonneert.
+admin-rule-editor-actions-add = Een actie toevoegen
+admin-rule-editor-actions-empty = Deze regel heeft minstens één actie nodig.
+admin-rule-editor-action-remove = Verwijderen
+admin-rule-editor-error-save = Kan de regel niet opslaan.
+admin-rule-editor-error-conflict = Deze regel leest en schrijft naar dezelfde velden. Sla toch op om te negeren.
+admin-rule-editor-override-self-ref = Ik begrijp dat deze regel in een lus kan terechtkomen
+admin-rule-editor-priority-label = Prioriteit (lagere waarden eerst)
