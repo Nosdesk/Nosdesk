@@ -36,8 +36,8 @@
 //! so the eager endpoint can pick its 201/200 response code and
 //! the lazy caller can ignore the bool.
 
-use diesel::result::Error as DieselError;
-use tracing::{error, warn};
+use diesel::result::{DatabaseErrorKind, Error as DieselError};
+use tracing::error;
 
 use crate::db::DbConnection;
 use crate::models::{NewUserAuthIdentity, NewUserEmail, User, UserRole};
@@ -138,22 +138,43 @@ pub fn find_or_create_projected_user(
                         metadata: metadata.clone(),
                         password_hash: password_hash.clone(),
                     };
-                    if let Err(e) = user_auth_identities::create_identity(new_identity, conn) {
-                        warn!(
-                            iss = %iss,
-                            user_uuid = %user.uuid,
-                            error = ?e,
-                            "found user by email but failed to attach OIDC identity; \
-                             proceeding without identity row"
-                        );
-                    } else {
-                        // Mirror the OIDC-provided email into
-                        // user_emails if it isn't already there.
-                        // Matches the existing lazy path's
-                        // diagnostic-on-error treatment.
-                        ensure_email_linked(conn, &user, &iss, &email);
+                    // Step 1 found no identity under (iss, sub), so a
+                    // UniqueViolation here means a SEPARATE identity row
+                    // already owns (iss, sub) and points at a different
+                    // user. Silently linking would route the projected
+                    // workspace member to user A while OIDC login would
+                    // resolve (iss, sub) to user B at line 123, so B
+                    // would log in with no membership and access would
+                    // be broken with no failure surfaced. Surface as a
+                    // hard error instead. The transient case (any other
+                    // DieselError) also returns Err so the control
+                    // plane retries via the idempotency key rather than
+                    // being told `created: false` for a row we did not
+                    // actually link.
+                    match user_auth_identities::create_identity(new_identity, conn) {
+                        Ok(_) => {
+                            // Mirror the OIDC-provided email into
+                            // user_emails if it isn't already there.
+                            ensure_email_linked(conn, &user, &iss, &email);
+                            ProjectionOutcome::Existed(user)
+                        }
+                        Err(DieselError::DatabaseError(
+                            DatabaseErrorKind::UniqueViolation,
+                            _,
+                        )) => {
+                            return Err(format!(
+                                "OIDC identity ({iss}, {sub}) is already attached to a \
+                                 different user; refusing to silently link to the \
+                                 email-matched user {user_uuid}",
+                                user_uuid = user.uuid,
+                            ));
+                        }
+                        Err(e) => {
+                            return Err(format!(
+                                "attach OIDC identity to email-matched user: {e:?}"
+                            ));
+                        }
                     }
-                    ProjectionOutcome::Existed(user)
                 }
                 Err(_) => {
                     // --- 3. create fresh user + identity + email ---
