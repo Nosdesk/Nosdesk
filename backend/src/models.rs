@@ -50,6 +50,13 @@ pub enum WorkflowStateCategory {
     Done,
     #[serde(rename = "cancelled")]
     Cancelled,
+    /// Terminal state for a ticket consumed by a merge. Distinct from
+    /// `done` (resolved) and `cancelled` so list filters and the
+    /// activity feed can tell "closed because merged" apart from
+    /// "closed because finished". Pauses SLA via the per-row
+    /// `pauses_sla` flag, the same as the other terminal categories.
+    #[serde(rename = "merged")]
+    Merged,
 }
 
 impl WorkflowStateCategory {
@@ -61,6 +68,7 @@ impl WorkflowStateCategory {
             WorkflowStateCategory::InReview => "in_review",
             WorkflowStateCategory::Done => "done",
             WorkflowStateCategory::Cancelled => "cancelled",
+            WorkflowStateCategory::Merged => "merged",
         }
     }
 
@@ -68,7 +76,7 @@ impl WorkflowStateCategory {
     /// SLA, rollup, and metric code that needs a "is this work finished?"
     /// answer without enumerating every named state.
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Done | Self::Cancelled)
+        matches!(self, Self::Done | Self::Cancelled | Self::Merged)
     }
 
     /// Folds the new six-category model down to the legacy three-bucket
@@ -80,7 +88,7 @@ impl WorkflowStateCategory {
         match self {
             Self::Triage | Self::Backlog => "open",
             Self::Active | Self::InReview => "in-progress",
-            Self::Done | Self::Cancelled => "closed",
+            Self::Done | Self::Cancelled | Self::Merged => "closed",
         }
     }
 }
@@ -101,6 +109,7 @@ impl FromSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowSt
             b"in_review" => Ok(Self::InReview),
             b"done" => Ok(Self::Done),
             b"cancelled" => Ok(Self::Cancelled),
+            b"merged" => Ok(Self::Merged),
             other => Err(format!(
                 "unknown workflow_state_category: {}",
                 String::from_utf8_lossy(other)
@@ -901,6 +910,20 @@ pub struct Ticket {
     pub sla_resolution_target_at: Option<NaiveDateTime>,
     /// Idempotency stamp for the resolution breach.
     pub sla_resolution_breached_at: Option<NaiveDateTime>,
+    /// Canonical destination this ticket was merged into, or NULL when
+    /// the ticket is not a merge source. Set together with `merged_at`
+    /// and `merged_by_user_uuid` (DB invariant `tickets_merge_complete`).
+    /// A non-NULL value marks the ticket terminal: its UI is read-only
+    /// and future channel replies reroute to the destination.
+    pub merged_into_ticket_id: Option<i32>,
+    /// Wall-clock moment the merge committed. NULL on unmerged tickets.
+    pub merged_at: Option<NaiveDateTime>,
+    /// The actor who performed the merge. NULL on unmerged tickets.
+    #[serde(serialize_with = "serialize_optional_uuid_as_string")]
+    pub merged_by_user_uuid: Option<Uuid>,
+    /// Optional free-text note captured in the merge dialog. NULL when
+    /// the merging agent left the reason field empty.
+    pub merge_reason: Option<String>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -2310,6 +2333,15 @@ pub struct LinkedTicket {
 pub struct NewLinkedTicket {
     pub ticket_id: i32,
     pub linked_ticket_id: i32,
+    /// One of `blocks` / `blocked_by` / `related` / `duplicate_of`,
+    /// locked by `linked_tickets_relation_type_check`. The DB default
+    /// is `related`; the column is spelled out here so the merge path
+    /// can write `duplicate_of` edges directly.
+    pub relation_type: String,
+    /// Optional context for the relationship (e.g. the merge reason).
+    pub description: Option<String>,
+    /// Actor who created the edge. NULL for system-created links.
+    pub created_by: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
