@@ -130,33 +130,48 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        crate::sync::session::background_run(
+        // notification_preferences carries an audit trigger but has no
+        // workspace_id of its own, so resolve the user's primary
+        // workspace and pin it on the actor; otherwise the trigger's
+        // audit_log insert defaults workspace_id to NULL and fails.
+        // The lookup runs under bypass (admin role) so it needs no
+        // ambient workspace itself.
+        let resolved_workspace = crate::sync::session::background_run(
             &self.pool,
             "background:notification_pref_set",
-            |conn| {
-                let type_id: i32 = notification_types::table
-                    .filter(notification_types::code.eq(notification_type.as_str()))
-                    .select(notification_types::id)
-                    .first(conn)?;
-                diesel::insert_into(notification_preferences)
-                    .values((
-                        user_uuid.eq(user_uuid_val),
-                        notification_type_id.eq(type_id),
-                        channel.eq(channel_val.as_str()),
-                        enabled.eq(enabled_val),
-                        created_at.eq(Utc::now().naive_utc()),
-                        updated_at.eq(Utc::now().naive_utc()),
-                    ))
-                    .on_conflict((user_uuid, notification_type_id, channel))
-                    .do_update()
-                    .set((
-                        enabled.eq(enabled_val),
-                        updated_at.eq(Utc::now().naive_utc()),
-                    ))
-                    .execute(conn)?;
-                Ok::<_, diesel::result::Error>(())
-            },
+            |conn| crate::repository::workspaces::primary_workspace_for_user(conn, *user_uuid_val),
         )
+        .map_err(|e| format!("Failed to resolve workspace for preference: {e}"))?;
+
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("Failed to acquire connection: {e}"))?;
+        let actor = crate::sync::actor::ActorContext::system("background:notification_pref_set")
+            .with_workspace(resolved_workspace);
+        crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+            let type_id: i32 = notification_types::table
+                .filter(notification_types::code.eq(notification_type.as_str()))
+                .select(notification_types::id)
+                .first(conn)?;
+            diesel::insert_into(notification_preferences)
+                .values((
+                    user_uuid.eq(user_uuid_val),
+                    notification_type_id.eq(type_id),
+                    channel.eq(channel_val.as_str()),
+                    enabled.eq(enabled_val),
+                    created_at.eq(Utc::now().naive_utc()),
+                    updated_at.eq(Utc::now().naive_utc()),
+                ))
+                .on_conflict((user_uuid, notification_type_id, channel))
+                .do_update()
+                .set((
+                    enabled.eq(enabled_val),
+                    updated_at.eq(Utc::now().naive_utc()),
+                ))
+                .execute(conn)?;
+            Ok::<_, diesel::result::Error>(())
+        })
         .map_err(|e| format!("Failed to update preference: {e}"))?;
 
         // Invalidate cache for this user

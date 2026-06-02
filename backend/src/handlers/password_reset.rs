@@ -252,11 +252,23 @@ pub async fn reset_password_with_token(
         return errors::internal("Error updating password");
     }
 
-    // Update password_changed_at timestamp in users table
-    match diesel::update(crate::schema::users::table.find(&user.uuid))
-        .set(crate::schema::users::password_changed_at.eq(now))
-        .execute(&mut conn)
-    {
+    // Update password_changed_at timestamp in the audited users
+    // table. Pre-session flow (token-verified, no JWT yet), so resolve
+    // the audit workspace from the user's primary membership.
+    let workspace_id =
+        match crate::repository::workspaces::primary_workspace_for_user(&mut conn, user.uuid) {
+            Ok(ws) => ws,
+            Err(e) => {
+                error!("Failed to resolve primary workspace for password reset: {:?}", e);
+                return errors::internal("Error updating password");
+            }
+        };
+    let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
+    match crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        diesel::update(crate::schema::users::table.find(&user.uuid))
+            .set(crate::schema::users::password_changed_at.eq(now))
+            .execute(c)
+    }) {
         Ok(_) => {
             info!(
                 "Password reset successfully for user: {} (uuid={})",

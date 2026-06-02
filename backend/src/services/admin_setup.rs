@@ -13,13 +13,16 @@
 //! invalidate the token), and the CLI doesn't need to because
 //! shell access already implies file access.
 //!
-//! Search indexing and category seeding are likewise the
-//! caller's responsibility: the web handler hits the search
-//! service it already has on hand, and the CLI skips both
-//! (it's running before the server is up, so the first server
-//! start will pick up the new row via its normal startup paths).
+//! Search indexing remains the caller's responsibility: the web
+//! handler hits the search service it already has on hand (post-
+//! commit, so a rolled-back insert never orphans a tantivy doc),
+//! and the CLI skips it (it runs before the server is up, so the
+//! first server start picks up the new row via its normal startup
+//! paths). Default-category seeding, by contrast, happens inside
+//! this transaction so it inherits the bootstrap actor context (the
+//! `ticket_categories` audit trigger needs `app.workspace_id` set)
+//! and rolls back atomically with the admin if anything fails.
 
-use diesel::connection::Connection;
 use diesel::prelude::*;
 use diesel::sql_query;
 use serde_json::json;
@@ -28,6 +31,8 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{User, UserEmail};
+use crate::sync::actor::{ActorContext, BOOTSTRAP_WORKSPACE_ID};
+use crate::sync::session::with_actor_context;
 
 #[derive(Debug, Error)]
 pub enum AdminSetupError {
@@ -84,7 +89,14 @@ pub fn create_initial_admin(
         crate::utils::NewUserBuilder::admin_user(normalized_name, normalized_email.clone())
             .build_with_email();
 
-    conn.transaction::<_, AdminSetupError, _>(|c| {
+    // Bootstrap actor pins `app.workspace_id` to the bootstrap
+    // workspace for the whole transaction, so the audited `users`
+    // insert (and the folded category seed) satisfy the audit
+    // trigger's NOT NULL workspace_id. `with_actor_context` opens the
+    // transaction; the advisory lock + count short-circuit run inside
+    // it exactly as before.
+    let actor = ActorContext::bootstrap("admin_setup");
+    with_actor_context(conn, &actor, |c| {
         sql_query(format!(
             "SELECT pg_advisory_xact_lock({SETUP_ADVISORY_LOCK_KEY})"
         ))
@@ -98,19 +110,17 @@ pub fn create_initial_admin(
             .values(&new_user)
             .get_result(c)?;
 
-        // Item U: add bootstrap admin to the bootstrap workspace
-        // (id=1) so the 403 gate in cookie_auth_middleware finds
-        // a membership row on first login. Hard-coded to workspace
-        // 1 because this is the bootstrap path — no request
-        // context exists yet, so the GUC-driven column default
-        // wouldn't fire.
-        sql_query(
-            "INSERT INTO workspace_members (workspace_id, user_uuid, role) \
-             VALUES (1, $1, 'admin') \
-             ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
-        )
-        .bind::<diesel::sql_types::Uuid, _>(user.uuid)
-        .execute(c)?;
+        // Item U: add bootstrap admin to the bootstrap workspace so
+        // the 403 gate in cookie_auth_middleware finds a membership
+        // row on first login. Workspace pinned explicitly because
+        // this is the bootstrap path (no request context to drive the
+        // GUC-backed column default).
+        crate::repository::workspaces::add_membership(
+            c,
+            BOOTSTRAP_WORKSPACE_ID,
+            user.uuid,
+            "admin",
+        )?;
 
         let user_email: UserEmail = diesel::insert_into(crate::schema::user_emails::table)
             .values(&crate::models::NewUserEmail {
@@ -164,6 +174,12 @@ pub fn create_initial_admin(
                 causation_id: None,
             },
         )?;
+
+        // Seed default ticket categories in the same transaction so
+        // they inherit the bootstrap actor context and roll back with
+        // the admin on failure. Idempotent: a no-op when categories
+        // already exist (e.g. CLI seeded, then web setup re-runs).
+        crate::repository::categories::seed_defaults_if_empty(c, Some(user.uuid))?;
 
         Ok((user, user_email))
     })

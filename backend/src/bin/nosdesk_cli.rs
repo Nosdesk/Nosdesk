@@ -585,8 +585,14 @@ fn admin_clear_mfa(email: &str) -> Result<()> {
     let user = user_helpers::get_user_by_email(email, &mut conn)
         .map_err(|e| anyhow!("no user found for {email}: {e}"))?;
 
-    let rows =
-        users_repo::clear_user_mfa(&mut conn, &user.uuid).with_context(|| "clearing MFA fields")?;
+    // Wrap the audited `users` write in a bootstrap actor context so
+    // the audit trigger has a workspace pin (self-hosted == workspace 1).
+    let rows = backend::sync::session::with_actor_context(
+        &mut conn,
+        &backend::sync::actor::ActorContext::bootstrap("cli:admin_clear_mfa"),
+        |c| users_repo::clear_user_mfa(c, &user.uuid),
+    )
+    .with_context(|| "clearing MFA fields")?;
     if rows == 0 {
         bail!("user {email} not found (unexpected after lookup)");
     }

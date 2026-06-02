@@ -236,12 +236,24 @@ pub async fn accept_invitation(
         }
     }
 
+    // Pre-session (token-verified) flow: resolve the audit workspace
+    // once from the user's primary membership, then thread it through
+    // the audited writes below (users.password_changed_at and the
+    // ticket release). Falls back to the bootstrap workspace if the
+    // lookup errors so these best-effort writes stay non-fatal.
+    let actor = crate::sync::actor::ActorContext::user_at_workspace(
+        user.uuid,
+        crate::repository::workspaces::primary_workspace_for_user(&mut conn, user.uuid)
+            .unwrap_or(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID),
+    );
+
     // Update password_changed_at timestamp in users table
     let now = Utc::now().naive_utc();
-    if let Err(e) = diesel::update(crate::schema::users::table.find(&user.uuid))
-        .set(crate::schema::users::password_changed_at.eq(now))
-        .execute(&mut conn)
-    {
+    if let Err(e) = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        diesel::update(crate::schema::users::table.find(&user.uuid))
+            .set(crate::schema::users::password_changed_at.eq(now))
+            .execute(c)
+    }) {
         warn!("Failed to update password_changed_at: {:?}", e);
         // Don't fail the request for this
     }
@@ -265,7 +277,9 @@ pub async fn accept_invitation(
     // stream and the search index so techs pick it up immediately — the
     // same side-effects that would have fired at submit time for a
     // non-gated ticket.
-    match repository::tickets::verify_pending_tickets_for_user(&mut conn, user.uuid) {
+    match crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        repository::tickets::verify_pending_tickets_for_user(c, user.uuid)
+    }) {
         Ok(released) if !released.is_empty() => {
             info!(
                 user_uuid = %user.uuid,

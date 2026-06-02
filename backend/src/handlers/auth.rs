@@ -775,16 +775,24 @@ pub async fn register(
             ))
             .build_with_email();
 
-    // Save user to database with email (atomically creates both user and email entry)
-    match repository::user_helpers::create_user_with_email(
-        new_user,
-        role,
-        email,
-        true,
-        Some("manual".to_string()),
-        &mut conn,
-        Some(search_service.get_ref()),
-    ) {
+    // Save user to database with email (atomically creates both user
+    // and email entry). The user doesn't exist until this insert
+    // commits, so a bootstrap system actor is the correct attribution;
+    // it also pins `app.workspace_id` so the audited `users` insert
+    // and the GUC-defaulted `workspace_members` row both succeed.
+    let actor = crate::sync::actor::ActorContext::bootstrap("register");
+    let create_result = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        repository::user_helpers::create_user_with_email(
+            new_user,
+            role,
+            email,
+            true,
+            Some("manual".to_string()),
+            c,
+            Some(search_service.get_ref()),
+        )
+    });
+    match create_result {
         Ok((created_user, _email_entry)) => {
             // Create local auth identity with password hash
             use crate::schema::user_auth_identities;
@@ -926,11 +934,16 @@ pub async fn change_password(
                 return errors::internal("Error updating password");
             }
 
-            // Update password_changed_at timestamp in users table
-            match diesel::update(crate::schema::users::table.find(&user.uuid))
-                .set(crate::schema::users::password_changed_at.eq(now))
-                .execute(&mut conn)
-            {
+            // Update password_changed_at timestamp in the audited
+            // users table, inside the request's actor context so the
+            // audit trigger has a workspace pin.
+            let actor = helpers::actor_for(&req, "handler:change_password");
+            let update_result = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+                diesel::update(crate::schema::users::table.find(&user.uuid))
+                    .set(crate::schema::users::password_changed_at.eq(now))
+                    .execute(c)
+            });
+            match update_result {
                 Ok(_) => {
                     info!(user_name = %user.name, "Password changed successfully");
 
@@ -1200,13 +1213,9 @@ pub async fn setup_initial_admin(
         .index_user(&created_user, Some(user_email.email.as_str()))
         .ok();
 
-    match repository::categories::seed_defaults_if_empty(&mut conn, Some(created_user.uuid)) {
-        Ok(0) => debug!("Default categories already present, skipping seed"),
-        Ok(n) => info!(seeded = n, "Seeded default ticket categories"),
-        Err(e) => {
-            warn!(error = ?e, "Failed to seed default categories; admin can create them manually");
-        }
-    }
+    // Default ticket categories are seeded inside create_initial_admin's
+    // transaction (so they inherit the bootstrap actor context); nothing
+    // to do here.
 
     let response = crate::models::AdminSetupResponse {
         success: true,
@@ -1370,24 +1379,23 @@ pub async fn mfa_enable(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    // Two writes: enable MFA on `users`, replace the
-    // recovery-codes set in `user_recovery_codes`. Done in
-    // sequence, not a shared transaction, because the
-    // recovery-codes table doesn't share a connection-level
-    // transaction with the users update here. A failure on the
-    // codes write after the user update succeeded would leave
-    // the user MFA-active with zero recovery codes (lockout
-    // risk); we therefore order codes-FIRST so a failed codes
-    // write leaves MFA still disabled and the user can retry.
-    if let Err(e) =
-        repository::user_recovery_codes::replace_all(&mut conn, &user_uuid, backup_codes_hashed)
-    {
-        tracing::error!("Failed to store recovery codes: {:?}", e);
-        return errors::internal("Failed to enable MFA");
-    }
+    // Two writes in one actor-scoped transaction: replace the
+    // recovery-codes set in `user_recovery_codes`, then enable MFA on
+    // the audited `users` table. The actor pins `app.workspace_id`
+    // (from the request's resolved WorkspaceContext) so the users
+    // audit trigger has a workspace; the shared transaction makes the
+    // pair atomic, so a failed users update rolls the codes back too
+    // (no MFA-active-with-zero-codes lockout window, no manual
+    // rollback needed).
+    let actor = helpers::actor_for(&req, "handler:mfa_enable");
+    let result = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        repository::user_recovery_codes::replace_all(c, &user_uuid, backup_codes_hashed)?;
+        repository::update_user_mfa(&user_uuid, mfa_update, c)?;
+        Ok::<(), diesel::result::Error>(())
+    });
 
-    match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
-        Ok(_) => {
+    match result {
+        Ok(()) => {
             tracing::info!("MFA enabled successfully for user: {}", user_uuid);
             // Return plaintext backup codes so the client can display them once
             HttpResponse::Ok().json(json!({
@@ -1402,10 +1410,6 @@ pub async fn mfa_enable(
         }
         Err(e) => {
             tracing::error!("Failed to enable MFA in database: {:?}", e);
-            // Best-effort: roll back the recovery-codes write so
-            // the user isn't left with codes for an MFA that
-            // didn't get enabled.
-            let _ = repository::user_recovery_codes::delete_all_for_user(&mut conn, &user_uuid);
             errors::internal("Failed to enable MFA")
         }
     }
@@ -1455,14 +1459,6 @@ pub async fn mfa_disable(
         return errors::bad_request("Invalid password");
     }
 
-    // Disable MFA: clear the secret + flip the flag on `users`,
-    // wipe recovery codes from the dedicated table. Recovery
-    // codes go FIRST so a failed delete doesn't leave codes
-    // for an MFA setup that's about to be removed.
-    if let Err(e) = repository::user_recovery_codes::delete_all_for_user(&mut conn, &user_uuid) {
-        error!(error = ?e, "Error clearing recovery codes during MFA disable");
-        return errors::internal("Failed to disable MFA");
-    }
     // Both columns are cleared together; the CHECK constraint
     // `(mfa_secret IS NULL) = (mfa_secret_kek_id IS NULL)` requires
     // they move in lockstep. `Some(None)` is the AsChangeset idiom for
@@ -1474,8 +1470,19 @@ pub async fn mfa_disable(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
-        Ok(_) => {
+    // Disable MFA: wipe recovery codes, then clear the secret + flip
+    // the flag on the audited `users` table, both in one actor-scoped
+    // transaction. The actor pins `app.workspace_id` for the users
+    // audit trigger; the shared transaction makes the pair atomic.
+    let actor = helpers::actor_for(&req, "handler:mfa_disable");
+    let result = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        repository::user_recovery_codes::delete_all_for_user(c, &user_uuid)?;
+        repository::update_user_mfa(&user_uuid, mfa_update, c)?;
+        Ok::<(), diesel::result::Error>(())
+    });
+
+    match result {
+        Ok(()) => {
             tracing::info!(
                 "MFA disabled for user: {} (scope: {})",
                 user_uuid,
@@ -1536,7 +1543,15 @@ pub async fn mfa_regenerate_backup_codes(
     // user is never left mid-rotation with a partial set.
     let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
 
-    match repository::user_recovery_codes::replace_all(&mut conn, &user_uuid, backup_codes_hashed) {
+    // `user_recovery_codes` isn't audited today, but wrap the write in
+    // the actor context anyway so it stays correct if a trigger is
+    // ever attached (and so the sync_actions attribution is right).
+    let actor = helpers::actor_for(&req, "handler:mfa_regenerate_backup_codes");
+    let result = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        repository::user_recovery_codes::replace_all(c, &user_uuid, backup_codes_hashed)
+    });
+
+    match result {
         Ok(_) => {
             // Inline the response rather than building the typed
             // struct so we can pass `&*backup_codes_plaintext`
@@ -1801,20 +1816,11 @@ pub async fn mfa_enable_login(
     // Generate backup codes now that verification succeeded
     let (backup_codes_plaintext, backup_codes_hashed) = mfa::generate_backup_codes_async().await;
 
-    // Enable MFA in database. Recovery codes write goes FIRST
-    // (same ordering rationale as `mfa_enable` above — failed
-    // codes write leaves MFA disabled, never the reverse).
+    // Enable MFA in database. This is a pre-session flow (the user
+    // has verified credentials but has no JWT / RequestContext yet),
+    // so resolve the audit workspace from the user's primary
+    // membership and build the actor explicitly.
     let user_uuid = user.uuid;
-
-    if let Err(e) =
-        repository::user_recovery_codes::replace_all(&mut conn, &user_uuid, backup_codes_hashed)
-    {
-        tracing::error!(
-            "Failed to store recovery codes during login MFA enable: {:?}",
-            e
-        );
-        return errors::internal("Failed to enable MFA");
-    }
 
     let mfa_update = crate::models::UserMfaUpdate {
         mfa_enabled: Some(true),
@@ -1823,8 +1829,26 @@ pub async fn mfa_enable_login(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    match repository::update_user_mfa(&user_uuid, mfa_update, &mut conn) {
-        Ok(_) => {
+    let workspace_id =
+        match crate::repository::workspaces::primary_workspace_for_user(&mut conn, user_uuid) {
+            Ok(ws) => ws,
+            Err(e) => {
+                tracing::error!("Failed to resolve primary workspace for MFA enable: {:?}", e);
+                return errors::internal("Failed to enable MFA");
+            }
+        };
+    let actor = crate::sync::actor::ActorContext::user_at_workspace(user_uuid, workspace_id);
+    // Recovery codes write goes first, then the audited `users`
+    // update, both in one actor-scoped transaction so the pair is
+    // atomic and the users audit trigger sees the workspace GUC.
+    let result = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        repository::user_recovery_codes::replace_all(c, &user_uuid, backup_codes_hashed)?;
+        repository::update_user_mfa(&user_uuid, mfa_update, c)?;
+        Ok::<(), diesel::result::Error>(())
+    });
+
+    match result {
+        Ok(()) => {
             tracing::info!(
                 "MFA enabled successfully for user during login: {}",
                 user_uuid

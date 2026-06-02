@@ -12,6 +12,16 @@
 
 use uuid::Uuid;
 
+/// The single workspace that exists on every self-hosted install.
+/// Used by bootstrap / pre-request paths that need to pin GUCs
+/// before any request resolves a WorkspaceContext.
+///
+/// In hosted mode this constant is still meaningful (the platform's
+/// "control plane" workspace), but per-tenant code paths MUST NOT
+/// reach for it. They resolve workspace_id from the request's
+/// WorkspaceContext or from a workspace_members lookup.
+pub const BOOTSTRAP_WORKSPACE_ID: i32 = 1;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActorKind {
     User,
@@ -99,6 +109,28 @@ impl ActorContext {
         }
     }
 
+    /// System actor pinned to the bootstrap workspace. Use for any
+    /// code that runs outside an authenticated request but writes to
+    /// audited tables: admin_setup, env-var seed, default content
+    /// seeding, bootstrap-time plugin install, CLI tools.
+    ///
+    /// `reference` should name the call site (e.g. "admin_setup",
+    /// "cli:import_tickets") so the audit row's actor_kind="system" +
+    /// actor_ref="<name>" tells a reviewer who wrote the row.
+    pub fn bootstrap(reference: impl Into<String>) -> Self {
+        Self::system(reference).with_workspace(BOOTSTRAP_WORKSPACE_ID)
+    }
+
+    /// Authenticated-user actor pinned to a specific workspace. Use
+    /// from credential-verified-but-pre-session flows: mfa_enable_login,
+    /// password reset confirm, invitation accept, OAuth callback's
+    /// existing-user update step. The workspace_id comes from a
+    /// workspace_members lookup against the verified user (see
+    /// `repository::workspaces::primary_workspace_for_user`).
+    pub fn user_at_workspace(user_uuid: Uuid, workspace_id: i32) -> Self {
+        Self::user(user_uuid, None).with_workspace(workspace_id)
+    }
+
     /// Builder that pins the workspace for this actor context.
     /// Called by the request pipeline after `ActorContext::user(...)`
     /// once the `WorkspaceContext` middleware has resolved one. The
@@ -109,5 +141,29 @@ impl ActorContext {
     pub fn with_workspace(mut self, workspace_id: i32) -> Self {
         self.workspace_id = Some(workspace_id);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bootstrap_is_a_system_actor_pinned_to_workspace_one() {
+        let actor = ActorContext::bootstrap("admin_setup");
+        assert_eq!(actor.kind, ActorKind::System);
+        assert_eq!(actor.uuid, None);
+        assert_eq!(actor.reference.as_deref(), Some("admin_setup"));
+        assert_eq!(actor.workspace_id, Some(BOOTSTRAP_WORKSPACE_ID));
+    }
+
+    #[test]
+    fn user_at_workspace_carries_uuid_and_workspace() {
+        let user_uuid = Uuid::now_v7();
+        let actor = ActorContext::user_at_workspace(user_uuid, 7);
+        assert_eq!(actor.kind, ActorKind::User);
+        assert_eq!(actor.uuid, Some(user_uuid));
+        assert_eq!(actor.reference, None);
+        assert_eq!(actor.workspace_id, Some(7));
     }
 }

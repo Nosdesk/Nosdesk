@@ -174,6 +174,33 @@ pub fn add_membership(
     .execute(conn)
 }
 
+/// Resolve the workspace that should be the audit-context root for a
+/// credential-verified-but-pre-session action on this user (MFA
+/// enable at login, password-reset confirm, invitation accept). In
+/// self-hosted there is one membership; in hosted it picks the
+/// lowest-id membership as a deterministic "primary" (a primary-
+/// membership flag can refine this later).
+///
+/// Returns [`BOOTSTRAP_WORKSPACE_ID`](crate::sync::actor::BOOTSTRAP_WORKSPACE_ID)
+/// when the user has no memberships. That shouldn't happen after the
+/// Phase 1 backfill, but the fallback keeps the audited write
+/// attributable to a real workspace rather than failing at the audit
+/// trigger's NOT NULL workspace_id.
+pub fn primary_workspace_for_user(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+) -> QueryResult<i32> {
+    workspace_members::table
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .order(workspace_members::workspace_id.asc())
+        .select(workspace_members::workspace_id)
+        .first::<i32>(conn)
+        .or_else(|e| match e {
+            DieselError::NotFound => Ok(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID),
+            other => Err(other),
+        })
+}
+
 // =====================================================================
 // Phase 4 W1: workspace lifecycle ops
 // =====================================================================
