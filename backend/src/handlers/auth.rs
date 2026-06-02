@@ -1123,7 +1123,7 @@ pub async fn setup_initial_admin(
         .filter(|s| !s.is_empty());
     let Some(provided) = bearer.or(x_bootstrap) else {
         return errors::unauthorized(
-            "Bootstrap token required. Check the server startup logs for the setup URL, or paste the token from `docker compose exec backend cat /app/uploads/bootstrap.token`."
+            "Bootstrap token required. Check the server startup logs for the setup URL, or paste the token from `docker compose exec backend cat /app/state/bootstrap.token`."
         );
     };
     if let Err(e) = crate::utils::bootstrap_token::verify(provided) {
@@ -1182,8 +1182,12 @@ pub async fn setup_initial_admin(
     ) {
         Ok(v) => v,
         Err(crate::services::admin_setup::AdminSetupError::AlreadyComplete) => {
-            return errors::bad_request(
-                "Setup has already been completed. Users already exist in the system.",
+            // 410 Gone, not 400: setup is a one-shot endpoint that has
+            // been consumed. Gone tells the client this is permanent and
+            // not worth retrying (the frontend must not auto-redirect on
+            // it).
+            return errors::gone(
+                "Setup has already been completed; this endpoint is no longer accepting requests.",
             );
         }
         Err(crate::services::admin_setup::AdminSetupError::DuplicateEmail) => {

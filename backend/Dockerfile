@@ -157,8 +157,10 @@ COPY backend/seeds ./seeds
 # Copy built frontend assets
 COPY --from=frontend-builder /frontend/dist ./public
 
-# Create upload directories with proper permissions
-RUN mkdir -p uploads/temp uploads/tickets uploads/users/avatars uploads/users/banners uploads/users/thumbs && \
+# Create upload directories with proper permissions. /app/state holds
+# operator state that must never sit under the user-content upload tree
+# (currently the bootstrap.token; see utils::bootstrap_token).
+RUN mkdir -p uploads/temp uploads/tickets uploads/users/avatars uploads/users/banners uploads/users/thumbs state && \
     chown -R appuser:appuser /app && \
     chmod +x /app/backend
 

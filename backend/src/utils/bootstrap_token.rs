@@ -3,9 +3,12 @@
 //! first boot.
 //!
 //! Lifecycle. At server startup, if zero users exist, write a
-//! random 32-byte base64 token to `${UPLOAD_DIR}/bootstrap.token`
-//! (mode 0600) and log a clickable setup URL alongside the bare
-//! token. The operator either:
+//! random 32-byte base64 token to
+//! `${NOSDESK_STATE_DIR:-/app/state}/bootstrap.token` (mode 0600) and
+//! log a clickable setup URL alongside the bare token. The token lives
+//! in a dedicated state directory, never under the user-content upload
+//! path, so a path-traversal bug in an upload handler cannot read it
+//! (PocketBase / GitLab convention). The operator either:
 //!   1. clicks the logged URL (works on-host with default
 //!      `FRONTEND_URL`, or via reverse proxy when `FRONTEND_URL`
 //!      is configured), or
@@ -70,8 +73,12 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 const TOKEN_BYTES: usize = 32;
 
 pub fn token_file_path() -> PathBuf {
-    let upload_dir = std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "/app/uploads".to_string());
-    PathBuf::from(upload_dir).join("bootstrap.token")
+    // Dedicated state directory, deliberately NOT under UPLOAD_DIR: the
+    // uploads tree is the user-content blast radius, so isolating the
+    // token keeps an upload path-traversal bug from reaching it.
+    let state_dir =
+        std::env::var("NOSDESK_STATE_DIR").unwrap_or_else(|_| "/app/state".to_string());
+    PathBuf::from(state_dir).join("bootstrap.token")
 }
 
 /// Returns `true` if the file's mtime is older than the
@@ -251,31 +258,31 @@ mod tests {
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    fn with_temp_upload_dir<F: FnOnce()>(f: F) {
+    fn with_temp_state_dir<F: FnOnce()>(f: F) {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
-        let prev = std::env::var_os("UPLOAD_DIR");
-        std::env::set_var("UPLOAD_DIR", dir.path());
+        let prev = std::env::var_os("NOSDESK_STATE_DIR");
+        std::env::set_var("NOSDESK_STATE_DIR", dir.path());
         f();
         match prev {
-            Some(v) => std::env::set_var("UPLOAD_DIR", v),
-            None => std::env::remove_var("UPLOAD_DIR"),
+            Some(v) => std::env::set_var("NOSDESK_STATE_DIR", v),
+            None => std::env::remove_var("NOSDESK_STATE_DIR"),
         }
     }
 
     #[test]
-    fn token_file_path_honours_upload_dir() {
-        with_temp_upload_dir(|| {
+    fn token_file_path_honours_state_dir() {
+        with_temp_state_dir(|| {
             let p = token_file_path();
-            let upload = std::env::var("UPLOAD_DIR").unwrap();
-            assert!(p.starts_with(&upload));
+            let state = std::env::var("NOSDESK_STATE_DIR").unwrap();
+            assert!(p.starts_with(&state));
             assert!(p.ends_with("bootstrap.token"));
         });
     }
 
     #[test]
     fn verify_rejects_missing_file() {
-        with_temp_upload_dir(|| {
+        with_temp_state_dir(|| {
             let err = verify("anything").unwrap_err().to_string();
             assert!(err.contains("not present"));
         });
@@ -283,7 +290,7 @@ mod tests {
 
     #[test]
     fn verify_accepts_matching_token_and_rejects_others() {
-        with_temp_upload_dir(|| {
+        with_temp_state_dir(|| {
             let path = token_file_path();
             write_token_file(&path, "the-real-token").unwrap();
             verify("the-real-token").unwrap();
@@ -296,7 +303,7 @@ mod tests {
 
     #[test]
     fn consume_removes_the_file_and_is_idempotent() {
-        with_temp_upload_dir(|| {
+        with_temp_state_dir(|| {
             let path = token_file_path();
             write_token_file(&path, "tok").unwrap();
             assert!(path.exists());
@@ -308,7 +315,7 @@ mod tests {
 
     #[test]
     fn verify_rejects_expired_file() {
-        with_temp_upload_dir(|| {
+        with_temp_state_dir(|| {
             // Configure a 1-second TTL so we don't have to sleep
             // an hour. The env-var read happens inside `ttl()`,
             // so updating it mid-test is fine.
@@ -333,7 +340,7 @@ mod tests {
 
     #[test]
     fn setup_url_uses_frontend_url_when_set_else_localhost() {
-        with_temp_upload_dir(|| {
+        with_temp_state_dir(|| {
             std::env::remove_var("FRONTEND_URL");
             assert_eq!(
                 setup_url("abc"),
