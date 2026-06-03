@@ -93,6 +93,17 @@ fn validate_dashboard_layout(layout: &serde_json::Value) -> Result<(), &'static 
                 return Err("dashboard_layout.widgets[].span must be 1, 2, or 3 when present");
             }
         }
+        // `rowSpan` is optional; same 1-3 bound as `span` (the corner-
+        // resize handle clamps to these row-unit heights).
+        if let Some(row_span) = entry.get("rowSpan") {
+            let ok = row_span
+                .as_i64()
+                .map(|n| (1..=3).contains(&n))
+                .unwrap_or(false);
+            if !ok {
+                return Err("dashboard_layout.widgets[].rowSpan must be 1, 2, or 3 when present");
+            }
+        }
         // `config` is optional; shape is owned by the widget. Only the
         // outer type is enforced, object or nothing.
         if let Some(config) = entry.get("config") {

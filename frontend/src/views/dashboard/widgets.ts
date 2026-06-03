@@ -478,12 +478,14 @@ export function rowSpanClass(span: WidgetSpan): string {
   }
 }
 
-/** Effective row span for a widget. Explicit `rowSpan` wins; otherwise
- *  derive from `naturalHeight` — compact widgets are 1 unit tall, the
- *  rest (lists, charts) are 2. Existing widgets need no data change:
- *  the `naturalHeight` flag already partitions short from tall. */
-export function rowSpanFor(id: string): WidgetSpan {
-  const def = widgetById(id)
+/** Effective row span for a stored layout entry. Precedence: the
+ *  user's saved override (set by the corner-resize handle) > the
+ *  registry's explicit `rowSpan` > derived from `naturalHeight`
+ *  (compact widgets 1 unit, lists/charts 2). The `naturalHeight` flag
+ *  already partitions short from tall, so widgets need no data change. */
+export function rowSpanFor(entry: { id: string; rowSpan?: WidgetSpan }): WidgetSpan {
+  if (entry.rowSpan) return entry.rowSpan
+  const def = widgetById(entry.id)
   if (def?.rowSpan) return def.rowSpan
   return def?.naturalHeight ? 1 : 2
 }

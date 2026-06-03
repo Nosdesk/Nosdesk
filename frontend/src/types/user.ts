@@ -18,6 +18,12 @@ export interface DashboardLayout {
     visible: boolean;
     span?: 1 | 2 | 3;
     /**
+     * Row span on the fixed-unit grid lattice (1-3 row units). User
+     * override set by the corner-resize handle; when absent the client
+     * falls back to the registry-derived default (see `rowSpanFor`).
+     */
+    rowSpan?: 1 | 2 | 3;
+    /**
      * Per-widget configuration bag. Shape is owned by each widget —
      * the layout system treats it as opaque JSON. Used for widgets
      * that expose user-facing settings (the Queue KPI picker, default

@@ -32,7 +32,7 @@ Drag UX — "stable DOM, projected transforms":
   * Invalid drop fires a soft outline pulse on the source.
 -->
 <script setup lang="ts">
-import { computed, ref, toRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, toRef, watch } from 'vue'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
 import {
   packGrid,
@@ -46,8 +46,11 @@ import {
   rowSpanFor,
   spanClass,
   widgetById,
+  type WidgetSpan,
 } from './widgets'
 import WidgetFrame from './WidgetFrame.vue'
+
+type LayoutEntry = { id: string; span?: WidgetSpan; rowSpan?: WidgetSpan }
 
 const store = useDashboardLayoutStore()
 
@@ -84,7 +87,7 @@ const projectableEntries = computed<ProjectableEntry[]>(() =>
   visibleEntries.value.map(({ entry, originalIndex }) => ({
     originalIndex,
     colSpan: effectiveSpanFor(entry),
-    rowSpan: rowSpanFor(entry.id),
+    rowSpan: rowSpanFor(entry),
   })),
 )
 
@@ -171,6 +174,106 @@ function styleFor(originalIndex: number) {
   if (transform) return { transform }
   return undefined
 }
+
+// -- Corner resize -----------------------------------------------------
+//
+// The grip on each widget (WidgetFrame) drives a live re-pack: as the
+// pointer drags, the widget's column / row span follow it (snapped to
+// lattice cells) and the grid reflows reactively via `colSpanOf` /
+// `rowSpanOf`. The change is committed to the store once on pointerup,
+// so the whole gesture is a single undo step rather than one per frame.
+const resizePreview = ref<{ id: string; span: WidgetSpan; rowSpan: WidgetSpan } | null>(null)
+let resizeStart: {
+  id: string
+  left: number
+  top: number
+  colPitch: number
+  rowPitch: number
+  cols: number
+} | null = null
+let resizePointerId = -1
+
+/** Rendered column span, preview-aware so the resized widget reflows
+ *  live without committing per frame. */
+function colSpanOf(entry: LayoutEntry): WidgetSpan {
+  if (resizePreview.value?.id === entry.id) return resizePreview.value.span
+  return effectiveSpanFor(entry)
+}
+function rowSpanOf(entry: LayoutEntry): WidgetSpan {
+  if (resizePreview.value?.id === entry.id) return resizePreview.value.rowSpan
+  return rowSpanFor(entry)
+}
+
+const clampSpan = (n: number): WidgetSpan => Math.max(1, Math.min(3, n)) as WidgetSpan
+
+function onResizePointerDown(originalIndex: number, e: PointerEvent) {
+  if (!store.editMode) return
+  if (e.button !== undefined && e.button !== 0) return
+  e.preventDefault()
+  e.stopPropagation()
+  const entry = visibleEntries.value.find((v) => v.originalIndex === originalIndex)?.entry
+  const snap = captureLayoutSnapshot()
+  const el = gridEl.value?.querySelector<HTMLElement>(`[data-sortable-index="${originalIndex}"]`)
+  if (!entry || !snap || !el) return
+
+  const rect = el.getBoundingClientRect()
+  resizeStart = {
+    id: entry.id,
+    left: rect.left,
+    top: rect.top,
+    colPitch: snap.colWidth + snap.colGap,
+    rowPitch: snap.rowUnit + snap.rowGap,
+    cols: Math.max(1, dragState.renderedColumns),
+  }
+  resizePreview.value = { id: entry.id, span: effectiveSpanFor(entry), rowSpan: rowSpanFor(entry) }
+  resizePointerId = e.pointerId
+  try {
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  } catch {
+    // capture is best-effort; the document listeners still track the drag.
+  }
+  document.addEventListener('pointermove', onResizeMove)
+  document.addEventListener('pointerup', onResizeUp)
+  document.addEventListener('pointercancel', onResizeCancel)
+}
+
+function onResizeMove(e: PointerEvent) {
+  if (!resizeStart || e.pointerId !== resizePointerId) return
+  // Span counted from the widget's drag-start top-left, snapped to the
+  // nearest cell and clamped: columns to what the grid actually has,
+  // rows to the 1-3 range the lattice + backend allow.
+  const rawCols = Math.round((e.clientX - resizeStart.left) / resizeStart.colPitch)
+  const span = Math.max(1, Math.min(resizeStart.cols, rawCols)) as WidgetSpan
+  const rowSpan = clampSpan(Math.round((e.clientY - resizeStart.top) / resizeStart.rowPitch))
+  resizePreview.value = { id: resizeStart.id, span, rowSpan }
+}
+
+function endResize() {
+  document.removeEventListener('pointermove', onResizeMove)
+  document.removeEventListener('pointerup', onResizeUp)
+  document.removeEventListener('pointercancel', onResizeCancel)
+  resizeStart = null
+  resizePointerId = -1
+}
+
+function onResizeUp(e: PointerEvent) {
+  if (e.pointerId !== resizePointerId) return
+  const preview = resizePreview.value
+  const start = resizeStart
+  endResize()
+  resizePreview.value = null
+  if (preview && start) {
+    store.setSpan(start.id, preview.span)
+    store.setRowSpan(start.id, preview.rowSpan)
+  }
+}
+
+function onResizeCancel() {
+  endResize()
+  resizePreview.value = null
+}
+
+onBeforeUnmount(endResize)
 </script>
 
 <template>
@@ -188,7 +291,7 @@ function styleFor(originalIndex: number) {
       v-for="{ entry, originalIndex } in visibleEntries"
       :key="entry.id"
       :index="originalIndex"
-      :current-span="effectiveSpanFor(entry)"
+      :current-span="colSpanOf(entry)"
       :edit-mode="store.editMode"
       :dragging="isDragged(originalIndex)"
       :pulsing="pulseSourceIndex === originalIndex"
@@ -197,14 +300,15 @@ function styleFor(originalIndex: number) {
       :frame-wraps="widgetById(entry.id)?.frameWraps ?? false"
       :frame-title-key="widgetById(entry.id)?.titleKey"
       :class="[
-        spanClass(effectiveSpanFor(entry)),
-        rowSpanClass(rowSpanFor(entry.id)),
+        spanClass(colSpanOf(entry)),
+        rowSpanClass(rowSpanOf(entry)),
         'widget-projected',
       ]"
       :style="styleFor(originalIndex)"
       @hide="store.hide(entry.id)"
       @resize="(span) => store.setSpan(entry.id, span)"
       @handle-pointerdown="(e) => handlePointerDown(originalIndex, e)"
+      @resize-pointerdown="(e) => onResizePointerDown(originalIndex, e)"
     />
   </div>
 </template>

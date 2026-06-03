@@ -244,6 +244,14 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
     entry.span = span
   }
 
+  function setRowSpan(id: string, rowSpan: 1 | 2 | 3) {
+    if (!workingCopy.value) return
+    const entry = workingCopy.value.widgets.find((w) => w.id === id)
+    if (!entry || entry.rowSpan === rowSpan) return
+    recordUndo()
+    entry.rowSpan = rowSpan
+  }
+
   /**
    * Upsert a widget's per-widget config. Opaque to the layout
    * system — each widget owns its own config shape; pass `null` to
@@ -367,6 +375,7 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
     show,
     move,
     setSpan,
+    setRowSpan,
     setConfig,
     getConfig,
     resetToDefaults,

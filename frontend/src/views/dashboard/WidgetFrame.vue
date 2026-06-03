@@ -63,6 +63,9 @@ const emit = defineEmits<{
   (e: 'hide'): void
   (e: 'resize', span: WidgetSpan): void
   (e: 'handle-pointerdown', ev: PointerEvent): void
+  /** Corner-resize grip pressed. The grid owns the gesture (it has the
+   *  lattice metrics) and resizes this widget's col/row span live. */
+  (e: 'resize-pointerdown', ev: PointerEvent): void
 }>()
 
 const fluent = useFluent()
@@ -82,7 +85,7 @@ provide(DASHBOARD_WIDGET_CONTEXT, context)
 <template>
   <div
     :data-sortable-index="index"
-    :class="pulsing ? 'frame-pulse' : ''"
+    :class="['relative', pulsing ? 'frame-pulse' : '']"
   >
     <DashboardWidgetShell
       v-if="frameWraps && frameTitleKey"
@@ -91,6 +94,21 @@ provide(DASHBOARD_WIDGET_CONTEXT, context)
       <component :is="component" v-bind="widgetProps ?? {}" />
     </DashboardWidgetShell>
     <component v-else :is="component" v-bind="widgetProps ?? {}" />
+
+    <!-- Corner-resize grip. Edit-mode only, and only at xl where the
+         grid is multi-column (below xl every widget is full-width, so
+         column resize is meaningless). The grid handles the gesture. -->
+    <button
+      v-if="editMode"
+      type="button"
+      class="absolute bottom-0.5 right-0.5 z-20 hidden xl:flex h-4 w-4 items-end justify-end cursor-nwse-resize touch-none text-tertiary hover:text-accent focus-visible:text-accent focus-visible:outline-none"
+      aria-label="Resize widget"
+      @pointerdown="(e) => emit('resize-pointerdown', e)"
+    >
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+        <path d="M9 1 L1 9 M9 5 L5 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+    </button>
   </div>
 </template>
 
