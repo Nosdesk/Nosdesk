@@ -115,7 +115,7 @@ function rowLink(b: BreakdownBucket) {
           <span class="text-secondary truncate" :title="bucketLabel(b)">{{ bucketLabel(b) }}</span>
           <div class="h-2 rounded-sm bg-surface-alt overflow-hidden">
             <div
-              class="h-full bg-accent transition-[width] duration-200"
+              class="h-full bg-chart-1 transition-[width] duration-200"
               :style="{ width: `${(b.value / maxValue) * 100}%` }"
             />
           </div>

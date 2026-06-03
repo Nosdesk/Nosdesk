@@ -143,12 +143,16 @@ useDashboardKeybindings({
            dependency, so an empty canvas yields a clean header. -->
       <header class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div class="min-w-0 flex-1">
-          <h2 class="text-lg sm:text-xl font-medium text-primary flex items-center gap-3">
+          <!-- h1-dashboard: 18px / 700 / -0.022em. Deliberately
+               smaller than the metric-md KPI numerals on the canvas
+               below so the data reads as the figure and the page
+               header reads as the ground. -->
+          <h1 class="text-lg font-bold tracking-tight text-primary flex items-center gap-3">
             <span v-if="currentTheme === 'red-horizon'" class="hal-eye flex-shrink-0" aria-hidden="true">
               <span class="hal-eye-inner"></span>
             </span>
             <span>{{ formattedGreeting }}</span>
-          </h2>
+          </h1>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <TimeRangeChipCluster v-if="activeChromeDeps.has('time-range')" />

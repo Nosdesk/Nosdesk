@@ -28,6 +28,29 @@
    ============================================ */
 @theme {
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Monospace for identifiers (ticket IDs, hashes, IPs). Aligned to
+     the red-horizon theme's existing mono stack so a second competing
+     stack is not introduced. */
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, Monaco, ui-monospace, monospace;
+
+  /* ===========================================================
+     Metric type scale (dashboard KPI numerals + embedded stats).
+     Distinct from the heading scale so KPI numbers can dominate a
+     dashboard while page titles stay supporting; aligned to parent
+     plan decision 11 (32-40px primary number, 14px label).
+     ----------------------------------------------------------- */
+  --text-metric-sm: 20px;
+  --text-metric-sm--line-height: 28px;
+  --text-metric-sm--font-weight: 600;
+  --text-metric-sm--letter-spacing: -0.015em;
+  --text-metric-md: 32px;
+  --text-metric-md--line-height: 36px;
+  --text-metric-md--font-weight: 600;
+  --text-metric-md--letter-spacing: -0.022em;
+  --text-metric-lg: 36px;
+  --text-metric-lg--line-height: 40px;
+  --text-metric-lg--font-weight: 600;
+  --text-metric-lg--letter-spacing: -0.025em;
 
   /* Centralised z-index scale, mirroring `src/constants/zIndex.ts`.
      Tailwind 4 doesn't have a `@theme` namespace for z-index
@@ -110,6 +133,32 @@
   --color-priority-medium-muted: rgba(245, 158, 11, 0.15);
   --color-priority-low: #10B981;
   --color-priority-low-muted: rgba(16, 185, 129, 0.15);
+
+  /* Status border tints. Explicit RGBA (rather than /30 modifier on
+     the base hue) so Tailwind's color-mix opacity path is bypassed
+     and the per-theme injector can override these atomically. */
+  --color-status-success-border: rgba(0, 201, 81, 0.30);
+  --color-status-error-border: rgba(239, 68, 68, 0.30);
+  --color-status-warning-border: rgba(245, 158, 11, 0.30);
+  --color-status-info-border: rgba(59, 130, 246, 0.30);
+
+  /* ===========================================================
+     Chart categorical palette (Okabe-Ito, color-blind safe). Per
+     parent plan decision 15, multi-series charts cycle these in
+     order; single-series charts use --color-chart-1. Brand accent
+     #FF6B1A is deliberately excluded so operators learn "orange
+     means clickable, not a data category". Theme presets in
+     frontend/src/themes/presets/ may rewrite individual tokens
+     (e.g. red-horizon collapses the palette to a luminance ramp).
+     ----------------------------------------------------------- */
+  --color-chart-1: #E69F00;
+  --color-chart-2: #56B4E9;
+  --color-chart-3: #009E73;
+  --color-chart-4: #F0E442;
+  --color-chart-5: #0072B2;
+  --color-chart-6: #D55E00;
+  --color-chart-7: #CC79A7;
+  --color-chart-8: #6B7280;
 }
 
 /* ============================================

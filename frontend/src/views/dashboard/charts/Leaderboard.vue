@@ -110,7 +110,7 @@ function rowLink(r: LeaderboardRow) {
           </span>
           <div class="h-2 rounded-sm bg-surface-alt overflow-hidden">
             <div
-              class="h-full bg-accent transition-[width] duration-200"
+              class="h-full bg-chart-2 transition-[width] duration-200"
               :style="{ width: `${(r.value / maxValue) * 100}%` }"
             />
           </div>

@@ -1,15 +1,21 @@
 <!--
 KpiTile — a headline number, a delta vs prior period, and an
-optional sparkline. Renders inside the SavedViewWidget shell when
-a saved view's viz_type is `kpi_tile`.
+optional sparkline.
 
-The component intentionally does its own state machine (loading /
-error / data) at this layer rather than relying on the parent
-shell, because KpiTile is also used directly in places that aren't
-saved-view-backed (the KpiRail on the dashboard's "Today" section
-in Wave 8). For chart-config consumers, viz_config carries the
-metric + sparkline flag; the time window comes from useTimeRange so
-the tile re-fetches when the dashboard's time range changes.
+The shell (DashboardWidgetShell, supplied either by SavedViewWidget
+for saved-view-backed kpi tiles or by WidgetFrame's frame-wraps
+path for system kpi widgets) owns the title. This component is the
+BODY: number, delta, spark. The earlier double-label problem
+("Created" in the shell header + "TICKETS CREATED" inside the body)
+came from this component carrying its own headline label; the
+design language reserves the label for the shell.
+
+Internal state machine (loading / error / data) stays here rather
+than the shell because the chart's data fetch is independent of any
+shell-level loading (the shell's loading prop is unused on frame-
+wraps and SavedViewWidget paths). For chart-config consumers,
+viz_config carries the metric + sparkline flag; the time window
+comes from useTimeRange so the tile re-fetches on time-range change.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
@@ -28,8 +34,10 @@ const props = defineProps<{
   /** When `true`, the sparkline strip below the number is drawn.
    *  Defaults to `true`; pass `false` for compact tile layouts. */
   showSparkline?: boolean
-  /** Optional override for the headline label. Defaults to a
-   *  metric-derived localised string. */
+  /** Optional override for the screen-reader-only label that names
+   *  the metric. Shell title supplies the visible label; this is
+   *  the accessibility fallback when the tile renders outside a
+   *  shell. Defaults to a metric-derived localised string. */
   label?: string
   /** Saved-view uuid to drill into on click. When set, the tile
    *  becomes a `router-link` to `/tickets?view=<uuid>`; otherwise
@@ -126,51 +134,50 @@ const sparkPath = computed<string | null>(() => {
   <component
     :is="viewUuid ? 'router-link' : 'div'"
     :to="viewUuid ? { path: '/tickets', query: { view: viewUuid } } : undefined"
+    :aria-label="headlineLabel"
     :class="[
-      'flex flex-col gap-1 p-4',
+      'flex flex-col gap-2 px-4 py-3',
       viewUuid
         ? 'transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none'
         : '',
     ]"
   >
-    <div class="flex items-baseline justify-between gap-2">
-      <span class="text-xs uppercase tracking-wide text-tertiary truncate">
-        {{ headlineLabel }}
-      </span>
-      <span
-        v-if="deltaSign && deltaPctDisplay"
-        :class="[
-          'text-[11px] font-medium tabular-nums',
-          deltaSign === 'up' ? 'text-status-success' : '',
-          deltaSign === 'down' ? 'text-status-error' : '',
-          deltaSign === 'flat' ? 'text-tertiary' : '',
-        ]"
-      >
-        <span v-if="deltaSign === 'up'" aria-hidden="true">▲</span>
-        <span v-else-if="deltaSign === 'down'" aria-hidden="true">▼</span>
-        <span v-else aria-hidden="true">▬</span>
-        {{ deltaPctDisplay }}
-      </span>
-    </div>
-
-    <p v-if="loading" class="text-2xl font-semibold text-tertiary tabular-nums">
+    <p v-if="loading" class="text-metric-md text-tertiary tabular-nums">
       &mdash;
     </p>
     <p v-else-if="hasError" class="text-xs text-status-error">
       {{ t('dashboard-kpi-error') }}
     </p>
-    <p v-else class="text-2xl font-semibold text-primary tabular-nums">
+    <p v-else class="text-metric-md text-primary tabular-nums">
       {{ result?.value ?? 0 }}
     </p>
 
+    <div
+      v-if="deltaSign && deltaPctDisplay"
+      :class="[
+        'flex items-center gap-1 text-[11px] font-medium tabular-nums',
+        deltaSign === 'up' ? 'text-status-success' : '',
+        deltaSign === 'down' ? 'text-status-error' : '',
+        deltaSign === 'flat' ? 'text-tertiary' : '',
+      ]"
+    >
+      <span v-if="deltaSign === 'up'" aria-hidden="true">▲</span>
+      <span v-else-if="deltaSign === 'down'" aria-hidden="true">▼</span>
+      <span v-else aria-hidden="true">▬</span>
+      <span>{{ deltaPctDisplay }}</span>
+    </div>
+
     <svg
       v-if="sparkPath"
-      class="w-full h-6 mt-1"
+      class="w-full h-6"
       viewBox="0 0 100 24"
       preserveAspectRatio="none"
       aria-hidden="true"
     >
-      <path :d="sparkPath" fill="none" stroke="currentColor" stroke-width="1.2" class="text-accent" />
+      <!-- Accent reserved for interaction. Sparkline uses tertiary
+           so its shape carries the story without competing with
+           clickable affordances; the headline number is the figure. -->
+      <path :d="sparkPath" fill="none" stroke="currentColor" stroke-width="1.2" class="text-tertiary" />
     </svg>
   </component>
 </template>

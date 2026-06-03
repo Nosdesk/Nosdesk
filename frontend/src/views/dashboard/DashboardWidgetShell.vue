@@ -119,6 +119,17 @@ const props = withDefaults(
      * (e.g. the horizontal stat rails).
      */
     minBodyHeight?: string
+    /**
+     * Body padding tier. Maps to the design-language density scale:
+     *
+     *   `compact`  → p-3   (44-52px hairline rows, list/queue widgets)
+     *   `regular`  → p-4   (default widget body — balanced density)
+     *   `spacious` → p-6   (hero KPI band, one-card-per-row contexts)
+     *
+     * Has no effect when `flushBody` is true (the widget owns its own
+     * internal padding). Defaults to `regular`.
+     */
+    density?: 'compact' | 'regular' | 'spacious'
   }>(),
   {
     actionLabel: '',
@@ -128,8 +139,21 @@ const props = withDefaults(
     emptyCtaTo: '',
     emptyCtaLabel: '',
     flushBody: true,
+    density: 'regular',
   },
 )
+
+const densityPadding = computed(() => {
+  if (props.flushBody) return ''
+  switch (props.density) {
+    case 'compact':
+      return 'p-3'
+    case 'spacious':
+      return 'p-6'
+    default:
+      return 'p-4'
+  }
+})
 
 const actionLabelText = computed(() => props.actionLabel || t('dashboard-widget-shell-action-view-all'))
 const emptyTitleText = computed(() => {
@@ -274,18 +298,21 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
     enough signal once it's the only accent-coloured surface on the
     dashboard.
   -->
+  <!-- Dragging placeholder: keep neutral border, ring carries the
+       in-motion signal so card geometry doesn't shift when the
+       placeholder replaces the original card. -->
   <div
     v-if="dragging"
-    class="min-h-[9rem] h-full rounded-xl bg-accent/10 border border-accent/40"
+    class="min-h-[9rem] h-full rounded-xl bg-accent/10 border border-default ring-1 ring-accent/40"
     aria-hidden="true"
   />
   <article
     v-else
     :class="[
-      'bg-surface rounded-xl border overflow-hidden flex h-full relative transition-colors',
+      'bg-surface rounded-xl border border-default overflow-hidden flex h-full relative transition-shadow',
       editMode
-        ? 'border-default hover:border-accent/40 focus-visible:border-accent focus-visible:outline-none'
-        : 'border-default',
+        ? 'ring-1 ring-accent/30 hover:ring-accent/40 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none'
+        : '',
     ]"
     :tabindex="editMode ? 0 : -1"
     @contextmenu="onContextMenu"
@@ -332,7 +359,14 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
       the View-all link, which goes quiet in edit mode).
     -->
     <header class="flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt flex-shrink-0">
-      <h2 class="text-[13px] font-semibold text-primary truncate flex-1 tracking-tight">{{ title }}</h2>
+      <h2 class="text-[13px] font-semibold text-primary truncate tracking-tight">{{ title }}</h2>
+
+      <!-- Optional inline count badge next to the title (e.g. "12"
+           assigned tickets). Renders as a pill: h-5, rounded, mono
+           tabular-nums against a surface-hover tint. -->
+      <slot name="subtitle" />
+
+      <div class="flex-1" />
 
       <!-- Widget-specific header controls (e.g. filter dropdowns). -->
       <slot name="headerActions" />
@@ -363,7 +397,7 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
          sparse-data states fill the same vertical space — preventing
          the row-cascade shift on initial load. -->
     <div
-      :class="['flex-1 min-h-0 flex flex-col', flushBody ? '' : 'p-4']"
+      :class="['flex-1 min-h-0 flex flex-col', densityPadding]"
       :style="minBodyHeight ? { minHeight: minBodyHeight } : undefined"
     >
       <!--

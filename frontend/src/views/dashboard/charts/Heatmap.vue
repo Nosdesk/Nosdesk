@@ -4,11 +4,14 @@ Heatmap — tickets created bucketed by weekday × hour. The grid is
 maximum cell in the result. Useful for spotting working-hour vs
 after-hours load patterns at a glance.
 
-The colour ramp is a single-hue (accent) opacity scale to keep
-the chart legible alongside the other accent-using widgets. Zero-
-count cells render at the lightest tint so the grid is visible
-even on an empty dashboard. v1 has no tooltip; Wave 6 adds the
-drill-through and hover-to-count behaviour.
+The colour ramp is a single-hue opacity scale on chart-1 (the
+first categorical chart token). Accent is reserved for interaction
+per the design language; using a chart token here keeps the
+heatmap colour-coordinated with the rest of the chart family.
+Zero-count cells render at the lightest tint so the grid is
+visible even on an empty dashboard. v1 has no tooltip; the
+drill-through and hover-to-count behaviour lands with the chart
+phases.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
@@ -109,7 +112,7 @@ function cellAlpha(dow: number, hour: number): number {
         <span
           v-for="h in HOUR_LABELS"
           :key="`c-${dow}-${h}`"
-          class="h-3.5 rounded-sm bg-accent transition-opacity"
+          class="h-3.5 rounded-sm bg-chart-1 transition-opacity"
           :style="{ opacity: cellAlpha(dow, h) }"
           :title="`${label} ${h}:00 — ${cellValue(dow, h)}`"
         />
