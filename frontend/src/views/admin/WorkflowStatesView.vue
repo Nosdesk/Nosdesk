@@ -44,6 +44,10 @@ const newStateInputs = ref<Record<WorkflowStateCategory, DraftState>>({
   in_review: { name: '', color: 'purple' },
   done: { name: '', color: 'green' },
   cancelled: { name: '', color: 'subtle' },
+  // `merged` is set by the merge action, not picked from the admin
+  // form, so the row never renders. Initialised purely to satisfy
+  // the `Record<WorkflowStateCategory, _>` shape.
+  merged: { name: '', color: 'subtle' },
 })
 
 const grouped = computed<Record<WorkflowStateCategory, WorkflowState[]>>(() => store.byCategory)

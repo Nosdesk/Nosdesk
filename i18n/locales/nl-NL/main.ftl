@@ -4975,6 +4975,7 @@ workflow-category-active = Actief
 workflow-category-in-review = In review
 workflow-category-done = Klaar
 workflow-category-cancelled = Geannuleerd
+workflow-category-merged = Samengevoegd
 assignment-method-direct-user-name = Directe gebruiker
 assignment-method-direct-user-description = Direct toewijzen aan een specifieke gebruiker
 assignment-method-group-round-robin-name = Rondgang (groep)

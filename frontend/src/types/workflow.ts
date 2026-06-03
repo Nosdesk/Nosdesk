@@ -1,11 +1,17 @@
 /**
  * Workflow state and category types.
  *
- * Categories are fixed at the system level (six values, never extended
+ * Categories are fixed at the system level (seven values, never extended
  * by plugins or admins). State names within each category are
- * workspace-configurable. Downstream UI reasons in categories — SLA
- * timers, dashboard rollups, kanban columns — and renders state names
+ * workspace-configurable. Downstream UI reasons in categories: SLA
+ * timers, dashboard rollups, kanban columns, and renders state names
  * for the user-facing labels.
+ *
+ * `merged` is the terminal category the backend assigns when a ticket
+ * is consumed by a merge action. It is not user-pickable (the merge
+ * action sets it programmatically), so `WORKFLOW_CATEGORIES` (driving
+ * status dropdowns / kanban columns) excludes it while the type and
+ * the `byCategory` store getter must still account for it.
  */
 import { translate } from '@/i18n'
 
@@ -16,7 +22,11 @@ export type WorkflowStateCategory =
   | 'in_review'
   | 'done'
   | 'cancelled'
+  | 'merged'
 
+/** Categories the user can pick from in dropdowns / sees as kanban
+ *  columns. Excludes `merged`, which the backend sets via the merge
+ *  action and is hidden from regular ticket lists. */
 export const WORKFLOW_CATEGORIES: WorkflowStateCategory[] = [
   'triage',
   'backlog',
@@ -30,6 +40,7 @@ export const WORKFLOW_CATEGORIES: WorkflowStateCategory[] = [
 export const TERMINAL_CATEGORIES: ReadonlySet<WorkflowStateCategory> = new Set([
   'done',
   'cancelled',
+  'merged',
 ])
 
 export interface WorkflowState {
@@ -64,6 +75,7 @@ export const CATEGORY_LABEL_KEYS: Record<WorkflowStateCategory, string> = {
   in_review: 'workflow-category-in-review',
   done: 'workflow-category-done',
   cancelled: 'workflow-category-cancelled',
+  merged: 'workflow-category-merged',
 }
 
 const CATEGORY_LABEL_FALLBACKS: Record<WorkflowStateCategory, string> = {
@@ -73,6 +85,7 @@ const CATEGORY_LABEL_FALLBACKS: Record<WorkflowStateCategory, string> = {
   in_review: 'In Review',
   done: 'Done',
   cancelled: 'Cancelled',
+  merged: 'Merged',
 }
 
 /**
@@ -109,10 +122,10 @@ export function isCategoryHeaderValue(value: string): boolean {
 }
 
 /**
- * Folds the six-category model down to the legacy three-bucket status
+ * Folds the seven-category model down to the legacy three-bucket status
  * string used by older parts of the UI. Triage and Backlog are "open";
- * Active and In Review are "in-progress"; Done and Cancelled are
- * "closed". Mirrors `WorkflowStateCategory::legacy_status()` on the
+ * Active and In Review are "in-progress"; Done, Cancelled and Merged
+ * are "closed". Mirrors `WorkflowStateCategory::legacy_status()` on the
  * backend.
  */
 export function legacyStatusFor(category: WorkflowStateCategory): 'open' | 'in-progress' | 'closed' {

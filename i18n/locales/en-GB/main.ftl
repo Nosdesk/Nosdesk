@@ -4885,6 +4885,7 @@ workflow-category-active = Active
 workflow-category-in-review = In Review
 workflow-category-done = Done
 workflow-category-cancelled = Cancelled
+workflow-category-merged = Merged
 assignment-method-direct-user-name = Direct User
 assignment-method-direct-user-description = Assign directly to a specific user
 assignment-method-group-round-robin-name = Round-Robin (Group)

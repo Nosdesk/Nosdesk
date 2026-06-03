@@ -64,7 +64,12 @@ export const useWorkflowStatesStore = defineStore('workflowStates', () => {
     states.value.find((s) => s.is_default && !s.archived_at),
   )
 
-  /** Active states grouped by category, each group ordered by position. */
+  /** Active states grouped by category, each group ordered by position.
+   *
+   *  All seven backend categories must be present as keys so an
+   *  unrecognised category from the API never pushes into `undefined`.
+   *  The `Record<WorkflowStateCategory, ...>` type forces this at
+   *  compile time. */
   const byCategory = computed<Record<WorkflowStateCategory, WorkflowState[]>>(() => {
     const out: Record<WorkflowStateCategory, WorkflowState[]> = {
       triage: [],
@@ -73,10 +78,13 @@ export const useWorkflowStatesStore = defineStore('workflowStates', () => {
       in_review: [],
       done: [],
       cancelled: [],
+      merged: [],
     }
     for (const s of states.value) {
       if (s.archived_at) continue
-      out[s.category].push(s)
+      const bucket = out[s.category]
+      if (!bucket) continue
+      bucket.push(s)
     }
     for (const cat of Object.keys(out) as WorkflowStateCategory[]) {
       out[cat].sort((a, b) => a.position - b.position)
