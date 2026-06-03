@@ -58,6 +58,9 @@ COPY backend/tests ./tests
 # (validates manifest ↔ Rust enum drift). Bake them in so
 # `cargo test` works without a separate sync step.
 COPY backend/sync-models ./sync-models
+# starter_catalog.rs uses include_str!("../../data/starter-rules.json")
+# — must exist at compile time.
+COPY backend/data ./data
 COPY backend/diesel.toml ./diesel.toml
 # Shared Fluent message catalogues. The backend `include_str!`s
 # these from src/utils/i18n.rs at compile time. Path lives at
