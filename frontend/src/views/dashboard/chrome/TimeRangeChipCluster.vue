@@ -14,10 +14,11 @@
  * Filename retained as TimeRangeChipCluster.vue so import sites
  * (DashboardView's conditional chrome) stay stable.
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange, type TimeRangePreset } from '@/composables/useTimeRange'
 import DatePicker from '@/components/common/DatePicker.vue'
+import Popover from '@/components/common/Popover.vue'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -35,7 +36,7 @@ const PRESETS: { id: TimeRangePreset; key: string }[] = [
 const open = ref(false)
 const customFromInput = ref<string>('')
 const customToInput = ref<string>('')
-const containerRef = ref<HTMLElement | null>(null)
+const triggerRef = ref<HTMLElement | null>(null)
 
 const triggerLabel = computed(() => {
   if (preset.value === 'custom') {
@@ -71,38 +72,16 @@ function applyCustom(): void {
   open.value = false
 }
 
-function onDocPointerDown(e: PointerEvent): void {
-  if (!open.value) return
-  const target = e.target as Node | null
-  if (target && containerRef.value && containerRef.value.contains(target)) return
-  open.value = false
-}
-
-function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && open.value) {
-    open.value = false
-  }
-}
-
-watch(open, (now) => {
-  if (now) {
-    document.addEventListener('pointerdown', onDocPointerDown)
-    document.addEventListener('keydown', onKeydown)
-  } else {
-    document.removeEventListener('pointerdown', onDocPointerDown)
-    document.removeEventListener('keydown', onKeydown)
-  }
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onDocPointerDown)
-  document.removeEventListener('keydown', onKeydown)
-})
+// Outside-click + Escape dismissal and teleported layering are owned
+// by the Popover primitive (which excludes the anchor from
+// outside-click, so the trigger can still toggle). Teleporting to body
+// is what lifts the dropdown above the sidebar's stacking context.
 </script>
 
 <template>
-  <div ref="containerRef" class="relative inline-flex">
+  <div class="inline-flex">
     <button
+      ref="triggerRef"
       type="button"
       :class="[
         'inline-flex items-center gap-1.5 rounded-md border border-default bg-surface px-2 py-1 text-xs text-secondary transition-colors',
@@ -123,12 +102,18 @@ onBeforeUnmount(() => {
       </svg>
     </button>
 
-    <div
-      v-if="open"
-      class="absolute right-0 top-[calc(100%+4px)] z-30 flex flex-col gap-1 rounded-md border border-default bg-surface p-1 shadow-lg min-w-[14rem]"
-      role="dialog"
-      :aria-label="t('dashboard-time-range-custom')"
+    <Popover
+      :open="open"
+      :anchor="{ type: 'element', element: () => triggerRef }"
+      placement="bottom-end"
+      :offset="6"
+      @close="open = false"
     >
+      <div
+        class="flex flex-col gap-1 rounded-md border border-default bg-surface p-1 shadow-lg min-w-[14rem]"
+        role="dialog"
+        :aria-label="t('dashboard-time-range-custom')"
+      >
       <button
         v-for="p in PRESETS"
         :key="p.id"
@@ -183,6 +168,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-    </div>
+      </div>
+    </Popover>
   </div>
 </template>
