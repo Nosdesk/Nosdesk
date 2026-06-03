@@ -181,7 +181,6 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
 
       const request: MFAEnableRequest = {
         token,
-        secret: mfaSecret.value,
         password
       };
 
@@ -223,7 +222,6 @@ export function useMfa(options?: { isLoginSetup?: boolean }) {
         email,
         password,
         token,
-        secret: mfaSecret.value,
         backup_codes: backupCodes.value
       };
 
