@@ -8,14 +8,37 @@ const STORAGE_KEYS = {
   ticketsCollapsed: 'ticketsCollapsed'
 } as const
 
+// --- Synchronous initial state ----------------------------------------
+//
+// The singleton refs are seeded eagerly at module load — reading
+// localStorage + viewport size before first paint — so the sidebar
+// renders at its correct width on the very first frame. Setting these
+// in onMounted instead caused an expand->collapse flash (default
+// `false`, corrected after mount). This is a browser-only SPA, so
+// `window` / `localStorage` are always available here; the typeof
+// guard is cheap insurance.
+const hasWindow = typeof window !== 'undefined'
+
+const storedBool = (key: string, fallback: boolean): boolean => {
+  if (!hasWindow) return fallback
+  const stored = localStorage.getItem(key)
+  return stored !== null ? stored === 'true' : fallback
+}
+
+const initialViewportWidth = hasWindow ? window.innerWidth : BREAKPOINTS.lg
+const initialViewportHeight = hasWindow ? window.innerHeight : 800
+const initialIsMobile = initialViewportWidth < BREAKPOINTS.sm
+
 // Singleton state - shared across all instances
-const isCollapsed = ref(false)
-const isMobile = ref(false)
-const isTablet = ref(false)
-const isDesktop = ref(false)
-const isCompactNav = ref(false)
-const isDocsCollapsed = ref(false)
-const isTicketsCollapsed = ref(false)
+const isCollapsed = ref(initialIsMobile ? true : storedBool(STORAGE_KEYS.collapsed, false))
+const isMobile = ref(initialIsMobile)
+const isTablet = ref(
+  initialViewportWidth >= BREAKPOINTS.sm && initialViewportWidth < BREAKPOINTS.lg,
+)
+const isDesktop = ref(initialViewportWidth >= BREAKPOINTS.lg)
+const isCompactNav = ref(initialViewportHeight < 750)
+const isDocsCollapsed = ref(storedBool(STORAGE_KEYS.docsCollapsed, false))
+const isTicketsCollapsed = ref(storedBool(STORAGE_KEYS.ticketsCollapsed, false))
 
 let initialized = false
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null
@@ -85,32 +108,13 @@ export function useNavbarState() {
     savePreference(STORAGE_KEYS.collapsed, value)
   }
 
-  // Initialize on first use
+  // Initialize on first use. State (collapsed flag, viewport flags) is
+  // already seeded synchronously at module load, so this only attaches
+  // the live resize listener — no re-seeding, no post-mount flash.
   const initialize = () => {
     if (initialized) return
-
-    // Load stored preferences
-    isDocsCollapsed.value = loadPreference(STORAGE_KEYS.docsCollapsed, false)
-    isTicketsCollapsed.value = loadPreference(STORAGE_KEYS.ticketsCollapsed, false)
-
-    // Set initial screen size
-    const width = window.innerWidth
-    const height = window.innerHeight
-    isMobile.value = width < BREAKPOINTS.sm
-    isTablet.value = width >= BREAKPOINTS.sm && width < BREAKPOINTS.lg
-    isDesktop.value = width >= BREAKPOINTS.lg
-    isCompactNav.value = height < 750
-
-    // Set initial collapsed state
-    if (isMobile.value) {
-      isCollapsed.value = true
-    } else {
-      isCollapsed.value = loadPreference(STORAGE_KEYS.collapsed, false)
-    }
-
     // Add debounced resize listener (150ms matches useMobileDetection)
     window.addEventListener('resize', debouncedUpdateScreenSize)
-
     initialized = true
   }
 
