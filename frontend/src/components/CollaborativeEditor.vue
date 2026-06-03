@@ -401,6 +401,7 @@ let permanentUserData: SafePermanentUserData | null = null;
  * useCollabSessionStore refcount.
  */
 let updateDiagnosticHandler: ((update: Uint8Array, origin: unknown) => void) | null = null;
+let updateV2DiagnosticHandler: ((update: Uint8Array) => void) | null = null;
 
 // Enhanced logging
 const log = {
@@ -1013,8 +1014,12 @@ const initEditor = async () => {
         // with the sync protocol and cause document content to not be applied correctly.
 
         // Track sync protocol errors which can cause disconnections
-        // Monitor document updates to verify content is syncing
-        ydoc.on("updateV2", (update: Uint8Array) => {
+        // Monitor document updates to verify content is syncing.
+        // Stored on a named handler reference so cleanup() can call
+        // `ydoc.off('updateV2', ...)` — every editor mount adds one
+        // of these to the shared ydoc, so without the detach a
+        // long-lived session accumulates a listener per remount.
+        updateV2DiagnosticHandler = (update: Uint8Array) => {
             log.debug("📨 Yjs document update received:", {
                 updateSize: update.length,
                 yXmlFragmentLength: yXmlFragment?.length || 0,
@@ -1031,7 +1036,8 @@ const initEditor = async () => {
                     log.warn("ProseMirror content:", pmContent);
                 }
             }
-        });
+        };
+        ydoc.on("updateV2", updateV2DiagnosticHandler);
 
         // Add retry logic monitoring - simplified
         let reconnectAttempts = 0;
@@ -1152,15 +1158,30 @@ const initEditor = async () => {
         isInitialized.value = true;
     } catch (error) {
         log.error("Error initializing editor:", error);
-        // Clean up on error
+        // Clean up on error — this runs `release(docId)` against
+        // the store, balancing the `acquire` made above.
         cleanup();
-        // Retry after a short delay if this was a transient error
-        if (!isInitialized.value) {
-            log.warn("Retrying editor initialization in 2 seconds...");
-            setTimeout(() => {
-                initEditor();
-            }, 2000);
-        }
+        // The original retry path (`setTimeout(initEditor, 2000)`)
+        // was a refcount leak: each retry called `acquire` again,
+        // but the prior `cleanup` already released the refcount
+        // from THIS mount's first acquire. The unbalanced acquire
+        // accumulated one phantom reference per retry tick, and
+        // the doc never reached refcount 0 even after unmount —
+        // it lingered until LRU eviction.
+        //
+        // We rely on:
+        //   * y-websocket's own reconnect for transient WS issues
+        //     (capped at 5 attempts by statusReconnectHandler).
+        //   * `idb.whenSynced` semantics for IDB load delays.
+        //   * The connection-timeout watchdog in `onMounted` for
+        //     hung handshakes.
+        //
+        // If construction errored for a non-transient reason
+        // (bad docId, schema mismatch, plugin throw), retrying
+        // 2s later wouldn't have helped anyway. Surface the
+        // failure as a disconnected status and let the user
+        // navigate away or refresh manually.
+        connectionStatus.value = 'disconnected';
     }
 };
 
@@ -1551,15 +1572,29 @@ const cleanup = () => {
         }
     }
 
-    // 3. Detach the per-mount diagnostic update listener from
-    //    the shared ydoc.
-    if (ydoc && updateDiagnosticHandler) {
-        try {
-            ydoc.off('update', updateDiagnosticHandler);
-        } catch (e) {
-            log.error("Error detaching ydoc update listener:", e);
+    // 3. Detach the per-mount diagnostic update listeners from
+    //    the shared ydoc. Two listeners are attached per mount
+    //    (`update` and `updateV2`); without detaching both, every
+    //    remount of the editor on the same docId stacks another
+    //    handler on the shared doc, observably ballooning the
+    //    listener list across long sessions.
+    if (ydoc) {
+        if (updateDiagnosticHandler) {
+            try {
+                ydoc.off('update', updateDiagnosticHandler);
+            } catch (e) {
+                log.error("Error detaching ydoc update listener:", e);
+            }
+            updateDiagnosticHandler = null;
         }
-        updateDiagnosticHandler = null;
+        if (updateV2DiagnosticHandler) {
+            try {
+                ydoc.off('updateV2', updateV2DiagnosticHandler);
+            } catch (e) {
+                log.error("Error detaching ydoc updateV2 listener:", e);
+            }
+            updateV2DiagnosticHandler = null;
+        }
     }
 
     // 4. Release our refcount on the session. The store will
@@ -1582,12 +1617,19 @@ const cleanup = () => {
     hasBeenConnected.value = false;
 };
 
-// Handle page unload to ensure clean disconnect
+// Page-unload handling is owned by useCollabSessionStore (it
+// iterates every active session and broadcasts `setLocalState(null)`
+// for the awareness, then lets the OS close the WS). This
+// component used to also disconnect the provider here, but the
+// provider is shared across every component on the same docId —
+// a sibling editor / hover-warmed prefetch / sidebar consumer would
+// have its connection torpedoed by a single unmount. The store-
+// owned cleanup is the right altitude; this stub is kept so the
+// existing addEventListener / removeEventListener pairs in
+// onMounted / onBeforeUnmount stay symmetrical without further
+// churn.
 const handleBeforeUnload = (_event: BeforeUnloadEvent) => {
-    if (provider && provider.wsconnected) {
-        // Attempt to disconnect cleanly
-        provider.disconnect();
-    }
+    // intentionally empty — see comment above
 };
 
 // Watch for changes in the auth user and update awareness
@@ -1840,7 +1882,13 @@ function viewSnapshot(snapshotData: { revision_number: number; yjs_document_cont
         // Debug: Log the ProseMirror doc content
         log.info(`ProseMirror doc from revision: ${doc.textContent}`);
 
-        // Create a read-only state with the revision content
+        // Create a read-only state with the revision content. The
+        // doc has no Yjs binding here (intentional — edits would be
+        // discarded on exit), but ProseMirror would still accept
+        // keystrokes into the local state if `editable` weren't
+        // overridden, which presents a confusing "looks like I'm
+        // typing, then it disappears" experience when the user
+        // exits the revision view.
         const readOnlyState = EditorState.create({
             doc,
             schema,
@@ -1852,8 +1900,12 @@ function viewSnapshot(snapshotData: { revision_number: number; yjs_document_cont
             ],
         });
 
-        // Update the editor view to show this read-only state
+        // Update the editor view to show this read-only state and
+        // mark it non-editable so dispatched transactions are
+        // rejected at the prop boundary, matching the user's
+        // expectation that historical revisions are immutable.
         editorView.updateState(readOnlyState);
+        editorView.setProps({ editable: () => false });
 
         // Mark as viewing revision
         isViewingRevision.value = true;
@@ -1878,8 +1930,13 @@ function exitRevisionView() {
     try {
         log.info("Exiting revision view, returning to live document");
 
-        // Restore the original editor state (connected to live Yjs doc)
+        // Restore the original editor state (connected to live Yjs
+        // doc) and flip the editable prop back on. The revision
+        // view setter installed `editable: () => false`; without
+        // this clear, the live doc would inherit the read-only
+        // gate and silently refuse the next keystroke.
         editorView.updateState(originalEditorState);
+        editorView.setProps({ editable: () => true });
 
         // Clear stored state
         originalYXmlFragment = null;

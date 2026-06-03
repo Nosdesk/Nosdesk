@@ -334,6 +334,16 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
         }
       }
       existing.refCount++
+      // Clear `lastReleasedAt` while at least one consumer holds a
+      // reference. Without this, an actively-bounced session (idle
+      // → reacquire → idle → reacquire) keeps the stamp from its
+      // first release, so `enforceLruCap` sorts it as older than a
+      // genuinely-cold session and may evict it ahead of a session
+      // the user is mid-interaction with. `enforceLruCap` already
+      // gates on `refCount === 0`, so this is just bookkeeping
+      // hygiene — `lastReleasedAt` is only meaningful when the
+      // session is actually released.
+      existing.lastReleasedAt = null
       refreshSnapshot()
       return {
         ydoc: existing.ydoc,
