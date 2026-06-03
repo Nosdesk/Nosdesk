@@ -3800,30 +3800,37 @@ async fn fetch_group_members(
     client: &reqwest::Client,
     access_token: &str,
     group_id: &str,
-) -> Result<Vec<MicrosoftGraphGroupMember>, String> {
+) -> Result<Vec<MicrosoftGraphGroupMember>, crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::MsGraphSyncError;
     let mut all_members: Vec<MicrosoftGraphGroupMember> = Vec::new();
     let mut next_link: Option<String> = Some(format!(
         "https://graph.microsoft.com/v1.0/groups/{group_id}/members?$select=id,displayName,userPrincipalName&$top=999"
     ));
 
     while let Some(url) = next_link {
-        let response = client
-            .get(&url)
-            .bearer_auth(access_token)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to fetch group members: {e}"))?;
+        // reqwest::Error -> MsGraphSyncError classifies the network
+        // failure kind (timeout / connect / tls / body) via the From
+        // impl; if the status reached the response, it routes to
+        // HttpTransient (429 / 5xx) or HttpPermanent (everything
+        // else) via the same impl.
+        let response = client.get(&url).bearer_auth(access_token).send().await?;
 
         if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(format!("Failed to fetch members ({status}): {error_text}"));
+            // Decompose into status + body. `from_status` does the
+            // transient/permanent split (429/5xx -> retryable,
+            // 4xx -> skip) so the retry executor can act on it.
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(MsGraphSyncError::from_status(
+                status,
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("graph members fetch body: {body}"),
+                ),
+            ));
         }
 
-        let data: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse members response: {e}"))?;
+        let data: serde_json::Value = response.json().await?;
 
         if let Some(members) = data["value"].as_array() {
             for member_value in members {
@@ -3851,7 +3858,7 @@ async fn sync_group_membership(
     access_token: &str,
     graph_group_id: &str,
     local_group_id: i32,
-) -> Result<usize, String> {
+) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
     use std::collections::HashSet;
 
     // Fetch current members from Microsoft Graph
@@ -3860,16 +3867,15 @@ async fn sync_group_membership(
     // Filter to only user members (not devices or nested groups)
     let user_members: Vec<_> = graph_members.iter().filter(|m| m.is_user()).collect();
 
-    // Get current local membership
-    let current_local_members = groups_repo::get_member_uuids_for_group(conn, local_group_id)
-        .map_err(|e| format!("Failed to get local members: {e}"))?;
+    // Get current local membership. diesel error routes to DbConflict
+    // or DbInfra via the typed From impl.
+    let current_local_members = groups_repo::get_member_uuids_for_group(conn, local_group_id)?;
     let current_local_set: HashSet<_> = current_local_members.into_iter().collect();
 
     // Map Graph user IDs to local user UUIDs
     let graph_member_ids: Vec<&str> = user_members.iter().map(|m| m.id.as_str()).collect();
     let user_mappings =
-        identity_repo::get_user_uuids_by_external_ids(&graph_member_ids, "microsoft", conn)
-            .map_err(|e| format!("Failed to lookup users: {e}"))?;
+        identity_repo::get_user_uuids_by_external_ids(&graph_member_ids, "microsoft", conn)?;
 
     let new_member_uuids: HashSet<_> = user_mappings.into_iter().map(|(_, uuid)| uuid).collect();
 
@@ -3924,7 +3930,7 @@ async fn apply_delta_group_membership(
     local_group_id: i32,
     members_added: &[MicrosoftGraphGroupMember],
     members_removed: &[String],
-) -> Result<usize, String> {
+) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
     let mut changes = 0;
 
     // Process added members (users only for now)
@@ -3932,8 +3938,7 @@ async fn apply_delta_group_membership(
     if !user_members_added.is_empty() {
         let external_ids: Vec<&str> = user_members_added.iter().map(|m| m.id.as_str()).collect();
         let user_mappings =
-            identity_repo::get_user_uuids_by_external_ids(&external_ids, "microsoft", conn)
-                .map_err(|e| format!("Failed to lookup users for adding: {e}"))?;
+            identity_repo::get_user_uuids_by_external_ids(&external_ids, "microsoft", conn)?;
 
         for (external_id, user_uuid) in user_mappings {
             // Check if user is already a member
@@ -3957,8 +3962,7 @@ async fn apply_delta_group_membership(
     if !members_removed.is_empty() {
         let external_ids_refs: Vec<&str> = members_removed.iter().map(|s| s.as_str()).collect();
         let user_mappings =
-            identity_repo::get_user_uuids_by_external_ids(&external_ids_refs, "microsoft", conn)
-                .map_err(|e| format!("Failed to lookup users for removal: {e}"))?;
+            identity_repo::get_user_uuids_by_external_ids(&external_ids_refs, "microsoft", conn)?;
 
         for (external_id, user_uuid) in user_mappings {
             if let Err(e) = groups_repo::remove_user_from_group(conn, &user_uuid, local_group_id) {
@@ -4029,7 +4033,7 @@ async fn sync_device_group_membership(
     access_token: &str,
     graph_group_id: &str,
     local_group_id: i32,
-) -> Result<usize, String> {
+) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
     use std::collections::HashSet;
 
     // Fetch current members from Microsoft Graph
@@ -4057,8 +4061,7 @@ async fn sync_device_group_membership(
 
     // Get current local device membership (only synced ones from Microsoft)
     let current_synced_devices =
-        groups_repo::get_synced_device_ids_for_group(conn, local_group_id, "microsoft")
-            .map_err(|e| format!("Failed to get local device members: {e}"))?;
+        groups_repo::get_synced_device_ids_for_group(conn, local_group_id, "microsoft")?;
     let current_local_set: HashSet<_> = current_synced_devices.into_iter().collect();
 
     // Map Graph device IDs (Entra Object IDs) to local device IDs
@@ -4070,8 +4073,7 @@ async fn sync_device_group_membership(
         "Looking up local devices by Entra IDs"
     );
 
-    let device_mappings = asset_repo::get_devices_by_entra_ids(conn, &graph_device_ids)
-        .map_err(|e| format!("Failed to lookup devices: {e}"))?;
+    let device_mappings = asset_repo::get_devices_by_entra_ids(conn, &graph_device_ids)?;
 
     debug!(
         group_id = graph_group_id,
@@ -4650,7 +4652,7 @@ async fn process_entra_device(
     _provider_id: i32,
     entra_device: &EntraDevice,
     stats: &mut DeviceSyncStats,
-) -> Result<(), String> {
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
     let device_name = entra_device
         .display_name
         .as_deref()
@@ -4776,8 +4778,8 @@ async fn process_entra_device(
             ..Default::default()
         };
 
-        asset_repo::update_device(conn, existing.id, device_update)
-            .map_err(|e| format!("Failed to update device: {e}"))?;
+        // diesel error classified at source by MsGraphSyncError::from.
+        asset_repo::update_device(conn, existing.id, device_update)?;
 
         debug!(device_name = %device_display_name, "Updated existing Entra device");
         stats.existing_devices_updated += 1;
@@ -4806,8 +4808,7 @@ async fn process_entra_device(
             low_stock_threshold: None,
         };
 
-        asset_repo::create_device(conn, new_device)
-            .map_err(|e| format!("Failed to create device: {e}"))?;
+        asset_repo::create_device(conn, new_device)?;
 
         info!(device_name = %device_display_name, "Created new Entra device");
         stats.new_devices_created += 1;
