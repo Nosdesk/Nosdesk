@@ -11,6 +11,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
+use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword};
@@ -1796,7 +1797,7 @@ fn should_keep_file(
 }
 
 pub async fn update_user_by_uuid(
-    db_pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
@@ -1804,10 +1805,6 @@ pub async fn update_user_by_uuid(
     user_data: web::Json<UserUpdateWithPassword>,
 ) -> impl Responder {
     let user_uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
@@ -1825,89 +1822,74 @@ pub async fn update_user_by_uuid(
         return errors::forbidden("You can only update your own profile");
     }
 
-    let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
+    // Every DB operation runs through `tc.run`, which wraps the work in
+    // a transaction with the actor + workspace GUCs set. The audited
+    // `users` table needs `app.workspace_id` pinned for the NDX01
+    // trigger to accept writes; the extractor provides it from the
+    // request's WorkspaceContext, so there's no raw connection to
+    // forget to wrap.
+    let user = match tc.run(|conn| repository::get_user_by_uuid(&user_uuid_parsed, conn)) {
         Ok(user) => user,
         Err(_) => return errors::not_found_msg("User not found"),
     };
 
-    // Check if email is being updated and if it's already in use
+    // Password change: rotate the local auth identity. The hash is
+    // computed outside the transaction (bcrypt is deliberately slow);
+    // the identity swap (delete-then-create, or create-if-absent) runs
+    // as one `tc.run` transaction so a failure can't leave the user
+    // with no local identity and locked out.
     if let Some(password) = &user_data.password {
         use crate::models::NewUserAuthIdentity;
         use bcrypt::hash;
 
-        // Hash the new password
         let password_hash = match hash(password, DEFAULT_COST) {
             Ok(hash) => hash,
             Err(_) => return errors::internal("Error hashing password"),
         };
 
-        // Find existing local auth identity
-        let auth_identities =
-            match repository::user_auth_identities::get_user_identities(&user.uuid, &mut conn) {
-                Ok(identities) => identities,
-                Err(e) => {
-                    error!(error = ?e, "Error fetching auth identities");
-                    return errors::internal("Error processing user identities");
-                }
-            };
+        let user_uuid_for_identity = user.uuid;
+        let identity_result = tc.run(|conn| {
+            let auth_identities = repository::user_auth_identities::get_user_identities(
+                &user_uuid_for_identity,
+                conn,
+            )?;
+            let local_identity = auth_identities
+                .iter()
+                .find(|identity| identity.provider_type == "local");
 
-        // Find local identity
-        let local_identity = auth_identities
-            .iter()
-            .find(|identity| identity.provider_type == "local");
-
-        match local_identity {
-            Some(identity) => {
-                // Update existing local identity
-                // Delete the old identity
-                match diesel::delete(
-                    crate::schema::user_auth_identities::table
-                        .filter(crate::schema::user_auth_identities::id.eq(identity.id)),
-                )
-                .execute(&mut conn)
-                {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!(error = ?e, "Error deleting auth identity");
-                        return errors::internal("Error updating password");
+            let new_auth_identity = match local_identity {
+                Some(identity) => {
+                    // Replace the existing local identity in place.
+                    diesel::delete(
+                        crate::schema::user_auth_identities::table
+                            .filter(crate::schema::user_auth_identities::id.eq(identity.id)),
+                    )
+                    .execute(conn)?;
+                    NewUserAuthIdentity {
+                        user_uuid: user_uuid_for_identity,
+                        provider_type: identity.provider_type.clone(),
+                        external_id: identity.external_id.clone(),
+                        email: identity.email.clone(),
+                        metadata: identity.metadata.clone(),
+                        password_hash: Some(password_hash),
                     }
                 }
-
-                // Create new identity with updated password
-                let new_auth_identity = NewUserAuthIdentity {
-                    user_uuid: user.uuid,
-                    provider_type: identity.provider_type.clone(),
-                    external_id: identity.external_id.clone(),
-                    email: identity.email.clone(),
-                    metadata: identity.metadata.clone(),
-                    password_hash: Some(password_hash),
-                };
-
-                if let Err(e) =
-                    repository::user_auth_identities::create_identity(new_auth_identity, &mut conn)
-                {
-                    error!(error = ?e, "Error creating updated auth identity");
-                    return errors::internal("Error updating password");
-                }
-            }
-            None => {
-                // Create new local identity if none exists
-                let new_auth_identity = NewUserAuthIdentity {
-                    user_uuid: user.uuid,
+                None => NewUserAuthIdentity {
+                    user_uuid: user_uuid_for_identity,
                     provider_type: "local".to_string(),
-                    external_id: Uuid::now_v7().to_string(), // Generate a new provider user ID
-                    email: None,                             // Email in user_emails table
+                    external_id: Uuid::now_v7().to_string(),
+                    email: None, // Email in user_emails table
                     metadata: None,
                     password_hash: Some(password_hash),
-                };
+                },
+            };
+            repository::user_auth_identities::create_identity(new_auth_identity, conn)?;
+            Ok(())
+        });
 
-                if let Err(e) =
-                    repository::user_auth_identities::create_identity(new_auth_identity, &mut conn)
-                {
-                    error!(error = ?e, "Error creating auth identity");
-                    return errors::internal("Error setting password");
-                }
-            }
+        if let Err(e) = identity_result {
+            error!(error = ?e, "Error rotating local auth identity");
+            return errors::internal("Error updating password");
         }
     }
 
@@ -1989,20 +1971,23 @@ pub async fn update_user_by_uuid(
         || user_data.locale.is_some()
         || user_data.timezone.is_some();
 
-    match repository::update_user(
-        &user.uuid,
-        user_update,
-        &mut conn,
-        Some(search_service.get_ref()),
-    ) {
+    let update_result = tc.run(|conn| {
+        repository::update_user(
+            &user.uuid,
+            user_update,
+            conn,
+            Some(search_service.get_ref()),
+        )
+    });
+    match update_result {
         Ok(updated_user) => {
             // Apply preference changes (if any) right after the
             // core-user update. Best-effort: a transient prefs-table
             // write failure logs but doesn't fail the whole request,
             // since the core fields already committed.
             if prefs_changed {
-                if let Err(e) =
-                    repository::user_preferences::update(&mut conn, user.uuid, prefs_update)
+                if let Err(e) = tc
+                    .run(|conn| repository::user_preferences::update(conn, user.uuid, prefs_update))
                 {
                     tracing::error!(
                         error = ?e,
@@ -2011,18 +1996,29 @@ pub async fn update_user_by_uuid(
                     );
                 }
             }
-            let updated_prefs = repository::user_preferences::get(&mut conn, user.uuid).ok();
+            let updated_prefs = tc
+                .run(|conn| repository::user_preferences::get(conn, user.uuid))
+                .ok();
             // Broadcast SSE events for changed fields. One event per
             // field so other tabs/devices can mirror the change at
             // field granularity. The dashboard_layout payload is the
             // full object, since it's only delivered to the owning
             // user's own sessions via the per-user topic.
             let updated_by = claims.sub.clone();
-            let updated_role = crate::repository::user_helpers::legacy_role_for_user(
-                &mut conn,
-                updated_user.uuid,
-                &updated_user.platform_role,
-            );
+            let updated_role = tc
+                .run(|conn| {
+                    Ok(crate::repository::user_helpers::legacy_role_for_user(
+                        conn,
+                        updated_user.uuid,
+                        &updated_user.platform_role,
+                    ))
+                })
+                .unwrap_or_else(|_: diesel::result::Error| {
+                    // Pool acquire failed; fall back to the platform-role
+                    // derivation (same path the helper takes when the
+                    // workspace_members lookup misses).
+                    crate::extractors::auth_context::derive_role(&updated_user.platform_role, None)
+                });
             let role_str = updated_role.as_str();
             let updates: [(&str, bool, serde_json::Value); 6] = [
                 (
@@ -2070,8 +2066,14 @@ pub async fn update_user_by_uuid(
             }
 
             // Re-index the updated user in search
-            let primary_email =
-                repository::user_helpers::get_primary_email(&updated_user.uuid, &mut conn);
+            let primary_email = tc
+                .run(|conn| {
+                    Ok(repository::user_helpers::get_primary_email(
+                        &updated_user.uuid,
+                        conn,
+                    ))
+                })
+                .unwrap_or(None::<String>);
             indexing_tasks::spawn_index_user(
                 search_service.get_ref().clone(),
                 updated_user.clone(),
@@ -2079,11 +2081,24 @@ pub async fn update_user_by_uuid(
             );
 
             // Use helper function to fetch primary email from user_emails table
-            let user_response =
-                repository::user_helpers::get_user_with_primary_email(updated_user, &mut conn);
-            HttpResponse::Ok().json(user_response)
+            let user_response = tc.run(|conn| {
+                Ok(repository::user_helpers::get_user_with_primary_email(
+                    updated_user.clone(),
+                    conn,
+                ))
+            });
+            match user_response {
+                Ok(resp) => HttpResponse::Ok().json(resp),
+                Err(e) => {
+                    error!(error = ?e, user_uuid = %updated_user.uuid, "Error loading updated user response");
+                    errors::internal("Error updating user")
+                }
+            }
         }
-        Err(_) => errors::internal("Error updating user"),
+        Err(e) => {
+            error!(error = ?e, user_uuid = %user.uuid, "Error updating user");
+            errors::internal("Error updating user")
+        }
     }
 }
 
