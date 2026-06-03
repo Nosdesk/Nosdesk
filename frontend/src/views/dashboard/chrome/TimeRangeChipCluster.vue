@@ -17,6 +17,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange, type TimeRangePreset } from '@/composables/useTimeRange'
+import DatePicker from '@/components/common/DatePicker.vue'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -52,8 +53,10 @@ function togglePopover(): void {
     open.value = false
     return
   }
-  customFromInput.value = customFrom.value ?? ''
-  customToInput.value = customTo.value ?? ''
+  // The picker is date-only; take the date part in case an older URL
+  // still carries a full datetime value.
+  customFromInput.value = customFrom.value?.slice(0, 10) ?? ''
+  customToInput.value = customTo.value?.slice(0, 10) ?? ''
   open.value = true
 }
 
@@ -148,18 +151,18 @@ onBeforeUnmount(() => {
         </span>
         <label class="flex flex-col gap-1 text-[11px] text-secondary">
           {{ t('dashboard-time-range-custom-from') }}
-          <input
+          <DatePicker
             v-model="customFromInput"
-            type="datetime-local"
-            class="rounded border border-default bg-surface px-2 py-1 text-xs text-primary"
+            :max="customToInput || undefined"
+            :aria-label="t('dashboard-time-range-custom-from')"
           />
         </label>
         <label class="flex flex-col gap-1 text-[11px] text-secondary">
           {{ t('dashboard-time-range-custom-to') }}
-          <input
+          <DatePicker
             v-model="customToInput"
-            type="datetime-local"
-            class="rounded border border-default bg-surface px-2 py-1 text-xs text-primary"
+            :min="customFromInput || undefined"
+            :aria-label="t('dashboard-time-range-custom-to')"
           />
         </label>
         <div class="flex gap-2 justify-end">

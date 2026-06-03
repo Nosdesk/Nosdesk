@@ -77,11 +77,25 @@ export function presetWindow(
       return { from: start, to }
     }
     case 'custom': {
-      const f = custom?.from ? new Date(custom.from) : from
-      const t = custom?.to ? new Date(custom.to) : to
+      // The range picker stores date-only `YYYY-MM-DD` values. Anchor
+      // `from` to the local start of its day and `to` to the local end
+      // of its day so the selected `to` date is inclusive. (Older
+      // datetime URLs degrade gracefully: only the date part is used.)
+      const f = custom?.from ? dayBoundary(custom.from, false) : from
+      const t = custom?.to ? dayBoundary(custom.to, true) : to
       return { from: f, to: t }
     }
   }
+}
+
+/** Parse the date part of `value` (YYYY-MM-DD or a fuller datetime)
+ *  and anchor it to the local start (`end=false`) or end (`end=true`)
+ *  of that calendar day. */
+function dayBoundary(value: string, end: boolean): Date {
+  const d = new Date(`${value.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return new Date()
+  if (end) d.setHours(23, 59, 59, 999)
+  return d
 }
 
 /** Return the matching prior window for compare-to-prior overlays. */
