@@ -181,21 +181,22 @@ pub fn add_membership(
 /// lowest-id membership as a deterministic "primary" (a primary-
 /// membership flag can refine this later).
 ///
-/// Returns [`BOOTSTRAP_WORKSPACE_ID`](crate::sync::actor::BOOTSTRAP_WORKSPACE_ID)
-/// when the user has no memberships. That shouldn't happen after the
-/// Phase 1 backfill, but the fallback keeps the audited write
-/// attributable to a real workspace rather than failing at the audit
-/// trigger's NOT NULL workspace_id.
+/// Returns `DieselError::NotFound` when the user has no memberships.
+/// An earlier revision silently fell back to
+/// [`BOOTSTRAP_WORKSPACE_ID`](crate::sync::actor::BOOTSTRAP_WORKSPACE_ID),
+/// which under hosted multi-tenancy mis-attributed the audit row
+/// (and the actor context pin) to the control-plane tenant — a quiet
+/// tenancy violation. Callers now surface the failure as a 500 with
+/// the operator-readable cause, which is correct: a credential-
+/// verified user with zero memberships is a data-corruption state
+/// the user can't recover from on their own, so a silent
+/// workspace-1 attribution would only deepen the inconsistency.
 pub fn primary_workspace_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<i32> {
     workspace_members::table
         .filter(workspace_members::user_uuid.eq(user_uuid))
         .order(workspace_members::workspace_id.asc())
         .select(workspace_members::workspace_id)
         .first::<i32>(conn)
-        .or_else(|e| match e {
-            DieselError::NotFound => Ok(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID),
-            other => Err(other),
-        })
 }
 
 // =====================================================================
