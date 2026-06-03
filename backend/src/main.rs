@@ -168,13 +168,25 @@ async fn main() -> std::io::Result<()> {
 
     eprintln!("Initializing tracing...");
 
-    // Initialize tracing/logging subsystem with better error handling
+    // Initialize tracing/logging subsystem with better error handling.
+    //
+    // Third-party crates that emit per-operation log lines are pinned
+    // below the default level so our own code stays grep-able. Tantivy
+    // in particular logs every segment open / commit at INFO + DEBUG,
+    // which floods the dev backend log (saw ~90% of recent lines from
+    // tantivy alone). h2 / hyper / rustls / mio / want similarly emit
+    // connection lifecycle chatter that obscures real signal at
+    // debug.  Operators can still bump any of these by setting
+    // `RUST_LOG` explicitly.
     let log_level = env::var("RUST_LOG").unwrap_or_else(|_| {
-        if env::var("ENVIRONMENT").unwrap_or_default() == "production" {
-            "info".to_string()
+        let base = if env::var("ENVIRONMENT").unwrap_or_default() == "production" {
+            "info"
         } else {
-            "debug".to_string()
-        }
+            "debug"
+        };
+        format!(
+            "{base},tantivy=warn,h2=info,hyper=info,hyper_util=info,rustls=info,mio=info,want=info"
+        )
     });
 
     // Production (LOG_FORMAT=json) emits via `RedactingJsonLayer` —
