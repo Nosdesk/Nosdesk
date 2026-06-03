@@ -327,8 +327,10 @@ export const useAuthStore = defineStore('auth', () => {
       }
     }
 
-    // MFA Enable for Login - Complete setup and login
-    async function completeMfaSetupAndLogin(email: string, password: string, token: string, secret: string, backupCodes: string[]): Promise<boolean> {
+    // MFA Enable for Login - Complete setup and login. The TOTP secret
+    // is stashed server-side at setup time (mfa::stash_setup_secret), so
+    // the enable request carries only the verifying token + backup codes.
+    async function completeMfaSetupAndLogin(email: string, password: string, token: string, backupCodes: string[]): Promise<boolean> {
       loading.value = true;
       error.value = null;
 
@@ -337,7 +339,6 @@ export const useAuthStore = defineStore('auth', () => {
           email,
           password,
           token: token.trim(),
-          secret,
           backup_codes: backupCodes
         });
 
