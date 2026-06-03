@@ -42,6 +42,11 @@ const props = defineProps<{
   currentSpan: WidgetSpan
   editMode: boolean
   dragging: boolean
+  /** Set briefly after an invalid drop on this source so the shell
+   *  can run a single 180ms outline pulse confirming the drop was
+   *  received. Drives a `.frame-pulse` keyframe in the scoped CSS;
+   *  the grid clears the flag once the animation ends. */
+  pulsing?: boolean
   /** The Vue component to render inside the frame. */
   component: Component
   /** Static props forwarded to the rendered widget component. */
@@ -75,7 +80,10 @@ provide(DASHBOARD_WIDGET_CONTEXT, context)
 </script>
 
 <template>
-  <div :data-sortable-index="index">
+  <div
+    :data-sortable-index="index"
+    :class="pulsing ? 'frame-pulse' : ''"
+  >
     <DashboardWidgetShell
       v-if="frameWraps && frameTitleKey"
       :title="fluent.$t(frameTitleKey)"
@@ -85,3 +93,30 @@ provide(DASHBOARD_WIDGET_CONTEXT, context)
     <component v-else :is="component" v-bind="widgetProps ?? {}" />
   </div>
 </template>
+
+<style scoped>
+/* Invalid-drop confirmation. Outline glows once at accent intensity
+ * over 180ms, then fades to zero. No motion (color only) so the
+ * pulse remains under prefers-reduced-motion too. The animation runs
+ * on the sortable-indexed root, so it works whether the widget owns
+ * its own shell or uses the frame-supplied one. */
+.frame-pulse {
+  animation: frame-pulse 180ms ease-out;
+  border-radius: 0.75rem;
+}
+
+@keyframes frame-pulse {
+  0% {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 0%, transparent);
+    outline-offset: 2px;
+  }
+  40% {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+    outline-offset: 2px;
+  }
+  100% {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 0%, transparent);
+    outline-offset: 2px;
+  }
+}
+</style>

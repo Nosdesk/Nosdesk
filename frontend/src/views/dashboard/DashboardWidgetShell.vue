@@ -188,6 +188,18 @@ function onHandlePointerDown(e: PointerEvent) {
   ctx?.onHandlePointerDown(e)
 }
 
+/** Header acts as a drag source in edit mode. Skip when the event
+ *  originated inside an interactive descendant (View-all link, slot
+ *  buttons) so clicks on those still work. The 4px gutter retains
+ *  its own dedicated handler for fine-pointer users who prefer the
+ *  shaded grip affordance. */
+function onHeaderPointerDown(e: PointerEvent) {
+  if (!ctx?.editMode.value) return
+  const target = e.target as HTMLElement | null
+  if (target?.closest('a, button, [role="button"], input, select, textarea')) return
+  ctx.onHandlePointerDown(e)
+}
+
 // Context menu: anchored at the click point, opened by right-click
 // or the keyboard context-menu key. Sizing radio + hide live here;
 // removing them from the header keeps the chrome quiet while leaving
@@ -298,21 +310,20 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
     enough signal once it's the only accent-coloured surface on the
     dashboard.
   -->
-  <!-- Dragging placeholder: keep neutral border, ring carries the
-       in-motion signal so card geometry doesn't shift when the
-       placeholder replaces the original card. -->
-  <div
-    v-if="dragging"
-    class="min-h-[9rem] h-full rounded-xl bg-accent/10 border border-default ring-1 ring-accent/40"
-    aria-hidden="true"
-  />
+  <!-- Source-stays-visible model: the article is always rendered.
+       While dragging, the article gets an accent outline so the
+       held tile is unmistakable; the inner content wrapper drops to
+       40% opacity so the source clearly reads as "held" without
+       disappearing. The placeholder swap (a separate v-if branch
+       that replaced the article with a tinted div) is gone; it was
+       the root cause of "I can't see what I'm carrying." -->
   <article
-    v-else
     :class="[
       'bg-surface rounded-xl border border-default overflow-hidden flex h-full relative transition-shadow',
       editMode
         ? 'ring-1 ring-accent/30 hover:ring-accent/40 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none'
         : '',
+      dragging ? 'outline outline-2 outline-accent outline-offset-2 cursor-grabbing' : '',
     ]"
     :tabindex="editMode ? 0 : -1"
     @contextmenu="onContextMenu"
@@ -358,7 +369,19 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
       the header reads the same in view mode and edit mode (minus
       the View-all link, which goes quiet in edit mode).
     -->
-    <header class="flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt flex-shrink-0">
+    <!-- Title-bar grab: in edit mode the entire header is a drag
+         source. Pointerdown bubbles up here; interactive children
+         (the View-all link, the headerActions slot, the right-click
+         menu) all fire their handlers on pointerup or click, which
+         resolve before usePointerSortable's clickThreshold elapses,
+         so they still work without snagging the drag. -->
+    <header
+      :class="[
+        'flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt flex-shrink-0',
+        editMode ? 'cursor-grab active:cursor-grabbing touch-none' : '',
+      ]"
+      @pointerdown="onHeaderPointerDown"
+    >
       <h2 class="text-[13px] font-semibold text-primary truncate tracking-tight">{{ title }}</h2>
 
       <!-- Optional inline count badge next to the title (e.g. "12"
@@ -397,7 +420,11 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
          sparse-data states fill the same vertical space — preventing
          the row-cascade shift on initial load. -->
     <div
-      :class="['flex-1 min-h-0 flex flex-col', densityPadding]"
+      :class="[
+        'flex-1 min-h-0 flex flex-col',
+        densityPadding,
+        dragging ? 'opacity-40 pointer-events-none' : '',
+      ]"
       :style="minBodyHeight ? { minHeight: minBodyHeight } : undefined"
     >
       <!--
