@@ -4319,6 +4319,14 @@ auth-callback-action-try-again = Réessayer
 # Widgets du tableau de bord
 dashboard-widget-shell-action-view-all = Tout voir
 dashboard-widget-shell-empty-title-default = Rien à afficher pour le moment.
+# DRAFT
+dashboard-widget-shell-empty-never-had-data-title = Rien à afficher pour le moment.
+dashboard-widget-shell-empty-never-had-data-description = Les nouvelles activités apparaîtront automatiquement.
+dashboard-widget-shell-empty-filtered-title = Aucune correspondance.
+dashboard-widget-shell-empty-filtered-description = Élargissez le filtre pour voir plus de résultats.
+dashboard-widget-shell-empty-unconfigured-title = Pas encore configuré.
+dashboard-widget-shell-empty-unconfigured-description = Un administrateur configure ceci une fois et le widget se remplit.
+dashboard-widget-shell-empty-cta-default = Configurer
 dashboard-widget-shell-drag-label = Déplacer { $title }
 dashboard-widget-shell-size-group-label = Taille de { $title }
 dashboard-widget-shell-size-option-title = Taille { $size } sur 3
@@ -4778,6 +4786,21 @@ dashboard-widget-stats-yours-title = Vos compteurs
 dashboard-widget-stats-yours-description = Compteurs rapides des tickets qui vous sont assignés, par statut.
 dashboard-widget-stats-queue-title = Compteurs de file
 dashboard-widget-stats-queue-description = Tickets non assignés et totaux dans la file.
+
+# DRAFT — system dashboard widgets (chart-backed defaults)
+dashboard-system-tickets-created-title = Créés
+dashboard-system-tickets-created-description = Tickets créés sur la plage de temps actuelle.
+dashboard-system-tickets-resolved-title = Résolus
+dashboard-system-tickets-resolved-description = Tickets résolus sur la plage de temps actuelle.
+dashboard-system-tickets-open-title = Ouverts
+dashboard-system-tickets-open-description = Tickets actuellement dans un état ouvert.
+dashboard-system-tickets-over-time-title = Tickets dans le temps
+dashboard-system-tickets-over-time-description = Courbe d'arrivée quotidienne, à l'échelle de la plage active.
+dashboard-system-volume-by-category-title = Volume par catégorie
+dashboard-system-volume-by-category-description = Principales catégories par nombre de tickets sur la fenêtre active.
+dashboard-system-volume-by-priority-title = Volume par priorité
+dashboard-system-volume-by-priority-description = Nombre de tickets par niveau de priorité.
+
 dashboard-widget-unassigned-queue-title = File non assignée
 dashboard-widget-unassigned-queue-description = Tickets ouverts les plus anciens sans assigné. Prenez le suivant.
 dashboard-widget-recently-viewed-title = Récemment consultés

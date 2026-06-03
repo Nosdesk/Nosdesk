@@ -1,13 +1,18 @@
 /**
- * Canonical section anchors for the dashboard
+ * Section anchors for the dashboard
  * (docs/dashboard-and-analytics-plan.md §6).
  *
- * Seven sections, in the order they appear on the canvas. The
- * AnchorRail reads this list to render its anchor links; Wave 8
- * seeds the canvas with H2 markers using the same ids.
+ * v1 ships the four sections whose widgets are actually present on
+ * the canvas: Today (KPI tiles), Volume & SLA (the line chart),
+ * Queue Health (the queue widgets), Agents (assigned tickets).
  *
- * Reordering this list reorders the keyboard shortcuts (1-7) that
- * useDashboardKeybindings registers in a later wave. Be deliberate.
+ * Categories, Backlog & Ageing, Audit Activity are re-introduced in
+ * parent-plan phases 5, 6 and 8 when their corresponding analytics
+ * widgets land. Listing anchors for empty sections promises the
+ * user content the dashboard can not yet deliver.
+ *
+ * Reordering this list reorders the keyboard shortcuts (1-N) that
+ * useDashboardKeybindings registers. Be deliberate.
  */
 
 export const SECTIONS: { id: string; labelKey: string }[] = [
@@ -15,7 +20,4 @@ export const SECTIONS: { id: string; labelKey: string }[] = [
   { id: 'volume-sla', labelKey: 'dashboard-section-volume-sla' },
   { id: 'queue-health', labelKey: 'dashboard-section-queue-health' },
   { id: 'agents', labelKey: 'dashboard-section-agents' },
-  { id: 'categories', labelKey: 'dashboard-section-categories' },
-  { id: 'backlog-ageing', labelKey: 'dashboard-section-backlog-ageing' },
-  { id: 'audit-activity', labelKey: 'dashboard-section-audit-activity' },
 ]

@@ -4493,6 +4493,17 @@ auth-callback-action-try-again = Try Again
 # Dashboard widgets
 dashboard-widget-shell-action-view-all = View all
 dashboard-widget-shell-empty-title-default = Nothing here yet.
+
+# Three-taxonomy empty-state defaults. Per-widget overrides land
+# via the shell's `emptyTitle` / `emptyDescription` props; these
+# strings are the fallback when a widget passes only `emptyTaxonomy`.
+dashboard-widget-shell-empty-never-had-data-title = Nothing here yet.
+dashboard-widget-shell-empty-never-had-data-description = New activity will show up automatically.
+dashboard-widget-shell-empty-filtered-title = Nothing matches.
+dashboard-widget-shell-empty-filtered-description = Loosen the filter to see more.
+dashboard-widget-shell-empty-unconfigured-title = Not configured yet.
+dashboard-widget-shell-empty-unconfigured-description = An admin sets this up once and the widget fills in.
+dashboard-widget-shell-empty-cta-default = Set it up
 dashboard-widget-shell-drag-label = Drag { $title }
 dashboard-widget-shell-size-group-label = { $title } size
 dashboard-widget-shell-size-option-title = Size { $size } of 3
@@ -4996,10 +5007,29 @@ passkey-last-used-never = Never
 # Dashboard widget registry
 dashboard-widget-assigned-tickets-title = Assigned tickets
 dashboard-widget-assigned-tickets-description = Your current work queue with status and priority.
+# Replaced by the system-* keys below; kept temporarily in case any
+# user has the legacy widget id pinned to a custom layout. v1.1
+# removes these after the layout migrator drops the stale ids.
 dashboard-widget-stats-yours-title = Your counts
 dashboard-widget-stats-yours-description = Quick counts of tickets assigned to you by status.
 dashboard-widget-stats-queue-title = Queue counts
 dashboard-widget-stats-queue-description = Unassigned and total ticket counts across the queue.
+
+# System dashboard widgets (the chart-backed defaults). Titles are
+# shown both in the widget header on the canvas and in the Add
+# Widget picker; descriptions only appear in the picker.
+dashboard-system-tickets-created-title = Created
+dashboard-system-tickets-created-description = Tickets created in the current time range.
+dashboard-system-tickets-resolved-title = Resolved
+dashboard-system-tickets-resolved-description = Tickets resolved in the current time range.
+dashboard-system-tickets-open-title = Open
+dashboard-system-tickets-open-description = Tickets currently in an open state.
+dashboard-system-tickets-over-time-title = Tickets over time
+dashboard-system-tickets-over-time-description = Daily inflow line, scaled to the active time range.
+dashboard-system-volume-by-category-title = Volume by category
+dashboard-system-volume-by-category-description = Top categories by ticket count for the active window.
+dashboard-system-volume-by-priority-title = Volume by priority
+dashboard-system-volume-by-priority-description = Ticket counts broken down by priority bucket.
 dashboard-widget-unassigned-queue-title = Unassigned queue
 dashboard-widget-unassigned-queue-description = Oldest open tickets with no assignee. Grab the next one.
 dashboard-widget-recently-viewed-title = Recently viewed

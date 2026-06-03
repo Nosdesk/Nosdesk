@@ -264,7 +264,7 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
    * This restores the pre-Wave-2 contract that useWidgetConfigState
    * relied on: setting `store.setConfig(id, {...})` from view mode
    * persists. The earlier rewrite silently dropped view-mode writes,
-   * which broke StaffQueueStats's metric picker.
+   * which broke per-widget config pickers.
    */
   function setConfig(id: string, config: Record<string, unknown> | null) {
     if (workingCopy.value) {

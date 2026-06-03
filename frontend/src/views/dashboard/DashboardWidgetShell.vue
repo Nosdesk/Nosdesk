@@ -71,10 +71,34 @@ const props = withDefaults(
     /** True = render the `empty` slot (or default empty text) instead
      *  of the body. Callers control this from their own data. */
     empty?: boolean
+    /**
+     * Three-taxonomy empty-state contract from the parent plan's
+     * decision 12. Drives the default copy + icon when the caller
+     * does not override via `emptyTitle` / `emptyDescription` /
+     * `#empty` slot:
+     *
+     *   - `never-had-data`  fresh workspace, the row simply hasn't
+     *                       been written yet. Onboarding tone.
+     *   - `filtered`        rows exist but the active filter excludes
+     *                       everything visible.
+     *   - `unconfigured`    the feature needs admin setup before it
+     *                       can show anything (e.g. SLA without a
+     *                       policy). Calls the admin to configure.
+     *
+     * Defaults to `never-had-data` so existing callers stay
+     * compatible.
+     */
+    emptyTaxonomy?: 'never-had-data' | 'filtered' | 'unconfigured'
     /** Default-slot replacement copy when `empty === true` and the
-     *  caller doesn't provide the `#empty` slot. */
+     *  caller doesn't provide the `#empty` slot. Falls back to the
+     *  taxonomy default when omitted. */
     emptyTitle?: string
     emptyDescription?: string
+    /** Optional CTA link beneath the empty-state description. Used
+     *  most often by the `unconfigured` taxonomy ("Set up an SLA
+     *  policy") to lead the admin into the right admin screen. */
+    emptyCtaTo?: string
+    emptyCtaLabel?: string
     /**
      * When `true`, the body slot is rendered flush with the card edges
      * (no padding) — use for widgets that draw their own list rows or
@@ -98,14 +122,28 @@ const props = withDefaults(
   }>(),
   {
     actionLabel: '',
+    emptyTaxonomy: 'never-had-data',
     emptyTitle: '',
     emptyDescription: '',
+    emptyCtaTo: '',
+    emptyCtaLabel: '',
     flushBody: true,
   },
 )
 
 const actionLabelText = computed(() => props.actionLabel || t('dashboard-widget-shell-action-view-all'))
-const emptyTitleText = computed(() => props.emptyTitle || t('dashboard-widget-shell-empty-title-default'))
+const emptyTitleText = computed(() => {
+  if (props.emptyTitle) return props.emptyTitle
+  return t(`dashboard-widget-shell-empty-${props.emptyTaxonomy}-title`)
+})
+const emptyDescriptionText = computed(() => {
+  if (props.emptyDescription) return props.emptyDescription
+  return t(`dashboard-widget-shell-empty-${props.emptyTaxonomy}-description`)
+})
+const emptyCtaLabelText = computed(() => {
+  if (props.emptyCtaLabel) return props.emptyCtaLabel
+  return props.emptyCtaTo ? t('dashboard-widget-shell-empty-cta-default') : ''
+})
 
 // Edit-mode context is optional — when a widget is rendered outside
 // the dashboard (e.g. a ticket list on a profile page), the context
@@ -377,11 +415,18 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
         <div
           v-else-if="empty"
           key="empty"
-          class="flex-1 flex flex-col items-center justify-center py-6 text-center px-4"
+          class="flex-1 flex flex-col items-center justify-center py-6 text-center px-4 gap-2"
         >
           <slot name="empty">
             <p class="text-sm text-secondary">{{ emptyTitleText }}</p>
-            <p v-if="emptyDescription" class="text-xs text-tertiary mt-1">{{ emptyDescription }}</p>
+            <p v-if="emptyDescriptionText" class="text-xs text-tertiary">{{ emptyDescriptionText }}</p>
+            <router-link
+              v-if="emptyCtaTo"
+              :to="emptyCtaTo"
+              class="mt-1 text-xs font-medium text-accent hover:underline"
+            >
+              {{ emptyCtaLabelText }} →
+            </router-link>
           </slot>
         </div>
         <div v-else key="content" class="flex-1 flex flex-col">

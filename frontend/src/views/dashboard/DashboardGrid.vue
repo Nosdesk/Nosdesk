@@ -62,6 +62,8 @@ const rendered = computed(() => previewOrder(visibleEntries.value))
       :dragging="isDragged(originalIndex)"
       :component="widgetById(entry.id)!.component"
       :widget-props="widgetById(entry.id)!.props"
+      :frame-wraps="widgetById(entry.id)?.frameWraps ?? false"
+      :frame-title-key="widgetById(entry.id)?.titleKey"
       :class="[
         spanClass(effectiveSpanFor(entry)),
         widgetById(entry.id)?.naturalHeight ? 'self-start' : '',

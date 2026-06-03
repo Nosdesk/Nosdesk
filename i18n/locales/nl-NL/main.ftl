@@ -4310,6 +4310,14 @@ auth-callback-action-try-again = Opnieuw proberen
 # Dashboard-widgets
 dashboard-widget-shell-action-view-all = Alles tonen
 dashboard-widget-shell-empty-title-default = Nog niets om te tonen.
+# DRAFT
+dashboard-widget-shell-empty-never-had-data-title = Nog niets om te tonen.
+dashboard-widget-shell-empty-never-had-data-description = Nieuwe activiteit verschijnt vanzelf.
+dashboard-widget-shell-empty-filtered-title = Geen resultaten.
+dashboard-widget-shell-empty-filtered-description = Versoepel het filter om meer te zien.
+dashboard-widget-shell-empty-unconfigured-title = Nog niet ingesteld.
+dashboard-widget-shell-empty-unconfigured-description = Een beheerder stelt dit één keer in en de widget vult zich vanzelf.
+dashboard-widget-shell-empty-cta-default = Instellen
 dashboard-widget-shell-drag-label = { $title } verslepen
 dashboard-widget-shell-size-group-label = Grootte van { $title }
 dashboard-widget-shell-size-option-title = Grootte { $size } van 3
@@ -4769,6 +4777,21 @@ dashboard-widget-stats-yours-title = Jouw tellers
 dashboard-widget-stats-yours-description = Snelle tellers van aan jou toegewezen tickets per status.
 dashboard-widget-stats-queue-title = Wachtrijtellers
 dashboard-widget-stats-queue-description = Niet-toegewezen en totale ticketaantallen in de wachtrij.
+
+# DRAFT — systeemwidgets (chart-backed standaard)
+dashboard-system-tickets-created-title = Aangemaakt
+dashboard-system-tickets-created-description = Tickets aangemaakt binnen de huidige tijdsperiode.
+dashboard-system-tickets-resolved-title = Opgelost
+dashboard-system-tickets-resolved-description = Tickets opgelost binnen de huidige tijdsperiode.
+dashboard-system-tickets-open-title = Open
+dashboard-system-tickets-open-description = Tickets momenteel in een open status.
+dashboard-system-tickets-over-time-title = Tickets over tijd
+dashboard-system-tickets-over-time-description = Dagelijkse instroom als lijn, geschaald naar de actieve periode.
+dashboard-system-volume-by-category-title = Volume per categorie
+dashboard-system-volume-by-category-description = Belangrijkste categorieën op aantal tickets in het actieve venster.
+dashboard-system-volume-by-priority-title = Volume per prioriteit
+dashboard-system-volume-by-priority-description = Tickettellingen uitgesplitst per prioriteit.
+
 dashboard-widget-unassigned-queue-title = Niet-toegewezen wachtrij
 dashboard-widget-unassigned-queue-description = Oudste open tickets zonder verantwoordelijke. Pak de volgende.
 dashboard-widget-recently-viewed-title = Onlangs bekeken

@@ -17,9 +17,6 @@ import type { Component } from 'vue'
 import type { DashboardLayout, UserRole } from '@/types/user'
 import UserAssignedTickets from '@/components/UserAssignedTickets.vue'
 import TicketHeatmap from '@/components/TicketHeatmap.vue'
-import StaffYoursStats from './StaffYoursStats.vue'
-import StaffQueueStats from './StaffQueueStats.vue'
-import UserSummaryStats from './UserSummaryStats.vue'
 import RecentlyViewedWidget from './RecentlyViewedWidget.vue'
 import UnassignedQueueWidget from './UnassignedQueueWidget.vue'
 import StarredDocsWidget from './StarredDocsWidget.vue'
@@ -28,6 +25,9 @@ import ChannelHealthWidget from './ChannelHealthWidget.vue'
 import KnowledgeGapsWidget from './KnowledgeGapsWidget.vue'
 import SlaHealthWidget from './SlaHealthWidget.vue'
 import SavedViewWidget from './SavedViewWidget.vue'
+import KpiTile from './charts/KpiTile.vue'
+import LineChart from './charts/LineChart.vue'
+import HorizontalBar from './charts/HorizontalBar.vue'
 
 /**
  * Synthetic widget id prefix for saved-view-backed widgets.
@@ -93,7 +93,35 @@ export interface WidgetDef {
    * this field.
    */
   dataNeeds?: readonly DashboardStatsGroup[]
+  /**
+   * Global page-chrome elements this widget depends on. The
+   * `DashboardView` page only renders a chrome element when at
+   * least one visible widget on the active layout declares the
+   * matching dependency. So a layout containing zero time-aware
+   * widgets gets a clean header (no orphaned time-range chips
+   * setting URL state nothing reads). Empty / omitted means the
+   * widget needs no chrome state.
+   *
+   *   - `time-range`     reads `useTimeRange` (charts, KPI tiles)
+   *   - `compare`        renders compare-to-prior overlay
+   *   - `annotations`    consumes audit-log annotation overlay
+   */
+  chromeDependencies?: readonly ChromeDependency[]
+  /**
+   * When `true`, `WidgetFrame` wraps this widget in a
+   * `DashboardWidgetShell` using `titleKey` for the title. Used
+   * by simple chart widgets (KpiTile, LineChart, HorizontalBar)
+   * that delegate loading + error state to the chart component
+   * itself and only need a titled card around them.
+   *
+   * Default `false` so existing widgets that self-shell continue
+   * working unchanged.
+   */
+  frameWraps?: boolean
 }
+
+/** Page-chrome elements that widgets may depend on. */
+export type ChromeDependency = 'time-range' | 'compare' | 'annotations'
 
 /** Stat group keys the backend recognises in `?include=...`. Keep in
  *  sync with `StatsGroup` in `backend/src/repository/dashboard_stats.rs`. */
@@ -110,24 +138,73 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ['technician', 'admin'],
   },
   {
-    id: 'stats-yours',
-    titleKey: 'dashboard-widget-stats-yours-title',
-    descriptionKey: 'dashboard-widget-stats-yours-description',
-    component: StaffYoursStats,
+    id: 'tickets-created',
+    titleKey: 'dashboard-system-tickets-created-title',
+    descriptionKey: 'dashboard-system-tickets-created-description',
+    component: KpiTile,
+    props: { metric: 'tickets_created' },
     span: 1,
     roles: ['technician', 'admin'],
     naturalHeight: true,
-    dataNeeds: ['yours'],
+    chromeDependencies: ['time-range', 'compare'],
+    frameWraps: true,
   },
   {
-    id: 'stats-queue',
-    titleKey: 'dashboard-widget-stats-queue-title',
-    descriptionKey: 'dashboard-widget-stats-queue-description',
-    component: StaffQueueStats,
+    id: 'tickets-resolved',
+    titleKey: 'dashboard-system-tickets-resolved-title',
+    descriptionKey: 'dashboard-system-tickets-resolved-description',
+    component: KpiTile,
+    props: { metric: 'tickets_resolved' },
     span: 1,
     roles: ['technician', 'admin'],
     naturalHeight: true,
-    dataNeeds: ['queue'],
+    chromeDependencies: ['time-range', 'compare'],
+    frameWraps: true,
+  },
+  {
+    id: 'tickets-open',
+    titleKey: 'dashboard-system-tickets-open-title',
+    descriptionKey: 'dashboard-system-tickets-open-description',
+    component: KpiTile,
+    props: { metric: 'tickets_open' },
+    span: 1,
+    roles: ['technician', 'admin'],
+    naturalHeight: true,
+    chromeDependencies: ['time-range', 'compare'],
+    frameWraps: true,
+  },
+  {
+    id: 'tickets-over-time',
+    titleKey: 'dashboard-system-tickets-over-time-title',
+    descriptionKey: 'dashboard-system-tickets-over-time-description',
+    component: LineChart,
+    props: { measure: 'count', timeField: 'created_at' },
+    span: 2,
+    roles: ['technician', 'admin'],
+    chromeDependencies: ['time-range', 'compare', 'annotations'],
+    frameWraps: true,
+  },
+  {
+    id: 'volume-by-category',
+    titleKey: 'dashboard-system-volume-by-category-title',
+    descriptionKey: 'dashboard-system-volume-by-category-description',
+    component: HorizontalBar,
+    props: { groupBy: 'category', topN: 8 },
+    span: 1,
+    roles: ['technician', 'admin'],
+    chromeDependencies: ['time-range'],
+    frameWraps: true,
+  },
+  {
+    id: 'volume-by-priority',
+    titleKey: 'dashboard-system-volume-by-priority-title',
+    descriptionKey: 'dashboard-system-volume-by-priority-description',
+    component: HorizontalBar,
+    props: { groupBy: 'priority' },
+    span: 1,
+    roles: ['technician', 'admin'],
+    chromeDependencies: ['time-range'],
+    frameWraps: true,
   },
   {
     id: 'unassigned-queue',
@@ -193,16 +270,6 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ['user'],
   },
   {
-    id: 'stats-summary',
-    titleKey: 'dashboard-widget-stats-summary-title',
-    descriptionKey: 'dashboard-widget-stats-summary-description',
-    component: UserSummaryStats,
-    span: 1,
-    roles: ['user'],
-    naturalHeight: true,
-    dataNeeds: ['summary'],
-  },
-  {
     id: 'knowledge-gaps',
     titleKey: 'dashboard-widget-knowledge-gaps-title',
     descriptionKey: 'dashboard-widget-knowledge-gaps-description',
@@ -230,36 +297,36 @@ export function widgetsForRole(role: UserRole): WidgetDef[] {
 /**
  * Curated default layout for technicians and admins.
  *
- *   Row 1 — at-a-glance metrics
- *     [ Your Counts (span 2)  |  Queue Counts (span 1) ]
- *   Row 2 — the working set, scanning left-to-right for what needs doing
- *     [ Unassigned Queue  |  Recently Viewed  |  Assigned Tickets ]
- *   Row 3 — context
- *     [ Activity Heatmap (span 3) ]
+ *   Row 1 — KPI row, four 1-column tiles
+ *     [ Tickets Created ] [ Tickets Resolved ] [ Tickets Open ] [ SLA Health ]
+ *   Row 2 — Your work
+ *     [ Assigned Tickets (span 2) ] [ Unassigned Queue (span 1) ]
+ *   Row 3 — Recently viewed
+ *     [ Recently Viewed (span 1) ]
+ *   Row 4 — Workspace pulse
+ *     [ Tickets Over Time (span 2) ] [ Volume by Priority (span 1) ]
+ *     [ Volume by Category (span 1) ]
  *
- * Queue Counts starts with the four metrics that matter day-to-day
- * for a triage-style workflow (open / in-progress / high priority /
- * closed today) rather than the unconfigured default of just
- * [unassigned, all]. Users can still swap any of this via the
- * per-widget picker and the dashboard edit mode.
+ * KPI tiles read the global time range so the headline numbers
+ * track whatever window the user has selected via the chip cluster.
+ * The chart-backed tiles + line chart declare `chromeDependencies`
+ * so the DashboardView only renders the time-range chrome when at
+ * least one of them is in the visible set.
  *
- * Widgets not listed in `visible` are appended at the tail hidden,
- * so they show up in the "Add widget" picker without cluttering the
- * initial view.
+ * Widgets not listed are appended at the tail hidden, so they show
+ * up in the "Add widget" picker without cluttering the initial view.
  */
 const STAFF_VISIBLE: DashboardLayout['widgets'] = [
-  { id: 'stats-yours', visible: true, span: 2 },
-  {
-    id: 'stats-queue',
-    visible: true,
-    span: 1,
-    config: { metrics: ['open', 'in-progress', 'high-priority', 'closed-today'] },
-  },
+  { id: 'tickets-created', visible: true, span: 1 },
+  { id: 'tickets-resolved', visible: true, span: 1 },
+  { id: 'tickets-open', visible: true, span: 1 },
   { id: 'sla-health', visible: true, span: 1 },
+  { id: 'assigned-tickets', visible: true, span: 2 },
   { id: 'unassigned-queue', visible: true, span: 1 },
   { id: 'recently-viewed', visible: true, span: 1 },
-  { id: 'assigned-tickets', visible: true, span: 1 },
-  { id: 'activity-heatmap', visible: true, span: 3 },
+  { id: 'tickets-over-time', visible: true, span: 2 },
+  { id: 'volume-by-priority', visible: true, span: 1 },
+  { id: 'volume-by-category', visible: true, span: 1 },
 ]
 
 /** The default layout for a role. Staff roles (technician / admin)

@@ -1,7 +1,7 @@
 <!--
 Workspace SLA health at a glance: total tickets covered by a policy
-and how they break down by pill state. Mirrors the StaffYoursStats
-KPI pattern so the dashboard reads consistently. Reuses the same
+and how they break down by pill state. Uses the shared KpiRail
+primitive so the dashboard reads consistently. Reuses the same
 backend scan as the per-policy admin counts via the shared
 services::sla::scan_open_ticket_buckets helper, so the numbers here
 always agree with what the policy list shows.
