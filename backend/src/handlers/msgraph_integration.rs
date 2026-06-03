@@ -1279,13 +1279,32 @@ pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<
         session_id: session_id.clone(),
     };
 
+    // Job-level Result answers "did the sync run?" not "were all
+    // items perfect?". Partial item failures are a normal operating
+    // state for a delta sync (a single user with a malformed email,
+    // a transient HTTP blip, etc.) — they get logged at the failure
+    // site with structured fields and don't bubble up here, because
+    // the alternative is `anyhow::anyhow!(...)` which captures a
+    // backtrace and dumps a 60-frame stack trace into the scheduler
+    // log for what's effectively normal noise.
+    //
+    // Only "couldn't even start" failures (token fetch error, DB
+    // unreachable, internal sync-machinery bug) return Err. Those
+    // are real operator-attention events the scheduler's status
+    // registry should reflect as a failed run.
     match perform_sync(&mut conn, provider.id, &entities, &session_id, true).await {
-        Ok(result) if result.success => Ok(()),
-        Ok(result) => Err(anyhow::anyhow!(
-            "sync completed with errors: {}",
-            result.message
-        )),
-        Err(e) => Err(anyhow::anyhow!("sync failed: {e}")),
+        Ok(result) => {
+            if result.total_errors > 0 {
+                tracing::warn!(
+                    provider_id = provider.id,
+                    processed = result.total_processed,
+                    failed = result.total_errors,
+                    "msgraph scheduled sync completed with partial item failures"
+                );
+            }
+            Ok(())
+        }
+        Err(e) => Err(anyhow::anyhow!("msgraph sync machinery failed: {e}")),
     }
 }
 
