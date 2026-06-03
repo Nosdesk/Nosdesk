@@ -2937,11 +2937,24 @@ pub async fn admin_reset_user_password(
         return errors::bad_request("User does not have a local password identity. Cannot reset password for OAuth-only accounts.");
     }
 
-    // Update password_changed_at timestamp
+    // Update password_changed_at on the audited `users` row. The
+    // audit trigger requires `app.workspace_id` pinned (NDX01 fires
+    // otherwise), so wrap in with_actor_context using the admin's
+    // request-derived actor — the workspace pin lands the audit row
+    // under the admin's tenant, which is the correct provenance
+    // record for the action.
     let now = chrono::Utc::now().naive_utc();
-    let _ = diesel::update(crate::schema::users::table.find(&user.uuid))
-        .set(crate::schema::users::password_changed_at.eq(now))
-        .execute(&mut conn);
+    let actor = helpers::actor_for(&req, "admin_reset_user_password");
+    let _ = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &actor,
+        |c| {
+            diesel::update(crate::schema::users::table.find(&user.uuid))
+                .set(crate::schema::users::password_changed_at.eq(now))
+                .execute(c)?;
+            Ok(())
+        },
+    );
 
     info!(admin = %claims.sub, target_user = %target_uuid_str, user_name = %user.name, "Admin reset user password");
 
