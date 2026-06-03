@@ -62,7 +62,7 @@ const errorMessage = computed(() =>
         <TicketRow
           :id="ticket.id"
           :title="ticket.title"
-          :status="ticket.status"
+          :workflow-state-id="ticket.workflow_state_id"
           :priority="ticket.priority"
           :timestamp="ticket.created"
           :requester="ticket.requester_user"

@@ -17,7 +17,9 @@ import UserAvatar from './UserAvatar.vue'
 import TicketStatusIcon from './TicketStatusIcon.vue'
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
+import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { buildCollabDocId } from '@/utils/collabDocId'
+import { TERMINAL_CATEGORIES } from '@/types/workflow'
 import type { UserInfo } from '@/types/user'
 
 const fluent = useFluent()
@@ -25,6 +27,7 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 
 const collab = useCollabSessionStore()
 const workspaces = useMyWorkspacesStore()
+const workflowStates = useWorkflowStatesStore()
 
 /**
  * Hover-prefetch the ticket's collaborative session: opens the
@@ -47,7 +50,12 @@ function prewarmTicket() {
 const props = defineProps<{
   id: number
   title: string
-  status: string
+  /** Foreign key into the workspace's workflow_states catalogue. The
+   *  row resolves the state via the Pinia store and derives the
+   *  status icon, label, and "closed" affordances from the category +
+   *  name. Optional because lightweight response shapes may omit it;
+   *  in that case the row renders without the status icon. */
+  workflowStateId?: number
   /** Optional — rows sourced from lightweight responses (e.g. recent
    *  views) may not carry priority. The left rail falls back to
    *  transparent in that case, preserving row anatomy. */
@@ -63,6 +71,19 @@ const props = defineProps<{
   /** Router destination for the row. */
   to: string
 }>()
+
+/** Resolved workflow_state row (or undefined when the id is absent
+ *  or the store hasn't loaded yet). All other state-derived values
+ *  funnel through this one lookup. */
+const workflowState = computed(() =>
+  props.workflowStateId != null ? workflowStates.findById(props.workflowStateId) : undefined,
+)
+
+const statusCategory = computed(() => workflowState.value?.category)
+const statusName = computed(() => workflowState.value?.name ?? '')
+const isTerminal = computed(() =>
+  statusCategory.value ? TERMINAL_CATEGORIES.has(statusCategory.value) : false,
+)
 
 function priorityBarClass(priority?: string): string {
   switch (priority) {
@@ -80,16 +101,10 @@ const priorityLabel = computed(() =>
     : '',
 )
 
-const statusLabel = computed(() =>
-  props.status === 'in-progress'
-    ? 'In progress'
-    : props.status.charAt(0).toUpperCase() + props.status.slice(1),
-)
-
 const ariaLabel = computed(() => {
   const parts = [`Ticket #${props.id}: ${props.title}`]
   if (props.priority) parts.push(`${props.priority} priority`)
-  parts.push(statusLabel.value)
+  if (statusName.value) parts.push(statusName.value)
   return parts.join(', ')
 })
 </script>
@@ -112,7 +127,7 @@ const ariaLabel = computed(() => {
       :title="priorityLabel || undefined"
     />
     <div class="flex items-center gap-2.5 pl-4 pr-3 h-10 min-w-0">
-      <TicketStatusIcon :status="status" class="w-3.5 h-3.5" />
+      <TicketStatusIcon :category="statusCategory" :title="statusName || undefined" class="w-3.5 h-3.5" />
 
       <span class="flex items-center gap-1.5 flex-shrink-0 font-mono text-[11px] text-tertiary tabular-nums">
         <span
@@ -129,7 +144,7 @@ const ariaLabel = computed(() => {
           class="text-[13px] truncate min-w-0 group-hover:text-accent transition-colors"
           :class="[
             newActivity ? 'font-semibold' : 'font-medium',
-            status === 'closed' ? 'text-tertiary' : 'text-primary',
+            isTerminal ? 'text-tertiary' : 'text-primary',
           ]"
         >
           {{ title }}

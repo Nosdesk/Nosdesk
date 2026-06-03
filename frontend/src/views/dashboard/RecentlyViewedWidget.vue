@@ -54,7 +54,7 @@ const errorMessage = computed(() =>
         <TicketRow
           :id="ticket.id"
           :title="ticket.title"
-          :status="ticket.status"
+          :workflow-state-id="ticket.workflow_state_id"
           :timestamp="ticket.last_viewed_at"
           :to="`/tickets/${ticket.id}`"
         />

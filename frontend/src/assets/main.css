@@ -88,13 +88,20 @@
   --color-status-info: #3B82F6;
   --color-status-info-muted: rgba(59, 130, 246, 0.15);
 
-  /* Ticket status colors */
+  /* Ticket status colors. Visual groups map from WorkflowStateCategory:
+       open       <- triage, backlog
+       in-progress<- active, in_review
+       closed     <- done, cancelled
+       merged     <- merged (distinct from closed so a merged ticket
+                     reads visually different from a finished one) */
   --color-status-open: #F59E0B;
   --color-status-open-muted: rgba(245, 158, 11, 0.15);
   --color-status-in-progress: #3B82F6;
   --color-status-in-progress-muted: rgba(59, 130, 246, 0.15);
   --color-status-closed: #10B981;
   --color-status-closed-muted: rgba(16, 185, 129, 0.15);
+  --color-status-merged: #6366F1;
+  --color-status-merged-muted: rgba(99, 102, 241, 0.15);
 
   /* Priority colors */
   --color-priority-high: #EF4444;
@@ -152,6 +159,8 @@
     --color-status-in-progress-muted: rgba(59, 130, 246, 0.15);
     --color-status-closed: #10B981;
     --color-status-closed-muted: rgba(16, 185, 129, 0.15);
+    --color-status-merged: #6366F1;
+    --color-status-merged-muted: rgba(99, 102, 241, 0.15);
 
     /* Priority colors */
     --color-priority-high: #EF4444;
@@ -230,6 +239,8 @@
     --color-status-in-progress-muted: rgba(96, 165, 250, 0.2);
     --color-status-closed: #34D399;
     --color-status-closed-muted: rgba(52, 211, 153, 0.2);
+    --color-status-merged: #818CF8;
+    --color-status-merged-muted: rgba(129, 140, 248, 0.2);
 
     /* Priority colors - brighter for dark mode */
     --color-priority-high: #F87171;
