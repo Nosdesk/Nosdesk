@@ -6,6 +6,7 @@ pub mod backup;
 pub mod channels;
 pub mod email_queue;
 pub mod imports;
+pub mod msgraph;
 pub mod notifications;
 pub mod oauth_provisioning;
 pub mod plugins;
