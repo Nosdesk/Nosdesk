@@ -101,7 +101,12 @@ services:
       # zips produced by `nosdesk-plugin sign --dev`.
       - ./plugins:/app/plugins:ro
     environment:
-      - RUST_LOG=debug,actix_web=debug,actix_server=info,diesel=debug
+      # Per-crate caps for chatty third-party crates: tantivy logs every
+      # segment open and commit at INFO+DEBUG (saw ~90% of stdout); the
+      # connection plumbing crates (h2, hyper, rustls, mio, want) emit
+      # similar lifecycle chatter at debug. Operators bump any of these
+      # by editing this var. Mirrored in docker.env and .env.
+      - RUST_LOG=debug,actix_web=debug,actix_server=info,diesel=debug,tantivy=warn,h2=info,hyper=info,hyper_util=info,rustls=info,mio=info,want=info
       - RUST_BACKTRACE=1
       - CARGO_MESSAGE_FORMAT=short
       - CARGO_TERM_COLOR=always
