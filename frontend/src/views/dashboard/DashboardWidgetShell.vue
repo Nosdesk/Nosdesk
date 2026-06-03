@@ -184,15 +184,10 @@ function onResize(span: WidgetSpan) {
 function onHide() {
   ctx?.onHide()
 }
-function onHandlePointerDown(e: PointerEvent) {
-  ctx?.onHandlePointerDown(e)
-}
 
-/** Header acts as a drag source in edit mode. Skip when the event
- *  originated inside an interactive descendant (View-all link, slot
- *  buttons) so clicks on those still work. The 4px gutter retains
- *  its own dedicated handler for fine-pointer users who prefer the
- *  shaded grip affordance. */
+/** Header acts as the sole drag source in edit mode. Skip when the
+ *  event originated inside an interactive descendant (View-all link,
+ *  slot buttons) so clicks on those still work. */
 function onHeaderPointerDown(e: PointerEvent) {
   if (!ctx?.editMode.value) return
   const target = e.target as HTMLElement | null
@@ -301,53 +296,24 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
 </script>
 
 <template>
-  <!--
-    Dragged widget renders as a clean accent-tinted landing slot
-    rather than its normal chrome. Combined with the preview-reorder
-    in the parent, it lands where the drop will commit — neighbours
-    shift around it so the user sees the destination layout
-    optimistically. No text, no dashed border; the tint alone is
-    enough signal once it's the only accent-coloured surface on the
-    dashboard.
-  -->
-  <!-- Source-stays-visible model: the article is always rendered.
-       While dragging, the article gets an accent outline so the
-       held tile is unmistakable; the inner content wrapper drops to
-       40% opacity so the source clearly reads as "held" without
-       disappearing. The placeholder swap (a separate v-if branch
-       that replaced the article with a tinted div) is gone; it was
-       the root cause of "I can't see what I'm carrying." -->
+  <!-- Projected-reorder model: while a widget is being dragged, the
+       grid moves it to its projected post-commit slot and renders it
+       there with a dashed accent outline + dimmed body. The widget
+       itself IS the magnet zone, sized exactly to where it will land.
+       Siblings reflow around it via the grid's FLIP transition so the
+       destination layout previews correctly. -->
   <article
     :class="[
       'bg-surface rounded-xl border border-default overflow-hidden flex h-full relative transition-shadow',
       editMode
         ? 'ring-1 ring-accent/30 hover:ring-accent/40 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none'
         : '',
-      dragging ? 'outline outline-2 outline-accent outline-offset-2 cursor-grabbing' : '',
+      dragging ? 'outline outline-2 outline-dashed outline-accent outline-offset-2 cursor-grabbing' : '',
     ]"
     :tabindex="editMode ? 0 : -1"
     @contextmenu="onContextMenu"
     @keydown="onCardKeydown"
   >
-    <!-- Drag-handle gutter: 4px shaded column running the full left
-         edge of the card in edit mode. Touch targets need depth so
-         the actual hit area is wider than the visual stripe — the
-         button is 12px wide, the visible bar is the inner 4px. The
-         gutter doubles as the visual cue that the card is movable;
-         nothing in the header competes for that affordance. -->
-    <button
-      v-if="editMode"
-      type="button"
-      class="group flex-shrink-0 w-3 h-full flex items-stretch justify-center cursor-grab active:cursor-grabbing touch-none focus-visible:outline-none"
-      :aria-label="t('dashboard-widget-shell-drag-label', { title })"
-      @pointerdown="onHandlePointerDown"
-    >
-      <span
-        class="block w-1 h-full bg-default group-hover:bg-accent group-focus-visible:bg-accent transition-colors"
-        aria-hidden="true"
-      />
-    </button>
-
     <div class="flex flex-col flex-1 min-w-0">
     <!--
       Indeterminate progress bar for background refetches. Positioned

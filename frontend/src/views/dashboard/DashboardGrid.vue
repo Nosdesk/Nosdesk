@@ -1,28 +1,43 @@
 <!--
-The grid of widgets. Role-neutral — the widget registry
+The grid of widgets. Role-neutral, the widget registry
 (`widgets.ts`) filters entries by the current user's role, so this
 component renders whatever set applies.
 
-Drag UX (post-2026-06 redesign per docs/plans/v1-dashboard-dnd-spec.md):
-  * Source widget stays in place at reduced content opacity with an
-    accent outline. No floating clone, no placeholder swap.
-  * Siblings stay frozen at their drag-start positions; the rendered
-    order is `visibleEntries` directly, NOT a preview reorder.
-  * A `DropIndicator` line marks the projected post-drop slot,
-    computed via `computeDropTargetGap` (an in-memory splice + flow-
-    column linear pass, same operation the store will run on commit).
-  * Commit runs once on pointerup. The existing `widget-flip-move`
-    FLIP transition animates displaced siblings into their new
-    positions. Honours `prefers-reduced-motion` via a CSS gate.
-  * Invalid drop (no movement OR cursor over no valid target) fires
-    a soft outline pulse on the source via `pulse-source` for 180ms.
+Drag UX — "stable DOM, projected transforms":
+
+  * The DOM order matches `visibleEntries` for the lifetime of the
+    drag. Nothing in the v-for moves. Pointer capture is unaffected;
+    cursor events flow exactly as they would if nothing was being
+    dragged.
+
+  * On drag-start we snapshot the grid's pixel layout (column width,
+    row gaps, per-row heights). The engine emits intent
+    (`sourceIndex` / `hoverIndex` / `dropBefore`) and from that we
+    derive a `Map<originalIndex, "translate(dx, dy)">` that places
+    every widget at its projected post-commit cell.
+
+  * Each widget renders with `:style="{ transform: ... }"` and a CSS
+    transition on `transform`. Crossing a snap zone updates the map;
+    every displaced widget slides to its new projected slot in 180ms.
+    The source widget transforms to its destination too — combined
+    with the shell's dragging styling (dashed accent outline + 40%
+    body opacity) it IS the magnet zone.
+
+  * Commit runs once on pointerup. The engine calls `store.move`;
+    `visibleEntries` re-emits in post-commit order. Because the
+    pre-commit visual layout (DOM in original order + projected
+    transforms) is pixel-identical to the post-commit visual layout
+    (DOM in projected order + no transforms), there is no jump.
+
+  * Invalid drop fires a soft outline pulse on the source.
 -->
 <script setup lang="ts">
-import { computed, onMounted, ref, toRef, watch } from 'vue'
+import { computed, ref, toRef, watch } from 'vue'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
 import {
-  computeDropTargetGap,
+  projectedTargetIndex,
   usePointerSortable,
+  walkFlow,
   type ProjectableEntry,
 } from '@/composables/usePointerSortable'
 import {
@@ -31,27 +46,13 @@ import {
   widgetById,
 } from './widgets'
 import WidgetFrame from './WidgetFrame.vue'
-import DropIndicator from './DropIndicator.vue'
 
 const store = useDashboardLayoutStore()
 
-// Grid gap grows in edit mode so corner controls on adjacent widgets
-// don't crowd one another.
 const gridGap = computed(() => (store.editMode ? 'gap-4' : 'gap-3'))
 
-// TransitionGroup's ref resolves to the component instance, not the
-// underlying DOM element; the actual <div> sits on `$el`. We expose a
-// derived `gridEl` (the real HTMLElement) for `getGridEl` and
-// DropIndicator's position math, and update it on mount.
-const transitionGroupRef = ref<{ $el?: HTMLElement } | null>(null)
 const gridEl = ref<HTMLElement | null>(null)
-function syncGridEl() {
-  gridEl.value = transitionGroupRef.value?.$el ?? null
-}
 
-// Originalindex-keyed transient flag for the invalid-drop outline
-// pulse. Cleared 180ms after activation; the WidgetFrame reads it
-// and applies a CSS class.
 const pulseSourceIndex = ref<number | null>(null)
 let pulseTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -71,18 +72,12 @@ const { dragState, handlePointerDown, isDragged } = usePointerSortable({
   getGridEl: () => gridEl.value,
 })
 
-onMounted(syncGridEl)
-watch(transitionGroupRef, syncGridEl)
-
 const visibleEntries = computed(() =>
   store.layout.widgets
     .map((entry, originalIndex) => ({ entry, originalIndex }))
     .filter(({ entry }) => entry.visible && widgetById(entry.id)),
 )
 
-/** Visible entries projected to the shape the drop-position helper
- *  needs (original index + effective col span). Recomputed reactively
- *  so resizing or hide / unhide doesn't desync the projection. */
 const projectableEntries = computed<ProjectableEntry[]>(() =>
   visibleEntries.value.map(({ entry, originalIndex }) => ({
     originalIndex,
@@ -90,78 +85,158 @@ const projectableEntries = computed<ProjectableEntry[]>(() =>
   })),
 )
 
-/** The projected post-drop slot the DropIndicator renders against.
- *  Null when not dragging or when no meaningful projection exists
- *  (source === hover, or hover not yet set). */
-const dropTargetGap = computed(() => {
-  if (!dragState.isDragging) return null
-  return computeDropTargetGap(
-    projectableEntries.value,
+// Layout snapshot captured at drag-start. The pixel deltas needed
+// for transforms are computed from this; no per-cursor-move DOM
+// measurement runs.
+interface LayoutSnapshot {
+  colWidth: number
+  colGap: number
+  rowGap: number
+  rowHeights: number[]
+}
+
+const layoutSnapshot = ref<LayoutSnapshot | null>(null)
+
+function captureLayoutSnapshot(): LayoutSnapshot | null {
+  const grid = gridEl.value
+  if (!grid) return null
+  const gridRect = grid.getBoundingClientRect()
+  const style = getComputedStyle(grid)
+  const colGap = parseFloat(style.columnGap || style.gap || '0') || 0
+  const rowGap = parseFloat(style.rowGap || style.gap || '0') || 0
+  const cols = Math.max(1, dragState.renderedColumns)
+  const colWidth = (gridRect.width - (cols - 1) * colGap) / cols
+
+  interface RowBounds { top: number; bottom: number }
+  const rows: RowBounds[] = []
+  const tolerance = 4
+  for (const child of Array.from(grid.children) as HTMLElement[]) {
+    if (!child.hasAttribute('data-sortable-index')) continue
+    const r = child.getBoundingClientRect()
+    const existing = rows.find((row) => Math.abs(row.top - r.top) < tolerance)
+    if (existing) {
+      existing.bottom = Math.max(existing.bottom, r.bottom)
+    } else {
+      rows.push({ top: r.top, bottom: r.bottom })
+    }
+  }
+  rows.sort((a, b) => a.top - b.top)
+  return {
+    colWidth,
+    colGap,
+    rowGap,
+    rowHeights: rows.map((r) => r.bottom - r.top),
+  }
+}
+
+watch(
+  () => dragState.isDragging,
+  (active) => {
+    layoutSnapshot.value = active ? captureLayoutSnapshot() : null
+  },
+)
+
+const transformMap = computed<Map<number, string>>(() => {
+  const map = new Map<number, string>()
+  if (!dragState.isDragging) return map
+  const snap = layoutSnapshot.value
+  if (!snap) return map
+  const entries = projectableEntries.value
+  const to = projectedTargetIndex(
+    entries,
     dragState.sourceIndex,
     dragState.hoverIndex,
     dragState.dropBefore,
-    dragState.renderedColumns,
   )
+  if (to === null) return map
+  const srcV = entries.findIndex((e) => e.originalIndex === dragState.sourceIndex)
+  if (srcV === -1) return map
+
+  const projected = entries.slice()
+  const [moved] = projected.splice(srcV, 1)
+  projected.splice(to, 0, moved)
+
+  const cols = Math.max(1, dragState.renderedColumns)
+  const origCells = walkFlow(entries, cols)
+  const projCells = walkFlow(projected, cols)
+
+  const rowDelta = (fromRow: number, toRow: number): number => {
+    if (fromRow === toRow) return 0
+    const dir = toRow > fromRow ? 1 : -1
+    let dy = 0
+    const lo = Math.min(fromRow, toRow)
+    const hi = Math.max(fromRow, toRow)
+    for (let r = lo; r < hi; r++) {
+      const h = snap.rowHeights[r] ?? snap.rowHeights[snap.rowHeights.length - 1] ?? 0
+      dy += h + snap.rowGap
+    }
+    return dy * dir
+  }
+
+  for (const e of entries) {
+    const orig = origCells.get(e.originalIndex)
+    const proj = projCells.get(e.originalIndex)
+    if (!orig || !proj) continue
+    if (orig.row === proj.row && orig.col === proj.col) continue
+    const dx = (proj.col - orig.col) * (snap.colWidth + snap.colGap)
+    const dy = rowDelta(orig.row, proj.row)
+    map.set(e.originalIndex, `translate(${dx}px, ${dy}px)`)
+  }
+  return map
 })
+
+function styleFor(originalIndex: number) {
+  const transform = transformMap.value.get(originalIndex)
+  if (transform) return { transform }
+  return undefined
+}
 </script>
 
 <template>
-  <div class="relative">
-    <!-- The ref lives on the TransitionGroup so its root <div> (the
-         element with `display: grid`) is what `getGridEl` returns.
-         TransitionGroup exposes the root via `$el` on the instance. -->
-    <TransitionGroup
-      ref="transitionGroupRef"
-      tag="div"
-      name="widget-flip"
+  <div
+    ref="gridEl"
+    :class="[
+      'grid grid-cols-1 xl:grid-cols-3 auto-rows-min transition-[gap] duration-150',
+      gridGap,
+      store.editMode && 'select-none',
+      dragState.isDragging && 'cursor-grabbing',
+    ]"
+  >
+    <WidgetFrame
+      v-for="{ entry, originalIndex } in visibleEntries"
+      :key="entry.id"
+      :index="originalIndex"
+      :current-span="effectiveSpanFor(entry)"
+      :edit-mode="store.editMode"
+      :dragging="isDragged(originalIndex)"
+      :pulsing="pulseSourceIndex === originalIndex"
+      :component="widgetById(entry.id)!.component"
+      :widget-props="widgetById(entry.id)!.props"
+      :frame-wraps="widgetById(entry.id)?.frameWraps ?? false"
+      :frame-title-key="widgetById(entry.id)?.titleKey"
       :class="[
-        'grid grid-cols-1 xl:grid-cols-3 auto-rows-min transition-[gap] duration-150',
-        gridGap,
-        store.editMode && 'select-none',
-        dragState.isDragging && 'cursor-grabbing',
+        spanClass(effectiveSpanFor(entry)),
+        widgetById(entry.id)?.naturalHeight ? 'self-start' : '',
+        'widget-projected',
       ]"
-    >
-      <WidgetFrame
-        v-for="{ entry, originalIndex } in visibleEntries"
-        :key="entry.id"
-        :index="originalIndex"
-        :current-span="effectiveSpanFor(entry)"
-        :edit-mode="store.editMode"
-        :dragging="isDragged(originalIndex)"
-        :pulsing="pulseSourceIndex === originalIndex"
-        :component="widgetById(entry.id)!.component"
-        :widget-props="widgetById(entry.id)!.props"
-        :frame-wraps="widgetById(entry.id)?.frameWraps ?? false"
-        :frame-title-key="widgetById(entry.id)?.titleKey"
-        :class="[
-          spanClass(effectiveSpanFor(entry)),
-          widgetById(entry.id)?.naturalHeight ? 'self-start' : '',
-        ]"
-        @hide="store.hide(entry.id)"
-        @resize="(span) => store.setSpan(entry.id, span)"
-        @handle-pointerdown="(e) => handlePointerDown(originalIndex, e)"
-      />
-    </TransitionGroup>
-
-    <DropIndicator
-      v-if="dragState.isDragging && dropTargetGap"
-      :gap="dropTargetGap"
-      :grid-el="gridEl"
-      :rendered-columns="dragState.renderedColumns"
+      :style="styleFor(originalIndex)"
+      @hide="store.hide(entry.id)"
+      @resize="(span) => store.setSpan(entry.id, span)"
+      @handle-pointerdown="(e) => handlePointerDown(originalIndex, e)"
     />
   </div>
 </template>
 
 <style scoped>
-.widget-flip-move {
+/* Every widget animates its own transform. During a drag the
+ * transform map updates on every snap-zone change; without this
+ * transition the projected layout would snap instead of slide. */
+.widget-projected {
   transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* Reduced-motion users get instant cuts on the post-drop reflow.
- * The indicator itself has no transition either (state readout,
- * not animation), so this is the only motion-gate the grid needs. */
 @media (prefers-reduced-motion: reduce) {
-  .widget-flip-move {
+  .widget-projected {
     transition: none;
   }
 }

@@ -1,10 +1,10 @@
 /**
- * Pointer-event sortable list with deferred reorder + projected
- * drop-position indicator (see docs/plans/v1-dashboard-dnd-spec.md).
+ * Pointer-event sortable list. The engine is a pure state machine
+ * emitting drop intent; the view decides how to render it.
  *
  * HTML5 DnD is avoided across the app (touch support, dragleave-on-
  * children, crippled drag image). This composable uses Pointer
- * Events — same pattern as `useKanbanDragDrop`.
+ * Events, same pattern as `useKanbanDragDrop`.
  *
  * Rendering contract:
  *   - The view renders items with `data-sortable-index="${n}"` on
@@ -13,21 +13,24 @@
  *   - The view wires `@pointerdown` on a drag handle inside each
  *     item to `handlePointerDown(index, event)`.
  *   - On successful drop the composable calls `onReorder(from, to)`.
- *   - The view DOES NOT reorder its rendered output during the drag.
- *     Siblings stay at their original positions; a separate indicator
- *     marks the projected post-drop slot. The grid commits the move
- *     once on `pointerup` and the existing FLIP transition animates
- *     the reflow.
+ *   - The view DOES NOT reorder its rendered DOM during the drag.
+ *     The DOM order stays equal to `visibleEntries`. The view layer
+ *     uses `walkFlow` + `projectedTargetIndex` (see below) to build
+ *     a per-widget `transform: translate(dx, dy)` map that shifts
+ *     widgets to their projected post-commit cells. CSS transitions
+ *     on `transform` animate the slide. Keeping the DOM stable means
+ *     pointer capture survives the drag and no FLIP machinery has to
+ *     fight per-cursor-move re-renders.
  *
  * State the view consumes:
  *   - `dragState.isDragging`, `sourceIndex`, `hoverIndex`, `dropBefore` —
  *     the classic engine fields. `hoverIndex` + `dropBefore` are the
- *     intent for the next commit; the caller projects them into a
- *     visual landing slot via `computeDropTargetGap`.
+ *     intent for the next commit; the caller projects them into the
+ *     post-commit list via `projectedTargetIndex`.
  *   - `dragState.renderedColumns` — snapshotted at drag-start from the
  *     grid container's computed `grid-template-columns`. Lets the
- *     indicator math collapse cleanly under the `grid-cols-1` mobile
- *     layout without a parallel code path.
+ *     view clamp the dragged widget's effective column span under
+ *     the `grid-cols-1` mobile layout without a parallel code path.
  *
  * Hit-testing (unchanged from the pre-2026-06 engine):
  *   - Every sortable item's rect is frozen at drag start and reused
@@ -84,10 +87,9 @@ export interface DragState {
   /** True = insert before `hoverIndex`, false = insert after. */
   dropBefore: boolean
   /** Snapshot of the grid container's rendered column count at
-   *  drag-start. Used by `computeDropTargetGap` to clamp the
-   *  dragged widget's effective span — at xl+ this is typically
-   *  3; below xl the grid collapses to 1 and the math degrades
-   *  cleanly to a single-column list. */
+   *  drag-start. Lets the view clamp the dragged widget's effective
+   *  span. At xl+ this is typically 3; below xl the grid collapses
+   *  to 1 and the math degrades cleanly to a single-column list. */
   renderedColumns: number
 }
 
@@ -180,6 +182,21 @@ export function usePointerSortable(options: PointerSortableOptions) {
       if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
         return fr
       }
+    }
+    // Trailing empty cells in a partly-filled row have no widget rect.
+    // On multi-column layouts, target the rightmost widget on the
+    // cursor's Y row so `applyTarget` projects an insert-after slot.
+    // Without this, dropping into a row's empty trailing columns is
+    // impossible (e.g. two 1x1 widgets in a 3-col row leave col 3
+    // unreachable).
+    if (multiColumnLayout) {
+      let chosen: FrozenRect | null = null
+      for (const fr of frozenRects) {
+        if (fr.index === dragState.sourceIndex) continue
+        if (y < fr.rect.top || y > fr.rect.bottom) continue
+        if (!chosen || fr.rect.right > chosen.rect.right) chosen = fr
+      }
+      if (chosen) return chosen
     }
     return null
   }
@@ -387,97 +404,75 @@ export function usePointerSortable(options: PointerSortableOptions) {
 }
 
 // ---------------------------------------------------------------------------
-// Projected-drop-position helper
+// Projection helper
 // ---------------------------------------------------------------------------
 
 /** Minimum shape the projection helper needs from each visible
- *  entry: a stable original index (so it can compare against
- *  `dragState.sourceIndex` / `hoverIndex`) and the entry's column
- *  span in the flow grid. */
+ *  entry: a stable original index (so the caller can compare it
+ *  against `dragState.sourceIndex` / `hoverIndex`) and the entry's
+ *  column span in the flow grid. */
 export interface ProjectableEntry {
   originalIndex: number
   colSpan: number
 }
 
-/** The visual landing slot the drop indicator renders.
- *
- *   - `columnStart` is 1-based, matching CSS grid line numbers, so
- *     the caller can compose it into a `grid-column-start` style or
- *     use it to compute a pixel x-offset against the grid's
- *     bounding rect.
- *   - `rowIndex` is 0-based and counted in flow rows (each row
- *     fits up to `renderedColumns` cells of total span).
- *   - `colSpan` is the dragged entry's clamped effective span,
- *     `min(storedColSpan, renderedColumns)`.
- *
- *   The caller turns this into an absolute pixel position by
- *   measuring the grid container and reading the gap from
- *   `getComputedStyle`.
- */
-export interface DropTargetGap {
-  columnStart: number
-  rowIndex: number
-  colSpan: number
+/** A (row, col) cell in the flow grid, both 0-based. */
+export interface FlowCell {
+  row: number
+  col: number
 }
 
 /**
- * Project the post-drop layout to figure out where the dragged
- * widget will visually land. Performs the same array splice the
- * Pinia store's `move(from, to)` will run on commit, then assigns
- * columns in a single linear pass.
+ * Walk an entry list in column-flow order and assign each entry a
+ * (row, col) cell, mirroring CSS grid `auto-flow` placement. Returns
+ * a map keyed by `originalIndex`.
  *
- * Returns `null` when no meaningful projection exists (no drag in
- * progress, source not in visible entries, source === hover, or
- * `renderedColumns < 1`).
- *
- * The function is pure so the caller can drive it from a Vue
- * `computed()` and React to changes in any of the inputs cheaply.
+ * Pure: the caller drives it from a Vue `computed()` for both the
+ * original and projected lists, then differences the two to get a
+ * per-widget pixel displacement.
  */
-export function computeDropTargetGap(
+export function walkFlow(
+  entries: readonly ProjectableEntry[],
+  cols: number,
+): Map<number, FlowCell> {
+  const out = new Map<number, FlowCell>()
+  if (cols < 1) return out
+  let col = 0
+  let row = 0
+  for (const e of entries) {
+    const span = Math.max(1, Math.min(e.colSpan, cols))
+    if (col + span > cols) {
+      col = 0
+      row += 1
+    }
+    out.set(e.originalIndex, { row, col })
+    col += span
+    if (col >= cols) {
+      col = 0
+      row += 1
+    }
+  }
+  return out
+}
+
+/**
+ * The index in the source-removed list where the source will land
+ * on commit. Splice the source out at `srcVIdx`, then splice it back
+ * in at the returned index to produce the projected list. Returns
+ * `null` for no-op snap zones (source ends up where it started).
+ */
+export function projectedTargetIndex(
   visibleEntries: readonly ProjectableEntry[],
   sourceIndex: number,
   hoverIndex: number,
   dropBefore: boolean,
-  renderedColumns: number,
-): DropTargetGap | null {
-  if (sourceIndex < 0 || hoverIndex < 0) return null
-  if (renderedColumns < 1) return null
-
+): number | null {
+  if (sourceIndex < 0 || hoverIndex < 0 || sourceIndex === hoverIndex) return null
   const srcVIdx = visibleEntries.findIndex((e) => e.originalIndex === sourceIndex)
   const hvrVIdx = visibleEntries.findIndex((e) => e.originalIndex === hoverIndex)
-  if (srcVIdx === -1 || hvrVIdx === -1 || srcVIdx === hvrVIdx) return null
-
-  // The splice the store will run on commit.
-  const projected = visibleEntries.slice()
-  const [moved] = projected.splice(srcVIdx, 1)
+  if (srcVIdx === -1 || hvrVIdx === -1) return null
   let to = dropBefore ? hvrVIdx : hvrVIdx + 1
   if (srcVIdx < hvrVIdx) to -= 1
-  projected.splice(to, 0, moved)
-
-  const effectiveSpan = Math.max(1, Math.min(moved.colSpan, renderedColumns))
-
-  // Single linear pass assigning column positions in the flow grid.
-  // When the next entry won't fit on the current row it wraps to the
-  // next row's leading edge, mirroring CSS grid's auto-flow behaviour.
-  let columnStart = 1
-  let rowIndex = 0
-  for (let i = 0; i < projected.length; i++) {
-    const entry = projected[i]
-    const span = Math.max(1, Math.min(entry.colSpan, renderedColumns))
-    if (columnStart + span - 1 > renderedColumns) {
-      // Wrap to the next row's leading edge before placing this entry.
-      columnStart = 1
-      rowIndex += 1
-    }
-    if (i === to) {
-      // The dragged widget. Indicator landing slot found.
-      return { columnStart, rowIndex, colSpan: effectiveSpan }
-    }
-    columnStart += span
-    if (columnStart > renderedColumns) {
-      columnStart = 1
-      rowIndex += 1
-    }
-  }
-  return null
+  if (to === srcVIdx) return null
+  return to
 }
