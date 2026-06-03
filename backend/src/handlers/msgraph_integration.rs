@@ -3859,10 +3859,35 @@ async fn sync_group_membership(
     graph_group_id: &str,
     local_group_id: i32,
 ) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::{with_retry, RetryConfig};
     use std::collections::HashSet;
+    use tokio_util::sync::CancellationToken;
 
-    // Fetch current members from Microsoft Graph
-    let graph_members = fetch_group_members(client, access_token, graph_group_id).await?;
+    // Fetch current members from Microsoft Graph, with retry on
+    // transient HTTP failures. fetch_group_members's status
+    // decomposition already classifies 429 / 5xx as HttpTransient
+    // and 4xx as HttpPermanent, so the executor's classify-driven
+    // retry policy does the right thing: pagination retries the
+    // failing page (idempotent since each page request is independent
+    // of the others' completion state), permanent failures bail out
+    // immediately.
+    //
+    // Cancellation: a CancellationToken is required by the executor
+    // signature. The scheduler's own shutdown token isn't currently
+    // threaded into the sync flow (SYNC_CANCELLATION static + the
+    // scheduler's shutdown live in separate registries today); a
+    // follow-up will wire them together via a child token spawned
+    // at the entry of `perform_sync`. Until then we pass a fresh
+    // token that never fires — the inner sleeps are bounded by
+    // RetryConfig::max_backoff so the retry chain can't outlive the
+    // scheduler's 30-min tick.
+    let cancel = CancellationToken::new();
+    let retry_config = RetryConfig::default();
+    let graph_members = with_retry("groups.members", retry_config, &cancel, || async {
+        fetch_group_members(client, access_token, graph_group_id).await
+    })
+    .await
+    .map_err(|f| f.error)?;
 
     // Filter to only user members (not devices or nested groups)
     let user_members: Vec<_> = graph_members.iter().filter(|m| m.is_user()).collect();
@@ -4034,10 +4059,21 @@ async fn sync_device_group_membership(
     graph_group_id: &str,
     local_group_id: i32,
 ) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::{with_retry, RetryConfig};
     use std::collections::HashSet;
+    use tokio_util::sync::CancellationToken;
 
-    // Fetch current members from Microsoft Graph
-    let graph_members = fetch_group_members(client, access_token, graph_group_id).await?;
+    // Retry on transient HTTP failures — see the analogous comment
+    // in sync_group_membership for the cancellation gap.
+    let cancel = CancellationToken::new();
+    let graph_members = with_retry(
+        "groups.device_members",
+        RetryConfig::default(),
+        &cancel,
+        || async { fetch_group_members(client, access_token, graph_group_id).await },
+    )
+    .await
+    .map_err(|f| f.error)?;
 
     debug!(
         group_id = graph_group_id,
