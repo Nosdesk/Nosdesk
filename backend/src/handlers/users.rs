@@ -679,16 +679,34 @@ pub async fn create_user(
             .with_microsoft_uuid(user_data.microsoft_uuid)
             .build_with_email();
 
-    // Email starts as unverified - will be verified when user accepts invitation or verifies email
-    match repository::user_helpers::create_user_with_email(
-        new_user,
-        role,
-        email.clone(),
-        false,
-        Some("manual".to_string()),
+    // `create_user_with_email` writes the audited `users` table and
+    // emits a sync event, so it needs `app.workspace_id` pinned for the
+    // NDX01 trigger to accept the write. Wrap just this call in actor
+    // context rather than migrating the whole handler to TenantConn:
+    // the surrounding flow includes an async invitation send that holds
+    // the connection across an `.await` (which TenantConn's sync `run`
+    // closure can't express), and every other op here touches
+    // non-audited platform tables (user_auth_identities, reset_tokens).
+    //
+    // Email starts as unverified - will be verified when the user
+    // accepts the invitation or verifies the email.
+    let create_actor = helpers::actor_for(&req, "create_user");
+    let create_result = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
         &mut conn,
-        Some(search_service.get_ref()),
-    ) {
+        &create_actor,
+        |c| {
+            repository::user_helpers::create_user_with_email(
+                new_user,
+                role,
+                email.clone(),
+                false,
+                Some("manual".to_string()),
+                c,
+                Some(search_service.get_ref()),
+            )
+        },
+    );
+    match create_result {
         Ok((user, _email_entry)) => {
             use crate::models::NewUserAuthIdentity;
             use bcrypt::hash;
