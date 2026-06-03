@@ -1,5 +1,4 @@
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
-use diesel::Connection;
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
@@ -7,7 +6,6 @@ use crate::handlers::errors;
 use crate::models::{Claims, User};
 use crate::repository;
 use crate::sync::actor::ActorContext;
-use crate::sync::session;
 use crate::utils;
 
 /// Default page size for list endpoints when the caller doesn't
@@ -128,23 +126,4 @@ pub fn actor_for(req: &HttpRequest, system_ref: &'static str) -> ActorContext {
         actor = actor.with_workspace(ws);
     }
     actor
-}
-
-/// Run a repository write inside a transaction with the actor GUCs
-/// set, so any `sync_actions` rows the repo emits carry the right
-/// actor_uuid / actor_kind / correlation_id.
-///
-/// The repo function's own internal `conn.transaction(...)` becomes
-/// a savepoint that inherits the GUCs — Postgres `SET LOCAL` (and
-/// the `set_config(..., true)` it's implemented with) propagate down
-/// into nested subtransactions.
-pub fn with_actor<T>(
-    conn: &mut DbConnection,
-    actor: &ActorContext,
-    f: impl FnOnce(&mut DbConnection) -> diesel::QueryResult<T>,
-) -> diesel::QueryResult<T> {
-    conn.transaction(|conn| {
-        session::set_actor(conn, actor)?;
-        f(conn)
-    })
 }
