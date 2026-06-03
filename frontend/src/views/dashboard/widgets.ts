@@ -114,8 +114,7 @@ export interface WidgetDef {
    * widget needs no chrome state.
    *
    *   - `time-range`     reads `useTimeRange` (charts, KPI tiles)
-   *   - `compare`        renders compare-to-prior overlay
-   *   - `annotations`    consumes audit-log annotation overlay
+   *   - `compare`        renders compare-to-prior overlay / KPI delta
    */
   chromeDependencies?: readonly ChromeDependency[]
   /**
@@ -132,7 +131,7 @@ export interface WidgetDef {
 }
 
 /** Page-chrome elements that widgets may depend on. */
-export type ChromeDependency = 'time-range' | 'compare' | 'annotations'
+export type ChromeDependency = 'time-range' | 'compare'
 
 /** Stat group keys the backend recognises in `?include=...`. Keep in
  *  sync with `StatsGroup` in `backend/src/repository/dashboard_stats.rs`. */
@@ -194,7 +193,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     props: { measure: 'count', timeField: 'created_at' },
     span: 2,
     roles: ['technician', 'admin'],
-    chromeDependencies: ['time-range', 'compare', 'annotations'],
+    chromeDependencies: ['time-range', 'compare'],
     frameWraps: true,
   },
   {

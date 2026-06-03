@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from 'vue'
+import { computed, onMounted, provide, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -14,8 +14,6 @@ import DashboardGrid from './dashboard/DashboardGrid.vue'
 import DashboardEditBar from './dashboard/DashboardEditBar.vue'
 import TimeRangeChipCluster from './dashboard/chrome/TimeRangeChipCluster.vue'
 import CompareToggle from './dashboard/chrome/CompareToggle.vue'
-import AnnotationsToggle from './dashboard/chrome/AnnotationsToggle.vue'
-import RefreshButton from './dashboard/chrome/RefreshButton.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useDashboardKeybindings } from '@/composables/useDashboardKeybindings'
 import { widgetById, type ChromeDependency } from './dashboard/widgets'
@@ -31,21 +29,12 @@ const fluent = useFluent()
 const dashboardStats = useDashboardStats()
 provide(DASHBOARD_STATS_KEY, dashboardStats)
 
-// Refresh timestamp: when the page last successfully re-fetched
-// its non-SSE data. Updates when the user clicks the refresh
-// button or presses R (registered by useDashboardKeybindings in
-// Wave 6+). Wave 1 stamps it on mount and on click; Wave 6 wires
-// up the per-widget refresh-on-event handling.
-const refreshedAt = ref<string | null>(null)
+// Manual re-fetch, bound to the R keybinding. The regular widgets
+// re-fetch via useDashboardStats; chart-backed widgets refetch their
+// own queries. (Pinia Colada already does cache-first SWR, so this is
+// just an explicit "refresh now" for the impatient.)
 function refreshPage(): void {
-  // Wave 1: the regular dashboard widgets re-fetch via
-  // useDashboardStats; bump the underlying query's refetch and
-  // stamp the timestamp so the RefreshButton's "Updated X ago"
-  // resets. Wave 4+ widgets that subscribe to chart endpoints
-  // each register their own refetch handler against this same
-  // event in later waves.
   dashboardStats.refetch?.()
-  refreshedAt.value = new Date().toISOString()
 }
 
 // First name only; the greeting template substitutes `{0}`.
@@ -137,10 +126,10 @@ useDashboardKeybindings({
   <div class="flex flex-col h-full">
     <div class="flex flex-col gap-3 p-4 sm:px-6 min-w-0">
       <!-- Chrome row: greeting (left), conditional time-range +
-           compare + annotations + refresh + Edit (right). Each
-           chrome element renders only when at least one visible
-           widget on the active layout declares the matching
-           dependency, so an empty canvas yields a clean header. -->
+           compare + Edit (right). The time-range and compare controls
+           render only when at least one visible widget on the active
+           layout declares the matching dependency, so an empty canvas
+           yields a clean header. -->
       <header class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div class="min-w-0 flex-1">
           <!-- h1-dashboard: 18px / 700 / -0.022em. Deliberately
@@ -157,11 +146,6 @@ useDashboardKeybindings({
         <div class="flex flex-wrap items-center gap-2">
           <TimeRangeChipCluster v-if="activeChromeDeps.has('time-range')" />
           <CompareToggle v-if="activeChromeDeps.has('compare')" />
-          <AnnotationsToggle v-if="activeChromeDeps.has('annotations')" />
-          <RefreshButton
-            :updated-at="refreshedAt"
-            @refresh="refreshPage"
-          />
           <button
             v-if="!dashboardLayout.editMode"
             type="button"

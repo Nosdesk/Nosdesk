@@ -30,9 +30,8 @@ export interface DashboardStatsHandle {
   isRefreshing: ComputedRef<boolean>
   isError: ComputedRef<boolean>
   /** Force a refetch. Used by the dashboard's R-key refresh
-   *  affordance (RefreshButton in the chrome row); returns the
-   *  same shape Pinia Colada's `query.refetch()` returns so
-   *  callers can await it if they need to. */
+   *  shortcut; returns the same shape Pinia Colada's
+   *  `query.refetch()` returns so callers can await it if needed. */
   refetch: () => Promise<unknown>
 }
 

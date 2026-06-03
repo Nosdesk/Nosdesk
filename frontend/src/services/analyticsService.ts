@@ -132,29 +132,4 @@ export const analyticsService = {
     const { data } = await apiClient.get<LeaderboardResult>('/dashboard/leaderboard', { params })
     return data
   },
-  async auditAnnotations(params: AnnotationParams): Promise<AnnotationResult> {
-    const { data } = await apiClient.get<AnnotationResult>('/dashboard/audit-annotations', { params })
-    return data
-  },
-}
-
-export type AnnotationKind = 'rules' | 'sla_policies' | 'working_calendars'
-
-export interface AnnotationMarker {
-  occurred_at: string
-  table_name: string
-  pk_text: string
-  actor_uuid: string | null
-}
-
-export interface AnnotationResult {
-  markers: AnnotationMarker[]
-}
-
-export interface AnnotationParams {
-  from: string
-  to: string
-  /** Comma-separated subset of AnnotationKind. Omit / empty for
-   *  all kinds. */
-  kinds?: string
 }
