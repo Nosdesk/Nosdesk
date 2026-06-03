@@ -156,7 +156,16 @@ where
     match &result {
         Ok(()) => debug!(task = name, elapsed_ms = %elapsed.as_millis(), "scheduler: ok"),
         Err(e) => {
-            error!(task = name, error = ?e, elapsed_ms = %elapsed.as_millis(), "scheduler: failed; retrying next tick")
+            // Display (`%e`), not Debug (`?e`). anyhow's Debug walks
+            // the full source chain AND prints the captured backtrace,
+            // which lit up the scheduler logs with 60-frame stack
+            // traces for what was usually a one-line operational
+            // failure ("sync completed with errors", "db pool
+            // exhausted"). Display gives the message + source chain
+            // without the backtrace; if an operator wants the full
+            // chain they can re-run with RUST_LOG=debug or inspect
+            // the status registry's last_error field.
+            error!(task = name, error = %e, elapsed_ms = %elapsed.as_millis(), "scheduler: failed; retrying next tick")
         }
     }
     record(statuses, name, elapsed, result.as_ref().err());

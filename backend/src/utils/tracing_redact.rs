@@ -87,6 +87,8 @@ const ALLOWED_FIELDS: &[&str] = &[
     // bounded enums + operational dimensions. No free text.
     "aggregate",
     "category",
+    "classification",
+    "entity",
     "event_type",
     "kind",
     "op",
@@ -94,14 +96,23 @@ const ALLOWED_FIELDS: &[&str] = &[
     "recurrence",
     "role",
     "status",
+    // External (third-party-provider) stable identifiers. Like the
+    // intra-tenant uuids above, these are stable IDs assigned by
+    // the upstream system (MS Graph, etc.), not user-typed content.
+    "external_id",
     // counts, timings, structured outcomes. Cardinality is bounded;
     // values cannot leak user content.
+    "attempt",
+    "cancelled",
     "code",
     "count",
     "elapsed_ms",
     "error",
     "error_kind",
+    "failed",
+    "processed",
     "stamped",
+    "total",
     // HTTP / operational context for tracing-actix-web compatibility.
     "latency_ms",
     "method",

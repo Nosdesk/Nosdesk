@@ -389,7 +389,12 @@ impl GroupSyncConfig {
     }
 }
 
-// Group sync statistics
+// Group sync statistics. `errors` is the legacy string-typed channel
+// the admin UI's existing JSON consumer reads; `failures` is the new
+// typed channel — same data, classifier-routed, used by the
+// scheduler's structured tracing and by the typed
+// SyncOutcome -> SyncResult projection. New code should push through
+// `record_failure(&mut self, ...)` so both stay in lockstep.
 #[derive(Serialize, Debug, Default)]
 pub struct GroupSyncStats {
     pub groups_created: usize,
@@ -397,6 +402,8 @@ pub struct GroupSyncStats {
     pub user_membership_changes: usize,
     pub device_membership_changes: usize,
     pub errors: Vec<String>,
+    #[serde(skip)]
+    pub failures: Vec<crate::services::msgraph::ItemFailure>,
 }
 
 // User sync statistics
@@ -406,6 +413,8 @@ pub struct UserSyncStats {
     pub existing_users_updated: usize,
     pub identities_linked: usize,
     pub errors: Vec<String>,
+    #[serde(skip)]
+    pub failures: Vec<crate::services::msgraph::ItemFailure>,
 }
 
 // Asset sync statistics
@@ -415,6 +424,70 @@ pub struct DeviceSyncStats {
     pub existing_devices_updated: usize,
     pub devices_assigned: usize,
     pub errors: Vec<String>,
+    #[serde(skip)]
+    pub failures: Vec<crate::services::msgraph::ItemFailure>,
+}
+
+/// Shared "push a failure into a sync-stats struct" surface. The
+/// three stats structs are nominally distinct (different counter
+/// fields per entity) but they all carry the same dual error
+/// channel — legacy `errors: Vec<String>` for the admin UI's JSON
+/// consumer, typed `failures: Vec<ItemFailure>` for the scheduler /
+/// structured tracing / SyncOutcome projection. The trait keeps
+/// the dual write in lockstep so a future PR can't silently break
+/// one of the two.
+trait SyncStatsExt {
+    fn errors_mut(&mut self) -> &mut Vec<String>;
+    fn failures_mut(&mut self) -> &mut Vec<crate::services::msgraph::ItemFailure>;
+
+    /// Push a typed failure. Emits the structured warn (entity,
+    /// external_id, error_kind, classification, attempt) via the
+    /// pipeline helper, mirrors a classifier-only line into the
+    /// legacy string channel for the admin UI, and stores the
+    /// typed record for the outcome aggregate.
+    fn record_failure(
+        &mut self,
+        entity: crate::services::msgraph::EntityKind,
+        external_id: &str,
+        error: crate::services::msgraph::MsGraphSyncError,
+        attempt: u32,
+    ) {
+        // Classifier-only string: error's Display contract excludes
+        // user-typed content (name, email, ticket title), so this
+        // legacy line is safe to surface in the admin UI without
+        // re-leaking PII the typed channel already filters out.
+        let legacy_line = format!("{} {}: {}", entity.as_str(), external_id, error);
+        let failure = crate::services::msgraph::record_failure(entity, external_id, error, attempt);
+        self.errors_mut().push(legacy_line);
+        self.failures_mut().push(failure);
+    }
+}
+
+impl SyncStatsExt for UserSyncStats {
+    fn errors_mut(&mut self) -> &mut Vec<String> {
+        &mut self.errors
+    }
+    fn failures_mut(&mut self) -> &mut Vec<crate::services::msgraph::ItemFailure> {
+        &mut self.failures
+    }
+}
+
+impl SyncStatsExt for DeviceSyncStats {
+    fn errors_mut(&mut self) -> &mut Vec<String> {
+        &mut self.errors
+    }
+    fn failures_mut(&mut self) -> &mut Vec<crate::services::msgraph::ItemFailure> {
+        &mut self.failures
+    }
+}
+
+impl SyncStatsExt for GroupSyncStats {
+    fn errors_mut(&mut self) -> &mut Vec<String> {
+        &mut self.errors
+    }
+    fn failures_mut(&mut self) -> &mut Vec<crate::services::msgraph::ItemFailure> {
+        &mut self.failures
+    }
 }
 
 /// Parameters for updating sync progress
@@ -1279,13 +1352,32 @@ pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<
         session_id: session_id.clone(),
     };
 
+    // Job-level Result answers "did the sync run?" not "were all
+    // items perfect?". Partial item failures are a normal operating
+    // state for a delta sync (a single user with a malformed email,
+    // a transient HTTP blip, etc.) — they get logged at the failure
+    // site with structured fields and don't bubble up here, because
+    // the alternative is `anyhow::anyhow!(...)` which captures a
+    // backtrace and dumps a 60-frame stack trace into the scheduler
+    // log for what's effectively normal noise.
+    //
+    // Only "couldn't even start" failures (token fetch error, DB
+    // unreachable, internal sync-machinery bug) return Err. Those
+    // are real operator-attention events the scheduler's status
+    // registry should reflect as a failed run.
     match perform_sync(&mut conn, provider.id, &entities, &session_id, true).await {
-        Ok(result) if result.success => Ok(()),
-        Ok(result) => Err(anyhow::anyhow!(
-            "sync completed with errors: {}",
-            result.message
-        )),
-        Err(e) => Err(anyhow::anyhow!("sync failed: {e}")),
+        Ok(result) => {
+            if result.total_errors > 0 {
+                tracing::warn!(
+                    provider_id = provider.id,
+                    processed = result.total_processed,
+                    failed = result.total_errors,
+                    "msgraph scheduled sync completed with partial item failures"
+                );
+            }
+            Ok(())
+        }
+        Err(e) => Err(anyhow::anyhow!("msgraph sync machinery failed: {e}")),
     }
 }
 
@@ -1517,6 +1609,7 @@ async fn sync_users(
         existing_users_updated: 0,
         identities_linked: 0,
         errors: Vec::new(),
+        failures: Vec::new(),
     };
 
     let sync_mode_msg = if use_delta { "delta" } else { "full" };
@@ -1807,12 +1900,12 @@ async fn sync_users(
                         );
                     }
                     Err(error) => {
-                        let error_msg = format!(
-                            "Failed to process user {}: {}",
-                            ms_user.user_principal_name, error
+                        stats.record_failure(
+                            crate::services::msgraph::EntityKind::Users,
+                            &ms_user.id,
+                            error.into(),
+                            1,
                         );
-                        warn!("{}", error_msg);
-                        stats.errors.push(error_msg);
                     }
                 }
             } else {
@@ -1834,12 +1927,12 @@ async fn sync_users(
                         );
                     }
                     Err(error) => {
-                        let error_msg = format!(
-                            "Failed to process user {}: {}",
-                            ms_user.user_principal_name, error
+                        stats.record_failure(
+                            crate::services::msgraph::EntityKind::Users,
+                            &ms_user.id,
+                            error.into(),
+                            1,
                         );
-                        warn!("{}", error_msg);
-                        stats.errors.push(error_msg);
                     }
                 }
             }
@@ -2304,7 +2397,7 @@ async fn process_microsoft_user_optimized_v2(
     stats: &mut UserSyncStats,
     access_token: &str,
     client: &reqwest::Client,
-) -> Result<(), String> {
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
     // Step 1: Check if this Microsoft user already has an identity in our system
     if let Ok(existing_identity) = find_identity_by_provider_user_id(conn, provider_id, &ms_user.id)
     {
@@ -2389,16 +2482,16 @@ async fn update_existing_microsoft_user_optimized(
     stats: &mut UserSyncStats,
     access_token: &str,
     client: &reqwest::Client,
-) -> Result<(), String> {
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::MsGraphSyncError;
+
     // User info is in the span context
 
-    // Get the associated user
-    let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn).map_err(|e| {
-        format!(
-            "Failed to get user by UUID {}: {}",
-            existing_identity.user_uuid, e
-        )
-    })?;
+    // Get the associated user. diesel::Error has a typed From impl
+    // that routes NotFound / unique-violation / FK-violation through
+    // DbConflict and infra errors through DbInfra; `?` does the
+    // right classification without an intermediate format!.
+    let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)?;
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -2422,16 +2515,18 @@ async fn update_existing_microsoft_user_optimized(
         avatar_url: None,   // Preserve avatar
         banner_url: None,   // Preserve banner
         avatar_thumb: None, // Preserve avatar thumb
-        microsoft_uuid: Some(
-            utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?,
-        ), // Always update Microsoft UUID with proper conversion
+        microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| {
+            MsGraphSyncError::Mapping {
+                hint: "invalid Microsoft UUID format",
+                source: None,
+            }
+        })?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
     // Update user if there are changes
     if user_update.name.is_some() || user_update.microsoft_uuid.is_some() {
-        user_repo::update_user(&user.uuid, user_update, conn, None)
-            .map_err(|e| format!("Failed to update user: {e}"))?;
+        user_repo::update_user(&user.uuid, user_update, conn, None)?;
         debug!(user_name = %user.name, "Updated user information");
     }
 
@@ -2484,26 +2579,25 @@ async fn update_existing_microsoft_user_optimized(
                 }
             }
             Err(e) => {
-                error!(
-                    "Failed to store email addresses for user {}: {}",
-                    user.name, e
+                stats.record_failure(
+                    crate::services::msgraph::EntityKind::Users,
+                    &ms_user.id,
+                    e.into(),
+                    1,
                 );
-                stats.errors.push(format!(
-                    "Failed to store emails for user {}: {}",
-                    user.name, e
-                ));
             }
         }
     } else {
         trace!("No email addresses to store for user: {}", user.name);
     }
 
-    // Update identity data with latest from Microsoft Graph
-    let identity_data = serde_json::to_value(ms_user)
-        .map_err(|e| format!("Failed to serialize Microsoft user data: {e}"))?;
-
-    update_identity_data(conn, existing_identity.id, Some(identity_data))
-        .map_err(|e| format!("Failed to update identity data: {e}"))?;
+    // Update identity data with latest from Microsoft Graph. The
+    // From impls on MsGraphSyncError route serde_json::Error to
+    // Parse (Permanent) and diesel::Error to DbConflict / DbInfra
+    // so `?` carries the classification through without an
+    // intermediate `format!`.
+    let identity_data = serde_json::to_value(ms_user)?;
+    update_identity_data(conn, existing_identity.id, Some(identity_data))?;
 
     // Sync profile photo using optimized client
     if let Ok(photo_urls) = sync_user_profile_photo(
@@ -2540,12 +2634,14 @@ async fn link_existing_user_to_microsoft_optimized(
     stats: &mut UserSyncStats,
     access_token: &str,
     client: &reqwest::Client,
-) -> Result<(), String> {
-    // Linking info is in the span context
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::MsGraphSyncError;
 
-    // Create Microsoft identity for existing user
-    let identity_data = serde_json::to_value(ms_user)
-        .map_err(|e| format!("Failed to serialize Microsoft user data: {e}"))?;
+    // Create Microsoft identity for existing user. The typed From
+    // impls on serde_json::Error and diesel::result::Error mean
+    // these `?` calls classify themselves at the source — no
+    // intermediate `format!` stringification.
+    let identity_data = serde_json::to_value(ms_user)?;
 
     let new_identity = NewUserAuthIdentity {
         user_uuid: existing_user.uuid,
@@ -2556,8 +2652,7 @@ async fn link_existing_user_to_microsoft_optimized(
         password_hash: None,
     };
 
-    identity_repo::create_identity(new_identity, conn)
-        .map_err(|e| format!("Failed to create Microsoft identity: {e}"))?;
+    identity_repo::create_identity(new_identity, conn)?;
 
     // Extract all email addresses from Microsoft Graph
     let emails = extract_user_emails(ms_user);
@@ -2579,15 +2674,17 @@ async fn link_existing_user_to_microsoft_optimized(
         avatar_url: None,
         banner_url: None,
         avatar_thumb: None,
-        microsoft_uuid: Some(
-            utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?,
-        ), // Store Microsoft UUID with proper conversion
+        microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| {
+            MsGraphSyncError::Mapping {
+                hint: "invalid Microsoft UUID format",
+                source: None,
+            }
+        })?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
     // Always update to store the Microsoft UUID
-    user_repo::update_user(&existing_user.uuid, user_update, conn, None)
-        .map_err(|e| format!("Failed to update user with Microsoft UUID: {e}"))?;
+    user_repo::update_user(&existing_user.uuid, user_update, conn, None)?;
 
     // Store all email addresses
     let email_data: Vec<(String, String, bool, String)> = emails
@@ -2611,14 +2708,12 @@ async fn link_existing_user_to_microsoft_optimized(
                 );
             }
             Err(e) => {
-                error!(
-                    "Failed to store email addresses for linked user {}: {}",
-                    existing_user.name, e
+                stats.record_failure(
+                    crate::services::msgraph::EntityKind::Users,
+                    &ms_user.id,
+                    e.into(),
+                    1,
                 );
-                stats.errors.push(format!(
-                    "Failed to store emails for linked user {}: {}",
-                    existing_user.name, e
-                ));
             }
         }
     } else {
@@ -2665,8 +2760,8 @@ async fn create_new_user_from_microsoft_optimized(
     stats: &mut UserSyncStats,
     access_token: &str,
     client: &reqwest::Client,
-) -> Result<(), String> {
-    // User info is in the span context
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::MsGraphSyncError;
 
     // Generate UUID for new user (this is our local UUID, different from Microsoft's)
     let _user_uuid = Uuid::now_v7().to_string();
@@ -2692,9 +2787,13 @@ async fn create_new_user_from_microsoft_optimized(
 
     // Create new user with default role 'user' and store Microsoft UUID
     let user_uuid = Uuid::now_v7();
-    // Create Microsoft user with UUID
     let microsoft_uuid =
-        Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?);
+        Some(
+            utils::parse_uuid(&ms_user.id).map_err(|_| MsGraphSyncError::Mapping {
+                hint: "invalid Microsoft UUID format",
+                source: None,
+            })?,
+        );
     let new_user = utils::NewUserBuilder::microsoft_user(
         name.clone(),
         primary_email.clone(),
@@ -2705,8 +2804,11 @@ async fn create_new_user_from_microsoft_optimized(
     .build();
     let (new_user, _role) = new_user;
 
-    let created_user = user_repo::create_user(new_user, conn)
-        .map_err(|e| format!("Failed to create user: {e}"))?;
+    // diesel::result::Error has a typed From impl on
+    // MsGraphSyncError that routes unique-violation / FK to
+    // DbConflict and infrastructural failures to DbInfra; `?`
+    // classifies at the source.
+    let created_user = user_repo::create_user(new_user, conn)?;
 
     // Store all email addresses
     let email_data: Vec<(String, String, bool, String)> = emails
@@ -2721,31 +2823,22 @@ async fn create_new_user_from_microsoft_optimized(
             name
         );
 
-        match user_emails_repo::add_multiple_emails(conn, &created_user.uuid, email_data.clone()) {
-            Ok(stored_emails) => {
-                let added_count = stored_emails.len();
-                debug!(
-                    "Successfully stored {} email addresses for new user: {}",
-                    added_count, name
-                );
-            }
-            Err(e) => {
-                error!(
-                    "Failed to store email addresses for new user {}: {}",
-                    name, e
-                );
-                stats
-                    .errors
-                    .push(format!("Failed to store emails for new user {name}: {e}"));
-            }
+        if let Err(e) =
+            user_emails_repo::add_multiple_emails(conn, &created_user.uuid, email_data.clone())
+        {
+            stats.record_failure(
+                crate::services::msgraph::EntityKind::Users,
+                &ms_user.id,
+                e.into(),
+                1,
+            );
         }
     } else {
         trace!("No email addresses to store for new user: {}", name);
     }
 
     // Create Microsoft identity for the new user
-    let identity_data = serde_json::to_value(ms_user)
-        .map_err(|e| format!("Failed to serialize Microsoft user data: {e}"))?;
+    let identity_data = serde_json::to_value(ms_user)?;
 
     let new_identity = NewUserAuthIdentity {
         user_uuid: created_user.uuid,
@@ -2756,8 +2849,7 @@ async fn create_new_user_from_microsoft_optimized(
         password_hash: None,
     };
 
-    identity_repo::create_identity(new_identity, conn)
-        .map_err(|e| format!("Failed to create Microsoft identity: {e}"))?;
+    identity_repo::create_identity(new_identity, conn)?;
 
     // Sync profile photo using optimized client
     if let Ok(photo_urls) = sync_user_profile_photo(
@@ -2803,6 +2895,7 @@ async fn sync_devices(
         existing_devices_updated: 0,
         devices_assigned: 0,
         errors: Vec::new(),
+        failures: Vec::new(),
     };
 
     let sync_mode_msg = if use_delta { "delta" } else { "full" };
@@ -2972,9 +3065,12 @@ async fn sync_devices(
                 debug!(device_name = %device_name, "Successfully processed Entra device");
             }
             Err(error) => {
-                let error_msg = format!("Failed to process device {device_name}: {error}");
-                error!(device_name = %device_name, error = %error, "Failed to process Entra device");
-                stats.errors.push(error_msg);
+                stats.record_failure(
+                    crate::services::msgraph::EntityKind::Devices,
+                    &entra_device.id,
+                    error.into(),
+                    1,
+                );
             }
         }
 
@@ -3280,11 +3376,12 @@ async fn sync_groups(
                             }
                         }
                         Err(e) => {
-                            let error_msg = format!(
-                                "Failed to apply delta membership for group {group_name}: {e}"
+                            stats.record_failure(
+                                crate::services::msgraph::EntityKind::Groups,
+                                &ms_group.id,
+                                e.into(),
+                                1,
                             );
-                            warn!("{}", error_msg);
-                            stats.errors.push(error_msg);
                         }
                     }
                 } else {
@@ -3306,11 +3403,12 @@ async fn sync_groups(
                             }
                         }
                         Err(e) => {
-                            let error_msg = format!(
-                                "Failed to sync user membership for group {group_name}: {e}"
+                            stats.record_failure(
+                                crate::services::msgraph::EntityKind::Groups,
+                                &ms_group.id,
+                                e.into(),
+                                1,
                             );
-                            warn!("{}", error_msg);
-                            stats.errors.push(error_msg);
                         }
                     }
 
@@ -3331,19 +3429,23 @@ async fn sync_groups(
                             }
                         }
                         Err(e) => {
-                            let error_msg = format!(
-                                "Failed to sync device membership for group {group_name}: {e}"
+                            stats.record_failure(
+                                crate::services::msgraph::EntityKind::Groups,
+                                &ms_group.id,
+                                e.into(),
+                                1,
                             );
-                            warn!("{}", error_msg);
-                            stats.errors.push(error_msg);
                         }
                     }
                 }
             }
             Err(e) => {
-                let error_msg = format!("Failed to upsert group {group_name}: {e}");
-                error!(group_name = %group_name, error = %e, "Failed to upsert group");
-                stats.errors.push(error_msg);
+                stats.record_failure(
+                    crate::services::msgraph::EntityKind::Groups,
+                    &ms_group.id,
+                    e.into(),
+                    1,
+                );
             }
         }
 
@@ -3698,30 +3800,37 @@ async fn fetch_group_members(
     client: &reqwest::Client,
     access_token: &str,
     group_id: &str,
-) -> Result<Vec<MicrosoftGraphGroupMember>, String> {
+) -> Result<Vec<MicrosoftGraphGroupMember>, crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::MsGraphSyncError;
     let mut all_members: Vec<MicrosoftGraphGroupMember> = Vec::new();
     let mut next_link: Option<String> = Some(format!(
         "https://graph.microsoft.com/v1.0/groups/{group_id}/members?$select=id,displayName,userPrincipalName&$top=999"
     ));
 
     while let Some(url) = next_link {
-        let response = client
-            .get(&url)
-            .bearer_auth(access_token)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to fetch group members: {e}"))?;
+        // reqwest::Error -> MsGraphSyncError classifies the network
+        // failure kind (timeout / connect / tls / body) via the From
+        // impl; if the status reached the response, it routes to
+        // HttpTransient (429 / 5xx) or HttpPermanent (everything
+        // else) via the same impl.
+        let response = client.get(&url).bearer_auth(access_token).send().await?;
 
         if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(format!("Failed to fetch members ({status}): {error_text}"));
+            // Decompose into status + body. `from_status` does the
+            // transient/permanent split (429/5xx -> retryable,
+            // 4xx -> skip) so the retry executor can act on it.
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(MsGraphSyncError::from_status(
+                status,
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("graph members fetch body: {body}"),
+                ),
+            ));
         }
 
-        let data: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse members response: {e}"))?;
+        let data: serde_json::Value = response.json().await?;
 
         if let Some(members) = data["value"].as_array() {
             for member_value in members {
@@ -3749,25 +3858,49 @@ async fn sync_group_membership(
     access_token: &str,
     graph_group_id: &str,
     local_group_id: i32,
-) -> Result<usize, String> {
+) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::{with_retry, RetryConfig};
     use std::collections::HashSet;
+    use tokio_util::sync::CancellationToken;
 
-    // Fetch current members from Microsoft Graph
-    let graph_members = fetch_group_members(client, access_token, graph_group_id).await?;
+    // Fetch current members from Microsoft Graph, with retry on
+    // transient HTTP failures. fetch_group_members's status
+    // decomposition already classifies 429 / 5xx as HttpTransient
+    // and 4xx as HttpPermanent, so the executor's classify-driven
+    // retry policy does the right thing: pagination retries the
+    // failing page (idempotent since each page request is independent
+    // of the others' completion state), permanent failures bail out
+    // immediately.
+    //
+    // Cancellation: a CancellationToken is required by the executor
+    // signature. The scheduler's own shutdown token isn't currently
+    // threaded into the sync flow (SYNC_CANCELLATION static + the
+    // scheduler's shutdown live in separate registries today); a
+    // follow-up will wire them together via a child token spawned
+    // at the entry of `perform_sync`. Until then we pass a fresh
+    // token that never fires — the inner sleeps are bounded by
+    // RetryConfig::max_backoff so the retry chain can't outlive the
+    // scheduler's 30-min tick.
+    let cancel = CancellationToken::new();
+    let retry_config = RetryConfig::default();
+    let graph_members = with_retry("groups.members", retry_config, &cancel, || async {
+        fetch_group_members(client, access_token, graph_group_id).await
+    })
+    .await
+    .map_err(|f| f.error)?;
 
     // Filter to only user members (not devices or nested groups)
     let user_members: Vec<_> = graph_members.iter().filter(|m| m.is_user()).collect();
 
-    // Get current local membership
-    let current_local_members = groups_repo::get_member_uuids_for_group(conn, local_group_id)
-        .map_err(|e| format!("Failed to get local members: {e}"))?;
+    // Get current local membership. diesel error routes to DbConflict
+    // or DbInfra via the typed From impl.
+    let current_local_members = groups_repo::get_member_uuids_for_group(conn, local_group_id)?;
     let current_local_set: HashSet<_> = current_local_members.into_iter().collect();
 
     // Map Graph user IDs to local user UUIDs
     let graph_member_ids: Vec<&str> = user_members.iter().map(|m| m.id.as_str()).collect();
     let user_mappings =
-        identity_repo::get_user_uuids_by_external_ids(&graph_member_ids, "microsoft", conn)
-            .map_err(|e| format!("Failed to lookup users: {e}"))?;
+        identity_repo::get_user_uuids_by_external_ids(&graph_member_ids, "microsoft", conn)?;
 
     let new_member_uuids: HashSet<_> = user_mappings.into_iter().map(|(_, uuid)| uuid).collect();
 
@@ -3822,7 +3955,7 @@ async fn apply_delta_group_membership(
     local_group_id: i32,
     members_added: &[MicrosoftGraphGroupMember],
     members_removed: &[String],
-) -> Result<usize, String> {
+) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
     let mut changes = 0;
 
     // Process added members (users only for now)
@@ -3830,8 +3963,7 @@ async fn apply_delta_group_membership(
     if !user_members_added.is_empty() {
         let external_ids: Vec<&str> = user_members_added.iter().map(|m| m.id.as_str()).collect();
         let user_mappings =
-            identity_repo::get_user_uuids_by_external_ids(&external_ids, "microsoft", conn)
-                .map_err(|e| format!("Failed to lookup users for adding: {e}"))?;
+            identity_repo::get_user_uuids_by_external_ids(&external_ids, "microsoft", conn)?;
 
         for (external_id, user_uuid) in user_mappings {
             // Check if user is already a member
@@ -3855,8 +3987,7 @@ async fn apply_delta_group_membership(
     if !members_removed.is_empty() {
         let external_ids_refs: Vec<&str> = members_removed.iter().map(|s| s.as_str()).collect();
         let user_mappings =
-            identity_repo::get_user_uuids_by_external_ids(&external_ids_refs, "microsoft", conn)
-                .map_err(|e| format!("Failed to lookup users for removal: {e}"))?;
+            identity_repo::get_user_uuids_by_external_ids(&external_ids_refs, "microsoft", conn)?;
 
         for (external_id, user_uuid) in user_mappings {
             if let Err(e) = groups_repo::remove_user_from_group(conn, &user_uuid, local_group_id) {
@@ -3927,11 +4058,22 @@ async fn sync_device_group_membership(
     access_token: &str,
     graph_group_id: &str,
     local_group_id: i32,
-) -> Result<usize, String> {
+) -> Result<usize, crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::{with_retry, RetryConfig};
     use std::collections::HashSet;
+    use tokio_util::sync::CancellationToken;
 
-    // Fetch current members from Microsoft Graph
-    let graph_members = fetch_group_members(client, access_token, graph_group_id).await?;
+    // Retry on transient HTTP failures — see the analogous comment
+    // in sync_group_membership for the cancellation gap.
+    let cancel = CancellationToken::new();
+    let graph_members = with_retry(
+        "groups.device_members",
+        RetryConfig::default(),
+        &cancel,
+        || async { fetch_group_members(client, access_token, graph_group_id).await },
+    )
+    .await
+    .map_err(|f| f.error)?;
 
     debug!(
         group_id = graph_group_id,
@@ -3955,8 +4097,7 @@ async fn sync_device_group_membership(
 
     // Get current local device membership (only synced ones from Microsoft)
     let current_synced_devices =
-        groups_repo::get_synced_device_ids_for_group(conn, local_group_id, "microsoft")
-            .map_err(|e| format!("Failed to get local device members: {e}"))?;
+        groups_repo::get_synced_device_ids_for_group(conn, local_group_id, "microsoft")?;
     let current_local_set: HashSet<_> = current_synced_devices.into_iter().collect();
 
     // Map Graph device IDs (Entra Object IDs) to local device IDs
@@ -3968,8 +4109,7 @@ async fn sync_device_group_membership(
         "Looking up local devices by Entra IDs"
     );
 
-    let device_mappings = asset_repo::get_devices_by_entra_ids(conn, &graph_device_ids)
-        .map_err(|e| format!("Failed to lookup devices: {e}"))?;
+    let device_mappings = asset_repo::get_devices_by_entra_ids(conn, &graph_device_ids)?;
 
     debug!(
         group_id = graph_group_id,
@@ -4548,7 +4688,7 @@ async fn process_entra_device(
     _provider_id: i32,
     entra_device: &EntraDevice,
     stats: &mut DeviceSyncStats,
-) -> Result<(), String> {
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
     let device_name = entra_device
         .display_name
         .as_deref()
@@ -4674,8 +4814,8 @@ async fn process_entra_device(
             ..Default::default()
         };
 
-        asset_repo::update_device(conn, existing.id, device_update)
-            .map_err(|e| format!("Failed to update device: {e}"))?;
+        // diesel error classified at source by MsGraphSyncError::from.
+        asset_repo::update_device(conn, existing.id, device_update)?;
 
         debug!(device_name = %device_display_name, "Updated existing Entra device");
         stats.existing_devices_updated += 1;
@@ -4704,8 +4844,7 @@ async fn process_entra_device(
             low_stock_threshold: None,
         };
 
-        asset_repo::create_device(conn, new_device)
-            .map_err(|e| format!("Failed to create device: {e}"))?;
+        asset_repo::create_device(conn, new_device)?;
 
         info!(device_name = %device_display_name, "Created new Entra device");
         stats.new_devices_created += 1;
@@ -4951,7 +5090,7 @@ async fn process_microsoft_user_no_photos(
     provider_id: i32,
     ms_user: &MicrosoftGraphUser,
     stats: &mut UserSyncStats,
-) -> Result<(), String> {
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
     // Check if identity already exists
     match find_identity_by_provider_user_id(conn, provider_id, &ms_user.id) {
         Ok(existing_identity) => {
@@ -4963,7 +5102,6 @@ async fn process_microsoft_user_no_photos(
             let emails = extract_user_emails(ms_user);
 
             if let Some(existing_user) = find_existing_user_by_emails(conn, &emails) {
-                // Link existing user to Microsoft account without photos
                 link_existing_user_to_microsoft_no_photos(
                     conn,
                     provider_id,
@@ -4973,13 +5111,15 @@ async fn process_microsoft_user_no_photos(
                 )
                 .await
             } else {
-                // Create new user without photos
                 create_new_user_from_microsoft_no_photos(conn, provider_id, ms_user, stats).await
             }
         }
-        Err(e) => Err(format!(
-            "Database error checking for existing identity: {e}"
-        )),
+        // Any other diesel error here is an infrastructural failure
+        // — pool gone, server going away. The typed From impl routes
+        // it to DbInfra (Auth classification), which bubbles up and
+        // aborts the run rather than treating the misclassification
+        // as a per-item conflict.
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -5114,16 +5254,11 @@ async fn update_existing_microsoft_user_no_photos(
     ms_user: &MicrosoftGraphUser,
     existing_identity: UserAuthIdentity,
     stats: &mut UserSyncStats,
-) -> Result<(), String> {
-    // Get the associated user
-    let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn).map_err(|e| {
-        format!(
-            "Failed to get user by UUID {}: {}",
-            existing_identity.user_uuid, e
-        )
-    })?;
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::MsGraphSyncError;
 
-    // Extract emails and update user info
+    let user = user_repo::get_user_by_uuid(&existing_identity.user_uuid, conn)?;
+
     let emails = extract_user_emails(ms_user);
     let _primary_email = emails
         .first()
@@ -5132,7 +5267,6 @@ async fn update_existing_microsoft_user_no_photos(
 
     let updated_name = ms_user.display_name.as_ref().unwrap_or(&user.name);
 
-    // Update user if needed
     let user_update = crate::models::UserUpdate {
         name: if updated_name != &user.name {
             Some(updated_name.clone())
@@ -5144,18 +5278,19 @@ async fn update_existing_microsoft_user_no_photos(
         avatar_url: None,
         banner_url: None,
         avatar_thumb: None,
-        microsoft_uuid: Some(
-            utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?,
-        ),
+        microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| {
+            MsGraphSyncError::Mapping {
+                hint: "invalid Microsoft UUID format",
+                source: None,
+            }
+        })?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
     if user_update.name.is_some() || user_update.microsoft_uuid.is_some() {
-        user_repo::update_user(&user.uuid, user_update, conn, None)
-            .map_err(|e| format!("Failed to update user: {e}"))?;
+        user_repo::update_user(&user.uuid, user_update, conn, None)?;
     }
 
-    // Store emails if any
     if !emails.is_empty() {
         let email_data: Vec<(String, String, bool, String)> = emails
             .into_iter()
@@ -5167,12 +5302,8 @@ async fn update_existing_microsoft_user_no_photos(
         let _ = user_emails_repo::add_multiple_emails(conn, &user.uuid, email_data);
     }
 
-    // Update identity data
-    let identity_data = serde_json::to_value(ms_user)
-        .map_err(|e| format!("Failed to serialize Microsoft user data: {e}"))?;
-
-    update_identity_data(conn, existing_identity.id, Some(identity_data))
-        .map_err(|e| format!("Failed to update identity data: {e}"))?;
+    let identity_data = serde_json::to_value(ms_user)?;
+    update_identity_data(conn, existing_identity.id, Some(identity_data))?;
 
     stats.existing_users_updated += 1;
     Ok(())
@@ -5185,10 +5316,10 @@ async fn link_existing_user_to_microsoft_no_photos(
     ms_user: &MicrosoftGraphUser,
     existing_user: User,
     stats: &mut UserSyncStats,
-) -> Result<(), String> {
-    // Create Microsoft identity
-    let identity_data = serde_json::to_value(ms_user)
-        .map_err(|e| format!("Failed to serialize Microsoft user data: {e}"))?;
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::MsGraphSyncError;
+
+    let identity_data = serde_json::to_value(ms_user)?;
 
     let new_identity = NewUserAuthIdentity {
         user_uuid: existing_user.uuid,
@@ -5199,10 +5330,8 @@ async fn link_existing_user_to_microsoft_no_photos(
         password_hash: None,
     };
 
-    identity_repo::create_identity(new_identity, conn)
-        .map_err(|e| format!("Failed to create Microsoft identity: {e}"))?;
+    identity_repo::create_identity(new_identity, conn)?;
 
-    // Update user with Microsoft UUID
     let user_update = crate::models::UserUpdate {
         name: None,
 
@@ -5210,14 +5339,16 @@ async fn link_existing_user_to_microsoft_no_photos(
         avatar_url: None,
         banner_url: None,
         avatar_thumb: None,
-        microsoft_uuid: Some(
-            utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?,
-        ),
+        microsoft_uuid: Some(utils::parse_uuid(&ms_user.id).map_err(|_| {
+            MsGraphSyncError::Mapping {
+                hint: "invalid Microsoft UUID format",
+                source: None,
+            }
+        })?),
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    user_repo::update_user(&existing_user.uuid, user_update, conn, None)
-        .map_err(|e| format!("Failed to update user with Microsoft UUID: {e}"))?;
+    user_repo::update_user(&existing_user.uuid, user_update, conn, None)?;
 
     stats.identities_linked += 1;
     Ok(())
@@ -5229,11 +5360,11 @@ async fn create_new_user_from_microsoft_no_photos(
     _provider_id: i32,
     ms_user: &MicrosoftGraphUser,
     stats: &mut UserSyncStats,
-) -> Result<(), String> {
-    // Generate UUID for new user
+) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
+    use crate::services::msgraph::MsGraphSyncError;
+
     let user_uuid = Uuid::now_v7();
 
-    // Determine name and email
     let name = ms_user
         .display_name
         .clone()
@@ -5251,9 +5382,13 @@ async fn create_new_user_from_microsoft_no_photos(
         .unwrap_or(&ms_user.user_principal_name)
         .clone();
 
-    // Create user with Microsoft UUID
     let microsoft_uuid =
-        Some(utils::parse_uuid(&ms_user.id).map_err(|_| "Invalid Microsoft UUID format")?);
+        Some(
+            utils::parse_uuid(&ms_user.id).map_err(|_| MsGraphSyncError::Mapping {
+                hint: "invalid Microsoft UUID format",
+                source: None,
+            })?,
+        );
     let (new_user, _role) = utils::NewUserBuilder::microsoft_user(
         name.clone(),
         primary_email,
@@ -5263,12 +5398,9 @@ async fn create_new_user_from_microsoft_no_photos(
     .with_uuid(user_uuid)
     .build();
 
-    let created_user = user_repo::create_user(new_user, conn)
-        .map_err(|e| format!("Failed to create user: {e}"))?;
+    let created_user = user_repo::create_user(new_user, conn)?;
 
-    // Create Microsoft identity
-    let identity_data = serde_json::to_value(ms_user)
-        .map_err(|e| format!("Failed to serialize Microsoft user data: {e}"))?;
+    let identity_data = serde_json::to_value(ms_user)?;
 
     let new_identity = NewUserAuthIdentity {
         user_uuid: created_user.uuid,
@@ -5279,10 +5411,8 @@ async fn create_new_user_from_microsoft_no_photos(
         password_hash: None,
     };
 
-    identity_repo::create_identity(new_identity, conn)
-        .map_err(|e| format!("Failed to create Microsoft identity: {e}"))?;
+    identity_repo::create_identity(new_identity, conn)?;
 
-    // Store emails if any
     let emails = extract_user_emails(ms_user);
     if !emails.is_empty() {
         let email_data: Vec<(String, String, bool, String)> = emails
