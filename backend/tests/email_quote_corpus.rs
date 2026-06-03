@@ -74,10 +74,7 @@ fn run_case(case_dir: &Path) -> Result<(), String> {
 
     let expected_new = fs::read_to_string(&expected_new_path)
         .map_err(|e| format!("read expected_new.{ext}: {e}"))?;
-    let expected_quoted = match fs::read_to_string(&expected_quoted_path) {
-        Ok(s) => Some(s),
-        Err(_) => None,
-    };
+    let expected_quoted = fs::read_to_string(&expected_quoted_path).ok();
 
     let actual: QuoteSplit = if ext == "html" {
         split_html(&input)

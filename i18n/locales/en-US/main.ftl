@@ -4485,15 +4485,60 @@ dashboard-widget-shell-hide-label = Hide { $title }
 dashboard-widget-shell-loading-label = Loading { $title }
 
 dashboard-edit-bar-editing = Editing dashboard
+dashboard-edit-bar-unsaved = Unsaved changes
 dashboard-edit-bar-add-widget = Add widget
 dashboard-edit-bar-reset = Reset
 dashboard-edit-bar-done = Done
+dashboard-edit-bar-close = Close
+dashboard-edit-bar-discard = Discard
+dashboard-edit-bar-undo = Undo
+dashboard-edit-bar-redo = Redo
+dashboard-edit-bar-undo-tooltip = Undo last change (Cmd-Z)
+dashboard-edit-bar-redo-tooltip = Redo (Cmd-Shift-Z)
 dashboard-edit-bar-reset-confirm-title = Reset dashboard layout?
 dashboard-edit-bar-reset-confirm-message = Your customised layout will be replaced with the default for your role.
 dashboard-edit-bar-reset-confirm-label = Reset
+dashboard-leave-confirm = You have unsaved changes to your dashboard layout. Leave anyway?
+dashboard-edit-bar-save-error-title = Couldn't save dashboard
+dashboard-edit-bar-save-error-message = Your changes are still here. Try again, or check your connection.
+dashboard-widget-context-menu-aria = { $title } options
+dashboard-widget-context-menu-resize-1 = Resize to 1 column (1)
+dashboard-widget-context-menu-resize-2 = Resize to 2 columns (2)
+dashboard-widget-context-menu-resize-3 = Resize to 3 columns (3)
+dashboard-widget-context-menu-hide = Hide widget
 
 dashboard-add-widget-title = Add widget
 dashboard-add-widget-all-added = All available widgets are already on your dashboard.
+dashboard-add-widget-tab-system = System widgets
+dashboard-add-widget-tab-saved-views = Your saved views
+dashboard-add-widget-saved-views-loading = Loading saved views...
+dashboard-add-widget-saved-views-empty = No chart-backed saved views yet. Build one from the ticket list to pin it here.
+dashboard-widget-saved-view-title = Saved view
+dashboard-widget-saved-view-description = A chart-backed saved view pinned to your dashboard.
+dashboard-saved-view-loading-title = Saved view
+dashboard-saved-view-error = Failed to load saved view.
+dashboard-saved-view-placeholder = Chart renderer ships in a later wave.
+dashboard-saved-view-misconfigured = This view's chart config is missing required fields.
+dashboard-kpi-metric-tickets_created = Tickets created
+dashboard-kpi-metric-tickets_resolved = Tickets resolved
+dashboard-kpi-metric-tickets_open = Tickets open
+dashboard-kpi-error = KPI unavailable
+dashboard-line-chart-loading = Loading...
+dashboard-line-chart-error = Chart unavailable
+dashboard-line-chart-empty = No data in this range
+dashboard-line-chart-aria-label = Daily time-series
+dashboard-bar-priority-low = Low
+dashboard-bar-priority-medium = Medium
+dashboard-bar-priority-high = High
+dashboard-bar-uncategorised = Uncategorised
+dashboard-bar-unassigned = Unassigned
+dashboard-saved-view-viz-label-list = List
+dashboard-saved-view-viz-label-kpi_tile = KPI tile
+dashboard-saved-view-viz-label-line = Line chart
+dashboard-saved-view-viz-label-horizontal_bar = Horizontal bar
+dashboard-saved-view-viz-label-heatmap = Heatmap
+dashboard-saved-view-viz-label-leaderboard = Leaderboard
+dashboard-saved-view-viz-label-table = Table
 
 dashboard-staff-queue-title = Queue
 dashboard-staff-queue-configure-aria = Configure queue metrics
@@ -5271,3 +5316,169 @@ gantt-tickets-of-total-in-view =
     }
 saved-view-name-this = Name this view
 saved-view-copy-suffix = { $name } copy
+
+# Rules engine (docs/rules-and-actions-plan.md). Admin Settings →
+# Rules surfaces every rule kind; the agent toolbar surfaces only
+# the manual subset under the label "Actions". Activity log /
+# inspector wording stays consistent with the audit framing
+# established by canned-responses and ticket-merge.
+
+route-title-admin-rules = Rules
+route-title-admin-rules-activity = Rule activity
+route-title-admin-rules-new = New rule
+route-title-admin-rules-edit = Edit rule
+
+admin-rules-title = Rules
+admin-rules-help-intro = One rule entity covers manual quick-actions, on-event automations, and time-based escalations. Manual rules show up in the agent toolbar; everything else fires from the engine.
+admin-rules-new-cta = New rule
+admin-rules-activity-cta = Recent activity
+admin-rules-search-placeholder = Search rules by name
+admin-rules-filter-trigger-all = All triggers
+admin-rules-filter-state-all = All states
+admin-rules-trigger-manual = Manual
+admin-rules-trigger-ticket-created = On ticket created
+admin-rules-trigger-ticket-updated = On ticket updated
+admin-rules-trigger-ticket-replied = On reply
+admin-rules-trigger-time-elapsed = Time elapsed
+admin-rules-state-draft = Draft
+admin-rules-state-dry-run = Dry run
+admin-rules-state-live = Live
+admin-rules-state-archived = Archived
+admin-rules-col-name = Name
+admin-rules-col-trigger = Trigger
+admin-rules-col-state = State
+admin-rules-col-last-fired = Last fired
+admin-rules-col-fire-count = Fires (total)
+admin-rules-last-fired-never = Never
+admin-rules-empty-title = No rules yet
+admin-rules-empty-hint = Create your first rule or browse the starter catalog (coming soon).
+admin-rules-error-load = Couldn't load the rules list.
+admin-rules-error-archive = Couldn't archive that rule.
+admin-rules-error-transition = Couldn't change the state.
+admin-rules-toast-archived = Archived { $name }.
+admin-rules-toast-state-changed = State changed to { $state }.
+admin-rules-action-pause-tooltip = Pause (move to dry run)
+admin-rules-action-resume-tooltip = Resume (back to live)
+admin-rules-action-archive-tooltip = Archive
+admin-rules-archive-confirm-title = Archive rule?
+admin-rules-archive-confirm-body = { $name } will stop firing and be hidden from the picker. The audit history stays. You can permanently delete it later from the archived view.
+admin-rules-archive-confirm-button = Archive
+
+admin-rules-activity-title = Rule activity
+admin-rules-activity-help = Every fire writes one row, whether successful, skipped, suppressed, or failed. Click a row to see the condition evaluation and the actions that ran.
+admin-rules-activity-back = Back to rules
+admin-rules-activity-error-load = Couldn't load the activity log.
+admin-rules-activity-empty-title = No activity yet
+admin-rules-activity-empty-hint = Rules write here as soon as they fire.
+admin-rules-activity-filter-all = All statuses
+admin-rules-activity-limit = Last { $n }
+admin-rules-activity-actor-system = engine
+admin-rules-activity-actor-user = agent
+admin-rules-activity-row-summary = on ticket #{ $ticket_id } by { $actor }
+admin-rules-activity-inspector-empty = No inspector payload (successful fire keeps the audit row tight).
+admin-rules-activity-status-succeeded = Succeeded
+admin-rules-activity-status-dry-run = Dry run
+admin-rules-activity-status-skipped-preflight = Skipped (preflight)
+admin-rules-activity-status-skipped-condition-unmet = Skipped (no match)
+admin-rules-activity-status-suppressed-recursion-budget = Suppressed (recursion)
+admin-rules-activity-status-suppressed-loop-guard = Suppressed (loop guard)
+admin-rules-activity-status-failed = Failed
+
+# Activity-feed phrases for the rule fire event. Wave 7 wires
+# ticket.rule_applied into TicketActivity.vue; the dry-run variant
+# distinguishes shadow fires (state = dry_run) from live ones.
+ticket-activity-phrase-rule-applied = applied rule "{ $rule }"
+ticket-activity-phrase-rule-applied-dry-run = previewed rule "{ $rule }" in dry-run
+
+# Actions toolbar (agent surface, decision 26: button label is
+# "Actions" even though the backend entity is Rule).
+ticket-actions-button = Actions
+ticket-actions-dialog-title = Apply an action
+ticket-actions-dialog-picker-placeholder = Find an action...
+ticket-actions-dialog-empty = No live manual rules in this workspace.
+ticket-actions-dialog-action-list-label = This action will:
+ticket-actions-dialog-cancel = Cancel
+ticket-actions-dialog-apply = Apply
+ticket-actions-dialog-applying = Applying...
+ticket-actions-success-toast = Applied "{ $rule }".
+ticket-actions-error-toast = Couldn't apply the action.
+
+# Action summary chips (admin list + agent dialog preview).
+admin-rules-action-chip-reply-public = Reply to customer
+admin-rules-action-chip-reply-internal = Add internal note
+admin-rules-action-chip-set-status = Move to state #{ $state_id }
+admin-rules-action-chip-assign = Assign to user
+admin-rules-action-chip-unassign = Clear assignee
+admin-rules-action-chip-add-tags = Add { $count ->
+    [one] 1 tag
+   *[other] { $count } tags
+  }
+admin-rules-action-chip-remove-tags = Remove { $count ->
+    [one] 1 tag
+   *[other] { $count } tags
+  }
+admin-rules-action-chip-set-priority = Set priority to { $priority }
+admin-rules-action-chip-notify = Send notification
+admin-rules-action-chip-stop-processing = Stop here
+
+# Rule editor (Wave 7).
+admin-rule-editor-title-new = New rule
+admin-rule-editor-title-edit = Edit "{ $name }"
+admin-rule-editor-back = Back to rules
+admin-rule-editor-save = Save
+admin-rule-editor-saving = Saving...
+admin-rule-editor-section-name = What
+admin-rule-editor-section-trigger = When
+admin-rule-editor-section-actions = Then do
+admin-rule-editor-section-state = State
+admin-rule-editor-name-label = Name
+admin-rule-editor-name-placeholder = Acknowledge and escalate to network team
+admin-rule-editor-description-label = Description (optional)
+admin-rule-editor-description-placeholder = Short note about when an agent should reach for this.
+admin-rule-editor-trigger-label = Trigger
+admin-rule-editor-trigger-manual-note = Manual rules show up in the agent Actions toolbar. There's no per-ticket condition; the picker is filtered by category.
+admin-rule-editor-trigger-other-phase = Event triggers and time-elapsed triggers land in Phase 2 of the rules engine; for now they save as Draft but won't fire until the engine subscribes.
+admin-rule-editor-actions-add = Add an action
+admin-rule-editor-actions-empty = This rule needs at least one action.
+admin-rule-editor-action-remove = Remove
+admin-rule-editor-error-save = Couldn't save the rule.
+admin-rule-editor-error-conflict = This rule reads and writes the same fields. Save anyway to override.
+admin-rule-editor-override-self-ref = I understand this rule may loop
+admin-rule-editor-priority-label = Priority (lower runs first)
+
+# Dashboard chrome row (docs/dashboard-and-analytics-plan.md Wave 1).
+# Time-range chip cluster, compare-to-prior toggle, audit-log
+# annotation overlay toggle, R-refresh button with "Updated X ago"
+# indicator. Seven section anchor labels live alongside; the
+# AnchorRail component reads them when Wave 8 wires it in.
+
+dashboard-time-range-today = Today
+dashboard-time-range-7d = 7d
+dashboard-time-range-30d = 30d
+dashboard-time-range-90d = 90d
+dashboard-time-range-quarter = Quarter
+dashboard-time-range-custom = Custom
+dashboard-time-range-custom-from = From
+dashboard-time-range-custom-to = To
+dashboard-time-range-custom-apply = Apply
+dashboard-time-range-custom-cancel = Cancel
+
+dashboard-compare-toggle-label = Compare
+dashboard-compare-toggle-tooltip = Overlay the same range from the prior period
+
+dashboard-annotations-toggle-label = Annotations
+dashboard-annotations-toggle-tooltip = Mark rule, SLA, and business-hours edits on time-series charts
+
+dashboard-refresh-tooltip = Refresh non-live data (R)
+dashboard-refresh-updated-prefix = Updated
+dashboard-refresh-just-loaded = just now
+dashboard-refresh-unknown = recently
+
+dashboard-anchor-rail-aria-label = Dashboard sections
+dashboard-section-today = Today
+dashboard-section-volume-sla = Volume & SLA
+dashboard-section-queue-health = Queue Health
+dashboard-section-agents = Agents
+dashboard-section-categories = Categories
+dashboard-section-backlog-ageing = Backlog & Ageing
+dashboard-section-audit-activity = Audit Activity

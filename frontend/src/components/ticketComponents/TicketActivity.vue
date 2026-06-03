@@ -314,6 +314,20 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
         ? t('ticket-activity-phrase-merged-into', { target_id: dest })
         : t('ticket-activity-phrase-generic')
     }
+    case 'ticket.rule_applied': {
+      // Rules engine fire (manual apply, or Phase 2+ event /
+      // time-elapsed). The rule name + dry-run flag drives the
+      // phrase; the inspector deep-link in the activity panel
+      // reads rule_id / rule_version off the same data blob.
+      const ruleName = (data.rule_name as string | undefined) ?? ''
+      const wasDryRun = data.was_dry_run === true
+      if (wasDryRun) {
+        return t('ticket-activity-phrase-rule-applied-dry-run', { rule: ruleName })
+      }
+      return ruleName
+        ? t('ticket-activity-phrase-rule-applied', { rule: ruleName })
+        : t('ticket-activity-phrase-generic')
+    }
     case 'comment.created': {
       if (data.is_internal) return t('ticket-activity-phrase-internal-note')
       const cv = readCreatedVia(ev)

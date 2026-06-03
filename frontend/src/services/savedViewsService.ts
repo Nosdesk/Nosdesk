@@ -20,6 +20,22 @@ import type { ViewShape, FilterState } from '@/sync/views/types'
 export type SavedViewDataset = 'tickets' | 'assets' | 'users'
 export type SavedViewScope = 'workspace' | 'project' | 'private'
 
+/**
+ * Renderer the dashboard SavedViewWidget shell uses for a saved
+ * view. `list` (the default) means "this is a list view, not a
+ * chart"; everything else routes to a chart component. The
+ * allowlist mirrors backend/src/handlers/saved_views.rs VIZ_TYPES
+ * and the DB CHECK constraint.
+ */
+export type SavedViewVizType =
+  | 'list'
+  | 'kpi_tile'
+  | 'line'
+  | 'horizontal_bar'
+  | 'heatmap'
+  | 'leaderboard'
+  | 'table'
+
 export interface SavedView<S = ViewShape, F = FilterState> {
   id: number
   uuid: string
@@ -35,6 +51,14 @@ export interface SavedView<S = ViewShape, F = FilterState> {
    *  read it; new code can assume the backend always sends it
    *  post-migration. */
   dataset?: SavedViewDataset
+  /** Renderer (defaults to 'list'). Carried on every wire response
+   *  post-migration; older snapshots fall back to 'list' at the
+   *  call site. */
+  viz_type?: SavedViewVizType
+  /** Per-renderer config (measures, group-by, top-N, ...). Shape
+   *  per viz_type is documented in
+   *  docs/dashboard-and-analytics-plan.md §4.2. */
+  viz_config?: Record<string, unknown>
 }
 
 export interface CreateSavedViewBody<S = ViewShape, F = FilterState> {
@@ -46,18 +70,36 @@ export interface CreateSavedViewBody<S = ViewShape, F = FilterState> {
   /** Defaults to 'tickets' on the backend when omitted. Non-
    *  ticket datasets must always set this AND scope = 'private'. */
   dataset?: SavedViewDataset
+  viz_type?: SavedViewVizType
+  viz_config?: Record<string, unknown>
 }
 
 export interface UpdateSavedViewBody<S = ViewShape, F = FilterState> {
   name?: string
   shape?: S
   filter?: F
+  viz_type?: SavedViewVizType
+  viz_config?: Record<string, unknown>
 }
 
 export const savedViewsService = {
   async list(projectId?: number): Promise<SavedView[]> {
     const params = projectId == null ? {} : { project_id: projectId }
     const { data } = await apiClient.get<SavedView[]>('/saved-views', { params })
+    return data
+  },
+
+  /**
+   * Workspace's pickable chart-backed saved views (viz_type != 'list').
+   * Backs the AddWidgetModal "Your saved views" tab — the operator
+   * picks one of these to drop a SavedViewWidget onto the dashboard.
+   * The backend's RLS scope already restricts the result set to the
+   * active workspace.
+   */
+  async listPickable(): Promise<SavedView[]> {
+    const { data } = await apiClient.get<SavedView[]>('/saved-views', {
+      params: { has_viz: true },
+    })
     return data
   },
 

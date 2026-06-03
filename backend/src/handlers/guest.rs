@@ -266,7 +266,7 @@ pub async fn get_public_settings(pool: web::Data<Pool>, ws: WorkspaceContext) ->
     };
 
     let actor = guest_actor(&ws, "guest:public_settings");
-    match session::with_actor_context(&mut conn, &actor, |c| site_settings::get_site_settings(c)) {
+    match session::with_actor_context(&mut conn, &actor, site_settings::get_site_settings) {
         Ok(s) => HttpResponse::Ok().json(PublicSiteSettings::from(&s)),
         Err(e) => {
             warn!(error = ?e, "Failed to load site_settings for public endpoint");

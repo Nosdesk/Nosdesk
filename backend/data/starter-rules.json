@@ -1,0 +1,119 @@
+[
+  {
+    "id": "ack-and-acknowledge",
+    "name_en": "Acknowledge and triage",
+    "name_fr": "Accuser réception et trier",
+    "name_nl": "Bevestigen en triage",
+    "description_en": "Quick acknowledgement reply to confirm the ticket reached us and set status to in-progress.",
+    "description_fr": "Réponse rapide pour confirmer la réception du ticket et passer en cours.",
+    "description_nl": "Snelle bevestiging dat het ticket is ontvangen en de status op in behandeling zetten.",
+    "trigger_kind": "manual",
+    "conditions": [],
+    "actions": [
+      {
+        "kind": "reply",
+        "config": {
+          "visibility": "public",
+          "body": "Hi {{customer_name}},\n\nThanks for reaching out about ticket #{{ticket_id}}. We've seen it and are looking into it now.\n\nCheers,\n{{agent_first_name}}"
+        }
+      }
+    ]
+  },
+  {
+    "id": "request-more-info",
+    "name_en": "Request more information",
+    "name_fr": "Demander plus d'informations",
+    "name_nl": "Meer informatie vragen",
+    "description_en": "Polite ask for steps to reproduce or additional context. Keeps the ticket open.",
+    "description_fr": "Demande polie de plus de contexte ou d'étapes de reproduction. Garde le ticket ouvert.",
+    "description_nl": "Beleefd verzoek om reproductiestappen of meer context. Houdt het ticket open.",
+    "trigger_kind": "manual",
+    "conditions": [],
+    "actions": [
+      {
+        "kind": "reply",
+        "config": {
+          "visibility": "public",
+          "body": "Hi {{customer_name}},\n\nCould you share a few more details? Specifically:\n\n- What were you trying to do when the issue happened?\n- Any error messages you saw?\n- Roughly when did it start?\n\nThanks,\n{{agent_first_name}}"
+        }
+      }
+    ]
+  },
+  {
+    "id": "mark-resolved-with-summary",
+    "name_en": "Resolve with summary",
+    "name_fr": "Résoudre avec résumé",
+    "name_nl": "Oplossen met samenvatting",
+    "description_en": "Send a wrap-up reply summarising what was done and close the ticket.",
+    "description_fr": "Envoyer une réponse de clôture résumant ce qui a été fait et clore le ticket.",
+    "description_nl": "Een afsluitend antwoord met samenvatting versturen en het ticket sluiten.",
+    "trigger_kind": "manual",
+    "conditions": [],
+    "actions": [
+      {
+        "kind": "reply",
+        "config": {
+          "visibility": "public",
+          "body": "Hi {{customer_name}},\n\nWe've sorted this out. If anything else comes up, just reply to this thread and the ticket will reopen automatically.\n\nCheers,\n{{agent_first_name}}"
+        }
+      }
+    ]
+  },
+  {
+    "id": "escalate-to-on-call",
+    "name_en": "Escalate to on-call",
+    "name_fr": "Escalader à l'astreinte",
+    "name_nl": "Escaleren naar pikettelefoon",
+    "description_en": "Add an escalated tag, drop an internal note for the next pager. No customer-facing reply.",
+    "description_fr": "Ajouter une étiquette escaladée, ajouter une note interne pour le prochain bipeur. Pas de réponse client.",
+    "description_nl": "Voeg een escalated-tag toe en laat een interne notitie achter voor de volgende pikettelefoon. Geen klantantwoord.",
+    "trigger_kind": "manual",
+    "conditions": [],
+    "actions": [
+      {
+        "kind": "reply",
+        "config": {
+          "visibility": "internal",
+          "body": "Escalated by {{agent_name}}. Marked for the on-call queue."
+        }
+      }
+    ]
+  },
+  {
+    "id": "set-high-priority",
+    "name_en": "Bump to high priority",
+    "name_fr": "Passer en priorité haute",
+    "name_nl": "Verhoog naar hoge prioriteit",
+    "description_en": "Raise the ticket priority to high without sending a customer reply.",
+    "description_fr": "Augmente la priorité du ticket sans envoyer de réponse au client.",
+    "description_nl": "Verhoog de ticketprioriteit zonder een klantantwoord te sturen.",
+    "trigger_kind": "manual",
+    "conditions": [],
+    "actions": [
+      {
+        "kind": "set_priority",
+        "config": { "priority": "high" }
+      }
+    ]
+  },
+  {
+    "id": "tag-and-note",
+    "name_en": "Tag as duplicate",
+    "name_fr": "Étiqueter comme doublon",
+    "name_nl": "Markeer als duplicaat",
+    "description_en": "Add a 'duplicate' tag and an internal note flagging it for review.",
+    "description_fr": "Ajoute une étiquette 'doublon' et une note interne pour révision.",
+    "description_nl": "Voegt een 'duplicaat'-tag toe en een interne notitie voor beoordeling.",
+    "trigger_kind": "manual",
+    "conditions": [],
+    "actions": [
+      {
+        "kind": "reply",
+        "config": {
+          "visibility": "internal",
+          "body": "Likely a duplicate of an existing ticket. Tagged for review by {{agent_first_name}}."
+        }
+      }
+    ]
+  }
+]

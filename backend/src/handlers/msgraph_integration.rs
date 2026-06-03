@@ -1438,7 +1438,7 @@ async fn perform_sync(
     let mut completed_items: usize = 0;
 
     // Don't overwrite entity-specific progress - just process each entity
-    for (_index, entity) in entities.iter().enumerate() {
+    for entity in entities.iter() {
         let sync_progress = match entity.as_str() {
             "users" => sync_users(conn, provider_id, session_id, use_delta, completed_items).await,
             "devices" => {
@@ -4912,10 +4912,11 @@ fn extract_user_emails(ms_user: &MicrosoftGraphUser) -> Vec<(String, String, boo
 
 /// Extract email address from Exchange proxy address format
 fn extract_smtp_address(proxy_address: &str) -> Option<String> {
-    if proxy_address.starts_with("SMTP:") {
-        Some(proxy_address[5..].to_string())
-    } else if proxy_address.starts_with("smtp:") {
-        Some(proxy_address[5..].to_string())
+    if let Some(rest) = proxy_address
+        .strip_prefix("SMTP:")
+        .or_else(|| proxy_address.strip_prefix("smtp:"))
+    {
+        Some(rest.to_string())
     } else if proxy_address.contains('@') {
         // Sometimes proxy addresses don't have the SMTP: prefix
         Some(proxy_address.to_string())

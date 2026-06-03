@@ -99,11 +99,7 @@ pub async fn merge_tickets(
     // so it doesn't need reindexing (and reindexing it with no article
     // body would drop its article from the index).
     for source in &outcome.merged_sources {
-        indexing_tasks::spawn_index_ticket(
-            search_service.get_ref().clone(),
-            source.clone(),
-            None,
-        );
+        indexing_tasks::spawn_index_ticket(search_service.get_ref().clone(), source.clone(), None);
     }
 
     // Broadcast so open viewers react without a reload: the destination
@@ -194,9 +190,7 @@ fn map_merge_error(err: MergeError) -> HttpResponse {
     match err {
         MergeError::Db(e) => errors::db_error(&e),
         MergeError::NotFound(_) => errors::not_found_msg(message),
-        MergeError::StateConflict(_) => {
-            errors::conflict_with_code(message, "MERGE_STATE_CONFLICT")
-        }
+        MergeError::StateConflict(_) => errors::conflict_with_code(message, "MERGE_STATE_CONFLICT"),
         MergeError::MissingWorkspace | MergeError::MergedStateMissing => errors::internal(message),
         // Every remaining variant is a pre-flight validation failure.
         _ => errors::bad_request_with_code(message, "MERGE_VALIDATION"),

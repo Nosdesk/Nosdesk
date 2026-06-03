@@ -152,11 +152,7 @@ mod tests {
         dummy.sort();
         let real_median = real[real.len() / 2];
         let dummy_median = dummy[dummy.len() / 2];
-        let delta = if real_median > dummy_median {
-            real_median - dummy_median
-        } else {
-            dummy_median - real_median
-        };
+        let delta = real_median.abs_diff(dummy_median);
         assert!(
             delta.as_millis() < 20,
             "real median {real_median:?} vs dummy median {dummy_median:?} (delta {delta:?})"

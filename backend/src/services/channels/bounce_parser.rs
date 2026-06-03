@@ -187,11 +187,9 @@ pub fn parse_bounce(root: &ParsedMail) -> Vec<BounceReport> {
     walk(root, &mut |part| {
         let ctype = part.ctype.mimetype.to_ascii_lowercase();
         match ctype.as_str() {
-            "message/rfc822" | "message/rfc822-headers" => {
-                if original_message_id.is_none() {
-                    if let Ok(body) = part.get_body() {
-                        original_message_id = extract_message_id(&body);
-                    }
+            "message/rfc822" | "message/rfc822-headers" if original_message_id.is_none() => {
+                if let Ok(body) = part.get_body() {
+                    original_message_id = extract_message_id(&body);
                 }
             }
             "message/delivery-status" => {
@@ -350,7 +348,7 @@ fn parse_delivery_status(body: &str) -> DeliveryStatus {
                 // human-readable suffix ("Status: 5.1.1 message rejected").
                 // Take only the leading token so the classifier reads a
                 // clean `x.y.z`.
-                if let Some(code) = value.trim().split_whitespace().next() {
+                if let Some(code) = value.split_whitespace().next() {
                     if !code.is_empty() {
                         status_code = Some(code.to_string());
                     }

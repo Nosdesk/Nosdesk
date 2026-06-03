@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::db::DbConnection;
 use crate::models::{Claims, User};
 use crate::repository;
-use crate::utils::{parse_uuid, role_to_string, uuid_to_string};
+use crate::utils::{parse_uuid, uuid_to_string};
 
 // Lazy static for JWT secret - initialized once
 lazy_static::lazy_static! {

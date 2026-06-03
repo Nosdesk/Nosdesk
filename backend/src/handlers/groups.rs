@@ -51,7 +51,7 @@ pub async fn get_all_groups(req: HttpRequest, mut tc: TenantConn) -> impl Respon
         return e;
     }
 
-    match tc.run(|conn| repository::groups::get_groups_with_member_counts(conn)) {
+    match tc.run(repository::groups::get_groups_with_member_counts) {
         Ok(groups) => HttpResponse::Ok().json(groups),
         Err(_) => errors::internal("Failed to get groups"),
     }

@@ -102,7 +102,7 @@ impl SearchService {
         if doc_count == 0 {
             info!("Search index is empty, rebuilding from database");
             match crate::sync::session::background_run(
-                &pool,
+                pool,
                 "background:search_initial_index_build",
                 |conn| {
                     service

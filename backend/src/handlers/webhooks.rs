@@ -78,7 +78,7 @@ pub async fn list_webhooks(req: HttpRequest, mut tc: TenantConn) -> impl Respond
         return e;
     }
 
-    match tc.run(|conn| webhook_repo::list_all_webhooks(conn)) {
+    match tc.run(webhook_repo::list_all_webhooks) {
         Ok(webhooks) => {
             let response: Vec<WebhookResponse> = webhooks.into_iter().map(Into::into).collect();
             HttpResponse::Ok().json(response)

@@ -368,7 +368,7 @@ pub async fn delete_branding_image(
     };
 
     // Get current settings to find the file to delete
-    let current_settings = match tc.run(|conn| site_settings::get_site_settings(conn)) {
+    let current_settings = match tc.run(site_settings::get_site_settings) {
         Ok(settings) => settings,
         Err(e) => {
             error!(error = ?e, "Error fetching current settings");

@@ -23,7 +23,7 @@ pub async fn get_all_rules(req: HttpRequest, mut tc: TenantConn) -> impl Respond
         return e;
     }
 
-    match tc.run(|conn| repository::assignment_rules::get_all_rules_with_details(conn)) {
+    match tc.run(repository::assignment_rules::get_all_rules_with_details) {
         Ok(rules) => HttpResponse::Ok().json(rules),
         Err(_) => errors::internal("Failed to get assignment rules"),
     }

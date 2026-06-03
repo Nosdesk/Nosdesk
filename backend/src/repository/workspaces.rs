@@ -186,10 +186,7 @@ pub fn add_membership(
 /// Phase 1 backfill, but the fallback keeps the audited write
 /// attributable to a real workspace rather than failing at the audit
 /// trigger's NOT NULL workspace_id.
-pub fn primary_workspace_for_user(
-    conn: &mut DbConnection,
-    user_uuid: Uuid,
-) -> QueryResult<i32> {
+pub fn primary_workspace_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<i32> {
     workspace_members::table
         .filter(workspace_members::user_uuid.eq(user_uuid))
         .order(workspace_members::workspace_id.asc())
@@ -227,10 +224,7 @@ pub fn list_workspaces(
 /// accidental archive is reversible until the grace window elapses
 /// and the scheduler hard-deletes. Returns `Ok(None)` if no row
 /// matches `id` (already gone, or never existed).
-pub fn archive_workspace(
-    conn: &mut DbConnection,
-    id: i32,
-) -> QueryResult<Option<Workspace>> {
+pub fn archive_workspace(conn: &mut DbConnection, id: i32) -> QueryResult<Option<Workspace>> {
     diesel::update(workspaces::table.filter(workspaces::id.eq(id)))
         .set(workspaces::archived_at.eq(Some(Utc::now())))
         .get_result::<Workspace>(conn)
@@ -242,10 +236,7 @@ pub fn archive_workspace(
 /// the admin restore path when an archive was accidental. Safe to
 /// call on an already-active workspace (idempotent — the column is
 /// already NULL so this is a no-op write).
-pub fn restore_workspace(
-    conn: &mut DbConnection,
-    id: i32,
-) -> QueryResult<Option<Workspace>> {
+pub fn restore_workspace(conn: &mut DbConnection, id: i32) -> QueryResult<Option<Workspace>> {
     diesel::update(workspaces::table.filter(workspaces::id.eq(id)))
         .set(workspaces::archived_at.eq::<Option<DateTime<Utc>>>(None))
         .get_result::<Workspace>(conn)
@@ -362,10 +353,7 @@ pub fn list_workspace_members(
 /// [`remove_membership`] and [`update_membership_role`] to enforce
 /// the "at least one owner" invariant — a workspace with zero
 /// owners has no one who can manage it.
-pub fn count_workspace_owners(
-    conn: &mut DbConnection,
-    workspace_id: i32,
-) -> QueryResult<i64> {
+pub fn count_workspace_owners(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<i64> {
     workspace_members::table
         .filter(workspace_members::workspace_id.eq(workspace_id))
         .filter(workspace_members::role.eq("owner"))
@@ -513,7 +501,10 @@ mod tests {
 
         // find_by_slug filters archived rows out.
         let lookup = find_by_slug(&mut conn, "archtest").expect("find");
-        assert!(lookup.is_none(), "archived workspace should not resolve by slug");
+        assert!(
+            lookup.is_none(),
+            "archived workspace should not resolve by slug"
+        );
     }
 
     #[test]
@@ -528,7 +519,9 @@ mod tests {
             .expect("restore")
             .expect("row updated");
         assert!(restored.archived_at.is_none());
-        assert!(find_by_slug(&mut conn, "restoretest").expect("find").is_some());
+        assert!(find_by_slug(&mut conn, "restoretest")
+            .expect("find")
+            .is_some());
     }
 
     #[test]
@@ -537,9 +530,11 @@ mod tests {
         let mut conn = pool.get().expect("conn");
 
         let ws = fresh_workspace(&mut conn, "renametest");
-        let renamed = as_admin(&mut conn, |c| rename_workspace(c, ws.id, "New Display Name"))
-            .expect("rename")
-            .expect("row updated");
+        let renamed = as_admin(&mut conn, |c| {
+            rename_workspace(c, ws.id, "New Display Name")
+        })
+        .expect("rename")
+        .expect("row updated");
         assert_eq!(renamed.name, "New Display Name");
         assert_eq!(renamed.slug, ws.slug, "slug must not change");
     }
@@ -663,9 +658,7 @@ mod tests {
         };
         let user_uuid = new.uuid;
         as_admin(conn, |c| {
-            diesel::insert_into(users::table)
-                .values(&new)
-                .execute(c)
+            diesel::insert_into(users::table).values(&new).execute(c)
         })
         .expect("insert user");
         user_uuid
@@ -683,12 +676,14 @@ mod tests {
 
         as_admin(&mut conn, |c| add_membership(c, ws_a.id, user, "admin")).expect("add a");
         as_admin(&mut conn, |c| add_membership(c, ws_b.id, user, "agent")).expect("add b");
-        as_admin(&mut conn, |c| add_membership(c, archived.id, user, "member"))
-            .expect("add archived");
+        as_admin(&mut conn, |c| {
+            add_membership(c, archived.id, user, "member")
+        })
+        .expect("add archived");
         as_admin(&mut conn, |c| archive_workspace(c, archived.id)).expect("archive");
 
-        let rows = as_admin(&mut conn, |c| list_memberships_for_user(c, user))
-            .expect("list memberships");
+        let rows =
+            as_admin(&mut conn, |c| list_memberships_for_user(c, user)).expect("list memberships");
         let slugs: Vec<&str> = rows.iter().map(|(_, w)| w.slug.as_str()).collect();
         assert!(slugs.contains(&"memship-a"));
         assert!(slugs.contains(&"memship-b"));
@@ -726,8 +721,7 @@ mod tests {
         let owner = fresh_user(&mut conn, "soleowner");
         as_admin(&mut conn, |c| add_membership(c, ws.id, owner, "owner")).expect("add owner");
 
-        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, owner))
-            .expect("remove");
+        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, owner)).expect("remove");
         assert_eq!(n, 0, "must refuse to remove last owner");
         assert!(membership(&mut conn, ws.id, owner)
             .expect("probe")
@@ -744,8 +738,7 @@ mod tests {
         as_admin(&mut conn, |c| add_membership(c, ws.id, owner_a, "owner")).expect("add a");
         as_admin(&mut conn, |c| add_membership(c, ws.id, owner_b, "owner")).expect("add b");
 
-        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, owner_a))
-            .expect("remove");
+        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, owner_a)).expect("remove");
         assert_eq!(n, 1);
         assert!(membership(&mut conn, ws.id, owner_a)
             .expect("probe")
@@ -759,8 +752,7 @@ mod tests {
         let ws = fresh_workspace(&mut conn, "noop-remove");
         let ghost = Uuid::new_v4();
 
-        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, ghost))
-            .expect("remove ghost");
+        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, ghost)).expect("remove ghost");
         assert_eq!(n, 0);
     }
 
@@ -789,10 +781,8 @@ mod tests {
         as_admin(&mut conn, |c| add_membership(c, ws.id, a, "owner")).expect("add a");
         as_admin(&mut conn, |c| add_membership(c, ws.id, b, "owner")).expect("add b");
 
-        let outcome = as_admin(&mut conn, |c| {
-            update_membership_role(c, ws.id, a, "admin")
-        })
-        .expect("update");
+        let outcome =
+            as_admin(&mut conn, |c| update_membership_role(c, ws.id, a, "admin")).expect("update");
         match outcome {
             UpdateMembershipRoleResult::Updated(m) => assert_eq!(m.role, "admin"),
             other => panic!("expected Updated, got {other:?}"),

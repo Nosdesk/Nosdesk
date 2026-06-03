@@ -656,6 +656,30 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-canned-responses-edit' }
         },
         {
+          path: 'rules',
+          name: 'admin-rules',
+          component: () => import('../views/SettingsRulesView.vue'),
+          meta: { titleKey: 'route-title-admin-rules' }
+        },
+        {
+          path: 'rules/activity',
+          name: 'admin-rules-activity',
+          component: () => import('../views/RuleActivityView.vue'),
+          meta: { titleKey: 'route-title-admin-rules-activity' }
+        },
+        {
+          path: 'rules/new',
+          name: 'admin-rules-new',
+          component: () => import('../views/RuleEditView.vue'),
+          meta: { titleKey: 'route-title-admin-rules-new' }
+        },
+        {
+          path: 'rules/:id(\\d+)',
+          name: 'admin-rules-edit',
+          component: () => import('../views/RuleEditView.vue'),
+          meta: { titleKey: 'route-title-admin-rules-edit' }
+        },
+        {
           path: 'webhooks',
           name: 'admin-webhooks',
           component: () => import('../views/WebhooksView.vue'),

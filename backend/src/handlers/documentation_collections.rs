@@ -147,7 +147,7 @@ fn collection_response(
 
 /// Get pages that don't belong to any collection
 pub async fn get_uncollected_pages(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
-    match tc.run(|conn| repository::documentation_collections::get_uncollected_pages(conn)) {
+    match tc.run(repository::documentation_collections::get_uncollected_pages) {
         Ok(pages) => HttpResponse::Ok().json(pages),
         Err(e) => {
             error!(error = ?e, "Failed to get uncollected pages");

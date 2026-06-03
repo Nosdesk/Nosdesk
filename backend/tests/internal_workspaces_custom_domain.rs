@@ -42,10 +42,11 @@ async fn custom_domain_set_clear_collide() {
     let admin = common::insert_user(&mut pool.get().expect("conn"), "M5DomainAdmin");
     let platform_token =
         common::mint_api_token(&mut pool.get().expect("conn"), &admin, "ctrl-plane", true);
-    let user_token =
-        common::mint_api_token(&mut pool.get().expect("conn"), &admin, "user", false);
+    let user_token = common::mint_api_token(&mut pool.get().expect("conn"), &admin, "user", false);
     common::mint_workspace(&mut pool.get().expect("conn"), "acme", "Acme");
-    common::mint_workspace(&mut pool.get().expect("conn"), "beta", "Beta");
+    // Non-reserved slug: `beta` is on the workspaces_slug_not_reserved
+    // denylist (Phase 4 W4), so minting it trips the CHECK constraint.
+    common::mint_workspace(&mut pool.get().expect("conn"), "globex", "Globex");
 
     let pool_for_app = pool.clone();
     let srv = actix_test::start(move || {
@@ -81,7 +82,7 @@ async fn custom_domain_set_clear_collide() {
 
     // --- 2: collision -> 409 ---
     let resp = client
-        .patch(srv.url("/api/internal/v1/workspaces/beta/custom-domain"))
+        .patch(srv.url("/api/internal/v1/workspaces/globex/custom-domain"))
         .insert_header(("Authorization", format!("Bearer {platform_token}")))
         .insert_header(("Idempotency-Key", format!("cd-{}", uuid::Uuid::new_v4())))
         .insert_header(("Content-Type", "application/json"))
@@ -89,7 +90,7 @@ async fn custom_domain_set_clear_collide() {
         .await
         .expect("send collision");
     assert_eq!(resp.status(), 409);
-    assert!(read_custom_domain(&pool, "beta").is_none());
+    assert!(read_custom_domain(&pool, "globex").is_none());
 
     // --- 3: clear via null ---
     let resp = client

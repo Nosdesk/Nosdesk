@@ -34,7 +34,7 @@ pub async fn get_all_categories_admin(req: HttpRequest, mut tc: TenantConn) -> i
         return e;
     }
 
-    match tc.run(|conn| repository::categories::get_all_categories_with_visibility(conn)) {
+    match tc.run(repository::categories::get_all_categories_with_visibility) {
         Ok(categories) => HttpResponse::Ok().json(categories),
         Err(_) => errors::internal("Failed to get categories"),
     }
@@ -292,7 +292,7 @@ pub async fn reorder_categories(
     match tc.run(|conn| repository::categories::update_category_orders(conn, orders)) {
         Ok(_) => {
             // Return all categories with updated order
-            match tc.run(|conn| repository::categories::get_all_categories_with_visibility(conn)) {
+            match tc.run(repository::categories::get_all_categories_with_visibility) {
                 Ok(categories) => HttpResponse::Ok().json(categories),
                 Err(_) => errors::internal("Failed to get updated categories"),
             }

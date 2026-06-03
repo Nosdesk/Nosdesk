@@ -61,8 +61,7 @@ async fn upsert_projected_user_full_contract() {
     let admin = common::insert_user(&mut pool.get().expect("conn"), "M5Admin");
     let platform_token =
         common::mint_api_token(&mut pool.get().expect("conn"), &admin, "ctrl-plane", true);
-    let user_token =
-        common::mint_api_token(&mut pool.get().expect("conn"), &admin, "user", false);
+    let user_token = common::mint_api_token(&mut pool.get().expect("conn"), &admin, "user", false);
     let acme_id = common::mint_workspace(&mut pool.get().expect("conn"), "acme", "Acme");
 
     let pool_for_app = pool.clone();

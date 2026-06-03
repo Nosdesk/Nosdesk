@@ -325,11 +325,18 @@ mod tests {
         let mut conn = setup_test_connection();
         invalidate_cache();
         let states = list_all(&mut conn).unwrap();
-        assert_eq!(states.len(), 6);
+        // Six base states + the `Merged` state seeded by the
+        // ticket-merge migration. Bump this alongside any new seeded
+        // state and add a presence assertion for it below, so the
+        // count and the catalogue stay in lockstep.
+        assert_eq!(states.len(), 7);
         assert!(states.iter().any(|s| s.name == "Backlog" && s.is_default));
         assert!(states
             .iter()
             .any(|s| s.category == WorkflowStateCategory::Done));
+        assert!(states
+            .iter()
+            .any(|s| s.category == WorkflowStateCategory::Merged));
     }
 
     #[test]

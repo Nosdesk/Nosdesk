@@ -26,7 +26,7 @@ fn happy_path_creates_tickets_with_resolved_refs() {
     let mut conn = db.conn();
     seed_user_prerequisites(&mut conn);
 
-    let tickets_before = count_table(&mut *conn, "tickets");
+    let tickets_before = count_table(&mut conn, "tickets");
     let parsed = csv_parser::parse_file(&fixture_path("imports/tickets_valid.csv")).expect("parse");
     let summary = imports::dry_run(&mut conn, ImportType::Tickets, &parsed).expect("dry-run");
     assert_eq!(summary.row_count, 3);
@@ -35,7 +35,7 @@ fn happy_path_creates_tickets_with_resolved_refs() {
 
     let count = imports::commit(&mut conn, ImportType::Tickets, &parsed).expect("commit");
     assert_eq!(count, 3);
-    assert_eq!(count_table(&mut *conn, "tickets"), tickets_before + 3);
+    assert_eq!(count_table(&mut conn, "tickets"), tickets_before + 3);
 
     // Sentinel: the onboarding ticket has the right priority,
     // requester, and workflow state.
@@ -108,7 +108,7 @@ fn tickets_are_insert_only_running_twice_doubles_the_count() {
     let mut conn = db.conn();
     seed_user_prerequisites(&mut conn);
 
-    let tickets_before = count_table(&mut *conn, "tickets");
+    let tickets_before = count_table(&mut conn, "tickets");
     let parsed = csv_parser::parse_file(&fixture_path("imports/tickets_valid.csv")).expect("parse");
 
     imports::commit(&mut conn, ImportType::Tickets, &parsed).expect("commit 1");
@@ -116,5 +116,5 @@ fn tickets_are_insert_only_running_twice_doubles_the_count() {
 
     // Insert-only: no natural key, so the same file twice
     // means twice the rows. This is the documented behaviour.
-    assert_eq!(count_table(&mut *conn, "tickets"), tickets_before + 6);
+    assert_eq!(count_table(&mut conn, "tickets"), tickets_before + 6);
 }

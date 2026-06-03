@@ -41,11 +41,11 @@ fn restore_realigns_sequences_so_new_inserts_dont_collide() {
     // values. We want the post-restore sequence reset to land at
     // MAX(id)+1, not at 1.
     for i in 0..3 {
-        insert_user(&mut *conn, &format!("seq-user-{i}"));
-        insert_stock_asset(&mut *conn, &format!("seq-asset-{i}"));
+        insert_user(&mut conn, &format!("seq-user-{i}"));
+        insert_stock_asset(&mut conn, &format!("seq-asset-{i}"));
     }
 
-    let assets_max_before = max_id(&mut *conn, "assets", "id");
+    let assets_max_before = max_id(&mut conn, "assets", "id");
     assert!(assets_max_before > 0, "seed should have advanced sequence");
 
     let job_id = seed_backup_job(&mut conn);
@@ -65,7 +65,7 @@ fn restore_realigns_sequences_so_new_inserts_dont_collide() {
 
     // Same max id post-restore: we just round-tripped the same
     // rows.
-    let assets_max_after = max_id(&mut *conn, "assets", "id");
+    let assets_max_after = max_id(&mut conn, "assets", "id");
     assert_eq!(
         assets_max_after, assets_max_before,
         "assets.id MAX changed across restore"
@@ -75,7 +75,7 @@ fn restore_realigns_sequences_so_new_inserts_dont_collide() {
     // explicit id must succeed. If reset_sequences left the
     // sequence at <= MAX(id), this would raise
     // duplicate_key_value.
-    let new_id = insert_stock_asset(&mut *conn, "post-restore canary");
+    let new_id = insert_stock_asset(&mut conn, "post-restore canary");
     assert!(
         new_id as i64 > assets_max_after,
         "new asset id ({new_id}) must be greater than pre-insert MAX ({assets_max_after})"
@@ -85,7 +85,7 @@ fn restore_realigns_sequences_so_new_inserts_dont_collide() {
     // selective-table sequence-reset regression. Comments has a
     // serial id and gets created by user fixtures via FK chains;
     // refresh_tokens is simpler.
-    let rt_max_before = max_id(&mut *conn, "refresh_tokens", "id");
+    let rt_max_before = max_id(&mut conn, "refresh_tokens", "id");
     // Inserts into refresh_tokens require a user reference, skip
     // the actual insert if the table is empty (no FK to use).
     // Just assert the sequence sits above MAX (would be the

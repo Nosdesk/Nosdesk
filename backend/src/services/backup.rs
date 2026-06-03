@@ -1239,7 +1239,7 @@ mod tests {
         let row = serde_json::json!({
             "uuid": uuid,
             "name": "Restored Alice",
-            "role": "user",
+            "platform_role": "user",
             "feature_flag_overrides": {},
             "mfa_enabled": false,
             "created_at": "2026-01-01T00:00:00",

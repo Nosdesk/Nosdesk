@@ -78,8 +78,7 @@ pub fn token_file_path() -> PathBuf {
     // Dedicated state directory, deliberately NOT under UPLOAD_DIR: the
     // uploads tree is the user-content blast radius, so isolating the
     // token keeps an upload path-traversal bug from reaching it.
-    let state_dir =
-        std::env::var("NOSDESK_STATE_DIR").unwrap_or_else(|_| "/app/state".to_string());
+    let state_dir = std::env::var("NOSDESK_STATE_DIR").unwrap_or_else(|_| "/app/state".to_string());
     PathBuf::from(state_dir).join("bootstrap.token")
 }
 

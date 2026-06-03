@@ -1524,6 +1524,15 @@ mod tests {
             // globally unique.
             "documentation_starred_pages_user_uuid_page_id_key",
             "documentation_subscriptions_user_uuid_page_id_key",
+            // Versioning child table keyed by (rule_id, version).
+            // rule_id is a SERIAL PK on rules (globally unique across
+            // the cluster, so it pins the workspace on its own) and
+            // rule_versions.workspace_id is denormalised from the
+            // parent purely for RLS, not identity. A composite
+            // (workspace_id, rule_id, version) would be redundant.
+            // Same shape as the documentation/article revision keys
+            // above.
+            "rule_versions_rule_id_version_key",
             // sync_actions.client_tx_id_idx is ON ONLY parent,
             // doesn't propagate to partitions. INSERTs route to
             // partitions, so the parent-only index doesn't

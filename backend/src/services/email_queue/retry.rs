@@ -45,7 +45,7 @@ const MAX_BACKOFF_SECS: i64 = 60 * 60;
 pub fn next_attempt_at(now: DateTime<Utc>, attempts: i32) -> DateTime<Utc> {
     let exp = attempts.clamp(1, 31) as u32; // saturate to avoid u32 overflow
     let raw_cap = BASE_BACKOFF_SECS.saturating_mul(1i64 << exp);
-    let cap = raw_cap.min(MAX_BACKOFF_SECS).max(1);
+    let cap = raw_cap.clamp(1, MAX_BACKOFF_SECS);
     let jittered = rand::thread_rng().gen_range(0..=cap);
     now + Duration::seconds(jittered)
 }

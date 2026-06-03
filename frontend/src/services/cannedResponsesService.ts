@@ -162,7 +162,13 @@ export function renderTemplate(template: string, vars: TemplateVars): string {
     tech_first_name: firstWord(vars.tech_name),
     app_name: vars.app_name ?? '',
   };
-  return template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+  // Whitespace-tolerant token match so `{{ ticket_id }}` and
+  // `{{ticket_id}}` substitute identically. Matches the backend
+  // substituter at backend/src/utils/template_variables.rs which
+  // the rules engine uses on apply; without this, a body authored
+  // with padded braces would preview unsubstituted on the agent
+  // dialog but render correctly when the rule is applied.
+  return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => {
     // `match` is the whole `{{key}}` token; fall back to leaving it
     // in place when the key isn't recognised (not `""`).
     return Object.prototype.hasOwnProperty.call(lookup, key) ? lookup[key] : match;

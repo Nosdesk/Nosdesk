@@ -515,8 +515,13 @@ async fn mark_totp_used(user_uuid: &Uuid, token: &str) {
     };
 
     let key = totp_replay_key(user_uuid, token);
-    // Set with 90-second TTL (TOTP validity window + clock drift tolerance)
-    let _: Result<(), _> = con.set_ex(&key, "1", 90).await;
+    // 120s TTL = the widened ±30s verifier window (90s of validity
+    // per code) plus one full TOTP step of margin for clock drift
+    // between the app server and Redis. A 90s TTL left the very
+    // end of the verifier window unprotected: the replay cache
+    // could evict at T+90 while verify_totp_token still accepted
+    // the same code through T+60 app-time.
+    let _: Result<(), _> = con.set_ex(&key, "1", 120).await;
 }
 
 /// Check if MFA should be required for a user based on OWASP recommendations
@@ -542,11 +547,8 @@ pub fn should_require_mfa(user_role: &UserRole) -> bool {
 /// distinguish via `anyhow` `chain()` if needed; in practice the
 /// caller surfaces both as a 5xx and tells the user to retry.
 pub async fn validate_mfa_policy(user: &User, conn: &mut crate::db::DbConnection) -> Result<()> {
-    let role = crate::repository::user_helpers::legacy_role_for_user(
-        conn,
-        user.uuid,
-        &user.platform_role,
-    );
+    let role =
+        crate::repository::user_helpers::legacy_role_for_user(conn, user.uuid, &user.platform_role);
     if !should_require_mfa(&role) || user.mfa_enabled {
         return Ok(());
     }
@@ -642,6 +644,71 @@ fn get_mfa_rate_limit_config() -> (u32, u64) {
         .unwrap_or(900); // Default: 900 seconds (15 minutes)
 
     (max_attempts, window_seconds)
+}
+
+/// Drop the user's MFA rate-limit bucket. Callers on the
+/// successful-enroll and successful-login branches should call this
+/// so a user who fumbled a few codes before getting it right
+/// doesn't carry that history into their next legitimate attempt.
+/// Best-effort: a Redis failure is logged but not surfaced (the
+/// caller has already succeeded; there's no user-facing error to
+/// raise).
+pub async fn clear_mfa_rate_limit(user_uuid: &Uuid) {
+    use crate::utils::rate_limit::RateLimiter;
+
+    let redis_url = crate::utils::rate_limit::get_redis_url();
+    let key = RateLimiter::mfa_attempt_key(user_uuid);
+    if let Err(e) = RateLimiter::clear_attempts(&redis_url, &key).await {
+        tracing::warn!(
+            user_uuid = %user_uuid,
+            error = %e,
+            "MFA rate-limit clear failed; bucket will expire naturally"
+        );
+    }
+}
+
+pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
+    use crate::utils::rate_limit::RateLimiter;
+
+    // Get configuration from environment
+    let (max_attempts, window_seconds) = get_mfa_rate_limit_config();
+
+    // Get Redis URL from environment
+    let redis_url = crate::utils::rate_limit::get_redis_url();
+
+    // Generate rate limit key for this user
+    let key = RateLimiter::mfa_attempt_key(user_uuid);
+
+    // Check the rate limit
+    match RateLimiter::check_rate_limit(&redis_url, &key, max_attempts, window_seconds).await {
+        Ok(allowed) => {
+            if !allowed {
+                tracing::warn!(
+                    "MFA rate limit exceeded for user {} ({} attempts in {} seconds)",
+                    user_uuid,
+                    max_attempts,
+                    window_seconds
+                );
+            }
+            allowed
+        }
+        Err(e) => {
+            tracing::error!("MFA rate limit check failed for user {}: {}", user_uuid, e);
+            // Fail-closed in production (security-critical), fail-open in development (convenience)
+            let is_production = std::env::var("ENVIRONMENT")
+                .map(|v| v.to_lowercase() == "production")
+                .unwrap_or(false);
+            if is_production {
+                tracing::warn!(
+                    "Denying MFA attempt due to rate limit check failure (fail-closed mode)"
+                );
+                false
+            } else {
+                tracing::warn!("Allowing MFA attempt due to rate limit check failure (fail-open mode in non-production)");
+                true
+            }
+        }
+    }
 }
 
 /// MFA rate limiting check using Redis
@@ -800,49 +867,5 @@ mod tests {
             "anything",
             "$argon2id$malformed"
         ));
-    }
-}
-
-pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
-    use crate::utils::rate_limit::RateLimiter;
-
-    // Get configuration from environment
-    let (max_attempts, window_seconds) = get_mfa_rate_limit_config();
-
-    // Get Redis URL from environment
-    let redis_url = crate::utils::rate_limit::get_redis_url();
-
-    // Generate rate limit key for this user
-    let key = RateLimiter::mfa_attempt_key(user_uuid);
-
-    // Check the rate limit
-    match RateLimiter::check_rate_limit(&redis_url, &key, max_attempts, window_seconds).await {
-        Ok(allowed) => {
-            if !allowed {
-                tracing::warn!(
-                    "MFA rate limit exceeded for user {} ({} attempts in {} seconds)",
-                    user_uuid,
-                    max_attempts,
-                    window_seconds
-                );
-            }
-            allowed
-        }
-        Err(e) => {
-            tracing::error!("MFA rate limit check failed for user {}: {}", user_uuid, e);
-            // Fail-closed in production (security-critical), fail-open in development (convenience)
-            let is_production = std::env::var("ENVIRONMENT")
-                .map(|v| v.to_lowercase() == "production")
-                .unwrap_or(false);
-            if is_production {
-                tracing::warn!(
-                    "Denying MFA attempt due to rate limit check failure (fail-closed mode)"
-                );
-                false
-            } else {
-                tracing::warn!("Allowing MFA attempt due to rate limit check failure (fail-open mode in non-production)");
-                true
-            }
-        }
     }
 }

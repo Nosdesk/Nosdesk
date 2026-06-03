@@ -82,7 +82,7 @@ fn restore_rejects_tampered_row_payload() {
         })
         .execute(&mut *conn)
         .expect("seed Alice");
-    let _ = insert_stock_asset(&mut *conn, "T-asset");
+    let _ = insert_stock_asset(&mut conn, "T-asset");
 
     let job_id = seed_backup_job(&mut conn);
     let backup_path =

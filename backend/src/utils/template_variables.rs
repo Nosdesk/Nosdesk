@@ -55,6 +55,27 @@ pub const AUTO_ACK_VARIABLES: &[&str] = &[
     "app_name",
 ];
 
+/// Variables the rules engine substitutes in a `reply` action's body
+/// when a rule is applied. Mirrors `CANNED_RESPONSE_VARIABLES` plus
+/// `agent_name` as an alias for `tech_name`: the synthesis (Phase 1
+/// decision 34) standardised on "Actions" / "agent" for the rules
+/// surface while keeping the legacy `tech_*` tokens for parity with
+/// canned responses, so admins copying a body between the two
+/// surfaces never see a save rejected for a typo'd token. Phase 2
+/// extends this list with event- and reply-scoped tokens; for v1
+/// the manual-trigger surface alone is in scope.
+pub const RULE_REPLY_VARIABLES: &[&str] = &[
+    "ticket_id",
+    "ticket_title",
+    "customer_name",
+    "customer_first_name",
+    "tech_name",
+    "tech_first_name",
+    "agent_name",
+    "agent_first_name",
+    "app_name",
+];
+
 /// Take the first whitespace-separated token of a full name.
 /// "Mary Jane Smith" → "Mary"; "Alex" → "Alex"; "" → "". Empty
 /// input returns empty; the substitute helper leaves an empty

@@ -29,6 +29,11 @@ export interface DashboardStatsHandle {
    *  to a skeleton. */
   isRefreshing: ComputedRef<boolean>
   isError: ComputedRef<boolean>
+  /** Force a refetch. Used by the dashboard's R-key refresh
+   *  affordance (RefreshButton in the chrome row); returns the
+   *  same shape Pinia Colada's `query.refetch()` returns so
+   *  callers can await it if they need to. */
+  refetch: () => Promise<unknown>
 }
 
 export const DASHBOARD_STATS_KEY: InjectionKey<DashboardStatsHandle> =
@@ -79,6 +84,7 @@ export function useDashboardStats(): DashboardStatsHandle {
       () => query.asyncStatus.value === 'loading' && query.data.value !== undefined,
     ),
     isError: computed(() => query.status.value === 'error'),
+    refetch: () => query.refetch(),
   }
 }
 

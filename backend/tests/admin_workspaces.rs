@@ -63,7 +63,11 @@ async fn admin_workspaces_lifecycle_contract() {
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);
 
-    let admin = mint_user(&mut pool.get().expect("conn"), "PlatformAdmin", UserRole::Admin);
+    let admin = mint_user(
+        &mut pool.get().expect("conn"),
+        "PlatformAdmin",
+        UserRole::Admin,
+    );
     let admin_token = common::mint_api_token(
         &mut pool.get().expect("conn"),
         &admin,
@@ -87,10 +91,7 @@ async fn admin_workspaces_lifecycle_contract() {
                     .wrap(actix_web::middleware::from_fn(dual_auth_middleware))
                     .route("", web::get().to(admin_workspaces::list_workspaces))
                     .route("", web::post().to(admin_workspaces::create_workspace))
-                    .route(
-                        "/{id}",
-                        web::patch().to(admin_workspaces::rename_workspace),
-                    )
+                    .route("/{id}", web::patch().to(admin_workspaces::rename_workspace))
                     .route(
                         "/{id}",
                         web::delete().to(admin_workspaces::hard_delete_workspace),

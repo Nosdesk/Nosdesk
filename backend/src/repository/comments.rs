@@ -169,9 +169,8 @@ pub fn create_comment_with_annotation(
                 crate::schema::users::table
                     .filter(crate::schema::users::uuid.eq(new_comment.user_uuid))
                     .filter(
-                        crate::schema::users::platform_role
-                            .eq("platform_admin")
-                            .or(diesel::dsl::exists(
+                        crate::schema::users::platform_role.eq("platform_admin").or(
+                            diesel::dsl::exists(
                                 crate::schema::workspace_members::table
                                     .filter(
                                         crate::schema::workspace_members::user_uuid
@@ -181,10 +180,12 @@ pub fn create_comment_with_annotation(
                                         crate::schema::workspace_members::workspace_id
                                             .eq(parent.workspace_id),
                                     )
-                                    .filter(crate::schema::workspace_members::role.eq_any(vec![
-                                        "owner", "admin", "agent",
-                                    ])),
-                            )),
+                                    .filter(
+                                        crate::schema::workspace_members::role
+                                            .eq_any(vec!["owner", "admin", "agent"]),
+                                    ),
+                            ),
+                        ),
                     ),
             ))
             .get_result::<bool>(conn)

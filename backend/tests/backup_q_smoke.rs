@@ -49,11 +49,11 @@ fn q_smoke_full_workspace_encrypted_round_trip() {
     with_upload_dir();
 
     // 5 users (one per "team member" the Q spec calls out).
-    let user_a = insert_user(&mut *conn, "Q Alice");
-    let user_b = insert_user(&mut *conn, "Q Bob");
-    let user_c = insert_user(&mut *conn, "Q Carol");
-    let user_d = insert_user(&mut *conn, "Q Dave");
-    let _user_e = insert_user(&mut *conn, "Q Eve");
+    let user_a = insert_user(&mut conn, "Q Alice");
+    let user_b = insert_user(&mut conn, "Q Bob");
+    let user_c = insert_user(&mut conn, "Q Carol");
+    let user_d = insert_user(&mut conn, "Q Dave");
+    let _user_e = insert_user(&mut conn, "Q Eve");
 
     // Workflow state default + SLA default + working calendar all
     // come from migrations - confirm they're present so we know the
@@ -64,9 +64,9 @@ fn q_smoke_full_workspace_encrypted_round_trip() {
     .get_result::<IdRow>(&mut *conn)
     .expect("migration-seeded default workflow state")
     .id;
-    assert!(count(&mut *conn, "sla_policies") >= 1, "SLA default seeded");
+    assert!(count(&mut conn, "sla_policies") >= 1, "SLA default seeded");
     assert!(
-        count(&mut *conn, "working_calendars") >= 1,
+        count(&mut conn, "working_calendars") >= 1,
         "working_calendars default seeded"
     );
 
@@ -88,7 +88,7 @@ fn q_smoke_full_workspace_encrypted_round_trip() {
         .id;
         ticket_ids.push(id);
     }
-    assert_eq!(count(&mut *conn, "tickets") as usize, 10);
+    assert_eq!(count(&mut conn, "tickets") as usize, 10);
 
     // One comment per ticket so the comments table has variety too.
     for (i, &tid) in ticket_ids.iter().enumerate() {
@@ -102,7 +102,7 @@ fn q_smoke_full_workspace_encrypted_round_trip() {
         .execute(&mut *conn)
         .expect("insert comment");
     }
-    assert_eq!(count(&mut *conn, "comments") as usize, 10);
+    assert_eq!(count(&mut conn, "comments") as usize, 10);
 
     // Branding: stamp a recognisable primary_color so we can assert
     // it survives the round-trip via a single field-read.
@@ -165,15 +165,15 @@ fn q_smoke_full_workspace_encrypted_round_trip() {
     );
 
     // Aggregate checks: every Q-spec category is intact.
-    assert!(count(&mut *conn, "users") >= 5, "5 seeded users survived");
-    assert_eq!(count(&mut *conn, "tickets") as usize, 10, "10 tickets");
-    assert_eq!(count(&mut *conn, "comments") as usize, 10, "10 comments");
+    assert!(count(&mut conn, "users") >= 5, "5 seeded users survived");
+    assert_eq!(count(&mut conn, "tickets") as usize, 10, "10 tickets");
+    assert_eq!(count(&mut conn, "comments") as usize, 10, "10 comments");
     assert!(
-        count(&mut *conn, "sla_policies") >= 1,
+        count(&mut conn, "sla_policies") >= 1,
         "SLA default still present"
     );
     assert!(
-        count(&mut *conn, "working_calendars") >= 1,
+        count(&mut conn, "working_calendars") >= 1,
         "working_calendars still present"
     );
 

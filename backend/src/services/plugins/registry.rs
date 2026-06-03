@@ -514,24 +514,26 @@ async fn fetch_and_verify(
     // here, so the only way this fires is if state.publishers_version
     // advanced past what this snapshot claims (a legit rollback
     // attempt or a regressed publisher pipeline).
-    if publishers.version <= state.publishers_version && state.publishers_version > 0 {
-        if publishers.version < state.publishers_version {
-            return Err(RegistryError::Rollback {
-                document: "publishers.json",
-                seen: state.publishers_version,
-                offered: publishers.version,
-            });
-        }
-        // Equal: allowed through for the no-op path above.
+    if publishers.version <= state.publishers_version
+        && state.publishers_version > 0
+        && publishers.version < state.publishers_version
+    {
+        return Err(RegistryError::Rollback {
+            document: "publishers.json",
+            seen: state.publishers_version,
+            offered: publishers.version,
+        });
     }
-    if index.version <= state.index_version && state.index_version > 0 {
-        if index.version < state.index_version {
-            return Err(RegistryError::Rollback {
-                document: "index.json",
-                seen: state.index_version,
-                offered: index.version,
-            });
-        }
+    // Equal: allowed through for the no-op path above.
+    if index.version <= state.index_version
+        && state.index_version > 0
+        && index.version < state.index_version
+    {
+        return Err(RegistryError::Rollback {
+            document: "index.json",
+            seen: state.index_version,
+            offered: index.version,
+        });
     }
 
     Ok((publishers, index))

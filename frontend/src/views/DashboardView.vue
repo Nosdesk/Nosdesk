@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, watch } from 'vue'
+import { computed, onMounted, provide, ref, watch, type ComponentPublicInstance } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardGreeting } from '@/composables/useDashboardGreeting'
@@ -11,7 +12,15 @@ import {
 import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
 import DashboardGrid from './dashboard/DashboardGrid.vue'
 import DashboardEditBar from './dashboard/DashboardEditBar.vue'
+import AnchorRail from './dashboard/AnchorRail.vue'
+import TimeRangeChipCluster from './dashboard/chrome/TimeRangeChipCluster.vue'
+import CompareToggle from './dashboard/chrome/CompareToggle.vue'
+import AnnotationsToggle from './dashboard/chrome/AnnotationsToggle.vue'
+import RefreshButton from './dashboard/chrome/RefreshButton.vue'
 import Icon from '@/components/common/Icon.vue'
+import { SECTIONS } from './dashboard/sections'
+import { useAnchorScroll } from '@/composables/useAnchorScroll'
+import { useDashboardKeybindings } from '@/composables/useDashboardKeybindings'
 
 const authStore = useAuthStore()
 const dashboardLayout = useDashboardLayoutStore()
@@ -21,7 +30,25 @@ const fluent = useFluent()
 // coordinator collects `dataNeeds` from active widgets and fires
 // one /api/dashboard/stats request that serves them all. Widgets
 // inject the handle via `useInjectedDashboardStats()`.
-provide(DASHBOARD_STATS_KEY, useDashboardStats())
+const dashboardStats = useDashboardStats()
+provide(DASHBOARD_STATS_KEY, dashboardStats)
+
+// Refresh timestamp: when the page last successfully re-fetched
+// its non-SSE data. Updates when the user clicks the refresh
+// button or presses R (registered by useDashboardKeybindings in
+// Wave 6+). Wave 1 stamps it on mount and on click; Wave 6 wires
+// up the per-widget refresh-on-event handling.
+const refreshedAt = ref<string | null>(null)
+function refreshPage(): void {
+  // Wave 1: the regular dashboard widgets re-fetch via
+  // useDashboardStats; bump the underlying query's refetch and
+  // stamp the timestamp so the RefreshButton's "Updated X ago"
+  // resets. Wave 4+ widgets that subscribe to chart endpoints
+  // each register their own refetch handler against this same
+  // event in later waves.
+  dashboardStats.refetch?.()
+  refreshedAt.value = new Date().toISOString()
+}
 
 // First name only; the greeting template substitutes `{0}`.
 // "Guest" fallback fires on the rare race where the dashboard
@@ -54,44 +81,121 @@ onMounted(() => dashboardLayout.loadFromUser())
 watch(() => authStore.user?.uuid, () => dashboardLayout.loadFromUser())
 
 function enterEditMode() {
-  dashboardLayout.editMode = true
+  dashboardLayout.beginEdit()
 }
 
+// Navigate-away guard: prompt the user to confirm if they're
+// leaving with pending edits. Discard semantics — they explicitly
+// chose to lose the changes — vs. cancel which keeps them on the
+// dashboard so they can hit Done.
+onBeforeRouteLeave((_to, _from, next) => {
+  if (!dashboardLayout.isDirty) {
+    next()
+    return
+  }
+  const confirmed = window.confirm(fluent.$t('dashboard-leave-confirm'))
+  if (confirmed) {
+    dashboardLayout.discard()
+    next()
+  } else {
+    next(false)
+  }
+})
+
 useCreateTicketAction()
+
+// Anchor rail integration: the rail (xl+) lists the canonical
+// SECTIONS and highlights the active one as the user scrolls. The
+// dashboard canvas seeds an H2 marker per section here (Wave 8) so
+// the rail's clicks land somewhere reasonable even before per-
+// section widget grouping ships.
+const anchorScroll = useAnchorScroll()
+function registerAnchor(id: string) {
+  // Vue's template ref accepts `unknown` so the runtime can pass
+  // either an Element (DOM) or a component instance. The
+  // anchor-scroll composable only needs an Element-or-null, so we
+  // narrow at the boundary and silently drop instance-shaped
+  // refs (the H2 only ever yields an Element).
+  return (el: Element | ComponentPublicInstance | null) => {
+    anchorScroll.register(id, el instanceof Element ? el : null)
+  }
+}
+
+useDashboardKeybindings({
+  anchorScroll,
+  onEditMode: enterEditMode,
+  onRefresh: refreshPage,
+})
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="flex flex-col gap-3 p-4 sm:px-6">
-      <!-- Greeting + edit affordance. The Edit button is a subtle
-           secondary, customising the dashboard is opt-in, not a
-           primary flow. -->
-      <header class="flex items-start justify-between gap-4">
-        <div>
-          <h2 class="text-lg sm:text-xl font-medium text-primary flex items-center gap-3">
-            <span v-if="currentTheme === 'red-horizon'" class="hal-eye flex-shrink-0" aria-hidden="true">
-              <span class="hal-eye-inner"></span>
-            </span>
-            <span>{{ formattedGreeting }}</span>
+    <!-- Two-column layout on xl+: AnchorRail (left, sticky) and the
+         canvas (right). Below xl the rail collapses (its `hidden
+         xl:flex` class) and the canvas owns the full width. -->
+    <div class="flex gap-6 p-4 sm:px-6">
+      <AnchorRail :anchor-scroll="anchorScroll" class="xl:w-40 xl:flex-shrink-0" />
+
+      <div class="flex flex-col gap-3 flex-1 min-w-0">
+        <!-- Chrome row: greeting (left), time-range + compare +
+             annotations + refresh + Edit (right). Stable across
+             every dashboard render; widget add / time-range
+             switches / refreshes act against the same header. -->
+        <header class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div class="min-w-0 flex-1">
+            <h2 class="text-lg sm:text-xl font-medium text-primary flex items-center gap-3">
+              <span v-if="currentTheme === 'red-horizon'" class="hal-eye flex-shrink-0" aria-hidden="true">
+                <span class="hal-eye-inner"></span>
+              </span>
+              <span>{{ formattedGreeting }}</span>
+            </h2>
+            <p class="text-xs text-secondary mt-0.5">
+              {{ subtitle }}
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <TimeRangeChipCluster />
+            <CompareToggle />
+            <AnnotationsToggle />
+            <RefreshButton
+              :updated-at="refreshedAt"
+              @refresh="refreshPage"
+            />
+            <button
+              v-if="!dashboardLayout.editMode"
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-md border border-default bg-surface px-2 py-1 text-xs text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
+              @click="enterEditMode"
+            >
+              <Icon name="rename" class="w-3.5 h-3.5" />
+              <span>{{ $t('dashboard-edit-button') }}</span>
+            </button>
+          </div>
+        </header>
+
+        <DashboardEditBar v-if="dashboardLayout.editMode" />
+
+        <!-- Section anchor markers. Each marker is the
+             IntersectionObserver target the AnchorRail tracks; the
+             visible H2 doubles as the in-canvas section heading so
+             scrolling top-to-bottom reads the same section
+             structure on rail-less viewports (< xl). The widget-
+             to-section assignment lands in a follow-up; for now
+             every marker sits above the single shared widget grid. -->
+        <div class="flex flex-col gap-2">
+          <h2
+            v-for="section in SECTIONS"
+            :key="section.id"
+            :id="section.id"
+            :ref="registerAnchor(section.id)"
+            class="text-xs uppercase tracking-wide text-tertiary font-semibold scroll-mt-20"
+          >
+            {{ $t(section.labelKey) }}
           </h2>
-          <p class="text-xs text-secondary mt-0.5">
-            {{ subtitle }}
-          </p>
         </div>
-        <button
-          v-if="!dashboardLayout.editMode"
-          type="button"
-          class="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-          @click="enterEditMode"
-        >
-          <Icon name="rename" />
-          {{ $t('dashboard-edit-button') }}
-        </button>
-      </header>
 
-      <DashboardEditBar v-if="dashboardLayout.editMode" />
-
-      <DashboardGrid v-if="authReady" />
+        <DashboardGrid v-if="authReady" />
+      </div>
     </div>
   </div>
 </template>

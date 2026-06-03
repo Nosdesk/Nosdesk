@@ -21,8 +21,14 @@
  *     even after widgets shift on screen — which prevents the cursor
  *     from chasing the moving preview.
  *   - Rect containment is the selector (full-widget target area,
- *     Fitts's-Law friendly). Within a target, X-midline splits
- *     before/after for horizontal-flow grids.
+ *     Fitts's-Law friendly). Within a target, the split axis is
+ *     viewport-aware: on multi-column layouts (>= Tailwind xl,
+ *     1280px) the X-midline splits before/after; on single-column
+ *     layouts (mobile and narrow desktop) the Y-midline splits.
+ *     Using the wrong axis at the wrong viewport produces the
+ *     "drop indicator chasing my cursor sideways" feel reported in
+ *     the interaction-model design pass — a horizontal-axis split
+ *     on a vertical list is meaningless.
  *   - Cursor in a gap between widgets: the last known target is
  *     retained so the preview doesn't flicker off.
  */
@@ -94,6 +100,7 @@ export function usePointerSortable(options: PointerSortableOptions) {
         frozenRects.push({ index: i, rect: el.getBoundingClientRect() })
       }
     }
+    multiColumnLayout = window.innerWidth >= MULTI_COLUMN_MIN_WIDTH
   }
 
   /** Widget rect containing (x, y), excluding the source. `null` if
@@ -123,10 +130,25 @@ export function usePointerSortable(options: PointerSortableOptions) {
     return chosen
   }
 
-  function applyTarget(fr: FrozenRect, cursorX: number) {
-    const midX = fr.rect.left + fr.rect.width / 2
+  /** Tailwind's `xl` breakpoint. Below this width the dashboard
+   *  grid collapses to a single column and a vertical drag is the
+   *  only meaningful axis; above it, the grid lays out 2–3 columns
+   *  and a horizontal split tells you which side of a neighbour
+   *  you're targeting. Cached once per drag (in `freezeRects`) so
+   *  the axis doesn't flip mid-gesture if the user happens to
+   *  resize during a drag. */
+  const MULTI_COLUMN_MIN_WIDTH = 1280
+  let multiColumnLayout = false
+
+  function applyTarget(fr: FrozenRect, cursorX: number, cursorY: number) {
     dragState.hoverIndex = fr.index
-    dragState.dropBefore = cursorX < midX
+    if (multiColumnLayout) {
+      const midX = fr.rect.left + fr.rect.width / 2
+      dragState.dropBefore = cursorX < midX
+    } else {
+      const midY = fr.rect.top + fr.rect.height / 2
+      dragState.dropBefore = cursorY < midY
+    }
   }
 
   function onPointerMove(e: PointerEvent) {
@@ -151,7 +173,7 @@ export function usePointerSortable(options: PointerSortableOptions) {
 
     const target = findTarget(e.clientX, e.clientY)
     if (target) {
-      applyTarget(target, e.clientX)
+      applyTarget(target, e.clientX, e.clientY)
       return
     }
 
@@ -199,7 +221,7 @@ export function usePointerSortable(options: PointerSortableOptions) {
     dragState.isDragging = true
     dragState.sourceIndex = index
     const first = findTarget(startPos.x, startPos.y)
-    if (first) applyTarget(first, startPos.x)
+    if (first) applyTarget(first, startPos.x, startPos.y)
     if (target && pointerId >= 0) {
       try {
         target.setPointerCapture(pointerId)

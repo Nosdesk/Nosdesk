@@ -39,13 +39,13 @@ fn round_trip_preserves_every_table_byte_for_byte() {
     // Seed user-data variety on top of the migration baseline.
     // Numeric (3dp BigDecimal), jsonb attributes, varchar, uuid
     // PK on users, custom enum (UserRole) — each exercised here.
-    let _kyle = insert_user(&mut *conn, "Kyle");
-    let pipe_id = insert_stock_asset(&mut *conn, "20mm copper pipe");
+    let _kyle = insert_user(&mut conn, "Kyle");
+    let pipe_id = insert_stock_asset(&mut conn, "20mm copper pipe");
 
-    assert!(count_table(&mut *conn, "users") >= 1);
-    assert!(count_table(&mut *conn, "assets") >= 1);
+    assert!(count_table(&mut conn, "users") >= 1);
+    assert!(count_table(&mut conn, "assets") >= 1);
 
-    let baseline = snapshot_all(&mut *conn);
+    let baseline = snapshot_all(&mut conn);
 
     let job_id = seed_backup_job(&mut conn);
     let backup_path: PathBuf = backup_service::create_backup(&mut conn, job_id, None)
@@ -76,7 +76,7 @@ fn round_trip_preserves_every_table_byte_for_byte() {
     // assertion would race against both by construction.
     const RACE_PRONE: &[&str] = &["backup_jobs", "audit_log"];
 
-    let after = snapshot_all(&mut *conn);
+    let after = snapshot_all(&mut conn);
     for (table, baseline_hash) in &baseline {
         if RACE_PRONE.contains(&table.as_str()) {
             continue;

@@ -26,8 +26,8 @@ use crate::models::{
 };
 use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
-use crate::sync::session::with_actor_context;
 use crate::sync::groups;
+use crate::sync::session::with_actor_context;
 
 /// The optimistic-lock token for one ticket: the workflow_state_id the
 /// client last saw. The merge aborts if any ticket's state has moved
@@ -114,12 +114,17 @@ impl std::fmt::Display for MergeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MergeError::EmptySources => write!(f, "no source tickets supplied"),
-            MergeError::SelfMerge(id) => write!(f, "ticket {id} is both a source and the destination"),
+            MergeError::SelfMerge(id) => {
+                write!(f, "ticket {id} is both a source and the destination")
+            }
             MergeError::AlreadyMerged(id) => write!(f, "ticket {id} is already merged"),
             MergeError::DestinationIsMerged => write!(f, "destination ticket is itself merged"),
             MergeError::CrossWorkspace(id) => write!(f, "ticket {id} is in a different workspace"),
             MergeError::RecurrenceParentDestination => {
-                write!(f, "destination is a recurrence parent and cannot absorb tickets")
+                write!(
+                    f,
+                    "destination is a recurrence parent and cannot absorb tickets"
+                )
             }
             MergeError::NotFound(id) => write!(f, "ticket {id} not found"),
             MergeError::StateConflict(_) => write!(f, "tickets changed since the merge was opened"),
@@ -231,11 +236,7 @@ pub fn execute_merge(
         if !input.expected_state.is_empty() {
             let mut diverged = Vec::new();
             let mut check = |t: &Ticket| {
-                if let Some(exp) = input
-                    .expected_state
-                    .iter()
-                    .find(|e| e.ticket_id == t.id)
-                {
+                if let Some(exp) = input.expected_state.iter().find(|e| e.ticket_id == t.id) {
                     if exp.workflow_state_id != t.workflow_state_id {
                         diverged.push(ExpectedState {
                             ticket_id: t.id,
@@ -266,12 +267,11 @@ pub fn execute_merge(
             .execute(conn)?;
 
         // Step 5: move comments (attachments ride along via comment_id).
-        let comments_moved = diesel::sql_query(
-            "UPDATE comments SET ticket_id = $1 WHERE ticket_id = ANY($2)",
-        )
-        .bind::<Integer, _>(target_id)
-        .bind::<Array<Integer>, _>(&source_array)
-        .execute(conn)?;
+        let comments_moved =
+            diesel::sql_query("UPDATE comments SET ticket_id = $1 WHERE ticket_id = ANY($2)")
+                .bind::<Integer, _>(target_id)
+                .bind::<Array<Integer>, _>(&source_array)
+                .execute(conn)?;
 
         // Step 6: reroute channel messages so future inbound replies
         // thread onto the destination.
@@ -303,10 +303,38 @@ pub fn execute_merge(
         // destination, then drop from the sources (closed records
         // shouldn't show on boards). Tags and doc links accumulate on
         // the destination; leaving them on the source is harmless.
-        union_then_clear(conn, "project_tickets", "project_id", target_id, &source_array, true)?;
-        union_then_clear(conn, "cycle_tickets", "cycle_id", target_id, &source_array, true)?;
-        union_then_clear(conn, "ticket_assets", "asset_id", target_id, &source_array, true)?;
-        union_then_clear(conn, "ticket_tags", "tag_id", target_id, &source_array, false)?;
+        union_then_clear(
+            conn,
+            "project_tickets",
+            "project_id",
+            target_id,
+            &source_array,
+            true,
+        )?;
+        union_then_clear(
+            conn,
+            "cycle_tickets",
+            "cycle_id",
+            target_id,
+            &source_array,
+            true,
+        )?;
+        union_then_clear(
+            conn,
+            "ticket_assets",
+            "asset_id",
+            target_id,
+            &source_array,
+            true,
+        )?;
+        union_then_clear(
+            conn,
+            "ticket_tags",
+            "tag_id",
+            target_id,
+            &source_array,
+            false,
+        )?;
         union_doc_links(conn, target_id, &source_array)?;
 
         // Step 8: rewrite the sources' OTHER ticket links onto the
@@ -548,10 +576,7 @@ fn build_marker(
         })
         .collect();
 
-    let mut lines = vec![format!(
-        "Merged {} ticket(s) into this one:",
-        sources.len()
-    )];
+    let mut lines = vec![format!("Merged {} ticket(s) into this one:", sources.len())];
     for s in sources {
         lines.push(format!("- #{}: \"{}\"", s.id, s.title));
     }
@@ -642,17 +667,21 @@ pub fn merge_history_for_ticket(
     use diesel::sql_types::{BigInt, Integer, Jsonb, Nullable, Text, Timestamptz, Uuid as SqlUuid};
 
     // Direction 1: this ticket as a source.
-    let row: Option<(Option<i32>, Option<chrono::NaiveDateTime>, Option<Uuid>, Option<String>)> =
-        tickets::table
-            .find(ticket_id)
-            .select((
-                tickets::merged_into_ticket_id,
-                tickets::merged_at,
-                tickets::merged_by_user_uuid,
-                tickets::merge_reason,
-            ))
-            .first(conn)
-            .optional()?;
+    let row: Option<(
+        Option<i32>,
+        Option<chrono::NaiveDateTime>,
+        Option<Uuid>,
+        Option<String>,
+    )> = tickets::table
+        .find(ticket_id)
+        .select((
+            tickets::merged_into_ticket_id,
+            tickets::merged_at,
+            tickets::merged_by_user_uuid,
+            tickets::merge_reason,
+        ))
+        .first(conn)
+        .optional()?;
 
     let merged_into = row.and_then(|(into, at, by, reason)| {
         into.map(|destination_id| MergedIntoInfo {
@@ -693,7 +722,11 @@ pub fn merge_history_for_ticket(
         .map(|r| {
             let source_ticket_ids = r.data["source_ticket_ids"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_i64().map(|n| n as i32)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_i64().map(|n| n as i32))
+                        .collect()
+                })
                 .unwrap_or_default();
             MergeEvent {
                 event_id: r.sync_id,
@@ -734,7 +767,9 @@ pub fn enqueue_merge_notifications(
         user_helpers,
     };
     use crate::services::channels::email_imap::ImapChannelConfig;
-    use crate::services::channels::threading::{format_outbound_message_id, format_outbound_subject};
+    use crate::services::channels::threading::{
+        format_outbound_message_id, format_outbound_subject,
+    };
 
     let settings = site_settings_repo::get_site_settings(conn)?;
     let locale = crate::utils::locale::effective_locale(None, &settings.default_locale);
@@ -851,8 +886,12 @@ mod tests {
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
         TestFixtures::create_comment(&mut conn, src.id, user.uuid, "from source");
 
-        let outcome =
-            execute_merge(&mut conn, input(dest.id, vec![src.id]), &actor_for(user.uuid)).unwrap();
+        let outcome = execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
 
         assert_eq!(outcome.comments_moved, 1);
         assert_eq!(outcome.merged_sources.len(), 1);
@@ -921,8 +960,8 @@ mod tests {
         let user = TestFixtures::create_user(&mut conn, "self", UserRole::User);
         let t = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
 
-        let err = execute_merge(&mut conn, input(t.id, vec![t.id]), &actor_for(user.uuid))
-            .unwrap_err();
+        let err =
+            execute_merge(&mut conn, input(t.id, vec![t.id]), &actor_for(user.uuid)).unwrap_err();
         assert!(matches!(err, MergeError::SelfMerge(id) if id == t.id));
     }
 
@@ -934,14 +973,23 @@ mod tests {
         let other = TestFixtures::create_ticket(&mut conn, "Other", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
 
-        execute_merge(&mut conn, input(dest.id, vec![src.id]), &actor_for(user.uuid)).unwrap();
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
 
         // Second merge of the now-merged source must be refused. This is
         // the same outcome a serialised concurrent merge produces: the
         // loser acquires the lock after the winner commits and sees the
         // merged state.
-        let err = execute_merge(&mut conn, input(other.id, vec![src.id]), &actor_for(user.uuid))
-            .unwrap_err();
+        let err = execute_merge(
+            &mut conn,
+            input(other.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap_err();
         assert!(matches!(err, MergeError::AlreadyMerged(id) if id == src.id));
     }
 
@@ -953,8 +1001,12 @@ mod tests {
 
         // A source id that does not resolve in this workspace. Under RLS
         // a cross-workspace ticket is likewise invisible and lands here.
-        let err = execute_merge(&mut conn, input(dest.id, vec![999_999]), &actor_for(user.uuid))
-            .unwrap_err();
+        let err = execute_merge(
+            &mut conn,
+            input(dest.id, vec![999_999]),
+            &actor_for(user.uuid),
+        )
+        .unwrap_err();
         assert!(matches!(err, MergeError::NotFound(999_999)));
     }
 
@@ -998,7 +1050,12 @@ mod tests {
         // Source-only watcher gets added to dest.
         add_watcher(&mut conn, src.id, only_src.uuid, false);
 
-        execute_merge(&mut conn, input(dest.id, vec![src.id]), &actor_for(owner.uuid)).unwrap();
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(owner.uuid),
+        )
+        .unwrap();
 
         use crate::schema::ticket_watchers::dsl as w;
         let shared_notify: bool = w::ticket_watchers
@@ -1027,7 +1084,12 @@ mod tests {
         let comment = TestFixtures::create_comment(&mut conn, src.id, user.uuid, "has file");
         let att = TestFixtures::create_attachment(&mut conn, comment.id, "f.pdf");
 
-        execute_merge(&mut conn, input(dest.id, vec![src.id]), &actor_for(user.uuid)).unwrap();
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
 
         use crate::schema::comments::dsl as c;
         let moved_ticket: i32 = c::comments
@@ -1074,8 +1136,12 @@ mod tests {
             .get_result(&mut conn)
             .unwrap();
 
-        let outcome =
-            execute_merge(&mut conn, input(dest.id, vec![src.id]), &actor_for(user.uuid)).unwrap();
+        let outcome = execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
         assert_eq!(outcome.channel_messages_rerouted, 1);
 
         let now_on: Option<i32> = cm::channel_messages
@@ -1104,7 +1170,12 @@ mod tests {
             .execute(&mut conn)
             .unwrap();
 
-        execute_merge(&mut conn, input(dest.id, vec![src.id]), &actor_for(user.uuid)).unwrap();
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
 
         let on_dest: i64 = p::project_tickets
             .filter(p::project_id.eq(project.id))
@@ -1134,7 +1205,12 @@ mod tests {
         crate::repository::linked_tickets::link_tickets(&mut conn, src.id, other.id).unwrap();
         crate::repository::linked_tickets::link_tickets(&mut conn, src.id, dest.id).unwrap();
 
-        execute_merge(&mut conn, input(dest.id, vec![src.id]), &actor_for(user.uuid)).unwrap();
+        execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
 
         use crate::schema::linked_tickets::dsl as l;
         // No edge references the source any more.
@@ -1164,9 +1240,15 @@ mod tests {
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
 
-        let outcome =
-            execute_merge(&mut conn, input(dest.id, vec![src.id]), &actor_for(user.uuid)).unwrap();
-        let corr = outcome.correlation_id.expect("actor carried a correlation id");
+        let outcome = execute_merge(
+            &mut conn,
+            input(dest.id, vec![src.id]),
+            &actor_for(user.uuid),
+        )
+        .unwrap();
+        let corr = outcome
+            .correlation_id
+            .expect("actor carried a correlation id");
 
         #[derive(diesel::QueryableByName)]
         struct C {

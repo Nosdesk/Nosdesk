@@ -442,7 +442,7 @@ pub async fn process_event(
     // the transaction because it may do network fetches (External
     // attachments) and storage writes, which shouldn't hold a DB row
     // lock for seconds at a time.
-    persist_attachments(conn, &ctx, comment.id, sender_uuid, &msg.attachments).await;
+    persist_attachments(conn, ctx, comment.id, sender_uuid, &msg.attachments).await;
 
     // Side effects (optional).
     if let Some(sse) = &ctx.sse {
@@ -809,12 +809,8 @@ fn insert_inbound_comment(
 /// collisions across messages with the same Message-ID are
 /// impossible.
 async fn store_raw_eml(ctx: &PipelineContext, msg: &InboundMessage) -> Option<String> {
-    let Some(storage) = ctx.storage.as_ref() else {
-        return None;
-    };
-    let Some(bytes) = msg.raw_bytes.as_ref() else {
-        return None;
-    };
+    let storage = ctx.storage.as_ref()?;
+    let bytes = msg.raw_bytes.as_ref()?;
 
     let safe_id: String = msg
         .external_id
