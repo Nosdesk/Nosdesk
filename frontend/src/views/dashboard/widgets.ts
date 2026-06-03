@@ -64,6 +64,17 @@ export interface WidgetDef {
   props?: Record<string, unknown>
   /** Column span inside the 3-col dashboard grid. */
   span: WidgetSpan
+  /**
+   * Row span on the fixed-unit grid lattice (1, 2, or 3 row units).
+   * The dashboard grid uses `grid-auto-rows: var(--dash-row-unit)` so
+   * every row is the same height; a widget's pixel height is
+   * `rowSpan` units (plus inter-unit gaps). When omitted it derives
+   * from `naturalHeight`: compact widgets (KPI tiles, glance panels)
+   * default to 1 unit, everything else to 2. Override explicitly for
+   * a widget that needs a taller or shorter footprint than its
+   * `naturalHeight` flag implies.
+   */
+  rowSpan?: WidgetSpan
   /** Which roles may use this widget. */
   roles: UserRole[]
   /**
@@ -135,6 +146,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     component: UserAssignedTickets,
     props: { limit: 10 },
     span: 2,
+    // 3 row units so the 10-item list isn't clipped at the default 2.
+    rowSpan: 3,
     roles: ['technician', 'admin'],
   },
   {
@@ -451,4 +464,26 @@ export function spanClass(span: WidgetSpan): string {
  *  (set via the resize control) wins, else the registry default. */
 export function effectiveSpanFor(entry: { id: string; span?: WidgetSpan }): WidgetSpan {
   return entry.span ?? widgetById(entry.id)?.span ?? 1
+}
+
+/** Tailwind class for a widget's row span on the fixed-unit lattice. */
+export function rowSpanClass(span: WidgetSpan): string {
+  switch (span) {
+    case 1:
+      return 'row-span-1'
+    case 2:
+      return 'row-span-2'
+    case 3:
+      return 'row-span-3'
+  }
+}
+
+/** Effective row span for a widget. Explicit `rowSpan` wins; otherwise
+ *  derive from `naturalHeight` — compact widgets are 1 unit tall, the
+ *  rest (lists, charts) are 2. Existing widgets need no data change:
+ *  the `naturalHeight` flag already partitions short from tall. */
+export function rowSpanFor(id: string): WidgetSpan {
+  const def = widgetById(id)
+  if (def?.rowSpan) return def.rowSpan
+  return def?.naturalHeight ? 1 : 2
 }

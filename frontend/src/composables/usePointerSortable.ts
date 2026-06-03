@@ -15,12 +15,14 @@
  *   - On successful drop the composable calls `onReorder(from, to)`.
  *   - The view DOES NOT reorder its rendered DOM during the drag.
  *     The DOM order stays equal to `visibleEntries`. The view layer
- *     uses `walkFlow` + `projectedTargetIndex` (see below) to build
+ *     uses `packGrid` + `projectedTargetIndex` (see below) to build
  *     a per-widget `transform: translate(dx, dy)` map that shifts
  *     widgets to their projected post-commit cells. CSS transitions
  *     on `transform` animate the slide. Keeping the DOM stable means
  *     pointer capture survives the drag and no FLIP machinery has to
- *     fight per-cursor-move re-renders.
+ *     fight per-cursor-move re-renders. The transforms are exact
+ *     because the grid is a fixed-unit lattice (`grid-auto-rows`), so
+ *     a lattice-cell delta maps to a constant pixel offset.
  *
  * State the view consumes:
  *   - `dragState.isDragging`, `sourceIndex`, `hoverIndex`, `dropBefore` —
@@ -409,47 +411,76 @@ export function usePointerSortable(options: PointerSortableOptions) {
 
 /** Minimum shape the projection helper needs from each visible
  *  entry: a stable original index (so the caller can compare it
- *  against `dragState.sourceIndex` / `hoverIndex`) and the entry's
- *  column span in the flow grid. */
+ *  against `dragState.sourceIndex` / `hoverIndex`) plus the entry's
+ *  column and row spans on the fixed-unit grid lattice. */
 export interface ProjectableEntry {
   originalIndex: number
   colSpan: number
+  rowSpan: number
 }
 
-/** A (row, col) cell in the flow grid, both 0-based. */
-export interface FlowCell {
+/** A (row, col) cell on the grid lattice, both 0-based and measured
+ *  in lattice units (not pixels). */
+export interface GridCell {
   row: number
   col: number
 }
 
 /**
- * Walk an entry list in column-flow order and assign each entry a
- * (row, col) cell, mirroring CSS grid `auto-flow` placement. Returns
- * a map keyed by `originalIndex`.
+ * Place entries onto a fixed-unit grid lattice, mirroring CSS
+ * `grid-auto-flow: row dense`: each entry takes the earliest
+ * (row-major, then column) free slot that fits its `colSpan` x
+ * `rowSpan` footprint without overlapping an already-placed entry.
+ * That backfill is what lets two short (rowSpan 1) widgets stack to
+ * the left of one tall (rowSpan 2) widget. Returns a map of
+ * `originalIndex` to its top-left lattice cell.
  *
- * Pure: the caller drives it from a Vue `computed()` for both the
- * original and projected lists, then differences the two to get a
- * per-widget pixel displacement.
+ * Pure: the caller runs it for both the original and projected entry
+ * orders and differences the two cells to get each widget's lattice
+ * displacement, which becomes an exact pixel transform because every
+ * lattice row is the same height (unlike the old `auto-rows-min`
+ * model where row height depended on content).
  */
-export function walkFlow(
+export function packGrid(
   entries: readonly ProjectableEntry[],
   cols: number,
-): Map<number, FlowCell> {
-  const out = new Map<number, FlowCell>()
+): Map<number, GridCell> {
+  const out = new Map<number, GridCell>()
   if (cols < 1) return out
-  let col = 0
-  let row = 0
-  for (const e of entries) {
-    const span = Math.max(1, Math.min(e.colSpan, cols))
-    if (col + span > cols) {
-      col = 0
-      row += 1
+
+  // Occupancy lattice, grown lazily one row at a time.
+  const occ: boolean[][] = []
+  const ensureRow = (r: number) => {
+    while (occ.length <= r) occ.push(new Array<boolean>(cols).fill(false))
+  }
+  const fits = (r: number, c: number, w: number, h: number): boolean => {
+    if (c + w > cols) return false
+    for (let i = r; i < r + h; i++) {
+      ensureRow(i)
+      for (let j = c; j < c + w; j++) if (occ[i][j]) return false
     }
-    out.set(e.originalIndex, { row, col })
-    col += span
-    if (col >= cols) {
-      col = 0
-      row += 1
+    return true
+  }
+  const occupy = (r: number, c: number, w: number, h: number) => {
+    for (let i = r; i < r + h; i++) {
+      ensureRow(i)
+      for (let j = c; j < c + w; j++) occ[i][j] = true
+    }
+  }
+
+  for (const e of entries) {
+    const w = Math.max(1, Math.min(e.colSpan, cols))
+    const h = Math.max(1, e.rowSpan)
+    let placed = false
+    for (let r = 0; !placed; r++) {
+      for (let c = 0; c + w <= cols; c++) {
+        if (fits(r, c, w, h)) {
+          occupy(r, c, w, h)
+          out.set(e.originalIndex, { row: r, col: c })
+          placed = true
+          break
+        }
+      }
     }
   }
   return out

@@ -35,13 +35,15 @@ Drag UX — "stable DOM, projected transforms":
 import { computed, ref, toRef, watch } from 'vue'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
 import {
+  packGrid,
   projectedTargetIndex,
   usePointerSortable,
-  walkFlow,
   type ProjectableEntry,
 } from '@/composables/usePointerSortable'
 import {
   effectiveSpanFor,
+  rowSpanClass,
+  rowSpanFor,
   spanClass,
   widgetById,
 } from './widgets'
@@ -82,17 +84,20 @@ const projectableEntries = computed<ProjectableEntry[]>(() =>
   visibleEntries.value.map(({ entry, originalIndex }) => ({
     originalIndex,
     colSpan: effectiveSpanFor(entry),
+    rowSpan: rowSpanFor(entry.id),
   })),
 )
 
-// Layout snapshot captured at drag-start. The pixel deltas needed
-// for transforms are computed from this; no per-cursor-move DOM
-// measurement runs.
+// Lattice metrics captured at drag-start. Because the grid is a
+// fixed-unit lattice (`grid-auto-rows: var(--dash-row-unit)`), a cell
+// delta maps to a constant pixel offset — no per-row content
+// measurement, so the projected transforms can't drift from the real
+// post-drop layout the way the old `auto-rows-min` snapshot did.
 interface LayoutSnapshot {
   colWidth: number
   colGap: number
   rowGap: number
-  rowHeights: number[]
+  rowUnit: number
 }
 
 const layoutSnapshot = ref<LayoutSnapshot | null>(null)
@@ -106,27 +111,10 @@ function captureLayoutSnapshot(): LayoutSnapshot | null {
   const rowGap = parseFloat(style.rowGap || style.gap || '0') || 0
   const cols = Math.max(1, dragState.renderedColumns)
   const colWidth = (gridRect.width - (cols - 1) * colGap) / cols
-
-  interface RowBounds { top: number; bottom: number }
-  const rows: RowBounds[] = []
-  const tolerance = 4
-  for (const child of Array.from(grid.children) as HTMLElement[]) {
-    if (!child.hasAttribute('data-sortable-index')) continue
-    const r = child.getBoundingClientRect()
-    const existing = rows.find((row) => Math.abs(row.top - r.top) < tolerance)
-    if (existing) {
-      existing.bottom = Math.max(existing.bottom, r.bottom)
-    } else {
-      rows.push({ top: r.top, bottom: r.bottom })
-    }
-  }
-  rows.sort((a, b) => a.top - b.top)
-  return {
-    colWidth,
-    colGap,
-    rowGap,
-    rowHeights: rows.map((r) => r.bottom - r.top),
-  }
+  // The lattice row height comes straight from the resolved
+  // `grid-auto-rows` track, which is the same for every row.
+  const rowUnit = parseFloat(style.gridAutoRows) || 0
+  return { colWidth, colGap, rowGap, rowUnit }
 }
 
 watch(
@@ -157,29 +145,22 @@ const transformMap = computed<Map<number, string>>(() => {
   projected.splice(to, 0, moved)
 
   const cols = Math.max(1, dragState.renderedColumns)
-  const origCells = walkFlow(entries, cols)
-  const projCells = walkFlow(projected, cols)
+  const origCells = packGrid(entries, cols)
+  const projCells = packGrid(projected, cols)
 
-  const rowDelta = (fromRow: number, toRow: number): number => {
-    if (fromRow === toRow) return 0
-    const dir = toRow > fromRow ? 1 : -1
-    let dy = 0
-    const lo = Math.min(fromRow, toRow)
-    const hi = Math.max(fromRow, toRow)
-    for (let r = lo; r < hi; r++) {
-      const h = snap.rowHeights[r] ?? snap.rowHeights[snap.rowHeights.length - 1] ?? 0
-      dy += h + snap.rowGap
-    }
-    return dy * dir
-  }
+  // Uniform lattice: a one-cell step is a constant pixel distance on
+  // each axis (track size + gap), so the transform exactly matches
+  // where the widget lands after the real reflow on drop.
+  const colPitch = snap.colWidth + snap.colGap
+  const rowPitch = snap.rowUnit + snap.rowGap
 
   for (const e of entries) {
     const orig = origCells.get(e.originalIndex)
     const proj = projCells.get(e.originalIndex)
     if (!orig || !proj) continue
     if (orig.row === proj.row && orig.col === proj.col) continue
-    const dx = (proj.col - orig.col) * (snap.colWidth + snap.colGap)
-    const dy = rowDelta(orig.row, proj.row)
+    const dx = (proj.col - orig.col) * colPitch
+    const dy = (proj.row - orig.row) * rowPitch
     map.set(e.originalIndex, `translate(${dx}px, ${dy}px)`)
   }
   return map
@@ -196,11 +177,12 @@ function styleFor(originalIndex: number) {
   <div
     ref="gridEl"
     :class="[
-      'grid grid-cols-1 xl:grid-cols-3 auto-rows-min transition-[gap] duration-150',
+      'grid grid-cols-1 xl:grid-cols-3 [grid-auto-flow:row_dense] [grid-auto-rows:var(--dash-row-unit)] transition-[gap] duration-150',
       gridGap,
       store.editMode && 'select-none',
       dragState.isDragging && 'cursor-grabbing',
     ]"
+    :style="{ '--dash-row-unit': '8.5rem' }"
   >
     <WidgetFrame
       v-for="{ entry, originalIndex } in visibleEntries"
@@ -216,7 +198,7 @@ function styleFor(originalIndex: number) {
       :frame-title-key="widgetById(entry.id)?.titleKey"
       :class="[
         spanClass(effectiveSpanFor(entry)),
-        widgetById(entry.id)?.naturalHeight ? 'self-start' : '',
+        rowSpanClass(rowSpanFor(entry.id)),
         'widget-projected',
       ]"
       :style="styleFor(originalIndex)"
