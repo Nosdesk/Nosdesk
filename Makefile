@@ -10,7 +10,7 @@
 
 COMPOSE := docker compose -f compose.yaml -f compose.dev.yaml
 
-.PHONY: dev dev-bg watch down clean restart restart-frontend migrate schema \
+.PHONY: dev dev-bg watch down clean clean-db restart restart-frontend migrate schema \
         test test-frontend logs logs-frontend shell psql mailpit token \
         install-hooks
 
@@ -43,6 +43,19 @@ clean:
 	@echo "Cancel with Ctrl-C in the next 5 seconds, or wait to proceed."
 	@sleep 5
 	$(COMPOSE) down -v
+
+# Wipe ONLY the postgres data volume. Keeps cargo cache + target dir,
+# node_modules, and uploads intact, so the next `make dev` boots
+# warm against a fresh database without paying the 3-5 minute cold
+# build penalty `make clean` triggers. Use when iterating on
+# migrations or onboarding flow.
+clean-db:
+	@echo "About to remove the postgres data volume. Cargo + node caches preserved."
+	@echo "Cancel with Ctrl-C in the next 5 seconds, or wait to proceed."
+	@sleep 5
+	$(COMPOSE) down
+	docker volume rm nosdesk_postgres_data
+	$(COMPOSE) up -d
 
 # Restart just the backend container. Common when bacon stops
 # rebuilding cleanly (it happens) or when you change something
