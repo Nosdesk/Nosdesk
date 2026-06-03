@@ -6,7 +6,7 @@ use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::extractors::{AuthContext, TenantConn};
+use crate::extractors::{AuthContext, TenantConn, WorkspaceContext};
 use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{
@@ -49,8 +49,10 @@ pub async fn get_collection(
     mut tc: TenantConn,
     path: web::Path<i32>,
     _auth: AuthContext,
+    ws: WorkspaceContext,
 ) -> impl Responder {
     let collection_id = path.into_inner();
+    let workspace_uuid = ws.workspace_uuid;
 
     let outcome = tc.run(|conn| {
         let collection =
@@ -60,7 +62,9 @@ pub async fn get_collection(
                 Err(_) => return Ok(CollectionFetchOutcome::Failed),
             };
         Ok::<_, diesel::result::Error>(CollectionFetchOutcome::Ok(collection_response(
-            conn, collection,
+            conn,
+            collection,
+            workspace_uuid,
         )))
     });
 
@@ -77,8 +81,10 @@ pub async fn get_collection_by_slug(
     mut tc: TenantConn,
     path: web::Path<String>,
     _auth: AuthContext,
+    ws: WorkspaceContext,
 ) -> impl Responder {
     let slug = path.into_inner();
+    let workspace_uuid = ws.workspace_uuid;
 
     let outcome = tc.run(|conn| {
         let collection =
@@ -88,7 +94,9 @@ pub async fn get_collection_by_slug(
                 Err(_) => return Ok(CollectionFetchOutcome::Failed),
             };
         Ok::<_, diesel::result::Error>(CollectionFetchOutcome::Ok(collection_response(
-            conn, collection,
+            conn,
+            collection,
+            workspace_uuid,
         )))
     });
 
@@ -102,11 +110,20 @@ pub async fn get_collection_by_slug(
 
 /// Build the JSON shape the FE expects. Pulls pages, visibility,
 /// and computes `is_public`. Hides the binary Yjs columns from
-/// the wire — the FE binds to the `collection-${id}` collab room
-/// to read them through the existing snapshot endpoint.
+/// the wire — the FE binds to the workspace-namespaced collab
+/// room (`ws-{uuid}_collection-{id}`) to read them through the
+/// existing snapshot endpoint.
+///
+/// `workspace_uuid` is threaded in from the request's
+/// WorkspaceContext so the emitted docId carries the same
+/// namespace the frontend would build itself; the matching
+/// invariants are documented in
+/// `frontend/src/utils/collabDocId.ts` and enforced by
+/// `collaboration.rs::DocumentType::from_namespaced_doc_id`.
 fn collection_response(
     conn: &mut crate::db::DbConnection,
     collection: crate::models::DocumentationCollection,
+    workspace_uuid: Uuid,
 ) -> serde_json::Value {
     let pages = repository::documentation_collections::get_pages_in_collection(conn, collection.id)
         .unwrap_or_default();
@@ -129,7 +146,7 @@ fn collection_response(
         "slug": collection.slug,
         "description": collection.description,
         "description_text": collection.description_text,
-        "description_doc_id": format!("collection-{}", collection.id),
+        "description_doc_id": format!("ws-{workspace_uuid}_collection-{}", collection.id),
         "hide_titles_from_non_members": collection.hide_titles_from_non_members,
         "icon": collection.icon,
         "color": collection.color,
@@ -175,12 +192,14 @@ pub async fn create_collection(
     mut tc: TenantConn,
     body: web::Json<CreateCollectionRequest>,
     auth: AuthContext,
+    ws: WorkspaceContext,
 ) -> impl Responder {
     if !auth.is_technician_or_admin() {
         return errors::forbidden("Forbidden");
     }
     let created_by = Some(auth.user_uuid);
     let body = body.into_inner();
+    let workspace_uuid = ws.workspace_uuid;
 
     // Generate slug from name if not provided
     let slug = body
@@ -215,7 +234,7 @@ pub async fn create_collection(
                 }
             }
         }
-        let payload = collection_response(conn, collection);
+        let payload = collection_response(conn, collection, workspace_uuid);
         Ok::<_, diesel::result::Error>(payload)
     });
 

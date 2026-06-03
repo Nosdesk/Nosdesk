@@ -9,6 +9,7 @@ import SectionCard from '@/components/common/SectionCard.vue';
 import Icon from '@/components/common/Icon.vue';
 import apiClient from '@/services/apiConfig';
 import { docUrl } from '@/utils/docUrl';
+import { useCollabDocId } from '@/composables/useCollabDocId';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -34,6 +35,11 @@ const emit = defineEmits<{
 const content = ref('');
 const router = useRouter();
 const isLoading = ref(false); // Editor syncs via WebSocket, no need to wait for HTTP load
+
+// Workspace-namespaced docId. Resolves to `null` until the
+// my-workspaces query lands; the editor is gated on a non-null
+// value below so we never hand a half-formed id to Yjs.
+const docId = useCollabDocId('ticket', () => props.ticketId);
 
 // Revision history state
 const showRevisionHistory = ref(false);
@@ -158,9 +164,10 @@ const handleConvertToDocumentation = async () => {
          opens / closes; no separate close affordance needed. -->
     <div class="flex-grow flex items-stretch w-full min-h-[300px]">
       <CollaborativeEditor
+        v-if="docId"
         ref="editorRef"
         v-model="content"
-        :doc-id="`ticket-${ticketId}`"
+        :doc-id="docId"
         :ticket-id="ticketId"
         :is-binary-update="true"
         :hide-revision-history="true"

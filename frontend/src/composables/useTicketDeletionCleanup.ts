@@ -35,8 +35,10 @@ import { unwrapEventData, type TicketDeletedEventData } from '@/types/sse'
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { useTicketDraftsStore } from '@/stores/ticketDrafts'
 import { useTicketUiStore } from '@/stores/ticketUi'
+import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { RECENT_TICKETS_KEY } from '@/stores/recentTickets'
 import { ticketDetailKey } from '@/loaders/ticketDetailLoader'
+import { buildCollabDocId } from '@/utils/collabDocId'
 
 export function useTicketDeletionCleanup(): void {
   const sse = useSSE()
@@ -46,6 +48,7 @@ export function useTicketDeletionCleanup(): void {
   const queryCache = useQueryCache()
   const router = useRouter()
   const route = useRoute()
+  const workspaces = useMyWorkspacesStore()
 
   const handler = (raw: unknown) => {
     const data = unwrapEventData(raw as TicketDeletedEventData)
@@ -53,8 +56,15 @@ export function useTicketDeletionCleanup(): void {
     if (typeof id !== 'number') return
 
     // Fire-and-forget; purgeData awaits IDB but we don't gate
-    // anything on it. Errors are logged inside the store.
-    void collab.purgeData(`ticket-${id}`)
+    // anything on it. Errors are logged inside the store. The
+    // docId is workspace-namespaced (see utils/collabDocId.ts)
+    // so the purge targets the same IDB key the live editor
+    // would have constructed — without the prefix this wipe would
+    // miss the cached doc entirely.
+    const uuid = workspaces.activeWorkspace?.workspace_uuid
+    if (uuid) {
+      void collab.purgeData(buildCollabDocId(uuid, 'ticket', id))
+    }
     drafts.clearDraft(id)
     ui.clearAttachments(id)
     ui.clearPluginActivations(id)

@@ -149,8 +149,100 @@ enum DocumentType {
     Collection(i32),
 }
 
+/// Result of parsing a workspace-namespaced doc_id. Carries both
+/// the resolved DocumentType AND the workspace UUID the caller
+/// claimed in the namespace prefix, so the caller can compare it
+/// against the request's WorkspaceContext.workspace_uuid and
+/// fail-fast on a cross-workspace request before opening the doc.
+///
+/// `document` is parsed today but unused by the WS handler that
+/// currently consumes the type — it's surfaced for the future
+/// "verify the row exists before opening the doc" check, and
+/// dropping it would force every caller to re-parse the resource
+/// half of the doc_id. The `#[allow(dead_code)]` is a deliberate
+/// reservation, not an unused-field oversight.
+#[derive(Debug, Clone)]
+struct ParsedDocId {
+    workspace_uuid: Uuid,
+    #[allow(dead_code)]
+    document: DocumentType,
+}
+
+/// Errors from parsing the workspace-namespaced doc_id. Each
+/// variant maps cleanly to the operator-facing log line + the
+/// HTTP status the caller should return.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DocIdParseError {
+    /// The doc_id didn't start with the `ws-{uuid}_` namespace
+    /// prefix. The legacy bare-id form (`ticket-N`) lands here so
+    /// stale clients failing to upgrade are surfaced loudly.
+    MissingNamespace,
+    /// The namespace was present but its UUID component didn't
+    /// parse as a canonical UUID.
+    InvalidWorkspaceUuid,
+    /// The resource handle after the namespace prefix didn't match
+    /// `ticket-N` / `doc-N` / `collection-N`.
+    InvalidResource,
+}
+
 impl DocumentType {
-    /// Parse doc_id format: "ticket-N", "doc-N", or "collection-N".
+    /// Parse a workspace-namespaced doc_id of the form
+    /// `ws-{workspace_uuid}_{kind}-{id}` (see
+    /// `frontend/src/utils/collabDocId.ts` for the matching builder).
+    ///
+    /// The namespace prefix is mandatory: it's the cache-key
+    /// component that orphans stale IndexedDB caches across a
+    /// database reset (the workspace UUID changes when the row is
+    /// recreated, so the new docId doesn't collide with the old
+    /// cache), AND the server-side guard the ws_handler uses to
+    /// reject a client requesting another workspace's docId.
+    fn from_namespaced_doc_id(doc_id: &str) -> Result<ParsedDocId, DocIdParseError> {
+        let after_ws = doc_id
+            .strip_prefix("ws-")
+            .ok_or(DocIdParseError::MissingNamespace)?;
+        // UUID is fixed-width 36 characters in canonical hyphenated
+        // form; the resource handle follows after a literal `_`.
+        // Split there rather than searching for any underscore so a
+        // hypothetical resource-handle change to `doc-foo_bar` would
+        // still parse the prefix correctly.
+        let separator = after_ws
+            .find('_')
+            .ok_or(DocIdParseError::MissingNamespace)?;
+        let (uuid_part, rest) = after_ws.split_at(separator);
+        let workspace_uuid =
+            Uuid::parse_str(uuid_part).map_err(|_| DocIdParseError::InvalidWorkspaceUuid)?;
+        // `rest` starts with the `_`; drop it before parsing the
+        // resource handle.
+        let resource = &rest[1..];
+        let document = if let Some(id_str) = resource.strip_prefix("ticket-") {
+            id_str
+                .parse::<i32>()
+                .map(DocumentType::Ticket)
+                .map_err(|_| DocIdParseError::InvalidResource)?
+        } else if let Some(id_str) = resource.strip_prefix("doc-") {
+            id_str
+                .parse::<i32>()
+                .map(DocumentType::Documentation)
+                .map_err(|_| DocIdParseError::InvalidResource)?
+        } else if let Some(id_str) = resource.strip_prefix("collection-") {
+            id_str
+                .parse::<i32>()
+                .map(DocumentType::Collection)
+                .map_err(|_| DocIdParseError::InvalidResource)?
+        } else {
+            return Err(DocIdParseError::InvalidResource);
+        };
+        Ok(ParsedDocId {
+            workspace_uuid,
+            document,
+        })
+    }
+
+    /// Legacy bare-id parser, kept until every consumer of the
+    /// document-content REST endpoint (which still routes through
+    /// `get_article_content` by the resource id alone) has been
+    /// audited. The collaboration WS path uses the namespaced
+    /// parser exclusively.
     fn from_doc_id(doc_id: &str) -> Option<Self> {
         if let Some(id_str) = doc_id.strip_prefix("ticket-") {
             id_str.parse::<i32>().ok().map(DocumentType::Ticket)
@@ -161,6 +253,52 @@ impl DocumentType {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod doc_id_tests {
+    use super::*;
+
+    #[test]
+    fn parses_ticket_doc_id() {
+        let docid = "ws-3f8e9d4c-1234-5678-9abc-def012345678_ticket-42";
+        let parsed = DocumentType::from_namespaced_doc_id(docid).expect("should parse");
+        assert_eq!(parsed.document, DocumentType::Ticket(42));
+        assert_eq!(
+            parsed.workspace_uuid,
+            Uuid::parse_str("3f8e9d4c-1234-5678-9abc-def012345678").unwrap()
+        );
+    }
+
+    #[test]
+    fn rejects_legacy_bare_id() {
+        let err = DocumentType::from_namespaced_doc_id("ticket-42").unwrap_err();
+        assert_eq!(err, DocIdParseError::MissingNamespace);
+    }
+
+    #[test]
+    fn rejects_malformed_uuid() {
+        let err = DocumentType::from_namespaced_doc_id("ws-not-a-uuid_ticket-42").unwrap_err();
+        assert_eq!(err, DocIdParseError::InvalidWorkspaceUuid);
+    }
+
+    #[test]
+    fn rejects_unknown_resource_kind() {
+        let err = DocumentType::from_namespaced_doc_id(
+            "ws-3f8e9d4c-1234-5678-9abc-def012345678_widget-1",
+        )
+        .unwrap_err();
+        assert_eq!(err, DocIdParseError::InvalidResource);
+    }
+
+    #[test]
+    fn parses_collection_doc_id() {
+        let parsed = DocumentType::from_namespaced_doc_id(
+            "ws-3f8e9d4c-1234-5678-9abc-def012345678_collection-7",
+        )
+        .unwrap();
+        assert_eq!(parsed.document, DocumentType::Collection(7));
     }
 }
 
@@ -1607,7 +1745,46 @@ pub async fn ws_handler(
         ));
     };
 
-    debug!(doc_id = %doc_id, user_uuid = %user_uuid, workspace_id = ws.workspace_id, "WebSocket authentication successful");
+    // Parse the workspace-namespaced doc_id and validate that its
+    // claimed workspace matches the WorkspaceContext the middleware
+    // resolved from this request. This is the cache-key + tenancy
+    // guard:
+    //
+    //   * Rejects legacy bare ids ("ticket-N"), so a stale client
+    //     that didn't refresh after the namespace migration fails
+    //     fast with a clear log line instead of silently sharing
+    //     the workspace-1 doc.
+    //   * Rejects cross-workspace requests under hosted multi-
+    //     tenancy: a tab cached against workspace A whose state
+    //     somehow constructs a `ws-{A_uuid}_...` docId after
+    //     navigating to workspace B can't accidentally read or
+    //     write workspace B's doc.
+    let parsed = match DocumentType::from_namespaced_doc_id(&doc_id) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(doc_id = %doc_id, error = ?e, "WebSocket doc_id parse failed");
+            return Err(actix_web::error::ErrorBadRequest(
+                "doc_id must be in the workspace-namespaced format ws-{uuid}_{kind}-{id}",
+            ));
+        }
+    };
+    if parsed.workspace_uuid != ws.workspace_uuid {
+        warn!(
+            doc_id = %doc_id,
+            requested_workspace_uuid = %parsed.workspace_uuid,
+            request_workspace_id = ws.workspace_id,
+            "WebSocket doc_id workspace mismatch — rejecting cross-tenant request"
+        );
+        return Err(actix_web::error::ErrorForbidden(
+            "doc_id workspace does not match the request workspace",
+        ));
+    }
+    debug!(
+        doc_id = %doc_id,
+        user_uuid = %user_uuid,
+        workspace_id = ws.workspace_id,
+        "WebSocket authentication + workspace check successful"
+    );
 
     // Hand off to actix-ws: returns (HttpResponse, Session, MessageStream).
     // The response is returned to the framework synchronously so the

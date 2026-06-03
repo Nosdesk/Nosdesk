@@ -16,12 +16,15 @@ import { formatCompactRelativeTime } from '@/utils/dateUtils'
 import UserAvatar from './UserAvatar.vue'
 import TicketStatusIcon from './TicketStatusIcon.vue'
 import { useCollabSessionStore } from '@/stores/collabSession'
+import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
+import { buildCollabDocId } from '@/utils/collabDocId'
 import type { UserInfo } from '@/types/user'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const collab = useCollabSessionStore()
+const workspaces = useMyWorkspacesStore()
 
 /**
  * Hover-prefetch the ticket's collaborative session: opens the
@@ -29,9 +32,16 @@ const collab = useCollabSessionStore()
  * disconnects on its own after the grace window if the user
  * hovers but doesn't navigate. No-op if the session is already
  * active or warm.
+ *
+ * Skipped silently when the active workspace UUID isn't resolved
+ * yet — pre-warming on an unresolved workspace would either build
+ * an invalid docId or guess wrong, neither of which is worth a
+ * pointless network handshake before the user has clicked.
  */
 function prewarmTicket() {
-  collab.warm(`ticket-${props.id}`)
+  const uuid = workspaces.activeWorkspace?.workspace_uuid
+  if (!uuid) return
+  collab.warm(buildCollabDocId(uuid, 'ticket', props.id))
 }
 
 const props = defineProps<{

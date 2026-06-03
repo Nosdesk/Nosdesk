@@ -8,6 +8,8 @@ import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useClipboard } from '@/composables/useClipboard'
 import { useDocumentPanelState } from '@/composables/useDocumentPanelState'
+import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
+import { buildCollabDocId } from '@/utils/collabDocId'
 import documentationService from '@/services/documentationService'
 import ticketService from '@/services/ticketService'
 import type { Page, Article } from '@/services/documentationService'
@@ -131,17 +133,30 @@ const documentObj = computed(() => {
   }
 })
 
-// Doc ID for CollaborativeEditor. Pages now own their Yjs doc
-// directly; the legacy "share the room with the originating
-// ticket" fallback is gone with the move to a many-to-many
-// page<->ticket join. Ticket notes still use the ticket room id.
+// Doc ID for CollaborativeEditor. Pages own their Yjs doc directly;
+// ticket notes share the room with the originating ticket. Both
+// share the workspace-namespaced docId format (see
+// utils/collabDocId.ts) so stale IDB caches across a database reset
+// can't repopulate the new doc.
+//
+// Returns `null` (rather than a fabricated default) until the
+// workspace UUID resolves. The editor render is gated below so the
+// user never sees a half-formed doc; documentation-new acts as
+// the local-only fallback for the brand-new-page wizard, where
+// there's nothing in Yjs to share yet.
+const workspaces = useMyWorkspacesStore()
 const docId = computed(() => {
+  const uuid = workspaces.activeWorkspace?.workspace_uuid
+  if (!uuid) return null
   if (isTicketNote.value && ticketId.value) {
-    return `ticket-${ticketId.value}`
+    return buildCollabDocId(uuid, 'ticket', ticketId.value)
   }
   if (document.value) {
-    return `doc-${document.value.id}`
+    return buildCollabDocId(uuid, 'doc', document.value.id)
   }
+  // Brand-new page wizard: no server doc yet, no IDB collision
+  // possible. The literal sentinel is fine because the editor
+  // doesn't try to sync this id with the server.
   return 'documentation-new'
 })
 
@@ -802,8 +817,11 @@ watch(documentObj, (newDocument) => {
               </div>
             </div>
 
-            <!-- Editor -->
+            <!-- Editor. Gated on a non-null docId so the workspace
+                 namespace has resolved before we hand the editor a
+                 string id. -->
             <CollaborativeEditor
+              v-if="docId"
               ref="editorRef"
               v-model="editContent"
               :doc-id="docId"
