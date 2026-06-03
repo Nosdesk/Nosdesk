@@ -238,22 +238,46 @@ impl DocumentType {
         })
     }
 
-    /// Legacy bare-id parser, kept until every consumer of the
-    /// document-content REST endpoint (which still routes through
-    /// `get_article_content` by the resource id alone) has been
-    /// audited. The collaboration WS path uses the namespaced
-    /// parser exclusively.
+    /// Extract just the DocumentType from a doc_id, accepting
+    /// either the namespaced form (`ws-{uuid}_{kind}-{id}`) or the
+    /// bare form (`{kind}-{id}`).
+    ///
+    /// The WS handler already validates the namespace at the
+    /// connection boundary; the internal callers (save, snapshot,
+    /// awareness, room tracking) just need to dispatch on the kind
+    /// + id and don't need to re-validate the workspace. Accepting
+    /// both forms here means a single change to the WS-handler-side
+    /// builder doesn't have to ripple through eight internal call
+    /// sites every time. The bare form is also still consumed by
+    /// the REST `get_article_content` endpoint at line 311 below.
     fn from_doc_id(doc_id: &str) -> Option<Self> {
-        if let Some(id_str) = doc_id.strip_prefix("ticket-") {
+        // Strip the workspace namespace prefix if present. The
+        // `ws-{uuid}_` shape is rejected by `from_namespaced_doc_id`
+        // at the WS handler boundary on invalid UUIDs, so by the
+        // time the doc_id reaches an internal caller the prefix is
+        // either well-formed or absent.
+        let resource = strip_workspace_namespace(doc_id).unwrap_or(doc_id);
+        if let Some(id_str) = resource.strip_prefix("ticket-") {
             id_str.parse::<i32>().ok().map(DocumentType::Ticket)
-        } else if let Some(id_str) = doc_id.strip_prefix("doc-") {
+        } else if let Some(id_str) = resource.strip_prefix("doc-") {
             id_str.parse::<i32>().ok().map(DocumentType::Documentation)
-        } else if let Some(id_str) = doc_id.strip_prefix("collection-") {
+        } else if let Some(id_str) = resource.strip_prefix("collection-") {
             id_str.parse::<i32>().ok().map(DocumentType::Collection)
         } else {
             None
         }
     }
+}
+
+/// Strip the `ws-{uuid}_` prefix from a doc_id and return the
+/// resource handle suffix, or `None` if the prefix isn't present.
+/// Used by `DocumentType::from_doc_id` so internal call sites
+/// don't have to know whether their doc_id arrived in the
+/// namespaced or bare form.
+fn strip_workspace_namespace(doc_id: &str) -> Option<&str> {
+    let after_ws = doc_id.strip_prefix("ws-")?;
+    let separator = after_ws.find('_')?;
+    Some(&after_ws[separator + 1..])
 }
 
 #[cfg(test)]
@@ -299,6 +323,34 @@ mod doc_id_tests {
         )
         .unwrap();
         assert_eq!(parsed.document, DocumentType::Collection(7));
+    }
+
+    /// Regression guard: every internal collab call site (save /
+    /// snapshot / awareness / room tracking) reads its doc_id
+    /// through `from_doc_id`; if that parser stopped accepting the
+    /// namespaced form, ticket-note saves would silently fail with
+    /// a "Cannot save - invalid document ID format" log line for
+    /// every save attempt. This test pins the contract that both
+    /// the namespaced and the bare forms resolve to the same
+    /// DocumentType.
+    #[test]
+    fn from_doc_id_accepts_both_namespaced_and_bare_forms() {
+        let bare = DocumentType::from_doc_id("ticket-42").unwrap();
+        let namespaced =
+            DocumentType::from_doc_id("ws-3f8e9d4c-1234-5678-9abc-def012345678_ticket-42").unwrap();
+        assert_eq!(bare, DocumentType::Ticket(42));
+        assert_eq!(namespaced, DocumentType::Ticket(42));
+        assert_eq!(bare, namespaced);
+
+        // Same coverage for the other two kinds.
+        assert_eq!(
+            DocumentType::from_doc_id("ws-3f8e9d4c-1234-5678-9abc-def012345678_doc-7"),
+            Some(DocumentType::Documentation(7))
+        );
+        assert_eq!(
+            DocumentType::from_doc_id("ws-3f8e9d4c-1234-5678-9abc-def012345678_collection-3"),
+            Some(DocumentType::Collection(3))
+        );
     }
 }
 
