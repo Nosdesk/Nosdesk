@@ -83,7 +83,7 @@ import {
     type MentionUser,
 } from "@/plugins/prosemirror-mentions";
 import { createMentionViewPlugin } from "@/plugins/prosemirror-mention-view";
-import userService from "@/services/userService";
+import { useUserMentionSearch } from "@/composables/useUserMentionSearch";
 
 // Yjs awareness user state structure
 interface AwarenessUser {
@@ -199,10 +199,22 @@ const mentionState = ref<MentionState>({
     to: 0,
     position: null,
 });
-const mentionUsers = ref<MentionUser[]>([]);
 const mentionSelectedIndex = ref(0);
-const isMentionSearching = ref(false);
-let mentionSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Reactive query: empty while no `@` mention is active, otherwise the
+// running query the ProseMirror plugin tracks. The composable watches
+// this ref and runs (with debounce + AbortController cancellation)
+// only when the value changes, so an idle editor costs nothing.
+const mentionQuery = computed(() =>
+    mentionState.value.active ? mentionState.value.query : '',
+);
+const { users: mentionUsers, isLoading: isMentionSearching } = useUserMentionSearch(
+    mentionQuery,
+    { limit: 8 },
+);
+watch(mentionUsers, () => {
+    mentionSelectedIndex.value = 0;
+});
 
 // Remove save status tracking since backend handles saves automatically
 
@@ -312,35 +324,11 @@ const mentionDropdownStyle = computed<Partial<Record<string, string>>>(() => {
     };
 });
 
-// Mention handlers
-const searchMentionUsers = async (query: string) => {
-    isMentionSearching.value = true;
-    try {
-        const result = await userService.getPaginatedUsers({
-            page: 1,
-            pageSize: 8,
-            search: query || undefined,
-        });
-        mentionUsers.value = result.data as MentionUser[];
-        mentionSelectedIndex.value = 0;
-    } catch (error) {
-        console.error('Failed to search users:', error);
-        mentionUsers.value = [];
-    } finally {
-        isMentionSearching.value = false;
-    }
-};
-
-const debouncedMentionSearch = (query: string) => {
-    if (mentionSearchTimer) clearTimeout(mentionSearchTimer);
-    mentionSearchTimer = setTimeout(() => searchMentionUsers(query), 150);
-};
-
+// Mention handlers. Updating mentionState reactively drives the
+// `mentionQuery` computed, which the composable watches; no explicit
+// fetch call needed here.
 const handleMentionStateChange = (state: MentionState) => {
     mentionState.value = state;
-    if (state.active) {
-        debouncedMentionSearch(state.query);
-    }
 };
 
 const selectMentionUser = (user: MentionUser) => {
@@ -863,8 +851,8 @@ const initEditor = async () => {
             }),
         });
 
-        // Load initial users for mentions
-        searchMentionUsers('');
+        // Initial mention users pre-warm via the composable's
+        // `immediate: true` watcher; no explicit prefetch needed.
 
         // 7. Set up connection status handler with enhanced logging
         // Store handler reference for proper cleanup
@@ -1817,11 +1805,8 @@ onBeforeUnmount(() => {
         visibilityTimeout = null;
     }
 
-    // Clear mention search timer
-    if (mentionSearchTimer) {
-        clearTimeout(mentionSearchTimer);
-        mentionSearchTimer = null;
-    }
+    // Mention search timer + AbortController teardown lives in the
+    // composable's onScopeDispose; nothing extra to clean up here.
 
     // Remove visibility change listener
     document.removeEventListener("visibilitychange", handleVisibilityChange);

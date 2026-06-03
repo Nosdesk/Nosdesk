@@ -34,7 +34,14 @@ class Logger {
     this.config = {
       minLevel: import.meta.env.PROD ? LogLevel.INFO : LogLevel.DEBUG,
       enableConsole: true,
-      enableRemote: import.meta.env.PROD,
+      // Remote flush deliberately off: `remoteLogger.ts` already
+      // mirrors console output (which this logger writes via
+      // `enableConsole`) to the backend through the existing
+      // /api/debug/frontend-logs path. A second forwarder pointing
+      // at the never-implemented /api/logs endpoint was producing
+      // a steady 404 in the network panel without adding any
+      // visibility. The v2 diagnostics pipeline replaces both.
+      enableRemote: false,
       remoteEndpoint: '/api/logs',
       bufferSize: 50,
       flushInterval: 5000,

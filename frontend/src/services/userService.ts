@@ -93,26 +93,53 @@ const userService = {
     }
   },
 
-  // Get paginated users with cancellation support
-  async getPaginatedUsers(params: UserPaginationParams, requestKey: string = 'paginated-users'): Promise<PaginatedResponse<User>> {
+  // Get paginated users with cancellation support.
+  //
+  // Two cancellation modes:
+  //   1. Caller-supplied `options.signal`: standard spec
+  //      AbortController flow. Cancellation surfaces as a native
+  //      `AbortError` and the internal `requestManager` is bypassed.
+  //      Used by composables that own their own controller (e.g.
+  //      `useUserMentionSearch`).
+  //   2. Legacy `requestKey` mode (default): `requestManager`
+  //      cancels the prior in-flight request that shares the same
+  //      key, and cancellations are re-thrown as the stringly-typed
+  //      `Error('REQUEST_CANCELLED')` sentinel. Preserved for older
+  //      call sites that haven't migrated.
+  async getPaginatedUsers(
+    params: UserPaginationParams,
+    requestKey: string = 'paginated-users',
+    options: { signal?: AbortSignal } = {},
+  ): Promise<PaginatedResponse<User>> {
+    if (options.signal) {
+      try {
+        const response = await apiClient.get('/users/paginated', {
+          params,
+          signal: options.signal,
+        });
+        return response.data;
+      } catch (error) {
+        if (axios.isCancel(error)) {
+          // Re-throw as the spec-compliant DOMException-style
+          // AbortError so callers can branch on `err.name`.
+          const aborted = new Error('Aborted');
+          aborted.name = 'AbortError';
+          throw aborted;
+        }
+        logger.error('Failed to fetch paginated users', { error, params });
+        throw error;
+      }
+    }
+
     try {
-      // Create cancellable request
       const controller = requestManager.createRequest(requestKey);
-      
-      const response = await apiClient.get(`/users/paginated`, { 
+      const response = await apiClient.get('/users/paginated', {
         params,
-        signal: controller.signal 
+        signal: controller.signal,
       });
-      
-      // Remove from active requests on success
       requestManager.cancelRequest(requestKey);
-      
       return response.data;
     } catch (error) {
-      // Cancellations short-circuit. RequestManager aborts the
-      // prior request when a new one shares this key, and Vue
-      // components abort on unmount; both surface here as axios
-      // cancels and aren't real errors.
       if (axios.isCancel(error)) {
         logger.debug('Request cancelled', { requestKey });
         throw new Error('REQUEST_CANCELLED');

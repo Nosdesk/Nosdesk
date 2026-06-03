@@ -11,7 +11,8 @@
  */
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useFluent } from 'fluent-vue';
-import userService from '@/services/userService';
+import { useUserMentionSearch } from '@/composables/useUserMentionSearch';
+import type { User } from '@/types/user';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
@@ -47,56 +48,15 @@ const showMentionDropdown = ref(false);
 const mentionQuery = ref('');
 const mentionStartPos = ref(0);
 const selectedIndex = ref(0);
-const isSearching = ref(false);
 
-interface User {
-  uuid: string;
-  name: string;
-  email?: string;
-  role?: string;
-  avatar_url?: string | null;
-  avatar_thumb?: string | null;
-}
-
-const users = ref<User[]>([]);
-
-// Debounce timer
-let searchTimer: ReturnType<typeof setTimeout> | null = null;
-
-// Search users
-const searchUsers = async (query: string) => {
-  isSearching.value = true;
-  try {
-    const result = await userService.getPaginatedUsers({
-      page: 1,
-      pageSize: 10,
-      search: query || undefined,
-    });
-    users.value = result.data;
-  } catch (error) {
-    console.error('Failed to search users:', error);
-    users.value = [];
-  } finally {
-    isSearching.value = false;
-  }
-};
-
-// Debounced search
-const debouncedSearch = (query: string) => {
-  if (searchTimer) {
-    clearTimeout(searchTimer);
-  }
-  searchTimer = setTimeout(() => {
-    searchUsers(query);
-  }, 200);
-};
-
-// Watch mention query
-watch(mentionQuery, (query) => {
-  if (showMentionDropdown.value) {
-    selectedIndex.value = 0;
-    debouncedSearch(query);
-  }
+// User-search lifecycle (debounce, AbortController-based cancellation,
+// teardown on unmount) lives in the composable. `mentionQuery` only
+// updates while the user is typing inside an active `@` token, so the
+// composable runs only when relevant. Reset the keyboard cursor when
+// fresh results land.
+const { users, isLoading: isSearching } = useUserMentionSearch(mentionQuery);
+watch(users, () => {
+  selectedIndex.value = 0;
 });
 
 // Handle input
@@ -246,18 +206,16 @@ const clear = () => {
   showMentionDropdown.value = false;
 };
 
-// Lifecycle
+// Lifecycle. The composable pre-warms the user list on mount via its
+// `immediate: true` watcher running with an empty mentionQuery, and
+// tears down its own debounce timer + AbortController on
+// onScopeDispose, so this hook only owns the click-outside listener.
 onMounted(() => {
   document.addEventListener('click', handleClickOutside);
-  // Initial load of users for quick suggestions
-  searchUsers('');
 });
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
-  if (searchTimer) {
-    clearTimeout(searchTimer);
-  }
 });
 
 // Expose methods

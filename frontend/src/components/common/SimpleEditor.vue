@@ -42,7 +42,7 @@ import {
   ellipsis,
 } from 'prosemirror-inputrules';
 import { DOMSerializer, DOMParser } from 'prosemirror-model';
-import userService from '@/services/userService';
+import { useUserMentionSearch } from '@/composables/useUserMentionSearch';
 import UserAvatar from '@/components/UserAvatar.vue';
 
 const props = withDefaults(defineProps<{
@@ -113,10 +113,21 @@ const mentionState = ref<MentionState>({
   to: 0,
   position: null,
 });
-const users = ref<MentionUser[]>([]);
 const selectedIndex = ref(0);
-const isSearching = ref(false);
-let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Reactive query: empty while no `@` mention is active, otherwise the
+// running query the ProseMirror plugin tracks. The composable watches
+// this ref and runs (with debounce + AbortController cancellation)
+// only when the value changes, so an idle dropdown costs nothing.
+const mentionQuery = computed(() =>
+  mentionState.value.active ? mentionState.value.query : '',
+);
+const { users, isLoading: isSearching } = useUserMentionSearch(mentionQuery, {
+  limit: 8,
+});
+watch(users, () => {
+  selectedIndex.value = 0;
+});
 
 // Dropdown position using fixed positioning for viewport awareness
 const dropdownStyle = computed<Partial<Record<string, string>>>(() => {
@@ -146,37 +157,11 @@ const dropdownStyle = computed<Partial<Record<string, string>>>(() => {
   };
 });
 
-// Search users
-const searchUsers = async (query: string) => {
-  isSearching.value = true;
-  try {
-    const result = await userService.getPaginatedUsers({
-      page: 1,
-      pageSize: 8,
-      search: query || undefined,
-    });
-    users.value = result.data as MentionUser[];
-    selectedIndex.value = 0;
-  } catch (error) {
-    console.error('Failed to search users:', error);
-    users.value = [];
-  } finally {
-    isSearching.value = false;
-  }
-};
-
-// Debounced search
-const debouncedSearch = (query: string) => {
-  if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => searchUsers(query), 150);
-};
-
-// Handle mention state changes from plugin
+// Handle mention state changes from plugin. Updating mentionState
+// reactively drives the `mentionQuery` computed, which the composable
+// watches; no explicit fetch call needed.
 const handleMentionStateChange = (state: MentionState) => {
   mentionState.value = state;
-  if (state.active) {
-    debouncedSearch(state.query);
-  }
 };
 
 // Select a user from the dropdown
@@ -271,12 +256,11 @@ function docToHtml(doc: any): string {
   return container.innerHTML;
 }
 
-// Initialize editor
+// Initialize editor. The user list pre-warms via the composable's
+// `immediate: true` watcher running once with the initial empty
+// query, so no explicit prefetch is needed here.
 onMounted(() => {
   if (!editorElement.value) return;
-
-  // Load initial users
-  searchUsers('');
 
   const state = EditorState.create({
     doc: htmlToDoc(props.modelValue),
@@ -358,7 +342,6 @@ watch(() => props.disabled, () => {
 });
 
 onUnmounted(() => {
-  if (searchTimer) clearTimeout(searchTimer);
   if (view) {
     view.destroy();
     view = null;
