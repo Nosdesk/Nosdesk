@@ -922,6 +922,7 @@ pub async fn search_public_docs(
 
 // ---------- Guest attachment upload ----------
 
+// audit-context-exempt: create_attachment writes the non-audited `attachments` table and its sync emit degrades gracefully on an unwrapped conn (sync_actions.workspace_id DEFAULTs to 1); no NDX01 risk. Hosted-mode guest attribution is a separate backlog item.
 /// POST /api/public/files/temp
 ///
 /// Unauthenticated single-file upload for guest ticket submissions. Stores
