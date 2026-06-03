@@ -57,23 +57,48 @@ export const getTickets = async (): Promise<Ticket[]> => {
 };
 
 // Get paginated tickets
-export const getPaginatedTickets = async (params: TicketPaginationParams, requestKey: string = 'paginated-tickets'): Promise<PaginatedResponse<Ticket>> => {
+/**
+ * Cancellation options for {@link getPaginatedTickets}.
+ *
+ * Precedence: an explicit `signal` (Pinia Colada hands one to every
+ * query and aborts it when the query key goes stale) means the query
+ * layer owns the lifecycle, so we don't double-manage it. Otherwise a
+ * caller-supplied `requestKey` routes through `requestManager` for the
+ * legacy "a new call cancels the previous same-key call" behaviour
+ * (ticket-list filter changes). With neither, the request fires with no
+ * cross-call cancellation. There is deliberately NO shared default key:
+ * one used to exist (`'paginated-tickets'`), and it made unrelated
+ * concurrent consumers — the profile view's assigned + requested lists,
+ * the dashboard's assigned + unassigned widgets — cancel each other.
+ */
+export interface PaginatedTicketsOptions {
+  signal?: AbortSignal;
+  requestKey?: string;
+}
+
+export const getPaginatedTickets = async (
+  params: TicketPaginationParams,
+  options: PaginatedTicketsOptions = {},
+): Promise<PaginatedResponse<Ticket>> => {
+  const usingManager = !options.signal && !!options.requestKey;
   try {
-    // Create cancellable request
-    const controller = requestManager.createRequest(requestKey);
+    const signal =
+      options.signal ??
+      (options.requestKey ? requestManager.createRequest(options.requestKey).signal : undefined);
 
-    const response = await apiClient.get('/tickets/paginated', {
-      params,
-      signal: controller.signal
-    });
-
+    const response = await apiClient.get('/tickets/paginated', { params, signal });
     return response.data;
   } catch (error) {
-    // Don't throw if request was cancelled
     const errorWithName = error as { name?: string };
     if (errorWithName.name === 'AbortError' || errorWithName.name === 'CanceledError') {
-      logger.debug('Request cancelled', { requestKey });
-      throw new Error('REQUEST_CANCELLED');
+      // Legacy requestManager callers expect the sentinel; Colada-signal
+      // callers get the original abort error so Colada recognises its own
+      // stale-query cancellation and doesn't surface it as an error.
+      if (usingManager) {
+        logger.debug('Request cancelled', { requestKey: options.requestKey });
+        throw new Error('REQUEST_CANCELLED');
+      }
+      throw error;
     }
     logger.error('Failed to fetch paginated tickets', { error, params });
     throw error;

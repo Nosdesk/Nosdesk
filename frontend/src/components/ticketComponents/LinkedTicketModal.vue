@@ -53,7 +53,7 @@ const loadTickets = async (page = 1, append = false) => {
       search: searchQuery.value || undefined,
       sortField: 'modified',
       sortDirection: 'desc'
-    }, `linked-ticket-modal-${page}`)
+    }, { requestKey: `linked-ticket-modal-${page}` })
 
     // Filter out current ticket and already linked tickets
     const excludeIds = new Set([

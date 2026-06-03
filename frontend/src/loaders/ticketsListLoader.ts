@@ -67,7 +67,7 @@ export const useTicketsListLoader = defineColadaLoader({
     // produced the My Queue → Triage flash on first mount.
     const savedViewsStore = useSavedViewsStore()
     const [firstPage, savedViewRows] = await Promise.all([
-      ticketService.getPaginatedTickets(params, 'tickets-loader-first-page'),
+      ticketService.getPaginatedTickets(params, { requestKey: 'tickets-loader-first-page' }),
       savedViewsService.list().catch(() => []),
     ])
     savedViewsStore.prime(null, savedViewRows)

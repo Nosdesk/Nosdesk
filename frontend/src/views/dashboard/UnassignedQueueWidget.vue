@@ -22,7 +22,7 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 // `loading` vs `refreshing` props.
 const { data, isPending, isLoading, error } = useQuery({
   key: ['tickets', 'unassigned-queue'],
-  query: async () => {
+  query: async ({ signal }) => {
     const res = await ticketService.getPaginatedTickets(
       {
         page: 1,
@@ -32,7 +32,7 @@ const { data, isPending, isLoading, error } = useQuery({
         sortField: 'created_at',
         sortDirection: 'asc',
       },
-      'dashboard-unassigned-queue',
+      { signal },
     )
     return res.data
   },

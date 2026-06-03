@@ -163,7 +163,7 @@ const queryKey = computed(
 const { data, isPending, isLoading, error } = useQuery({
     key: queryKey,
     enabled: () => !!targetUserUuid.value,
-    query: async () => {
+    query: async ({ signal }) => {
         // "active" collapses open + in-progress client-side (the
         // server status filter only matches a single status at a
         // time).
@@ -198,7 +198,7 @@ const { data, isPending, isLoading, error } = useQuery({
             queryParams.assignee = targetUserUuid.value;
         }
 
-        const response = await ticketService.getPaginatedTickets(queryParams);
+        const response = await ticketService.getPaginatedTickets(queryParams, { signal });
 
         let rows = response.data;
         if (config.status === "active") {
