@@ -279,8 +279,23 @@ user-menu-aria = User menu
 user-menu-view-profile = View Profile
 user-menu-account = Account
 user-menu-administration = Administration
+user-menu-report-problem = Report a problem
 user-menu-sign-out = Sign out
 user-menu-guest-name = Guest
+
+# In-app bug report modal. Workspace-local diagnostics; the data
+# never leaves the operator's deployment.
+bug-report-modal-title = Report a problem
+bug-report-modal-description-label = What happened?
+bug-report-modal-description-placeholder = e.g. tried to save a comment and saw a red banner; was on the assignee dropdown just before.
+bug-report-modal-description-hint = A sentence or two is plenty.
+bug-report-modal-attachments-hint = We attach the current page, build version, and the last few navigations and API calls. Stays inside this workspace.
+bug-report-modal-cancel = Cancel
+bug-report-modal-submit = Send report
+bug-report-success-toast-title = Report sent
+bug-report-success-toast-body = Thanks. An admin can find it in this workspace's diagnostics.
+bug-report-error-toast-title = Couldn't send report
+bug-report-error-toast-body = Try again in a moment.
 
 # Tickets list — empty states + bulk-action bar + chrome.
 ticket-list-empty-no-assigned-message = No tickets assigned to you.

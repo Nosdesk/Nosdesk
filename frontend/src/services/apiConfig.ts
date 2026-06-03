@@ -3,6 +3,8 @@ import { logger } from '@/utils/logger';
 import { createErrorFromResponse } from '@/utils/errors';
 import { ErrorTracker } from '@/utils/errorTracking';
 import { getSSEClientId } from '@/services/sseService';
+import { getSessionId as getDiagnosticsSessionId } from '@/services/diagnostics/session';
+import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs';
 
 // API Configuration with Structured Logging and Error Handling
 //
@@ -91,6 +93,11 @@ apiClient.interceptors.request.use(
     }
     config.headers['X-Correlation-ID'] = currentCorrelationId;
 
+    // Per-tab diagnostics session id. Backend tracing spans pick it
+    // up so `grep <session_id>` correlates a bug report's session to
+    // every backend request from the same tab.
+    config.headers['X-Nosdesk-Trace-Id'] = getDiagnosticsSessionId();
+
     // Add CSRF token to header for state-changing requests
     const csrfToken = getCsrfToken();
     if (csrfToken) {
@@ -142,6 +149,15 @@ apiClient.interceptors.response.use(
       setCorrelationId(correlationId);
     }
 
+    // Diagnostic breadcrumb. The pushApi helper filters /bug-reports
+    // and /auth/refresh internally so a report submission doesn't
+    // record itself, and the refresh ping doesn't drown the trail.
+    pushApiBreadcrumb(
+      response.config.method?.toUpperCase() ?? 'GET',
+      response.config.url ?? '',
+      response.status,
+    );
+
     // Verbose logging (development only)
     if (import.meta.env.DEV && localStorage.getItem('api-verbose-logging') === 'true') {
       logger.debug('API Response', {
@@ -170,6 +186,15 @@ apiClient.interceptors.response.use(
     }
 
     const correlationId = error.response?.headers['x-correlation-id'] || currentCorrelationId;
+
+    // Diagnostic breadcrumb on failure. Same allowlist filter as the
+    // success branch; status is the HTTP status if the response made
+    // it back, undefined for network/abort.
+    pushApiBreadcrumb(
+      error.config?.method?.toUpperCase() ?? 'GET',
+      error.config?.url ?? '',
+      error.response?.status,
+    );
 
     // Create typed error
     const appError = createErrorFromResponse(error);

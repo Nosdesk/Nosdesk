@@ -103,6 +103,15 @@ COPY frontend .
 # layout there.
 COPY i18n /i18n
 
+# Build_sha stamped into the bundle so bug reports can identify
+# which deployment a client was running. Passed in by the operator's
+# build pipeline via `--build-arg VITE_BUILD_SHA=$(git rev-parse --short HEAD)`.
+# Defaults to "unknown" if unset so the build never fails on a
+# missing arg. Placed after `npm ci` and the source COPY so
+# changing the SHA does not invalidate the dependency layer cache.
+ARG VITE_BUILD_SHA=unknown
+ENV VITE_BUILD_SHA=$VITE_BUILD_SHA
+
 # Build frontend for production (skip type checking for faster builds)
 RUN npm run build-only
 

@@ -11,7 +11,7 @@
  * delegate to `<Popover>` — same primitive every other dropdown
  * in the app uses.
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -19,6 +19,7 @@ import UserAvatar from './UserAvatar.vue'
 import Popover from './common/Popover.vue'
 import MenuList, { type MenuItem } from './common/MenuList.vue'
 import { ICON_REGISTRY } from './common/icons'
+import BugReportModal from './BugReportModal.vue'
 
 interface Props {
   showMenu: boolean
@@ -59,9 +60,12 @@ const items = computed<MenuItem[]>(() => {
   if (authStore.user?.role === 'admin') {
     out.push({ id: 'admin', label: fluent.$t('user-menu-administration'), icon: ICON_REGISTRY.admin.d })
   }
-  out.push({ id: 'logout', label: fluent.$t('user-menu-sign-out'), danger: true, divider: true })
+  out.push({ id: 'report-problem', label: fluent.$t('user-menu-report-problem'), icon: ICON_REGISTRY.warning.d, divider: true })
+  out.push({ id: 'logout', label: fluent.$t('user-menu-sign-out'), danger: true })
   return out
 })
+
+const bugReportOpen = ref(false)
 
 function handleProfileClick() {
   if (authStore.user) router.push(`/users/${authStore.user.uuid}`)
@@ -76,6 +80,9 @@ function handleSelect(id: string) {
       break
     case 'admin':
       router.push('/admin')
+      break
+    case 'report-problem':
+      bugReportOpen.value = true
       break
     case 'logout':
       try {
@@ -125,4 +132,6 @@ function handleSelect(id: string) {
 
     <MenuList :items="items" @select="handleSelect" />
   </Popover>
+
+  <BugReportModal :is-open="bugReportOpen" @close="bugReportOpen = false" />
 </template>

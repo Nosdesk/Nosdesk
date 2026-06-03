@@ -80,6 +80,8 @@ const ALLOWED_FIELDS: &[&str] = &[
     "requester_uuid",
     "state_id",
     "sync_id",
+    "bug_report_id",
+    "client_session_id",
     "ticket_id",
     "user_uuid",
     "webhook_id",
@@ -103,6 +105,8 @@ const ALLOWED_FIELDS: &[&str] = &[
     // counts, timings, structured outcomes. Cardinality is bounded;
     // values cannot leak user content.
     "attempt",
+    "build_sha",
+    "byte_count",
     "cancelled",
     "code",
     "count",
@@ -122,6 +126,28 @@ const ALLOWED_FIELDS: &[&str] = &[
     "span_id",
     "trace_id",
 ];
+
+// ALLOWED_FIELDS naming convention.
+//
+// This allowlist is a single flat global namespace: a field name added
+// here turns that field from `<redacted>` to cleartext for EVERY
+// subsystem that emits it, not just the one motivating the addition.
+// Generic names like `session_id` therefore have cross-subsystem blast
+// radius: adding `session_id` for one feature would un-redact the Yjs
+// WebSocket session id, the WebAuthn / passkey ceremony id, and any
+// other "session id" field anywhere in the codebase.
+//
+// Convention: when the value is subsystem-specific, prefix the field
+// name with a subsystem qualifier instead of using the bare name.
+// `client_session_id` (browser tab session) is allowed; bare
+// `session_id` (used by passkeys, collaboration) is not. The same
+// rule applies to any other generic identifier where one subsystem's
+// risk profile differs from another's.
+//
+// Target-scoped allowlisting (allow `session_id` only for events
+// emitted under a specific tracing target) is a cleaner architectural
+// answer and is deferred to a future Layer rework; until then,
+// namespacing the field name is the load-bearing discipline.
 
 /// Custom JSON-emitting `tracing::Layer` with field allowlist.
 ///
@@ -333,6 +359,10 @@ mod tests {
             "request_id",
             "span_id",
             "trace_id",
+            "bug_report_id",
+            "build_sha",
+            "byte_count",
+            "client_session_id",
         ] {
             assert!(is_allowed(name), "expected `{name}` in allowlist");
         }
@@ -373,6 +403,11 @@ mod tests {
             "ip_address",
             "user_agent",
             "host",
+            // Subsystem-generic identifiers that must STAY redacted at
+            // the bare name. Subsystems prefix the field
+            // (`client_session_id`, etc.) instead. See the
+            // ALLOWED_FIELDS naming-convention comment above.
+            "session_id",
             // Credentials.
             "password",
             "token",

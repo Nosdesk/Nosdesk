@@ -1060,6 +1060,15 @@ router.beforeEach(checkOnboarding);
 router.beforeEach(checkAuthentication);
 router.beforeEach(checkAdminAccess);
 
+// Diagnostic breadcrumb on every successful navigation. Uses
+// `to.path` (no query/fragment) and scrubUrl masks UUID segments
+// inside the breadcrumbs helper, so reset tokens and OAuth fragments
+// never enter the ring.
+import { pushRoute as pushRouteBreadcrumb } from '@/services/diagnostics/breadcrumbs'
+router.afterEach((to) => {
+  pushRouteBreadcrumb(to.path)
+})
+
 router.onError((_error) => {
   router.push({
     name: 'error',

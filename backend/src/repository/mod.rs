@@ -8,6 +8,7 @@ pub mod assets;
 pub mod assignment_rules;
 pub mod audit;
 pub mod audit_log;
+pub mod bug_reports;
 pub mod canned_responses;
 pub mod categories;
 pub mod channels;

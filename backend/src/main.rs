@@ -1822,6 +1822,11 @@ async fn main() -> std::io::Result<()> {
                     .route("/notifications/preferences", web::put().to(handlers::notifications::update_preference))
                     .route("/notifications/delete", web::post().to(handlers::notifications::delete_notifications))
 
+                    // ===== BUG REPORTS =====
+                    // User-submitted from the in-app "Report a problem" modal.
+                    // Workspace-scoped via the standard TenantConn flow.
+                    .route("/bug-reports", web::post().to(handlers::bug_reports::create_bug_report))
+
                     // ===== TICKET MANAGEMENT =====
                     .route("/tickets", web::get().to(handlers::get_tickets))
                     .route("/tickets/paginated", web::get().to(handlers::get_paginated_tickets))

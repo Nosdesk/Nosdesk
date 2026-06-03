@@ -25,6 +25,11 @@ export default defineConfig({
     __VUE_OPTIONS_API__: true,
     __VUE_PROD_TIPS__: false,
     __VUE_DEVTOOLS_GLOBAL_HOOK__: "window.__VUE_DEVTOOLS_GLOBAL_HOOK__",
+    // Stamped at build time so a bug report can name which bundle
+    // the client was running. Falls back to "dev" when the build
+    // arg is unset (local `vite build --watch` in the dev compose
+    // stack). Read from `import.meta.env.VITE_BUILD_SHA`.
+    "import.meta.env.VITE_BUILD_SHA": JSON.stringify(process.env.VITE_BUILD_SHA ?? 'dev'),
   },
   // Optimize dependency pre-bundling
   optimizeDeps: {

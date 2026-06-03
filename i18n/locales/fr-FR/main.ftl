@@ -223,8 +223,21 @@ user-menu-aria = Menu utilisateur
 user-menu-view-profile = Voir le profil
 user-menu-account = Compte
 user-menu-administration = Administration
+user-menu-report-problem = Signaler un problème
 user-menu-sign-out = Se déconnecter
 user-menu-guest-name = Invité
+
+bug-report-modal-title = Signaler un problème
+bug-report-modal-description-label = Que s'est-il passé ?
+bug-report-modal-description-placeholder = ex. j'ai essayé d'enregistrer un commentaire et j'ai vu une bannière rouge ; j'étais sur le menu de l'assigné juste avant.
+bug-report-modal-description-hint = Une ou deux phrases suffisent.
+bug-report-modal-attachments-hint = Nous joignons la page actuelle, la version du build, et les dernières navigations et appels API. Tout reste dans cet espace de travail.
+bug-report-modal-cancel = Annuler
+bug-report-modal-submit = Envoyer le rapport
+bug-report-success-toast-title = Rapport envoyé
+bug-report-success-toast-body = Merci. Un administrateur peut le retrouver dans le diagnostic de cet espace.
+bug-report-error-toast-title = Impossible d'envoyer le rapport
+bug-report-error-toast-body = Veuillez réessayer dans un instant.
 
 # Tickets — états vides + barre d'actions groupées.
 ticket-list-empty-no-assigned-message = Aucun ticket ne vous est assigné.

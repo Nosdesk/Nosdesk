@@ -220,8 +220,21 @@ user-menu-aria = Gebruikersmenu
 user-menu-view-profile = Profiel bekijken
 user-menu-account = Account
 user-menu-administration = Beheer
+user-menu-report-problem = Probleem melden
 user-menu-sign-out = Afmelden
 user-menu-guest-name = Gast
+
+bug-report-modal-title = Probleem melden
+bug-report-modal-description-label = Wat is er gebeurd?
+bug-report-modal-description-placeholder = bv. ik probeerde een reactie op te slaan en kreeg een rode banner; stond net daarvoor op het menu voor toewijzing.
+bug-report-modal-description-hint = Een of twee zinnen zijn genoeg.
+bug-report-modal-attachments-hint = We voegen de huidige pagina, de buildversie, en de laatste navigaties en API-aanroepen toe. Blijft binnen deze werkruimte.
+bug-report-modal-cancel = Annuleren
+bug-report-modal-submit = Rapport verzenden
+bug-report-success-toast-title = Rapport verzonden
+bug-report-success-toast-body = Bedankt. Een beheerder kan het terugvinden in het diagnostieklogboek van deze werkruimte.
+bug-report-error-toast-title = Kan rapport niet verzenden
+bug-report-error-toast-body = Probeer het zo opnieuw.
 
 # Tickets — lege staten + bulkactiebalk.
 ticket-list-empty-no-assigned-message = Geen tickets aan u toegewezen.

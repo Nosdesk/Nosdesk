@@ -13,6 +13,7 @@ pub mod auth;
 pub mod auth_providers;
 pub mod backup;
 pub mod branding;
+pub mod bug_reports;
 pub mod canned_responses;
 pub mod categories;
 pub mod channels;
