@@ -20,8 +20,10 @@
 
 pub mod error;
 pub mod outcome;
+pub mod pipeline;
 pub mod retry;
 
 pub use error::{Classification, MsGraphSyncError, NetworkErrorKind};
 pub use outcome::{EntityKind, EntityOutcome, ItemFailure, SyncOutcome};
+pub use pipeline::{log_outcome_summary, record_failure};
 pub use retry::{with_retry, RetryConfig};

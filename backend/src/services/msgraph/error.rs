@@ -276,6 +276,59 @@ impl From<serde_json::Error> for MsGraphSyncError {
     }
 }
 
+/// Thin `std::error::Error` wrapper around a `String`. Used by the
+/// `From<String> for MsGraphSyncError` impl so legacy call sites
+/// whose inner error type is just `Result<_, String>` can flow
+/// through the typed pipeline without losing the original message.
+/// Display of `MsGraphSyncError::Mapping` itself never includes this
+/// string — only the source chain does — so a future PR can pivot
+/// the legacy site to a more specific variant (HttpPermanent,
+/// DbConflict, ...) by reading the source's classification.
+#[derive(Debug)]
+struct OpaqueStringError(String);
+
+impl fmt::Display for OpaqueStringError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for OpaqueStringError {}
+
+impl From<String> for MsGraphSyncError {
+    fn from(msg: String) -> Self {
+        Self::Mapping {
+            hint: "legacy string error",
+            source: Some(Box::new(OpaqueStringError(msg))),
+        }
+    }
+}
+
+impl From<&str> for MsGraphSyncError {
+    fn from(msg: &str) -> Self {
+        Self::from(msg.to_string())
+    }
+}
+
+impl From<anyhow::Error> for MsGraphSyncError {
+    /// Generic fallback for legacy call sites whose inner error type
+    /// has already been erased through `anyhow`. Maps to `Mapping`
+    /// (Permanent classification) since by the time we've lost
+    /// type info we can't safely retry; future PRs that need
+    /// retry on a specific site should add a typed variant + a
+    /// matching From impl above this fallback.
+    fn from(err: anyhow::Error) -> Self {
+        // anyhow::Error -> Box<dyn Error> uses the standard impl
+        // anyhow ships; we wrap in Option since `Mapping.source` is
+        // optional to support the "we know the hint but the source
+        // is gone" call site (rare, but valid).
+        Self::Mapping {
+            hint: "legacy anyhow error",
+            source: Some(Into::<Box<dyn std::error::Error + Send + Sync>>::into(err)),
+        }
+    }
+}
+
 impl From<diesel::result::Error> for MsGraphSyncError {
     fn from(source: diesel::result::Error) -> Self {
         use diesel::result::{DatabaseErrorKind as Dk, Error as De};
