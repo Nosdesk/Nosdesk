@@ -619,6 +619,19 @@ struct SessionInfo {
     /// registry on add / remove so the registry can deduplicate
     /// multi-tab.
     user_uuid: Uuid,
+    /// Yjs `clientID` (sniffed from the first inbound awareness
+    /// frame; see `process_inbound_binary`). `None` until the
+    /// client has sent at least one awareness update — which is
+    /// the case for the initial handshake before the cursor lands.
+    ///
+    /// `cleanup_stale_sessions` reads this so it can call
+    /// `Awareness::remove_state` and broadcast the tombstone
+    /// update before dropping the session row. Without it, a
+    /// stale session would vanish from the in-memory map but
+    /// its Yjs awareness state would persist until the next
+    /// peer-side timeout (~30s on the JS client, indefinite on
+    /// yrs peers), surfacing as ghost cursors for other viewers.
+    yjs_client_id: Option<u64>,
 }
 
 type RoomSessions = HashMap<DocumentId, HashMap<SessionId, SessionInfo>>;
@@ -1126,13 +1139,18 @@ impl YjsAppState {
             .entry(doc_id.to_string())
             .or_insert_with(HashMap::new);
 
-        // Add this session to the room with current timestamp
+        // Add this session to the room with current timestamp. The
+        // Yjs `clientID` is initially `None` and gets filled in by
+        // `set_session_yjs_client_id` on the first inbound
+        // awareness frame from this session — see the sniff at the
+        // top of `process_inbound_binary`.
         room.insert(
             session_id.to_string(),
             SessionInfo {
                 tx,
                 last_active: Instant::now(),
                 user_uuid,
+                yjs_client_id: None,
             },
         );
         let room_size = room.len();
@@ -1181,6 +1199,21 @@ impl YjsAppState {
             (touched_user, DocumentType::from_doc_id(doc_id))
         {
             self.presence.touch_session(user_uuid, ticket_id);
+        }
+    }
+
+    /// Record the Yjs `clientID` for a known session so the stale
+    /// sweep can later call `Awareness::remove_state` for it. The
+    /// id is sniffed from the first awareness frame the client
+    /// sends; before that the field is `None` (an unfilled awareness
+    /// state on a stale session does no harm — the JS peer's own
+    /// 30s outdatedTimeout cleans it up).
+    async fn record_yjs_client_id(&self, doc_id: &str, session_id: &str, client_id: u64) {
+        let mut sessions = self.sessions.write().await;
+        if let Some(room) = sessions.get_mut(doc_id) {
+            if let Some(info) = room.get_mut(session_id) {
+                info.yjs_client_id = Some(client_id);
+            }
         }
     }
 
@@ -1234,6 +1267,11 @@ impl YjsAppState {
         // (ticket_id, user_uuid, session_id) tuples to drop from the
         // presence registry after we release the sessions lock.
         let mut presence_drops: Vec<(i32, Uuid, String)> = Vec::new();
+        // (doc_id, yjs_client_id) tuples to remove from Yjs awareness
+        // after we release the sessions lock. Without this drain,
+        // stale clients leave ghost cursors in the room because the
+        // sweep used to drop the session row without telling Yjs.
+        let mut awareness_drops: Vec<(String, u64)> = Vec::new();
 
         // First pass: collect stale sessions
         for (doc_id, room) in sessions.iter_mut() {
@@ -1246,17 +1284,20 @@ impl YjsAppState {
 
             for (session_id, info) in room.iter() {
                 if now.duration_since(info.last_active) > *CLIENT_TIMEOUT * 5 {
-                    stale_sessions.push((session_id.clone(), info.user_uuid));
+                    stale_sessions.push((session_id.clone(), info.user_uuid, info.yjs_client_id));
                 }
             }
 
             stale_session_count += stale_sessions.len();
 
-            for (session_id, user_uuid) in stale_sessions.iter() {
+            for (session_id, user_uuid, yjs_client_id) in stale_sessions.iter() {
                 debug!(session_id = %session_id, doc_id = %doc_id, "Removing stale session");
                 room.remove(session_id);
                 if let Some(tid) = ticket_id {
                     presence_drops.push((tid, *user_uuid, session_id.clone()));
+                }
+                if let Some(cid) = yjs_client_id {
+                    awareness_drops.push((doc_id.clone(), *cid));
                 }
             }
 
@@ -1274,14 +1315,47 @@ impl YjsAppState {
         // Release the sessions lock before updating document states
         drop(sessions);
 
-        // Mark newly empty rooms
-        if !newly_empty_rooms.is_empty() {
+        // Mark newly empty rooms and drain stale awareness states.
+        // Both reach into the documents map; we do them in one lock
+        // acquisition so the maintenance loop only pays the lock
+        // cost once. Without `remove_state` + the tombstone update
+        // broadcast, ghost cursors persist for other viewers until
+        // their own peer-side outdatedTimeout (~30s on the JS
+        // client; indefinite on yrs peers) cleans them up.
+        if !newly_empty_rooms.is_empty() || !awareness_drops.is_empty() {
             let mut documents = self.documents.write().await;
             for doc_id in newly_empty_rooms {
                 if let Some(doc_state) = documents.get_mut(&doc_id) {
                     debug!(doc_id = %doc_id, "Marking room empty due to stale session cleanup");
                     doc_state.mark_room_empty();
                 }
+            }
+            // Pull the awareness tombstone updates out under the
+            // documents lock; broadcast them after release so a
+            // slow per-session channel can't stall other doc
+            // operations.
+            //
+            // Same `remove_state` + `update_with_clients` shape the
+            // session_task's disconnect cleanup uses (see the
+            // disconnect path near `yjs_client_id` cleanup) —
+            // factor out if a third caller ever wants it.
+            let mut tombstones: Vec<(String, Vec<u8>)> = Vec::new();
+            for (doc_id, client_id) in awareness_drops {
+                if let Some(doc_state) = documents.get_mut(&doc_id) {
+                    let yrs_client_id = yrs::ClientID::new(client_id);
+                    doc_state.awareness.remove_state(yrs_client_id);
+                    if let Ok(update) = doc_state.awareness.update_with_clients([yrs_client_id]) {
+                        use yrs::sync::Message;
+                        let msg = Message::Awareness(update).encode_v1();
+                        tombstones.push((doc_id, msg));
+                    }
+                }
+            }
+            drop(documents);
+            for (doc_id, bytes) in tombstones {
+                // Empty sender_id so every session in the room
+                // receives it (no self-skip).
+                self.broadcast(&doc_id, "", &bytes).await;
             }
         }
 
@@ -1978,7 +2052,10 @@ async fn session_task(
 
                     // Capture the yjs clientID from the first awareness
                     // message (msg type 1). Needed to clean up the
-                    // awareness state on disconnect.
+                    // awareness state on disconnect AND to make
+                    // `cleanup_stale_sessions` able to call
+                    // `Awareness::remove_state` for stale clients
+                    // (it reads the id from SessionInfo).
                     if yjs_client_id.is_none()
                         && bin.first() == Some(&1)
                         && bin.len() > 1
@@ -1992,6 +2069,12 @@ async fn session_task(
                             if let Some(&client_id) = update.clients.keys().next() {
                                 let client_id_u64 = client_id.get();
                                 yjs_client_id = Some(client_id_u64);
+                                // Mirror into the session map so the
+                                // stale-sweep can find it without
+                                // looking inside our task frame.
+                                app_state
+                                    .record_yjs_client_id(&doc_id, &session_id, client_id_u64)
+                                    .await;
                                 debug!(session_id = %session_id, yjs_client_id = client_id_u64,
                                     "Captured yjs clientID from awareness");
                             }
@@ -2209,8 +2292,39 @@ async fn process_inbound_binary(
                 let _ = tx.send(Bytes::from(encoded));
             }
 
-            // Broadcast the entire inbound message to other clients.
-            app_state.broadcast(&doc_id, &session_id, &bin).await;
+            // Decide which inbound frames to rebroadcast to other
+            // clients in the room. The previous implementation
+            // unconditionally rebroadcasted every successfully-
+            // handled frame, including SyncStep1 (client → server
+            // "what's your state vector?"). Each peer's yrs
+            // protocol handler then replied to the originator's
+            // claimed room, generating a fanned-out cascade of
+            // unnecessary state-vector traffic.
+            //
+            // The reference y-websocket server only fans out
+            // SyncStep2 / SyncUpdate (real data) and Awareness
+            // (presence). SyncStep1 is point-to-point and stays
+            // between the requesting client and the server. Narrow
+            // the broadcast to those frames.
+            let should_broadcast = match msg_type {
+                // Awareness: always fan out so peers see presence
+                // changes.
+                1 => true,
+                // Sync envelope: only SyncStep2 (subtype 1) and
+                // SyncUpdate (subtype 2). SyncStep1 (subtype 0) is
+                // a point-to-point state-vector request and must
+                // not be rebroadcast.
+                0 => {
+                    let sync_step = bin.get(1).copied();
+                    matches!(sync_step, Some(1) | Some(2))
+                }
+                // Unknown envelopes (queryAwareness, auth, etc.):
+                // don't rebroadcast.
+                _ => false,
+            };
+            if should_broadcast {
+                app_state.broadcast(&doc_id, &session_id, &bin).await;
+            }
 
             if is_sync_message || content_changed {
                 app_state.mark_document_changed(&doc_id).await;
