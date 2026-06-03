@@ -126,6 +126,11 @@ pub struct TimeseriesParams {
     pub time_field: String,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
+    /// Bucket granularity: `hour` or `day`. Absent / unknown falls
+    /// back to `day`. The "today" preset sends `hour` so a sub-day
+    /// window renders 24 hourly points rather than one daily dot.
+    #[serde(default)]
+    pub grain: Option<String>,
 }
 
 pub async fn get_timeseries(
@@ -151,6 +156,7 @@ pub async fn get_timeseries(
         time_field,
         from: params.from,
         to: params.to,
+        grain: analytics::Grain::parse(params.grain.as_deref().unwrap_or("day")),
     };
 
     match tc.run(|conn| analytics::timeseries(conn, q)) {

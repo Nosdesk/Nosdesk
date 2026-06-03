@@ -85,7 +85,7 @@ provide(DASHBOARD_WIDGET_CONTEXT, context)
 <template>
   <div
     :data-sortable-index="index"
-    :class="['relative', pulsing ? 'frame-pulse' : '']"
+    :class="['relative', 'min-w-0', 'min-h-0', pulsing ? 'frame-pulse' : '']"
   >
     <DashboardWidgetShell
       v-if="frameWraps && frameTitleKey"

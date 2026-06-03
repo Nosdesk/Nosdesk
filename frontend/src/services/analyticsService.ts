@@ -53,6 +53,9 @@ export interface TimeseriesParams {
   time_field: TsTimeField
   from: string
   to: string
+  /** Bucket granularity. `hour` for the today view (24 hourly
+   *  points), `day` otherwise. Omitted = day on the backend. */
+  grain?: 'hour' | 'day'
 }
 
 export type BreakdownGroupBy = 'priority' | 'category' | 'assignee'

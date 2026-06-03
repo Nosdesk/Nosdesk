@@ -13,7 +13,7 @@
 //! (`breakdown`, `heatmap`, `leaderboard`, `audit_annotations`) land
 //! in later waves and slot into this module alongside these helpers.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::sql_types::{BigInt, Integer, Timestamptz};
@@ -108,7 +108,7 @@ pub fn kpi(conn: &mut DbConnection, q: KpiQuery) -> QueryResult<KpiResult> {
     };
 
     let sparkline = if q.include_sparkline && q.metric != KpiMetric::TicketsOpen {
-        Some(daily_counts(conn, q.metric, q.from, q.to)?)
+        Some(bucketed_counts(conn, q.metric, q.from, q.to, Grain::Day)?)
     } else {
         None
     };
@@ -150,48 +150,51 @@ fn kpi_count(
 /// timeseries result and the KPI sparkline. SQL date-bucketing is
 /// done via `date_trunc('day', col)`; the result fills in missing
 /// days with zero so the chart's x-axis is continuous.
-fn daily_counts(
+fn bucketed_counts(
     conn: &mut DbConnection,
     metric: KpiMetric,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
+    grain: Grain,
 ) -> QueryResult<Vec<i64>> {
-    // Pre-compute the expected bucket list so missing-day zeros
+    // Pre-compute the expected bucket list so missing-bucket zeros
     // come from the application, not from a recursive CTE the
     // Diesel typed builder can't express. We iterate while
-    // `cursor < to` (not `cursor < truncate_day(to)`) so the day
-    // containing `to` is included whenever `to` is mid-day —
+    // `cursor < to` (not `cursor < truncate(to)`) so the bucket
+    // containing `to` is included whenever `to` is mid-bucket —
     // otherwise a "today" preset (to = now) would emit zero
     // buckets and silently drop every row the SQL filter selects.
-    let buckets = day_buckets(from, to);
+    let buckets = grain_buckets(from, to, grain);
     if buckets.is_empty() {
         return Ok(Vec::new());
     }
 
-    // SQL: GROUP BY date_trunc('day', col), filtered to the window.
-    // The select returns (bucket_ts, count). Rows for empty days
+    // SQL: GROUP BY date_trunc(<unit>, col), filtered to the window.
+    // The unit is a code-controlled literal (Grain::trunc_unit), so
+    // interpolating it is injection-safe. Rows for empty buckets
     // simply don't appear — the loop below fills them in with 0.
+    let unit = grain.trunc_unit();
     let rows: Vec<(DateTime<Utc>, i64)> = match metric {
-        KpiMetric::TicketsCreated => tickets::table
-            .filter(tickets::created_at.ge(from))
-            .filter(tickets::created_at.lt(to))
-            .group_by(sql::<Timestamptz>("date_trunc('day', tickets.created_at)"))
-            .select((
-                sql::<Timestamptz>("date_trunc('day', tickets.created_at)"),
-                sql::<BigInt>("COUNT(*)"),
-            ))
-            .load(conn)?,
-        KpiMetric::TicketsResolved => tickets::table
-            .filter(tickets::closed_at.is_not_null())
-            .filter(tickets::closed_at.ge(from))
-            .filter(tickets::closed_at.lt(to))
-            .group_by(sql::<Timestamptz>("date_trunc('day', tickets.closed_at)"))
-            .select((
-                sql::<Timestamptz>("date_trunc('day', tickets.closed_at)"),
-                sql::<BigInt>("COUNT(*)"),
-            ))
-            .load(conn)?,
-        // Snapshot metric has no daily breakdown; the caller
+        KpiMetric::TicketsCreated => {
+            let trunc = format!("date_trunc('{unit}', tickets.created_at)");
+            tickets::table
+                .filter(tickets::created_at.ge(from))
+                .filter(tickets::created_at.lt(to))
+                .group_by(sql::<Timestamptz>(&trunc))
+                .select((sql::<Timestamptz>(&trunc), sql::<BigInt>("COUNT(*)")))
+                .load(conn)?
+        }
+        KpiMetric::TicketsResolved => {
+            let trunc = format!("date_trunc('{unit}', tickets.closed_at)");
+            tickets::table
+                .filter(tickets::closed_at.is_not_null())
+                .filter(tickets::closed_at.ge(from))
+                .filter(tickets::closed_at.lt(to))
+                .group_by(sql::<Timestamptz>(&trunc))
+                .select((sql::<Timestamptz>(&trunc), sql::<BigInt>("COUNT(*)")))
+                .load(conn)?
+        }
+        // Snapshot metric has no time breakdown; the caller
         // short-circuits before this is reached.
         KpiMetric::TicketsOpen => return Ok(Vec::new()),
     };
@@ -208,29 +211,69 @@ fn daily_counts(
         .collect())
 }
 
-/// Floor `ts` to the UTC day boundary. `date_naive().and_hms_opt`
+/// Bucket granularity for the time-series. Presets map to `Hour`
+/// (the "today" view, so a sub-day window resolves into 24 hourly
+/// points instead of collapsing to one daily dot) or `Day` (every
+/// multi-day preset). The KPI sparkline always uses `Day`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grain {
+    Hour,
+    Day,
+}
+
+impl Grain {
+    /// The `date_trunc` unit literal. This is a fixed, code-controlled
+    /// string (never user input), so interpolating it into SQL is safe.
+    fn trunc_unit(self) -> &'static str {
+        match self {
+            Grain::Hour => "hour",
+            Grain::Day => "day",
+        }
+    }
+
+    /// Parse the wire value; unknown / absent grains fall back to
+    /// `Day` so an unexpected param can't break the chart.
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "hour" => Grain::Hour,
+            _ => Grain::Day,
+        }
+    }
+}
+
+/// Floor `ts` to the start of its grain bucket (UTC). Matches
+/// Postgres `date_trunc(<unit>, ts)` so the application-generated
+/// bucket list aligns with the SQL grouping. `date_naive().and_hms_opt`
 /// is total-by-construction (no Option chain, no silent fallthrough
-/// to a non-truncated value the way `with_hour(0)` could), matching
-/// the same pattern already used in `repository/ticket_query.rs`.
-fn truncate_day(ts: DateTime<Utc>) -> DateTime<Utc> {
-    ts.date_naive()
-        .and_hms_opt(0, 0, 0)
-        .expect("00:00:00 is always a valid time-of-day")
+/// to a non-truncated value the way `with_hour(0)` could).
+fn truncate_to_grain(ts: DateTime<Utc>, grain: Grain) -> DateTime<Utc> {
+    let naive = ts.date_naive();
+    let (h, m, s) = match grain {
+        Grain::Hour => (ts.time().hour(), 0, 0),
+        Grain::Day => (0, 0, 0),
+    };
+    naive
+        .and_hms_opt(h, m, s)
+        .expect("truncated time-of-day is always valid")
         .and_utc()
 }
 
-/// Day-aligned buckets covering `[from, to)`. Includes the day
-/// containing `to` whenever `to` is strictly past midnight — i.e.
-/// "today" with a mid-day `to` gets a today bucket; "last 30 days
-/// ending at midnight" doesn't get a tomorrow bucket. The
-/// timeseries() result and the KPI sparkline both share this so
-/// they can't drift apart on bucket-edge semantics.
-fn day_buckets(from: DateTime<Utc>, to: DateTime<Utc>) -> Vec<DateTime<Utc>> {
+/// Grain-aligned buckets covering `[from, to)`. Includes the bucket
+/// containing `to` whenever `to` is strictly past the bucket start —
+/// i.e. "today" with a mid-hour `to` gets a current-hour bucket;
+/// "last 30 days ending at midnight" doesn't get a trailing empty
+/// bucket. The timeseries() result and the KPI sparkline share this
+/// so they can't drift apart on bucket-edge semantics.
+fn grain_buckets(from: DateTime<Utc>, to: DateTime<Utc>, grain: Grain) -> Vec<DateTime<Utc>> {
+    let step = match grain {
+        Grain::Hour => chrono::Duration::hours(1),
+        Grain::Day => chrono::Duration::days(1),
+    };
     let mut out = Vec::new();
-    let mut cursor = truncate_day(from);
+    let mut cursor = truncate_to_grain(from, grain);
     while cursor < to {
         out.push(cursor);
-        cursor += chrono::Duration::days(1);
+        cursor += step;
     }
     out
 }
@@ -284,6 +327,7 @@ pub struct TimeseriesQuery {
     pub time_field: TsTimeField,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
+    pub grain: Grain,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -607,12 +651,12 @@ pub fn timeseries(conn: &mut DbConnection, q: TimeseriesQuery) -> QueryResult<Ti
         }
     };
 
-    let counts = daily_counts(conn, metric, q.from, q.to)?;
-    // Both `counts` and `day_buckets` are derived from the same
-    // (from, to) so their length matches by construction; the zip
-    // here is the single source of (timestamp, value) pairs and
+    let counts = bucketed_counts(conn, metric, q.from, q.to, q.grain)?;
+    // Both `counts` and `grain_buckets` are derived from the same
+    // (from, to, grain) so their length matches by construction; the
+    // zip here is the single source of (timestamp, value) pairs and
     // can't drift the way two parallel cursor loops could.
-    let buckets = day_buckets(q.from, q.to)
+    let buckets = grain_buckets(q.from, q.to, q.grain)
         .into_iter()
         .zip(counts)
         .map(|(ts, value)| TimeseriesBucket { ts, value })
