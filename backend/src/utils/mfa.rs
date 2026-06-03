@@ -524,6 +524,100 @@ async fn mark_totp_used(user_uuid: &Uuid, token: &str) {
     let _: Result<(), _> = con.set_ex(&key, "1", 120).await;
 }
 
+/// Server-side cache binding a freshly-minted TOTP setup secret to
+/// the user it was issued for. The setup → enable flow takes two
+/// round trips:
+///
+///   1. `mfa_setup` / `mfa_setup_login` mints a secret, stashes it
+///      here keyed by user uuid, and returns the secret to the
+///      client for QR-rendering.
+///   2. `mfa_enable` / `mfa_enable_login` looks the secret up here
+///      using the authenticated user (or, for the login flow, the
+///      password-verified user) and verifies the submitted TOTP
+///      code against it.
+///
+/// The previous design accepted the secret back from the request
+/// body, which let an attacker who knew a victim's password
+/// substitute *their own* attacker-controlled TOTP secret + matching
+/// code, enrolling the attacker's authenticator on the victim's
+/// account before the victim ever finished setup. Pinning the
+/// secret server-side closes that door: the client never reaches
+/// `mfa_enable*` carrying a secret the server didn't issue.
+///
+/// TTL is 10 minutes — long enough for a user to read a QR code and
+/// type a 6-digit code, short enough that an abandoned setup expires
+/// before it could be hijacked. The cache stores the secret in
+/// plaintext because:
+///   * the persisted `users.mfa_secret` IS encrypted (AES-256-GCM
+///     via the keyring), so the durable copy is protected;
+///   * the cache window is short and Redis access already implies
+///     host-level compromise (Redis runs co-located with the app);
+///   * encrypting here would duplicate keyring plumbing for a
+///     marginal threat-model improvement.
+///
+/// One key per user: a second `mfa_setup` call by the same user
+/// (e.g. they restarted the flow) overwrites the prior secret.
+const SETUP_SECRET_TTL_SECONDS: u64 = 600;
+
+fn setup_secret_key(user_uuid: &Uuid) -> String {
+    format!("mfa_setup_secret:{user_uuid}")
+}
+
+/// Stash a freshly-minted TOTP secret server-side for the user.
+/// Best-effort — Redis errors are logged; the caller will fall
+/// through to a hard error at `mfa_enable*` if the stash didn't
+/// land. We don't fail the setup response because the user can
+/// always retry; failing here would surface as a confusing 500
+/// when their authenticator already scanned the QR.
+pub async fn stash_setup_secret(user_uuid: &Uuid, secret: &str) -> Result<()> {
+    use redis::AsyncCommands;
+
+    let redis_url = crate::utils::rate_limit::get_redis_url();
+    let client = redis::Client::open(redis_url.as_str()).map_err(|e| anyhow!("redis open: {e}"))?;
+    let mut con = client
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|e| anyhow!("redis conn: {e}"))?;
+
+    let key = setup_secret_key(user_uuid);
+    con.set_ex::<_, _, ()>(&key, secret, SETUP_SECRET_TTL_SECONDS)
+        .await
+        .map_err(|e| anyhow!("redis set: {e}"))?;
+    Ok(())
+}
+
+/// Fetch the stashed setup secret for the user, or `None` if no
+/// active setup is in flight. Does NOT delete; callers consume on
+/// successful enroll via `consume_setup_secret` so a wrong-code
+/// retry doesn't force the user to restart.
+pub async fn fetch_setup_secret(user_uuid: &Uuid) -> Option<SecretString> {
+    use redis::AsyncCommands;
+
+    let redis_url = crate::utils::rate_limit::get_redis_url();
+    let client = redis::Client::open(redis_url.as_str()).ok()?;
+    let mut con = client.get_multiplexed_async_connection().await.ok()?;
+    let key = setup_secret_key(user_uuid);
+    let value: Option<String> = con.get(&key).await.ok()?;
+    value.map(SecretString::new)
+}
+
+/// Drop the stashed setup secret after a successful enroll. Idempotent;
+/// silent on Redis errors (the persisted MFA row is the source of
+/// truth — a leftover cache key will expire in <= TTL).
+pub async fn consume_setup_secret(user_uuid: &Uuid) {
+    use redis::AsyncCommands;
+
+    let redis_url = crate::utils::rate_limit::get_redis_url();
+    let Ok(client) = redis::Client::open(redis_url.as_str()) else {
+        return;
+    };
+    let Ok(mut con) = client.get_multiplexed_async_connection().await else {
+        return;
+    };
+    let key = setup_secret_key(user_uuid);
+    let _: Result<(), _> = con.del(&key).await;
+}
+
 /// Check if MFA should be required for a user based on OWASP recommendations
 pub fn should_require_mfa(user_role: &UserRole) -> bool {
     match user_role {

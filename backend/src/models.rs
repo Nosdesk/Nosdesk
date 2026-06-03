@@ -2451,13 +2451,19 @@ pub struct MfaSetupLoginRequest {
     pub password: String,
 }
 
-/// Request for enabling MFA during login (unauthenticated)
+/// Request for enabling MFA during login (unauthenticated).
+///
+/// The TOTP secret is intentionally NOT in this struct: the matching
+/// `mfa_setup_login` call stashes it server-side and the enable
+/// handler retrieves it from there. Accepting it from the client
+/// would let an attacker who knew the victim's password substitute
+/// their own attacker-controlled secret + code and enroll their
+/// authenticator on the victim's account.
 #[derive(Debug, Deserialize)]
 pub struct MfaEnableLoginRequest {
     pub email: String,
     pub password: String,
     pub token: String,
-    pub secret: Option<String>,
 }
 
 /// Response for token refresh
@@ -2953,11 +2959,12 @@ pub struct MfaVerifySetupResponse {
     pub backup_codes: Vec<String>,
 }
 
-/// Request for enabling MFA
+/// Request for enabling MFA. The TOTP secret is intentionally NOT
+/// in this struct (see `MfaEnableLoginRequest` for the threat model);
+/// it lives in the server-side setup cache keyed by user uuid.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MfaEnableRequest {
     pub token: String,
-    pub secret: Option<String>,
     pub backup_codes: Option<Vec<String>>,
 }
 

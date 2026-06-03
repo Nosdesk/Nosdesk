@@ -1296,6 +1296,15 @@ pub async fn mfa_setup(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) ->
     // Generate new TOTP secret (backup codes will be generated after successful verification)
     let secret = mfa::generate_totp_secret();
 
+    // Pin server-side so the matching mfa_enable call refuses to
+    // honour a substituted secret. See utils::mfa::stash_setup_secret
+    // for the threat model (attacker-with-password substitutes their
+    // own TOTP secret + matching code).
+    if let Err(e) = mfa::stash_setup_secret(&user.uuid, secret.as_str()).await {
+        tracing::error!(user_uuid = %user.uuid, error = %e, "Failed to stash MFA setup secret");
+        return errors::internal("Failed to initialise MFA setup");
+    }
+
     // Get user's primary email for QR code
     let user_email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
         .unwrap_or_else(|| format!("user-{}", user.uuid));
@@ -1383,11 +1392,20 @@ pub async fn mfa_enable(
 
     tracing::info!("Enabling MFA for user: {}", user_uuid);
 
-    // Validate inputs securely
-    let mfa_secret = match &request.secret {
-        Some(secret) if !secret.is_empty() => secret,
-        _ => return errors::bad_request("MFA secret is required"),
+    // Pull the secret from the server-side setup cache. See
+    // utils::mfa::stash_setup_secret for the threat model — request
+    // bodies on this endpoint are not trusted to carry the TOTP
+    // secret. An absent cache entry means setup expired (TTL ~10min)
+    // or was never initiated; user is sent back to mfa_setup.
+    let stashed_secret = match mfa::fetch_setup_secret(&user_uuid).await {
+        Some(s) => s,
+        None => {
+            return errors::bad_request(
+                "MFA setup expired or was not initiated. Please start setup again.",
+            )
+        }
     };
+    let mfa_secret = stashed_secret.as_str();
 
     // Per-account rate limit on enrollment TOTP attempts (shares the
     // bucket with login MFA attempts). Five tries in the window, then
@@ -1449,6 +1467,9 @@ pub async fn mfa_enable(
             // Clear the rate-limit bucket so any fumbled enrollment
             // attempts don't follow the user into their next login.
             mfa::clear_mfa_rate_limit(&user_uuid).await;
+            // Drop the setup secret cache entry — its job is done
+            // and the persisted users.mfa_secret is authoritative.
+            mfa::consume_setup_secret(&user_uuid).await;
             // Return plaintext backup codes so the client can display them once
             HttpResponse::Ok().json(json!({
                 "status": "success",
@@ -1741,6 +1762,16 @@ pub async fn mfa_setup_login(
     // Generate new TOTP secret (backup codes will be generated after verification)
     let secret = mfa::generate_totp_secret();
 
+    // Pin the secret server-side for the matching mfa_enable_login
+    // call. The client still receives the secret in the response so
+    // it can render the QR; the server-side stash is what makes the
+    // enroll path refuse to honour a secret the user didn't actually
+    // see, closing the attacker-with-password substitution vector.
+    if let Err(e) = mfa::stash_setup_secret(&user.uuid, secret.as_str()).await {
+        tracing::error!(user_uuid = %user.uuid, error = %e, "Failed to stash MFA setup secret");
+        return errors::internal("Failed to initialise MFA setup");
+    }
+
     // Get user's primary email for QR code
     let user_email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
         .unwrap_or_else(|| format!("user-{}", user.uuid));
@@ -1842,11 +1873,22 @@ pub async fn mfa_enable_login(
         return errors::bad_request("MFA is not required for this account");
     }
 
-    // Validate inputs securely
-    let mfa_secret = match &request.secret {
-        Some(secret) if !secret.is_empty() => secret,
-        _ => return errors::bad_request("MFA secret is required"),
+    // Pull the secret from the server-side setup cache, NOT from
+    // the request body. The previous design honoured request.secret
+    // and let an attacker who knew the victim's password substitute
+    // their own attacker-controlled TOTP secret, enrolling the
+    // attacker's authenticator on the victim's account. The cache
+    // entry was minted by `mfa_setup_login` and is bound to this
+    // user uuid; if it's absent the user is asked to restart setup.
+    let stashed_secret = match mfa::fetch_setup_secret(&user.uuid).await {
+        Some(s) => s,
+        None => {
+            return errors::bad_request(
+                "MFA setup expired or was not initiated. Please start setup again.",
+            )
+        }
     };
+    let mfa_secret = stashed_secret.as_str();
 
     // Per-account rate limit on enrollment TOTP attempts (same bucket
     // as login MFA), so the 6-digit code can't be brute-forced here
@@ -1922,6 +1964,11 @@ pub async fn mfa_enable_login(
             // enrol shouldn't penalise the user's next login
             // attempt with attempts they've already cleared.
             mfa::clear_mfa_rate_limit(&user_uuid).await;
+            // The setup secret has done its job; remove the cache
+            // entry so a subsequent stale enable_login attempt
+            // can't reuse it (defence in depth — the user.mfa_secret
+            // column is now the authoritative copy).
+            mfa::consume_setup_secret(&user_uuid).await;
 
             // Create session + tokens (same as login, but attach backup codes)
             let session = match create_session_record(&user_uuid, &http_request, &mut conn) {

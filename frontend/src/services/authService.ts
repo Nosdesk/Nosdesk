@@ -66,9 +66,15 @@ export interface MFAVerifyRequest {
   secret: string;
 }
 
+/**
+ * MFA enable requests no longer carry the TOTP `secret`: the backend
+ * mfa_setup / mfa_setup_login call pins it server-side (Redis cache,
+ * 10-minute TTL) keyed by user. Sending it here would let an
+ * attacker-with-password substitute their own secret, so the field
+ * was removed from the request schema.
+ */
 export interface MFAEnableRequest {
   token: string;
-  secret: string;
   password?: string;
 }
 
@@ -81,7 +87,6 @@ export interface MFALoginEnableRequest {
   email: string;
   password: string;
   token: string;
-  secret: string;
   backup_codes: string[];
 }
 

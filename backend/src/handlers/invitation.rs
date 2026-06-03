@@ -239,13 +239,22 @@ pub async fn accept_invitation(
     // Pre-session (token-verified) flow: resolve the audit workspace
     // once from the user's primary membership, then thread it through
     // the audited writes below (users.password_changed_at and the
-    // ticket release). Falls back to the bootstrap workspace if the
-    // lookup errors so these best-effort writes stay non-fatal.
-    let actor = crate::sync::actor::ActorContext::user_at_workspace(
-        user.uuid,
-        crate::repository::workspaces::primary_workspace_for_user(&mut conn, user.uuid)
-            .unwrap_or(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID),
-    );
+    // ticket release). Fail loud if the user has no membership —
+    // silently attributing to workspace 1 mis-routes the audit row
+    // under hosted multi-tenancy.
+    let workspace_id =
+        match crate::repository::workspaces::primary_workspace_for_user(&mut conn, user.uuid) {
+            Ok(ws) => ws,
+            Err(e) => {
+                error!(
+                    user_uuid = %user.uuid,
+                    error = ?e,
+                    "Failed to resolve primary workspace for invitation accept"
+                );
+                return errors::internal("Failed to complete invitation");
+            }
+        };
+    let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
 
     // Update password_changed_at timestamp in users table
     let now = Utc::now().naive_utc();
