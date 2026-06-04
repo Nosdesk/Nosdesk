@@ -147,6 +147,19 @@ dashboard-subtitle = Bienvenue sur votre tableau de bord { $app }
 dashboard-edit-button = Modifier le tableau de bord
 dashboard-guest-fallback = Invité
 
+# Sélecteur de période (machine, à relire par un locuteur natif).
+dashboard-time-range-today = Aujourd'hui
+dashboard-time-range-7d = 7 j
+dashboard-time-range-30d = 30 j
+dashboard-time-range-90d = 90 j
+dashboard-time-range-1y = 1 an
+dashboard-time-range-3y = 3 ans
+dashboard-time-range-custom = Personnalisé
+dashboard-time-range-custom-from = Du
+dashboard-time-range-custom-to = Au
+dashboard-time-range-custom-apply = Appliquer
+dashboard-time-range-custom-cancel = Annuler
+
 # États vides des principales listes.
 empty-documentation-grid-title = Aucune documentation pour le moment
 empty-documentation-grid-description = Créez votre première page de documentation pour commencer.

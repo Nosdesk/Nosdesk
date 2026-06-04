@@ -144,6 +144,19 @@ dashboard-subtitle = Welkom op uw { $app }-dashboard
 dashboard-edit-button = Dashboard bewerken
 dashboard-guest-fallback = Gast
 
+# Tijdsbereikkiezer (machine, nog na te kijken door moedertaalspreker).
+dashboard-time-range-today = Vandaag
+dashboard-time-range-7d = 7 d
+dashboard-time-range-30d = 30 d
+dashboard-time-range-90d = 90 d
+dashboard-time-range-1y = 1 jr
+dashboard-time-range-3y = 3 jr
+dashboard-time-range-custom = Aangepast
+dashboard-time-range-custom-from = Van
+dashboard-time-range-custom-to = Tot
+dashboard-time-range-custom-apply = Toepassen
+dashboard-time-range-custom-cancel = Annuleren
+
 # Lege staten voor de belangrijkste overzichten.
 empty-documentation-grid-title = Nog geen documentatie
 empty-documentation-grid-description = Maak uw eerste documentatiepagina om te beginnen.
