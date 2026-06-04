@@ -2294,8 +2294,19 @@ asset-detail-unmanage-action-confirm = Unmanage
 # rendered from the sync engine pool, with status pills and a
 # short description per card.
 projects-list-heading = Projects
-projects-list-subheading = Sync-engine preview (projects_v2 flag).
+projects-list-subheading = Group related tickets and track them together.
 projects-list-no-description = No description
+projects-empty-title = No projects yet
+projects-empty-subtitle = Group related tickets into a project to plan and track them together.
+projects-empty-cta = Create your first project
+projects-create-title = New project
+projects-create-name-label = Name
+projects-create-name-placeholder = e.g. Q3 laptop rollout
+projects-create-description-label = Description
+projects-create-description-placeholder = Optional
+projects-create-submit = Create project
+projects-create-cancel = Cancel
+projects-create-error = Couldn't create the project. Please try again.
 
 # Project detail (ProjectDetailView): per-project kanban board
 # with a header, status pill, ticket count, and a Group-by

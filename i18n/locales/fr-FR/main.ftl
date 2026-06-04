@@ -2180,8 +2180,20 @@ asset-detail-unmanage-action-confirm = Désinscrire
 # rendered from the sync engine pool, with status pills and a
 # short description per card.
 projects-list-heading = Projets
-projects-list-subheading = Aperçu du moteur de synchronisation (option projects_v2).
+projects-list-subheading = Regroupez les tickets liés et suivez-les ensemble.
 projects-list-no-description = Aucune description
+# Projets : état vide + création (machine, à relire par un locuteur natif).
+projects-empty-title = Aucun projet pour le moment
+projects-empty-subtitle = Regroupez des tickets liés dans un projet pour les planifier et les suivre ensemble.
+projects-empty-cta = Créer votre premier projet
+projects-create-title = Nouveau projet
+projects-create-name-label = Nom
+projects-create-name-placeholder = ex. Déploiement des portables T3
+projects-create-description-label = Description
+projects-create-description-placeholder = Facultatif
+projects-create-submit = Créer le projet
+projects-create-cancel = Annuler
+projects-create-error = Impossible de créer le projet. Veuillez réessayer.
 
 # Project detail (ProjectDetailView): per-project kanban board
 # with a header, status pill, ticket count, and a Group-by

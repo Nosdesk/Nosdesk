@@ -2177,8 +2177,20 @@ asset-detail-unmanage-action-confirm = Beheer opheffen
 # rendered from the sync engine pool, with status pills and a
 # short description per card.
 projects-list-heading = Projecten
-projects-list-subheading = Voorvertoning sync-engine (projects_v2-vlag).
+projects-list-subheading = Groepeer gerelateerde tickets en volg ze samen.
 projects-list-no-description = Geen beschrijving
+# Projecten: lege staat + aanmaken (machine, nog na te kijken door moedertaalspreker).
+projects-empty-title = Nog geen projecten
+projects-empty-subtitle = Groepeer gerelateerde tickets in een project om ze samen te plannen en te volgen.
+projects-empty-cta = Maak je eerste project
+projects-create-title = Nieuw project
+projects-create-name-label = Naam
+projects-create-name-placeholder = bijv. Laptop-uitrol Q3
+projects-create-description-label = Beschrijving
+projects-create-description-placeholder = Optioneel
+projects-create-submit = Project maken
+projects-create-cancel = Annuleren
+projects-create-error = Kan het project niet maken. Probeer het opnieuw.
 
 # Project detail (ProjectDetailView): per-project kanban board
 # with a header, status pill, ticket count, and a Group-by

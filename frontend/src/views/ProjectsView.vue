@@ -7,27 +7,42 @@
  * Phase 3 scope: list grid only. Drag-to-reorder, kanban swimlane,
  * and per-project bulk actions land in Phase 4.
  */
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
+import { usePageCreateAction } from '@/composables/usePageCreateAction'
+import CreateProjectModal from '@/components/projectComponents/CreateProjectModal.vue'
+import Button from '@/components/common/Button.vue'
 
 const router = useRouter()
 const projectsStore = useSyncProjectsStore()
 const { sortedByName } = storeToRefs(projectsStore)
+
+// Flips true once the workspace bootstrap resolves, so the view can
+// tell "still loading" apart from "loaded but empty". Without it an
+// empty workspace renders the skeleton forever.
+const bootstrapped = ref(false)
+const createOpen = ref(false)
 
 // Subscribe to the workspace-wide group on mount. The lifecycle
 // layer is idempotent on repeat subscribes, so re-entry to this
 // route during the session doesn't trigger another bootstrap fetch.
 onMounted(async () => {
   await subscribe('workspace:1')
+  bootstrapped.value = true
 })
 
-// Initial-load skeleton: while the bootstrap is in flight there's
-// nothing in the pool yet. Render a placeholder until the first
-// rows land instead of flashing an empty-state.
-const isInitiallyLoading = computed(() => sortedByName.value.length === 0)
+// Wire the site-header "Create project" button to the modal.
+usePageCreateAction(() => {
+  createOpen.value = true
+})
+
+// Skeleton only while the bootstrap is in flight. Once it resolves,
+// an empty pool is a genuine empty-state, not a perpetual placeholder.
+const isInitiallyLoading = computed(() => !bootstrapped.value)
+const isEmpty = computed(() => bootstrapped.value && sortedByName.value.length === 0)
 
 function open(id: number) {
   router.push({ name: 'project-detail', params: { id: String(id) } })
@@ -70,6 +85,22 @@ function statusClass(status: string) {
     </div>
 
     <div
+      v-else-if="isEmpty"
+      class="flex flex-col items-center justify-center text-center py-16 px-4"
+    >
+      <div class="w-12 h-12 rounded-xl bg-surface-alt border border-subtle flex items-center justify-center mb-4">
+        <svg class="w-6 h-6 text-tertiary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        </svg>
+      </div>
+      <h2 class="text-base font-medium text-primary">{{ $t('projects-empty-title') }}</h2>
+      <p class="text-sm text-secondary mt-1 max-w-sm">{{ $t('projects-empty-subtitle') }}</p>
+      <Button variant="primary" class="mt-5" @click="createOpen = true">
+        {{ $t('projects-empty-cta') }}
+      </Button>
+    </div>
+
+    <div
       v-else
       class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
     >
@@ -100,5 +131,11 @@ function statusClass(status: string) {
         <p v-else class="text-sm text-tertiary italic">{{ $t('projects-list-no-description') }}</p>
       </button>
     </div>
+
+    <CreateProjectModal
+      v-if="createOpen"
+      @close="createOpen = false"
+      @created="createOpen = false"
+    />
   </div>
 </template>
