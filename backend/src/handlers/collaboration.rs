@@ -2642,10 +2642,22 @@ pub async fn restore_doc_revision(
 
 // Configure routes
 pub fn config(cfg: &mut web::ServiceConfig) {
+    // The WebSocket upgrade authenticates itself (it validates the JWT
+    // cookie inside ws_handler), so it stays OUT of the dual-auth
+    // middleware, which would otherwise intercept the upgrade request.
+    cfg.service(web::scope("").route("/ws/{doc_id}", web::get().to(ws_handler)));
+
+    // Every other collaboration endpoint is a plain REST call using the
+    // TenantConn extractor, which needs the request context the dual-auth
+    // middleware injects. Without it TenantConn fails with 401
+    // "Authentication required" — the bug that 401'd document/ticket
+    // revisions and bounced the whole page out to the dashboard.
     cfg.service(
         web::scope("")
+            .wrap(actix_web::middleware::from_fn(
+                crate::middleware::dual_auth_middleware,
+            ))
             .route("/article/{doc_id}", web::get().to(get_article_content))
-            .route("/ws/{doc_id}", web::get().to(ws_handler))
             .route(
                 "/tickets/{ticket_id}/revisions",
                 web::get().to(get_ticket_revisions),
