@@ -4909,6 +4909,7 @@ gantt-zoom-quarter = Kwartaal
 gantt-fit = Passend
 gantt-unscheduled = Niet gepland ({ $count })
 gantt-empty-window = Geen tickets in dit venster. Gebruik Passend, Vandaag of de pijlen om de tijdlijn te verschuiven.
+gantt-reschedule-handle = Sleep om de vervaldatum te wijzigen
 user-cell-missing-tooltip = Deze gebruiker bestaat niet meer
 user-cell-unknown = Onbekend
 user-settings-managing-for = Instellingen beheren voor

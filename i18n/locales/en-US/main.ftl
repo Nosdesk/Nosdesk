@@ -5132,6 +5132,7 @@ gantt-zoom-quarter = Quarter
 gantt-fit = Fit
 gantt-unscheduled = Unscheduled ({ $count })
 gantt-empty-window = No tickets fall inside this window. Use Fit, Today, or the pan arrows to step the timeline.
+gantt-reschedule-handle = Drag to change due date
 user-cell-missing-tooltip = This user no longer exists
 user-cell-unknown = Unknown
 user-settings-managing-for = Managing settings for

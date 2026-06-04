@@ -38,10 +38,16 @@ const props = withDefaults(defineProps<{
    *  (only those with both a start and end date). */
   cycles?: readonly Cycle[]
   onCardClick?: (cardId: number) => void
+  /** Drag-the-due-handle write-back. Called with the new due date
+   *  (ISO) when the user releases a bar's right handle. Only the due
+   *  (right) edge moves; created_at is immutable history. Omitting
+   *  this hides the resize handle. */
+  onReschedule?: (cardId: number, dueDate: string) => void
 }>(), {
   edges: () => [],
   cycles: () => [],
   onCardClick: undefined,
+  onReschedule: undefined,
 })
 
 // ===================== Time scale =====================
@@ -320,14 +326,26 @@ interface BarRow {
   terminal: boolean
   /** Clamped right edge / left edge for arrow anchoring. */
   rightX: number
+  /** Effective span (with any live reschedule preview applied), so
+   *  the resize handle can clamp against the locked start. */
+  start: Date
+  end: Date
 }
+
+// Live reschedule preview: while a bar's due handle is being dragged,
+// its end is overridden so the bar resizes under the cursor before the
+// write commits on pointerup.
+const reschedule = ref<{ cardId: number; start: Date; newEnd: Date } | null>(null)
+const bodyEl = ref<HTMLElement | null>(null)
 
 const bars = computed<BarRow[]>(() => {
   const out: BarRow[] = []
   const max = totalWidth.value
+  const r = reschedule.value
   for (const it of scheduled.value) {
+    const end = r && r.cardId === it.card.id ? r.newEnd : it.end
     const rawLeft = xOf(it.start)
-    const rawRight = xOf(it.end)
+    const rawRight = xOf(end)
     // Drop bars fully outside the window. rowIndex tracks the
     // rendered position (out.length), so dropped cards leave no gap
     // and the absolutely-positioned bars stay aligned with the
@@ -343,10 +361,36 @@ const bars = computed<BarRow[]>(() => {
       width,
       terminal: TERMINAL_CATEGORIES.has(it.card.workflow_state.category),
       rightX: right,
+      start: it.start,
+      end,
     })
   }
   return out
 })
+
+/** Right-edge (due) handle drag. Only the due edge moves; the start
+ *  is created_at, immutable history, so the left edge is locked. */
+function startResize(bar: BarRow, event: PointerEvent): void {
+  if (!props.onReschedule) return
+  event.stopPropagation()
+  reschedule.value = { cardId: bar.card.id, start: bar.start, newEnd: bar.end }
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+function onResizeMove(event: PointerEvent): void {
+  const r = reschedule.value
+  if (!r || !bodyEl.value) return
+  const rect = bodyEl.value.getBoundingClientRect()
+  const days = Math.round((event.clientX - rect.left) / pxPerDay.value)
+  let d = addDays(rangeStart.value, days)
+  // Never let the due edge cross the locked start.
+  if (d.getTime() <= r.start.getTime()) d = addDays(r.start, 1)
+  reschedule.value = { ...r, newEnd: d }
+}
+function endResize(): void {
+  const r = reschedule.value
+  reschedule.value = null
+  if (r) props.onReschedule?.(r.cardId, r.newEnd.toISOString())
+}
 
 const totalHeight = computed(() => scheduled.value.length * ROW_PX)
 
@@ -553,6 +597,7 @@ const zoomLabel: Record<Zoom, string> = {
 
           <!-- Timeline body -->
           <div
+            ref="bodyEl"
             class="relative"
             :style="{ height: `${Math.max(totalHeight, 100)}px`, width: `${totalWidth}px` }"
           >
@@ -631,6 +676,17 @@ const zoomLabel: Record<Zoom, string> = {
               <span class="px-2 text-[11px] text-primary line-clamp-1 leading-[22px]">
                 {{ row.card.title }}
               </span>
+              <!-- Due-date resize handle (open bars only; created_at is
+                   immutable so there's no left handle). -->
+              <div
+                v-if="onReschedule && !row.terminal"
+                class="absolute top-0 bottom-0 right-0 w-2 cursor-ew-resize hover:bg-accent/40"
+                :title="t('gantt-reschedule-handle')"
+                @pointerdown="startResize(row, $event)"
+                @pointermove="onResizeMove"
+                @pointerup="endResize"
+                @click.stop
+              ></div>
             </div>
           </div>
         </div>

@@ -79,6 +79,12 @@ watch(projectId, async () => {
 function openCard(cardId: number): void {
   router.push(`/tickets/${cardId}`)
 }
+
+/** Drag-the-due-handle write-back. Optimistic via the sync store, so
+ *  the bar stays where it was dropped while the patch round-trips. */
+function reschedule(cardId: number, dueDate: string): void {
+  void ticketsStore.patchKanbanFields(cardId, { due_date: dueDate })
+}
 </script>
 
 <template>
@@ -102,6 +108,7 @@ function openCard(cardId: number): void {
       :edges="edges"
       :cycles="cycles"
       :on-card-click="openCard"
+      :on-reschedule="reschedule"
     />
   </div>
 </template>

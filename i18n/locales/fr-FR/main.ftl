@@ -4918,6 +4918,7 @@ gantt-zoom-quarter = Trimestre
 gantt-fit = Ajuster
 gantt-unscheduled = Non planifiés ({ $count })
 gantt-empty-window = Aucun ticket dans cette fenêtre. Utilisez Ajuster, Aujourd'hui ou les flèches pour déplacer la chronologie.
+gantt-reschedule-handle = Glisser pour changer la date d'échéance
 user-cell-missing-tooltip = Cet utilisateur n'existe plus
 user-cell-unknown = Inconnu
 user-settings-managing-for = Gestion des paramètres pour

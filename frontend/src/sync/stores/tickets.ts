@@ -135,14 +135,15 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
   }
 
   /**
-   * Patch a small whitelist of ticket fields the kanban renderer
-   * writes during a two-axis swimlane drop. Optimistic in the same
-   * pattern as moveToWorkflowState. The whitelist exists to prevent
-   * a typo in the caller from blowing away unrelated fields: the
-   * sync engine's apply layer trusts the patch shape, so the gate
+   * Patch a small whitelist of ticket fields the board renderers
+   * write directly: assignee / priority (kanban two-axis swimlane
+   * drop) and due_date (gantt drag-to-reschedule). Optimistic in the
+   * same pattern as moveToWorkflowState. The whitelist exists to
+   * prevent a typo in the caller from blowing away unrelated fields:
+   * the sync engine's apply layer trusts the patch shape, so the gate
    * has to live here.
    */
-  type KanbanPatchableField = 'assignee_uuid' | 'priority'
+  type KanbanPatchableField = 'assignee_uuid' | 'priority' | 'due_date'
   type KanbanPatch = Partial<Pick<SyncTicket, KanbanPatchableField>>
 
   async function patchKanbanFields(ticketId: number, patch: KanbanPatch): Promise<void> {
