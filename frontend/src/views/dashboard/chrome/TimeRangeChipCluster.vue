@@ -30,7 +30,8 @@ const PRESETS: { id: TimeRangePreset; key: string }[] = [
   { id: '7d', key: 'dashboard-time-range-7d' },
   { id: '30d', key: 'dashboard-time-range-30d' },
   { id: '90d', key: 'dashboard-time-range-90d' },
-  { id: 'quarter', key: 'dashboard-time-range-quarter' },
+  { id: '1y', key: 'dashboard-time-range-1y' },
+  { id: '3y', key: 'dashboard-time-range-3y' },
 ]
 
 const open = ref(false)
@@ -140,6 +141,7 @@ function applyCustom(): void {
             v-model="customFromInput"
             :max="customToInput || undefined"
             :aria-label="t('dashboard-time-range-custom-from')"
+            block
           />
         </label>
         <label class="flex flex-col gap-1 text-[11px] text-secondary">
@@ -148,6 +150,7 @@ function applyCustom(): void {
             v-model="customToInput"
             :min="customFromInput || undefined"
             :aria-label="t('dashboard-time-range-custom-to')"
+            block
           />
         </label>
         <div class="flex gap-2 justify-end">

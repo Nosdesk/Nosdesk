@@ -238,6 +238,8 @@ fn bucketed_counts(
 pub enum Grain {
     Hour,
     Day,
+    Week,
+    Month,
 }
 
 impl Grain {
@@ -247,6 +249,8 @@ impl Grain {
         match self {
             Grain::Hour => "hour",
             Grain::Day => "day",
+            Grain::Week => "week",
+            Grain::Month => "month",
         }
     }
 
@@ -255,6 +259,8 @@ impl Grain {
         match self {
             Grain::Hour => "1 hour",
             Grain::Day => "1 day",
+            Grain::Week => "1 week",
+            Grain::Month => "1 month",
         }
     }
 
@@ -263,6 +269,8 @@ impl Grain {
     pub fn parse(s: &str) -> Self {
         match s {
             "hour" => Grain::Hour,
+            "week" => Grain::Week,
+            "month" => Grain::Month,
             _ => Grain::Day,
         }
     }
@@ -680,8 +688,10 @@ mod tests {
     fn grain_parse_defaults_to_day() {
         assert_eq!(Grain::parse("hour"), Grain::Hour);
         assert_eq!(Grain::parse("day"), Grain::Day);
+        assert_eq!(Grain::parse("week"), Grain::Week);
+        assert_eq!(Grain::parse("month"), Grain::Month);
         assert_eq!(Grain::parse(""), Grain::Day);
-        assert_eq!(Grain::parse("week"), Grain::Day);
+        assert_eq!(Grain::parse("nonsense"), Grain::Day);
     }
 
     #[test]

@@ -19,7 +19,7 @@
 import { computed, type ComputedRef } from 'vue'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
 import { TZDate } from '@date-fns/tz'
-import { startOfDay, endOfDay, startOfQuarter, subDays } from 'date-fns'
+import { startOfDay, endOfDay, subDays, subYears } from 'date-fns'
 import { useDateStore } from '@/stores/dateStore'
 
 /** The six preset chips + the Custom escape hatch. */
@@ -28,7 +28,8 @@ export type TimeRangePreset =
   | '7d'
   | '30d'
   | '90d'
-  | 'quarter'
+  | '1y'
+  | '3y'
   | 'custom'
 
 /** Time-bucket resolution. Derived from the range unless overridden. */
@@ -45,8 +46,9 @@ function presetGrain(preset: TimeRangePreset): Grain {
     case '30d':
     case '90d':
       return 'day'
-    case 'quarter':
-      return 'week'
+    case '1y':
+    case '3y':
+      return 'month'
     case 'custom':
       // Custom defaults to day; the picker can override.
       return 'day'
@@ -57,11 +59,11 @@ function presetGrain(preset: TimeRangePreset): Grain {
  * Compute the absolute (from, to) window for a preset, with calendar
  * boundaries anchored to the user's timezone `tz` (not the browser's).
  *
- * Calendar-edge presets (today, quarter, custom) use `TZDate` so "start
- * of today" is midnight in the user's zone — a Sydney user at 09:00
- * local gets a window starting at the previous UTC afternoon, matching
- * the backend's tz-aligned buckets. Rolling presets (7d/30d/90d) are
- * pure instants (now minus N days), so the zone doesn't affect them.
+ * Calendar-edge presets (today, custom) use `TZDate` so "start of today"
+ * is midnight in the user's zone — a Sydney user at 09:00 local gets a
+ * window starting at the previous UTC afternoon, matching the backend's
+ * tz-aligned buckets. Rolling presets (7d/30d/90d/1y/3y) are pure
+ * instants (now minus N), so the zone doesn't affect them.
  * Returned `Date`s carry the correct UTC instant (`toISOString()`).
  */
 export function presetWindow(
@@ -79,8 +81,10 @@ export function presetWindow(
       return { from: subDays(now, 30), to: now }
     case '90d':
       return { from: subDays(now, 90), to: now }
-    case 'quarter':
-      return { from: startOfQuarter(new TZDate(now, tz)), to: now }
+    case '1y':
+      return { from: subYears(now, 1), to: now }
+    case '3y':
+      return { from: subYears(now, 3), to: now }
     case 'custom': {
       // The range picker stores date-only `YYYY-MM-DD` values. Anchor
       // `from` to the start of its day and `to` to the end of its day,
@@ -125,7 +129,8 @@ function parsePreset(value: LocationQuery[string]): TimeRangePreset {
     case '7d':
     case '30d':
     case '90d':
-    case 'quarter':
+    case '1y':
+    case '3y':
     case 'custom':
       return value
     default:
