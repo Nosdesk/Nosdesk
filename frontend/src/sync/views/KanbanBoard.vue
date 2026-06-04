@@ -21,7 +21,7 @@
  * on, one sub-lane up/down. Mirrors the drag dispatch path; both
  * end up in `dispatchMove`.
  */
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
 
@@ -488,15 +488,6 @@ function affectedDevicesTooltip(card: CardData): string {
   if (summary.count === 1) return first
   return `${first} +${summary.count - 1} more`
 }
-
-// Per-column scroll state: the column header stays pinned at the top
-// of its scrolling body and gains a shadow once the body is scrolled,
-// so it reads as a lifted, sticky header (the important part stays
-// visible) rather than a flat strip.
-const laneScrolled = reactive<Record<string, boolean>>({})
-function onLaneScroll(id: string, e: Event): void {
-  laneScrolled[id] = (e.target as HTMLElement).scrollTop > 2
-}
 </script>
 
 <template>
@@ -506,26 +497,29 @@ function onLaneScroll(id: string, e: Event): void {
       <div
         v-for="lane in lanes"
         :key="lane.id"
-        class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-lg border border-default h-full min-h-[300px]"
+        class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-lg border border-default h-full min-h-[300px] overflow-y-auto overflow-x-hidden"
         @click.stop
       >
-        <!-- Column header: pinned above the scrolling body, lifts with a
-             shadow once the column is scrolled so the column name + count
-             stay legible over the cards passing beneath. -->
+        <!-- Column header, built as stacked sections so it collapses on
+             scroll: the padding above/below scrolls away while the title
+             row (sticky top-0) and the hairline border (sticky, just
+             below it) stay pinned, keeping the column name + count over
+             the cards and giving more room to the tickets. The whole
+             column is the scroll container that anchors the sticky parts. -->
+        <div class="bg-surface-alt px-4 pt-2 rounded-t-lg shrink-0" aria-hidden="true"></div>
         <header
-          class="flex items-center justify-between px-4 py-2 bg-surface-alt border-b border-subtle transition-shadow"
-          :class="{ 'shadow-md': laneScrolled[lane.id] }"
+          class="sticky top-0 z-20 flex h-9 items-center justify-between px-4 bg-surface-alt"
         >
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3 min-w-0">
             <span
               v-if="lane.defaultState"
-              class="inline-block w-2.5 h-2.5 rounded-full bg-current"
+              class="inline-block w-2.5 h-2.5 rounded-full bg-current shrink-0"
               :class="paletteForColor(lane.defaultState.color).solid"
               aria-hidden="true"
             />
-            <h3 class="text-sm font-semibold text-primary">{{ lane.label }}</h3>
+            <h3 class="text-sm font-semibold text-primary truncate">{{ lane.label }}</h3>
           </div>
-          <div class="flex items-center gap-1.5">
+          <div class="flex items-center gap-1.5 shrink-0">
             <span class="text-xs text-tertiary bg-surface-hover rounded-md px-2 py-1">
               {{ lane.totalCards }}
             </span>
@@ -541,9 +535,13 @@ function onLaneScroll(id: string, e: Event): void {
             </button>
           </div>
         </header>
+        <div class="bg-surface-alt px-4 pb-2 shrink-0" aria-hidden="true"></div>
+        <!-- Sticky hairline: pins right below the title so the column keeps
+             a clean bottom border once the padding has scrolled away. -->
+        <div class="sticky top-9 z-20 h-px shadow-sm bg-(--color-border-default) shrink-0" aria-hidden="true"></div>
 
         <!-- Sub-lanes (one when secondary axis is off, many when on) -->
-        <div class="flex-1 flex flex-col overflow-y-auto" @scroll="onLaneScroll(lane.id, $event)">
+        <div class="flex flex-col">
           <!-- Inline quick-add: a single-line title input at the top
                of the column. Enter creates a ticket in the column's
                default workflow state and keeps the input open for the
@@ -569,7 +567,7 @@ function onLaneScroll(id: string, e: Event): void {
           >
             <header
               v-if="secondaryGroupBy"
-              class="flex items-center justify-between px-3 py-1.5 text-[10px] uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle/50 sticky top-0 z-10"
+              class="flex items-center justify-between px-3 py-1.5 text-[10px] uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle/50 sticky top-9 z-10"
             >
               <span class="truncate">{{ sublane.label }}</span>
               <span>{{ sublane.cards.length }}</span>
