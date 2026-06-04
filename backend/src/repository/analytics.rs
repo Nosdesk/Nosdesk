@@ -68,6 +68,10 @@ pub struct KpiQuery {
     /// covering the primary window. Skip when the caller only
     /// needs the headline number (e.g. some compact tile renders).
     pub include_sparkline: bool,
+    /// Validated IANA timezone the sparkline's daily buckets align
+    /// to (the user's effective zone), so a day boundary lands on
+    /// their local midnight rather than UTC's.
+    pub tz: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,12 +112,12 @@ pub fn kpi(conn: &mut DbConnection, q: KpiQuery) -> QueryResult<KpiResult> {
     };
 
     let sparkline = if q.include_sparkline && q.metric != KpiMetric::TicketsOpen {
-        // The KPI sparkline is a tiny trend line with no time axis;
-        // daily UTC buckets are fine (tz-correct daily alignment would
-        // need the tz plumbed through the KPI endpoint too — a later
-        // follow-up). Drop the bucket timestamps, keep the values.
+        // The KPI sparkline is a tiny trend line with no time axis, but
+        // its daily buckets still align to the user's zone so a day's
+        // dot covers their local midnight-to-midnight rather than UTC's.
+        // Drop the bucket timestamps, keep the values.
         Some(
-            bucketed_counts(conn, q.metric, q.from, q.to, Grain::Day, "UTC")?
+            bucketed_counts(conn, q.metric, q.from, q.to, Grain::Day, &q.tz)?
                 .into_iter()
                 .map(|(_, v)| v)
                 .collect(),

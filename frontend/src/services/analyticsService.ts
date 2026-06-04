@@ -33,6 +33,10 @@ export interface KpiParams {
   /** Default true; pass false on dense renderers that don't show a
    *  sparkline alongside the number. */
   sparkline?: boolean
+  /** IANA timezone the sparkline's daily buckets align to (the user's
+   *  effective zone). Omitted / invalid = UTC on the backend. Keeps
+   *  each day's bucket on the user's local day boundary. */
+  tz?: string
 }
 
 export type TsMeasure = 'count'

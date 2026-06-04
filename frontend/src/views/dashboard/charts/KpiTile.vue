@@ -23,6 +23,7 @@ import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
 import { useLiveKpi } from '@/composables/useLiveKpi'
+import { useDateStore } from '@/stores/dateStore'
 import {
   analyticsService,
   type KpiMetric,
@@ -49,6 +50,7 @@ const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 const { window: timeWindow, priorWindow, compare } = useTimeRange()
+const dateStore = useDateStore()
 
 const params = computed(() => {
   const w = timeWindow.value
@@ -64,6 +66,9 @@ const params = computed(() => {
     prior_from: p?.from,
     prior_to: p?.to,
     sparkline: props.showSparkline !== false,
+    // The backend aligns the sparkline's daily buckets to this zone so
+    // each dot covers the user's local day, not a UTC day.
+    tz: dateStore.effectiveTimezone,
   }
 })
 
@@ -77,6 +82,7 @@ const query = useQuery({
     params.value.prior_from ?? 'no-prior',
     params.value.prior_to ?? 'no-prior',
     params.value.sparkline ? 'spark' : 'no-spark',
+    params.value.tz,
   ],
   query: () => analyticsService.kpi(params.value),
 })

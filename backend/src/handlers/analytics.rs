@@ -64,6 +64,11 @@ pub struct KpiParams {
     /// suppress it with `?sparkline=false`.
     #[serde(default = "default_true")]
     pub sparkline: bool,
+    /// IANA timezone the sparkline's daily buckets align to (the
+    /// client's effective zone). Absent / invalid falls back to UTC.
+    /// Keeps each day's bucket on the user's local day boundary.
+    #[serde(default)]
+    pub tz: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -100,12 +105,23 @@ pub async fn get_kpi(mut tc: TenantConn, query: web::Query<KpiParams>) -> impl R
         }
     };
 
+    // Validate the timezone against the IANA database; an unknown name
+    // (or none) falls back to UTC so a bad param can't 500 the tile or
+    // be smuggled into the SQL.
+    let tz = params
+        .tz
+        .as_deref()
+        .and_then(|s| crate::utils::locale::parse_timezone(s).ok())
+        .map(|z| z.name().to_string())
+        .unwrap_or_else(|| "UTC".to_string());
+
     let query = KpiQuery {
         metric,
         from: params.from,
         to: params.to,
         prior,
         include_sparkline: params.sparkline,
+        tz,
     };
 
     match tc.run(|conn| analytics::kpi(conn, query)) {
