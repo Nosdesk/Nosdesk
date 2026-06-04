@@ -2251,6 +2251,9 @@ project-cycles-field-end = Einde
 project-cycles-name-placeholder = bijv. Sprint 14
 project-cycles-create-submit = Aanmaken
 project-cycles-all-title = Alle cycli
+# Actieve-cyclusweergave (machine, nog na te kijken door moedertaalspreker).
+project-cycles-active-work-title = Werk in deze cyclus
+project-cycles-ended-warning = Deze cyclus eindigde op { $date } maar is nog niet afgerond.
 project-cycles-empty-prefix = Nog geen cycli. Klik op
 project-cycles-empty-cta = Nieuwe cyclus
 project-cycles-empty-suffix = om een iteratie te starten.

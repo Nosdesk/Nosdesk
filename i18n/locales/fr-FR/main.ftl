@@ -2254,6 +2254,9 @@ project-cycles-field-end = Fin
 project-cycles-name-placeholder = par ex. Sprint 14
 project-cycles-create-submit = Créer
 project-cycles-all-title = Tous les cycles
+# Vue cycle actif (machine, à relire par un locuteur natif).
+project-cycles-active-work-title = Travail de ce cycle
+project-cycles-ended-warning = Ce cycle s'est terminé le { $date } mais n'est pas encore clôturé.
 project-cycles-empty-prefix = Aucun cycle pour l'instant. Cliquez sur
 project-cycles-empty-cta = Nouveau cycle
 project-cycles-empty-suffix = pour démarrer une itération.

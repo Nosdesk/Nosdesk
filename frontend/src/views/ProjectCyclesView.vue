@@ -16,7 +16,10 @@ import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
+import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
 import { useCyclesStore } from '@/stores/cycles'
+import { useAggregate } from '@/sync/composables'
+import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@/types/workflow'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
@@ -32,6 +35,7 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const router = useRouter()
 const projectId = computed(() => Number(props.id))
 const projectsStore = useSyncProjectsStore()
+const ticketsStore = useSyncTicketsStore()
 const cyclesStore = useCyclesStore()
 
 const project = projectsStore.byId(projectId)
@@ -41,6 +45,52 @@ const activeCycle = cyclesStore.activeCycle(projectId.value)
 onMounted(async () => {
   await subscribe(`project:${projectId.value}`)
   await cyclesStore.ensureLoaded(projectId.value)
+})
+
+// The active cycle's tickets, grouped by workflow-state category, so the
+// cycles page shows the in-flight work without a click into the board.
+// Sourced from the pool (project members carry a denormalised cycle_id),
+// so it stays live as tickets move, get carried over, etc.
+interface ProjectTicketAssoc {
+  project_id: number
+  ticket_id: number
+}
+const associations = useAggregate<ProjectTicketAssoc>('project_ticket')
+
+const activeCycleTickets = computed<SyncTicket[]>(() => {
+  const cy = activeCycle.value
+  if (!cy) return []
+  const out: SyncTicket[] = []
+  for (const a of associations.value) {
+    if (a.project_id !== projectId.value) continue
+    const ticket = ticketsStore.byId(a.ticket_id).value
+    if (ticket && ticket.cycle_id === cy.id) out.push(ticket)
+  }
+  return out
+})
+
+const activeCycleGroups = computed(() => {
+  const groups = new Map<WorkflowStateCategory, SyncTicket[]>()
+  for (const ticket of activeCycleTickets.value) {
+    const cat = ticket.workflow_state?.category
+    if (!cat) continue
+    const bucket = groups.get(cat) ?? []
+    bucket.push(ticket)
+    groups.set(cat, bucket)
+  }
+  return WORKFLOW_CATEGORIES.filter((c) => groups.has(c)).map((c) => ({
+    category: c,
+    label: getCategoryLabel(c),
+    tickets: groups.get(c) as SyncTicket[],
+  }))
+})
+
+// Active cycle whose end date has passed but hasn't been completed.
+// Surfaces a prompt to complete it (completion is the deliberate action
+// that triggers the snapshot + carryover).
+const activeCycleEnded = computed<boolean>(() => {
+  const cy = activeCycle.value
+  return !!cy && cy.state === 'active' && !!cy.end_at && new Date(cy.end_at).getTime() < Date.now()
 })
 
 const newCycleName = ref('')
@@ -132,7 +182,44 @@ function stateLabel(state: string): string {
     <ProjectTabBar :project-id="projectId" />
 
     <div class="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col gap-4">
-      <CycleBurndown v-if="activeCycle" :cycle="activeCycle" />
+      <template v-if="activeCycle">
+        <div
+          v-if="activeCycleEnded"
+          class="flex items-center gap-3 rounded-lg border border-status-warning/40 bg-status-warning/10 px-4 py-3 text-sm text-status-warning"
+        >
+          <span class="flex-1">
+            {{ $t('project-cycles-ended-warning', { date: formatCycleDate(activeCycle.end_at) }) }}
+          </span>
+          <button
+            type="button"
+            class="text-xs font-medium rounded-md px-3 py-1.5 border border-status-warning/50 hover:bg-status-warning/10"
+            @click="requestCompleteCycle(activeCycle.uuid)"
+          >{{ $t('project-cycles-action-complete') }}</button>
+        </div>
+
+        <CycleBurndown :cycle="activeCycle" />
+
+        <SectionCard v-if="activeCycleGroups.length > 0" content-padding="">
+          <template #title>{{ $t('project-cycles-active-work-title') }}</template>
+          <div class="flex flex-col">
+            <div v-for="group in activeCycleGroups" :key="group.category">
+              <div class="px-3 py-1.5 text-[10px] uppercase tracking-wide font-semibold text-tertiary bg-surface-alt border-b border-subtle/50">
+                {{ group.label }} <span class="text-tertiary">({{ group.tickets.length }})</span>
+              </div>
+              <button
+                v-for="ticket in group.tickets"
+                :key="ticket.id"
+                type="button"
+                class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover transition-colors border-b border-subtle/30"
+                @click="router.push(`/tickets/${ticket.id}`)"
+              >
+                <span class="font-mono text-tertiary text-xs shrink-0">#{{ ticket.id }}</span>
+                <span class="text-sm text-primary truncate flex-1">{{ ticket.title }}</span>
+              </button>
+            </div>
+          </div>
+        </SectionCard>
+      </template>
 
       <SectionCard v-if="showCreate" content-padding="p-4">
         <template #title>{{ $t('project-cycles-create-title') }}</template>
