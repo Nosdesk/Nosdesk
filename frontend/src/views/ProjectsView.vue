@@ -33,8 +33,6 @@ import ProjectCycleGlance from '@/components/projectComponents/ProjectCycleGlanc
 import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
 import AvatarStack from '@/components/common/AvatarStack.vue'
 import Button from '@/components/common/Button.vue'
-import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
-import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 
 const router = useRouter()
@@ -83,8 +81,9 @@ const cols = useDataTableColumns({
   pinnedIds: ['name'],
 })
 
-// Search + status filter + sort.
-const search = ref('')
+// Status filter (chips) + sort (driven by clicking the column headers).
+// Finding a project by name is the global search's job, so there's no
+// in-page search box.
 const statusFilter = ref('all')
 const statusFilterOptions = computed(() => [
   { value: 'all', label: t('projects-filter-status-all') },
@@ -92,25 +91,23 @@ const statusFilterOptions = computed(() => [
   { value: 'completed', label: t('project-actions-status-completed') },
   { value: 'archived', label: t('project-actions-status-archived') },
 ])
+const statusCounts = computed<Record<string, number>>(() => {
+  const c: Record<string, number> = { all: 0, active: 0, completed: 0, archived: 0 }
+  for (const p of sortedByName.value) {
+    c.all += 1
+    if (p.status in c) c[p.status] += 1
+  }
+  return c
+})
 
-// Sort state is shared by the dropdown and the table-header clicks.
 const sortField = ref('name')
 const sortDir = ref<'asc' | 'desc'>('asc')
-const sortOptions = computed(() => [
-  { value: 'name', label: t('projects-sort-name') },
-  { value: 'updated', label: t('projects-sort-recent') },
-  { value: 'progress', label: t('projects-sort-progress') },
-  { value: 'tickets', label: t('projects-sort-tickets') },
-])
 
-const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  return sortedByName.value.filter(
-    (p) =>
-      (statusFilter.value === 'all' || p.status === statusFilter.value) &&
-      (q === '' || p.name.toLowerCase().includes(q)),
-  )
-})
+const filtered = computed(() =>
+  statusFilter.value === 'all'
+    ? sortedByName.value.slice()
+    : sortedByName.value.filter((p) => p.status === statusFilter.value),
+)
 
 function progressRatio(p: SyncProject): number {
   const r = rollups.value.get(p.id)
@@ -141,17 +138,6 @@ const noMatches = computed(
 
 function open(id: number): void {
   router.push({ name: 'project-detail', params: { id: String(id) } })
-}
-
-function onStatusFilter(value: string | string[]): void {
-  statusFilter.value = Array.isArray(value) ? value[0] : value
-}
-
-// Dropdown: pick a sensible default direction per field.
-function onSort(value: string | string[]): void {
-  const field = Array.isArray(value) ? value[0] : value
-  sortField.value = field
-  sortDir.value = field === 'name' ? 'asc' : 'desc'
 }
 
 // Table header click: DataTable already toggled the direction.
@@ -217,39 +203,37 @@ async function confirmDelete(): Promise<void> {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 px-4 sm:px-6 py-6 max-w-6xl mx-auto w-full">
+  <div class="h-full flex flex-col">
+    <!-- Status filter chips. One-click navigation by lifecycle, with a
+         live count per status. Sorting is done by clicking the table
+         column headers; finding a project by name is the global
+         search's job. -->
     <div
       v-if="bootstrapped && sortedByName.length > 0"
-      class="flex flex-wrap items-center gap-2"
+      class="shrink-0 flex items-center gap-1 px-4 sm:px-6 py-2.5 border-b border-subtle"
     >
-      <div class="flex-1 min-w-48 max-w-xs">
-        <DebouncedSearchInput v-model="search" />
-      </div>
-      <div class="w-40">
-        <BaseDropdown
-          :model-value="statusFilter"
-          :options="statusFilterOptions"
-          size="sm"
-          @update:model-value="onStatusFilter"
-        />
-      </div>
-      <label class="flex items-center gap-2 text-xs text-secondary">
-        <span class="shrink-0">{{ $t('projects-sort-label') }}</span>
-        <div class="w-40">
-          <BaseDropdown
-            :model-value="sortField"
-            :options="sortOptions"
-            size="sm"
-            @update:model-value="onSort"
-          />
-        </div>
-      </label>
+      <button
+        v-for="option in statusFilterOptions"
+        :key="option.value"
+        type="button"
+        class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        :class="statusFilter === option.value
+          ? 'bg-accent/15 text-accent'
+          : 'text-secondary hover:bg-surface-hover'"
+        @click="statusFilter = option.value"
+      >
+        {{ option.label }}
+        <span
+          class="text-xs tabular-nums"
+          :class="statusFilter === option.value ? 'text-accent/70' : 'text-tertiary'"
+        >{{ statusCounts[option.value] ?? 0 }}</span>
+      </button>
     </div>
 
     <!-- Loading skeleton -->
     <div
       v-if="isInitiallyLoading"
-      class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+      class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 sm:p-6"
     >
       <div
         v-for="i in 6"
@@ -264,7 +248,7 @@ async function confirmDelete(): Promise<void> {
     <!-- Empty workspace -->
     <div
       v-else-if="isEmpty"
-      class="flex flex-col items-center justify-center text-center py-16 px-4"
+      class="flex-1 flex flex-col items-center justify-center text-center py-16 px-4"
     >
       <div class="w-12 h-12 rounded-xl bg-surface-alt border border-subtle flex items-center justify-center mb-4">
         <svg class="w-6 h-6 text-tertiary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -281,12 +265,13 @@ async function confirmDelete(): Promise<void> {
     <!-- Filtered to nothing -->
     <div
       v-else-if="noMatches"
-      class="flex flex-col items-center justify-center text-center py-16 text-sm text-secondary"
+      class="flex-1 flex flex-col items-center justify-center text-center py-16 text-sm text-secondary"
     >
       {{ $t('projects-list-no-results') }}
     </div>
 
-    <template v-else>
+    <!-- Scroll area: full-bleed table on desktop, padded cards below -->
+    <div v-else class="flex-1 min-h-0 overflow-auto">
       <!-- Desktop: shared DataTable (draggable / resizable / sortable) -->
       <div class="hidden lg:block">
         <DataTable
@@ -384,7 +369,7 @@ async function confirmDelete(): Promise<void> {
       </div>
 
       <!-- Tablet / mobile: enriched cards -->
-      <div class="lg:hidden grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="lg:hidden grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 sm:p-6">
         <ProjectCard
           v-for="project in displayed"
           :key="project.id"
@@ -397,7 +382,7 @@ async function confirmDelete(): Promise<void> {
           @delete="askDelete(project)"
         />
       </div>
-    </template>
+    </div>
 
     <CreateProjectModal
       v-if="createOpen"
