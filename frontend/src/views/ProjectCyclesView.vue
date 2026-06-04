@@ -84,6 +84,22 @@ const activeCycleEnded = computed<boolean>(() => {
   return !!cy && cy.state === 'active' && !!cy.end_at && new Date(cy.end_at).getTime() < Date.now()
 })
 
+// Recent velocity: mean completed-ticket count over the last 3 completed
+// cycles, read straight off their frozen snapshots. Count-based, no
+// points. Planning guidance only, so null until there's history.
+const velocity = computed<number | null>(() => {
+  const done = cycles.value
+    .filter((c) => c.state === 'completed' && c.completion_snapshot)
+    .sort((a, b) => (b.completed_at ?? '').localeCompare(a.completed_at ?? ''))
+    .slice(0, 3)
+  if (done.length === 0) return null
+  const total = done.reduce(
+    (sum, c) => sum + Number((c.completion_snapshot as Record<string, unknown>).completed ?? 0),
+    0,
+  )
+  return Math.round(total / done.length)
+})
+
 const newCycleName = ref('')
 const newCycleStart = ref('')
 const newCycleEnd = ref('')
@@ -214,6 +230,9 @@ function stateLabel(state: string): string {
 
       <SectionCard v-if="showCreate" content-padding="p-4">
         <template #title>{{ $t('project-cycles-create-title') }}</template>
+        <p v-if="velocity != null" class="text-[11px] text-tertiary mb-3">
+          {{ $t('project-cycles-velocity-hint', { count: velocity }) }}
+        </p>
         <form class="flex items-end gap-3" @submit.prevent="createCycle">
           <label class="flex flex-col gap-1 text-[11px] text-tertiary flex-1">
             <span>{{ $t('project-cycles-field-name') }}</span>

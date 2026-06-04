@@ -43,6 +43,9 @@ export interface CycleStats {
    * moved to the next cycle (or unlinked to the backlog). Only
    * present on frozen completion snapshots. */
   carried_over?: number
+  /** Tickets added to the cycle after its start date (mid-cycle scope
+   * creep). Computed live for active cycles, frozen on completion. */
+  scope_added?: number
 }
 
 /** Count-based burnup series returned by GET /cycles/{uuid}/burnup.
@@ -53,6 +56,9 @@ export interface BurnupSeries {
   start: string | null
   end: string | null
   final_scope: number
+  /** Scope committed by the start date; final_scope minus this is the
+   * mid-cycle creep, drawn as a baseline on the chart. */
+  start_scope: number
   points: { day: string; scope: number; completed: number }[]
 }
 

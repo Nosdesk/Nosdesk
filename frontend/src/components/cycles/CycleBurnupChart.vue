@@ -57,6 +57,13 @@ const idealLine = computed(() => {
   return `${x1},${yFor(0)} ${x2},${yFor(props.series.final_scope)}`
 })
 
+// Baseline at the scope committed by the start date; the gap up to the
+// rising scope line is the mid-cycle creep. Only drawn when there is a
+// distinct, non-zero starting scope below the final.
+const showBaseline = computed(
+  () => props.series.start_scope > 0 && props.series.start_scope < props.series.final_scope,
+)
+
 const firstDay = computed(() => (hasData.value ? formatCompactDate(points.value[0].day) : ''))
 const lastDay = computed(() =>
   hasData.value ? formatCompactDate(points.value[points.value.length - 1].day) : '',
@@ -81,6 +88,10 @@ const lastDay = computed(() =>
         <span class="flex items-center gap-1">
           <span class="inline-block w-3 h-0.5 border-t border-dashed border-tertiary" />
           {{ t('cycle-burnup-legend-ideal') }}
+        </span>
+        <span v-if="showBaseline" class="flex items-center gap-1">
+          <span class="inline-block w-3 h-0.5 border-t border-dashed border-subtle" />
+          {{ t('cycle-burnup-legend-start-scope') }}
         </span>
       </div>
     </div>
@@ -124,6 +135,25 @@ const lastDay = computed(() =>
       >
         {{ series.final_scope }}
       </text>
+
+      <!-- Start-scope baseline: the gap up to the scope line is creep -->
+      <template v-if="showBaseline">
+        <line
+          :x1="left"
+          :y1="yFor(series.start_scope)"
+          :x2="VB_W - right"
+          :y2="yFor(series.start_scope)"
+          class="stroke-subtle"
+          stroke-width="1"
+          stroke-dasharray="3 3"
+        />
+        <text
+          :x="left - 4"
+          :y="yFor(series.start_scope) + 3"
+          text-anchor="end"
+          class="fill-tertiary text-[10px]"
+        >{{ series.start_scope }}</text>
+      </template>
 
       <!-- Ideal (dashed) -->
       <polyline

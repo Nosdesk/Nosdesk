@@ -385,9 +385,9 @@ fn cycle_members(conn: &mut DbConnection, cycle_id: i32) -> QueryResult<Vec<Cycl
 /// cycles so post-completion edits don't move the line.
 pub fn build_completion_snapshot(
     conn: &mut DbConnection,
-    cycle_id: i32,
+    cycle: &Cycle,
 ) -> QueryResult<serde_json::Value> {
-    let members = cycle_members(conn, cycle_id)?;
+    let members = cycle_members(conn, cycle.id)?;
 
     let total = members.len();
     let mut by_category: std::collections::BTreeMap<String, i32> = Default::default();
@@ -399,11 +399,18 @@ pub fn build_completion_snapshot(
             completed += 1;
         }
     }
+    // Scope added after the cycle started (mid-cycle creep), when the
+    // cycle has a start date to measure against.
+    let scope_added = cycle
+        .start_at
+        .map(|start| members.iter().filter(|m| m.added_at > start).count())
+        .unwrap_or(0);
     Ok(json!({
         "frozen_at": Utc::now().to_rfc3339(),
         "tickets": total,
         "completed": completed,
         "by_category": by_category,
+        "scope_added": scope_added,
     }))
 }
 
@@ -511,6 +518,9 @@ pub fn build_burnup(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<serde
     let end_day = raw_end.max(start_day).min(max_end);
 
     let final_scope = members.len();
+    // Scope committed by the cycle's start; the gap up to final_scope is
+    // mid-cycle creep, drawn as a baseline on the chart.
+    let start_scope = members.iter().filter(|m| m.added_at <= start_at).count();
     let mut points = Vec::new();
     let mut day = start_day;
     while day <= end_day {
@@ -539,6 +549,7 @@ pub fn build_burnup(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<serde
         "start": start_at.to_rfc3339(),
         "end": cycle.end_at.unwrap_or(now).to_rfc3339(),
         "final_scope": final_scope,
+        "start_scope": start_scope,
         "points": points,
     }))
 }
@@ -644,7 +655,7 @@ mod tests {
 
         // Complete A via the repo path: snapshot first, then carryover,
         // then complete.
-        let mut snapshot = build_completion_snapshot(&mut conn, cycle_a.id).unwrap();
+        let mut snapshot = build_completion_snapshot(&mut conn, &cycle_a).unwrap();
         assert_eq!(snapshot["tickets"], 3);
         assert_eq!(snapshot["completed"], 1);
         let carried = carry_over_incomplete(&mut conn, &cycle_a).unwrap();

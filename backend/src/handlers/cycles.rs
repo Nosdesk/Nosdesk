@@ -244,7 +244,7 @@ pub async fn stats(
             if let Some(snap) = cycle.completion_snapshot.clone() {
                 Ok(Some(snap))
             } else {
-                repo::build_completion_snapshot(conn, cycle.id).map(Some)
+                repo::build_completion_snapshot(conn, &cycle).map(Some)
             }
         }
         None => Ok(None),
@@ -310,7 +310,7 @@ pub async fn complete(
             // moves the still-open tickets to the next cycle (or the
             // backlog) and records the count under `carried_over`.
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                let mut snapshot = repo::build_completion_snapshot(conn, cycle.id)?;
+                let mut snapshot = repo::build_completion_snapshot(conn, &cycle)?;
                 let carried = repo::carry_over_incomplete(conn, &cycle)?;
                 snapshot["carried_over"] = serde_json::json!(carried);
                 let updated = repo::complete(conn, uuid, snapshot)?;

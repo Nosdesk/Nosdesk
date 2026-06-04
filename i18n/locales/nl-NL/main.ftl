@@ -2250,6 +2250,7 @@ project-cycles-field-start = Start
 project-cycles-field-end = Einde
 project-cycles-name-placeholder = bijv. Sprint 14
 project-cycles-create-submit = Aanmaken
+project-cycles-velocity-hint = Recente snelheid: ~{ $count } tickets per cyclus
 project-cycles-all-title = Alle cycli
 # Actieve-cyclusweergave (machine, nog na te kijken door moedertaalspreker).
 project-cycles-active-work-title = Werk in deze cyclus
@@ -4576,7 +4577,10 @@ cycle-burnup-title = Burnup
 cycle-burnup-legend-scope = Omvang
 cycle-burnup-legend-completed = Voltooid
 cycle-burnup-legend-ideal = Ideaal
+# Cyclusomvang (machine, nog na te kijken door moedertaalspreker).
+cycle-burnup-legend-start-scope = Beginomvang
 cycle-burnup-needs-dates = Voeg start- en einddatums toe om de burnup te zien.
+tickets-cycle-scope-added = +{ $count } toegevoegd na de start
 tickets-collaborative-article-title = Ticketnotities
 tickets-collaborative-article-doc-title = Documentatie: ticket #{ $id }
 tickets-collaborative-article-revision-history = Versiegeschiedenis

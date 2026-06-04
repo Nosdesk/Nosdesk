@@ -134,6 +134,14 @@ const categoryLabels = computed<Record<string, string>>(() => ({
         </div>
       </div>
 
+      <!-- Scope added after start (creep); live and frozen both carry it -->
+      <p
+        v-if="(stats.scope_added ?? 0) > 0"
+        class="text-xs text-tertiary"
+      >
+        {{ t('tickets-cycle-scope-added', { count: stats.scope_added ?? 0 }) }}
+      </p>
+
       <!-- Carried-over count (frozen snapshots only) -->
       <p
         v-if="isFrozen && (stats.carried_over ?? 0) > 0"

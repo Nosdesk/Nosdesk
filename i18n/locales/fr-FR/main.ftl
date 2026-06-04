@@ -2253,6 +2253,7 @@ project-cycles-field-start = Début
 project-cycles-field-end = Fin
 project-cycles-name-placeholder = par ex. Sprint 14
 project-cycles-create-submit = Créer
+project-cycles-velocity-hint = Vélocité récente : ~{ $count } tickets par cycle
 project-cycles-all-title = Tous les cycles
 # Vue cycle actif (machine, à relire par un locuteur natif).
 project-cycles-active-work-title = Travail de ce cycle
@@ -4585,7 +4586,10 @@ cycle-burnup-title = Burnup
 cycle-burnup-legend-scope = Périmètre
 cycle-burnup-legend-completed = Terminé
 cycle-burnup-legend-ideal = Idéal
+# Portée de cycle (machine, à relire par un locuteur natif).
+cycle-burnup-legend-start-scope = Portée initiale
 cycle-burnup-needs-dates = Ajoutez des dates de début et de fin pour voir le burnup.
+tickets-cycle-scope-added = +{ $count } ajoutés après le début
 tickets-collaborative-article-title = Notes du ticket
 tickets-collaborative-article-doc-title = Documentation : Ticket n°{ $id }
 tickets-collaborative-article-revision-history = Historique des révisions
