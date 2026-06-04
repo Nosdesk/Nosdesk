@@ -12,12 +12,14 @@ import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
 import { useProjectTicketCounts } from '@/composables/useProjectTickets'
+import { useActiveCycleSummaries } from '@/composables/useActiveCycleSummaries'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { formatRelativeTime } from '@/utils/dateUtils'
 import { projectService } from '@/services/projectService'
 import { logger } from '@/utils/logger'
 import CreateProjectModal from '@/components/projectComponents/CreateProjectModal.vue'
 import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
+import ProjectCycleGlance from '@/components/projectComponents/ProjectCycleGlance.vue'
 import Button from '@/components/common/Button.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
@@ -47,6 +49,10 @@ usePageCreateAction(() => {
 // tracks tickets being linked/unlinked.
 const ticketCounts = useProjectTicketCounts()
 const ticketCount = (id: number): number => ticketCounts.value.get(id) ?? 0
+
+// Active-cycle glance per project (cache-first, revalidates silently).
+const { byProject: activeCycles } = useActiveCycleSummaries()
+const activeCycleOf = (id: number) => activeCycles.value.get(id) ?? null
 
 // Search + status filter.
 const search = ref('')
@@ -244,6 +250,8 @@ async function confirmDelete(): Promise<void> {
           {{ project.description }}
         </p>
         <p v-else class="text-sm text-tertiary italic">{{ $t('projects-list-no-description') }}</p>
+
+        <ProjectCycleGlance :summary="activeCycleOf(project.id)" />
 
         <div class="flex items-center gap-3 mt-auto pt-1 text-xs text-tertiary">
           <span class="inline-flex items-center gap-1.5">
