@@ -62,14 +62,18 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
-// Redirect to login using Vue Router to preserve SPA history stack
+// Redirect to login using Vue Router to preserve SPA history stack.
+//
+// Note: we do NOT clear cookies here. The auth cookies (access_token,
+// refresh_token) are httpOnly, so JavaScript can't delete them anyway —
+// the old `document.cookie = ...` lines were silent no-ops that gave a
+// false impression of "logging out". This path only runs on genuine
+// session expiry (the refresh endpoint rejected us / refresh failed),
+// where those cookies are already invalid server-side, and a successful
+// login re-issues fresh ones. Server-initiated logout (/api/auth/logout)
+// is what actually clears the httpOnly cookies.
 function redirectToLogin() {
   sessionStorage.setItem('redirecting-to-login', 'true');
-
-  document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-  document.cookie = 'refresh_token=; path=/api/auth/refresh; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-  document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-
   localStorage.removeItem('authProvider');
 
   setTimeout(async () => {
@@ -207,20 +211,31 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       const originalRequest = error.config;
 
-      // Don't retry refresh requests or already retried requests
-      if (originalRequest.url?.includes('/auth/refresh') || originalRequest._retry) {
-        // Refresh failed or already retried - redirect to login
+      // A 401 from the refresh endpoint itself means the session
+      // genuinely can't be renewed -> send the user to login.
+      if (originalRequest.url?.includes('/auth/refresh')) {
         if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
-          logger.warn('Session expired - redirecting to login', {
-            correlationId
-          });
-
+          logger.warn('Session expired (refresh rejected) - redirecting to login', { correlationId });
           redirectToLogin();
         }
         return Promise.reject(appError);
       }
 
-      // Mark request as retried
+      // Already refreshed once and retried, yet the endpoint still 401s.
+      // That's an endpoint-specific authorization problem, NOT an expired
+      // session, so surface it to the caller instead of logging the user
+      // out. A single misbehaving endpoint must not nuke the whole
+      // session (this is what turned the collaboration-scope 401 into a
+      // full-page bounce to the dashboard).
+      if (originalRequest._retry) {
+        logger.warn('Endpoint 401 after a successful token refresh; not treating as session expiry', {
+          correlationId,
+          endpoint: originalRequest.url,
+        });
+        return Promise.reject(appError);
+      }
+
+      // First 401 on a normal request: try to refresh the token once.
       originalRequest._retry = true;
 
       // If already refreshing, queue this request
