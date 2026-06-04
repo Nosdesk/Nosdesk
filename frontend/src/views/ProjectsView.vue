@@ -3,15 +3,14 @@
  * Projects list — sync-engine version. Renders from the sync runtime's
  * object pool (live via the SSE outbox). Each project is enriched, from
  * the same pool, with a ticket-status breakdown, team, and active
- * cycle, plus deep links to its Board/Gantt/Cycles views. Desktop gets
- * a dense row layout; mobile gets enriched cards. Both share the same
- * data and sub-components; only the container differs.
+ * cycle, plus deep links to its Board/Gantt/Cycles views.
  *
- * Rename/status/delete orchestration lives here; the row/card emit up
- * (mirroring ProjectActionsMenu), so there's one owner of the side
- * effects across both layouts.
+ * Desktop uses the shared DataTable (the same component assets/users
+ * use) so projects gets draggable / resizable / sortable column headers
+ * with persisted layout for free; mobile keeps the enriched cards.
+ * Rename/status/delete side effects are owned here.
  */
-import { onMounted, computed, ref } from 'vue'
+import { onMounted, computed, ref, type ComponentPublicInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
@@ -19,12 +18,20 @@ import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
 import { useProjectRollups } from '@/composables/useProjectRollups'
 import { useActiveCycleSummaries } from '@/composables/useActiveCycleSummaries'
+import { useDataTableColumns } from '@/composables/useDataTableColumns'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
+import { projectStatusDot } from '@/utils/projectStatus'
+import { formatCompactRelativeTime } from '@/utils/dateUtils'
 import { projectService } from '@/services/projectService'
 import { logger } from '@/utils/logger'
+import DataTable from '@/components/common/DataTable.vue'
 import CreateProjectModal from '@/components/projectComponents/CreateProjectModal.vue'
-import ProjectRow from '@/components/projectComponents/ProjectRow.vue'
 import ProjectCard from '@/components/projectComponents/ProjectCard.vue'
+import ProjectStatusBar from '@/components/projectComponents/ProjectStatusBar.vue'
+import ProjectQuickNav from '@/components/projectComponents/ProjectQuickNav.vue'
+import ProjectCycleGlance from '@/components/projectComponents/ProjectCycleGlance.vue'
+import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
+import AvatarStack from '@/components/common/AvatarStack.vue'
 import Button from '@/components/common/Button.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
@@ -56,6 +63,26 @@ const rollupOf = (id: number) => rollups.value.get(id) ?? null
 const { byProject: activeCycles } = useActiveCycleSummaries()
 const activeCycleOf = (id: number) => activeCycles.value.get(id) ?? null
 
+// Desktop table columns. Labels are translated; field ids stay stable
+// so useDataTableColumns can persist order/width per id. Drag/resize/
+// sort come from the shared DataTable.
+const projectColumns = computed(() => [
+  { field: 'name', label: t('projects-col-project'), width: 'minmax(220px, 1fr)', sortable: true, sortKey: 'name', minWidthPx: 160 },
+  { field: 'progress', label: t('projects-col-progress'), width: 'minmax(150px, 220px)', sortable: true, sortKey: 'progress', minWidthPx: 120, maxWidthPx: 280 },
+  { field: 'team', label: t('projects-col-team'), width: '110px', minWidthPx: 80, maxWidthPx: 180 },
+  { field: 'cycle', label: t('projects-col-cycle'), width: 'minmax(170px, 240px)', minWidthPx: 140 },
+  { field: 'links', label: '', width: '160px', minWidthPx: 120, maxWidthPx: 220 },
+  { field: 'updated', label: t('projects-col-updated'), width: '90px', sortable: true, sortKey: 'updated', minWidthPx: 64, maxWidthPx: 140 },
+  { field: 'actions', label: '', width: '52px', minWidthPx: 44, maxWidthPx: 72 },
+])
+
+const cols = useDataTableColumns({
+  columns: projectColumns,
+  storageNamespace: 'projects',
+  getViewId: () => 'default',
+  pinnedIds: ['name'],
+})
+
 // Search + status filter + sort.
 const search = ref('')
 const statusFilter = ref('all')
@@ -66,11 +93,12 @@ const statusFilterOptions = computed(() => [
   { value: 'archived', label: t('project-actions-status-archived') },
 ])
 
-type SortKey = 'name' | 'recent' | 'progress' | 'tickets'
-const sortKey = ref<SortKey>('name')
+// Sort state is shared by the dropdown and the table-header clicks.
+const sortField = ref('name')
+const sortDir = ref<'asc' | 'desc'>('asc')
 const sortOptions = computed(() => [
   { value: 'name', label: t('projects-sort-name') },
-  { value: 'recent', label: t('projects-sort-recent') },
+  { value: 'updated', label: t('projects-sort-recent') },
   { value: 'progress', label: t('projects-sort-progress') },
   { value: 'tickets', label: t('projects-sort-tickets') },
 ])
@@ -89,19 +117,19 @@ function progressRatio(p: SyncProject): number {
   return r && r.total > 0 ? r.closed / r.total : 0
 }
 
-// `sortedByName` already gives the name order, so 'name' is a no-op;
-// the others re-sort a copy.
 const displayed = computed(() => {
   const arr = [...filtered.value]
-  if (sortKey.value === 'recent') {
-    arr.sort((a, b) =>
-      (b.updated_at ?? b.created_at).localeCompare(a.updated_at ?? a.created_at),
-    )
-  } else if (sortKey.value === 'tickets') {
-    arr.sort((a, b) => (rollups.value.get(b.id)?.total ?? 0) - (rollups.value.get(a.id)?.total ?? 0))
-  } else if (sortKey.value === 'progress') {
-    arr.sort((a, b) => progressRatio(b) - progressRatio(a))
-  }
+  const dir = sortDir.value === 'asc' ? 1 : -1
+  arr.sort((a, b) => {
+    let r = 0
+    if (sortField.value === 'name') r = a.name.localeCompare(b.name)
+    else if (sortField.value === 'updated')
+      r = (a.updated_at ?? a.created_at).localeCompare(b.updated_at ?? b.created_at)
+    else if (sortField.value === 'progress') r = progressRatio(a) - progressRatio(b)
+    else if (sortField.value === 'tickets')
+      r = (rollups.value.get(a.id)?.total ?? 0) - (rollups.value.get(b.id)?.total ?? 0)
+    return r * dir
+  })
   return arr
 })
 
@@ -119,8 +147,42 @@ function onStatusFilter(value: string | string[]): void {
   statusFilter.value = Array.isArray(value) ? value[0] : value
 }
 
+// Dropdown: pick a sensible default direction per field.
 function onSort(value: string | string[]): void {
-  sortKey.value = (Array.isArray(value) ? value[0] : value) as SortKey
+  const field = Array.isArray(value) ? value[0] : value
+  sortField.value = field
+  sortDir.value = field === 'name' ? 'asc' : 'desc'
+}
+
+// Table header click: DataTable already toggled the direction.
+function onTableSort(field: string, dir: 'asc' | 'desc'): void {
+  sortField.value = field
+  sortDir.value = dir
+}
+
+// Inline rename (desktop table cell). DataTable owns the rows, so the
+// edit state lives here; the name cell shows the input for editingId.
+const editingId = ref<number | null>(null)
+const draftName = ref('')
+function focusRename(el: Element | ComponentPublicInstance | null): void {
+  if (el instanceof HTMLInputElement) {
+    el.focus()
+    el.select()
+  }
+}
+function startRename(p: SyncProject): void {
+  editingId.value = p.id
+  draftName.value = p.name
+}
+function commitRename(): void {
+  const id = editingId.value
+  if (id == null) return
+  const name = draftName.value.trim()
+  editingId.value = null
+  void onRename(id, name)
+}
+function cancelRename(): void {
+  editingId.value = null
 }
 
 async function onRename(id: number, name: string): Promise<void> {
@@ -156,40 +218,33 @@ async function confirmDelete(): Promise<void> {
 
 <template>
   <div class="flex flex-col gap-6 px-4 sm:px-6 py-6 max-w-6xl mx-auto w-full">
-    <header class="flex flex-col gap-4">
-      <div>
-        <h1 class="text-2xl font-semibold text-primary">{{ $t('projects-list-heading') }}</h1>
-        <p class="text-xs text-tertiary mt-1">{{ $t('projects-list-subheading') }}</p>
+    <div
+      v-if="bootstrapped && sortedByName.length > 0"
+      class="flex flex-wrap items-center gap-2"
+    >
+      <div class="flex-1 min-w-48 max-w-xs">
+        <DebouncedSearchInput v-model="search" />
       </div>
-
-      <div
-        v-if="bootstrapped && sortedByName.length > 0"
-        class="flex flex-wrap items-center gap-2"
-      >
-        <div class="flex-1 min-w-48 max-w-xs">
-          <DebouncedSearchInput v-model="search" />
-        </div>
+      <div class="w-40">
+        <BaseDropdown
+          :model-value="statusFilter"
+          :options="statusFilterOptions"
+          size="sm"
+          @update:model-value="onStatusFilter"
+        />
+      </div>
+      <label class="flex items-center gap-2 text-xs text-secondary">
+        <span class="shrink-0">{{ $t('projects-sort-label') }}</span>
         <div class="w-40">
           <BaseDropdown
-            :model-value="statusFilter"
-            :options="statusFilterOptions"
+            :model-value="sortField"
+            :options="sortOptions"
             size="sm"
-            @update:model-value="onStatusFilter"
+            @update:model-value="onSort"
           />
         </div>
-        <label class="flex items-center gap-2 text-xs text-secondary">
-          <span class="shrink-0">{{ $t('projects-sort-label') }}</span>
-          <div class="w-40">
-            <BaseDropdown
-              :model-value="sortKey"
-              :options="sortOptions"
-              size="sm"
-              @update:model-value="onSort"
-            />
-          </div>
-        </label>
-      </div>
-    </header>
+      </label>
+    </div>
 
     <!-- Loading skeleton -->
     <div
@@ -232,38 +287,104 @@ async function confirmDelete(): Promise<void> {
     </div>
 
     <template v-else>
-      <!-- Desktop: dense rows -->
-      <div class="hidden md:block border border-subtle rounded-lg overflow-hidden">
-        <div
-          class="flex items-center gap-3 px-3 py-2 border-b border-subtle bg-surface text-xs uppercase tracking-wide font-semibold text-tertiary"
+      <!-- Desktop: shared DataTable (draggable / resizable / sortable) -->
+      <div class="hidden lg:block">
+        <DataTable
+          :columns="cols.visible.value"
+          :data="displayed"
+          :selected-items="[]"
+          :selectable="false"
+          :sort-field="sortField"
+          :sort-direction="sortDir"
+          :column-reorder="cols.reorderBundle"
+          :column-resize="cols.resizeBundle"
+          @update:sort="onTableSort"
+          @row-click="(p: SyncProject) => open(p.id)"
         >
-          <div class="flex items-center gap-2 min-w-0 flex-1">
-            <span class="w-1.5 h-1.5 shrink-0"></span>{{ $t('projects-col-project') }}
-          </div>
-          <div class="w-44 shrink-0">{{ $t('projects-col-progress') }}</div>
-          <div class="w-20 shrink-0">{{ $t('projects-col-team') }}</div>
-          <div class="w-48 shrink-0">{{ $t('projects-col-cycle') }}</div>
-          <div class="w-40 shrink-0"></div>
-          <div class="w-12 shrink-0 text-right">{{ $t('projects-col-updated') }}</div>
-          <div class="w-8 shrink-0"></div>
-        </div>
-        <div class="divide-y divide-subtle">
-          <ProjectRow
-            v-for="project in displayed"
-            :key="project.id"
-            :project="project"
-            :rollup="rollupOf(project.id)"
-            :cycle="activeCycleOf(project.id)"
-            @open="open(project.id)"
-            @rename="(name) => onRename(project.id, name)"
-            @set-status="(s) => onSetStatus(project.id, s)"
-            @delete="askDelete(project)"
-          />
-        </div>
+          <template #cell-name="{ item }">
+            <div class="flex items-center gap-2 min-w-0 w-full">
+              <span
+                class="block w-1.5 h-1.5 rounded-full shrink-0"
+                :class="projectStatusDot(item.status)"
+                :title="$t(`project-actions-status-${item.status}`)"
+              />
+              <input
+                v-if="editingId === item.id"
+                :ref="focusRename"
+                v-model="draftName"
+                type="text"
+                class="w-full text-sm font-medium text-primary bg-surface-alt border border-default rounded px-2 py-0.5 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+                :aria-label="$t('project-actions-rename')"
+                @click.stop
+                @keyup.enter="commitRename"
+                @keyup.esc="cancelRename"
+                @blur="commitRename"
+              />
+              <button
+                v-else
+                type="button"
+                class="block max-w-full truncate text-left text-sm font-medium text-primary rounded transition-colors hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                @click.stop="open(item.id)"
+              >
+                {{ item.name }}
+              </button>
+            </div>
+          </template>
+
+          <template #cell-progress="{ item }">
+            <div class="flex items-center gap-2 w-full">
+              <ProjectStatusBar
+                class="flex-1"
+                :open="rollupOf(item.id)?.open ?? 0"
+                :in-progress="rollupOf(item.id)?.inProgress ?? 0"
+                :closed="rollupOf(item.id)?.closed ?? 0"
+                :total="rollupOf(item.id)?.total ?? 0"
+              />
+              <span class="shrink-0 text-xs tabular-nums text-tertiary">
+                {{ rollupOf(item.id)?.closed ?? 0 }}/{{ rollupOf(item.id)?.total ?? 0 }}
+              </span>
+            </div>
+          </template>
+
+          <template #cell-team="{ item }">
+            <AvatarStack
+              v-if="rollupOf(item.id)?.assignees.length"
+              :uuids="rollupOf(item.id)!.assignees"
+              :max="3"
+              size="xs"
+            />
+          </template>
+
+          <template #cell-cycle="{ item }">
+            <ProjectCycleGlance v-if="activeCycleOf(item.id)" :summary="activeCycleOf(item.id)" compact />
+            <span v-else class="text-xs text-tertiary">{{ $t('projects-no-active-cycle') }}</span>
+          </template>
+
+          <template #cell-links="{ item }">
+            <ProjectQuickNav :project-id="item.id" />
+          </template>
+
+          <template #cell-updated="{ item }">
+            <span v-if="item.updated_at" class="text-[11px] text-tertiary tabular-nums">
+              {{ formatCompactRelativeTime(item.updated_at) }}
+            </span>
+          </template>
+
+          <template #cell-actions="{ item }">
+            <div @click.stop>
+              <ProjectActionsMenu
+                :status="item.status"
+                @rename="startRename(item)"
+                @set-status="(s: string) => onSetStatus(item.id, s)"
+                @delete="askDelete(item)"
+              />
+            </div>
+          </template>
+        </DataTable>
       </div>
 
-      <!-- Mobile: enriched cards -->
-      <div class="md:hidden grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <!-- Tablet / mobile: enriched cards -->
+      <div class="lg:hidden grid grid-cols-1 sm:grid-cols-2 gap-4">
         <ProjectCard
           v-for="project in displayed"
           :key="project.id"
