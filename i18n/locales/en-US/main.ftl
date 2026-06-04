@@ -2309,6 +2309,22 @@ projects-create-error = Couldn't create the project. Please try again.
 projects-filter-status-all = All
 projects-list-no-results = No projects match your filters.
 
+# Projects list enrichment: status breakdown, active cycle, sort,
+# and desktop column headers.
+projects-no-active-cycle = No active cycle
+projects-progress-done = { $done }/{ $total } done
+projects-status-summary = { $done } done, { $doing } in progress, { $open } open of { $total }
+projects-sort-label = Sort
+projects-sort-name = Name
+projects-sort-recent = Recent
+projects-sort-progress = Progress
+projects-sort-tickets = Tickets
+projects-col-project = Project
+projects-col-progress = Progress
+projects-col-team = Team
+projects-col-cycle = Cycle
+projects-col-updated = Updated
+
 # Project detail (ProjectDetailView): per-project kanban board
 # with a header, status pill, ticket count, and a Group-by
 # control on the kanban toolbar.

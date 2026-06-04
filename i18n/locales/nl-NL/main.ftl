@@ -2193,6 +2193,21 @@ projects-create-error = Kan het project niet maken. Probeer het opnieuw.
 projects-filter-status-all = Alle
 projects-list-no-results = Geen projecten komen overeen met je filters.
 
+# Projects list enrichment (machine translation, pending native review)
+projects-no-active-cycle = Geen actieve cyclus
+projects-progress-done = { $done }/{ $total } voltooid
+projects-status-summary = { $done } voltooid, { $doing } in uitvoering, { $open } open van { $total }
+projects-sort-label = Sorteren
+projects-sort-name = Naam
+projects-sort-recent = Recent
+projects-sort-progress = Voortgang
+projects-sort-tickets = Tickets
+projects-col-project = Project
+projects-col-progress = Voortgang
+projects-col-team = Team
+projects-col-cycle = Cyclus
+projects-col-updated = Bijgewerkt
+
 # Project detail (ProjectDetailView): per-project kanban board
 # with a header, status pill, ticket count, and a Group-by
 # control on the kanban toolbar.

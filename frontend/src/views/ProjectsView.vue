@@ -1,30 +1,34 @@
 <script setup lang="ts">
 /**
  * Projects list — sync-engine version. Renders from the sync runtime's
- * object pool (live via the SSE outbox), with search + status filter,
- * and per-card manage actions (rename / status / delete) that reuse the
- * same ProjectActionsMenu the detail header uses.
+ * object pool (live via the SSE outbox). Each project is enriched, from
+ * the same pool, with a ticket-status breakdown, team, and active
+ * cycle, plus deep links to its Board/Gantt/Cycles views. Desktop gets
+ * a dense row layout; mobile gets enriched cards. Both share the same
+ * data and sub-components; only the container differs.
+ *
+ * Rename/status/delete orchestration lives here; the row/card emit up
+ * (mirroring ProjectActionsMenu), so there's one owner of the side
+ * effects across both layouts.
  */
-import { onMounted, computed, ref, type ComponentPublicInstance } from 'vue'
+import { onMounted, computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
-import { useProjectTicketCounts } from '@/composables/useProjectTickets'
+import { useProjectRollups } from '@/composables/useProjectRollups'
 import { useActiveCycleSummaries } from '@/composables/useActiveCycleSummaries'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { formatRelativeTime } from '@/utils/dateUtils'
 import { projectService } from '@/services/projectService'
 import { logger } from '@/utils/logger'
 import CreateProjectModal from '@/components/projectComponents/CreateProjectModal.vue'
-import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
-import ProjectCycleGlance from '@/components/projectComponents/ProjectCycleGlance.vue'
+import ProjectRow from '@/components/projectComponents/ProjectRow.vue'
+import ProjectCard from '@/components/projectComponents/ProjectCard.vue'
 import Button from '@/components/common/Button.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
-import UserAvatar from '@/components/UserAvatar.vue'
 
 const router = useRouter()
 const fluent = useFluent()
@@ -45,16 +49,14 @@ usePageCreateAction(() => {
   createOpen.value = true
 })
 
-// Live ticket counts from the shared association pool, so a card's count
-// tracks tickets being linked/unlinked.
-const ticketCounts = useProjectTicketCounts()
-const ticketCount = (id: number): number => ticketCounts.value.get(id) ?? 0
-
-// Active-cycle glance per project (cache-first, revalidates silently).
+// Enrichment, all derived from the pool (no extra requests beyond the
+// single active-cycle list fetch).
+const rollups = useProjectRollups()
+const rollupOf = (id: number) => rollups.value.get(id) ?? null
 const { byProject: activeCycles } = useActiveCycleSummaries()
 const activeCycleOf = (id: number) => activeCycles.value.get(id) ?? null
 
-// Search + status filter.
+// Search + status filter + sort.
 const search = ref('')
 const statusFilter = ref('all')
 const statusFilterOptions = computed(() => [
@@ -63,6 +65,16 @@ const statusFilterOptions = computed(() => [
   { value: 'completed', label: t('project-actions-status-completed') },
   { value: 'archived', label: t('project-actions-status-archived') },
 ])
+
+type SortKey = 'name' | 'recent' | 'progress' | 'tickets'
+const sortKey = ref<SortKey>('name')
+const sortOptions = computed(() => [
+  { value: 'name', label: t('projects-sort-name') },
+  { value: 'recent', label: t('projects-sort-recent') },
+  { value: 'progress', label: t('projects-sort-progress') },
+  { value: 'tickets', label: t('projects-sort-tickets') },
+])
+
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
   return sortedByName.value.filter(
@@ -70,6 +82,27 @@ const filtered = computed(() => {
       (statusFilter.value === 'all' || p.status === statusFilter.value) &&
       (q === '' || p.name.toLowerCase().includes(q)),
   )
+})
+
+function progressRatio(p: SyncProject): number {
+  const r = rollups.value.get(p.id)
+  return r && r.total > 0 ? r.closed / r.total : 0
+}
+
+// `sortedByName` already gives the name order, so 'name' is a no-op;
+// the others re-sort a copy.
+const displayed = computed(() => {
+  const arr = [...filtered.value]
+  if (sortKey.value === 'recent') {
+    arr.sort((a, b) =>
+      (b.updated_at ?? b.created_at).localeCompare(a.updated_at ?? a.created_at),
+    )
+  } else if (sortKey.value === 'tickets') {
+    arr.sort((a, b) => (rollups.value.get(b.id)?.total ?? 0) - (rollups.value.get(a.id)?.total ?? 0))
+  } else if (sortKey.value === 'progress') {
+    arr.sort((a, b) => progressRatio(b) - progressRatio(a))
+  }
+  return arr
 })
 
 const isInitiallyLoading = computed(() => !bootstrapped.value)
@@ -86,38 +119,15 @@ function onStatusFilter(value: string | string[]): void {
   statusFilter.value = Array.isArray(value) ? value[0] : value
 }
 
-function statusDot(status: string): string {
-  if (status === 'active') return 'bg-status-open'
-  if (status === 'completed') return 'bg-status-success'
-  return 'bg-tertiary'
+function onSort(value: string | string[]): void {
+  sortKey.value = (Array.isArray(value) ? value[0] : value) as SortKey
 }
 
-// Inline rename. Only one card edits at a time, so the function ref on the
-// freshly-mounted input focuses + selects it.
-const editingId = ref<number | null>(null)
-const draftName = ref('')
-function focusRename(el: Element | ComponentPublicInstance | null): void {
-  if (el instanceof HTMLInputElement) {
-    el.focus()
-    el.select()
-  }
-}
-function startRename(p: SyncProject): void {
-  editingId.value = p.id
-  draftName.value = p.name
-}
-async function commitRename(): Promise<void> {
-  const id = editingId.value
-  if (id == null) return
-  const next = draftName.value.trim()
-  editingId.value = null
+async function onRename(id: number, name: string): Promise<void> {
   const current = sortedByName.value.find((p) => p.id === id)
-  if (next && current && next !== current.name) {
-    await projectsStore.rename(id, next)
+  if (name && current && name !== current.name) {
+    await projectsStore.rename(id, name)
   }
-}
-function cancelRename(): void {
-  editingId.value = null
 }
 
 function onSetStatus(id: number, status: string): void {
@@ -152,8 +162,11 @@ async function confirmDelete(): Promise<void> {
         <p class="text-xs text-tertiary mt-1">{{ $t('projects-list-subheading') }}</p>
       </div>
 
-      <div v-if="bootstrapped && sortedByName.length > 0" class="flex items-center gap-2">
-        <div class="flex-1 max-w-xs">
+      <div
+        v-if="bootstrapped && sortedByName.length > 0"
+        class="flex flex-wrap items-center gap-2"
+      >
+        <div class="flex-1 min-w-48 max-w-xs">
           <DebouncedSearchInput v-model="search" />
         </div>
         <div class="w-40">
@@ -164,6 +177,17 @@ async function confirmDelete(): Promise<void> {
             @update:model-value="onStatusFilter"
           />
         </div>
+        <label class="flex items-center gap-2 text-xs text-secondary">
+          <span class="shrink-0">{{ $t('projects-sort-label') }}</span>
+          <div class="w-40">
+            <BaseDropdown
+              :model-value="sortKey"
+              :options="sortOptions"
+              size="sm"
+              @update:model-value="onSort"
+            />
+          </div>
+        </label>
       </div>
     </header>
 
@@ -207,65 +231,52 @@ async function confirmDelete(): Promise<void> {
       {{ $t('projects-list-no-results') }}
     </div>
 
-    <!-- Project grid -->
-    <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <div
-        v-for="project in filtered"
-        :key="project.id"
-        class="group flex flex-col gap-3 bg-surface border border-default hover:border-strong rounded-lg p-4 cursor-pointer transition-colors"
-        @click="open(project.id)"
-      >
-        <div class="flex items-start justify-between gap-2">
-          <input
-            v-if="editingId === project.id"
-            :ref="focusRename"
-            v-model="draftName"
-            type="text"
-            class="flex-1 min-w-0 text-base font-medium text-primary bg-surface-alt border border-default rounded px-2 py-0.5 focus:outline-none focus:border-accent"
-            :aria-label="$t('project-actions-rename')"
-            @click.stop
-            @keyup.enter="commitRename"
-            @keyup.esc="cancelRename"
-            @blur="commitRename"
-          />
-          <button
-            v-else
-            type="button"
-            class="flex-1 min-w-0 text-left text-base font-medium text-primary truncate group-hover:text-accent transition-colors"
-            @click.stop="open(project.id)"
-          >
-            {{ project.name }}
-          </button>
-          <ProjectActionsMenu
-            class="shrink-0"
-            :status="project.status"
-            @click.stop
-            @rename="startRename(project)"
+    <template v-else>
+      <!-- Desktop: dense rows -->
+      <div class="hidden md:block border border-subtle rounded-lg overflow-hidden">
+        <div
+          class="flex items-center gap-3 px-3 py-2 border-b border-subtle bg-surface text-[11px] uppercase tracking-wide font-semibold text-tertiary"
+        >
+          <div class="flex items-center gap-2 min-w-0 flex-1">
+            <span class="w-1.5 h-1.5 shrink-0"></span>{{ $t('projects-col-project') }}
+          </div>
+          <div class="w-44 shrink-0">{{ $t('projects-col-progress') }}</div>
+          <div class="w-20 shrink-0">{{ $t('projects-col-team') }}</div>
+          <div class="w-48 shrink-0">{{ $t('projects-col-cycle') }}</div>
+          <div class="w-40 shrink-0"></div>
+          <div class="w-12 shrink-0 text-right">{{ $t('projects-col-updated') }}</div>
+          <div class="w-8 shrink-0"></div>
+        </div>
+        <div class="divide-y divide-subtle">
+          <ProjectRow
+            v-for="project in displayed"
+            :key="project.id"
+            :project="project"
+            :rollup="rollupOf(project.id)"
+            :cycle="activeCycleOf(project.id)"
+            @open="open(project.id)"
+            @rename="(name) => onRename(project.id, name)"
             @set-status="(s) => onSetStatus(project.id, s)"
             @delete="askDelete(project)"
           />
         </div>
-
-        <p v-if="project.description" class="text-sm text-secondary line-clamp-2">
-          {{ project.description }}
-        </p>
-        <p v-else class="text-sm text-tertiary italic">{{ $t('projects-list-no-description') }}</p>
-
-        <ProjectCycleGlance :summary="activeCycleOf(project.id)" />
-
-        <div class="flex items-center gap-3 mt-auto pt-1 text-xs text-tertiary">
-          <span class="inline-flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full" :class="statusDot(project.status)" />
-            {{ $t(`project-actions-status-${project.status}`) }}
-          </span>
-          <span>{{ $t('project-detail-ticket-count', { count: ticketCount(project.id) }) }}</span>
-          <span class="ml-auto inline-flex items-center gap-1.5">
-            <UserAvatar v-if="project.created_by" :uuid="project.created_by" size="xxs" />
-            <span v-if="project.updated_at">{{ formatRelativeTime(project.updated_at) }}</span>
-          </span>
-        </div>
       </div>
-    </div>
+
+      <!-- Mobile: enriched cards -->
+      <div class="md:hidden grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <ProjectCard
+          v-for="project in displayed"
+          :key="project.id"
+          :project="project"
+          :rollup="rollupOf(project.id)"
+          :cycle="activeCycleOf(project.id)"
+          @open="open(project.id)"
+          @rename="(name) => onRename(project.id, name)"
+          @set-status="(s) => onSetStatus(project.id, s)"
+          @delete="askDelete(project)"
+        />
+      </div>
+    </template>
 
     <CreateProjectModal
       v-if="createOpen"

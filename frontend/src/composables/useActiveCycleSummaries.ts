@@ -1,22 +1,24 @@
 /**
  * Active-cycle summaries for the projects list glance.
  *
- * One workspace-wide fetch of active cycles (at most one per project),
- * each enriched with its live ticket / completed counts so a project
- * card can show "which cycle is in flight and how far along". This is
- * the surface that replaced the removed workspace-wide Cycles view:
- * the cross-project glance now lives where you actually start, on the
- * projects list.
+ * One workspace-wide fetch of active cycles (at most one per project)
+ * for their name / end date, with ticket + completed counts derived
+ * from the sync pool, the list subscribes to `workspace:1`, which
+ * carries every ticket, and each ticket denormalises its `cycle_id`.
+ * So the whole glance costs a single request; the counts come for free
+ * from the same pool the rest of the card reads.
  *
- * Pinia Colada gives cache-first reads + silent SWR, so navigating
- * back to the list paints from cache and revalidates in the
- * background. A failed per-cycle stats read degrades to 0/0 for that
- * one cycle rather than dropping the whole glance.
+ * This is the surface that replaced the removed workspace-wide Cycles
+ * view: the cross-project "what's in flight" glance now lives where you
+ * actually start, on the projects list. Pinia Colada gives cache-first
+ * reads + silent revalidation for the cycle list.
  */
 import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
+import { useAggregate } from '@/sync/composables'
+import type { SyncTicket } from '@/sync/stores/tickets'
 import { cyclesService, type Cycle } from '@/services/cyclesService'
-import { logger } from '@/utils/logger'
+import { TERMINAL_CATEGORIES } from '@/types/workflow'
 
 export interface ActiveCycleSummary {
   cycle: Cycle
@@ -24,37 +26,44 @@ export interface ActiveCycleSummary {
   completed: number
 }
 
-export const ACTIVE_CYCLE_SUMMARIES_KEY = ['cycles', 'active-summaries']
+export const ACTIVE_CYCLES_KEY = ['cycles', 'active']
 
-async function fetchActiveCycleSummaries(): Promise<ActiveCycleSummary[]> {
+async function fetchActiveCycles(): Promise<Cycle[]> {
   // The workspace list defaults to active + planned; the glance only
   // cares about cycles currently in flight.
-  const active = (await cyclesService.listWorkspace()).filter(
+  return (await cyclesService.listWorkspace()).filter(
     (c) => c.state === 'active' && c.archived_at == null,
-  )
-  return Promise.all(
-    active.map(async (cycle) => {
-      try {
-        const stats = await cyclesService.stats(cycle.uuid)
-        return { cycle, tickets: stats.tickets, completed: stats.completed }
-      } catch (e) {
-        logger.warn('Active-cycle stats failed for glance', { uuid: cycle.uuid, error: e })
-        return { cycle, tickets: 0, completed: 0 }
-      }
-    }),
   )
 }
 
 export function useActiveCycleSummaries() {
-  const query = useQuery({
-    key: ACTIVE_CYCLE_SUMMARIES_KEY,
-    query: fetchActiveCycleSummaries,
-  })
+  const query = useQuery({ key: ACTIVE_CYCLES_KEY, query: fetchActiveCycles })
+  const tickets = useAggregate<SyncTicket>('ticket')
 
-  // project_id -> summary, for O(1) lookup per list card.
+  // project_id -> summary, counts folded from the pool by cycle_id.
   const byProject = computed<Map<number, ActiveCycleSummary>>(() => {
+    const cycles = query.data.value ?? []
+    if (cycles.length === 0) return new Map()
+
+    const cycleIds = new Set(cycles.map((c) => c.id))
+    const totals = new Map<number, number>()
+    const completed = new Map<number, number>()
+    for (const t of tickets.value) {
+      if (t.cycle_id == null || !cycleIds.has(t.cycle_id)) continue
+      totals.set(t.cycle_id, (totals.get(t.cycle_id) ?? 0) + 1)
+      if (t.workflow_state && TERMINAL_CATEGORIES.has(t.workflow_state.category)) {
+        completed.set(t.cycle_id, (completed.get(t.cycle_id) ?? 0) + 1)
+      }
+    }
+
     const map = new Map<number, ActiveCycleSummary>()
-    for (const s of query.data.value ?? []) map.set(s.cycle.project_id, s)
+    for (const cycle of cycles) {
+      map.set(cycle.project_id, {
+        cycle,
+        tickets: totals.get(cycle.id) ?? 0,
+        completed: completed.get(cycle.id) ?? 0,
+      })
+    }
     return map
   })
 

@@ -10,7 +10,15 @@ import { computed } from 'vue'
 import { formatDate, formatRelativeTime } from '@/utils/dateUtils'
 import type { ActiveCycleSummary } from '@/composables/useActiveCycleSummaries'
 
-const props = defineProps<{ summary: ActiveCycleSummary | null }>()
+const props = withDefaults(
+  defineProps<{
+    summary: ActiveCycleSummary | null
+    /** Hide the inner progress bar, for dense rows where the
+     *  project's own status bar already conveys progress. */
+    compact?: boolean
+  }>(),
+  { compact: false },
+)
 
 const pct = computed(() => {
   const s = props.summary
@@ -43,7 +51,7 @@ const pct = computed(() => {
       {{ summary.completed }}/{{ summary.tickets }}
     </span>
 
-    <div class="flex-1 min-w-8 h-1 rounded-full bg-surface-alt overflow-hidden">
+    <div v-if="!compact" class="flex-1 min-w-8 h-1 rounded-full bg-surface-alt overflow-hidden">
       <div class="h-full rounded-full bg-accent transition-all" :style="{ width: `${pct}%` }" />
     </div>
 

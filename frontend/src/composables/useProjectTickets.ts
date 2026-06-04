@@ -43,19 +43,3 @@ export function useProjectTickets(projectId: MaybeRefOrGetter<number>): {
 
   return { tickets, cards }
 }
-
-/**
- * Live ticket count per project id, across the whole pool. For list
- * views that show a count badge per project without materialising each
- * project's tickets.
- */
-export function useProjectTicketCounts(): ComputedRef<Map<number, number>> {
-  const associations = useAggregate<ProjectTicketAssoc>('project_ticket')
-  return computed(() => {
-    const counts = new Map<number, number>()
-    for (const a of associations.value) {
-      counts.set(a.project_id, (counts.get(a.project_id) ?? 0) + 1)
-    }
-    return counts
-  })
-}
