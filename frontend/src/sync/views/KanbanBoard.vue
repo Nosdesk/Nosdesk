@@ -21,7 +21,7 @@
  * on, one sub-lane up/down. Mirrors the drag dispatch path; both
  * end up in `dispatchMove`.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
 
@@ -488,6 +488,15 @@ function affectedDevicesTooltip(card: CardData): string {
   if (summary.count === 1) return first
   return `${first} +${summary.count - 1} more`
 }
+
+// Per-column scroll state: the column header stays pinned at the top
+// of its scrolling body and gains a shadow once the body is scrolled,
+// so it reads as a lifted, sticky header (the important part stays
+// visible) rather than a flat strip.
+const laneScrolled = reactive<Record<string, boolean>>({})
+function onLaneScroll(id: string, e: Event): void {
+  laneScrolled[id] = (e.target as HTMLElement).scrollTop > 2
+}
 </script>
 
 <template>
@@ -500,8 +509,13 @@ function affectedDevicesTooltip(card: CardData): string {
         class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-lg border border-default h-full min-h-[300px]"
         @click.stop
       >
-        <!-- Column header -->
-        <header class="flex items-center justify-between px-4 py-3 bg-surface-alt border-b border-subtle">
+        <!-- Column header: pinned above the scrolling body, lifts with a
+             shadow once the column is scrolled so the column name + count
+             stay legible over the cards passing beneath. -->
+        <header
+          class="flex items-center justify-between px-4 py-2 bg-surface-alt border-b border-subtle transition-shadow"
+          :class="{ 'shadow-md': laneScrolled[lane.id] }"
+        >
           <div class="flex items-center gap-3">
             <span
               v-if="lane.defaultState"
@@ -529,7 +543,7 @@ function affectedDevicesTooltip(card: CardData): string {
         </header>
 
         <!-- Sub-lanes (one when secondary axis is off, many when on) -->
-        <div class="flex-1 flex flex-col overflow-y-auto">
+        <div class="flex-1 flex flex-col overflow-y-auto" @scroll="onLaneScroll(lane.id, $event)">
           <!-- Inline quick-add: a single-line title input at the top
                of the column. Enter creates a ticket in the column's
                default workflow state and keeps the input open for the
