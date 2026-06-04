@@ -2194,6 +2194,8 @@ projects-create-description-placeholder = Facultatif
 projects-create-submit = Créer le projet
 projects-create-cancel = Annuler
 projects-create-error = Impossible de créer le projet. Veuillez réessayer.
+projects-filter-status-all = Tous
+projects-list-no-results = Aucun projet ne correspond à vos filtres.
 
 # Project detail (ProjectDetailView): per-project kanban board
 # with a header, status pill, ticket count, and a Group-by
