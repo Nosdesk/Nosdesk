@@ -4562,6 +4562,12 @@ tickets-cycle-burndown-days-remaining =
        *[other] Dagen te gaan
     }
 tickets-cycle-burndown-snapshot-frozen = Snapshot bevroren { $date }
+# tickets-cycle-burndown-carried-over (machine, pending native review)
+tickets-cycle-burndown-carried-over =
+    { $count ->
+        [one] { $count } ticket doorgeschoven
+       *[other] { $count } tickets doorgeschoven
+    }
 tickets-collaborative-article-title = Ticketnotities
 tickets-collaborative-article-doc-title = Documentatie: ticket #{ $id }
 tickets-collaborative-article-revision-history = Versiegeschiedenis

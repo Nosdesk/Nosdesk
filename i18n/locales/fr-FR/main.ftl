@@ -4571,6 +4571,12 @@ tickets-cycle-burndown-days-remaining =
        *[other] Jours restants
     }
 tickets-cycle-burndown-snapshot-frozen = Instantané figé { $date }
+# tickets-cycle-burndown-carried-over (machine, pending native review)
+tickets-cycle-burndown-carried-over =
+    { $count ->
+        [one] { $count } ticket reporté
+       *[other] { $count } tickets reportés
+    }
 tickets-collaborative-article-title = Notes du ticket
 tickets-collaborative-article-doc-title = Documentation : Ticket n°{ $id }
 tickets-collaborative-article-revision-history = Historique des révisions

@@ -39,6 +39,10 @@ export interface CycleStats {
   tickets: number
   completed: number
   by_category: Record<string, number>
+  /** Tickets that were still open when the cycle completed and were
+   * moved to the next cycle (or unlinked to the backlog). Only
+   * present on frozen completion snapshots. */
+  carried_over?: number
 }
 
 export const cyclesService = {

@@ -20,6 +20,7 @@
 
 use actix_web::{web, HttpResponse, Responder};
 use chrono::{DateTime, Utc};
+use diesel::Connection;
 use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -279,9 +280,18 @@ pub async fn complete(
             if cycle.state == "completed" {
                 return Ok(CompleteOutcome::AlreadyCompleted);
             }
-            let snapshot = repo::build_completion_snapshot(conn, cycle.id)?;
-            let updated = repo::complete(conn, uuid, snapshot)?;
-            Ok(CompleteOutcome::Completed(updated))
+            // Build snapshot, carry over incomplete tickets, then mark
+            // complete as one atomic unit. The snapshot is built first
+            // so it counts the cycle's full membership; carryover then
+            // moves the still-open tickets to the next cycle (or the
+            // backlog) and records the count under `carried_over`.
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let mut snapshot = repo::build_completion_snapshot(conn, cycle.id)?;
+                let carried = repo::carry_over_incomplete(conn, &cycle)?;
+                snapshot["carried_over"] = serde_json::json!(carried);
+                let updated = repo::complete(conn, uuid, snapshot)?;
+                Ok(CompleteOutcome::Completed(updated))
+            })
         }
         None => Ok(CompleteOutcome::NotFound),
     });

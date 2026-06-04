@@ -375,6 +375,86 @@ pub fn build_completion_snapshot(
     }))
 }
 
+/// On completion, move every still-incomplete ticket (non-terminal
+/// workflow state) out of the cycle: into the next non-archived
+/// planned/active cycle in the project if one exists, else unlink it
+/// (back to the backlog). Returns the carried-over count. Must run in
+/// the same transaction as `complete`, AFTER the snapshot is built so
+/// the snapshot still reflects the cycle's full membership.
+pub fn carry_over_incomplete(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<i64> {
+    let rows: Vec<(i32, WorkflowStateCategory)> = cycle_tickets::table
+        .inner_join(tickets::table.on(tickets::id.eq(cycle_tickets::ticket_id)))
+        .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
+        .filter(cycle_tickets::cycle_id.eq(cycle.id))
+        .select((tickets::id, workflow_states::category))
+        .load(conn)?;
+
+    let incomplete: Vec<i32> = rows
+        .into_iter()
+        .filter(|(_, cat)| {
+            !matches!(
+                cat,
+                WorkflowStateCategory::Done
+                    | WorkflowStateCategory::Cancelled
+                    | WorkflowStateCategory::Merged
+            )
+        })
+        .map(|(id, _)| id)
+        .collect();
+
+    if incomplete.is_empty() {
+        return Ok(0);
+    }
+
+    // Next planned/active cycle in the project (NULL start_at sorts
+    // last under ASC, which is the intent: dated cycles win).
+    let target: Option<i32> = cycles::table
+        .filter(cycles::project_id.eq(cycle.project_id))
+        .filter(cycles::archived_at.is_null())
+        .filter(cycles::id.ne(cycle.id))
+        .filter(cycles::state.eq_any(["planned", "active"]))
+        .order((cycles::start_at.asc().nulls_last(), cycles::id.asc()))
+        .select(cycles::id)
+        .first(conn)
+        .optional()?;
+
+    for ticket_id in &incomplete {
+        diesel::delete(
+            cycle_tickets::table
+                .filter(cycle_tickets::cycle_id.eq(cycle.id))
+                .filter(cycle_tickets::ticket_id.eq(*ticket_id)),
+        )
+        .execute(conn)?;
+        emit_cycle_ticket_event(
+            conn,
+            cycle.id,
+            *ticket_id,
+            SyncOp::Delete,
+            "cycle_ticket.removed",
+            None,
+        )?;
+        if let Some(target_id) = target {
+            diesel::insert_into(cycle_tickets::table)
+                .values(&NewCycleTicket {
+                    cycle_id: target_id,
+                    ticket_id: *ticket_id,
+                    added_by: None,
+                })
+                .execute(conn)?;
+            emit_cycle_ticket_event(
+                conn,
+                target_id,
+                *ticket_id,
+                SyncOp::Insert,
+                "cycle_ticket.added",
+                None,
+            )?;
+        }
+    }
+
+    Ok(incomplete.len() as i64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,5 +514,89 @@ mod tests {
             cycle_id_for_ticket(&mut conn, ticket.id).unwrap(),
             Some(cycle_b.id)
         );
+    }
+
+    /// Move a ticket to the lowest-position state in a category so the
+    /// completion snapshot / carryover sees it as terminal (Done) or
+    /// not (Backlog stays non-terminal).
+    fn set_ticket_category(
+        conn: &mut DbConnection,
+        ticket_id: i32,
+        category: WorkflowStateCategory,
+    ) {
+        let state = crate::repository::workflow_states::first_in_category(conn, category).unwrap();
+        diesel::update(tickets::table.find(ticket_id))
+            .set(tickets::workflow_state_id.eq(state.id))
+            .execute(conn)
+            .unwrap();
+    }
+
+    #[test]
+    fn carryover_moves_incomplete_to_next_cycle() {
+        let mut conn = setup_test_connection();
+        let (user, pid) = _seed_user_and_project(&mut conn, "cyc_carry");
+
+        // Cycle A is active and starts now; cycle B is planned and
+        // starts later, so it's the next cycle to receive carryover.
+        let now = Utc::now();
+        let mut a_def = make_cycle(pid, "a", "active");
+        a_def.start_at = Some(now);
+        let cycle_a = create(&mut conn, a_def).unwrap();
+        let mut b_def = make_cycle(pid, "b", "planned");
+        b_def.start_at = Some(now + chrono::Duration::days(14));
+        let cycle_b = create(&mut conn, b_def).unwrap();
+
+        let done = TestFixtures::create_ticket(&mut conn, "done", Some(user), None);
+        let open1 = TestFixtures::create_ticket(&mut conn, "open1", Some(user), None);
+        let open2 = TestFixtures::create_ticket(&mut conn, "open2", Some(user), None);
+        for t in [&done, &open1, &open2] {
+            add_ticket(&mut conn, cycle_a.id, t.id, Some(user)).unwrap();
+        }
+        set_ticket_category(&mut conn, done.id, WorkflowStateCategory::Done);
+
+        // Complete A via the repo path: snapshot first, then carryover,
+        // then complete.
+        let mut snapshot = build_completion_snapshot(&mut conn, cycle_a.id).unwrap();
+        assert_eq!(snapshot["tickets"], 3);
+        assert_eq!(snapshot["completed"], 1);
+        let carried = carry_over_incomplete(&mut conn, &cycle_a).unwrap();
+        assert_eq!(carried, 2);
+        snapshot["carried_over"] = json!(carried);
+        complete(&mut conn, cycle_a.uuid, snapshot).unwrap();
+
+        // The two open tickets now belong to B; the done ticket left A
+        // (no longer a member of any cycle).
+        assert_eq!(
+            cycle_id_for_ticket(&mut conn, open1.id).unwrap(),
+            Some(cycle_b.id)
+        );
+        assert_eq!(
+            cycle_id_for_ticket(&mut conn, open2.id).unwrap(),
+            Some(cycle_b.id)
+        );
+        // The done ticket is terminal, so carryover leaves it in A.
+        assert_eq!(
+            cycle_id_for_ticket(&mut conn, done.id).unwrap(),
+            Some(cycle_a.id)
+        );
+        assert_eq!(
+            ticket_ids_for_cycle(&mut conn, cycle_a.id).unwrap(),
+            vec![done.id]
+        );
+    }
+
+    #[test]
+    fn carryover_unlinks_when_no_next_cycle() {
+        let mut conn = setup_test_connection();
+        let (user, pid) = _seed_user_and_project(&mut conn, "cyc_unlink");
+
+        let cycle = create(&mut conn, make_cycle(pid, "only", "active")).unwrap();
+        let open = TestFixtures::create_ticket(&mut conn, "open", Some(user), None);
+        add_ticket(&mut conn, cycle.id, open.id, Some(user)).unwrap();
+
+        let carried = carry_over_incomplete(&mut conn, &cycle).unwrap();
+        assert_eq!(carried, 1);
+        // No target cycle: the ticket unlinks back to the backlog.
+        assert_eq!(cycle_id_for_ticket(&mut conn, open.id).unwrap(), None);
     }
 }

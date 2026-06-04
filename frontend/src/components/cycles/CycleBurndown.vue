@@ -121,6 +121,14 @@ const categoryLabels = computed<Record<string, string>>(() => ({
         </div>
       </div>
 
+      <!-- Carried-over count (frozen snapshots only) -->
+      <p
+        v-if="isFrozen && (stats.carried_over ?? 0) > 0"
+        class="text-xs text-tertiary"
+      >
+        {{ t('tickets-cycle-burndown-carried-over', { count: stats.carried_over ?? 0 }) }}
+      </p>
+
       <!-- Frozen-snapshot timestamp -->
       <p v-if="isFrozen" class="text-[10px] text-tertiary italic">
         {{ t('tickets-cycle-burndown-snapshot-frozen', { date: formatDateTime(stats.frozen_at) }) }}

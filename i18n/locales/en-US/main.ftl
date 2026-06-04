@@ -4778,6 +4778,11 @@ tickets-cycle-burndown-days-remaining =
        *[other] Days remaining
     }
 tickets-cycle-burndown-snapshot-frozen = Snapshot frozen { $date }
+tickets-cycle-burndown-carried-over =
+    { $count ->
+        [one] { $count } ticket carried over
+       *[other] { $count } tickets carried over
+    }
 tickets-collaborative-article-title = Ticket Notes
 tickets-collaborative-article-doc-title = Documentation: Ticket #{ $id }
 tickets-collaborative-article-revision-history = Revision history
