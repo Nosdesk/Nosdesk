@@ -5,6 +5,7 @@ import { ErrorTracker } from '@/utils/errorTracking';
 import { getSSEClientId } from '@/services/sseService';
 import { getSessionId as getDiagnosticsSessionId } from '@/services/diagnostics/session';
 import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs';
+import { getCsrfToken } from '@/utils/csrf';
 
 // API Configuration with Structured Logging and Error Handling
 //
@@ -59,12 +60,6 @@ async function refreshAccessToken(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-// Helper function to get CSRF token from cookies
-function getCsrfToken(): string | null {
-  const match = document.cookie.match(/csrf_token=([^;]+)/);
-  return match ? match[1] : null;
 }
 
 // Redirect to login using Vue Router to preserve SPA history stack
