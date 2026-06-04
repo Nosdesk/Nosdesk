@@ -50,29 +50,31 @@ function go(tab: Tab): void {
 </script>
 
 <template>
-  <nav
-    class="flex items-center gap-0.5 px-6 border-b border-subtle bg-app"
-    role="tablist"
-    :aria-label="$t('views-project-tab-aria')"
-  >
-    <button
-      v-for="tab in tabs"
-      :key="tab.id"
-      type="button"
-      role="tab"
-      :aria-selected="tab.id === activeId"
-      class="text-sm font-medium px-3 py-2 -mb-px border-b-2 transition-colors"
-      :class="tab.id === activeId
-        ? 'text-primary border-accent'
-        : 'text-tertiary border-transparent hover:text-secondary hover:border-subtle'"
-      @click="go(tab)"
+  <nav class="flex items-center justify-between px-6 border-b border-subtle bg-app">
+    <div
+      class="flex items-center gap-0.5"
+      role="tablist"
+      :aria-label="$t('views-project-tab-aria')"
     >
-      {{ tab.label }}
-    </button>
+      <button
+        v-for="tab in tabs"
+        :key="tab.id"
+        type="button"
+        role="tab"
+        :aria-selected="tab.id === activeId"
+        class="text-sm font-medium px-3 py-2 -mb-px border-b-2 transition-colors"
+        :class="tab.id === activeId
+          ? 'text-primary border-accent'
+          : 'text-tertiary border-transparent hover:text-secondary hover:border-subtle'"
+        @click="go(tab)"
+      >
+        {{ tab.label }}
+      </button>
+    </div>
 
     <!-- View-shape controls (group-by, gantt viewport, …) ride the
-         same row as the tabs, pushed to the right. -->
-    <div v-if="$slots.actions" class="ml-auto flex items-center gap-2">
+         same row as the tabs, pinned to the right. -->
+    <div v-if="$slots.actions" class="flex items-center gap-2">
       <slot name="actions" />
     </div>
   </nav>
