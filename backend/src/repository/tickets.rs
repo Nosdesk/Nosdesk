@@ -83,21 +83,68 @@ pub struct TicketCreationAnnotation {
 /// Bare create — UI handlers, the import binary, and any caller
 /// without specific channel/portal context land here.
 pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryResult<Ticket> {
-    create_ticket_with_annotation(conn, new_ticket, TicketCreationAnnotation::default())
+    create_ticket_with_annotation(conn, new_ticket, TicketCreationAnnotation::default(), None)
+}
+
+/// Create a ticket and link it to a project in one transaction, so
+/// the `project_tickets` row exists before `groups::for_ticket`
+/// runs. That ordering is what puts `project:<id>` in the
+/// `ticket.created` event's groups, which is the only way the new
+/// card shows up live on the kanban board (no lazy-fetch exists for
+/// tickets missing from the board's pool).
+pub fn create_ticket_in_project(
+    conn: &mut DbConnection,
+    new_ticket: NewTicket,
+    project_id: i32,
+) -> QueryResult<Ticket> {
+    create_ticket_with_annotation(
+        conn,
+        new_ticket,
+        TicketCreationAnnotation::default(),
+        Some(project_id),
+    )
 }
 
 /// Create with explicit origin annotation. Channel adapters and the
 /// guest portal handler use this; everything else stays on the bare
 /// `create_ticket`.
+///
+/// When `link_project_id` is `Some`, the `project_tickets` row is
+/// inserted before the `ticket.created` emit so the event fans out
+/// to the `project:<id>` group, and a `project_ticket.added` event
+/// is emitted afterwards to reach the project pool (mirrors
+/// `add_ticket_to_project`).
 pub fn create_ticket_with_annotation(
     conn: &mut DbConnection,
     new_ticket: NewTicket,
     annotation: TicketCreationAnnotation,
+    link_project_id: Option<i32>,
 ) -> QueryResult<Ticket> {
     conn.transaction(|conn| {
         let ticket: Ticket = diesel::insert_into(tickets::table)
             .values(&new_ticket)
             .get_result(conn)?;
+        // Link to the project BEFORE computing groups so
+        // `for_ticket` reads the fresh `project_tickets` row and
+        // includes `project:<id>` in the `ticket.created` groups.
+        let project_display_order: Option<i32> = if let Some(project_id) = link_project_id {
+            // Mirror add_ticket_to_project's display_order: max + 1.
+            let max_order: Option<i32> = project_tickets::table
+                .filter(project_tickets::project_id.eq(project_id))
+                .select(diesel::dsl::max(project_tickets::display_order))
+                .first(conn)?;
+            let new_order = max_order.unwrap_or(0) + 1;
+            diesel::insert_into(project_tickets::table)
+                .values(&NewProjectTicket {
+                    project_id,
+                    ticket_id: ticket.id,
+                    display_order: new_order,
+                })
+                .execute(conn)?;
+            Some(new_order)
+        } else {
+            None
+        };
         let groups = groups::for_ticket(conn, &ticket)?;
         // `created_via` is an additive nested object: legacy
         // consumers that look at the existing top-level fields keep
@@ -134,6 +181,31 @@ pub fn create_ticket_with_annotation(
                 causation_id: None,
             },
         )?;
+        // Emit the association event so the project pool sees the
+        // link land (mirrors add_ticket_to_project). The ticket.created
+        // event above already reached project:<id> for the card itself.
+        if let (Some(project_id), Some(display_order)) = (link_project_id, project_display_order) {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::ProjectTicket,
+                    aggregate_id: format!("{}:{}", project_id, ticket.id),
+                    op: SyncOp::Insert,
+                    event_type: "project_ticket.added",
+                    data: json!({
+                        "project_id": project_id,
+                        "ticket_id": ticket.id,
+                        "display_order": display_order,
+                    }),
+                    groups: {
+                        let mut g = groups::for_project(project_id);
+                        g.push(format!("ticket:{}", ticket.id));
+                        g
+                    },
+                    causation_id: None,
+                },
+            )?;
+        }
         Ok(ticket)
     })
 }

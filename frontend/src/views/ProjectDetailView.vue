@@ -73,6 +73,16 @@ function openCard(cardId: number): void {
   router.push(`/tickets/${cardId}`)
 }
 
+async function quickAdd(workflowStateId: number, title: string): Promise<void> {
+  try {
+    await projectService.createTicketInProject(projectId.value, { title, workflow_state_id: workflowStateId })
+    // The new ticket and its project association arrive over the
+    // project:<id> sync stream, so there's nothing to insert here.
+  } catch (e) {
+    logger.error('Quick-add failed', e)
+  }
+}
+
 type SecondaryAxis = 'assignee_uuid' | 'priority'
 const secondaryAxis = ref<SecondaryAxis | null>(null)
 
@@ -198,6 +208,7 @@ async function confirmDelete(): Promise<void> {
       class="flex-1 min-h-0"
       :cards="cards"
       :on-card-click="openCard"
+      :on-quick-add="quickAdd"
       :secondary-group-by="secondaryAxis"
     />
 

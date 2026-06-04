@@ -1903,6 +1903,9 @@ async fn main() -> std::io::Result<()> {
                     .route("/projects/{id}", web::delete().to(handlers::delete_project))
                     .route("/projects/{id}/tickets", web::get().to(handlers::get_project_tickets))
                     .route("/projects/{id}/dependencies", web::get().to(handlers::projects::get_project_dependencies))
+                    // Literal /tickets/new before the /tickets/{ticket_id}
+                    // POST so the wildcard can't absorb the quick-add create.
+                    .route("/projects/{project_id}/tickets/new", web::post().to(handlers::projects::create_ticket_in_project))
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::post().to(handlers::add_ticket_to_project))
                     .route("/projects/{project_id}/tickets/{ticket_id}", web::delete().to(handlers::remove_ticket_from_project))
                     .route("/projects/{id}/tickets/order", web::put().to(handlers::update_ticket_order))

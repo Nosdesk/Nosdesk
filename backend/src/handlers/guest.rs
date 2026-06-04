@@ -481,6 +481,7 @@ pub async fn submit_guest_ticket(
             conn,
             new_ticket,
             creation_annotation,
+            None,
         )
         .map_err(|e| {
             error!(error = %e, "Failed to create guest ticket");

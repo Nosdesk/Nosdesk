@@ -4891,6 +4891,9 @@ project-modal-col-action = Actie
 kanban-recurring-tooltip = Terugkerend ticket
 kanban-recurring-aria = Terugkerend
 kanban-sla-aria = SLA-status
+# Snel toevoegen in kanban-kolom (machine, nog na te kijken door moedertaalspreker).
+kanban-quick-add-placeholder = Titel van nieuw ticket...
+kanban-quick-add-aria = Ticket toevoegen aan { $column }
 calendar-today = Vandaag
 calendar-anchor-label = Anker
 calendar-anchor-tooltip = Het ankerveld wordt bepaald door de opgeslagen weergave; de kiezer komt in een latere update.

@@ -4900,6 +4900,9 @@ project-modal-col-action = Action
 kanban-recurring-tooltip = Ticket récurrent
 kanban-recurring-aria = Récurrent
 kanban-sla-aria = Statut SLA
+# Ajout rapide en colonne kanban (machine, à relire par un locuteur natif).
+kanban-quick-add-placeholder = Titre du nouveau ticket...
+kanban-quick-add-aria = Ajouter un ticket à { $column }
 calendar-today = Aujourd'hui
 calendar-anchor-label = Ancre
 calendar-anchor-tooltip = Le champ d'ancrage est défini par la vue enregistrée; le sélecteur arrivera dans une prochaine version.

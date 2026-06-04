@@ -155,6 +155,22 @@ export const projectService = {
     }
   },
 
+  // Create a ticket directly in a project (kanban column quick-add).
+  // The backend links it to the project in the same transaction, so the
+  // new card streams back over the project sync group.
+  async createTicketInProject(
+    projectId: number,
+    body: { title: string; workflow_state_id: number }
+  ): Promise<any> {
+    try {
+      const response = await apiClient.post(`/projects/${projectId}/tickets/new`, body);
+      return response.data;
+    } catch (error) {
+      logger.error(`Error creating ticket in project ${projectId}:`, error);
+      throw error;
+    }
+  },
+
   // Remove a ticket from a project
   async removeTicketFromProject(projectId: number, ticketId: number): Promise<void> {
     try {

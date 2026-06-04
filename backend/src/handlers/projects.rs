@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
 use serde::Deserialize;
 use tracing::debug;
@@ -189,6 +189,54 @@ pub async fn add_ticket_to_project(
             HttpResponse::Created().json(association)
         }
         Err(_) => errors::internal("Failed to add ticket to project"),
+    }
+}
+
+/// Body for the kanban quick-add: a title and the column's
+/// workflow state. Everything else uses ticket defaults.
+#[derive(Deserialize)]
+pub struct QuickAddTicket {
+    pub title: String,
+    pub workflow_state_id: i32,
+}
+
+/// Create a ticket directly in a project (kanban column quick-add).
+/// The create and the project link happen in one transaction so the
+/// new card streams to the board's `project:<id>` sync group
+/// immediately (technician or admin only).
+pub async fn create_ticket_in_project(
+    req: HttpRequest,
+    mut tc: TenantConn,
+    path: web::Path<i32>,
+    body: web::Json<QuickAddTicket>,
+) -> impl Responder {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
+        return e;
+    }
+
+    let project_id = path.into_inner();
+    let body = body.into_inner();
+    let title = body.title.trim();
+    if title.is_empty() {
+        return errors::bad_request("Title must not be empty");
+    }
+
+    let requester_uuid = req
+        .extensions()
+        .get::<crate::models::Claims>()
+        .and_then(|c| crate::utils::parse_uuid(&c.sub).ok());
+
+    let new_ticket = crate::models::NewTicket {
+        title: title.to_string(),
+        workflow_state_id: body.workflow_state_id,
+        requester_uuid,
+        ..Default::default()
+    };
+
+    match tc.run(|conn| repository::create_ticket_in_project(conn, new_ticket, project_id)) {
+        Ok(ticket) => HttpResponse::Created().json(ticket),
+        Err(Error::NotFound) => errors::not_found_msg("Project not found"),
+        Err(_) => errors::internal("Failed to create ticket in project"),
     }
 }
 

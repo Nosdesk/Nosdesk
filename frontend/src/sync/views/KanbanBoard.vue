@@ -64,9 +64,15 @@ const props = withDefaults(defineProps<{
    * sub-lanes by the field's value; dropping into a sub-lane
    * patches the field in addition to moving workflow state. */
   secondaryGroupBy?: SecondaryAxis | null
+  /** Optional column quick-add. When provided, each column header
+   * shows a `+` that opens an inline title input; submitting calls
+   * this with the column's default workflow state. The board hides
+   * the affordance entirely when this is omitted. */
+  onQuickAdd?: (workflowStateId: number, title: string) => Promise<void> | void
 }>(), {
   onCardClick: undefined,
   secondaryGroupBy: null,
+  onQuickAdd: undefined,
 })
 
 const ticketsStore = useSyncTicketsStore()
@@ -385,6 +391,48 @@ const { defaultState: _defaultState } = storeToRefs(workflowStatesStore)
 // some Pinia configurations.
 void _defaultState
 
+// ---------------------------------------------------------------
+// Column quick-add (only active when props.onQuickAdd is set)
+// ---------------------------------------------------------------
+
+/** The lane category whose inline input is currently open, or null
+ * when no column is in quick-add mode. */
+const quickAddCategory = ref<WorkflowStateCategory | null>(null)
+const quickAddTitle = ref('')
+
+function openQuickAdd(cat: WorkflowStateCategory): void {
+  quickAddCategory.value = cat
+  quickAddTitle.value = ''
+}
+
+function closeQuickAdd(): void {
+  quickAddCategory.value = null
+  quickAddTitle.value = ''
+}
+
+/** Function-ref: focus the input the moment it mounts so the user
+ * can type immediately after clicking `+`. */
+function focusQuickAdd(el: Element | null): void {
+  if (el instanceof HTMLInputElement) el.focus()
+}
+
+async function submitQuickAdd(lane: Lane): Promise<void> {
+  const title = quickAddTitle.value.trim()
+  if (!title || !lane.defaultState) return
+  // Clear the field but keep the input open for rapid successive
+  // adds. The new card streams back over the sync group, so there's
+  // no optimistic insert to manage here.
+  quickAddTitle.value = ''
+  await props.onQuickAdd?.(lane.defaultState.id, title)
+}
+
+/** Esc closes; blur closes only when nothing has been typed, so a
+ * blur mid-type (e.g. a transient focus shift) doesn't discard the
+ * column the user is working in. */
+function onQuickAddBlur(): void {
+  if (!quickAddTitle.value.trim()) closeQuickAdd()
+}
+
 function ticketRow(cardId: number): SyncTicket | null {
   return ticketsStore.byId(cardId).value
 }
@@ -463,13 +511,41 @@ function affectedDevicesTooltip(card: CardData): string {
             />
             <h3 class="text-sm font-semibold text-primary">{{ lane.label }}</h3>
           </div>
-          <span class="text-xs text-tertiary bg-surface-hover rounded-md px-2 py-1">
-            {{ lane.totalCards }}
-          </span>
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs text-tertiary bg-surface-hover rounded-md px-2 py-1">
+              {{ lane.totalCards }}
+            </span>
+            <button
+              v-if="onQuickAdd && lane.defaultState"
+              type="button"
+              class="text-tertiary hover:text-primary hover:bg-surface-hover rounded-md w-6 h-6 flex items-center justify-center transition-colors text-base leading-none"
+              :title="t('kanban-quick-add-aria', { column: lane.label })"
+              :aria-label="t('kanban-quick-add-aria', { column: lane.label })"
+              @click.stop="openQuickAdd(lane.id)"
+            >
+              +
+            </button>
+          </div>
         </header>
 
         <!-- Sub-lanes (one when secondary axis is off, many when on) -->
         <div class="flex-1 flex flex-col overflow-y-auto">
+          <!-- Inline quick-add: a single-line title input at the top
+               of the column. Enter creates a ticket in the column's
+               default workflow state and keeps the input open for the
+               next one; Esc or an empty blur closes it. -->
+          <div v-if="onQuickAdd && quickAddCategory === lane.id" class="p-2 border-b border-subtle/50">
+            <input
+              :ref="(el) => focusQuickAdd(el as Element | null)"
+              v-model="quickAddTitle"
+              type="text"
+              class="w-full text-sm rounded-md border border-default bg-surface px-2.5 py-1.5 text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
+              :placeholder="t('kanban-quick-add-placeholder')"
+              @keydown.enter.prevent="submitQuickAdd(lane)"
+              @keydown.esc.prevent="closeQuickAdd"
+              @blur="onQuickAddBlur"
+            />
+          </div>
           <section
             v-for="sublane in lane.sublanes"
             :key="sublane.id"

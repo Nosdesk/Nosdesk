@@ -678,7 +678,7 @@ fn open_ticket_from_message(
         subject: msg.subject.as_deref().and_then(non_empty),
     };
 
-    tickets_repo::create_ticket_with_annotation(conn, new_ticket, annotation)
+    tickets_repo::create_ticket_with_annotation(conn, new_ticket, annotation, None)
 }
 
 fn insert_inbound_comment(
