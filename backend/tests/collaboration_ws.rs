@@ -199,7 +199,14 @@ async fn handshake_broadcast_and_clean_disconnect() {
             .route("/ws/{doc}", web::get().to(ws_handler))
     });
 
-    let url = srv.url("/ws/doc-test-001");
+    // doc_id must be in the workspace-namespaced format
+    // `ws-{uuid}_{kind}-{id}`; ws_handler rejects bare ids with a 400
+    // and rejects a uuid that doesn't match the request's
+    // WorkspaceContext with a 403. Build it from test_workspace()'s
+    // uuid (nil) so both checks pass. The ticket row need not exist:
+    // the Yjs doc layer starts an empty document for an unseen id.
+    let doc_id = format!("ws-{}_ticket-1", test_workspace().workspace_uuid);
+    let url = srv.url(&format!("/ws/{doc_id}"));
 
     // Own our own awc::Client so we can attach the auth cookie.
     // actix-test's `ws_at` convenience method skips cookie support
@@ -240,17 +247,29 @@ async fn handshake_broadcast_and_clean_disconnect() {
         .expect("client B initial frame timeout");
 
     // --- Broadcast: A sends, B receives ---
-    // ws_handler's process_message only broadcasts when the message
-    // parses successfully via the Yjs sync protocol; arbitrary bytes
-    // get dropped. Construct a real SyncStep1 (empty state vector
-    // request) via yrs so the protocol layer accepts it. The payload
-    // is opaque to our assertion — we just check the same bytes
-    // reach client B verbatim through the broadcast path.
+    // ws_handler only fans a frame out to peers when it parses via the
+    // Yjs sync protocol AND is a real-data frame: SyncStep2, SyncUpdate,
+    // or Awareness. SyncStep1 is a point-to-point state-vector request
+    // and is deliberately NOT rebroadcast (see process_inbound_binary's
+    // should_broadcast). So construct a SyncUpdate (subtype 2) carrying
+    // a real yrs update; the server applies it and relays the inbound
+    // bytes verbatim to the other client. The payload is opaque to our
+    // assertion: we only check the same bytes reach client B.
     let payload: Bytes = {
         use yrs::sync::{Message, SyncMessage};
         use yrs::updates::encoder::Encode;
-        use yrs::StateVector;
-        let msg = Message::Sync(SyncMessage::SyncStep1(StateVector::default()));
+        use yrs::{Doc, ReadTxn, StateVector, Text, Transact};
+        let doc = Doc::new();
+        let text = doc.get_or_insert_text("content");
+        {
+            let mut txn = doc.transact_mut();
+            text.insert(&mut txn, 0, "x");
+        }
+        let update = {
+            let txn = doc.transact();
+            txn.encode_state_as_update_v1(&StateVector::default())
+        };
+        let msg = Message::Sync(SyncMessage::Update(update));
         Bytes::from(msg.encode_v1())
     };
     conn_a
