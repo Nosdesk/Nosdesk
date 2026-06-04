@@ -1,6 +1,6 @@
 use crate::db::DbConnection;
 use crate::extractors::auth_context::derive_role;
-use crate::models::{User, UserEmail, UserRole};
+use crate::models::{User, UserEmail, UserRole, WorkspaceRole};
 use diesel::prelude::*;
 use uuid::Uuid;
 
@@ -80,14 +80,23 @@ pub fn get_user_by_email(
         .first::<User>(conn)
 }
 
-/// Create a user with their primary email atomically. `role` is
-/// the legacy `UserRole` projection the caller wants for the new
-/// user; it drives both the `users.platform_role` value and the
-/// initial `workspace_members.role`. The column itself was dropped
-/// in the W2 cleanup migration, so NewUser no longer carries it.
+/// Create a user with their primary email atomically.
+///
+/// `role` is the legacy `UserRole` projection carried on the
+/// emitted `user.created` sync event (the `users.role` column itself
+/// was dropped in the W2 cleanup, so it's event-only now).
+///
+/// `workspace_role` is the per-workspace membership role written to
+/// `workspace_members`. It's a separate, explicit parameter rather
+/// than being derived from `role` because the two vocabularies don't
+/// line up: `WorkspaceRole::Owner` has no `UserRole` equivalent, so
+/// deriving the membership role from `UserRole` would make it
+/// impossible to provision an owner. Callers that just want the
+/// default mapping pass `WorkspaceRole::from_user_role(role)`.
 pub fn create_user_with_email(
     new_user: crate::models::NewUser,
     role: UserRole,
+    workspace_role: WorkspaceRole,
     email: String,
     email_verified: bool,
     email_source: Option<String>,
@@ -110,21 +119,17 @@ pub fn create_user_with_email(
         // via the column default - so callers must invoke this
         // function under `with_actor_context` (request handlers do
         // this automatically; bootstrap admin sets the GUC
-        // explicitly first). Maps the legacy UserRole projection
-        // onto the workspace membership role using the same shape
-        // the 2026-05-23 migration backfill used.
-        let workspace_role = match role {
-            UserRole::Admin => "admin",
-            UserRole::Technician => "agent",
-            _ => "member",
-        };
+        // explicitly first). The membership role is the caller-
+        // supplied `workspace_role`; `ON CONFLICT DO NOTHING` makes
+        // the grant first-write-wins so a re-entrant create never
+        // escalates or downgrades an existing membership.
         diesel::sql_query(
             "INSERT INTO workspace_members (user_uuid, role) \
              VALUES ($1, $2) \
              ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
         )
         .bind::<diesel::sql_types::Uuid, _>(user.uuid)
-        .bind::<diesel::sql_types::Text, _>(workspace_role)
+        .bind::<diesel::sql_types::Text, _>(workspace_role.as_str())
         .execute(conn)?;
 
         // Then create primary email
@@ -251,6 +256,7 @@ pub fn find_or_create_guest_user(
         match create_user_with_email(
             new_user,
             UserRole::User,
+            WorkspaceRole::from_user_role(UserRole::User),
             email.to_string(),
             false,
             Some(GUEST_EMAIL_SOURCE.to_string()),
@@ -558,6 +564,7 @@ mod tests {
         let (user, email_record) = create_user_with_email(
             new_user,
             UserRole::User,
+            WorkspaceRole::from_user_role(UserRole::User),
             "atomic@test.com".into(),
             true,
             None,

@@ -781,6 +781,7 @@ pub async fn register(
         repository::user_helpers::create_user_with_email(
             new_user,
             role,
+            crate::models::WorkspaceRole::from_user_role(role),
             email,
             true,
             Some("manual".to_string()),

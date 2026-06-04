@@ -709,6 +709,7 @@ pub async fn create_user(
             repository::user_helpers::create_user_with_email(
                 new_user,
                 role,
+                crate::models::WorkspaceRole::from_user_role(role),
                 email.clone(),
                 false,
                 Some("manual".to_string()),

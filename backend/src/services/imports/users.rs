@@ -20,7 +20,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{NewUser, NewUserEmail, UserRole};
+use crate::models::{NewUser, NewUserEmail, UserRole, WorkspaceRole};
 
 use super::csv_parser::ParsedCsv;
 use super::types::{ImportSummary, Importer, RowError, MAX_ERRORS};
@@ -106,11 +106,7 @@ impl Importer for UserImporter {
                 UserRole::Admin => Some("platform_admin".to_string()),
                 _ => None,
             };
-            let workspace_role = match role {
-                UserRole::Admin => "admin",
-                UserRole::Technician => "agent",
-                _ => "member",
-            };
+            let workspace_role = WorkspaceRole::from_user_role(role).as_str();
             match action {
                 RowAction::Create => {
                     let new_uuid = Uuid::new_v4();

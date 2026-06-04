@@ -1801,6 +1801,26 @@ impl WorkspaceRole {
     pub fn meets(&self, min: WorkspaceRole) -> bool {
         *self >= min
     }
+
+    /// Default per-workspace membership role for a user created with
+    /// the given legacy [`UserRole`]. This is the single source of
+    /// truth for the Admin->admin / Technician->agent / everyone-
+    /// else->member mapping the W2 migration backfill used; both
+    /// `user_helpers::create_user_with_email` and the CSV import path
+    /// route through here so the rule lives in one place.
+    ///
+    /// Note the asymmetry: `UserRole` has no variant that maps to
+    /// `Owner`. Callers that need to grant ownership (the control-
+    /// plane owner-projection endpoint) must construct the
+    /// `WorkspaceRole` directly rather than laundering it through a
+    /// `UserRole`, which would silently downgrade `owner` to `member`.
+    pub fn from_user_role(role: UserRole) -> Self {
+        match role {
+            UserRole::Admin => Self::Admin,
+            UserRole::Technician => Self::Agent,
+            UserRole::User | UserRole::AuditReviewer => Self::Member,
+        }
+    }
 }
 
 // User model - updated to match the actual database schema

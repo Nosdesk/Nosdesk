@@ -40,7 +40,7 @@ use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use tracing::error;
 
 use crate::db::DbConnection;
-use crate::models::{NewUserAuthIdentity, NewUserEmail, User, UserRole};
+use crate::models::{NewUserAuthIdentity, NewUserEmail, User, UserRole, WorkspaceRole};
 use crate::repository::{
     user_auth_identities, user_emails, user_helpers, users as users_repo, workspaces,
 };
@@ -188,7 +188,11 @@ pub fn find_or_create_projected_user(
                             .unwrap_or(email.as_str())
                             .to_string()
                     });
-                    let (new_user, role) =
+                    // The legacy `UserRole` projection a brand-new OIDC
+                    // user gets is always `User`; their real privileges
+                    // come from the per-workspace membership role, which
+                    // we set explicitly below.
+                    let (new_user, user_role) =
                         NewUserBuilder::local_user(display_name, email.clone(), UserRole::User)
                             .build();
                     // Mint via the sync-wired helper so the OIDC address
@@ -201,9 +205,16 @@ pub fn find_or_create_projected_user(
                     // writes only the users table and is vestigial for
                     // exactly this reason. Address is provider-verified,
                     // so seed it verified; source records the issuer.
+                    //
+                    // The membership role is the projection's requested
+                    // `role` (e.g. `owner`), passed as an explicit
+                    // WorkspaceRole. Deriving it from `user_role` would
+                    // wrongly write `member` for an owner-projection,
+                    // since `UserRole` has no `Owner`.
                     let (user, _email) = user_helpers::create_user_with_email(
                         new_user,
-                        role,
+                        user_role,
+                        WorkspaceRole::from_db(&role),
                         email.clone(),
                         true,
                         Some(iss.clone()),
@@ -231,10 +242,13 @@ pub fn find_or_create_projected_user(
     };
 
     // --- 4. ensure workspace_members row exists ---
-    // ON CONFLICT DO NOTHING in add_membership preserves the
-    // existing role; re-projection never silently escalates or
-    // downgrades. The handoff doc's "first-write-wins on role"
-    // gotcha is enforced here.
+    // For a freshly-created user, create_user_with_email already wrote
+    // the membership with the requested role above, so this is an
+    // idempotent no-op. For an EXISTING user (matched by identity or
+    // email) it grants membership in this workspace if they lacked
+    // one. Either way `add_membership` uses ON CONFLICT DO NOTHING, so
+    // re-projection never silently escalates or downgrades an existing
+    // role: the handoff doc's "first-write-wins on role" gotcha.
     let user_uuid = match &outcome {
         ProjectionOutcome::Created(u) | ProjectionOutcome::Existed(u) => u.uuid,
     };

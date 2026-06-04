@@ -1818,6 +1818,7 @@ mod tests {
         create_user_with_email(
             admin,
             UserRole::Admin,
+            crate::models::WorkspaceRole::from_user_role(UserRole::Admin),
             "claimed@example.com".into(),
             true,
             None,
@@ -1868,6 +1869,7 @@ mod tests {
         let (tech, _) = create_user_with_email(
             tech_user,
             UserRole::Technician,
+            crate::models::WorkspaceRole::from_user_role(UserRole::Technician),
             "tech@yourco.com".into(),
             true,
             None,
@@ -1955,6 +1957,7 @@ My printer is literally on fire.
         create_user_with_email(
             tech,
             UserRole::Admin,
+            crate::models::WorkspaceRole::from_user_role(UserRole::Admin),
             "admin2@yourco.com".into(),
             true,
             None,

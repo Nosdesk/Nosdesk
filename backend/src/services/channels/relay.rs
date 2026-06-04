@@ -136,6 +136,7 @@ mod tests {
         let (user, _) = create_user_with_email(
             user,
             UserRole::User,
+            crate::models::WorkspaceRole::from_user_role(UserRole::User),
             "alice@example.com".into(),
             false,
             Some("guest_submission".into()),
