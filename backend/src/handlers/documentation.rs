@@ -263,7 +263,10 @@ fn embed_page_tickets(
     use crate::schema::tickets;
     use diesel::prelude::*;
     let ticket_ids: Vec<i32> = links.iter().map(|l| l.ticket_id).collect();
-    let tickets_meta: std::collections::HashMap<i32, (String, String)> = if ticket_ids.is_empty() {
+    let tickets_meta: std::collections::HashMap<
+        i32,
+        (String, crate::models::WorkflowStateCategory),
+    > = if ticket_ids.is_empty() {
         Default::default()
     } else {
         let rows: Vec<(i32, String, i32)> = tickets::table
@@ -277,7 +280,7 @@ fn embed_page_tickets(
                     .ok()
                     .flatten()
                     .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
-                (id, (title, cat.legacy_status().to_string()))
+                (id, (title, cat))
             })
             .collect()
     };
@@ -291,7 +294,7 @@ fn embed_page_tickets(
                 link_type: l.link_type,
                 created_at: l.created_at,
                 ticket_title: meta.map(|m| m.0.clone()),
-                ticket_status: meta.map(|m| m.1.clone()),
+                ticket_category: meta.map(|m| m.1),
             }
         })
         .collect();
@@ -2003,7 +2006,7 @@ pub struct PageTicketLinkResponse {
     pub created_by: Option<Uuid>,
     pub created_at: chrono::NaiveDateTime,
     pub ticket_title: Option<String>,
-    pub ticket_status: Option<String>,
+    pub ticket_category: Option<crate::models::WorkflowStateCategory>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -2039,25 +2042,27 @@ pub async fn list_page_tickets(
         use crate::schema::tickets;
         use diesel::prelude::*;
         let ticket_ids: Vec<i32> = links.iter().map(|l| l.ticket_id).collect();
-        let tickets_meta: std::collections::HashMap<i32, (String, String)> =
-            if ticket_ids.is_empty() {
-                Default::default()
-            } else {
-                let rows: Vec<(i32, String, i32)> = tickets::table
-                    .filter(tickets::id.eq_any(&ticket_ids))
-                    .select((tickets::id, tickets::title, tickets::workflow_state_id))
-                    .load(conn)
-                    .unwrap_or_default();
-                rows.into_iter()
-                    .map(|(id, title, ws_id)| {
-                        let cat = crate::repository::workflow_states::category_of(conn, ws_id)
-                            .ok()
-                            .flatten()
-                            .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
-                        (id, (title, cat.legacy_status().to_string()))
-                    })
-                    .collect()
-            };
+        let tickets_meta: std::collections::HashMap<
+            i32,
+            (String, crate::models::WorkflowStateCategory),
+        > = if ticket_ids.is_empty() {
+            Default::default()
+        } else {
+            let rows: Vec<(i32, String, i32)> = tickets::table
+                .filter(tickets::id.eq_any(&ticket_ids))
+                .select((tickets::id, tickets::title, tickets::workflow_state_id))
+                .load(conn)
+                .unwrap_or_default();
+            rows.into_iter()
+                .map(|(id, title, ws_id)| {
+                    let cat = crate::repository::workflow_states::category_of(conn, ws_id)
+                        .ok()
+                        .flatten()
+                        .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+                    (id, (title, cat))
+                })
+                .collect()
+        };
 
         let responses: Vec<PageTicketLinkResponse> = links
             .into_iter()
@@ -2070,7 +2075,7 @@ pub async fn list_page_tickets(
                     created_by: l.created_by,
                     created_at: l.created_at,
                     ticket_title: meta.map(|m| m.0.clone()),
-                    ticket_status: meta.map(|m| m.1.clone()),
+                    ticket_category: meta.map(|m| m.1),
                 }
             })
             .collect();

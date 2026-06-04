@@ -1968,8 +1968,8 @@ pub async fn bulk_tickets(
                         .broadcast_event_from(
                             crate::handlers::sse::SseEvent::TicketUpdated {
                                 ticket_id: *id,
-                                field: "status".to_string(),
-                                value: json!(status_str),
+                                field: "workflow_state_id".to_string(),
+                                value: json!(target_state.id),
                                 updated_by: claims.sub.clone(),
                                 timestamp: chrono::Utc::now(),
                             },

@@ -50,8 +50,6 @@ pub struct KnowledgeGapSignalResponse {
     /// `source_ref` + `payload` directly.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ticket_title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ticket_status: Option<String>,
     /// Hydrated detector user (for manual_flag signals: this is
     /// who flagged the ticket; for AI-suggested signals it stays
     /// None). Lets the queue UI render "Flagged by Kyle" without
@@ -85,15 +83,10 @@ fn hydrate_signal(
                 .optional()
                 .ok()
                 .flatten();
-            if let Some((title, ws_id)) = row {
-                let cat = crate::repository::workflow_states::category_of(conn, ws_id)
-                    .ok()
-                    .flatten()
-                    .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+            if let Some((title, _ws_id)) = row {
                 return KnowledgeGapSignalResponse {
                     signal,
                     ticket_title: Some(title),
-                    ticket_status: Some(cat.legacy_status().to_string()),
                     detected_by_user,
                 };
             }
@@ -102,7 +95,6 @@ fn hydrate_signal(
     KnowledgeGapSignalResponse {
         signal,
         ticket_title: None,
-        ticket_status: None,
         detected_by_user,
     }
 }

@@ -696,7 +696,7 @@ pub async fn get_guest_ticket_status(
         Ok(LookupOutcome::Found(t, cat)) => HttpResponse::Ok().json(json!({
             "ticket_id": t.id,
             "title": t.title,
-            "status": cat.legacy_status(),
+            "category": cat,
             "priority": t.priority,
             "created_at": t.created_at,
             "updated_at": t.updated_at,

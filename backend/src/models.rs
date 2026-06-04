@@ -2789,7 +2789,7 @@ pub struct DocumentationPageTicketEmbed {
     pub link_type: String,
     pub created_at: NaiveDateTime,
     pub ticket_title: Option<String>,
-    pub ticket_status: Option<String>,
+    pub ticket_category: Option<WorkflowStateCategory>,
 }
 
 // Sync History Models
@@ -3648,8 +3648,8 @@ pub struct UpdateUserTicketView {
 pub struct RecentTicket {
     pub id: i32,
     pub title: String,
-    /// Legacy three-bucket status string. See [`CompleteTicketResponse`] note.
-    pub status: String,
+    /// The frontend resolves this to a category / colour via the
+    /// workspace workflow-states store.
     pub workflow_state_id: i32,
     #[serde(serialize_with = "serialize_optional_uuid_as_string")]
     pub requester: Option<Uuid>,

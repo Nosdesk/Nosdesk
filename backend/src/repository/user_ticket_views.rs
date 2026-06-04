@@ -70,26 +70,21 @@ pub fn delete_view(
 
 /// Get recent tickets for a user.
 ///
-/// One JOIN to `workflow_states` so the category enum lands
-/// alongside the row in a single query. The previous loop
-/// asked `category_of` per row; even though that helper is
-/// cached, the lookup-and-RwLock-grab on each iteration was
-/// avoidable noise. With the category pulled directly,
-/// nothing in the result-mapping loop touches the DB or the
-/// cache.
+/// Selects `workflow_state_id` directly; the client resolves it to a
+/// category / colour via the workspace workflow-states store, so this
+/// query neither joins `workflow_states` nor touches the category
+/// cache in its mapping loop.
 pub fn get_recent_tickets(
     conn: &mut DbConnection,
     user_uuid_param: Uuid,
     limit: i64,
 ) -> Result<Vec<RecentTicket>, diesel::result::Error> {
-    use crate::models::WorkflowStateCategory;
-    use crate::schema::{tickets, user_ticket_views, workflow_states};
+    use crate::schema::{tickets, user_ticket_views};
 
     let rows: Vec<(
         i32,
         String,
         i32,
-        Option<WorkflowStateCategory>,
         Option<Uuid>,
         Option<Uuid>,
         chrono::NaiveDateTime,
@@ -98,7 +93,6 @@ pub fn get_recent_tickets(
         i32,
     )> = user_ticket_views::table
         .inner_join(tickets::table.on(user_ticket_views::ticket_id.eq(tickets::id)))
-        .left_join(workflow_states::table.on(tickets::workflow_state_id.eq(workflow_states::id)))
         .filter(user_ticket_views::user_uuid.eq(user_uuid_param))
         .order(user_ticket_views::last_viewed_at.desc())
         .limit(limit)
@@ -106,7 +100,6 @@ pub fn get_recent_tickets(
             tickets::id,
             tickets::title,
             tickets::workflow_state_id,
-            workflow_states::category.nullable(),
             tickets::requester_uuid,
             tickets::assignee_uuid,
             tickets::created_at,
@@ -119,20 +112,16 @@ pub fn get_recent_tickets(
     Ok(rows
         .into_iter()
         .map(
-            |(tid, ttitle, ws_id, cat, req, ass, created, updated, last_viewed, views)| {
-                let cat = cat.unwrap_or(WorkflowStateCategory::Backlog);
-                RecentTicket {
-                    id: tid,
-                    title: ttitle,
-                    status: cat.legacy_status().to_string(),
-                    workflow_state_id: ws_id,
-                    requester: req,
-                    assignee: ass,
-                    created_at: created,
-                    updated_at: updated,
-                    last_viewed_at: last_viewed,
-                    view_count: views,
-                }
+            |(tid, ttitle, ws_id, req, ass, created, updated, last_viewed, views)| RecentTicket {
+                id: tid,
+                title: ttitle,
+                workflow_state_id: ws_id,
+                requester: req,
+                assignee: ass,
+                created_at: created,
+                updated_at: updated,
+                last_viewed_at: last_viewed,
+                view_count: views,
             },
         )
         .collect())
