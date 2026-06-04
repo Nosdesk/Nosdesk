@@ -420,6 +420,7 @@ pub fn build_completion_snapshot(
 /// (back to the backlog). Returns the carried-over count. Must run in
 /// the same transaction as `complete`, AFTER the snapshot is built so
 /// the snapshot still reflects the cycle's full membership.
+// sync-pending-wire: cycle membership change; needs a ticket.cycle_changed event (emits via emit_cycle_ticket_event)
 pub fn carry_over_incomplete(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<i64> {
     let incomplete: Vec<i32> = cycle_members(conn, cycle.id)?
         .into_iter()
@@ -716,11 +717,15 @@ mod tests {
         .execute(&mut conn)
         .unwrap();
 
-        // Close t1 now so completed picks up at least one ticket. The
-        // tickets_dates_valid check forbids closed_at < created_at, and
-        // the fixture creates tickets at "now", so close at now.
+        // Close t1 so completed picks up at least one ticket. Close at
+        // the ticket's own created_at rather than the `now` captured at
+        // the top of the test: the fixtures inserted at the DB clock,
+        // which is strictly after that `now`, so `closed_at = now` can
+        // trip the tickets_dates_valid check (closed_at < created_at)
+        // when the suite runs under load. created_at is ~now (today),
+        // so it still lands in the final daily bucket.
         diesel::update(tickets::table.find(t1.id))
-            .set(tickets::closed_at.eq(Some(now.naive_utc())))
+            .set(tickets::closed_at.eq(Some(t1.created_at)))
             .execute(&mut conn)
             .unwrap();
 
