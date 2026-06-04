@@ -116,6 +116,14 @@ function onTrapKeydown(e: KeyboardEvent): void {
 async function moveFocusIntoDialog(): Promise<void> {
   previouslyFocused = (document.activeElement as HTMLElement | null) ?? null
   await nextTick()
+  // Honour an explicit `autofocus` field (e.g. the first input of a
+  // form modal) over the first focusable, which is usually the header
+  // close button — landing there means a typed Space toggles Close.
+  const preferred = dialogRef.value?.querySelector<HTMLElement>('[autofocus]')
+  if (preferred) {
+    preferred.focus()
+    return
+  }
   const elements = focusableInDialog()
   ;(elements[0] ?? dialogRef.value)?.focus()
 }
