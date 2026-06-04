@@ -88,11 +88,6 @@ pub fn category_of_cached(id: i32) -> Option<WorkflowStateCategory> {
     guard.as_ref()?.get(&id).map(|s| s.category)
 }
 
-pub fn legacy_status_of(conn: &mut DbConnection, id: i32) -> QueryResult<&'static str> {
-    let cat = category_of(conn, id)?.unwrap_or(WorkflowStateCategory::Backlog);
-    Ok(cat.legacy_status())
-}
-
 /// Return the workspace-default state. There is exactly one row with
 /// `is_default = TRUE` (enforced by a partial unique index); fall back to
 /// the first Backlog state if the invariant is broken in test data.
@@ -128,23 +123,6 @@ pub fn first_in_category(
             .cloned()
     })?
     .ok_or(diesel::result::Error::NotFound)
-}
-
-/// Map a legacy status string (`open` / `in-progress` / `closed`) to a
-/// concrete workflow state id. Picks the lowest-position state in the
-/// canonical category for that bucket: `open → backlog`, `in-progress →
-/// active`, `closed → done`.
-pub fn state_for_legacy_status(
-    conn: &mut DbConnection,
-    status: &str,
-) -> QueryResult<WorkflowState> {
-    let category = match status {
-        "open" => WorkflowStateCategory::Backlog,
-        "in-progress" => WorkflowStateCategory::Active,
-        "closed" => WorkflowStateCategory::Done,
-        _ => WorkflowStateCategory::Backlog,
-    };
-    first_in_category(conn, category)
 }
 
 pub fn create(conn: &mut DbConnection, new: NewWorkflowState) -> QueryResult<WorkflowState> {
@@ -340,14 +318,14 @@ mod tests {
     }
 
     #[test]
-    fn legacy_status_mapping_buckets_correctly() {
+    fn first_in_category_resolves_seeded_states() {
         let mut conn = setup_test_connection();
         invalidate_cache();
-        let backlog = state_for_legacy_status(&mut conn, "open").unwrap();
+        let backlog = first_in_category(&mut conn, WorkflowStateCategory::Backlog).unwrap();
         assert_eq!(backlog.category, WorkflowStateCategory::Backlog);
-        let active = state_for_legacy_status(&mut conn, "in-progress").unwrap();
+        let active = first_in_category(&mut conn, WorkflowStateCategory::Active).unwrap();
         assert_eq!(active.category, WorkflowStateCategory::Active);
-        let done = state_for_legacy_status(&mut conn, "closed").unwrap();
+        let done = first_in_category(&mut conn, WorkflowStateCategory::Done).unwrap();
         assert_eq!(done.category, WorkflowStateCategory::Done);
     }
 

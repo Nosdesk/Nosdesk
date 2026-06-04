@@ -122,19 +122,19 @@ impl AssignmentEngine {
             }
         }
 
-        // Check status condition. Compare against the legacy three-bucket
-        // string derived from the workflow state's category. Uses the
-        // sync cached lookup (cold cache → "open" fallback) so rule
-        // evaluation stays cheap; rules are evaluated frequently in hot
-        // paths and a DB roundtrip per call would compound badly.
-        if let Some(status_val) = obj.get("status") {
-            if let Some(status_str) = status_val.as_str() {
-                let ticket_status = crate::repository::workflow_states::category_of_cached(
+        // Check categories condition: match when the ticket's workflow-state
+        // category is one of the listed categories. Uses the sync cached
+        // lookup (cold cache → "backlog" fallback) so rule evaluation stays
+        // cheap; rules are evaluated frequently in hot paths and a DB
+        // roundtrip per call would compound badly.
+        if let Some(cats_val) = obj.get("categories") {
+            if let Some(arr) = cats_val.as_array() {
+                let ticket_cat = crate::repository::workflow_states::category_of_cached(
                     ticket.workflow_state_id,
                 )
-                .map(|c| c.legacy_status())
-                .unwrap_or("open");
-                if ticket_status != status_str {
+                .map(|c| c.as_str())
+                .unwrap_or("backlog");
+                if !arr.iter().any(|v| v.as_str() == Some(ticket_cat)) {
                     return false;
                 }
             }
@@ -489,21 +489,21 @@ mod tests {
         assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket));
     }
 
-    // Note: status conditions are evaluated against the cached workflow
+    // Note: category conditions are evaluated against the cached workflow
     // state lookup; in unit tests with no DB the cache is cold so the
-    // helper returns the "open" fallback. The two tests below cover that
-    // contract: an "open" status condition should match the default
-    // fixture, and a "closed" condition should not.
+    // helper returns the "backlog" fallback. The two tests below cover that
+    // contract: a "backlog" category condition should match the default
+    // fixture, and a "done" condition should not.
     #[test]
-    fn status_condition_matches_open_fallback() {
-        let rule = make_rule(|r| r.conditions = Some(json!({"status": "open"})));
+    fn categories_condition_matches_backlog_fallback() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"categories": ["backlog"]})));
         let ticket = make_ticket(|_| {});
         assert!(AssignmentEngine::evaluate_conditions(&rule, &ticket));
     }
 
     #[test]
-    fn status_condition_mismatches() {
-        let rule = make_rule(|r| r.conditions = Some(json!({"status": "closed"})));
+    fn categories_condition_mismatches() {
+        let rule = make_rule(|r| r.conditions = Some(json!({"categories": ["done"]})));
         let ticket = make_ticket(|_| {});
         assert!(!AssignmentEngine::evaluate_conditions(&rule, &ticket));
     }
@@ -527,13 +527,13 @@ mod tests {
         let rule = make_rule(|r| {
             r.conditions = Some(json!({
                 "priority": "high",
-                "status": "open",
+                "categories": ["backlog"],
                 "title_contains": "fire"
             }));
         });
 
-        // All match (status condition relies on the cold-cache "open"
-        // fallback in unit tests, which matches the rule's "open").
+        // All match (categories condition relies on the cold-cache "backlog"
+        // fallback in unit tests, which matches the rule's "backlog").
         let ticket = make_ticket(|t| {
             t.priority = TicketPriority::High;
             t.title = "The server is on fire".into();

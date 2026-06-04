@@ -28,16 +28,16 @@ pub fn index_document_from_ticket(
         String::new()
     };
 
-    // Build metadata from ticket fields. Status is now derived from the
-    // workflow state's category; the cached lookup avoids a DB roundtrip
-    // here on the indexing hot path. Falls back to "open" if the cache
-    // is cold (the next reindex will pick up the correct value).
-    let status_str =
+    // Build metadata from ticket fields. The workflow-state category is
+    // the searchable status token; the cached lookup avoids a DB roundtrip
+    // on the indexing hot path. Falls back to "backlog" if the cache is
+    // cold (the next reindex picks up the correct value).
+    let category_str =
         crate::repository::workflow_states::category_of_cached(ticket.workflow_state_id)
-            .map(|c| c.legacy_status())
-            .unwrap_or("open");
+            .map(|c| c.as_str())
+            .unwrap_or("backlog");
     let priority_str = ticket.priority.as_str();
-    let metadata = format!("{} {}", status_str, priority_str);
+    let metadata = format!("{} {}", category_str, priority_str);
 
     IndexDocument::new(EntityType::Ticket, ticket.id as i64, &ticket.title, content)
         .metadata(metadata)

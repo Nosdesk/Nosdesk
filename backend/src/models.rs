@@ -78,19 +78,6 @@ impl WorkflowStateCategory {
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Done | Self::Cancelled | Self::Merged)
     }
-
-    /// Folds the new six-category model down to the legacy three-bucket
-    /// status string (`open` / `in-progress` / `closed`) so existing API
-    /// consumers and the frontend keep working through the migration.
-    /// Triage and Backlog → open; Active and In Review → in-progress;
-    /// Done and Cancelled → closed.
-    pub fn legacy_status(&self) -> &'static str {
-        match self {
-            Self::Triage | Self::Backlog => "open",
-            Self::Active | Self::InReview => "in-progress",
-            Self::Done | Self::Cancelled | Self::Merged => "closed",
-        }
-    }
 }
 
 impl ToSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowStateCategory {

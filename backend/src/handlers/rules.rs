@@ -887,16 +887,13 @@ pub async fn apply_rule(
                 continue;
             };
             let (field, value) = match kind {
-                "set_status" => {
-                    let state_id = action
-                        .get("workflow_state_id")
-                        .and_then(|v| v.as_i64())
-                        .map(|i| i as i32);
-                    let category = state_id
-                        .and_then(|id| resolve_workflow_state_category(&pool, id).ok())
-                        .unwrap_or_default();
-                    ("status", Value::String(category))
-                }
+                "set_status" => match action.get("workflow_state_id").and_then(|v| v.as_i64()) {
+                    // The frontend's ticket SSE handler reacts to
+                    // workflow_state_id and re-resolves the state from its
+                    // store; emit the id, not a status string.
+                    Some(id) => ("workflow_state_id", Value::from(id as i32)),
+                    None => continue,
+                },
                 "assign" => (
                     "assignee",
                     action
@@ -934,29 +931,6 @@ pub async fn apply_rule(
         actions_executed: outcome.actions_executed,
         actions_suppressed: outcome.actions_suppressed,
     })
-}
-
-/// Resolve a workflow_state row's category string for the SSE
-/// payload. Best-effort: a missing row returns the empty string,
-/// the frontend's ticket.status setter accepts that as "unknown"
-/// and falls back to a refetch on the next interaction. Done
-/// outside the apply transaction so RLS-friendliness comes from
-/// the regular pool acquire.
-fn resolve_workflow_state_category(
-    pool: &web::Data<Pool>,
-    state_id: i32,
-) -> Result<String, diesel::result::Error> {
-    use crate::models::WorkflowStateCategory;
-    use crate::schema::workflow_states::dsl as ws;
-    use diesel::prelude::*;
-    let mut conn = pool
-        .get()
-        .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
-    let category: WorkflowStateCategory = ws::workflow_states
-        .find(state_id)
-        .select(ws::category)
-        .first(&mut conn)?;
-    Ok(category.as_str().to_string())
 }
 
 /// Mirror the comment-handler's channel-relay enqueue for a rule-

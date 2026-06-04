@@ -678,7 +678,11 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-            assert_eq!(cat.legacy_status(), "open");
+            assert!(matches!(
+                cat,
+                crate::models::WorkflowStateCategory::Triage
+                    | crate::models::WorkflowStateCategory::Backlog
+            ));
             assert_eq!(item.ticket.priority, TicketPriority::Medium);
         }
         assert!(result.total >= 1);

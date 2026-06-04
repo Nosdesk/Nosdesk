@@ -1008,33 +1008,7 @@ pub async fn update_ticket_partial(
         ticket_update.title = Some(title.to_string());
     }
 
-    // Handle status — accept the legacy three-bucket strings for wire
-    // compatibility and translate to a workflow_state_id.
-    if let Some(status_str) = body.get("status").and_then(|v| v.as_str()) {
-        if matches!(status_str, "open" | "in-progress" | "closed") {
-            match tc
-                .run(|conn| repository::workflow_states::state_for_legacy_status(conn, status_str))
-            {
-                Ok(state) => {
-                    ticket_update.workflow_state_id = Some(state.id);
-                    let cat = state.category;
-                    ticket_update.closed_at = if cat == WorkflowStateCategory::Done
-                        || cat == WorkflowStateCategory::Cancelled
-                    {
-                        Some(Some(chrono::Utc::now().naive_utc()))
-                    } else {
-                        Some(None)
-                    };
-                }
-                Err(e) => {
-                    error!(error = ?e, "Failed to resolve workflow state for status string");
-                }
-            }
-        }
-    }
-
-    // Direct workflow_state_id support (forward-compat path the frontend
-    // will switch to after migration).
+    // Workflow state is set by id; the category drives closed_at.
     if let Some(ws_id) = body.get("workflow_state_id").and_then(|v| v.as_i64()) {
         let id = ws_id as i32;
         ticket_update.workflow_state_id = Some(id);
@@ -1429,9 +1403,10 @@ pub async fn update_ticket_partial(
                     let ticket_title = updated_ticket.ticket.title.clone();
                     let new_assignee = updated_ticket.ticket.assignee_uuid;
                     let old_assignee = old.assignee_uuid;
-                    // Compare the legacy-bucket string of new vs old workflow
-                    // state, so the "status changed" notification fires only
-                    // on cross-bucket transitions (the wire contract).
+                    // Compare the workflow-state category of new vs old, so the
+                    // "status changed" notification fires on a category
+                    // transition (e.g. backlog -> active), not on every
+                    // same-category state move.
                     let new_status_workflow_id = updated_ticket.ticket.workflow_state_id;
                     let old_status_workflow_id = old.workflow_state_id;
                     let new_status = tc
@@ -1440,16 +1415,16 @@ pub async fn update_ticket_partial(
                         })
                         .ok()
                         .flatten()
-                        .map(|c| c.legacy_status())
-                        .unwrap_or("open");
+                        .map(|c| c.as_str())
+                        .unwrap_or("backlog");
                     let old_status = tc
                         .run(|conn| {
                             repository::workflow_states::category_of(conn, old_status_workflow_id)
                         })
                         .ok()
                         .flatten()
-                        .map(|c| c.legacy_status())
-                        .unwrap_or("open");
+                        .map(|c| c.as_str())
+                        .unwrap_or("backlog");
                     let requester_uuid = updated_ticket.ticket.requester_uuid;
                     let actor_clone = actor.clone();
 
@@ -1914,74 +1889,6 @@ pub async fn bulk_tickets(
             HttpResponse::Ok().json(json!({ "affected": deleted }))
         }
 
-        "set-status" => {
-            let status_str = match &body.value {
-                Some(v) => v.as_str(),
-                None => return errors::bad_request("Bad Request: Status value required"),
-            };
-
-            if !matches!(status_str, "open" | "in-progress" | "closed") {
-                return errors::bad_request("Bad Request: Invalid status value");
-            }
-
-            let target_state = match tc
-                .run(|conn| repository::workflow_states::state_for_legacy_status(conn, status_str))
-            {
-                Ok(s) => s,
-                Err(e) => {
-                    error!(error = ?e, "Failed to resolve workflow state");
-                    return errors::internal("Failed to resolve workflow state");
-                }
-            };
-            let is_closed = matches!(
-                target_state.category,
-                WorkflowStateCategory::Done | WorkflowStateCategory::Cancelled
-            );
-
-            let mut updated = 0;
-            for id in ids {
-                let update = TicketUpdate {
-                    workflow_state_id: Some(target_state.id),
-                    updated_at: Some(chrono::Utc::now().naive_utc()),
-                    closed_at: if is_closed {
-                        Some(Some(chrono::Utc::now().naive_utc()))
-                    } else {
-                        None
-                    },
-                    ..Default::default()
-                };
-
-                if tc
-                    .run(|conn| {
-                        repository::update_ticket_partial(
-                            conn,
-                            *id,
-                            update,
-                            Some(search_service.get_ref()),
-                        )
-                    })
-                    .is_ok()
-                {
-                    updated += 1;
-                    // Send SSE update with source_client_id for echo suppression
-                    sse_state
-                        .broadcast_event_from(
-                            crate::handlers::sse::SseEvent::TicketUpdated {
-                                ticket_id: *id,
-                                field: "workflow_state_id".to_string(),
-                                value: json!(target_state.id),
-                                updated_by: claims.sub.clone(),
-                                timestamp: chrono::Utc::now(),
-                            },
-                            source_client_id.clone(),
-                        )
-                        .await;
-                }
-            }
-
-            HttpResponse::Ok().json(json!({ "affected": updated }))
-        }
-
         "set-priority" => {
             let priority_str = match &body.value {
                 Some(v) => v.as_str(),
@@ -2181,7 +2088,7 @@ mod tests {
         let cat = repository::workflow_states::category_of(&mut conn, ticket.workflow_state_id)
             .unwrap()
             .unwrap();
-        assert_eq!(cat.legacy_status(), "open");
+        assert_eq!(cat, WorkflowStateCategory::Backlog);
         assert_eq!(ticket.priority, TicketPriority::Medium);
         assert_eq!(ticket.requester_uuid, Some(admin.uuid));
     }
@@ -2223,14 +2130,16 @@ mod tests {
             repository::workflow_states::category_of(&mut conn, ticket.workflow_state_id)
                 .unwrap()
                 .unwrap();
-        assert_eq!(initial_cat.legacy_status(), "open");
+        assert_eq!(initial_cat, WorkflowStateCategory::Backlog);
         assert_eq!(ticket.priority, TicketPriority::Medium);
 
-        // Perform partial update via repository — flip to an "in-progress"
-        // state via the legacy bucket helper.
-        let in_progress =
-            repository::workflow_states::state_for_legacy_status(&mut conn, "in-progress")
-                .expect("in-progress workflow state must exist");
+        // Perform partial update via repository — flip to an Active-category
+        // (in-progress) state.
+        let in_progress = repository::workflow_states::first_in_category(
+            &mut conn,
+            WorkflowStateCategory::Active,
+        )
+        .expect("in-progress workflow state must exist");
         let update = TicketUpdate {
             title: Some("Updated Title".to_string()),
             workflow_state_id: Some(in_progress.id),
@@ -2247,7 +2156,7 @@ mod tests {
             repository::workflow_states::category_of(&mut conn, updated.workflow_state_id)
                 .unwrap()
                 .unwrap();
-        assert_eq!(new_cat.legacy_status(), "in-progress");
+        assert_eq!(new_cat, WorkflowStateCategory::Active);
         // Priority should remain unchanged
         assert_eq!(updated.priority, TicketPriority::Medium);
     }

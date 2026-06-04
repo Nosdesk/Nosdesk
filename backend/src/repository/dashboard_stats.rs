@@ -205,11 +205,13 @@ fn queue_stats(conn: &mut DbConnection) -> QueryResult<QueueStats> {
         s.total += count;
         let cat = crate::repository::workflow_states::category_of(conn, *ws_id)?
             .unwrap_or(WorkflowStateCategory::Backlog);
-        match cat.legacy_status() {
-            "open" => s.open += count,
-            "in-progress" => s.in_progress += count,
-            // Closed tickets are still counted in `total` (they exist),
-            // but the legacy widget didn't surface them in this struct.
+        match cat {
+            WorkflowStateCategory::Triage | WorkflowStateCategory::Backlog => s.open += count,
+            WorkflowStateCategory::Active | WorkflowStateCategory::InReview => {
+                s.in_progress += count
+            }
+            // Terminal tickets are still counted in `total` (they exist),
+            // but this widget doesn't surface them in this struct.
             _ => {}
         }
         if matches!(priority, TicketPriority::High) {
@@ -297,11 +299,14 @@ fn aggregate_rows(
     for (ws_id, priority, count) in rows {
         let cat = crate::repository::workflow_states::category_of(conn, *ws_id)?
             .unwrap_or(WorkflowStateCategory::Backlog);
-        match cat.legacy_status() {
-            "open" => s.open += count,
-            "in-progress" => s.in_progress += count,
-            "closed" => s.closed += count,
-            _ => {}
+        match cat {
+            WorkflowStateCategory::Triage | WorkflowStateCategory::Backlog => s.open += count,
+            WorkflowStateCategory::Active | WorkflowStateCategory::InReview => {
+                s.in_progress += count
+            }
+            WorkflowStateCategory::Done
+            | WorkflowStateCategory::Cancelled
+            | WorkflowStateCategory::Merged => s.closed += count,
         }
         if matches!(priority, TicketPriority::High) {
             s.high_priority += count;

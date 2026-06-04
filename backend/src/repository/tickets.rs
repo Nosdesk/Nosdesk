@@ -633,11 +633,19 @@ pub fn import_ticket_from_json(
     conn: &mut DbConnection,
     ticket_json: &TicketJson,
 ) -> Result<Ticket, Error> {
-    // Map the legacy status string ("open" / "in-progress" / "closed") to a
-    // concrete workflow_state row for the new schema. Unknown strings fall
-    // back to the workspace default state via state_for_legacy_status.
-    let workflow_state =
-        crate::repository::workflow_states::state_for_legacy_status(conn, &ticket_json.status)?;
+    // The import format carries a coarse status string from the source
+    // system. Map it to a workflow-state category and pick that category's
+    // lowest-position state; unknown strings fall back to the workspace
+    // default. This mapping is local to the importer: it translates foreign
+    // data, it is not a status field the app itself round-trips.
+    use crate::models::WorkflowStateCategory;
+    use crate::repository::workflow_states::{default_state, first_in_category};
+    let workflow_state = match ticket_json.status.as_str() {
+        "open" => first_in_category(conn, WorkflowStateCategory::Backlog)?,
+        "in-progress" => first_in_category(conn, WorkflowStateCategory::Active)?,
+        "closed" => first_in_category(conn, WorkflowStateCategory::Done)?,
+        _ => default_state(conn)?,
+    };
     let priority = parse_ticket_priority(&ticket_json.priority);
 
     // Create the ticket

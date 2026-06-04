@@ -320,10 +320,9 @@ impl TestFixtures {
         requester: Option<Uuid>,
         category_id: Option<i32>,
     ) -> Ticket {
-        // Resolve the legacy "open" bucket to a concrete workflow state.
-        // Using the legacy helper so the fixture continues to mean "the
-        // open-equivalent state" regardless of workspace customisation.
-        let open_state = crate::repository::workflow_states::state_for_legacy_status(conn, "open")
+        // Put the fixture in the workspace-default state (the non-terminal
+        // entry point), regardless of workspace customisation.
+        let open_state = crate::repository::workflow_states::default_state(conn)
             .expect("workflow_states must be seeded for tests");
         let new_ticket = NewTicket {
             title: title.to_string(),
