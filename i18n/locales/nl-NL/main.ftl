@@ -4902,6 +4902,13 @@ calendar-anchor-created = Aangemaakt
 calendar-anchor-last-activity = Laatste activiteit
 gantt-today = Vandaag
 gantt-title = Gantt
+# Gantt: zoom, passend maken, niet-geplande tickets (machine, nog na te kijken door moedertaalspreker).
+gantt-zoom-week = Week
+gantt-zoom-month = Maand
+gantt-zoom-quarter = Kwartaal
+gantt-fit = Passend
+gantt-unscheduled = Niet gepland ({ $count })
+gantt-empty-window = Geen tickets in dit venster. Gebruik Passend, Vandaag of de pijlen om de tijdlijn te verschuiven.
 user-cell-missing-tooltip = Deze gebruiker bestaat niet meer
 user-cell-unknown = Onbekend
 user-settings-managing-for = Instellingen beheren voor

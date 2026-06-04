@@ -4911,6 +4911,13 @@ calendar-anchor-created = Création
 calendar-anchor-last-activity = Dernière activité
 gantt-today = Aujourd'hui
 gantt-title = Gantt
+# Gantt : zoom, ajustement, tickets non planifiés (machine, à relire par un locuteur natif).
+gantt-zoom-week = Semaine
+gantt-zoom-month = Mois
+gantt-zoom-quarter = Trimestre
+gantt-fit = Ajuster
+gantt-unscheduled = Non planifiés ({ $count })
+gantt-empty-window = Aucun ticket dans cette fenêtre. Utilisez Ajuster, Aujourd'hui ou les flèches pour déplacer la chronologie.
 user-cell-missing-tooltip = Cet utilisateur n'existe plus
 user-cell-unknown = Inconnu
 user-settings-managing-for = Gestion des paramètres pour
