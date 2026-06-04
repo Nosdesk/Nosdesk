@@ -691,7 +691,7 @@ mod tests {
         // `to` is mid-day: the day containing it must appear.
         let from = "2026-06-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let to = "2026-06-03T14:30:00Z".parse::<DateTime<Utc>>().unwrap();
-        let buckets = day_buckets(from, to);
+        let buckets = grain_buckets(from, to, Grain::Day);
         assert_eq!(buckets.len(), 3, "Jun 1, Jun 2, Jun 3 — three days");
         assert_eq!(
             buckets[2],
@@ -705,7 +705,7 @@ mod tests {
         // NOT included (half-open [from, to)).
         let from = "2026-06-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let to = "2026-06-04T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
-        let buckets = day_buckets(from, to);
+        let buckets = grain_buckets(from, to, Grain::Day);
         assert_eq!(buckets.len(), 3, "Jun 1, Jun 2, Jun 3 — Jun 4 not included");
     }
 
@@ -714,9 +714,33 @@ mod tests {
         // "today" preset: from = start_of_today, to = now (mid-day).
         let from = "2026-06-03T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
         let to = "2026-06-03T14:30:00Z".parse::<DateTime<Utc>>().unwrap();
-        let buckets = day_buckets(from, to);
+        let buckets = grain_buckets(from, to, Grain::Day);
         assert_eq!(buckets.len(), 1, "today preset must emit today's bucket");
         assert_eq!(buckets[0], from);
+    }
+
+    #[test]
+    fn hour_buckets_cover_partial_trailing_hour() {
+        // "today" at hourly grain: from = start_of_today, to = now
+        // mid-hour. Each hour from 00:00 through the hour containing
+        // `to` (inclusive) gets a bucket — 15 buckets for 00:00..14:30.
+        let from = "2026-06-03T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let to = "2026-06-03T14:30:00Z".parse::<DateTime<Utc>>().unwrap();
+        let buckets = grain_buckets(from, to, Grain::Hour);
+        assert_eq!(buckets.len(), 15, "00:00 through 14:00 — fifteen hours");
+        assert_eq!(buckets[0], from);
+        assert_eq!(
+            buckets[14],
+            "2026-06-03T14:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+        );
+    }
+
+    #[test]
+    fn grain_parse_defaults_to_day() {
+        assert_eq!(Grain::parse("hour"), Grain::Hour);
+        assert_eq!(Grain::parse("day"), Grain::Day);
+        assert_eq!(Grain::parse(""), Grain::Day);
+        assert_eq!(Grain::parse("week"), Grain::Day);
     }
 
     #[test]
