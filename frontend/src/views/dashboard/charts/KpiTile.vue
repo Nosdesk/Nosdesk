@@ -22,7 +22,6 @@ import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
-import { useLiveKpi } from '@/composables/useLiveKpi'
 import { useDateStore } from '@/stores/dateStore'
 import {
   analyticsService,
@@ -87,11 +86,10 @@ const query = useQuery({
   query: () => analyticsService.kpi(params.value),
 })
 
-// Live refresh: ticket mutations (created / updated / deleted) on
-// any tab connected to this workspace nudge the KPI to refetch.
-// Debounced inside the composable so a burst of state changes
-// triggers one trailing fetch.
-useLiveKpi({ onRefresh: () => query.refetch() })
+// Live refresh is owned at the dashboard root by
+// `useDashboardLiveRefresh`: it invalidates the ['dashboard', 'kpi']
+// query namespace on ticket mutations, so this tile's query refetches
+// without subscribing to SSE itself.
 
 const result = computed<KpiResult | undefined>(() => query.data.value)
 const loading = computed(() => query.status.value === 'pending' && !result.value)

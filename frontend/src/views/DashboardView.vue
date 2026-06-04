@@ -10,6 +10,7 @@ import {
   useDashboardStats,
 } from '@/composables/useDashboardStats'
 import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
+import { useDashboardLiveRefresh } from '@/composables/useDashboardLiveRefresh'
 import DashboardGrid from './dashboard/DashboardGrid.vue'
 import DashboardEditBar from './dashboard/DashboardEditBar.vue'
 import TimeRangeChipCluster from './dashboard/chrome/TimeRangeChipCluster.vue'
@@ -93,6 +94,11 @@ onBeforeRouteLeave((_to, _from, next) => {
 })
 
 useCreateTicketAction()
+
+// Single owner of the dashboard's live-refresh subscription. KPI
+// tiles stay pure useQuery consumers; this invalidates their cache on
+// ticket mutations so they refetch without each tile subscribing.
+useDashboardLiveRefresh()
 
 // Page chrome (TimeRange / Compare / Annotations) only renders when
 // at least one visible widget on the active layout declares the
