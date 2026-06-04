@@ -131,7 +131,6 @@ pub fn revoke_other_sessions_by_uuid(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use chrono::Utc;
 
@@ -150,7 +149,7 @@ mod tests {
     #[test]
     fn create_and_get_session() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "sessuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "sessuser", "user");
 
         let session = create_session(&mut conn, make_session(user.uuid)).unwrap();
         let fetched = get_session_by_session_id(&mut conn, &session.session_id).unwrap();
@@ -160,7 +159,7 @@ mod tests {
     #[test]
     fn revoke_session_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "revokuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "revokuser", "user");
 
         let session = create_session(&mut conn, make_session(user.uuid)).unwrap();
         let rows = revoke_session(&mut conn, session.id).unwrap();
@@ -171,7 +170,7 @@ mod tests {
     #[test]
     fn revoke_session_by_uuid_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "revokuuid", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "revokuuid", "user");
 
         let session = create_session(&mut conn, make_session(user.uuid)).unwrap();
         let rows = revoke_session_by_uuid(&mut conn, &session.session_id).unwrap();
@@ -182,7 +181,7 @@ mod tests {
     #[test]
     fn get_user_sessions_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "multiuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "multiuser", "user");
 
         create_session(&mut conn, make_session(user.uuid)).unwrap();
         create_session(&mut conn, make_session(user.uuid)).unwrap();
@@ -194,7 +193,7 @@ mod tests {
     #[test]
     fn update_session_activity_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "actuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "actuser", "user");
 
         let session = create_session(&mut conn, make_session(user.uuid)).unwrap();
         let new_expires = (Utc::now() + chrono::Duration::days(7)).naive_utc();

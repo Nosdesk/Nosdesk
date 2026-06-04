@@ -148,7 +148,7 @@ pub fn membership(
 ///
 /// `role` is the workspace-membership role
 /// (`owner` / `admin` / `member`), not the global user role.
-/// Callers usually map `UserRole::Admin -> "admin"`, everything
+/// Callers usually map `"admin" -> "admin"`, everything
 /// else -> "member" (same shape as the 2026-05-23 migration
 /// backfill). Idempotent via `ON CONFLICT DO NOTHING` so re-
 /// invocation during testing or restore doesn't blow up on the

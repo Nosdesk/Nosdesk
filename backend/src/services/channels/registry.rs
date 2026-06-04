@@ -566,7 +566,7 @@ mod tests {
     //! `tokio::time::sleep`, both of which are trivial to compose.
 
     use super::*;
-    use crate::models::{NewChannel, UserRole};
+    use crate::models::NewChannel;
     use crate::services::channels::email_imap::ImapRuntimeState;
     use crate::services::channels::{
         ChannelAdapter, ChannelError, ExternalIdentity, InboundEvent, InboundMessage, LoopMarkers,
@@ -887,6 +887,6 @@ mod tests {
     // warning when we later add UserRole-dependent tests here.
     #[allow(dead_code)]
     fn _silence_user_role_import(conn: &mut crate::db::DbConnection) {
-        let _ = TestFixtures::create_user(conn, "n", UserRole::User);
+        let _ = TestFixtures::create_user(conn, "n", "user");
     }
 }

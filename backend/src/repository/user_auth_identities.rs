@@ -129,7 +129,7 @@ pub fn get_user_uuids_by_external_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{NewUserAuthIdentity, UserRole};
+    use crate::models::NewUserAuthIdentity;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     fn make_identity(user_uuid: Uuid, provider: &str, external_id: &str) -> NewUserAuthIdentity {
@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn create_and_find_identity() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "iduser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "iduser", "user");
 
         create_identity(make_identity(user.uuid, "github", "gh_123"), &mut conn).unwrap();
 
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn delete_identity_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "delid", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "delid", "user");
 
         let identity =
             create_identity(make_identity(user.uuid, "google", "g_456"), &mut conn).unwrap();
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn get_user_identities_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "multiid", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "multiid", "user");
 
         create_identity(make_identity(user.uuid, "github", "gh_a"), &mut conn).unwrap();
         create_identity(make_identity(user.uuid, "google", "g_b"), &mut conn).unwrap();

@@ -116,13 +116,12 @@ pub fn insertion_total_for_test(conn: &mut DbConnection, response_id: i32) -> Qu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn crud_roundtrip() {
         let mut conn = setup_test_connection();
-        let admin = TestFixtures::create_user(&mut conn, "admin", UserRole::Admin);
+        let admin = TestFixtures::create_user(&mut conn, "admin", "admin");
         let created = create(
             &mut conn,
             NewCannedResponse {
@@ -163,7 +162,7 @@ mod tests {
     #[test]
     fn list_with_insert_counts_zero_when_unused() {
         let mut conn = setup_test_connection();
-        let admin = TestFixtures::create_user(&mut conn, "lwic-unused-admin", UserRole::Admin);
+        let admin = TestFixtures::create_user(&mut conn, "lwic-unused-admin", "admin");
         let row = create(
             &mut conn,
             NewCannedResponse {
@@ -184,7 +183,7 @@ mod tests {
     #[test]
     fn list_with_insert_counts_aggregates_recent_inserts() {
         let mut conn = setup_test_connection();
-        let admin = TestFixtures::create_user(&mut conn, "lwic-agg-admin", UserRole::Admin);
+        let admin = TestFixtures::create_user(&mut conn, "lwic-agg-admin", "admin");
         let row = create(
             &mut conn,
             NewCannedResponse {

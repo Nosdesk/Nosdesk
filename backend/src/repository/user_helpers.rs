@@ -1,39 +1,56 @@
 use crate::db::DbConnection;
-use crate::extractors::auth_context::derive_role;
-use crate::models::{User, UserEmail, UserRole, WorkspaceRole};
+use crate::models::{PlatformRole, User, UserEmail, WorkspaceRole};
 use diesel::prelude::*;
 use uuid::Uuid;
 
-/// Compute the legacy `UserRole` projection for a user given their
-/// `platform_role` and a DB connection. Looks up the user's
-/// `workspace_members.role` in the bootstrap workspace (id=1) and
-/// folds it together with the platform role per the W2 mapping
-/// (platform_admin → Admin; otherwise workspace owner/admin → Admin,
-/// agent → Technician, member or absent → User).
-///
-/// Single-tenant deployments resolve every request against the
-/// bootstrap workspace, so the lookup is unambiguous. Hosted /
-/// multi-workspace contexts that need a per-workspace derivation
-/// should call `derive_role` directly with the right workspace's
-/// role string.
-pub fn legacy_role_for_user(
-    conn: &mut DbConnection,
-    user_uuid: Uuid,
-    platform_role: &str,
-) -> UserRole {
+/// The user's `WorkspaceRole` in the bootstrap workspace (id=1), if
+/// they have a membership there. Mirrors the workspace the legacy
+/// `legacy_role_for_user` pinned to; hosted multi-workspace callers
+/// should look up the relevant workspace's membership directly.
+pub fn bootstrap_workspace_role(conn: &mut DbConnection, user_uuid: Uuid) -> Option<WorkspaceRole> {
     use crate::schema::workspace_members;
-    // Pinned to the bootstrap workspace: this helper is called from
-    // many pre-request contexts (JWT refresh, middleware, MFA) where no
-    // WorkspaceContext / app.workspace_id GUC is resolved, so it can't
-    // read the workspace from the request. Hosted per-workspace
-    // derivation goes through `derive_role` with the right role string.
-    let workspace_role: Option<String> = workspace_members::table
+    workspace_members::table
         .filter(workspace_members::workspace_id.eq(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID))
         .filter(workspace_members::user_uuid.eq(user_uuid))
         .select(workspace_members::role)
-        .first(conn)
-        .ok();
-    derive_role(platform_role, workspace_role.as_deref())
+        .first::<String>(conn)
+        .ok()
+        .map(|r| WorkspaceRole::from_db(&r))
+}
+
+/// True when `user` is a baseline, unprivileged account: platform
+/// role `user` and no workspace role above `member` in the bootstrap
+/// workspace. Privileged accounts (platform admin / audit reviewer,
+/// or workspace agent/admin/owner) return false. Used by the guest
+/// auto-provisioning paths so a drive-by submission can never reuse
+/// or impersonate a staff account.
+fn is_baseline_user(conn: &mut DbConnection, user: &User) -> bool {
+    if PlatformRole::from_db(&user.platform_role) != PlatformRole::User {
+        return false;
+    }
+    match bootstrap_workspace_role(conn, user.uuid) {
+        Some(role) => !role.meets(WorkspaceRole::Agent),
+        None => true,
+    }
+}
+
+/// True when `user` may handle tickets (be assigned, see all
+/// tickets): a platform admin, or a workspace agent/admin/owner in
+/// the bootstrap workspace. The DB-side mirror of
+/// `AuthContext::can_handle_tickets` for when only a `User` row is on
+/// hand (assignee validation, SSE fan-out).
+pub fn user_can_handle_tickets(conn: &mut DbConnection, user: &User) -> bool {
+    PlatformRole::from_db(&user.platform_role).is_platform_admin()
+        || bootstrap_workspace_role(conn, user.uuid).is_some_and(|r| r.meets(WorkspaceRole::Agent))
+}
+
+/// True when `user` is an administrator: a platform admin, or a
+/// workspace admin/owner in the bootstrap workspace. Mirrors the old
+/// `legacy_role_for_user(...) == "admin"` check used to guard
+/// admin-account deletion.
+pub fn user_is_admin(conn: &mut DbConnection, user: &User) -> bool {
+    PlatformRole::from_db(&user.platform_role).is_platform_admin()
+        || bootstrap_workspace_role(conn, user.uuid).is_some_and(|r| r.meets(WorkspaceRole::Admin))
 }
 
 /// Observer fired after a user record is successfully committed to the
@@ -95,7 +112,6 @@ pub fn get_user_by_email(
 /// default mapping pass `WorkspaceRole::from_user_role(role)`.
 pub fn create_user_with_email(
     new_user: crate::models::NewUser,
-    role: UserRole,
     workspace_role: WorkspaceRole,
     email: String,
     email_verified: bool,
@@ -163,7 +179,8 @@ pub fn create_user_with_email(
                     "uuid": user.uuid,
                     "name": user.name,
                     "email": user_email.email,
-                    "role": role,
+                    "platform_role": user.platform_role,
+                    "workspace_role": workspace_role.as_str(),
                     "pronouns": user.pronouns,
                     "avatar_url": user.avatar_url,
                     "avatar_thumb": user.avatar_thumb,
@@ -255,8 +272,7 @@ pub fn find_or_create_guest_user(
 
         match create_user_with_email(
             new_user,
-            UserRole::User,
-            WorkspaceRole::from_user_role(UserRole::User),
+            WorkspaceRole::Member,
             email.to_string(),
             false,
             Some(GUEST_EMAIL_SOURCE.to_string()),
@@ -289,7 +305,7 @@ pub fn find_or_create_guest_user(
 ///
 /// "Verified or privileged" means either: the email row itself is
 /// marked `is_verified = true`, OR the user holds a role above
-/// [`UserRole::User`] (technician / admin) on any of their emails.
+/// [`"user"`] (technician / admin) on any of their emails.
 ///
 /// Checking secondaries matters for the channel-pipeline
 /// impersonation guard: a tech with `tech@yourco.com` primary and
@@ -316,12 +332,11 @@ pub fn find_verified_user_by_email(
     if is_verified {
         return Ok(Some(user));
     }
-    // Derive the legacy projection: a guest auto-provisioned user
-    // lands as a workspace member with platform_role = 'user'.
-    // Anything else (admin / agent) is a "privileged" account and
-    // the guest path must not impersonate it.
-    let role = legacy_role_for_user(conn, user.uuid, &user.platform_role);
-    if role != UserRole::User {
+    // A guest auto-provisioned user lands as a baseline member with
+    // platform_role = 'user'. Anything privileged (platform admin /
+    // audit reviewer, or workspace agent+) must not be impersonated
+    // via the guest path.
+    if !is_baseline_user(conn, &user) {
         Ok(Some(user))
     } else {
         Ok(None)
@@ -353,12 +368,13 @@ fn lookup_for_guest(
         return Ok(None);
     };
 
-    // Only reuse accounts that came from a prior guest submission AND are
-    // still unverified AND have the baseline `User` role (derived from
-    // the W2 split — admin / agent never lose the privilege check).
-    let role = legacy_role_for_user(conn, user.uuid, &user.platform_role);
-    let reusable =
-        !is_verified && role == UserRole::User && source.as_deref() == Some(GUEST_EMAIL_SOURCE);
+    // Only reuse accounts that came from a prior guest submission AND
+    // are still unverified AND are a baseline unprivileged account
+    // (platform admin / audit reviewer / workspace agent+ never lose
+    // the privilege check).
+    let reusable = !is_verified
+        && is_baseline_user(conn, &user)
+        && source.as_deref() == Some(GUEST_EMAIL_SOURCE);
 
     Ok(Some(if reusable {
         GuestUserResult::Existing(user)
@@ -383,13 +399,14 @@ pub fn get_user_with_primary_email(
 ) -> crate::models::UserResponse {
     let primary_email = get_primary_email(&user.uuid, conn);
     let prefs = crate::repository::user_preferences::get(conn, user.uuid).ok();
-    let role = legacy_role_for_user(conn, user.uuid, &user.platform_role);
+    let workspace_role = bootstrap_workspace_role(conn, user.uuid);
 
     crate::models::UserResponse {
         uuid: user.uuid,
         name: user.name,
         email: primary_email,
-        role,
+        platform_role: PlatformRole::from_db(&user.platform_role),
+        workspace_role,
         pronouns: user.pronouns,
         avatar_url: user.avatar_url,
         banner_url: user.banner_url,
@@ -468,15 +485,15 @@ pub fn get_users_with_primary_emails(
         .map(|user| {
             let email = email_map.get(&user.uuid).cloned();
             let prefs = prefs_map.get(&user.uuid);
-            let role = crate::extractors::auth_context::derive_role(
-                &user.platform_role,
-                workspace_role_map.get(&user.uuid).map(String::as_str),
-            );
+            let workspace_role = workspace_role_map
+                .get(&user.uuid)
+                .map(|r| WorkspaceRole::from_db(r));
             crate::models::UserResponse {
                 uuid: user.uuid,
                 name: user.name,
                 email,
-                role,
+                platform_role: PlatformRole::from_db(&user.platform_role),
+                workspace_role,
                 pronouns: user.pronouns,
                 avatar_url: user.avatar_url,
                 banner_url: user.banner_url,
@@ -501,13 +518,12 @@ pub fn get_users_with_primary_emails(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn get_primary_email_returns_primary() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "emailuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "emailuser", "user");
         TestFixtures::create_user_email(&mut conn, user.uuid, "primary@test.com", true);
         TestFixtures::create_user_email(&mut conn, user.uuid, "secondary@test.com", false);
 
@@ -518,7 +534,7 @@ mod tests {
     #[test]
     fn get_primary_email_returns_none_when_missing() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "noemail", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "noemail", "user");
 
         assert_eq!(get_primary_email(&user.uuid, &mut conn), None);
     }
@@ -526,7 +542,7 @@ mod tests {
     #[test]
     fn get_user_by_email_case_insensitive() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "ciuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "ciuser", "user");
         TestFixtures::create_user_email(&mut conn, user.uuid, "alice@example.com", true);
 
         let found = get_user_by_email("ALICE@EXAMPLE.COM", &mut conn).unwrap();
@@ -536,7 +552,7 @@ mod tests {
     #[test]
     fn get_user_by_email_only_matches_primary() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "prionly", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "prionly", "user");
         TestFixtures::create_user_email(&mut conn, user.uuid, "real@test.com", true);
         TestFixtures::create_user_email(&mut conn, user.uuid, "secondary@test.com", false);
 
@@ -563,8 +579,7 @@ mod tests {
 
         let (user, email_record) = create_user_with_email(
             new_user,
-            UserRole::User,
-            WorkspaceRole::from_user_role(UserRole::User),
+            WorkspaceRole::Member,
             "atomic@test.com".into(),
             true,
             None,
@@ -582,8 +597,8 @@ mod tests {
     #[test]
     fn batch_primary_emails() {
         let mut conn = setup_test_connection();
-        let u1 = TestFixtures::create_user(&mut conn, "batch1", UserRole::User);
-        let u2 = TestFixtures::create_user(&mut conn, "batch2", UserRole::User);
+        let u1 = TestFixtures::create_user(&mut conn, "batch1", "user");
+        let u2 = TestFixtures::create_user(&mut conn, "batch2", "user");
         TestFixtures::create_user_email(&mut conn, u1.uuid, "b1@test.com", true);
         TestFixtures::create_user_email(&mut conn, u2.uuid, "b2@test.com", true);
 
@@ -629,8 +644,10 @@ mod tests {
         match result {
             GuestUserResult::Created(user) => {
                 assert_eq!(user.name, "Fresh User");
-                let derived = legacy_role_for_user(&mut conn, user.uuid, &user.platform_role);
-                assert_eq!(derived, UserRole::User);
+                assert_eq!(
+                    bootstrap_workspace_role(&mut conn, user.uuid),
+                    Some(WorkspaceRole::Member)
+                );
                 // The matching email row should be unverified and tagged
                 // with the guest source so the lookup classifies it as reusable.
                 let email = get_user_by_email("fresh@example.com", &mut conn).unwrap();
@@ -643,7 +660,7 @@ mod tests {
     #[test]
     fn find_or_create_guest_user_reuses_unverified_guest_origin_account() {
         let mut conn = setup_test_connection();
-        let existing = TestFixtures::create_user(&mut conn, "Existing Guest", UserRole::User);
+        let existing = TestFixtures::create_user(&mut conn, "Existing Guest", "user");
         insert_email(
             &mut conn,
             existing.uuid,
@@ -664,7 +681,7 @@ mod tests {
     #[test]
     fn find_or_create_guest_user_rejects_verified_email() {
         let mut conn = setup_test_connection();
-        let verified = TestFixtures::create_user(&mut conn, "Verified User", UserRole::User);
+        let verified = TestFixtures::create_user(&mut conn, "Verified User", "user");
         insert_email(
             &mut conn,
             verified.uuid,
@@ -684,7 +701,7 @@ mod tests {
         // Paranoid safety net: an unverified *admin* email must never be
         // reusable by a guest submission.
         let mut conn = setup_test_connection();
-        let admin = TestFixtures::create_user(&mut conn, "Admin", UserRole::Admin);
+        let admin = TestFixtures::create_user(&mut conn, "Admin", "admin");
         insert_email(
             &mut conn,
             admin.uuid,
@@ -705,7 +722,7 @@ mod tests {
         // (e.g. an invitation that was never accepted) shouldn't be
         // claimable by a public submission.
         let mut conn = setup_test_connection();
-        let invited = TestFixtures::create_user(&mut conn, "Invited", UserRole::User);
+        let invited = TestFixtures::create_user(&mut conn, "Invited", "user");
         insert_email(
             &mut conn,
             invited.uuid,

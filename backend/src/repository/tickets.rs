@@ -968,7 +968,6 @@ mod tests {
 
     // ---- Guest-submission helpers ----
 
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
@@ -998,7 +997,7 @@ mod tests {
     #[test]
     fn ticket_can_be_marked_merged() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "merger", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "merger", "user");
         let source = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
         let target = TestFixtures::create_ticket(&mut conn, "Target", Some(user.uuid), None);
 
@@ -1023,7 +1022,7 @@ mod tests {
     #[test]
     fn partial_merge_state_violates_invariant() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "partial", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "partial", "user");
         let source = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
         let target = TestFixtures::create_ticket(&mut conn, "Target", Some(user.uuid), None);
 
@@ -1070,8 +1069,8 @@ mod tests {
     #[test]
     fn verify_pending_flips_only_requesters_pending_tickets() {
         let mut conn = setup_test_connection();
-        let alice = TestFixtures::create_user(&mut conn, "Alice", UserRole::User);
-        let bob = TestFixtures::create_user(&mut conn, "Bob", UserRole::User);
+        let alice = TestFixtures::create_user(&mut conn, "Alice", "user");
+        let bob = TestFixtures::create_user(&mut conn, "Bob", "user");
 
         // Alice has two pending + one already-verified + one nullable
         // (authenticated) ticket. Bob has one pending. Only Alice's two
@@ -1106,7 +1105,7 @@ mod tests {
     #[test]
     fn verify_pending_noop_when_user_has_no_pending() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "NoPending", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "NoPending", "user");
         let released = verify_pending_tickets_for_user(&mut conn, user.uuid).unwrap();
         assert!(released.is_empty());
     }
@@ -1114,7 +1113,7 @@ mod tests {
     #[test]
     fn find_by_lookup_token_returns_match() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "Lookup", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "Lookup", "user");
         let ticket = insert_ticket_with_state(&mut conn, user.uuid, Some("verified"));
         let token = ticket.guest_lookup_token.expect("fixture sets a token");
 

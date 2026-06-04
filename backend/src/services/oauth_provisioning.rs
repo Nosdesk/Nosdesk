@@ -40,7 +40,7 @@ use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use tracing::error;
 
 use crate::db::DbConnection;
-use crate::models::{NewUserAuthIdentity, NewUserEmail, User, UserRole, WorkspaceRole};
+use crate::models::{NewUserAuthIdentity, NewUserEmail, PlatformRole, User, WorkspaceRole};
 use crate::repository::{
     user_auth_identities, user_emails, user_helpers, users as users_repo, workspaces,
 };
@@ -188,12 +188,11 @@ pub fn find_or_create_projected_user(
                             .unwrap_or(email.as_str())
                             .to_string()
                     });
-                    // The legacy `UserRole` projection a brand-new OIDC
-                    // user gets is always `User`; their real privileges
-                    // come from the per-workspace membership role, which
-                    // we set explicitly below.
-                    let (new_user, user_role) =
-                        NewUserBuilder::local_user(display_name, email.clone(), UserRole::User)
+                    // A brand-new OIDC user has no platform privileges;
+                    // their workspace role comes from the projection's
+                    // requested `role`, set explicitly below.
+                    let new_user =
+                        NewUserBuilder::local_user(display_name, email.clone(), PlatformRole::User)
                             .build();
                     // Mint via the sync-wired helper so the OIDC address
                     // lands as the user's PRIMARY email in user_emails.
@@ -213,7 +212,6 @@ pub fn find_or_create_projected_user(
                     // since `UserRole` has no `Owner`.
                     let (user, _email) = user_helpers::create_user_with_email(
                         new_user,
-                        user_role,
                         WorkspaceRole::from_db(&role),
                         email.clone(),
                         true,

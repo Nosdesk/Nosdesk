@@ -181,7 +181,6 @@ fn paginate(mut rows: Vec<AuditLogRow>, limit: i64) -> (Vec<AuditLogRow>, Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::sync::actor::ActorContext;
     use crate::sync::session::with_actor_context;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
@@ -197,7 +196,7 @@ mod tests {
         let actor = ActorContext::user(actor_uuid, Some(correlation_id));
 
         let new_user_uuid = with_actor_context::<_, DieselError>(&mut conn, &actor, |conn| {
-            let u = TestFixtures::create_user(conn, "audit-target", UserRole::User);
+            let u = TestFixtures::create_user(conn, "audit-target", "user");
             Ok(u.uuid)
         })
         .expect("with_actor_context succeeded");

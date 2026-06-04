@@ -61,7 +61,7 @@ pub async fn get_stats(
 ) -> impl Responder {
     let target_user = query.user.unwrap_or(auth.user_uuid);
 
-    if target_user != auth.user_uuid && !auth.is_technician_or_admin() {
+    if target_user != auth.user_uuid && !auth.can_handle_tickets() {
         return errors::forbidden("forbidden");
     }
 

@@ -185,13 +185,18 @@ impl TestFixtures {
     /// Technician → agent, User → member, AuditReviewer → member.
     /// Handler-level unit tests' cfg(test) fallback in
     /// `require_workspace_role` pins workspace_id to 1.
-    pub fn create_user(conn: &mut DbConnection, name: &str, role: UserRole) -> User {
-        // Mirror the W2 backfill rule: role=admin → platform_admin,
-        // anything else → user. Without this the DB default ('user')
-        // wins and admin-gated handlers reject the test caller.
-        let platform_role = match role {
-            UserRole::Admin => Some("platform_admin".to_string()),
-            _ => None,
+    pub fn create_user(conn: &mut DbConnection, name: &str, role: &str) -> User {
+        // Map the legacy test role string onto the W2 split, preserving
+        // the pre-W2 fixture semantics: admin → platform_admin + ws
+        // admin; technician → ws agent; audit_reviewer → platform
+        // audit_reviewer; everything else → plain ws member. Without
+        // this the DB default ('user' / no membership) wins and
+        // admin-gated handlers reject the test caller.
+        let (platform_role, workspace_role) = match role {
+            "admin" => ("platform_admin", "admin"),
+            "technician" => ("user", "agent"),
+            "audit_reviewer" => ("audit_reviewer", "member"),
+            _ => ("user", "member"),
         };
         let new_user = NewUser {
             uuid: Uuid::new_v4(),
@@ -204,7 +209,7 @@ impl TestFixtures {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-            platform_role,
+            platform_role: Some(platform_role.to_string()),
         };
 
         let user: User = diesel::insert_into(users::table)
@@ -212,12 +217,6 @@ impl TestFixtures {
             .get_result(conn)
             .expect("Failed to create test user");
 
-        let workspace_role = match role {
-            UserRole::Admin => "admin",
-            UserRole::Technician => "agent",
-            UserRole::User => "member",
-            UserRole::AuditReviewer => "member",
-        };
         diesel::insert_into(crate::schema::workspace_members::table)
             .values((
                 crate::schema::workspace_members::workspace_id.eq(1),
@@ -443,26 +442,25 @@ pub fn setup_test_pool() -> crate::db::Pool {
 
 /// Create a JWT token for a test user with the given role.
 /// Requires JWT_SECRET to be set.
-pub fn create_test_token(user: &User, role: UserRole, session_id: &uuid::Uuid) -> String {
+pub fn create_test_token(user: &User, session_id: &uuid::Uuid) -> String {
     // Ensure JWT_SECRET is set for tests
     if std::env::var("JWT_SECRET").is_err() {
         std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only-32chars");
     }
-    crate::utils::jwt::JwtUtils::create_token(user, role, session_id)
+    crate::utils::jwt::JwtUtils::create_token(user, session_id)
         .expect("Failed to create test token")
 }
 
-/// Create test Claims for injecting into request extensions. `role`
-/// is the legacy `UserRole` projection that pre-W2 used to live on
-/// `users.role`; tests pass it in directly now that the column is
-/// gone (often the same value used to seed the user).
-pub fn create_test_claims(user: &User, role: UserRole) -> crate::models::Claims {
+/// Create test Claims for injecting into request extensions. The
+/// platform role is read off the user row (seeded by
+/// `create_user`); the per-workspace role is resolved per-request
+/// from `workspace_members`, so it isn't carried here.
+pub fn create_test_claims(user: &User) -> crate::models::Claims {
     crate::models::Claims {
         sub: user.uuid.to_string(),
         name: user.name.clone(),
         email: String::new(),
-        role: role.as_str().to_string(),
-        platform_role: Some(user.platform_role.clone()),
+        platform_role: user.platform_role.clone(),
         scope: "full".to_string(),
         sid: None,
         exp: (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp() as usize,
@@ -477,12 +475,12 @@ pub fn create_test_claims(user: &User, role: UserRole) -> crate::models::Claims 
 /// The connection is acquired and dropped synchronously inside the
 /// helper, so handler tests are free to call into `test::call_service`
 /// immediately after — the single-connection test pool won't deadlock.
-pub fn claims_for(pool: &crate::db::Pool, role: UserRole) -> crate::models::Claims {
+pub fn claims_for(pool: &crate::db::Pool, role: &str) -> crate::models::Claims {
     let mut conn = pool.get().expect("test pool connection");
     let user = TestFixtures::create_user(
         &mut conn,
         &format!("permtest-{}", uuid::Uuid::now_v7()),
         role,
     );
-    create_test_claims(&user, role)
+    create_test_claims(&user)
 }

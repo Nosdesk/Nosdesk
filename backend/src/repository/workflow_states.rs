@@ -291,7 +291,7 @@ pub fn archive(conn: &mut DbConnection, id: i32) -> QueryResult<WorkflowState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{SyncAggregate, UserRole};
+    use crate::models::SyncAggregate;
     use crate::schema::sync_actions;
     use crate::sync::actor::ActorContext;
     use crate::sync::session;
@@ -342,7 +342,7 @@ mod tests {
     fn create_emits_a_sync_action_with_actor_from_session() {
         let mut conn = setup_test_connection();
         invalidate_cache();
-        let user = TestFixtures::create_user(&mut conn, "wf_emit_admin", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "wf_emit_admin", "admin");
         let actor = ActorContext::user(user.uuid, None);
 
         let created = conn

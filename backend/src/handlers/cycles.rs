@@ -133,7 +133,7 @@ pub async fn create(
     body: web::Json<CreateBody>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Only technicians and admins can create cycles");
     }
     let project_id = path.into_inner();
@@ -171,7 +171,7 @@ pub async fn patch(
     body: web::Json<PatchBody>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Only technicians and admins can edit cycles");
     }
     let uuid = path.into_inner();
@@ -295,7 +295,7 @@ pub async fn complete(
     path: web::Path<Uuid>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Only technicians and admins can complete cycles");
     }
     let uuid = path.into_inner();
@@ -338,7 +338,7 @@ pub async fn archive(
     path: web::Path<Uuid>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Only technicians and admins can archive cycles");
     }
     let uuid = path.into_inner();
@@ -362,7 +362,7 @@ pub async fn add_ticket(
     path: web::Path<(Uuid, i32)>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Only technicians and admins can move tickets between cycles");
     }
     let (cycle_uuid, ticket_id) = path.into_inner();
@@ -389,7 +389,7 @@ pub async fn remove_ticket(
     path: web::Path<(Uuid, i32)>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Only technicians and admins can move tickets between cycles");
     }
     let (_cycle_uuid, ticket_id) = path.into_inner();

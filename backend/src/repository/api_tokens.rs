@@ -215,7 +215,6 @@ pub fn enrich_tokens_with_users(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     // ── Pure logic tests ─────────────────────────────────────────
@@ -249,7 +248,7 @@ mod tests {
     #[test]
     fn create_and_retrieve_api_token() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "tokuser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "tokuser", "admin");
 
         let response = create_api_token(
             &mut conn,
@@ -273,7 +272,7 @@ mod tests {
     #[test]
     fn revoked_token_is_not_valid() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "revuser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "revuser", "admin");
 
         let response = create_api_token(
             &mut conn,
@@ -294,7 +293,7 @@ mod tests {
     #[test]
     fn expired_token_is_not_valid() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "expuser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "expuser", "admin");
 
         // Create a token that expires in 0 days (already expired)
         let response = create_api_token(
@@ -315,7 +314,7 @@ mod tests {
     #[test]
     fn default_scope_is_full() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "scopeuser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "scopeuser", "admin");
 
         let response = create_api_token(
             &mut conn,

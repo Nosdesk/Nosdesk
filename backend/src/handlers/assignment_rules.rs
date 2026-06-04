@@ -480,7 +480,6 @@ mod tests {
     //! Permission-boundary tests. Auto-routing rules can silently
     //! redirect tickets between groups, so the gate matters.
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{claims_for, setup_test_pool};
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
@@ -519,7 +518,7 @@ mod tests {
     #[actix_web::test]
     async fn list_rejects_user_role() {
         let pool = setup_test_pool();
-        let claims = claims_for(&pool, UserRole::User);
+        let claims = claims_for(&pool, "user");
         let app = actix_test::init_service(test_app(pool.clone())).await;
         let req = actix_test::TestRequest::get()
             .uri("/admin/assignment-rules")
@@ -532,7 +531,7 @@ mod tests {
     #[actix_web::test]
     async fn delete_rejects_user_role() {
         let pool = setup_test_pool();
-        let claims = claims_for(&pool, UserRole::User);
+        let claims = claims_for(&pool, "user");
         let app = actix_test::init_service(test_app(pool.clone())).await;
         let req = actix_test::TestRequest::delete()
             .uri("/admin/assignment-rules/1")

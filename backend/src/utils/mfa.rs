@@ -13,7 +13,7 @@ use zeroize::ZeroizeOnDrop;
 
 use super::encryption;
 use crate::db::DbConnection;
-use crate::models::{User, UserRole};
+use crate::models::{PlatformRole, User, WorkspaceRole};
 use crate::repository;
 
 /// Parse a boolean environment variable in a robust, user-friendly way
@@ -618,17 +618,29 @@ pub async fn consume_setup_secret(user_uuid: &Uuid) {
     let _: Result<(), _> = con.del(&key).await;
 }
 
-/// Check if MFA should be required for a user based on OWASP recommendations
-pub fn should_require_mfa(user_role: &UserRole) -> bool {
-    match user_role {
-        // Allow deployments to optionally disable admin MFA requirement (useful for local/dev)
-        // Default remains secure (required) unless explicitly disabled via env
-        // Env var: REQUIRE_ADMIN_MFA=true|false (accepts 1/0, yes/no, on/off)
-        UserRole::Admin => parse_env_bool("REQUIRE_ADMIN_MFA", true),
-        UserRole::Technician => true,    // High privilege users
-        UserRole::AuditReviewer => true, // Reads sensitive audit data
-        UserRole::User => false,         // Could be made configurable via env var
+/// Check if MFA should be required for a user based on OWASP
+/// recommendations, given the W2 role split (platform role + the
+/// user's bootstrap-workspace role).
+///
+/// - Audit reviewers always require MFA (sensitive audit data).
+/// - Admin tier (platform admin, or workspace owner/admin): required
+///   by default, but deployments may disable it for local/dev via the
+///   `REQUIRE_ADMIN_MFA` env var (accepts 1/0, yes/no, on/off).
+/// - Agent tier (handles tickets): always required (high privilege).
+/// - Plain members: not required.
+pub fn should_require_mfa(
+    platform_role: PlatformRole,
+    workspace_role: Option<WorkspaceRole>,
+) -> bool {
+    if matches!(platform_role, PlatformRole::AuditReviewer) {
+        return true;
     }
+    let admin_tier = platform_role.is_platform_admin()
+        || workspace_role.is_some_and(|r| r.meets(WorkspaceRole::Admin));
+    if admin_tier {
+        return parse_env_bool("REQUIRE_ADMIN_MFA", true);
+    }
+    workspace_role.is_some_and(|r| r.meets(WorkspaceRole::Agent))
 }
 
 /// Check if user has MFA enabled and enforce policy
@@ -641,22 +653,16 @@ pub fn should_require_mfa(user_role: &UserRole) -> bool {
 /// distinguish via `anyhow` `chain()` if needed; in practice the
 /// caller surfaces both as a 5xx and tells the user to retry.
 pub async fn validate_mfa_policy(user: &User, conn: &mut crate::db::DbConnection) -> Result<()> {
-    let role =
-        crate::repository::user_helpers::legacy_role_for_user(conn, user.uuid, &user.platform_role);
-    if !should_require_mfa(&role) || user.mfa_enabled {
+    let platform_role = PlatformRole::from_db(&user.platform_role);
+    let workspace_role = crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid);
+    if !should_require_mfa(platform_role, workspace_role) || user.mfa_enabled {
         return Ok(());
     }
     if user_has_passkeys(conn, &user.uuid)? {
         return Ok(());
     }
     Err(anyhow!(
-        "MFA is required for {} users. Please enable MFA on your account.",
-        match role {
-            UserRole::Admin => "administrator",
-            UserRole::Technician => "technician",
-            UserRole::AuditReviewer => "audit reviewer",
-            UserRole::User => "user",
-        }
+        "MFA is required for privileged accounts. Please enable MFA on your account."
     ))
 }
 
@@ -824,12 +830,18 @@ mod tests {
 
     #[test]
     fn should_require_mfa_for_technician() {
-        assert!(should_require_mfa(&UserRole::Technician));
+        assert!(should_require_mfa(
+            PlatformRole::User,
+            Some(WorkspaceRole::Agent)
+        ));
     }
 
     #[test]
     fn should_not_require_mfa_for_regular_user() {
-        assert!(!should_require_mfa(&UserRole::User));
+        assert!(!should_require_mfa(
+            PlatformRole::User,
+            Some(WorkspaceRole::Member)
+        ));
     }
 
     #[test]

@@ -45,7 +45,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::extractors::AuthContext;
-use crate::models::{Claims, UserRole};
+use crate::models::{Claims, PlatformRole, WorkspaceRole};
 use crate::schema::{ticket_watchers, tickets};
 
 /// Lightweight projection of `Claims` carrying only the visibility-
@@ -53,42 +53,58 @@ use crate::schema::{ticket_watchers, tickets};
 /// the call sites short.
 pub struct VisibilityContext {
     pub user_uuid: Uuid,
-    pub role: UserRole,
+    /// True when the user sees every ticket (staff: platform admin or
+    /// workspace agent/admin/owner). False restricts them to tickets
+    /// they requested or watch.
+    sees_all: bool,
 }
 
 impl VisibilityContext {
-    /// Build from JWT claims. Returns `None` when the claims carry
-    /// a malformed UUID or role string — the caller maps that to
-    /// `401 Unauthorized` since claims of that shape shouldn't pass
-    /// the auth middleware.
-    pub fn from_claims(claims: &Claims) -> Option<Self> {
-        let user_uuid = Uuid::parse_str(&claims.sub).ok()?;
-        let role = match claims.role.as_str() {
-            "admin" => UserRole::Admin,
-            "technician" => UserRole::Technician,
-            "user" => UserRole::User,
-            _ => return None,
-        };
-        Some(Self { user_uuid, role })
-    }
-
-    /// Build from the `AuthContext` extractor that most handlers
-    /// already destructure out of the request. Avoids re-parsing
-    /// the claims string-fields when the typed UUID + UserRole are
-    /// already on hand.
-    pub fn from_auth(auth: &AuthContext) -> Self {
+    /// Build from an explicit role split. `sees_all` is true for
+    /// platform admins and anyone at workspace-agent tier or higher.
+    pub fn new(
+        user_uuid: Uuid,
+        platform_role: PlatformRole,
+        workspace_role: Option<WorkspaceRole>,
+    ) -> Self {
+        let sees_all = platform_role.is_platform_admin()
+            || workspace_role.is_some_and(|r| r.meets(WorkspaceRole::Agent));
         Self {
-            user_uuid: auth.user_uuid,
-            role: auth.role,
+            user_uuid,
+            sees_all,
         }
     }
 
-    /// True when the role is unrestricted (sees every ticket). v1
-    /// treats both Admin and Technician this way. v1.1's restricted-
-    /// technician mode would flip this for some technicians and is
-    /// the natural extension point.
+    /// Build from JWT claims plus a connection. Claims carry the
+    /// platform role but not the per-workspace role (the token is
+    /// workspace-independent), so the workspace role is looked up in
+    /// the bootstrap workspace. Returns `None` for a malformed subject
+    /// UUID — the caller maps that to 401.
+    ///
+    /// Prefer [`from_auth`](Self::from_auth) when an `AuthContext` is
+    /// already in scope: it resolved the workspace role for the
+    /// request's workspace without an extra query.
+    pub fn resolve(claims: &Claims, conn: &mut DbConnection) -> Option<Self> {
+        let user_uuid = Uuid::parse_str(&claims.sub).ok()?;
+        let platform_role = PlatformRole::from_db(&claims.platform_role);
+        let workspace_role =
+            crate::repository::user_helpers::bootstrap_workspace_role(conn, user_uuid);
+        Some(Self::new(user_uuid, platform_role, workspace_role))
+    }
+
+    /// Build from the `AuthContext` extractor that most handlers
+    /// already destructure out of the request. Uses the workspace
+    /// role AuthContext already resolved for the request's workspace.
+    pub fn from_auth(auth: &AuthContext) -> Self {
+        Self {
+            user_uuid: auth.user_uuid,
+            sees_all: auth.can_handle_tickets(),
+        }
+    }
+
+    /// True when the user is unrestricted (sees every ticket).
     fn sees_all(&self) -> bool {
-        matches!(self.role, UserRole::Admin | UserRole::Technician)
+        self.sees_all
     }
 }
 
@@ -184,76 +200,73 @@ mod tests {
     use super::*;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
-    fn ctx(user_uuid: Uuid, role: UserRole) -> VisibilityContext {
-        VisibilityContext { user_uuid, role }
+    fn ctx(user_uuid: Uuid, role: &str) -> VisibilityContext {
+        let (platform_role, workspace_role) = crate::utils::parse_roles(role).unwrap();
+        VisibilityContext::new(user_uuid, platform_role, Some(workspace_role))
     }
 
     #[test]
     fn admin_sees_every_ticket() {
         let mut conn = setup_test_connection();
-        let admin = TestFixtures::create_user(&mut conn, "admin", UserRole::Admin);
-        let other = TestFixtures::create_user(&mut conn, "stranger", UserRole::User);
+        let admin = TestFixtures::create_user(&mut conn, "admin", "admin");
+        let other = TestFixtures::create_user(&mut conn, "stranger", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "shh", Some(other.uuid), None);
 
-        assert!(can_view_ticket(&mut conn, &ctx(admin.uuid, UserRole::Admin), ticket.id).unwrap());
+        assert!(can_view_ticket(&mut conn, &ctx(admin.uuid, "admin"), ticket.id).unwrap());
     }
 
     #[test]
     fn technician_sees_every_ticket() {
         let mut conn = setup_test_connection();
-        let tech = TestFixtures::create_user(&mut conn, "tech", UserRole::Technician);
-        let requester = TestFixtures::create_user(&mut conn, "req", UserRole::User);
+        let tech = TestFixtures::create_user(&mut conn, "tech", "technician");
+        let requester = TestFixtures::create_user(&mut conn, "req", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "other", Some(requester.uuid), None);
 
-        assert!(
-            can_view_ticket(&mut conn, &ctx(tech.uuid, UserRole::Technician), ticket.id).unwrap()
-        );
+        assert!(can_view_ticket(&mut conn, &ctx(tech.uuid, "technician"), ticket.id).unwrap());
     }
 
     #[test]
     fn user_sees_own_ticket_as_requester() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "alice", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "mine", Some(user.uuid), None);
 
-        assert!(can_view_ticket(&mut conn, &ctx(user.uuid, UserRole::User), ticket.id).unwrap());
+        assert!(can_view_ticket(&mut conn, &ctx(user.uuid, "user"), ticket.id).unwrap());
     }
 
     #[test]
     fn user_cannot_see_unrelated_ticket() {
         let mut conn = setup_test_connection();
-        let alice = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
-        let bob = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let alice = TestFixtures::create_user(&mut conn, "alice", "user");
+        let bob = TestFixtures::create_user(&mut conn, "bob", "user");
         let bob_ticket = TestFixtures::create_ticket(&mut conn, "bob's", Some(bob.uuid), None);
 
-        assert!(
-            !can_view_ticket(&mut conn, &ctx(alice.uuid, UserRole::User), bob_ticket.id).unwrap()
-        );
+        assert!(!can_view_ticket(&mut conn, &ctx(alice.uuid, "user"), bob_ticket.id).unwrap());
     }
 
     #[test]
     fn user_sees_ticket_they_watch() {
         let mut conn = setup_test_connection();
-        let alice = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
-        let bob = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let alice = TestFixtures::create_user(&mut conn, "alice", "user");
+        let bob = TestFixtures::create_user(&mut conn, "bob", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "shared", Some(bob.uuid), None);
         crate::repository::ticket_watchers::add_watcher(&mut conn, ticket.id, alice.uuid, false)
             .unwrap();
 
-        assert!(can_view_ticket(&mut conn, &ctx(alice.uuid, UserRole::User), ticket.id).unwrap());
+        assert!(can_view_ticket(&mut conn, &ctx(alice.uuid, "user"), ticket.id).unwrap());
     }
 
     #[test]
     fn visible_ticket_ids_filters_to_subset() {
         let mut conn = setup_test_connection();
-        let alice = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
-        let bob = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let alice = TestFixtures::create_user(&mut conn, "alice", "user");
+        let bob = TestFixtures::create_user(&mut conn, "bob", "user");
         let mine = TestFixtures::create_ticket(&mut conn, "mine", Some(alice.uuid), None);
         let hers = TestFixtures::create_ticket(&mut conn, "hers", Some(bob.uuid), None);
 
         let visible = visible_ticket_ids(
             &mut conn,
-            &ctx(alice.uuid, UserRole::User),
+            &ctx(alice.uuid, "user"),
             &[mine.id, hers.id, 999_999],
         )
         .unwrap();
@@ -265,23 +278,23 @@ mod tests {
     #[test]
     fn visible_ticket_ids_empty_input_returns_empty() {
         let mut conn = setup_test_connection();
-        let alice = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
-        let visible = visible_ticket_ids(&mut conn, &ctx(alice.uuid, UserRole::User), &[]).unwrap();
+        let alice = TestFixtures::create_user(&mut conn, "alice", "user");
+        let visible = visible_ticket_ids(&mut conn, &ctx(alice.uuid, "user"), &[]).unwrap();
         assert!(visible.is_empty());
     }
 
     #[test]
     fn visible_tickets_query_filters_for_user() {
         let mut conn = setup_test_connection();
-        let alice = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
-        let bob = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let alice = TestFixtures::create_user(&mut conn, "alice", "user");
+        let bob = TestFixtures::create_user(&mut conn, "bob", "user");
         let mine = TestFixtures::create_ticket(&mut conn, "mine", Some(alice.uuid), None);
         let _hers = TestFixtures::create_ticket(&mut conn, "hers", Some(bob.uuid), None);
         let watched = TestFixtures::create_ticket(&mut conn, "watched", Some(bob.uuid), None);
         crate::repository::ticket_watchers::add_watcher(&mut conn, watched.id, alice.uuid, false)
             .unwrap();
 
-        let alice_ctx = ctx(alice.uuid, UserRole::User);
+        let alice_ctx = ctx(alice.uuid, "user");
         let ids: Vec<i32> = visible_tickets_query(&alice_ctx)
             .select(tickets::id)
             .load(&mut conn)

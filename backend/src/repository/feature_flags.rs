@@ -127,14 +127,13 @@ fn apply_patch(current: &mut Value, flag_name: &str, value: Option<Value>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use serde_json::json;
 
     #[test]
     fn resolve_returns_workspace_defaults_when_no_user_override() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "ff_user", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "ff_user", "user");
 
         set_workspace_flag(&mut conn, "projects_v2", Some(json!(false))).unwrap();
 
@@ -145,7 +144,7 @@ mod tests {
     #[test]
     fn user_override_wins_over_workspace_default() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "ff_override", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "ff_override", "user");
 
         set_workspace_flag(&mut conn, "projects_v2", Some(json!(false))).unwrap();
         set_user_override(&mut conn, &user.uuid, "projects_v2", Some(json!(true))).unwrap();
@@ -157,7 +156,7 @@ mod tests {
     #[test]
     fn clearing_user_override_falls_back_to_workspace() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "ff_clear", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "ff_clear", "user");
 
         set_workspace_flag(&mut conn, "projects_v2", Some(json!(false))).unwrap();
         set_user_override(&mut conn, &user.uuid, "projects_v2", Some(json!(true))).unwrap();
@@ -170,7 +169,7 @@ mod tests {
     #[test]
     fn unknown_flags_are_absent() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "ff_absent", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "ff_absent", "user");
 
         let resolved = resolve_for_user(&mut conn, &user.uuid).unwrap();
         assert!(resolved.get("never_set_flag").is_none());
@@ -179,7 +178,7 @@ mod tests {
     #[test]
     fn set_all_workspace_flags_replaces_map() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "ff_bulk", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "ff_bulk", "user");
 
         set_workspace_flag(&mut conn, "old_flag", Some(json!(true))).unwrap();
         set_all_workspace_flags(&mut conn, json!({ "new_flag": false })).unwrap();

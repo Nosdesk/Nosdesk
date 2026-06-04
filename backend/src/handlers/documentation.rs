@@ -315,7 +315,7 @@ fn to_page_responses(
 
 // Get all documentation pages
 pub async fn get_documentation_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let is_admin_user = auth.is_admin();
+    let is_admin_user = auth.is_workspace_admin();
     let user_uuid = auth.user_uuid;
 
     let result = tc.run(|conn| {
@@ -369,7 +369,7 @@ pub async fn get_documentation_page(
 ) -> impl Responder {
     let page_id = id.into_inner();
     let want_tickets = embed_includes(&query.embed, "tickets");
-    let is_admin_user = auth.is_admin();
+    let is_admin_user = auth.is_workspace_admin();
     let user_uuid = auth.user_uuid;
 
     let outcome = tc.run(|conn| {
@@ -417,7 +417,7 @@ pub async fn get_documentation_page_by_slug(
 ) -> impl Responder {
     let page_slug = slug.into_inner();
     let want_tickets = embed_includes(&query.embed, "tickets");
-    let is_admin_user = auth.is_admin();
+    let is_admin_user = auth.is_workspace_admin();
     let user_uuid = auth.user_uuid;
 
     let outcome = tc.run(|conn| {
@@ -477,7 +477,7 @@ pub async fn get_documentation_page_content_by_uuid(
         Ok(u) => u,
         Err(_) => return errors::bad_request("Invalid UUID"),
     };
-    let is_admin_user = auth.is_admin();
+    let is_admin_user = auth.is_workspace_admin();
     let user_uuid = auth.user_uuid;
 
     let outcome = tc.run(|conn| {
@@ -560,7 +560,7 @@ pub async fn create_documentation_page(
     search_service: web::Data<Arc<SearchService>>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can create documentation pages",
         );
@@ -713,7 +713,7 @@ pub async fn update_documentation_page(
 ) -> impl Responder {
     let page_id = path.into_inner();
 
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can update documentation pages",
         );
@@ -910,7 +910,7 @@ pub async fn delete_documentation_page(
 ) -> impl Responder {
     let page_id = path.into_inner();
 
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can delete documentation pages",
         );
@@ -1029,7 +1029,7 @@ pub async fn get_top_level_documentation_pages(
     mut tc: TenantConn,
     auth: AuthContext,
 ) -> impl Responder {
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_admin(), |conn| {
+    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
         repository::get_top_level_pages(conn)
     });
     respond_page_list(outcome, "Failed to fetch top-level pages")
@@ -1042,7 +1042,7 @@ pub async fn get_documentation_pages_by_parent_id(
     auth: AuthContext,
 ) -> impl Responder {
     let parent = parent_id.into_inner();
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_admin(), |conn| {
+    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
         repository::get_pages_by_parent_id(parent, conn)
     });
     respond_page_list(outcome, "Failed to fetch pages by parent ID")
@@ -1064,7 +1064,7 @@ pub async fn get_page_with_children_by_parent_id(
 ) -> impl Responder {
     let page_id = id.into_inner();
     let user_uuid = auth.user_uuid;
-    let is_admin_user = auth.is_admin();
+    let is_admin_user = auth.is_workspace_admin();
 
     let outcome = tc.run(|conn| {
         let page = match repository::get_documentation_page(page_id, conn) {
@@ -1113,7 +1113,7 @@ pub async fn get_page_with_ordered_children(
 ) -> impl Responder {
     let page_id = id.into_inner();
     let user_uuid = auth.user_uuid;
-    let is_admin_user = auth.is_admin();
+    let is_admin_user = auth.is_workspace_admin();
 
     let outcome = tc.run(|conn| {
         let mut page_with_children = match repository::get_page_with_ordered_children(conn, page_id)
@@ -1165,7 +1165,7 @@ pub async fn get_ordered_pages_by_parent_id(
     auth: AuthContext,
 ) -> impl Responder {
     let parent = parent_id.into_inner();
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_admin(), |conn| {
+    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
         repository::get_ordered_pages_by_parent_id(conn, parent)
     });
     respond_page_list(outcome, "Failed to fetch ordered pages by parent ID")
@@ -1183,7 +1183,7 @@ pub async fn reorder_pages(
     request: web::Json<ReorderPagesRequest>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can reorder documentation pages",
         );
@@ -1214,7 +1214,7 @@ pub async fn move_page_to_parent(
     request: web::Json<MovePageRequest>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can move documentation pages",
         );
@@ -1247,7 +1247,7 @@ pub async fn move_page_to_parent(
 
 // Get top-level pages (with ordering)
 pub async fn get_ordered_top_level_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_admin(), |conn| {
+    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
         repository::get_ordered_top_level_pages(conn)
     });
     respond_page_list(outcome, "Failed to fetch top-level pages")
@@ -1261,7 +1261,7 @@ pub async fn get_documentation_page_by_slug_with_children(
 ) -> impl Responder {
     let page_slug = slug.into_inner();
     let user_uuid = auth.user_uuid;
-    let is_admin_user = auth.is_admin();
+    let is_admin_user = auth.is_workspace_admin();
 
     let outcome = tc.run(|conn| {
         let page = match repository::get_documentation_page_by_slug(&page_slug, conn) {
@@ -1309,7 +1309,7 @@ pub async fn get_documentation_pages_by_ticket_id(
     auth: AuthContext,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_admin(), |conn| {
+    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
         repository::get_documentation_pages_by_ticket_id(conn, ticket_id)
     });
     if let Ok(PageListOutcome::Ok(ref r)) = outcome {
@@ -1349,7 +1349,7 @@ pub struct DocumentationPageExport {
 
 // Export all documentation pages with their Yjs content for markdown export
 pub async fn export_documentation_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can export documentation",
         );
@@ -1466,7 +1466,7 @@ pub async fn create_documentation_page_from_ticket(
 ) -> impl Responder {
     let ticket_id = path.into_inner();
 
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden: Only technicians and administrators can create documentation pages from tickets");
     }
 
@@ -1578,7 +1578,7 @@ pub async fn create_documentation_page_from_ticket(
 
 // Get archived documentation pages
 pub async fn get_archived_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_admin(), |conn| {
+    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
         repository::get_pages_by_status(conn, DocumentationStatus::Archived)
     });
     respond_page_list(outcome, "Failed to fetch archived pages")
@@ -1586,7 +1586,7 @@ pub async fn get_archived_pages(mut tc: TenantConn, auth: AuthContext) -> impl R
 
 // Get trashed (soft-deleted) documentation pages
 pub async fn get_trashed_pages(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_admin(), |conn| {
+    let outcome = run_page_list(&mut tc, auth.user_uuid, auth.is_workspace_admin(), |conn| {
         repository::get_pages_by_status(conn, DocumentationStatus::Deleted)
     });
     respond_page_list(outcome, "Failed to fetch trashed pages")
@@ -1602,7 +1602,7 @@ pub async fn get_page_visibility(
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can view page visibility",
         );
@@ -1641,7 +1641,7 @@ pub async fn set_page_visibility(
     body: web::Json<SetPageVisibilityRequest>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Forbidden: Only administrators can set page visibility");
     }
 
@@ -1697,7 +1697,7 @@ pub async fn restore_page(
 ) -> impl Responder {
     let page_id = path.into_inner();
 
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can restore documentation pages",
         );
@@ -1788,7 +1788,7 @@ pub async fn permanently_delete_page(
 ) -> impl Responder {
     let page_id = path.into_inner();
 
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden(
             "Forbidden: Only administrators can permanently delete documentation pages",
         );
@@ -2098,7 +2098,7 @@ pub async fn create_page_ticket_link(
     body: web::Json<CreatePageTicketLinkRequest>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
     let user_uuid = auth.user_uuid;
@@ -2134,7 +2134,7 @@ pub async fn delete_page_ticket_link(
     path: web::Path<(i32, i32)>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
     let (page_id, ticket_id) = path.into_inner();
@@ -2167,7 +2167,7 @@ pub async fn list_ticket_doc_links(
 ) -> impl Responder {
     let ticket_id = path.into_inner();
     let user_uuid = auth.user_uuid;
-    let is_admin_user = auth.is_admin();
+    let is_admin_user = auth.is_workspace_admin();
 
     let outcome = tc.run(|conn| {
         let links = repository::documentation_page_tickets::links_for_ticket(conn, ticket_id)?;
@@ -2253,7 +2253,7 @@ pub async fn verify_page(
     body: web::Json<VerifyPageRequest>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
     let page_id = path.into_inner();
@@ -2326,7 +2326,7 @@ pub async fn unverify_page(
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
     let page_id = path.into_inner();

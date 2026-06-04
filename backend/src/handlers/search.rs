@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
+use crate::extractors::AuthContext;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::Claims;
@@ -13,7 +14,7 @@ use crate::repository::search_query_log;
 use crate::services::search::{EntityType, SearchQuery, SearchService};
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
-use crate::utils::rbac::{is_platform_admin, is_technician_or_admin};
+use crate::utils::rbac::is_platform_admin;
 
 /// Search across all indexed entities
 ///
@@ -22,6 +23,7 @@ pub async fn search(
     query: web::Query<SearchQuery>,
     search_service: web::Data<Arc<SearchService>>,
     pool: web::Data<Pool>,
+    auth: AuthContext,
     req: HttpRequest,
 ) -> impl Responder {
     // Verify authentication
@@ -63,7 +65,7 @@ pub async fn search(
     // future roles default to staff-equivalent here because the
     // migration adds them to the privileged tier; revisit if
     // non-staff roles expand.
-    let is_end_user = !is_technician_or_admin(&claims);
+    let is_end_user = !auth.can_handle_tickets();
     let include_internal = !is_end_user;
 
     match search_service.search(&query, include_internal) {
@@ -76,7 +78,7 @@ pub async fn search(
             if is_end_user {
                 use crate::repository::ticket_visibility::{self, VisibilityContext};
 
-                let vis_opt = VisibilityContext::from_claims(&claims);
+                let vis_opt = Some(VisibilityContext::from_auth(&auth));
                 let candidate_ids: Vec<i32> = response
                     .results
                     .iter()

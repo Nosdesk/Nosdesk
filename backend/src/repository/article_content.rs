@@ -157,13 +157,12 @@ pub fn update_ticket_modified_timestamp(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn create_and_get_article_content() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "artuser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "artuser", "admin");
         let ticket = TestFixtures::create_ticket(&mut conn, "Art Ticket", Some(user.uuid), None);
 
         let new = NewArticleContent {
@@ -182,7 +181,7 @@ mod tests {
     #[test]
     fn increment_revision() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "revuser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "revuser", "admin");
         let ticket = TestFixtures::create_ticket(&mut conn, "Rev Ticket", Some(user.uuid), None);
 
         let new = NewArticleContent {

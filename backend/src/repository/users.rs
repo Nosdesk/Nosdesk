@@ -47,8 +47,8 @@ fn emit_user_event(
 ) -> QueryResult<()> {
     let email =
         crate::repository::user_helpers::get_primary_email(&user.uuid, conn).unwrap_or_default();
-    let role =
-        crate::repository::user_helpers::legacy_role_for_user(conn, user.uuid, &user.platform_role);
+    let workspace_role = crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid)
+        .map(|r| r.as_str().to_string());
     emit::record(
         conn,
         SyncEmit {
@@ -60,7 +60,8 @@ fn emit_user_event(
                 "uuid": user.uuid,
                 "name": user.name,
                 "email": email,
-                "role": role,
+                "platform_role": user.platform_role,
+                "workspace_role": workspace_role,
                 "pronouns": user.pronouns,
                 "avatar_url": user.avatar_url,
                 "avatar_thumb": user.avatar_thumb,
@@ -156,14 +157,14 @@ pub fn get_paginated_users(
     // comma-separated set ("admin,technician") so the assignee
     // picker can hit the eligible-staff set in one request instead
     // of one request per role. "all" stays the no-filter sentinel.
-    let parsed_roles: Vec<UserRole> = match role.as_deref() {
+    let parsed_roles: Vec<String> = match role.as_deref() {
         None => Vec::new(),
         Some("all") => Vec::new(),
         Some(s) => s
             .split(',')
-            .map(|piece| piece.trim())
+            .map(|piece| piece.trim().to_lowercase())
             .filter(|piece| !piece.is_empty())
-            .filter_map(|piece| crate::utils::parse_role(piece).ok())
+            .filter(|piece| crate::utils::parse_roles(piece).is_ok())
             .collect(),
     };
 
@@ -185,8 +186,8 @@ pub fn get_paginated_users(
         let mut parts: Vec<&'static str> = Vec::new();
         let mut any = false;
         for r in &parsed_roles {
-            match r {
-                UserRole::Admin => {
+            match r.as_str() {
+                "admin" => {
                     parts.push(
                         "(users.platform_role = 'platform_admin' \
                          OR (SELECT role FROM workspace_members \
@@ -195,7 +196,7 @@ pub fn get_paginated_users(
                     );
                     any = true;
                 }
-                UserRole::Technician => {
+                "technician" => {
                     parts.push(
                         "(users.platform_role <> 'platform_admin' \
                          AND (SELECT role FROM workspace_members \
@@ -204,7 +205,7 @@ pub fn get_paginated_users(
                     );
                     any = true;
                 }
-                UserRole::User => {
+                "user" => {
                     parts.push(
                         "(users.platform_role <> 'platform_admin' \
                          AND COALESCE((SELECT role FROM workspace_members \
@@ -213,9 +214,12 @@ pub fn get_paginated_users(
                     );
                     any = true;
                 }
-                // No users carry audit_reviewer in the post-W2 model
-                // yet — the projection is reserved for a future tier.
-                UserRole::AuditReviewer => {}
+                // audit_reviewer lives on users.platform_role.
+                "audit_reviewer" => {
+                    parts.push("users.platform_role = 'audit_reviewer'");
+                    any = true;
+                }
+                _ => {}
             }
         }
         if any {
@@ -659,28 +663,25 @@ pub fn clear_user_mfa(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<usize
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn create_and_get_user_by_uuid() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "Alice Test", UserRole::Technician);
+        let user = TestFixtures::create_user(&mut conn, "Alice Test", "technician");
 
         let fetched = get_user_by_uuid(&user.uuid, &mut conn).unwrap();
         assert_eq!(fetched.name, "Alice Test");
-        let derived = crate::repository::user_helpers::legacy_role_for_user(
-            &mut conn,
-            fetched.uuid,
-            &fetched.platform_role,
+        assert_eq!(
+            crate::repository::user_helpers::bootstrap_workspace_role(&mut conn, fetched.uuid),
+            Some(crate::models::WorkspaceRole::Agent)
         );
-        assert_eq!(derived, UserRole::Technician);
     }
 
     #[test]
     fn get_user_by_name_test() {
         let mut conn = setup_test_connection();
-        TestFixtures::create_user(&mut conn, "Bob Unique", UserRole::User);
+        TestFixtures::create_user(&mut conn, "Bob Unique", "user");
 
         let fetched = get_user_by_name("Bob Unique", &mut conn).unwrap();
         assert_eq!(fetched.name, "Bob Unique");
@@ -689,8 +690,8 @@ mod tests {
     #[test]
     fn get_users_returns_all() {
         let mut conn = setup_test_connection();
-        let u1 = TestFixtures::create_user(&mut conn, "User A", UserRole::User);
-        let u2 = TestFixtures::create_user(&mut conn, "User B", UserRole::Admin);
+        let u1 = TestFixtures::create_user(&mut conn, "User A", "user");
+        let u2 = TestFixtures::create_user(&mut conn, "User B", "admin");
 
         let all = get_users(&mut conn).unwrap();
         let uuids: Vec<Uuid> = all.iter().map(|u| u.uuid).collect();
@@ -702,8 +703,8 @@ mod tests {
     fn count_users_test() {
         let mut conn = setup_test_connection();
         let before = count_users(&mut conn).unwrap();
-        TestFixtures::create_user(&mut conn, "Count1", UserRole::User);
-        TestFixtures::create_user(&mut conn, "Count2", UserRole::User);
+        TestFixtures::create_user(&mut conn, "Count1", "user");
+        TestFixtures::create_user(&mut conn, "Count2", "user");
         let after = count_users(&mut conn).unwrap();
         assert_eq!(after, before + 2);
     }
@@ -711,7 +712,7 @@ mod tests {
     #[test]
     fn update_user_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "Before", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "Before", "user");
 
         let update = UserUpdate {
             name: Some("After".to_string()),
@@ -730,9 +731,9 @@ mod tests {
     #[test]
     fn delete_user_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "ToDelete", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "ToDelete", "admin");
         // Create a second admin so delete_user can reassign docs
-        TestFixtures::create_user(&mut conn, "OtherAdmin", UserRole::Admin);
+        TestFixtures::create_user(&mut conn, "OtherAdmin", "admin");
         let _ticket = TestFixtures::create_ticket(&mut conn, "ticket", Some(user.uuid), None);
 
         let deleted = purge_user(&user.uuid, &mut conn, None).unwrap();
@@ -745,8 +746,8 @@ mod tests {
     #[test]
     fn get_users_by_uuids_test() {
         let mut conn = setup_test_connection();
-        let u1 = TestFixtures::create_user(&mut conn, "Batch1", UserRole::User);
-        let u2 = TestFixtures::create_user(&mut conn, "Batch2", UserRole::User);
+        let u1 = TestFixtures::create_user(&mut conn, "Batch1", "user");
+        let u2 = TestFixtures::create_user(&mut conn, "Batch2", "user");
 
         let results = get_users_by_uuids(&[u1.uuid, u2.uuid], &mut conn).unwrap();
         assert_eq!(results.len(), 2);
@@ -755,7 +756,7 @@ mod tests {
     #[test]
     fn soft_delete_then_restore_round_trip() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "SoftRoundTrip", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "SoftRoundTrip", "user");
         assert!(user.deleted_at.is_none());
 
         let deleted = soft_delete_user(&user.uuid, &mut conn).unwrap();
@@ -773,8 +774,8 @@ mod tests {
     #[test]
     fn deleted_filter_active_excludes_soft_deleted() {
         let mut conn = setup_test_connection();
-        let active = TestFixtures::create_user(&mut conn, "FilterActive", UserRole::User);
-        let removed = TestFixtures::create_user(&mut conn, "FilterRemoved", UserRole::User);
+        let active = TestFixtures::create_user(&mut conn, "FilterActive", "user");
+        let removed = TestFixtures::create_user(&mut conn, "FilterRemoved", "user");
         soft_delete_user(&removed.uuid, &mut conn).unwrap();
 
         let (rows, _total) = get_paginated_users(
@@ -796,8 +797,8 @@ mod tests {
     #[test]
     fn deleted_filter_only_returns_soft_deleted() {
         let mut conn = setup_test_connection();
-        let active = TestFixtures::create_user(&mut conn, "OnlyActive", UserRole::User);
-        let removed = TestFixtures::create_user(&mut conn, "OnlyRemoved", UserRole::User);
+        let active = TestFixtures::create_user(&mut conn, "OnlyActive", "user");
+        let removed = TestFixtures::create_user(&mut conn, "OnlyRemoved", "user");
         soft_delete_user(&removed.uuid, &mut conn).unwrap();
 
         let (rows, _total) = get_paginated_users(
@@ -819,7 +820,7 @@ mod tests {
     #[test]
     fn list_users_pending_purge_respects_cutoff() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "PurgeCandidate", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "PurgeCandidate", "user");
         soft_delete_user(&user.uuid, &mut conn).unwrap();
 
         // Cutoff in the past: nothing eligible yet.
@@ -838,8 +839,8 @@ mod tests {
         let mut conn = setup_test_connection();
         // Second admin so purge_user can reassign docs if the test
         // fixture ever adds any. Mirrors the existing delete test.
-        TestFixtures::create_user(&mut conn, "PurgeWitness", UserRole::Admin);
-        let user = TestFixtures::create_user(&mut conn, "PurgeMe", UserRole::User);
+        TestFixtures::create_user(&mut conn, "PurgeWitness", "admin");
+        let user = TestFixtures::create_user(&mut conn, "PurgeMe", "user");
 
         soft_delete_user(&user.uuid, &mut conn).unwrap();
         let removed = purge_user(&user.uuid, &mut conn, None).unwrap();

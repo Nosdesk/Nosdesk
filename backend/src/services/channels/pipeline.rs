@@ -1064,7 +1064,7 @@ mod tests {
     //! SSE / search / storage side effects are covered by the E2E task (#23).
 
     use super::*;
-    use crate::models::{NewChannelMessage, UserRole, CHANNEL_DIRECTION_OUTBOUND};
+    use crate::models::{NewChannelMessage, CHANNEL_DIRECTION_OUTBOUND};
     use crate::repository::user_helpers::create_user_with_email;
     use crate::services::channels::{
         threading::default_explicit_threading, ChannelError, ExternalIdentity, LoopMarkers,
@@ -1299,7 +1299,7 @@ mod tests {
     async fn appends_reply_when_references_match_prior_outbound() {
         let mut conn = setup_test_connection();
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
-        let user = TestFixtures::create_user(&mut conn, "tech", UserRole::Technician);
+        let user = TestFixtures::create_user(&mut conn, "tech", "technician");
         let ticket = TestFixtures::create_ticket(&mut conn, "parent", Some(user.uuid), None);
 
         // Simulate an outbound we emitted for this ticket.
@@ -1817,8 +1817,7 @@ mod tests {
         };
         create_user_with_email(
             admin,
-            UserRole::Admin,
-            crate::models::WorkspaceRole::from_user_role(UserRole::Admin),
+            crate::models::WorkspaceRole::Admin,
             "claimed@example.com".into(),
             true,
             None,
@@ -1868,8 +1867,7 @@ mod tests {
         };
         let (tech, _) = create_user_with_email(
             tech_user,
-            UserRole::Technician,
-            crate::models::WorkspaceRole::from_user_role(UserRole::Technician),
+            crate::models::WorkspaceRole::Agent,
             "tech@yourco.com".into(),
             true,
             None,
@@ -1956,8 +1954,7 @@ My printer is literally on fire.
         };
         create_user_with_email(
             tech,
-            UserRole::Admin,
-            crate::models::WorkspaceRole::from_user_role(UserRole::Admin),
+            crate::models::WorkspaceRole::Admin,
             "admin2@yourco.com".into(),
             true,
             None,

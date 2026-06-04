@@ -1680,39 +1680,6 @@ pub struct CollectionOrder {
     pub display_order: i32,
 }
 
-/// Legacy `UserRole` projection. The underlying `users.role` column
-/// was dropped in the W2 cleanup migration; this enum stays as the
-/// "effective tier" the API surfaces and handlers branch on. The
-/// real source of truth is `users.platform_role` +
-/// `workspace_members.role`; `AuthContext::role` and
-/// `legacy_role_for_user` derive this enum from those.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
-pub enum UserRole {
-    #[serde(rename = "admin")]
-    Admin,
-    #[serde(rename = "technician")]
-    Technician,
-    #[serde(rename = "user")]
-    User,
-    /// Read-only access to the audit surface (Item C/D4). Holds no
-    /// write access to any business entity and no admin-panel access
-    /// beyond the audit view. Distinct from Admin so audit reading
-    /// isn't bundled with admin write.
-    #[serde(rename = "audit_reviewer")]
-    AuditReviewer,
-}
-
-impl UserRole {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            UserRole::Admin => "admin",
-            UserRole::Technician => "technician",
-            UserRole::User => "user",
-            UserRole::AuditReviewer => "audit_reviewer",
-        }
-    }
-}
-
 // =====================================================================
 // Phase 4 W2: split-role model. PlatformRole + WorkspaceRole sit
 // alongside the legacy UserRole during the sweep, then UserRole is
@@ -1729,6 +1696,12 @@ impl UserRole {
 #[serde(rename_all = "snake_case")]
 pub enum PlatformRole {
     PlatformAdmin,
+    /// Read-only access to the instance-wide audit surface. Holds no
+    /// write access to any business entity and no admin-panel access
+    /// beyond the audit view. Replaces the legacy
+    /// `"audit_reviewer"`; audit reads are still additionally
+    /// gated on the `audit:read` token scope.
+    AuditReviewer,
     User,
 }
 
@@ -1736,6 +1709,7 @@ impl PlatformRole {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::PlatformAdmin => "platform_admin",
+            Self::AuditReviewer => "audit_reviewer",
             Self::User => "user",
         }
     }
@@ -1748,12 +1722,21 @@ impl PlatformRole {
     pub fn from_db(s: &str) -> Self {
         match s {
             "platform_admin" => Self::PlatformAdmin,
+            "audit_reviewer" => Self::AuditReviewer,
             _ => Self::User,
         }
     }
 
     pub fn is_platform_admin(&self) -> bool {
         matches!(self, Self::PlatformAdmin)
+    }
+
+    /// True for principals allowed to read the instance audit surface:
+    /// platform admins and the dedicated audit reviewer. This is the
+    /// role half of the audit gate; callers still AND it with the
+    /// `audit:read` token scope.
+    pub fn can_read_audit(&self) -> bool {
+        matches!(self, Self::PlatformAdmin | Self::AuditReviewer)
     }
 }
 
@@ -1800,26 +1783,6 @@ impl WorkspaceRole {
     /// (Owner > Admin > Agent > Member).
     pub fn meets(&self, min: WorkspaceRole) -> bool {
         *self >= min
-    }
-
-    /// Default per-workspace membership role for a user created with
-    /// the given legacy [`UserRole`]. This is the single source of
-    /// truth for the Admin->admin / Technician->agent / everyone-
-    /// else->member mapping the W2 migration backfill used; both
-    /// `user_helpers::create_user_with_email` and the CSV import path
-    /// route through here so the rule lives in one place.
-    ///
-    /// Note the asymmetry: `UserRole` has no variant that maps to
-    /// `Owner`. Callers that need to grant ownership (the control-
-    /// plane owner-projection endpoint) must construct the
-    /// `WorkspaceRole` directly rather than laundering it through a
-    /// `UserRole`, which would silently downgrade `owner` to `member`.
-    pub fn from_user_role(role: UserRole) -> Self {
-        match role {
-            UserRole::Admin => Self::Admin,
-            UserRole::Technician => Self::Agent,
-            UserRole::User | UserRole::AuditReviewer => Self::Member,
-        }
     }
 }
 
@@ -1994,7 +1957,16 @@ pub struct UserResponse {
     pub uuid: Uuid,
     pub name: String,
     pub email: Option<String>, // Now optional - populated from user_emails table
-    pub role: UserRole,
+    /// Platform-wide privilege role (platform_admin / audit_reviewer /
+    /// user). Replaces the legacy derived `role`.
+    pub platform_role: PlatformRole,
+    /// The user's role in the workspace this response was built for
+    /// (owner / admin / agent / member), or null when there's no
+    /// membership / the response wasn't built with a workspace
+    /// connection. The `From<User>` conversion (no DB access) always
+    /// leaves this null; the populated builders fill it from
+    /// `workspace_members`.
+    pub workspace_role: Option<WorkspaceRole>,
     pub pronouns: Option<String>,
     pub avatar_url: Option<String>,
     pub banner_url: Option<String>,
@@ -2093,24 +2065,18 @@ pub struct UserInfoWithAvatar {
 // which does the joins and fills them in.
 impl From<User> for UserResponse {
     fn from(user: User) -> Self {
-        // Best-effort default — the conversion has no DB access so
-        // it can't derive the workspace_role half of the legacy
-        // projection. Callers that need an accurate `role` should
+        // The conversion has no DB access, so it can only surface the
+        // platform role (which lives on the User row). The
+        // workspace_role is left None; callers that need it should
         // build UserResponse via
         // `repository::user_helpers::get_user_with_primary_email`
         // (which has a connection and looks up workspace_members).
-        // Platform admins still surface as Admin here because the
-        // platform_role bit lives on the User struct.
-        let role = if user.platform_role == "platform_admin" {
-            UserRole::Admin
-        } else {
-            UserRole::User
-        };
         UserResponse {
             uuid: user.uuid,
             name: user.name,
             email: None,
-            role,
+            platform_role: PlatformRole::from_db(&user.platform_role),
+            workspace_role: None,
             pronouns: user.pronouns,
             avatar_url: user.avatar_url,
             banner_url: user.banner_url,
@@ -2382,14 +2348,15 @@ pub struct Claims {
     pub sub: String,   // Subject (user UUID as string for JWT compatibility)
     pub name: String,  // User's name
     pub email: String, // User's email
-    pub role: String, // User's role (LEGACY pre-W2 — `admin` / `technician` / `user`). Sweep callers off this onto `platform_role`; this field disappears in the W2 cleanup migration.
-    /// Phase 4 W2: platform-wide privilege role. Values:
-    /// `"platform_admin"` / `"user"`. `Option` so existing JWTs
-    /// without this claim still deserialize during the rollout
-    /// window; once every issued token carries it, the field flips
-    /// to `String` and the legacy `role` field is removed.
-    #[serde(default)]
-    pub platform_role: Option<String>,
+    /// Platform-wide privilege role: `"platform_admin"` /
+    /// `"audit_reviewer"` / `"user"`. The per-workspace role is NOT
+    /// carried in the token (the JWT stays workspace-independent); it
+    /// is resolved per-request from `workspace_members`. Defaulted on
+    /// deserialize so a stray pre-W2 token without the claim degrades
+    /// to a plain user (and is re-minted with the real value on the
+    /// next 15-minute refresh) rather than failing to parse.
+    #[serde(default = "default_platform_role")]
+    pub platform_role: String,
     #[serde(default = "default_scope")]
     // Default to "full" for backward compatibility with existing tokens
     pub scope: String, // Token scope: "full" for normal sessions
@@ -2409,6 +2376,11 @@ impl Claims {
 // Default scope for backward compatibility
 fn default_scope() -> String {
     "full".to_string()
+}
+
+// Default platform role for tokens minted before the claim existed.
+fn default_platform_role() -> String {
+    "user".to_string()
 }
 
 // Login request structure

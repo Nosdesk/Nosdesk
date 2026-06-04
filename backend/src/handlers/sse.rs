@@ -880,28 +880,13 @@ fn parse_topics_authorized(
             // happen post-auth, but treat defensively) drops every
             // ticket subscription.
             let vis = cached_vis.get_or_insert_with(|| {
-                use crate::models::Claims;
-                let stub_claims = Claims {
-                    sub: caller_uuid.to_string(),
-                    name: String::new(),
-                    email: String::new(),
-                    role: String::from("user"),
-                    platform_role: None,
-                    scope: String::new(),
-                    sid: None,
-                    exp: 0,
-                    iat: 0,
-                };
-                // VisibilityContext::from_claims only reads sub +
-                // role. The stub above is enough; we re-resolve the
-                // real role from the DB row that the caller of
-                // parse_topics_authorized already validated.
+                // Resolve the caller's visibility from their DB row
+                // (platform role + bootstrap-workspace role). A
+                // malformed sub string (shouldn't happen post-auth,
+                // but treat defensively) drops every ticket
+                // subscription.
                 let user_uuid = uuid::Uuid::parse_str(caller_uuid).ok()?;
-                let _ = stub_claims;
-                Some(VisibilityContext {
-                    user_uuid,
-                    role: lookup_role_for(conn, user_uuid)?,
-                })
+                lookup_vis_for(conn, user_uuid)
             });
             let Some(vis_ctx) = vis.as_ref() else {
                 continue;
@@ -920,15 +905,19 @@ fn parse_topics_authorized(
     out
 }
 
-fn lookup_role_for(
+fn lookup_vis_for(
     conn: &mut crate::db::DbConnection,
     user_uuid: uuid::Uuid,
-) -> Option<crate::models::UserRole> {
-    crate::repository::users::get_user_by_uuid(&user_uuid, conn)
-        .ok()
-        .map(|u| {
-            crate::repository::user_helpers::legacy_role_for_user(conn, u.uuid, &u.platform_role)
-        })
+) -> Option<crate::repository::ticket_visibility::VisibilityContext> {
+    let user = crate::repository::users::get_user_by_uuid(&user_uuid, conn).ok()?;
+    let workspace_role = crate::repository::user_helpers::bootstrap_workspace_role(conn, user_uuid);
+    Some(
+        crate::repository::ticket_visibility::VisibilityContext::new(
+            user_uuid,
+            crate::models::PlatformRole::from_db(&user.platform_role),
+            workspace_role,
+        ),
+    )
 }
 
 // SSE status endpoint
@@ -965,7 +954,7 @@ pub async fn get_sse_token(
 
     // Generate a short-lived SSE token (1 hour)
     use crate::utils::jwt::JwtUtils;
-    let sse_token = match JwtUtils::create_sse_token(&user_info.sub, &user_info.role) {
+    let sse_token = match JwtUtils::create_sse_token(&user_info.sub, &user_info.platform_role) {
         Ok(token) => token,
         Err(_) => {
             return errors::internal("Failed to create SSE token");

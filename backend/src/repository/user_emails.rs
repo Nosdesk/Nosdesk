@@ -111,13 +111,12 @@ pub fn find_user_by_any_of_emails(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn get_user_emails_by_uuid_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "emailuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "emailuser", "user");
 
         TestFixtures::create_user_email(&mut conn, user.uuid, "one@example.com", true);
         TestFixtures::create_user_email(&mut conn, user.uuid, "two@example.com", false);
@@ -132,7 +131,7 @@ mod tests {
     #[test]
     fn find_user_by_any_email_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "findme", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "findme", "user");
         TestFixtures::create_user_email(&mut conn, user.uuid, "findme@example.com", true);
 
         let found = find_user_by_any_email(&mut conn, "findme@example.com").unwrap();
@@ -142,7 +141,7 @@ mod tests {
     #[test]
     fn find_user_by_any_email_case_insensitive() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "caseuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "caseuser", "user");
         TestFixtures::create_user_email(&mut conn, user.uuid, "Test@Example.com", true);
 
         let found = find_user_by_any_email(&mut conn, "test@example.com").unwrap();

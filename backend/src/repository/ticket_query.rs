@@ -99,7 +99,7 @@ impl TicketQuery {
     /// For technicians/admins: shows all tickets (no filter applied)
     /// For group-based access: includes tickets visible to user's groups (future)
     pub fn visible_to(mut self, auth: &AuthContext) -> Self {
-        if !auth.is_technician_or_admin() {
+        if !auth.can_handle_tickets() {
             self.visible_to_user = Some(auth.user_uuid);
             self.visible_to_groups = auth.group_ids.clone();
         }
@@ -532,13 +532,12 @@ pub struct PaginatedResult<T> {
 mod tests {
     use super::*;
     use crate::extractors::AuthContext;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn resolve_visibility_computes_correct_ids() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "vis_user", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "vis_user", "user");
         let group = TestFixtures::create_group(&mut conn, "vis_group");
         TestFixtures::add_user_to_group(&mut conn, user.uuid, group.id);
 
@@ -563,8 +562,8 @@ mod tests {
     #[test]
     fn regular_user_sees_own_tickets_and_visible_categories() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "reg_user", UserRole::User);
-        let other = TestFixtures::create_user(&mut conn, "other_user", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "reg_user", "user");
+        let other = TestFixtures::create_user(&mut conn, "other_user", "user");
         let group = TestFixtures::create_group(&mut conn, "rg");
         TestFixtures::add_user_to_group(&mut conn, user.uuid, group.id);
 
@@ -590,7 +589,7 @@ mod tests {
             Some(secret_cat.id),
         );
 
-        let auth = AuthContext::test_context(user.uuid, UserRole::User, vec![group.id]);
+        let auth = AuthContext::test_context(user.uuid, "user", vec![group.id]);
         let result = TicketQuery::new()
             .visible_to(&auth)
             .paginate(1, 50)
@@ -610,8 +609,8 @@ mod tests {
     #[test]
     fn admin_sees_all_tickets() {
         let mut conn = setup_test_connection();
-        let admin = TestFixtures::create_user(&mut conn, "admin", UserRole::Admin);
-        let other = TestFixtures::create_user(&mut conn, "someone", UserRole::User);
+        let admin = TestFixtures::create_user(&mut conn, "admin", "admin");
+        let other = TestFixtures::create_user(&mut conn, "someone", "user");
 
         let secret_cat = TestFixtures::create_category(&mut conn, "SecretAdm");
         let sg = TestFixtures::create_group(&mut conn, "sg2");
@@ -620,7 +619,7 @@ mod tests {
         TestFixtures::create_ticket(&mut conn, "T1", Some(other.uuid), Some(secret_cat.id));
         TestFixtures::create_ticket(&mut conn, "T2", Some(other.uuid), None);
 
-        let auth = AuthContext::test_context(admin.uuid, UserRole::Admin, vec![]);
+        let auth = AuthContext::test_context(admin.uuid, "admin", vec![]);
         let result = TicketQuery::new()
             .visible_to(&auth)
             .paginate(1, 50)
@@ -633,13 +632,13 @@ mod tests {
     #[test]
     fn pagination_values_are_correct() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "pag_user", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "pag_user", "admin");
 
         for i in 0..5 {
             TestFixtures::create_ticket(&mut conn, &format!("Pag {i}"), Some(user.uuid), None);
         }
 
-        let auth = AuthContext::test_context(user.uuid, UserRole::Admin, vec![]);
+        let auth = AuthContext::test_context(user.uuid, "admin", vec![]);
         let result = TicketQuery::new()
             .visible_to(&auth)
             .paginate(1, 2)
@@ -656,12 +655,12 @@ mod tests {
     #[test]
     fn status_and_priority_filters_work() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "flt_user", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "flt_user", "admin");
 
         // Create tickets with different statuses
         TestFixtures::create_ticket(&mut conn, "Open one", Some(user.uuid), None);
 
-        let auth = AuthContext::test_context(user.uuid, UserRole::Admin, vec![]);
+        let auth = AuthContext::test_context(user.uuid, "admin", vec![]);
         let result = TicketQuery::new()
             .visible_to(&auth)
             .status(Some("open".into()))

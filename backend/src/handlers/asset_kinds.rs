@@ -83,7 +83,7 @@ fn default_category() -> String {
 }
 
 pub async fn list(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
     }
 
@@ -97,7 +97,7 @@ pub async fn list(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
 }
 
 pub async fn get(mut tc: TenantConn, path: web::Path<i32>, auth: AuthContext) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
     }
 
@@ -119,7 +119,7 @@ pub async fn get(mut tc: TenantConn, path: web::Path<i32>, auth: AuthContext) ->
 /// warning. Workspace-scoped automatically via the RLS pin on
 /// `assets`.
 pub async fn usage(mut tc: TenantConn, path: web::Path<i32>, auth: AuthContext) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
     }
     let id = path.into_inner();
@@ -145,7 +145,7 @@ pub async fn create(
     body: web::Json<CreateBody>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
     }
 
@@ -222,7 +222,7 @@ pub async fn update(
     query: web::Query<UpdateQuery>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
     }
 
@@ -321,7 +321,7 @@ pub async fn update(
 }
 
 pub async fn delete(mut tc: TenantConn, path: web::Path<i32>, auth: AuthContext) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
     }
 

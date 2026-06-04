@@ -21,7 +21,7 @@ use crate::repository;
 /// List collections visible to the current user
 pub async fn get_collections(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     let user_uuid = auth.user_uuid;
-    let is_admin = auth.is_admin();
+    let is_admin = auth.is_workspace_admin();
 
     match tc.run(|conn| {
         repository::documentation_collections::get_collections_for_user(conn, &user_uuid, is_admin)
@@ -194,7 +194,7 @@ pub async fn create_collection(
     auth: AuthContext,
     ws: WorkspaceContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
     let created_by = Some(auth.user_uuid);
@@ -273,7 +273,7 @@ pub async fn update_collection(
     sse_state: web::Data<SseState>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
 
@@ -368,7 +368,7 @@ pub async fn delete_collection(
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
     }
 
@@ -442,7 +442,7 @@ pub async fn add_page_to_collection(
     body: web::Json<AddPageRequest>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
 
@@ -476,7 +476,7 @@ pub async fn remove_page_from_collection(
     path: web::Path<(i32, i32)>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
 
@@ -527,7 +527,7 @@ pub async fn get_collection_visibility(
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
 
@@ -560,7 +560,7 @@ pub async fn set_collection_visibility(
     body: web::Json<SetVisibilityRequest>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Admin required");
     }
 
@@ -610,7 +610,7 @@ pub async fn get_page_overrides_in_collection(
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
 
@@ -718,7 +718,7 @@ pub async fn reorder_collections(
     body: web::Json<ReorderCollectionsRequest>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
     let body = body.into_inner();
@@ -747,7 +747,7 @@ pub async fn set_page_collections(
     body: web::Json<SetPageCollectionsRequest>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden");
     }
 
@@ -807,7 +807,6 @@ mod tests {
     //! We test delete here — accidentally widening that gate from
     //! admin to technician would let any tech wipe documentation.
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{claims_for, setup_test_pool};
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
@@ -843,7 +842,7 @@ mod tests {
     #[actix_web::test]
     async fn delete_rejects_user_role() {
         let pool = setup_test_pool();
-        let claims = claims_for(&pool, UserRole::User);
+        let claims = claims_for(&pool, "user");
         let app = actix_test::init_service(test_app(pool.clone())).await;
         let req = actix_test::TestRequest::delete()
             .uri("/admin/documentation-collections/1")
@@ -856,7 +855,7 @@ mod tests {
     #[actix_web::test]
     async fn delete_rejects_technician_role() {
         let pool = setup_test_pool();
-        let claims = claims_for(&pool, UserRole::Technician);
+        let claims = claims_for(&pool, "technician");
         let app = actix_test::init_service(test_app(pool.clone())).await;
         let req = actix_test::TestRequest::delete()
             .uri("/admin/documentation-collections/1")

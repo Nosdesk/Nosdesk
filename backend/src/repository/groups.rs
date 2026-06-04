@@ -1189,7 +1189,6 @@ pub fn set_group_devices(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
@@ -1205,8 +1204,8 @@ mod tests {
     fn add_and_get_users_in_group() {
         let mut conn = setup_test_connection();
         let group = TestFixtures::create_group(&mut conn, "Team");
-        let u1 = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
-        let u2 = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let u1 = TestFixtures::create_user(&mut conn, "alice", "user");
+        let u2 = TestFixtures::create_user(&mut conn, "bob", "user");
 
         add_user_to_group(&mut conn, u1.uuid, group.id, None).unwrap();
         add_user_to_group(&mut conn, u2.uuid, group.id, None).unwrap();
@@ -1221,7 +1220,7 @@ mod tests {
     fn add_user_to_group_is_idempotent() {
         let mut conn = setup_test_connection();
         let group = TestFixtures::create_group(&mut conn, "Idem");
-        let user = TestFixtures::create_user(&mut conn, "idemuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "idemuser", "user");
 
         let m1 = add_user_to_group(&mut conn, user.uuid, group.id, None).unwrap();
         let m2 = add_user_to_group(&mut conn, user.uuid, group.id, None).unwrap();
@@ -1236,7 +1235,7 @@ mod tests {
     fn remove_user_from_group_works() {
         let mut conn = setup_test_connection();
         let group = TestFixtures::create_group(&mut conn, "Remove");
-        let user = TestFixtures::create_user(&mut conn, "rmuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "rmuser", "user");
 
         add_user_to_group(&mut conn, user.uuid, group.id, None).unwrap();
         remove_user_from_group(&mut conn, &user.uuid, group.id).unwrap();
@@ -1247,7 +1246,7 @@ mod tests {
     #[test]
     fn get_groups_for_user_works() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "multigroup", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "multigroup", "user");
         let g1 = TestFixtures::create_group(&mut conn, "Alpha");
         let g2 = TestFixtures::create_group(&mut conn, "Beta");
 
@@ -1263,7 +1262,7 @@ mod tests {
     #[test]
     fn get_group_ids_for_user_works() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "iduser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "iduser", "user");
         let g1 = TestFixtures::create_group(&mut conn, "G1");
         let g2 = TestFixtures::create_group(&mut conn, "G2");
 
@@ -1279,9 +1278,9 @@ mod tests {
     fn set_group_members_replaces_all() {
         let mut conn = setup_test_connection();
         let group = TestFixtures::create_group(&mut conn, "Replace");
-        let u1 = TestFixtures::create_user(&mut conn, "old", UserRole::User);
-        let u2 = TestFixtures::create_user(&mut conn, "new1", UserRole::User);
-        let u3 = TestFixtures::create_user(&mut conn, "new2", UserRole::User);
+        let u1 = TestFixtures::create_user(&mut conn, "old", "user");
+        let u2 = TestFixtures::create_user(&mut conn, "new1", "user");
+        let u3 = TestFixtures::create_user(&mut conn, "new2", "user");
 
         add_user_to_group(&mut conn, u1.uuid, group.id, None).unwrap();
 
@@ -1307,8 +1306,8 @@ mod tests {
     fn groups_with_member_counts() {
         let mut conn = setup_test_connection();
         let group = TestFixtures::create_group(&mut conn, "Counted");
-        let u1 = TestFixtures::create_user(&mut conn, "c1", UserRole::User);
-        let u2 = TestFixtures::create_user(&mut conn, "c2", UserRole::User);
+        let u1 = TestFixtures::create_user(&mut conn, "c1", "user");
+        let u2 = TestFixtures::create_user(&mut conn, "c2", "user");
         add_user_to_group(&mut conn, u1.uuid, group.id, None).unwrap();
         add_user_to_group(&mut conn, u2.uuid, group.id, None).unwrap();
 

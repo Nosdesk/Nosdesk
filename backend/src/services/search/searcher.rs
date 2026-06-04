@@ -125,7 +125,7 @@ fn build_search_query(
     }
 
     // Visibility filter. Internal-note comments are indexed with
-    // is_internal=1; non-staff callers (UserRole::User) get an
+    // is_internal=1; non-staff callers ("user") get an
     // explicit MustNot clause so those documents drop out of the
     // result set entirely. The MustNot pairs with a "Must match
     // anything" all-docs branch so the boolean query still has

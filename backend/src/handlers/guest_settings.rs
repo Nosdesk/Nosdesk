@@ -51,7 +51,7 @@ pub async fn update_guest_settings(
         None => return HttpResponse::Unauthorized().finish(),
     };
 
-    if !crate::utils::rbac::is_admin(&claims) {
+    if !crate::utils::rbac::is_platform_admin(&claims) {
         return errors::forbidden("Admin required");
     }
 

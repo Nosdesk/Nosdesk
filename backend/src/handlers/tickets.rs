@@ -11,8 +11,7 @@ use uuid::Uuid;
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::handlers::errors;
 use crate::models::{
-    AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, UserRole,
-    WorkflowStateCategory,
+    AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, WorkflowStateCategory,
 };
 use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
@@ -25,7 +24,6 @@ use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
-use crate::utils::rbac::{is_admin, is_technician_or_admin};
 
 // Helper function to validate assignee role
 fn validate_assignee_role(
@@ -34,12 +32,7 @@ fn validate_assignee_role(
 ) -> Result<(), HttpResponse> {
     match crate::repository::users::get_user_by_uuid(assignee_uuid, conn) {
         Ok(user) => {
-            let role = crate::repository::user_helpers::legacy_role_for_user(
-                conn,
-                user.uuid,
-                &user.platform_role,
-            );
-            if role != UserRole::Technician && role != UserRole::Admin {
+            if !crate::repository::user_helpers::user_can_handle_tickets(conn, &user) {
                 Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
             } else {
                 Ok(())
@@ -61,12 +54,7 @@ fn parse_and_validate_assignee_string(
         // Use the same validation logic but adapted for the update context
         match crate::repository::users::get_user_by_uuid(&uuid, conn) {
             Ok(user) => {
-                let role = crate::repository::user_helpers::legacy_role_for_user(
-                    conn,
-                    user.uuid,
-                    &user.platform_role,
-                );
-                if role != UserRole::Technician && role != UserRole::Admin {
+                if !crate::repository::user_helpers::user_can_handle_tickets(conn, &user) {
                     Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
                 } else {
                     Ok(uuid)
@@ -80,12 +68,7 @@ fn parse_and_validate_assignee_string(
         // Try to look up by name
         match crate::repository::users::get_user_by_name(assignee_str, conn) {
             Ok(user) => {
-                let role = crate::repository::user_helpers::legacy_role_for_user(
-                    conn,
-                    user.uuid,
-                    &user.platform_role,
-                );
-                if role != UserRole::Technician && role != UserRole::Admin {
+                if !crate::repository::user_helpers::user_can_handle_tickets(conn, &user) {
                     Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
                 } else {
                     Ok(user.uuid)
@@ -233,7 +216,7 @@ pub struct PaginatedResponse<T> {
 // Get all tickets (technicians and admins only)
 pub async fn get_tickets(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     // Only technicians and admins can see all tickets via this endpoint
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden: Only technicians and admins can access all tickets");
     }
 
@@ -538,7 +521,7 @@ pub async fn create_ticket(
                 conn,
                 &auth.user_uuid,
                 category_id,
-                auth.is_admin(),
+                auth.is_workspace_admin(),
             )
         }) {
             Ok(true) => {}
@@ -688,6 +671,7 @@ pub async fn update_ticket(
 // Delete a ticket with comprehensive cleanup
 pub async fn delete_ticket(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     search_service: web::Data<Arc<SearchService>>,
@@ -696,13 +680,7 @@ pub async fn delete_ticket(
 ) -> impl Responder {
     let source_client_id = extract_sse_client_id(&req);
 
-    // Extract claims and check role
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
-    if !is_admin(&claims) {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Forbidden: Only administrators can delete tickets");
     }
 
@@ -747,17 +725,11 @@ pub async fn delete_ticket(
 
 // Import tickets from JSON file
 pub async fn import_tickets_from_json(
-    req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     json_path: web::Path<String>,
 ) -> impl Responder {
-    // Extract claims and check role
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
-    if !is_admin(&claims) {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Forbidden: Only administrators can import tickets");
     }
 
@@ -799,17 +771,11 @@ pub async fn import_tickets_from_json(
 
 // Import tickets from JSON string
 pub async fn import_tickets_from_json_string(
-    req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     tickets_json: web::Json<TicketsJson>,
 ) -> impl Responder {
-    // Extract claims and check role
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
-    if !is_admin(&claims) {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Forbidden: Only administrators can import tickets");
     }
 
@@ -977,6 +943,7 @@ pub async fn update_ticket_partial(
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
+    auth: AuthContext,
     access: TicketAccess,
     body: web::Json<Value>,
 ) -> impl Responder {
@@ -1127,7 +1094,7 @@ pub async fn update_ticket_partial(
             Ok(uuid) => uuid,
             Err(_) => return errors::bad_request("Invalid user UUID in token"),
         };
-        let is_admin = crate::utils::rbac::is_admin(&user_info);
+        let is_admin = auth.is_workspace_admin();
         match tc.run(|conn| {
             crate::repository::categories::can_user_see_category(
                 conn,
@@ -1502,19 +1469,14 @@ pub async fn update_ticket_partial(
 // Link tickets
 pub async fn link_tickets(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     let source_client_id = extract_sse_client_id(&req);
 
-    // Extract claims and check role
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
-    if !is_technician_or_admin(&claims) {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can link tickets",
         );
@@ -1554,19 +1516,14 @@ pub async fn link_tickets(
 // Unlink tickets
 pub async fn unlink_tickets(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     let source_client_id = extract_sse_client_id(&req);
 
-    // Extract claims and check role
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
-    if !is_technician_or_admin(&claims) {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can unlink tickets",
         );
@@ -1606,19 +1563,14 @@ pub async fn unlink_tickets(
 // Add device to ticket
 pub async fn add_device_to_ticket(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     let source_client_id = extract_sse_client_id(&req);
 
-    // Extract claims and check role
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
-    if !is_technician_or_admin(&claims) {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can add devices to tickets",
         );
@@ -1658,19 +1610,14 @@ pub async fn add_device_to_ticket(
 // Remove device from ticket
 pub async fn remove_device_from_ticket(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     let source_client_id = extract_sse_client_id(&req);
 
-    // Extract claims and check role
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
-
-    if !is_technician_or_admin(&claims) {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can remove devices from tickets",
         );
@@ -1712,17 +1659,11 @@ pub async fn remove_device_from_ticket(
 }
 
 // Get recent tickets for the authenticated user
-pub async fn get_recent_tickets(
-    mut tc: TenantConn,
-    claims: web::ReqData<Claims>,
-) -> impl Responder {
+pub async fn get_recent_tickets(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     use crate::repository::ticket_visibility::{self, VisibilityContext};
     use crate::repository::user_ticket_views;
 
-    let claims_inner = claims.into_inner();
-    let Some(vis) = VisibilityContext::from_claims(&claims_inner) else {
-        return errors::unauthorized("Authentication required");
-    };
+    let vis = VisibilityContext::from_auth(&auth);
     let user_uuid = vis.user_uuid;
 
     let recent = match tc.run(|conn| {
@@ -1815,6 +1756,7 @@ pub struct BulkActionRequest {
 // Perform bulk operations on tickets
 pub async fn bulk_tickets(
     req: HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     sse_state: web::Data<crate::handlers::sse::SseState>,
@@ -1833,7 +1775,7 @@ pub async fn bulk_tickets(
     // doesn't expose multi-select; gating here keeps Users out of a
     // surface that has no UX path for them and avoids per-id IDOR
     // sweeps via the bulk endpoint.
-    if !is_technician_or_admin(&claims) {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Forbidden: Bulk ticket actions are restricted to staff");
     }
 
@@ -1847,7 +1789,7 @@ pub async fn bulk_tickets(
     match action {
         "delete" => {
             // Only admins can bulk delete
-            if !is_admin(&claims) {
+            if !auth.is_workspace_admin() {
                 return errors::forbidden("Forbidden: Only administrators can delete tickets");
             }
 
@@ -2004,7 +1946,7 @@ pub async fn bulk_tickets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{TicketPriority, UserRole};
+    use crate::models::TicketPriority;
     use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
     use actix_web::{http::StatusCode, test, App};
 
@@ -2048,11 +1990,11 @@ mod tests {
         let pool = setup_test_pool();
         let claims = {
             let mut conn = pool.get().unwrap();
-            let admin = TestFixtures::create_user(&mut conn, "ticketadmin", UserRole::Admin);
-            let claims = create_test_claims(&admin, UserRole::Admin);
+            let admin = TestFixtures::create_user(&mut conn, "ticketadmin", "admin");
+            let claims = create_test_claims(&admin);
 
-            let user = TestFixtures::create_user(&mut conn, "regularuser", UserRole::User);
-            let _user_claims = create_test_claims(&user, UserRole::User);
+            let user = TestFixtures::create_user(&mut conn, "regularuser", "user");
+            let _user_claims = create_test_claims(&user);
 
             claims
         }; // conn dropped here — pool free for HTTP handlers
@@ -2067,7 +2009,7 @@ mod tests {
         );
 
         // Additional verification: the claims were created successfully
-        assert_eq!(claims.role, "admin");
+        assert_eq!(claims.platform_role, "platform_admin");
     }
 
     #[actix_web::test]
@@ -2078,7 +2020,7 @@ mod tests {
         let mut conn = pool.get().unwrap();
 
         // Create admin user
-        let admin = TestFixtures::create_user(&mut conn, "createticketadmin", UserRole::Admin);
+        let admin = TestFixtures::create_user(&mut conn, "createticketadmin", "admin");
 
         // Create ticket directly using TestFixtures
         let ticket = TestFixtures::create_ticket(&mut conn, "Test Ticket", Some(admin.uuid), None);
@@ -2101,7 +2043,7 @@ mod tests {
         let mut conn = pool.get().unwrap();
 
         // Create user and ticket
-        let user = TestFixtures::create_user(&mut conn, "getticketuser", UserRole::Technician);
+        let user = TestFixtures::create_user(&mut conn, "getticketuser", "technician");
         let ticket = TestFixtures::create_ticket(&mut conn, "Get Me Ticket", Some(user.uuid), None);
 
         // Test via repository layer
@@ -2121,7 +2063,7 @@ mod tests {
         let mut conn = pool.get().unwrap();
 
         // Create user and ticket
-        let admin = TestFixtures::create_user(&mut conn, "updateticketadmin", UserRole::Admin);
+        let admin = TestFixtures::create_user(&mut conn, "updateticketadmin", "admin");
         let ticket = TestFixtures::create_ticket(&mut conn, "Update Me", Some(admin.uuid), None);
 
         // Verify initial state
@@ -2166,8 +2108,8 @@ mod tests {
         let pool = setup_test_pool();
         let claims = {
             let mut conn = pool.get().unwrap();
-            let user = TestFixtures::create_user(&mut conn, "notfounduser", UserRole::Technician);
-            create_test_claims(&user, UserRole::Technician)
+            let user = TestFixtures::create_user(&mut conn, "notfounduser", "technician");
+            create_test_claims(&user)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -2187,12 +2129,12 @@ mod tests {
         let pool = setup_test_pool();
         let claims = {
             let mut conn = pool.get().unwrap();
-            let user = TestFixtures::create_user(&mut conn, "regularticketuser", UserRole::User);
-            create_test_claims(&user, UserRole::User)
+            let user = TestFixtures::create_user(&mut conn, "regularticketuser", "user");
+            create_test_claims(&user)
         }; // conn dropped here
 
         // Verify the claims have the correct role
-        assert_eq!(claims.role, "user");
+        assert_eq!(claims.platform_role, "user");
 
         let app = test::init_service(test_app(pool.clone())).await;
         let req = test::TestRequest::get().uri("/tickets").to_request();
@@ -2212,7 +2154,7 @@ mod tests {
 
         // Create category and user
         let category = TestFixtures::create_category(&mut conn, "Test Category");
-        let user = TestFixtures::create_user(&mut conn, "catticketuser", UserRole::Technician);
+        let user = TestFixtures::create_user(&mut conn, "catticketuser", "technician");
 
         // Create ticket with category
         let ticket = TestFixtures::create_ticket(

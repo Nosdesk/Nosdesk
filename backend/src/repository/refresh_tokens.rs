@@ -83,14 +83,14 @@ pub fn revoke_refresh_token(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{NewRefreshToken, UserRole};
+    use crate::models::NewRefreshToken;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use chrono::{Duration, Utc};
 
     #[test]
     fn create_and_get_refresh_token() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "TokenUser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "TokenUser", "user");
 
         let family = Uuid::new_v4();
         let new_token = NewRefreshToken {
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn revoke_refresh_token_makes_invalid() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "RevokeUser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "RevokeUser", "user");
 
         let new_token = NewRefreshToken {
             token_hash: "revokeme".to_string(),
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn mark_token_used_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "UsedUser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "UsedUser", "user");
 
         let new_token = NewRefreshToken {
             token_hash: "useme".to_string(),
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn revoke_token_family_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "FamilyUser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "FamilyUser", "user");
 
         let family = Uuid::new_v4();
         for hash in &["fam1", "fam2", "fam3"] {

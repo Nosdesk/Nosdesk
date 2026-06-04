@@ -346,13 +346,12 @@ pub fn can_user_see_category(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn public_category_visible_to_any_user() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "alice", "user");
         let cat = TestFixtures::create_category(&mut conn, "Public");
         // No group restrictions → public
         assert!(can_user_see_category(&mut conn, &user.uuid, cat.id, false).unwrap());
@@ -361,7 +360,7 @@ mod tests {
     #[test]
     fn restricted_category_visible_to_allowed_group() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "bob", "user");
         let group = TestFixtures::create_group(&mut conn, "Support");
         TestFixtures::add_user_to_group(&mut conn, user.uuid, group.id);
         let cat = TestFixtures::create_category(&mut conn, "VIP");
@@ -373,7 +372,7 @@ mod tests {
     #[test]
     fn restricted_category_hidden_from_non_member() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "carol", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "carol", "user");
         let group = TestFixtures::create_group(&mut conn, "VIP Group");
         // user is NOT added to the group
         let cat = TestFixtures::create_category(&mut conn, "VIP Only");
@@ -385,7 +384,7 @@ mod tests {
     #[test]
     fn admin_sees_restricted_category() {
         let mut conn = setup_test_connection();
-        let admin = TestFixtures::create_user(&mut conn, "admin", UserRole::Admin);
+        let admin = TestFixtures::create_user(&mut conn, "admin", "admin");
         let group = TestFixtures::create_group(&mut conn, "Secret");
         let cat = TestFixtures::create_category(&mut conn, "Secret Cat");
         TestFixtures::set_category_visibility(&mut conn, cat.id, &[group.id]);
@@ -431,7 +430,7 @@ mod tests {
     #[test]
     fn seed_defaults_records_creator_when_provided() {
         let mut conn = setup_test_connection();
-        let admin = TestFixtures::create_user(&mut conn, "admin", UserRole::Admin);
+        let admin = TestFixtures::create_user(&mut conn, "admin", "admin");
         seed_defaults_if_empty(&mut conn, Some(admin.uuid)).unwrap();
         let all: Vec<TicketCategory> = ticket_categories::table.load(&mut conn).unwrap();
         for cat in all {
@@ -442,7 +441,7 @@ mod tests {
     #[test]
     fn get_categories_returns_public_and_accessible() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "dave", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "dave", "user");
         let group = TestFixtures::create_group(&mut conn, "Eng");
         TestFixtures::add_user_to_group(&mut conn, user.uuid, group.id);
 

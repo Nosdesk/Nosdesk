@@ -829,7 +829,6 @@ pub fn enqueue_merge_notifications(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     fn actor_for(user_uuid: Uuid) -> ActorContext {
@@ -881,7 +880,7 @@ mod tests {
     #[test]
     fn happy_path_single_source() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "agent", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "agent", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
         TestFixtures::create_comment(&mut conn, src.id, user.uuid, "from source");
@@ -933,7 +932,7 @@ mod tests {
     #[test]
     fn happy_path_three_sources() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "agent3", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "agent3", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let s1 = TestFixtures::create_ticket(&mut conn, "S1", Some(user.uuid), None);
         let s2 = TestFixtures::create_ticket(&mut conn, "S2", Some(user.uuid), None);
@@ -957,7 +956,7 @@ mod tests {
     #[test]
     fn self_merge_rejected() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "self", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "self", "user");
         let t = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
 
         let err =
@@ -968,7 +967,7 @@ mod tests {
     #[test]
     fn already_merged_source_rejected() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "chain", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "chain", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let other = TestFixtures::create_ticket(&mut conn, "Other", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
@@ -996,7 +995,7 @@ mod tests {
     #[test]
     fn missing_source_rejected() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "missing", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "missing", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
 
         // A source id that does not resolve in this workspace. Under RLS
@@ -1013,7 +1012,7 @@ mod tests {
     #[test]
     fn optimistic_lock_conflict() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "optlock", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "optlock", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
 
@@ -1038,9 +1037,9 @@ mod tests {
     #[test]
     fn watchers_union_ors_notify_flag() {
         let mut conn = setup_test_connection();
-        let owner = TestFixtures::create_user(&mut conn, "owner", UserRole::User);
-        let shared = TestFixtures::create_user(&mut conn, "shared", UserRole::User);
-        let only_src = TestFixtures::create_user(&mut conn, "onlysrc", UserRole::User);
+        let owner = TestFixtures::create_user(&mut conn, "owner", "user");
+        let shared = TestFixtures::create_user(&mut conn, "shared", "user");
+        let only_src = TestFixtures::create_user(&mut conn, "onlysrc", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(owner.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(owner.uuid), None);
 
@@ -1078,7 +1077,7 @@ mod tests {
     #[test]
     fn comments_move_with_attachment() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "att", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "att", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
         let comment = TestFixtures::create_comment(&mut conn, src.id, user.uuid, "has file");
@@ -1114,7 +1113,7 @@ mod tests {
     fn channel_messages_rerouted() {
         use crate::models::NewChannelMessage;
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "chan", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "chan", "user");
         let channel = TestFixtures::create_channel(&mut conn, "email");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
@@ -1155,7 +1154,7 @@ mod tests {
     #[test]
     fn project_membership_moves_to_target() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "proj", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "proj", "user");
         let project = TestFixtures::create_project(&mut conn, "Proj");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
@@ -1195,7 +1194,7 @@ mod tests {
     #[test]
     fn linked_tickets_rewritten_and_self_link_dropped() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "links", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "links", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
         let other = TestFixtures::create_ticket(&mut conn, "Other", Some(user.uuid), None);
@@ -1236,7 +1235,7 @@ mod tests {
     fn audit_and_sync_share_correlation_id() {
         use diesel::sql_types::{BigInt, Text};
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "corr", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "corr", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
 
@@ -1278,7 +1277,7 @@ mod tests {
     fn merge_notifications_enqueue_for_email_sources() {
         use crate::schema::{channels, outbound_emails, tickets};
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "customer", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "customer", "user");
         TestFixtures::create_user_email(&mut conn, user.uuid, "customer@example.com", true);
 
         let channel: crate::models::Channel = diesel::insert_into(channels::table)
@@ -1317,7 +1316,7 @@ mod tests {
     #[test]
     fn merge_notifications_skip_sources_without_channel() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "nochan", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "nochan", "user");
         let dest = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
 

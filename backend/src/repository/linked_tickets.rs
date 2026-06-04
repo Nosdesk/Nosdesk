@@ -247,13 +247,12 @@ pub fn unlink_tickets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn link_creates_bidirectional_links() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "linker", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "linker", "user");
         let t1 = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
         let t2 = TestFixtures::create_ticket(&mut conn, "T2", Some(user.uuid), None);
 
@@ -268,7 +267,7 @@ mod tests {
     #[test]
     fn link_is_idempotent() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "idem", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "idem", "user");
         let t1 = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
         let t2 = TestFixtures::create_ticket(&mut conn, "T2", Some(user.uuid), None);
 
@@ -282,7 +281,7 @@ mod tests {
     #[test]
     fn unlink_removes_both_directions() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "unlinker", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "unlinker", "user");
         let t1 = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
         let t2 = TestFixtures::create_ticket(&mut conn, "T2", Some(user.uuid), None);
 
@@ -298,7 +297,7 @@ mod tests {
         use crate::schema::linked_tickets;
 
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "directional", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "directional", "user");
         let src = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
         let dst = TestFixtures::create_ticket(&mut conn, "Dest", Some(user.uuid), None);
 
@@ -346,7 +345,7 @@ mod tests {
     #[test]
     fn no_links_returns_empty() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "nolinks", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "nolinks", "user");
         let t1 = TestFixtures::create_ticket(&mut conn, "Solo", Some(user.uuid), None);
 
         assert!(get_linked_tickets(&mut conn, t1.id).unwrap().is_empty());

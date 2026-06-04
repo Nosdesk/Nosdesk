@@ -6,17 +6,7 @@
 use actix_web::{HttpMessage, HttpRequest, HttpResponse};
 use serde_json::json;
 
-use crate::models::Claims;
-
-/// Check if user has technician or admin role
-pub fn is_technician_or_admin(claims: &Claims) -> bool {
-    claims.role == "admin" || claims.role == "technician"
-}
-
-/// Check if user has admin role
-pub fn is_admin(claims: &Claims) -> bool {
-    claims.role == "admin"
-}
+use crate::models::{Claims, PlatformRole};
 
 /// API-token scope strings the server recognises. `full` is the
 /// implicit superscope every session token carries; the rest are
@@ -38,11 +28,11 @@ pub fn has_scope(claims: &Claims, wanted: &str) -> bool {
     claims.scope == "full" || claims.scope.split_whitespace().any(|s| s == wanted)
 }
 
-/// Whether the principal's *role* may read the audit surface.
-/// Admin (full operator) or AuditReviewer (the read-only audit role
-/// from D4). Technicians and users may not.
+/// Whether the principal's *platform role* may read the audit
+/// surface: `platform_admin` (full operator) or `audit_reviewer` (the
+/// read-only audit role). Plain users may not.
 pub fn role_can_read_audit(claims: &Claims) -> bool {
-    claims.role == "admin" || claims.role == "audit_reviewer"
+    PlatformRole::from_db(&claims.platform_role).can_read_audit()
 }
 
 /// Gate for the unified audit endpoints. Authorisation is the
@@ -76,61 +66,22 @@ pub fn require_auth(req: &HttpRequest) -> Result<Claims, HttpResponse> {
     })
 }
 
-/// Extract claims and verify technician or admin role
-/// Returns Ok(Claims) if authorized, Err(HttpResponse) with 401/403 if not
-pub fn require_technician_or_admin(req: &HttpRequest) -> Result<Claims, HttpResponse> {
-    let claims = require_auth(req)?;
-
-    if !is_technician_or_admin(&claims) {
-        return Err(HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "This action requires technician or administrator privileges"
-        })));
-    }
-
-    Ok(claims)
-}
-
-/// Extract claims and verify admin role
-/// Returns Ok(Claims) if authorized, Err(HttpResponse) with 401/403 if not
-pub fn require_admin(req: &HttpRequest) -> Result<Claims, HttpResponse> {
-    let claims = require_auth(req)?;
-
-    if !is_admin(&claims) {
-        return Err(HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "This action requires administrator privileges"
-        })));
-    }
-
-    Ok(claims)
-}
-
 // =====================================================================
 // Phase 4 W2: split-role gating
 // =====================================================================
 
-/// True when the principal holds the platform-admin role (the new
-/// home for the privilege previously expressed as `users.role =
-/// 'admin'`). Reads [`Claims::platform_role`] (W2's new field) and
-/// falls back to the legacy `claims.role == "admin"` when the new
-/// field is absent, so JWTs issued before the W2 sweep still
-/// authenticate correctly.
+/// True when the principal holds the platform-admin role
+/// ([`Claims::platform_role`] == `platform_admin`). The home for the
+/// privilege previously expressed as the global `users.role = admin`.
 pub fn is_platform_admin(claims: &Claims) -> bool {
-    if let Some(pr) = claims.platform_role.as_deref() {
-        pr == "platform_admin"
-    } else {
-        claims.role == "admin"
-    }
+    claims.platform_role == "platform_admin"
 }
 
 /// Gate for endpoints that require platform-admin privilege:
 /// workspace lifecycle (W1 admin handlers), hosted billing,
-/// cross-tenant operator tools. The Phase 4 successor to
-/// [`require_admin`]; new code should call this directly. The two
-/// resolve to the same decision today (since `users.role = admin`
-/// rows backfill to `platform_role = platform_admin`); they will
-/// diverge in W3 when workspace-admin-only flows are introduced.
+/// cross-tenant operator tools, and instance-wide settings. For
+/// workspace-scoped admin/agent gating use
+/// [`require_workspace_role`] instead.
 pub fn require_platform_admin(req: &HttpRequest) -> Result<Claims, HttpResponse> {
     let claims = require_auth(req)?;
 
@@ -270,31 +221,25 @@ mod tests {
     use super::*;
 
     fn create_test_claims(role: &str) -> Claims {
+        // Map the legacy test role token onto the platform role the
+        // post-W2 claims carry (workspace-level roles aren't in the
+        // token): admin -> platform_admin; audit_reviewer ->
+        // audit_reviewer; everything else -> plain user.
+        let platform_role = match role {
+            "admin" => "platform_admin",
+            "audit_reviewer" => "audit_reviewer",
+            _ => "user",
+        };
         Claims {
             sub: "test-uuid".to_string(),
             name: "Test User".to_string(),
             email: "test@example.com".to_string(),
-            role: role.to_string(),
-            platform_role: None,
+            platform_role: platform_role.to_string(),
             scope: "full".to_string(),
             sid: None,
             exp: 0,
             iat: 0,
         }
-    }
-
-    #[test]
-    fn test_is_admin() {
-        assert!(is_admin(&create_test_claims("admin")));
-        assert!(!is_admin(&create_test_claims("technician")));
-        assert!(!is_admin(&create_test_claims("user")));
-    }
-
-    #[test]
-    fn test_is_technician_or_admin() {
-        assert!(is_technician_or_admin(&create_test_claims("admin")));
-        assert!(is_technician_or_admin(&create_test_claims("technician")));
-        assert!(!is_technician_or_admin(&create_test_claims("user")));
     }
 
     /// Build a TestRequest::default() with the given claims pre-inserted,
@@ -319,60 +264,30 @@ mod tests {
     fn require_auth_returns_claims_when_present() {
         let req = req_with_claims(Some(create_test_claims("user")));
         let claims = require_auth(&req).expect("claims should be returned");
-        assert_eq!(claims.role, "user");
+        assert_eq!(claims.platform_role, "user");
     }
 
     #[test]
-    fn require_admin_rejects_user_role_with_403() {
+    fn require_platform_admin_rejects_non_admin_with_403() {
         let req = req_with_claims(Some(create_test_claims("user")));
-        let err = require_admin(&req).expect_err("user role should be forbidden");
+        let err = require_platform_admin(&req).expect_err("non-admin should be forbidden");
         assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
     }
 
     #[test]
-    fn require_admin_rejects_technician_with_403() {
-        let req = req_with_claims(Some(create_test_claims("technician")));
-        let err = require_admin(&req).expect_err("technician should be forbidden");
-        assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
-    }
-
-    #[test]
-    fn require_admin_allows_admin() {
+    fn require_platform_admin_allows_platform_admin() {
         let req = req_with_claims(Some(create_test_claims("admin")));
-        let claims = require_admin(&req).expect("admin should be allowed");
-        assert_eq!(claims.role, "admin");
+        let claims = require_platform_admin(&req).expect("platform admin should be allowed");
+        assert_eq!(claims.platform_role, "platform_admin");
     }
 
     #[test]
-    fn require_admin_returns_401_without_claims() {
-        // Catches the "added a route, forgot the cookie middleware" regression:
-        // require_admin must distinguish unauthenticated from wrong-role rather
-        // than collapsing both to 403. A 401 vs 403 distinction matters because
-        // the frontend redirects to login on 401 but shows an error toast on 403.
+    fn require_platform_admin_returns_401_without_claims() {
+        // 401 vs 403 distinction matters: the frontend redirects to
+        // login on 401 but shows an error toast on 403.
         let req = req_with_claims(None);
-        let err = require_admin(&req).expect_err("no claims should error");
+        let err = require_platform_admin(&req).expect_err("no claims should error");
         assert_eq!(err.status(), actix_web::http::StatusCode::UNAUTHORIZED);
-    }
-
-    #[test]
-    fn require_technician_or_admin_rejects_user_with_403() {
-        let req = req_with_claims(Some(create_test_claims("user")));
-        let err = require_technician_or_admin(&req).expect_err("user role should be forbidden");
-        assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
-    }
-
-    #[test]
-    fn require_technician_or_admin_allows_technician() {
-        let req = req_with_claims(Some(create_test_claims("technician")));
-        let claims = require_technician_or_admin(&req).expect("technician should be allowed");
-        assert_eq!(claims.role, "technician");
-    }
-
-    #[test]
-    fn require_technician_or_admin_allows_admin() {
-        let req = req_with_claims(Some(create_test_claims("admin")));
-        let claims = require_technician_or_admin(&req).expect("admin should be allowed");
-        assert_eq!(claims.role, "admin");
     }
 
     /// Build claims with an explicit role + scope for audit-gate tests.

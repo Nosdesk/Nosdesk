@@ -115,7 +115,6 @@ pub fn delete(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use serde_json::json;
 
@@ -136,7 +135,7 @@ mod tests {
     #[test]
     fn create_and_list_round_trip() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "sv_create", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "sv_create", "user");
 
         let one = create(&mut conn, private_view_for(user.uuid, "alpha")).unwrap();
         let two = create(&mut conn, private_view_for(user.uuid, "beta")).unwrap();
@@ -151,7 +150,7 @@ mod tests {
     #[test]
     fn delete_removes_the_row() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "sv_delete", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "sv_delete", "user");
 
         let live = create(&mut conn, private_view_for(user.uuid, "live")).unwrap();
         let dead = create(&mut conn, private_view_for(user.uuid, "dead")).unwrap();
@@ -166,7 +165,7 @@ mod tests {
     #[test]
     fn list_for_scope_dataset_keeps_datasets_separate() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "sv_dataset", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "sv_dataset", "user");
 
         let mut ticket_view = private_view_for(user.uuid, "tickets-view");
         ticket_view.dataset = "tickets".into();
@@ -195,7 +194,7 @@ mod tests {
     #[test]
     fn update_changes_the_name() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "sv_update", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "sv_update", "user");
         let view = create(&mut conn, private_view_for(user.uuid, "before")).unwrap();
 
         let patch = SavedViewUpdate {
@@ -212,7 +211,7 @@ mod tests {
     #[test]
     fn list_pickable_excludes_default_list_views() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "sv_pickable", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "sv_pickable", "user");
 
         // Default list view: should be filtered out.
         create(&mut conn, private_view_for(user.uuid, "plain-list")).unwrap();
@@ -230,8 +229,8 @@ mod tests {
     #[test]
     fn list_pickable_hides_other_users_private_views() {
         let mut conn = setup_test_connection();
-        let alice = TestFixtures::create_user(&mut conn, "sv_alice", UserRole::User);
-        let bob = TestFixtures::create_user(&mut conn, "sv_bob", UserRole::User);
+        let alice = TestFixtures::create_user(&mut conn, "sv_alice", "user");
+        let bob = TestFixtures::create_user(&mut conn, "sv_bob", "user");
 
         // Alice's private chart view: should NOT be visible to Bob.
         let mut alice_chart = private_view_for(alice.uuid, "alice-secret");
@@ -255,8 +254,8 @@ mod tests {
     #[test]
     fn list_pickable_includes_workspace_scope_views() {
         let mut conn = setup_test_connection();
-        let admin = TestFixtures::create_user(&mut conn, "sv_admin", UserRole::Admin);
-        let viewer = TestFixtures::create_user(&mut conn, "sv_viewer", UserRole::User);
+        let admin = TestFixtures::create_user(&mut conn, "sv_admin", "admin");
+        let viewer = TestFixtures::create_user(&mut conn, "sv_viewer", "user");
 
         // Workspace-scope chart: visible to every workspace member.
         let workspace_chart = NewSavedView {

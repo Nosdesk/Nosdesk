@@ -85,7 +85,7 @@ pub fn create_initial_admin(
 ) -> Result<(User, UserEmail), AdminSetupError> {
     let (normalized_name, normalized_email) =
         crate::utils::normalization::normalize_user_data(input.name, input.email);
-    let (new_user, _role, primary_email) =
+    let (new_user, primary_email) =
         crate::utils::NewUserBuilder::admin_user(normalized_name, normalized_email.clone())
             .build_with_email();
 
@@ -163,9 +163,11 @@ pub fn create_initial_admin(
                     "uuid": user.uuid,
                     "name": user.name,
                     "email": user_email.email,
-                    // Bootstrap admin always derives to Admin via
-                    // platform_role = platform_admin.
-                    "role": crate::models::UserRole::Admin,
+                    // Bootstrap admin: platform super-user with an admin
+                    // membership in the bootstrap workspace (seeded
+                    // below via add_membership).
+                    "platform_role": "platform_admin",
+                    "workspace_role": "admin",
                     "pronouns": user.pronouns,
                     "avatar_url": user.avatar_url,
                     "avatar_thumb": user.avatar_thumb,

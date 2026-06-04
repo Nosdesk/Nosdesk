@@ -113,7 +113,7 @@ pub fn decide_relay(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{NewChannelMessage, TicketUpdate, UserRole, CHANNEL_DIRECTION_INBOUND};
+    use crate::models::{NewChannelMessage, TicketUpdate, CHANNEL_DIRECTION_INBOUND};
     use crate::repository::{tickets as tickets_repo, user_helpers::create_user_with_email};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
@@ -135,8 +135,7 @@ mod tests {
         };
         let (user, _) = create_user_with_email(
             user,
-            UserRole::User,
-            crate::models::WorkspaceRole::from_user_role(UserRole::User),
+            crate::models::WorkspaceRole::Member,
             "alice@example.com".into(),
             false,
             Some("guest_submission".into()),
@@ -207,7 +206,7 @@ mod tests {
     #[test]
     fn ticket_without_channel_is_not_relayed() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "U", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "U", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
         let comment = make_comment(ticket.id, false);
         let decision = decide_relay(&mut conn, &ticket, &comment).unwrap();
@@ -296,7 +295,7 @@ mod tests {
     fn requester_without_email_is_skipped() {
         let mut conn = setup_test_connection();
         // User created without email.
-        let user = TestFixtures::create_user(&mut conn, "NoEmail", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "NoEmail", "user");
         let channel = TestFixtures::create_channel(&mut conn, "email_imap");
         let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
         let ticket = tickets_repo::update_ticket_partial(

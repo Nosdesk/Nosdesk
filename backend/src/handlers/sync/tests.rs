@@ -12,7 +12,7 @@ use diesel::prelude::*;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::models::{NewProject, ProjectUpdate, SyncAggregate, SyncOp, UserRole};
+use crate::models::{NewProject, ProjectUpdate, SyncAggregate, SyncOp};
 use crate::repository::projects;
 use crate::schema::sync_actions;
 use crate::sync::actor::ActorContext;
@@ -24,7 +24,7 @@ use crate::test_helpers::{setup_test_connection, TestFixtures};
 #[test]
 fn delta_returns_events_for_user_visible_groups() {
     let mut conn = setup_test_connection();
-    let admin = TestFixtures::create_user(&mut conn, "sync_proto_admin", UserRole::Admin);
+    let admin = TestFixtures::create_user(&mut conn, "sync_proto_admin", "admin");
     let actor = ActorContext::user(admin.uuid, None);
 
     // Establish a baseline cursor before any of our writes.
@@ -108,7 +108,7 @@ fn delta_returns_events_for_user_visible_groups() {
 fn push_rejects_unsupported_aggregate() {
     use super::push::PushTransaction;
     let mut conn = setup_test_connection();
-    let admin = TestFixtures::create_user(&mut conn, "sync_proto_pushdeny", UserRole::Admin);
+    let admin = TestFixtures::create_user(&mut conn, "sync_proto_pushdeny", "admin");
     let actor = ActorContext::user(admin.uuid, None);
 
     let tx = PushTransaction {

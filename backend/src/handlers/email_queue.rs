@@ -247,7 +247,6 @@ mod tests {
     //! The data path is exercised by the repo's tests; here we just
     //! prove the admin gate is wired on each route.
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{claims_for, setup_test_pool};
     use actix_web::test as actix_test;
     use actix_web::{http::StatusCode, App, HttpMessage};
@@ -285,7 +284,7 @@ mod tests {
     #[actix_web::test]
     async fn list_rejects_user_role() {
         let pool = setup_test_pool();
-        let claims = claims_for(&pool, UserRole::User);
+        let claims = claims_for(&pool, "user");
         let app = actix_test::init_service(test_app(pool.clone())).await;
         let req = actix_test::TestRequest::get()
             .uri("/admin/email-queue")
@@ -298,7 +297,7 @@ mod tests {
     #[actix_web::test]
     async fn retry_rejects_user_role() {
         let pool = setup_test_pool();
-        let claims = claims_for(&pool, UserRole::User);
+        let claims = claims_for(&pool, "user");
         let app = actix_test::init_service(test_app(pool.clone())).await;
         let req = actix_test::TestRequest::post()
             .uri("/admin/email-queue/1/retry")

@@ -35,7 +35,7 @@ pub mod utf8_trunc;
 pub mod webauthn;
 pub mod workspace_slug;
 
-use crate::models::UserRole;
+use crate::models::{PlatformRole, WorkspaceRole};
 use uuid::Uuid;
 
 /// Custom error types for better error handling
@@ -74,18 +74,22 @@ pub fn uuid_to_string(uuid: &Uuid) -> String {
     uuid.to_string()
 }
 
-/// Convert UserRole enum to string for JWT and API responses
-pub fn role_to_string(role: &UserRole) -> &'static str {
-    role.as_str()
-}
-
-/// Parse string to UserRole enum
-pub fn parse_role(role_str: &str) -> ValidationResult<UserRole> {
+/// Parse a create-user / import "role" request string onto the W2
+/// split `(platform_role, workspace_role)`. The legacy request
+/// vocabulary is preserved for callers/clients:
+///
+/// - `admin`          → workspace admin (platform `user`). A created
+///   admin manages their workspace; instance-wide platform-admin is
+///   reserved for the bootstrap operator and isn't granted here.
+/// - `technician`     → workspace agent (platform `user`).
+/// - `user`           → workspace member (platform `user`).
+/// - `audit_reviewer` → platform audit reviewer + workspace member.
+pub fn parse_roles(role_str: &str) -> ValidationResult<(PlatformRole, WorkspaceRole)> {
     match role_str.trim().to_lowercase().as_str() {
-        "admin" => Ok(UserRole::Admin),
-        "technician" => Ok(UserRole::Technician),
-        "user" => Ok(UserRole::User),
-        "audit_reviewer" => Ok(UserRole::AuditReviewer),
+        "admin" => Ok((PlatformRole::User, WorkspaceRole::Admin)),
+        "technician" => Ok((PlatformRole::User, WorkspaceRole::Agent)),
+        "user" => Ok((PlatformRole::User, WorkspaceRole::Member)),
+        "audit_reviewer" => Ok((PlatformRole::AuditReviewer, WorkspaceRole::Member)),
         _ => Err(ValidationError::InvalidRole(role_str.to_string())),
     }
 }
@@ -119,22 +123,28 @@ mod tests {
     }
 
     #[test]
-    fn role_to_string_conversions() {
-        assert_eq!(role_to_string(&UserRole::Admin), "admin");
-        assert_eq!(role_to_string(&UserRole::Technician), "technician");
-        assert_eq!(role_to_string(&UserRole::User), "user");
-    }
-
-    #[test]
-    fn parse_role_valid() {
-        assert_eq!(parse_role("admin").unwrap(), UserRole::Admin);
-        assert_eq!(parse_role("TECHNICIAN").unwrap(), UserRole::Technician);
-        assert_eq!(parse_role("  User  ").unwrap(), UserRole::User);
+    fn parse_roles_valid() {
+        assert_eq!(
+            parse_roles("admin").unwrap(),
+            (PlatformRole::User, WorkspaceRole::Admin)
+        );
+        assert_eq!(
+            parse_roles("TECHNICIAN").unwrap(),
+            (PlatformRole::User, WorkspaceRole::Agent)
+        );
+        assert_eq!(
+            parse_roles("  User  ").unwrap(),
+            (PlatformRole::User, WorkspaceRole::Member)
+        );
+        assert_eq!(
+            parse_roles("audit_reviewer").unwrap(),
+            (PlatformRole::AuditReviewer, WorkspaceRole::Member)
+        );
     }
 
     #[test]
     fn parse_role_invalid() {
-        assert!(parse_role("superadmin").is_err());
+        assert!(parse_roles("superadmin").is_err());
     }
 
     #[test]

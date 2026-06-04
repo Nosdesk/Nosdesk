@@ -419,8 +419,8 @@ fn user_can_read(view: &SavedView, auth: &AuthContext) -> bool {
 
 fn user_can_write_scope(scope: &str, auth: &AuthContext) -> bool {
     match scope {
-        "workspace" => auth.is_admin(),
-        "project" => auth.is_technician_or_admin(),
+        "workspace" => auth.is_workspace_admin(),
+        "project" => auth.can_handle_tickets(),
         "private" => true,
         _ => false,
     }

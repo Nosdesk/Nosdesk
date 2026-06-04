@@ -128,19 +128,10 @@ pub fn try_bearer_auth(
             warn!("Failed to update token last_used_at: {}", e);
         }
 
-        // Derive the legacy `UserRole` projection so the JWT claim
-        // stays populated for downstream code that still reads it.
-        // Hits workspace_members under the same bypass txn.
-        let role = crate::repository::user_helpers::legacy_role_for_user(
-            conn,
-            user.uuid,
-            &user.platform_role,
-        );
-
-        Ok::<_, diesel::result::Error>((api_token, user, email, role))
+        Ok::<_, diesel::result::Error>((api_token, user, email))
     });
 
-    let (api_token, user, email, role) = match lookup_result {
+    let (api_token, user, email) = match lookup_result {
         Ok(triple) => triple,
         Err(diesel::result::Error::NotFound) => {
             warn!(path = %req.path(), "API token not found or expired");
@@ -189,8 +180,7 @@ pub fn try_bearer_auth(
         sub: api_token.user_uuid.to_string(),
         name: user.name,
         email,
-        role: role.as_str().to_string(),
-        platform_role: Some(user.platform_role.clone()),
+        platform_role: user.platform_role.clone(),
         scope,
         sid: None,
         exp: (now + chrono::Duration::hours(24)).timestamp() as usize,

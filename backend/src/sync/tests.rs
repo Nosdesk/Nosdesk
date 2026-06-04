@@ -4,7 +4,7 @@ use diesel::prelude::*;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::models::{SyncAggregate, SyncOp, UserRole};
+use crate::models::{SyncAggregate, SyncOp};
 use crate::schema::sync_actions;
 use crate::sync::actor::ActorContext;
 use crate::sync::emit::{self, SyncEmit};
@@ -15,7 +15,7 @@ use crate::test_helpers::{setup_test_connection, TestFixtures};
 #[test]
 fn record_inserts_a_row_with_the_actor_attached() {
     let mut conn = setup_test_connection();
-    let user = TestFixtures::create_user(&mut conn, "sync_emit_user", UserRole::Admin);
+    let user = TestFixtures::create_user(&mut conn, "sync_emit_user", "admin");
     let actor = ActorContext::user(user.uuid, None);
 
     let sync_id = conn
@@ -107,7 +107,7 @@ fn system_meta_schema_hash_round_trip() {
 #[test]
 fn session_set_actor_runs_within_a_transaction() {
     let mut conn = setup_test_connection();
-    let user = TestFixtures::create_user(&mut conn, "session_actor_user", UserRole::User);
+    let user = TestFixtures::create_user(&mut conn, "session_actor_user", "user");
     let actor = ActorContext::user(user.uuid, None);
 
     // Should not error. The trigger isn't attached to any table yet

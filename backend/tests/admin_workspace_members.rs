@@ -28,16 +28,16 @@ use serde_json::json;
 
 use backend::handlers::admin_workspaces;
 use backend::middleware::dual_auth_middleware;
-use backend::models::{NewUser, User, UserRole};
+use backend::models::{NewUser, User};
 
 mod common;
 
-fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: UserRole) -> User {
+fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: &str) -> User {
     use backend::schema::users;
     // Map legacy UserRole onto platform_role for the test fixture.
     // The `users.role` column itself was dropped in W2 cleanup.
     let platform_role = match role {
-        UserRole::Admin => Some("platform_admin".to_string()),
+        "admin" => Some("platform_admin".to_string()),
         _ => None,
     };
     let new_user = NewUser {
@@ -66,26 +66,22 @@ async fn workspace_member_lifecycle_contract() {
     let pool = test_db.pool_with_size(4);
 
     // Cast of characters.
-    let admin = mint_user(
-        &mut pool.get().expect("conn"),
-        "PlatformAdmin",
-        UserRole::Admin,
-    );
+    let admin = mint_user(&mut pool.get().expect("conn"), "PlatformAdmin", "admin");
     let admin_token = common::mint_api_token(
         &mut pool.get().expect("conn"),
         &admin,
         "admin-session",
         false,
     );
-    let regular = mint_user(&mut pool.get().expect("conn"), "Regular", UserRole::User);
+    let regular = mint_user(&mut pool.get().expect("conn"), "Regular", "user");
     let regular_token = common::mint_api_token(
         &mut pool.get().expect("conn"),
         &regular,
         "user-session",
         false,
     );
-    let alice = mint_user(&mut pool.get().expect("conn"), "Alice", UserRole::User);
-    let bob = mint_user(&mut pool.get().expect("conn"), "Bob", UserRole::User);
+    let alice = mint_user(&mut pool.get().expect("conn"), "Alice", "user");
+    let bob = mint_user(&mut pool.get().expect("conn"), "Bob", "user");
     let alice_token =
         common::mint_api_token(&mut pool.get().expect("conn"), &alice, "alice", false);
 

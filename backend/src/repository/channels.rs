@@ -420,7 +420,7 @@ pub fn latest_inbound_for_ticket(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{UserRole, CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND};
+    use crate::models::{CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use serde_json::json;
 
@@ -567,7 +567,7 @@ mod tests {
     #[test]
     fn find_ticket_by_reference_chain_matches_first_hit() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "u", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "u", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
 

@@ -68,7 +68,7 @@ pub async fn record(
     sse_state: web::Data<SseState>,
     notification_service: web::Data<NotificationService>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can record usage",
         );

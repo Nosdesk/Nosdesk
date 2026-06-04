@@ -39,7 +39,7 @@ const ANNOTATION_TABLES: &[&str] = &["rules", "sla_policies", "working_calendars
 /// `staff_gate(&auth)?` at the top of the handler, no policy
 /// duplication.
 fn staff_gate(auth: &AuthContext) -> Option<HttpResponse> {
-    if auth.is_technician_or_admin() {
+    if auth.can_handle_tickets() {
         None
     } else {
         Some(errors::forbidden(

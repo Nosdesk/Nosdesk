@@ -44,7 +44,7 @@ pub async fn create_tag(
     body: web::Json<NewTag>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can create tags");
     }
     match tc.run(|conn| repo::create_tag(conn, body.into_inner())) {
@@ -62,7 +62,7 @@ pub async fn update_tag(
     body: web::Json<TagUpdate>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can update tags");
     }
     let id = params.into_inner();
@@ -80,7 +80,7 @@ pub async fn archive_tag(
     params: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Only admins can archive tags");
     }
     let id = params.into_inner();

@@ -747,17 +747,18 @@ pub async fn register(
     // Generate a UUID if not provided
     let user_uuid = Uuid::now_v7();
 
-    // Parse role from string to enum
-    let user_role = match utils::parse_role(&user_data.role) {
-        Ok(role) => role,
+    // Map the requested role string onto the platform + workspace
+    // role split.
+    let (platform_role, workspace_role) = match utils::parse_roles(&user_data.role) {
+        Ok(roles) => roles,
         Err(e) => return e.into(),
     };
 
     // Create new user using builder pattern with normalized data
     let (normalized_name, normalized_email) =
         utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let (new_user, role, email) =
-        utils::NewUserBuilder::new(normalized_name, normalized_email.clone(), user_role)
+    let (new_user, email) =
+        utils::NewUserBuilder::new(normalized_name, normalized_email.clone(), platform_role)
             .with_uuid(user_uuid)
             .with_pronouns(utils::normalization::normalize_optional_string(
                 user_data.pronouns.as_deref(),
@@ -780,8 +781,7 @@ pub async fn register(
     let create_result = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
         repository::user_helpers::create_user_with_email(
             new_user,
-            role,
-            crate::models::WorkspaceRole::from_user_role(role),
+            workspace_role,
             email,
             true,
             Some("manual".to_string()),
@@ -2339,12 +2339,7 @@ pub async fn refresh_token(
     };
 
     // 6. Generate new access JWT with same sid
-    let role = crate::repository::user_helpers::legacy_role_for_user(
-        &mut conn,
-        user.uuid,
-        &user.platform_role,
-    );
-    let new_access_token = match JwtUtils::create_token(&user, role, &session_id) {
+    let new_access_token = match JwtUtils::create_token(&user, &session_id) {
         Ok(token) => token,
         Err(_) => {
             return errors::internal("Failed to create access token");
@@ -2419,7 +2414,6 @@ pub async fn refresh_token(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
     use actix_web::{http::StatusCode, test, App};
 
@@ -2569,8 +2563,8 @@ mod tests {
         let pool = setup_test_pool();
         let (user_uuid, claims) = {
             let mut conn = pool.get().unwrap();
-            let user = TestFixtures::create_user(&mut conn, "authuser", UserRole::User);
-            let claims = create_test_claims(&user, UserRole::User);
+            let user = TestFixtures::create_user(&mut conn, "authuser", "user");
+            let claims = create_test_claims(&user);
             (user.uuid, claims)
         }; // conn dropped here
 

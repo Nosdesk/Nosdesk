@@ -118,7 +118,6 @@ pub fn prune_older_than(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
@@ -126,7 +125,7 @@ mod tests {
         use crate::schema::security_events::dsl as se;
 
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "Audit", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "Audit", "user");
 
         let inserted = record_security_event(
             &mut conn,

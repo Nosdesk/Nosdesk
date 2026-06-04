@@ -558,7 +558,6 @@ pub fn build_burnup(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<serde
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     fn make_cycle(project_id: i32, name: &str, state: &str) -> NewCycle {
@@ -574,7 +573,7 @@ mod tests {
     }
 
     fn _seed_user_and_project(conn: &mut DbConnection, label: &str) -> (Uuid, i32) {
-        let user = TestFixtures::create_user(conn, label, UserRole::User);
+        let user = TestFixtures::create_user(conn, label, "user");
         let project = TestFixtures::create_project(conn, label);
         (user.uuid, project.id)
     }

@@ -28,14 +28,14 @@ use serde_json::json;
 
 use backend::handlers::admin_workspaces;
 use backend::middleware::dual_auth_middleware;
-use backend::models::{NewUser, User, UserRole};
+use backend::models::{NewUser, User};
 
 mod common;
 
-fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: UserRole) -> User {
+fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: &str) -> User {
     use backend::schema::users;
     let platform_role = match role {
-        UserRole::Admin => Some("platform_admin".to_string()),
+        "admin" => Some("platform_admin".to_string()),
         _ => None,
     };
     let new_user = NewUser {
@@ -63,18 +63,14 @@ async fn admin_workspaces_lifecycle_contract() {
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);
 
-    let admin = mint_user(
-        &mut pool.get().expect("conn"),
-        "PlatformAdmin",
-        UserRole::Admin,
-    );
+    let admin = mint_user(&mut pool.get().expect("conn"), "PlatformAdmin", "admin");
     let admin_token = common::mint_api_token(
         &mut pool.get().expect("conn"),
         &admin,
         "admin-session",
         false,
     );
-    let regular_user = mint_user(&mut pool.get().expect("conn"), "Regular", UserRole::User);
+    let regular_user = mint_user(&mut pool.get().expect("conn"), "Regular", "user");
     let user_token = common::mint_api_token(
         &mut pool.get().expect("conn"),
         &regular_user,

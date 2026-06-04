@@ -435,13 +435,12 @@ pub fn delete_attachment(conn: &mut DbConnection, attachment_id: i32) -> QueryRe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
     fn create_and_retrieve_comment() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "commenter", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "commenter", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "Ticket", Some(user.uuid), None);
 
         let comment = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "Hello world");
@@ -456,7 +455,7 @@ mod tests {
     #[test]
     fn multiple_comments_all_returned() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "order", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "order", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
 
         let c1 = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "First");
@@ -474,7 +473,7 @@ mod tests {
         use diesel::prelude::*;
 
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "visible", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "visible", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "V", Some(user.uuid), None);
 
         // Public.
@@ -505,7 +504,7 @@ mod tests {
     #[test]
     fn create_comment_updates_ticket_timestamp() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "tsuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "tsuser", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "TS", Some(user.uuid), None);
         let original_updated = ticket.updated_at;
 
@@ -528,7 +527,7 @@ mod tests {
     #[test]
     fn create_and_retrieve_attachment() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "attuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "attuser", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
         let comment = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "With file");
 
@@ -543,7 +542,7 @@ mod tests {
     #[test]
     fn delete_comment_cascades_attachments() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "deluser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "deluser", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
         let comment = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "Bye");
         let att = TestFixtures::create_attachment(&mut conn, comment.id, "file.txt");
@@ -557,7 +556,7 @@ mod tests {
     #[test]
     fn delete_single_attachment() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "delatt", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "delatt", "user");
         let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
         let comment = TestFixtures::create_comment(&mut conn, ticket.id, user.uuid, "Keep me");
         let att = TestFixtures::create_attachment(&mut conn, comment.id, "remove.pdf");

@@ -316,9 +316,7 @@ mod tests {
     // (user + ticket + channel + maybe a prior message) and verifies
     // the resolver picks the right step.
 
-    use crate::models::{
-        NewChannelMessage, UserRole, CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND,
-    };
+    use crate::models::{NewChannelMessage, CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND};
     use crate::repository::channels as channels_repo;
     use crate::services::channels::{ExternalIdentity, InboundMessage, LoopMarkers};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
@@ -361,7 +359,7 @@ mod tests {
 
     fn setup_channel_and_ticket(conn: &mut crate::db::DbConnection) -> (i32, i32) {
         let ch = TestFixtures::create_channel(conn, "email_imap");
-        let user = TestFixtures::create_user(conn, "u", UserRole::User);
+        let user = TestFixtures::create_user(conn, "u", "user");
         let ticket = TestFixtures::create_ticket(conn, "T", Some(user.uuid), None);
         (ch.id, ticket.id)
     }
@@ -470,7 +468,7 @@ mod tests {
         // References should win — it's the authoritative signal.
         let mut conn = setup_test_connection();
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
-        let user = TestFixtures::create_user(&mut conn, "u", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "u", "user");
         let ticket_a = TestFixtures::create_ticket(&mut conn, "A", Some(user.uuid), None);
         let ticket_b = TestFixtures::create_ticket(&mut conn, "B", Some(user.uuid), None);
 

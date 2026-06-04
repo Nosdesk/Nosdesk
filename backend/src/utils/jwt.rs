@@ -22,15 +22,11 @@ pub struct JwtUtils;
 
 impl JwtUtils {
     /// Create a JWT token for a user with full scope (15 min expiry).
-    /// `role` is the legacy `UserRole` projection the caller computed
-    /// from `users.platform_role` + workspace_members.role; the column
-    /// itself was dropped in the W2 cleanup migration so create_token
-    /// can no longer derive it from the User struct alone.
-    pub fn create_token(
-        user: &User,
-        role: crate::models::UserRole,
-        session_id: &uuid::Uuid,
-    ) -> Result<String, JwtError> {
+    /// Mints a session token. The only role carried is the
+    /// platform role (read straight off `user.platform_role`); the
+    /// per-workspace role is resolved per-request from
+    /// `workspace_members`, so the token stays workspace-independent.
+    pub fn create_token(user: &User, session_id: &uuid::Uuid) -> Result<String, JwtError> {
         // Belt-and-suspenders: refuse to mint a token for a
         // soft-deleted user even if a caller is holding a stale
         // User reference. login_timing already filters these at
@@ -48,8 +44,7 @@ impl JwtUtils {
             sub: uuid_to_string(&user.uuid),
             name: user.name.clone(),
             email: String::new(),
-            role: role.as_str().to_string(),
-            platform_role: Some(user.platform_role.clone()),
+            platform_role: user.platform_role.clone(),
             scope: "full".to_string(),
             sid: Some(session_id.to_string()),
             exp: now + 15 * 60, // 15 minutes
@@ -66,7 +61,7 @@ impl JwtUtils {
 
     /// Create a short-lived SSE token (1 hour expiry)
     /// These tokens are specifically for Server-Sent Events and have reduced scope
-    pub fn create_sse_token(user_id: &str, role: &str) -> Result<String, JwtError> {
+    pub fn create_sse_token(user_id: &str, platform_role: &str) -> Result<String, JwtError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| JwtError::SystemTime)?
@@ -76,13 +71,7 @@ impl JwtUtils {
             sub: user_id.to_string(),
             name: "SSE_TOKEN".to_string(),
             email: String::new(),
-            role: role.to_string(),
-            // SSE tokens are minted from cookie auth where we
-            // don't have the user row handy; the legacy `role`
-            // field is sufficient for what SSE handlers gate on
-            // today. W2 sweep will revisit if SSE needs platform-
-            // role checks.
-            platform_role: None,
+            platform_role: platform_role.to_string(),
             scope: "sse".to_string(),
             sid: None,
             exp: now + 3600,
@@ -133,21 +122,17 @@ impl JwtUtils {
         let user = repository::users::find_active_by_uuid(&user_uuid, conn)
             .map_err(|_| JwtError::UserNotFound)?;
 
-        // Verify role hasn't changed since token was issued. Post-W2
-        // the legacy projection is derived from platform_role +
-        // workspace_members.role; a workspace-membership demotion
-        // (e.g. agent → member) still flips this comparison and
-        // forces a re-login.
-        let current_role = crate::repository::user_helpers::legacy_role_for_user(
-            conn,
-            user.uuid,
-            &user.platform_role,
-        );
-        let current_role_str = current_role.as_str();
-        if claims.role != current_role_str {
+        // Verify the platform role hasn't changed since the token was
+        // issued: a demotion out of platform_admin (or audit_reviewer)
+        // invalidates the token immediately instead of waiting for the
+        // 15-minute expiry. Per-workspace role changes don't need a
+        // token-level guard because AuthContext re-reads
+        // workspace_members on every request, so a workspace demotion
+        // takes effect on the next call regardless of the token.
+        if claims.platform_role != user.platform_role {
             return Err(JwtError::RoleMismatch {
-                token_role: claims.role,
-                current_role: current_role_str.to_string(),
+                token_role: claims.platform_role,
+                current_role: user.platform_role.clone(),
             });
         }
 
@@ -420,12 +405,7 @@ pub mod helpers {
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
     ) -> Result<LoginTokens, HttpResponse> {
-        let role = crate::repository::user_helpers::legacy_role_for_user(
-            conn,
-            user.uuid,
-            &user.platform_role,
-        );
-        let access_token = JwtUtils::create_token(user, role, session_id).map_err(|_| {
+        let access_token = JwtUtils::create_token(user, session_id).map_err(|_| {
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Error generating token"
@@ -644,8 +624,7 @@ mod tests {
         };
 
         let sid = uuid::Uuid::new_v4();
-        let token = JwtUtils::create_token(&user, crate::models::UserRole::Admin, &sid)
-            .expect("Failed to create token");
+        let token = JwtUtils::create_token(&user, &sid).expect("Failed to create token");
         let claims = JwtUtils::validate_token(&token).expect("Failed to validate token");
 
         assert_eq!(claims.sub, user.uuid.to_string());
@@ -685,7 +664,7 @@ mod tests {
         };
 
         let sid = uuid::Uuid::new_v4();
-        match JwtUtils::create_token(&user, crate::models::UserRole::Admin, &sid) {
+        match JwtUtils::create_token(&user, &sid) {
             Err(JwtError::UserNotFound) => {}
             other => panic!("expected UserNotFound for soft-deleted user, got {other:?}"),
         }
@@ -699,8 +678,8 @@ mod tests {
         let _ = &*JWT_SECRET;
 
         let user_id = uuid::Uuid::new_v4().to_string();
-        let token =
-            JwtUtils::create_sse_token(&user_id, "admin").expect("Failed to create SSE token");
+        let token = JwtUtils::create_sse_token(&user_id, "platform_admin")
+            .expect("Failed to create SSE token");
         let claims = JwtUtils::validate_token(&token).expect("Failed to validate SSE token");
         assert_eq!(claims.scope, "sse");
         assert_eq!(claims.sub, user_id);

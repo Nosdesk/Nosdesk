@@ -66,10 +66,22 @@ pub fn admin_conn(req: &HttpRequest, pool: &web::Data<Pool>) -> Result<DbConnect
         .get::<Claims>()
         .cloned()
         .ok_or_else(|| errors::unauthorized("Authentication required"))?;
-    if !crate::utils::rbac::is_admin(&claims) {
+    let mut conn = db_conn(pool)?;
+    // Admin tier = platform admin, or workspace admin/owner in the
+    // bootstrap workspace (the claims carry only the platform role, so
+    // the workspace half is looked up). Mirrors the old derived-admin
+    // gate now that the legacy UserRole projection is gone.
+    let is_admin = crate::utils::rbac::is_platform_admin(&claims)
+        || crate::utils::parse_uuid(&claims.sub)
+            .ok()
+            .and_then(|uuid| {
+                crate::repository::user_helpers::bootstrap_workspace_role(&mut conn, uuid)
+            })
+            .is_some_and(|r| r.meets(crate::models::WorkspaceRole::Admin));
+    if !is_admin {
         return Err(errors::forbidden("Admin required"));
     }
-    db_conn(pool)
+    Ok(conn)
 }
 
 /// Admin-only helper: authenticate caller, enforce admin role, parse target UUID, load target user.

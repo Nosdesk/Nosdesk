@@ -1,14 +1,18 @@
-use crate::models::{NewUser, UserRole};
+use crate::models::{NewUser, PlatformRole};
 use uuid::Uuid;
 
 /// Builder for creating NewUser instances with sensible defaults
 /// Email is stored separately and returned in build_with_email()
 /// Password is NOT stored in User anymore - it goes in user_auth_identities table
+///
+/// The builder only carries the platform role (which lives on the
+/// `users` row). The per-workspace membership role is supplied
+/// separately to `create_user_with_email`.
 pub struct NewUserBuilder {
     uuid: Uuid,
     name: String,
     email: String, // Stored but not part of NewUser - returned separately
-    role: UserRole,
+    platform_role: PlatformRole,
     pronouns: Option<String>,
     avatar_url: Option<String>,
     banner_url: Option<String>,
@@ -18,12 +22,12 @@ pub struct NewUserBuilder {
 
 impl NewUserBuilder {
     /// Create a new user builder with required fields
-    pub fn new(name: String, email: String, role: UserRole) -> Self {
+    pub fn new(name: String, email: String, platform_role: PlatformRole) -> Self {
         Self {
             uuid: Uuid::now_v7(),
             name,
             email,
-            role,
+            platform_role,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -58,14 +62,23 @@ impl NewUserBuilder {
         self
     }
 
-    /// Build and return (NewUser, UserRole, email). UserRole is the
-    /// caller's intended legacy projection; downstream
-    /// `create_user_with_email` consumes it to seed the
-    /// workspace_members row. Email goes to user_emails.
-    /// Password handled separately in user_auth_identities.
-    pub fn build_with_email(self) -> (NewUser, UserRole, String) {
-        let role = self.role;
-        let new_user = NewUser {
+    /// Build and return (NewUser, email). The platform role is baked
+    /// onto the NewUser; the workspace membership role is supplied
+    /// separately to `create_user_with_email`. Email goes to
+    /// user_emails. Password handled separately in
+    /// user_auth_identities.
+    pub fn build_with_email(self) -> (NewUser, String) {
+        let email = self.email.clone();
+        (self.build_new_user(), email)
+    }
+
+    /// Build a NewUser for cases where email is handled separately.
+    pub fn build(self) -> NewUser {
+        self.build_new_user()
+    }
+
+    fn build_new_user(self) -> NewUser {
+        NewUser {
             uuid: self.uuid,
             name: self.name,
             pronouns: self.pronouns,
@@ -76,64 +89,33 @@ impl NewUserBuilder {
             mfa_secret: None,
             mfa_secret_kek_id: None,
             mfa_enabled: false,
-            platform_role: platform_role_for(role),
-        };
-        (new_user, role, self.email)
-    }
-
-    /// Build (NewUser, UserRole) for cases where email is handled
-    /// separately. UserRole is the caller's intended legacy
-    /// projection.
-    pub fn build(self) -> (NewUser, UserRole) {
-        let role = self.role;
-        let new_user = NewUser {
-            uuid: self.uuid,
-            name: self.name,
-            pronouns: self.pronouns,
-            avatar_url: self.avatar_url,
-            banner_url: self.banner_url,
-            avatar_thumb: self.avatar_thumb,
-            microsoft_uuid: self.microsoft_uuid,
-            mfa_secret: None,
-            mfa_secret_kek_id: None,
-            mfa_enabled: false,
-            platform_role: platform_role_for(role),
-        };
-        (new_user, role)
-    }
-}
-
-/// Mirror the W2 backfill: only legacy admins map to `platform_admin`.
-/// Other roles surface as workspace-scoped roles in `workspace_members`.
-fn platform_role_for(role: UserRole) -> Option<String> {
-    match role {
-        UserRole::Admin => Some("platform_admin".to_string()),
-        _ => None,
+            platform_role: Some(self.platform_role.as_str().to_string()),
+        }
     }
 }
 
 /// Convenience functions for common user creation patterns
 /// Note: Password must be handled separately in user_auth_identities table
 impl NewUserBuilder {
-    pub fn local_user(name: String, email: String, role: UserRole) -> Self {
-        Self::new(name, email, role)
+    pub fn local_user(name: String, email: String, platform_role: PlatformRole) -> Self {
+        Self::new(name, email, platform_role)
     }
 
-    pub fn oauth_user(name: String, email: String, role: UserRole) -> Self {
-        Self::new(name, email, role)
+    pub fn oauth_user(name: String, email: String, platform_role: PlatformRole) -> Self {
+        Self::new(name, email, platform_role)
     }
 
     pub fn microsoft_user(
         name: String,
         email: String,
-        role: UserRole,
+        platform_role: PlatformRole,
         microsoft_uuid: Option<Uuid>,
     ) -> Self {
-        Self::new(name, email, role).with_microsoft_uuid(microsoft_uuid)
+        Self::new(name, email, platform_role).with_microsoft_uuid(microsoft_uuid)
     }
 
     pub fn admin_user(name: String, email: String) -> Self {
-        Self::new(name, email, UserRole::Admin)
+        Self::new(name, email, PlatformRole::PlatformAdmin)
     }
 }
 
@@ -156,17 +138,19 @@ mod tests {
 
     #[test]
     fn builder_sets_role() {
-        let (user, role) =
-            NewUserBuilder::new("Alice".into(), "alice@example.com".into(), UserRole::Admin)
-                .build();
-        assert_eq!(role, UserRole::Admin);
+        let user = NewUserBuilder::new(
+            "Alice".into(),
+            "alice@example.com".into(),
+            PlatformRole::PlatformAdmin,
+        )
+        .build();
         assert_eq!(user.name, "Alice");
         assert_eq!(user.platform_role.as_deref(), Some("platform_admin"));
     }
 
     #[test]
     fn builder_defaults_mfa_disabled() {
-        let (user, _) = NewUserBuilder::new("Bob".into(), "b@b.com".into(), UserRole::User).build();
+        let user = NewUserBuilder::new("Bob".into(), "b@b.com".into(), PlatformRole::User).build();
         assert!(!user.mfa_enabled);
         assert!(user.mfa_secret.is_none());
         // Recovery codes are now their own table (user_recovery_codes);
@@ -175,8 +159,8 @@ mod tests {
 
     #[test]
     fn build_with_email_returns_email_separately() {
-        let (user, _role, email) =
-            NewUserBuilder::new("Carol".into(), "carol@x.com".into(), UserRole::Technician)
+        let (user, email) =
+            NewUserBuilder::new("Carol".into(), "carol@x.com".into(), PlatformRole::User)
                 .build_with_email();
         assert_eq!(email, "carol@x.com");
         assert_eq!(user.name, "Carol");
@@ -184,17 +168,17 @@ mod tests {
 
     #[test]
     fn admin_factory_sets_admin_role() {
-        let (_user, role) = NewUserBuilder::admin_user("Admin".into(), "a@a.com".into()).build();
-        assert_eq!(role, UserRole::Admin);
+        let user = NewUserBuilder::admin_user("Admin".into(), "a@a.com".into()).build();
+        assert_eq!(user.platform_role.as_deref(), Some("platform_admin"));
     }
 
     #[test]
     fn microsoft_factory_sets_microsoft_uuid() {
         let ms_uuid = Uuid::new_v4();
-        let (user, _) = NewUserBuilder::microsoft_user(
+        let user = NewUserBuilder::microsoft_user(
             "MS".into(),
             "ms@x.com".into(),
-            UserRole::User,
+            PlatformRole::User,
             Some(ms_uuid),
         )
         .build();
@@ -203,7 +187,7 @@ mod tests {
 
     #[test]
     fn builder_with_methods_override_defaults() {
-        let (user, _) = NewUserBuilder::new("D".into(), "d@d.com".into(), UserRole::User)
+        let user = NewUserBuilder::new("D".into(), "d@d.com".into(), PlatformRole::User)
             .with_pronouns(Some("they/them".into()))
             .with_avatar(Some("/avatar.png".into()), Some("/thumb.png".into()))
             .with_banner(Some("/banner.png".into()))

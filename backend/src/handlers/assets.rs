@@ -183,10 +183,9 @@ impl AssetResponse {
             is_editable,
             primary_user: user.map(|u| {
                 let name = u.name.clone();
-                let role =
-                    repository::user_helpers::legacy_role_for_user(conn, u.uuid, &u.platform_role)
-                        .as_str()
-                        .to_string();
+                let role = repository::user_helpers::bootstrap_workspace_role(conn, u.uuid)
+                    .map(|r| r.as_str().to_string())
+                    .unwrap_or_else(|| crate::models::WorkspaceRole::Member.as_str().to_string());
 
                 // Fetch primary email from user_emails table
                 let email = repository::user_helpers::get_primary_email(&u.uuid, conn)
@@ -605,7 +604,7 @@ pub async fn create_device(
     sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can create devices",
         );
@@ -680,7 +679,7 @@ pub async fn update_device(
     let device_id = path.into_inner();
 
     // Check role - only technicians and admins can update devices
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can update devices",
         );
@@ -798,7 +797,7 @@ pub async fn delete_device(
     sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Forbidden: Only administrators can delete devices");
     }
 
@@ -846,7 +845,7 @@ pub async fn unmanage_device(
     let device_id = path.into_inner();
 
     // Only admins can unmanage devices
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden("Forbidden: Only administrators can unmanage devices");
     }
 
@@ -974,7 +973,7 @@ pub async fn bulk_devices(
     body: web::Json<BulkDeviceActionRequest>,
 ) -> impl Responder {
     // Only admins can perform bulk operations
-    if !auth.is_admin() {
+    if !auth.is_workspace_admin() {
         return errors::forbidden(
             "Forbidden: Only administrators can perform bulk device operations",
         );

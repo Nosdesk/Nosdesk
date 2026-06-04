@@ -507,7 +507,7 @@ mod tests {
 
     use super::*;
     use crate::db::Pool;
-    use crate::models::{Claims, UserRole};
+    use crate::models::Claims;
     use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
     use actix_web::{test as actix_test, web, App, HttpMessage};
 
@@ -518,12 +518,12 @@ mod tests {
     ///
     /// Tests must drop the seed connection before the HTTP call to
     /// avoid a deadlock on the single-connection pool.
-    fn seeded_env(role: UserRole, name: &str) -> (Pool, Claims) {
+    fn seeded_env(role: &str, name: &str) -> (Pool, Claims) {
         let pool = setup_test_pool();
         let claims = {
             let mut conn = pool.get().unwrap();
             let user = TestFixtures::create_user(&mut conn, name, role);
-            create_test_claims(&user, role)
+            create_test_claims(&user)
         };
         (pool, claims)
     }
@@ -587,7 +587,7 @@ mod tests {
 
     #[actix_web::test]
     async fn non_admin_cannot_list_channels() {
-        let (pool, claims) = seeded_env(UserRole::User, "plain-user");
+        let (pool, claims) = seeded_env("user", "plain-user");
         let srv = actix_test::init_service(build_app_with_pool(pool)).await;
 
         let req = actix_test::TestRequest::get()
@@ -601,7 +601,7 @@ mod tests {
 
     #[actix_web::test]
     async fn create_rejects_unknown_provider() {
-        let (pool, claims) = seeded_env(UserRole::Admin, "admin-test");
+        let (pool, claims) = seeded_env("admin", "admin-test");
         let srv = actix_test::init_service(build_app_with_pool(pool)).await;
 
         let req = actix_test::TestRequest::post()
@@ -621,7 +621,7 @@ mod tests {
 
     #[actix_web::test]
     async fn create_rejects_missing_config_fields() {
-        let (pool, claims) = seeded_env(UserRole::Admin, "admin-test");
+        let (pool, claims) = seeded_env("admin", "admin-test");
         let srv = actix_test::init_service(build_app_with_pool(pool)).await;
 
         let req = actix_test::TestRequest::post()
@@ -641,7 +641,7 @@ mod tests {
 
     #[actix_web::test]
     async fn create_then_fetch_roundtrips_and_marks_credential_stored() {
-        let (pool, claims) = seeded_env(UserRole::Admin, "admin-test");
+        let (pool, claims) = seeded_env("admin", "admin-test");
         let srv = actix_test::init_service(build_app_with_pool(pool)).await;
 
         let req = actix_test::TestRequest::post()
@@ -677,7 +677,7 @@ mod tests {
 
     #[actix_web::test]
     async fn update_rotates_password_without_echoing_it() {
-        let (pool, claims) = seeded_env(UserRole::Admin, "admin-test");
+        let (pool, claims) = seeded_env("admin", "admin-test");
         let srv = actix_test::init_service(build_app_with_pool(pool)).await;
 
         // Create without password first.
@@ -714,7 +714,7 @@ mod tests {
 
     #[actix_web::test]
     async fn delete_channel_cascades_credential() {
-        let (pool, claims) = seeded_env(UserRole::Admin, "admin-test");
+        let (pool, claims) = seeded_env("admin", "admin-test");
         let srv = actix_test::init_service(build_app_with_pool(pool)).await;
 
         // Create with password.
@@ -752,7 +752,7 @@ mod tests {
 
     #[actix_web::test]
     async fn test_connection_refuses_when_no_password() {
-        let (pool, claims) = seeded_env(UserRole::Admin, "admin-test");
+        let (pool, claims) = seeded_env("admin", "admin-test");
         let srv = actix_test::init_service(build_app_with_pool(pool)).await;
 
         let req = actix_test::TestRequest::post()

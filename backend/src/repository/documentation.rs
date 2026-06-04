@@ -1113,7 +1113,7 @@ pub fn filter_pages_for_user(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DocumentationStatus, UserRole};
+    use crate::models::DocumentationStatus;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use uuid::Uuid;
 
@@ -1141,7 +1141,7 @@ mod tests {
     #[test]
     fn create_and_get_documentation_page() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "docuser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "docuser", "admin");
 
         let page = create_documentation_page(make_page(user.uuid), &mut conn).unwrap();
         let fetched = get_documentation_page(page.id, &mut conn).unwrap();
@@ -1151,7 +1151,7 @@ mod tests {
     #[test]
     fn get_by_slug() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "sluguser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "sluguser", "admin");
 
         create_documentation_page(make_page(user.uuid), &mut conn).unwrap();
         let fetched = get_documentation_page_by_slug("test-page", &mut conn).unwrap();
@@ -1161,7 +1161,7 @@ mod tests {
     #[test]
     fn update_documentation_page_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "upduser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "upduser", "admin");
 
         let page = create_documentation_page(make_page(user.uuid), &mut conn).unwrap();
         let update = DocumentationPageUpdate {
@@ -1193,7 +1193,7 @@ mod tests {
     #[test]
     fn delete_documentation_page_test() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "deluser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "deluser", "admin");
 
         let page = create_documentation_page(make_page(user.uuid), &mut conn).unwrap();
         let rows = delete_documentation_page(page.id, &mut conn, None).unwrap();
@@ -1204,7 +1204,7 @@ mod tests {
     #[test]
     fn top_level_pages_excludes_children() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "treeuser", UserRole::Admin);
+        let user = TestFixtures::create_user(&mut conn, "treeuser", "admin");
 
         let parent = create_documentation_page(make_page(user.uuid), &mut conn).unwrap();
 

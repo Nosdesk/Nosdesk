@@ -15,7 +15,7 @@ use crate::utils::rbac::require_workspace_role;
 /// Get categories visible to the current user
 pub async fn get_categories(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
     let user_uuid = auth.user_uuid;
-    let is_admin = auth.is_admin();
+    let is_admin = auth.is_workspace_admin();
 
     match tc.run(|conn| repository::categories::get_categories_for_user(conn, &user_uuid, is_admin))
     {
@@ -346,7 +346,6 @@ pub async fn set_category_visibility(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
     use actix_web::{http::StatusCode, test, App, HttpMessage};
 
@@ -388,8 +387,8 @@ mod tests {
         let pool = setup_test_pool();
         let claims = {
             let mut conn = pool.get().unwrap();
-            let user = TestFixtures::create_user(&mut conn, "catuser", UserRole::User);
-            create_test_claims(&user, UserRole::User)
+            let user = TestFixtures::create_user(&mut conn, "catuser", "user");
+            create_test_claims(&user)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -406,8 +405,8 @@ mod tests {
         let pool = setup_test_pool();
         let claims = {
             let mut conn = pool.get().unwrap();
-            let user = TestFixtures::create_user(&mut conn, "regularuser", UserRole::User);
-            create_test_claims(&user, UserRole::User)
+            let user = TestFixtures::create_user(&mut conn, "regularuser", "user");
+            create_test_claims(&user)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -426,8 +425,8 @@ mod tests {
         let pool = setup_test_pool();
         let claims = {
             let mut conn = pool.get().unwrap();
-            let admin = TestFixtures::create_user(&mut conn, "admincat", UserRole::Admin);
-            create_test_claims(&admin, UserRole::Admin)
+            let admin = TestFixtures::create_user(&mut conn, "admincat", "admin");
+            create_test_claims(&admin)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -446,8 +445,8 @@ mod tests {
         let pool = setup_test_pool();
         let claims = {
             let mut conn = pool.get().unwrap();
-            let admin = TestFixtures::create_user(&mut conn, "createcat", UserRole::Admin);
-            create_test_claims(&admin, UserRole::Admin)
+            let admin = TestFixtures::create_user(&mut conn, "createcat", "admin");
+            create_test_claims(&admin)
         }; // conn dropped here
 
         let app = test::init_service(test_app(pool.clone())).await;
@@ -474,9 +473,9 @@ mod tests {
         let pool = setup_test_pool();
         let (category_id, claims) = {
             let mut conn = pool.get().unwrap();
-            let admin = TestFixtures::create_user(&mut conn, "delcat", UserRole::Admin);
+            let admin = TestFixtures::create_user(&mut conn, "delcat", "admin");
             let category = TestFixtures::create_category(&mut conn, "DeleteMe");
-            let claims = create_test_claims(&admin, UserRole::Admin);
+            let claims = create_test_claims(&admin);
             (category.id, claims)
         }; // conn dropped here
 

@@ -546,7 +546,10 @@ pub struct CreateUserRequest {
     uuid: Option<Uuid>,
     name: String,
     email: String,
-    role: crate::models::UserRole,
+    /// Requested role string ("admin" / "technician" / "user" /
+    /// "audit_reviewer"), mapped to the platform + workspace role
+    /// split via `utils::parse_roles`.
+    role: String,
     pronouns: Option<String>,
     avatar_url: Option<String>,
     banner_url: Option<String>,
@@ -672,11 +675,18 @@ pub async fn create_user(
     // Use provided UUID or generate a new UUIDv7
     let user_uuid = user_data.uuid.unwrap_or_else(uuid::Uuid::now_v7);
 
+    // Map the requested role string onto the platform + workspace
+    // role split.
+    let (platform_role, workspace_role) = match utils::parse_roles(&user_data.role) {
+        Ok(roles) => roles,
+        Err(e) => return e.into(),
+    };
+
     // Create new user with normalized data using builder
     let (normalized_name, normalized_email) =
         utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let (new_user, role, email) =
-        utils::NewUserBuilder::new(normalized_name.clone(), normalized_email, user_data.role)
+    let (new_user, email) =
+        utils::NewUserBuilder::new(normalized_name.clone(), normalized_email, platform_role)
             .with_uuid(user_uuid)
             .with_pronouns(user_data.pronouns.as_ref().map(|p| p.trim().to_string()))
             .with_avatar(
@@ -708,8 +718,7 @@ pub async fn create_user(
         |c| {
             repository::user_helpers::create_user_with_email(
                 new_user,
-                role,
-                crate::models::WorkspaceRole::from_user_role(role),
+                workspace_role,
                 email.clone(),
                 false,
                 Some("manual".to_string()),
@@ -906,12 +915,7 @@ pub async fn delete_user(
     if claims.sub == uuid.as_str() {
         return errors::bad_request("You cannot delete your own account while logged in");
     }
-    let target_role = crate::repository::user_helpers::legacy_role_for_user(
-        &mut conn,
-        target_user.uuid,
-        &target_user.platform_role,
-    );
-    if target_role == crate::models::UserRole::Admin {
+    if crate::repository::user_helpers::user_is_admin(&mut conn, &target_user) {
         return errors::bad_request(
             "Administrator accounts cannot be deleted for security reasons",
         );
@@ -1053,12 +1057,7 @@ pub async fn purge_user_now(
     if claims.sub == uuid.as_str() {
         return errors::bad_request("You cannot permanently delete your own account");
     }
-    let target_role = crate::repository::user_helpers::legacy_role_for_user(
-        &mut conn,
-        target.uuid,
-        &target.platform_role,
-    );
-    if target_role == crate::models::UserRole::Admin {
+    if crate::repository::user_helpers::user_is_admin(&mut conn, &target) {
         return errors::bad_request(
             "Administrator accounts cannot be deleted for security reasons",
         );
@@ -2035,28 +2034,31 @@ pub async fn update_user_by_uuid(
             // full object, since it's only delivered to the owning
             // user's own sessions via the per-user topic.
             let updated_by = claims.sub.clone();
-            let updated_role = tc
+            // Mirror the role split (platform_role + the bootstrap
+            // workspace role) for clients tracking the change.
+            let workspace_role_str = tc
                 .run(|conn| {
-                    Ok(crate::repository::user_helpers::legacy_role_for_user(
+                    Ok(crate::repository::user_helpers::bootstrap_workspace_role(
                         conn,
                         updated_user.uuid,
-                        &updated_user.platform_role,
                     ))
                 })
-                .unwrap_or_else(|_: diesel::result::Error| {
-                    // Pool acquire failed; fall back to the platform-role
-                    // derivation (same path the helper takes when the
-                    // workspace_members lookup misses).
-                    crate::extractors::auth_context::derive_role(&updated_user.platform_role, None)
-                });
-            let role_str = updated_role.as_str();
-            let updates: [(&str, bool, serde_json::Value); 6] = [
+                .unwrap_or(None)
+                .map(|r| r.as_str().to_string())
+                .unwrap_or_else(|| crate::models::WorkspaceRole::Member.as_str().to_string());
+            let role_changed = user_data.role.is_some();
+            let updates: [(&str, bool, serde_json::Value); 7] = [
                 (
                     "name",
                     user_data.name.is_some(),
                     json!(updated_user.name.clone()),
                 ),
-                ("role", user_data.role.is_some(), json!(role_str)),
+                (
+                    "platform_role",
+                    role_changed,
+                    json!(updated_user.platform_role.clone()),
+                ),
+                ("workspace_role", role_changed, json!(workspace_role_str)),
                 (
                     "pronouns",
                     user_data.pronouns.is_some(),
@@ -2592,7 +2594,7 @@ pub async fn get_user_profile_bundle(
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
-    if user_uuid_parsed != auth.user_uuid && !auth.is_admin() {
+    if user_uuid_parsed != auth.user_uuid && !auth.is_workspace_admin() {
         return errors::forbidden("Not authorized to view this profile");
     }
 
@@ -2713,12 +2715,7 @@ pub async fn bulk_users(
                     Ok(u) => u,
                     Err(_) => continue,
                 };
-                let target_role = crate::repository::user_helpers::legacy_role_for_user(
-                    &mut conn,
-                    target.uuid,
-                    &target.platform_role,
-                );
-                if target_role == crate::models::UserRole::Admin {
+                if crate::repository::user_helpers::user_is_admin(&mut conn, &target) {
                     skipped_admin += 1;
                     continue;
                 }
@@ -2763,13 +2760,12 @@ pub async fn bulk_users(
                 None => return errors::bad_request("Bad Request: Role value required"),
             };
 
-            let role = match role_str {
-                "admin" => crate::models::UserRole::Admin,
-                "technician" => crate::models::UserRole::Technician,
-                "user" => crate::models::UserRole::User,
-                "audit_reviewer" => crate::models::UserRole::AuditReviewer,
-                _ => return errors::bad_request("Bad Request: Invalid role value"),
+            let (platform_role_enum, workspace_role_enum) = match utils::parse_roles(role_str) {
+                Ok(roles) => roles,
+                Err(_) => return errors::bad_request("Bad Request: Invalid role value"),
             };
+            let workspace_role = workspace_role_enum.as_str();
+            let platform_role = platform_role_enum.as_str();
 
             // Same actor-context wrapping as the "delete" branch above:
             // the platform_role write hits the audited `users` table, so
@@ -2786,14 +2782,8 @@ pub async fn bulk_users(
                 };
 
                 // Post-W2: bulk role change rewrites
-                // workspace_members.role and platform_role. UserUpdate
-                // no longer carries `role`.
-                let (workspace_role, platform_role) = match role {
-                    crate::models::UserRole::Admin => ("admin", "platform_admin"),
-                    crate::models::UserRole::Technician => ("agent", "user"),
-                    crate::models::UserRole::User => ("member", "user"),
-                    crate::models::UserRole::AuditReviewer => ("member", "user"),
-                };
+                // workspace_members.role and platform_role (mapped from
+                // the request role string by `parse_roles`).
                 let role_update_ok = crate::sync::session::with_actor_context::<
                     _,
                     diesel::result::Error,
@@ -2819,16 +2809,22 @@ pub async fn bulk_users(
 
                 if role_update_ok {
                     updated += 1;
-                    // Broadcast SSE event
-                    sse_state
-                        .broadcast_event(crate::handlers::sse::SseEvent::UserUpdated {
-                            user_uuid: id.to_string(),
-                            field: "role".to_string(),
-                            value: json!(role_str),
-                            updated_by: claims.sub.clone(),
-                            timestamp: chrono::Utc::now(),
-                        })
-                        .await;
+                    // Broadcast the split-role change so clients mirror
+                    // both halves at field granularity.
+                    for (field, value) in [
+                        ("platform_role", platform_role),
+                        ("workspace_role", workspace_role),
+                    ] {
+                        sse_state
+                            .broadcast_event(crate::handlers::sse::SseEvent::UserUpdated {
+                                user_uuid: id.to_string(),
+                                field: field.to_string(),
+                                value: json!(value),
+                                updated_by: claims.sub.clone(),
+                                timestamp: chrono::Utc::now(),
+                            })
+                            .await;
+                    }
                 }
             }
 

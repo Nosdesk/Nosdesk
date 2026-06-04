@@ -2797,12 +2797,11 @@ async fn create_new_user_from_microsoft_optimized(
     let new_user = utils::NewUserBuilder::microsoft_user(
         name.clone(),
         primary_email.clone(),
-        crate::models::UserRole::User,
+        crate::models::PlatformRole::User,
         microsoft_uuid,
     )
     .with_uuid(user_uuid)
     .build();
-    let (new_user, _role) = new_user;
 
     // diesel::result::Error has a typed From impl on
     // MsGraphSyncError that routes unique-violation / FK to
@@ -5389,10 +5388,10 @@ async fn create_new_user_from_microsoft_no_photos(
                 source: None,
             })?,
         );
-    let (new_user, _role) = utils::NewUserBuilder::microsoft_user(
+    let new_user = utils::NewUserBuilder::microsoft_user(
         name.clone(),
         primary_email,
-        crate::models::UserRole::User,
+        crate::models::PlatformRole::User,
         microsoft_uuid,
     )
     .with_uuid(user_uuid)

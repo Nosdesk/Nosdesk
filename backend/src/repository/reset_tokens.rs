@@ -143,7 +143,6 @@ pub fn validate_and_consume_token(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use crate::utils::reset_tokens::TokenType;
 
@@ -169,7 +168,7 @@ mod tests {
     #[test]
     fn validate_and_consume_token_succeeds_once() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "alice", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "alice", "user");
         let raw = create_invitation_token(&mut conn, user.uuid);
 
         let claimed = validate_and_consume_token(&mut conn, &raw, TokenType::Invitation.as_str())
@@ -184,7 +183,7 @@ mod tests {
         // RETURNING comes back empty and we surface the same
         // generic error a never-existed token would produce.
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "bob", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "bob", "user");
         let raw = create_invitation_token(&mut conn, user.uuid);
 
         validate_and_consume_token(&mut conn, &raw, TokenType::Invitation.as_str())
@@ -201,7 +200,7 @@ mod tests {
     #[test]
     fn wrong_token_type_fails_with_generic_error() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "carol", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "carol", "user");
         let raw = create_invitation_token(&mut conn, user.uuid);
 
         // The token exists and is fresh, but the caller's

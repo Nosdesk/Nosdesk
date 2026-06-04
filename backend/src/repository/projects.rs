@@ -441,7 +441,6 @@ pub fn update_project_ticket_orders(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserRole;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     #[test]
@@ -457,7 +456,7 @@ mod tests {
     #[test]
     fn add_ticket_to_project_increments_count() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "projuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "projuser", "user");
         let project = TestFixtures::create_project(&mut conn, "Beta");
         let ticket = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
 
@@ -470,7 +469,7 @@ mod tests {
     #[test]
     fn add_ticket_to_project_is_idempotent() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "idemproj", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "idemproj", "user");
         let project = TestFixtures::create_project(&mut conn, "Gamma");
         let ticket = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
 
@@ -484,7 +483,7 @@ mod tests {
     #[test]
     fn remove_ticket_from_project_works() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "rmproj", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "rmproj", "user");
         let project = TestFixtures::create_project(&mut conn, "Delta");
         let ticket = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
 
@@ -498,7 +497,7 @@ mod tests {
     #[test]
     fn display_order_increments_automatically() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "orduser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "orduser", "user");
         let project = TestFixtures::create_project(&mut conn, "Order");
         let t1 = TestFixtures::create_ticket(&mut conn, "T1", Some(user.uuid), None);
         let t2 = TestFixtures::create_ticket(&mut conn, "T2", Some(user.uuid), None);
@@ -513,7 +512,7 @@ mod tests {
     #[test]
     fn get_projects_for_ticket_works() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "ptuser", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "ptuser", "user");
         let p1 = TestFixtures::create_project(&mut conn, "P1");
         let p2 = TestFixtures::create_project(&mut conn, "P2");
         let ticket = TestFixtures::create_ticket(&mut conn, "Shared", Some(user.uuid), None);
@@ -530,7 +529,7 @@ mod tests {
     #[test]
     fn delete_project_cascades_associations() {
         let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "delproj", UserRole::User);
+        let user = TestFixtures::create_user(&mut conn, "delproj", "user");
         let project = TestFixtures::create_project(&mut conn, "Doomed");
         let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
 

@@ -123,7 +123,7 @@ pub async fn flag_ticket_as_gap(
     path: web::Path<i32>,
     body: web::Json<FlagTicketBody>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Technician or admin role required");
     }
     let ticket_id = path.into_inner();
@@ -178,7 +178,7 @@ pub async fn unflag_ticket_as_gap(
     auth: AuthContext,
     path: web::Path<i32>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Technician or admin role required");
     }
     let ticket_id = path.into_inner();
@@ -211,7 +211,7 @@ pub async fn list_knowledge_gaps(
     auth: AuthContext,
     query: web::Query<ListGapsQuery>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Technician or admin role required");
     }
 
@@ -263,7 +263,7 @@ pub async fn get_knowledge_gap(
     auth: AuthContext,
     path: web::Path<i64>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();
@@ -305,7 +305,7 @@ pub async fn dismiss_knowledge_gap(
     sse_state: web::Data<SseState>,
     path: web::Path<i64>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();
@@ -354,7 +354,7 @@ pub async fn detect_clusters(
     sse_state: web::Data<SseState>,
     body: web::Json<DetectClustersBody>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Technician or admin role required");
     }
     let req_body = body.into_inner();
@@ -404,7 +404,7 @@ pub async fn detect_failed_searches(
     sse_state: web::Data<SseState>,
     body: web::Json<DetectFailedSearchesBody>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Technician or admin role required");
     }
     let req_body = body.into_inner();
@@ -458,7 +458,7 @@ pub async fn detect_stale_docs(
     sse_state: web::Data<SseState>,
     body: web::Json<DetectStaleDocsBody>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Technician or admin role required");
     }
     let req_body = body.into_inner();
@@ -513,7 +513,7 @@ pub async fn resolve_knowledge_gap(
     path: web::Path<i64>,
     body: web::Json<ResolveGapBody>,
 ) -> impl Responder {
-    if !auth.is_technician_or_admin() {
+    if !auth.can_handle_tickets() {
         return errors::forbidden("Technician or admin role required");
     }
     let gap_id = path.into_inner();

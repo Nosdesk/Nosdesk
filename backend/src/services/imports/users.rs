@@ -20,7 +20,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{NewUser, NewUserEmail, UserRole, WorkspaceRole};
+use crate::models::{NewUser, NewUserEmail};
 
 use super::csv_parser::ParsedCsv;
 use super::types::{ImportSummary, Importer, RowError, MAX_ERRORS};
@@ -94,25 +94,18 @@ impl Importer for UserImporter {
             emails_in_file = local;
 
             let name = trimmed(row, "name");
-            let role = parse_role(trimmed(row, "role").as_str()).expect("validated above");
+            // Map the CSV "role" column onto the W2 split
+            // (platform_role + workspace_members.role) via the shared
+            // parser, so import and the create-user API agree on what
+            // each role string means.
+            let (platform_role_enum, workspace_role_enum) =
+                crate::utils::parse_roles(trimmed(row, "role").as_str()).expect("validated above");
             let pronouns = opt_string(row, "pronouns");
-
-            // Map the legacy import "role" column onto the W2
-            // split: admin/technician/user → platform_role +
-            // workspace_members.role. Without this, AuthContext
-            // derives `User` for every imported user because the
-            // new sources of truth are empty.
-            let platform_role = match role {
-                UserRole::Admin => Some("platform_admin".to_string()),
-                _ => None,
-            };
-            let workspace_role = WorkspaceRole::from_user_role(role).as_str();
+            let platform_role = Some(platform_role_enum.as_str().to_string());
+            let workspace_role = workspace_role_enum.as_str();
             match action {
                 RowAction::Create => {
                     let new_uuid = Uuid::new_v4();
-                    // `role` parsed from the CSV row drives platform_role
-                    // + workspace_members.role; the legacy column is gone.
-                    let _ = role;
                     diesel::insert_into(users::table)
                         .values(&NewUser {
                             uuid: new_uuid,
@@ -252,7 +245,7 @@ fn validate_row(
     let role_raw = trimmed(row, "role");
     if role_raw.is_empty() {
         errors.push((Some("role".into()), "role is required".into()));
-    } else if parse_role(&role_raw).is_none() {
+    } else if crate::utils::parse_roles(&role_raw).is_err() {
         errors.push((
             Some("role".into()),
             format!("'{role_raw}' is not a valid role; use admin, technician, or user"),
@@ -276,16 +269,6 @@ fn validate_row(
         None => RowAction::Create,
     };
     Ok(action)
-}
-
-fn parse_role(s: &str) -> Option<UserRole> {
-    match s.to_lowercase().as_str() {
-        "admin" => Some(UserRole::Admin),
-        "technician" => Some(UserRole::Technician),
-        "user" => Some(UserRole::User),
-        "audit_reviewer" => Some(UserRole::AuditReviewer),
-        _ => None,
-    }
 }
 
 /// Pragmatic email shape check. Same constraints as the
