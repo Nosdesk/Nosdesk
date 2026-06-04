@@ -22,6 +22,7 @@ import { useProjectTickets } from '@/composables/useProjectTickets'
 import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@/types/workflow'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
+import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
@@ -170,21 +171,21 @@ function stateLabel(state: string): string {
 
 <template>
   <div class="flex flex-col h-full">
-    <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
-      <div>
-        <h1 class="text-xl font-semibold text-primary">{{ project?.name ?? $t('project-cycles-fallback-name') }}</h1>
-        <p class="text-xs text-tertiary mt-0.5">
-          {{ $t('project-cycles-count', { count: cycles.length }) }}
-        </p>
-      </div>
-      <button
-        type="button"
-        class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90"
-        @click="showCreate = !showCreate"
-      >
-        {{ showCreate ? $t('project-cycles-cancel-button') : $t('project-cycles-new-button') }}
-      </button>
-    </header>
+    <ProjectViewHeader
+      :project="project"
+      :subtitle="$t('project-cycles-count', { count: cycles.length })"
+      :fallback-name="$t('project-cycles-fallback-name')"
+    >
+      <template #actions>
+        <button
+          type="button"
+          class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90"
+          @click="showCreate = !showCreate"
+        >
+          {{ showCreate ? $t('project-cycles-cancel-button') : $t('project-cycles-new-button') }}
+        </button>
+      </template>
+    </ProjectViewHeader>
 
     <ProjectTabBar :project-id="projectId" />
 

@@ -17,6 +17,7 @@ import { useGanttViewport, GANTT_ZOOMS, ganttZoomLabel } from '@/composables/use
 import { dependenciesService, type DependencyEdge } from '@/services/dependenciesService'
 import GanttBoard from '@/sync/views/GanttBoard.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
+import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 
 const props = defineProps<{ id: string }>()
 
@@ -70,16 +71,11 @@ function reschedule(cardId: number, dueDate: string): void {
 
 <template>
   <div class="flex flex-col h-full">
-    <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
-      <div class="min-w-0">
-        <h1 class="text-xl font-semibold text-primary truncate">
-          {{ project?.name ?? $t('project-gantt-fallback-name') }}
-        </h1>
-        <p class="text-xs text-tertiary mt-0.5">
-          {{ $t('project-gantt-summary', { tickets: cards.length, links: edges.length }) }}
-        </p>
-      </div>
-    </header>
+    <ProjectViewHeader
+      :project="project"
+      :subtitle="$t('project-gantt-summary', { tickets: cards.length, links: edges.length })"
+      :fallback-name="$t('project-gantt-fallback-name')"
+    />
 
     <ProjectTabBar :project-id="projectId">
       <template #actions>
