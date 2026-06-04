@@ -163,6 +163,12 @@ const gridTemplates = computed(() => ({
   lg: getGridTemplate(getVisibleColumns('lg'))
 }))
 
+// A flexible (`fr`) column absorbs the row's slack so the grid fills
+// its container; resizing it to a fixed px would leave dead space, so
+// such columns aren't resizable.
+const isResizableColumn = (column: Column) =>
+  !(typeof column.width === 'string' && column.width.includes('fr'))
+
 // Helper to determine if column should be visible at current breakpoint
 const getColumnVisibility = (column: Column) => {
   if (!column.responsive || column.responsive === 'always') return ''
@@ -211,7 +217,7 @@ const getColumnVisibility = (column: Column) => {
           :key="column.field"
           :draggable="columnReorder ? columnReorder.isReorderable(column.field) : false"
           :class="[
-            'px-2 py-2 flex items-center text-[10px] font-semibold uppercase tracking-wider text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 relative',
+            'px-2 py-2 first:pl-4 last:pr-4 flex items-center text-[10px] font-semibold uppercase tracking-wider text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 relative',
             getColumnVisibility(column),
             column.sortable ? 'cursor-pointer hover:bg-surface-hover hover:text-primary' : '',
             columnReorder?.sourceId.value === column.field ? 'opacity-50' : '',
@@ -237,7 +243,7 @@ const getColumnVisibility = (column: Column) => {
                composable an accurate startValue (the composable
                can't measure DOM itself). -->
           <div
-            v-if="columnResize"
+            v-if="columnResize && isResizableColumn(column)"
             class="absolute top-1 bottom-1 right-0 w-1 cursor-col-resize group/handle"
             :class="columnResize.resizingId.value === column.field
               ? 'bg-accent/50'
@@ -282,7 +288,7 @@ const getColumnVisibility = (column: Column) => {
               v-for="column in columns"
               :key="column.field"
               :class="[
-                'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
+                'px-2 py-3 first:pl-4 last:pr-4 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
                 getColumnVisibility(column),
                 loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
                 index > 0 ? 'border-t border-default' : ''
@@ -359,7 +365,7 @@ const getColumnVisibility = (column: Column) => {
                   v-for="column in columns"
                   :key="column.field"
                   :class="[
-                    'px-2 py-3 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
+                    'px-2 py-3 first:pl-4 last:pr-4 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
                     getColumnVisibility(column),
                     loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
                     index > 0 ? 'border-t border-default' : ''

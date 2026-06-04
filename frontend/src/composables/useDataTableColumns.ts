@@ -278,8 +278,15 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
    *  the registry default `width` string in place when no
    *  override exists, so flex (`'1fr'`) and `minmax(...)` slots
    *  keep their CSS-grid semantics until the user manually
-   *  resizes. */
+   *  resizes.
+   *
+   *  A flexible (`fr`) column is the one that absorbs slack so the
+   *  grid fills its container; never pin it to a stored pixel width
+   *  (which would leave dead space on wide displays). This also
+   *  self-heals a stale override left from before the column was
+   *  made non-resizable. */
   function withEffectiveWidth(col: C): C {
+    if (typeof col.width === 'string' && col.width.includes('fr')) return col
     const override = widthOverrides.value.get(col.field)
     if (override == null) return col
     return { ...col, width: `${override}px` }
