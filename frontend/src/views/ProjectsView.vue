@@ -11,7 +11,7 @@ import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
-import { useAggregate } from '@/sync/composables'
+import { useProjectTicketCounts } from '@/composables/useProjectTickets'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { formatRelativeTime } from '@/utils/dateUtils'
 import { projectService } from '@/services/projectService'
@@ -43,20 +43,9 @@ usePageCreateAction(() => {
   createOpen.value = true
 })
 
-// Live ticket counts from the association pool (same aggregate the board
-// reads), so a card's count tracks tickets being linked/unlinked.
-interface ProjectTicketAssoc {
-  project_id: number
-  ticket_id: number
-}
-const associations = useAggregate<ProjectTicketAssoc>('project_ticket')
-const ticketCounts = computed(() => {
-  const counts = new Map<number, number>()
-  for (const a of associations.value) {
-    counts.set(a.project_id, (counts.get(a.project_id) ?? 0) + 1)
-  }
-  return counts
-})
+// Live ticket counts from the shared association pool, so a card's count
+// tracks tickets being linked/unlinked.
+const ticketCounts = useProjectTicketCounts()
 const ticketCount = (id: number): number => ticketCounts.value.get(id) ?? 0
 
 // Search + status filter.

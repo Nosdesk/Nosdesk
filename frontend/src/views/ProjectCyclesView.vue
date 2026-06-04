@@ -16,9 +16,9 @@ import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
-import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
+import { type SyncTicket } from '@/sync/stores/tickets'
 import { useCyclesStore } from '@/stores/cycles'
-import { useAggregate } from '@/sync/composables'
+import { useProjectTickets } from '@/composables/useProjectTickets'
 import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@/types/workflow'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
@@ -35,12 +35,15 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const router = useRouter()
 const projectId = computed(() => Number(props.id))
 const projectsStore = useSyncProjectsStore()
-const ticketsStore = useSyncTicketsStore()
 const cyclesStore = useCyclesStore()
 
 const project = projectsStore.byId(projectId)
-const cycles = cyclesStore.cyclesForProject(projectId.value)
-const activeCycle = cyclesStore.activeCycle(projectId.value)
+// Wrapped so they track projectId across route changes (consistent with
+// the gantt view), not bound to the id at first render.
+const cycles = computed(() => cyclesStore.cyclesForProject(projectId.value).value)
+const activeCycle = computed(() => cyclesStore.activeCycle(projectId.value).value)
+
+const { tickets: projectTickets } = useProjectTickets(projectId)
 
 onMounted(async () => {
   await subscribe(`project:${projectId.value}`)
@@ -49,24 +52,12 @@ onMounted(async () => {
 
 // The active cycle's tickets, grouped by workflow-state category, so the
 // cycles page shows the in-flight work without a click into the board.
-// Sourced from the pool (project members carry a denormalised cycle_id),
-// so it stays live as tickets move, get carried over, etc.
-interface ProjectTicketAssoc {
-  project_id: number
-  ticket_id: number
-}
-const associations = useAggregate<ProjectTicketAssoc>('project_ticket')
-
+// Project members carry a denormalised cycle_id, so this stays live as
+// tickets move, get carried over, etc.
 const activeCycleTickets = computed<SyncTicket[]>(() => {
   const cy = activeCycle.value
   if (!cy) return []
-  const out: SyncTicket[] = []
-  for (const a of associations.value) {
-    if (a.project_id !== projectId.value) continue
-    const ticket = ticketsStore.byId(a.ticket_id).value
-    if (ticket && ticket.cycle_id === cy.id) out.push(ticket)
-  }
-  return out
+  return projectTickets.value.filter((t) => t.cycle_id === cy.id)
 })
 
 const activeCycleGroups = computed(() => {

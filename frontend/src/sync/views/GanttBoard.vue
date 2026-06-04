@@ -395,9 +395,9 @@ function endResize(): void {
 const totalHeight = computed(() => scheduled.value.length * ROW_PX)
 
 function priorityClass(p: CardData['priority']): string {
-  if (p === 'urgent' || p === 'high') return 'bg-rose-500/30 border-rose-500/60'
-  if (p === 'medium') return 'bg-amber-500/30 border-amber-500/60'
-  if (p === 'low') return 'bg-emerald-500/30 border-emerald-500/60'
+  if (p === 'urgent' || p === 'high') return 'bg-priority-high/30 border-priority-high/60'
+  if (p === 'medium') return 'bg-priority-medium/30 border-priority-medium/60'
+  if (p === 'low') return 'bg-priority-low/30 border-priority-low/60'
   return 'bg-surface-hover border-default'
 }
 

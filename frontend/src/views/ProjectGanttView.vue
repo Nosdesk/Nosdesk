@@ -9,15 +9,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { subscribe } from '@/sync/lifecycle'
-import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
+import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useCyclesStore } from '@/stores/cycles'
-import { useAggregate } from '@/sync/composables'
+import { useProjectTickets } from '@/composables/useProjectTickets'
 import { dependenciesService, type DependencyEdge } from '@/services/dependenciesService'
 import GanttBoard from '@/sync/views/GanttBoard.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
-import { toCardData } from '@/sync/views/cardData'
-import type { CardData } from '@/sync/views/types'
 
 const props = defineProps<{ id: string }>()
 
@@ -28,33 +26,11 @@ const ticketsStore = useSyncTicketsStore()
 const cyclesStore = useCyclesStore()
 
 const project = projectsStore.byId(projectId)
+const { cards } = useProjectTickets(projectId)
 
 // Cycles render as shaded context bands behind the bars. Sourced from
 // the cycles store (cached + reactive to cycle mutations).
 const cycles = computed(() => cyclesStore.cyclesForProject(projectId.value).value)
-
-interface ProjectTicketAssoc {
-  project_id: number
-  ticket_id: number
-  display_order: number
-}
-
-const associations = useAggregate<ProjectTicketAssoc>('project_ticket')
-
-const cards = computed<CardData[]>(() => {
-  const pid = projectId.value
-  const ticketIds = associations.value
-    .filter((a) => a.project_id === pid)
-    .map((a) => a.ticket_id)
-  const out: CardData[] = []
-  for (const id of ticketIds) {
-    const t = ticketsStore.byId(id).value
-    if (!t) continue
-    const card = toCardData(t)
-    if (card) out.push(card)
-  }
-  return out
-})
 
 const edges = ref<DependencyEdge[]>([])
 

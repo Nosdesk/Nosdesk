@@ -342,6 +342,43 @@ pub fn cycle_ids_for_tickets(
     Ok(rows.into_iter().collect())
 }
 
+/// A cycle's member tickets with the fields the snapshot, carryover,
+/// and burnup builders all read. One join, three consumers.
+struct CycleMember {
+    ticket_id: i32,
+    category: WorkflowStateCategory,
+    added_at: DateTime<Utc>,
+    closed_at: Option<NaiveDateTime>,
+}
+
+fn cycle_members(conn: &mut DbConnection, cycle_id: i32) -> QueryResult<Vec<CycleMember>> {
+    let rows: Vec<(
+        i32,
+        WorkflowStateCategory,
+        DateTime<Utc>,
+        Option<NaiveDateTime>,
+    )> = cycle_tickets::table
+        .inner_join(tickets::table.on(tickets::id.eq(cycle_tickets::ticket_id)))
+        .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
+        .filter(cycle_tickets::cycle_id.eq(cycle_id))
+        .select((
+            cycle_tickets::ticket_id,
+            workflow_states::category,
+            cycle_tickets::added_at,
+            tickets::closed_at,
+        ))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|(ticket_id, category, added_at, closed_at)| CycleMember {
+            ticket_id,
+            category,
+            added_at,
+            closed_at,
+        })
+        .collect())
+}
+
 /// Build the completion snapshot that gets frozen on cycle.complete.
 /// Counts the cycle's tickets and breaks them down by workflow
 /// state category. Burndown reads this snapshot for completed
@@ -350,20 +387,15 @@ pub fn build_completion_snapshot(
     conn: &mut DbConnection,
     cycle_id: i32,
 ) -> QueryResult<serde_json::Value> {
-    let rows: Vec<(i32, WorkflowStateCategory)> = cycle_tickets::table
-        .inner_join(tickets::table.on(tickets::id.eq(cycle_tickets::ticket_id)))
-        .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
-        .filter(cycle_tickets::cycle_id.eq(cycle_id))
-        .select((tickets::id, workflow_states::category))
-        .load(conn)?;
+    let members = cycle_members(conn, cycle_id)?;
 
-    let total = rows.len();
+    let total = members.len();
     let mut by_category: std::collections::BTreeMap<String, i32> = Default::default();
     let mut completed = 0i32;
-    for (_, cat) in &rows {
-        let key = cat.as_str().to_string();
+    for m in &members {
+        let key = m.category.as_str().to_string();
         *by_category.entry(key.clone()).or_insert(0) += 1;
-        if matches!(cat, WorkflowStateCategory::Done) {
+        if matches!(m.category, WorkflowStateCategory::Done) {
             completed += 1;
         }
     }
@@ -382,24 +414,17 @@ pub fn build_completion_snapshot(
 /// the same transaction as `complete`, AFTER the snapshot is built so
 /// the snapshot still reflects the cycle's full membership.
 pub fn carry_over_incomplete(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<i64> {
-    let rows: Vec<(i32, WorkflowStateCategory)> = cycle_tickets::table
-        .inner_join(tickets::table.on(tickets::id.eq(cycle_tickets::ticket_id)))
-        .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
-        .filter(cycle_tickets::cycle_id.eq(cycle.id))
-        .select((tickets::id, workflow_states::category))
-        .load(conn)?;
-
-    let incomplete: Vec<i32> = rows
+    let incomplete: Vec<i32> = cycle_members(conn, cycle.id)?
         .into_iter()
-        .filter(|(_, cat)| {
+        .filter(|m| {
             !matches!(
-                cat,
+                m.category,
                 WorkflowStateCategory::Done
                     | WorkflowStateCategory::Cancelled
                     | WorkflowStateCategory::Merged
             )
         })
-        .map(|(id, _)| id)
+        .map(|m| m.ticket_id)
         .collect();
 
     if incomplete.is_empty() {
@@ -475,12 +500,8 @@ pub fn build_burnup(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<serde
         }
     };
 
-    // (added_at in UTC, closed_at as naive-UTC) for every member ticket.
-    let members: Vec<(DateTime<Utc>, Option<NaiveDateTime>)> = cycle_tickets::table
-        .inner_join(tickets::table.on(tickets::id.eq(cycle_tickets::ticket_id)))
-        .filter(cycle_tickets::cycle_id.eq(cycle.id))
-        .select((cycle_tickets::added_at, tickets::closed_at))
-        .load(conn)?;
+    // added_at compares in UTC; closed_at is naive-UTC.
+    let members = cycle_members(conn, cycle.id)?;
 
     let now = Utc::now();
     let start_day = start_at.date_naive();
@@ -500,13 +521,10 @@ pub fn build_burnup(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<serde
             .expect("23:59:59 is a valid time");
         let day_end_utc = DateTime::<Utc>::from_naive_utc_and_offset(day_end, Utc);
 
-        let scope = members
-            .iter()
-            .filter(|(added, _)| *added <= day_end_utc)
-            .count();
+        let scope = members.iter().filter(|m| m.added_at <= day_end_utc).count();
         let completed = members
             .iter()
-            .filter(|(_, closed)| closed.is_some_and(|c| c <= day_end))
+            .filter(|m| m.closed_at.is_some_and(|c| c <= day_end))
             .count();
 
         points.push(json!({

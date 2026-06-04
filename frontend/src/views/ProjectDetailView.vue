@@ -15,8 +15,7 @@ import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
-import { useSyncTicketsStore } from '@/sync/stores/tickets'
-import { useAggregate } from '@/sync/composables'
+import { useProjectTickets } from '@/composables/useProjectTickets'
 import KanbanBoard from '@/sync/views/KanbanBoard.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
@@ -24,8 +23,6 @@ import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { projectService } from '@/services/projectService'
 import { logger } from '@/utils/logger'
-import { toCardData } from '@/sync/views/cardData'
-import type { CardData } from '@/sync/views/types'
 
 const props = defineProps<{ id: string }>()
 
@@ -35,37 +32,13 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const router = useRouter()
 const projectId = computed(() => Number(props.id))
 const projectsStore = useSyncProjectsStore()
-const ticketsStore = useSyncTicketsStore()
 
 onMounted(async () => {
   await subscribe(`project:${projectId.value}`)
 })
 
 const project = projectsStore.byId(projectId)
-
-interface ProjectTicketAssoc {
-  project_id: number
-  ticket_id: number
-  display_order: number
-}
-
-const associations = useAggregate<ProjectTicketAssoc>('project_ticket')
-
-const cards = computed<CardData[]>(() => {
-  const pid = projectId.value
-  const ticketIds = associations.value
-    .filter((a) => a.project_id === pid)
-    .sort((a, b) => a.display_order - b.display_order)
-    .map((a) => a.ticket_id)
-  const out: CardData[] = []
-  for (const id of ticketIds) {
-    const t = ticketsStore.byId(id).value
-    if (!t) continue
-    const card = toCardData(t)
-    if (card) out.push(card)
-  }
-  return out
-})
+const { cards } = useProjectTickets(projectId)
 
 const isLoading = computed(() => project.value == null && cards.value.length === 0)
 
