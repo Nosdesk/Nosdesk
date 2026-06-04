@@ -29,6 +29,7 @@ import TicketProjectsField from "@/components/ticketComponents/TicketProjectsFie
 import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
 import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
 import DatePicker from "@/components/common/DatePicker.vue";
+import { getDateConfig } from "@/utils/dateUtils";
 import type { Asset } from "@/types/asset";
 import type { CommentWithAttachments } from "@/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
@@ -351,9 +352,11 @@ const schedulingOpen = ref<boolean>(schedulingHasValue.value);
 const schedulingPreview = computed<string>(() => {
   const parts: string[] = [];
   if (props.ticket.due_date) {
-    const formatted = new Date(props.ticket.due_date).toLocaleDateString(undefined, {
+    const { defaultLocale, defaultTimezone } = getDateConfig();
+    const formatted = new Date(props.ticket.due_date).toLocaleDateString(defaultLocale, {
       month: 'short',
       day: 'numeric',
+      timeZone: defaultTimezone,
     });
     parts.push(t('ticket-detail-scheduling-due-prefix', { date: formatted }));
   }

@@ -21,6 +21,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
+import { formatDateTime as formatDateTimeTz } from '@/utils/dateUtils';
 import {
   emailSuppressionsService,
   type EmailSuppression,
@@ -129,7 +130,7 @@ function reasonLabel(reason: string): string {
 }
 
 function formatDateTime(iso: string): string {
-    return new Date(iso).toLocaleString();
+    return formatDateTimeTz(iso);
 }
 </script>
 

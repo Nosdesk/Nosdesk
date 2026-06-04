@@ -22,6 +22,7 @@ import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
+import { formatDate } from '@/utils/dateUtils'
 
 const props = defineProps<{ id: string }>()
 
@@ -97,7 +98,7 @@ async function confirmCycleAction(): Promise<void> {
 
 function formatCycleDate(iso: string | null): string {
   if (!iso) return t('project-cycles-date-missing')
-  return new Date(iso).toLocaleDateString()
+  return formatDate(iso)
 }
 
 function stateLabel(state: string): string {

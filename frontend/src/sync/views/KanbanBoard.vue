@@ -37,6 +37,7 @@ import {
   type WorkflowState,
 } from '@/types/workflow'
 import { paletteForColor } from '@/utils/workflowColors'
+import { formatDateTime } from '@/utils/dateUtils'
 import { useDragDrop } from './drag'
 import type { CardData } from './types'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
@@ -412,7 +413,7 @@ function slaIconTone(card: CardData): string {
 function slaTooltip(card: CardData): string {
   const sla = card.sla
   if (!sla) return ''
-  const target = new Date(sla.target_at).toLocaleString()
+  const target = formatDateTime(sla.target_at)
   if (sla.breached) return `SLA breached (target ${target})`
   if (sla.paused) return `SLA paused (target ${target})`
   const remaining = sla.seconds_remaining ?? 0

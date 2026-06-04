@@ -9,6 +9,7 @@ import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import { extractErrorMessage } from '@/utils/errors';
+import { formatDate as formatDateOnly } from '@/utils/dateUtils';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Modal from '@/components/Modal.vue';
@@ -165,7 +166,7 @@ const closeModals = () => {
 const formatAdminDate = (dateStr: string | null) => {
   if (!dateStr) return null;
   try {
-    return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    return formatDateOnly(dateStr);
   } catch {
     return dateStr;
   }

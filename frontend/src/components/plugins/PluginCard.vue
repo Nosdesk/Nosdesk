@@ -17,6 +17,7 @@
 import { computed, type DeepReadonly } from 'vue';
 import { useFluent } from 'fluent-vue';
 import type { Plugin } from '@/types/plugin';
+import { formatDate } from '@/utils/dateUtils';
 import PluginIcon from './PluginIcon.vue';
 import PluginStateBadge from './PluginStateBadge.vue';
 import PluginTrustBadge from './PluginTrustBadge.vue';
@@ -37,14 +38,6 @@ const { plugin, showStateAlways = false } = defineProps<Props>();
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
 
 const installedLabel = computed(() =>
   t('plugin-card-installed-on', { date: formatDate(plugin.installed_at) }),

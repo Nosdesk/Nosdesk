@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useMutation, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
+import { formatDate } from '@/utils/dateUtils'
 import { useToastStore } from '@/stores/toast'
 
 import DataTable from '@/components/common/DataTable.vue'
@@ -274,7 +275,7 @@ function formatPurgeAt(deletedAt: string): string {
   // close enough for the chip — the real countdown lives on the
   // detail view.
   dt.setDate(dt.getDate() + 30)
-  return dt.toLocaleDateString(undefined, { dateStyle: 'medium' })
+  return formatDate(dt)
 }
 </script>
 

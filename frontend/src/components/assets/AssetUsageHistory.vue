@@ -29,6 +29,7 @@ import { assetUsageService, type AssetUsage } from '@/services/assetUsageService
 import { assetAuditService, type AssetAudit } from '@/services/assetAuditService';
 import { useSSE } from '@/services/sseService';
 import { RouterLink } from 'vue-router';
+import { formatDateTime } from '@/utils/dateUtils';
 
 const props = defineProps<{
   assetId: number;
@@ -239,7 +240,7 @@ onUnmounted(() => {
 });
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString();
+  return formatDateTime(iso);
 }
 
 /** Render the leading sign for an audit delta. BigDecimal

@@ -23,6 +23,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { assetUsageService, type AssetUsage } from '@/services/assetUsageService';
+import { formatDate } from '@/utils/dateUtils';
 import { useSSE } from '@/services/sseService';
 import type { Asset } from '@/types/asset';
 import Icon from '@/components/common/Icon.vue';
@@ -208,7 +209,7 @@ onUnmounted(() => {
           <span v-if="row.notes" class="text-xs text-tertiary truncate">{{ row.notes }}</span>
         </div>
         <span class="text-xs text-tertiary whitespace-nowrap">
-          {{ new Date(row.recorded_at).toLocaleDateString() }}
+          {{ formatDate(row.recorded_at) }}
         </span>
       </div>
     </div>

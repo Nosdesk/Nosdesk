@@ -2,6 +2,7 @@ import { ref, computed, onMounted } from 'vue';
 import passkeyService, { type PasskeyInfo, type PasskeyLoginResult } from '@/services/passkeyService';
 import { translate } from '@/i18n';
 import { logger } from '@/utils/logger';
+import { formatDateTime } from '@/utils/dateUtils';
 
 /**
  * Composable for passkey functionality following Vue 3 best practices
@@ -274,13 +275,7 @@ export function usePasskeys() {
   function formatDate(dateString: string | null): string {
     if (!dateString) return translate('passkey-last-used-never', undefined, 'Never');
     try {
-      return new Date(dateString).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      return formatDateTime(dateString);
     } catch {
       return dateString;
     }

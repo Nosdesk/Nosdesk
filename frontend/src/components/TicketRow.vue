@@ -12,7 +12,7 @@ row degrades gracefully — missing fields simply aren't rendered.
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { formatCompactRelativeTime } from '@/utils/dateUtils'
+import { formatCompactRelativeTime, formatDateTime } from '@/utils/dateUtils'
 import UserAvatar from './UserAvatar.vue'
 import TicketStatusIcon from './TicketStatusIcon.vue'
 import { useCollabSessionStore } from '@/stores/collabSession'
@@ -169,7 +169,7 @@ const ariaLabel = computed(() => {
       />
       <span
         class="text-[11px] text-tertiary tabular-nums flex-shrink-0 min-w-[1.75rem] text-right"
-        :title="new Date(timestamp).toLocaleString()"
+        :title="formatDateTime(timestamp)"
       >
         {{ formatCompactRelativeTime(timestamp) }}
       </span>

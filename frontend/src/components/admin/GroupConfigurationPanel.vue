@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { extractErrorMessage } from '@/utils/errors';
+import { formatDate } from '@/utils/dateUtils';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -610,7 +611,7 @@ onMounted(() => {
               </span>
               <div class="min-w-0">
                 <p class="text-sm font-medium text-primary truncate">{{ $t('admin-groups-config-managed-by', { source: group.external_source === 'microsoft' ? $t('admin-groups-config-source-microsoft') : group.external_source }) }}</p>
-                <p v-if="group.last_synced_at" class="text-xs text-tertiary">{{ $t('admin-groups-config-last-synced', { date: new Date(group.last_synced_at).toLocaleDateString() }) }}</p>
+                <p v-if="group.last_synced_at" class="text-xs text-tertiary">{{ $t('admin-groups-config-last-synced', { date: formatDate(group.last_synced_at) }) }}</p>
               </div>
             </div>
             <div class="flex items-center gap-3 text-sm flex-shrink-0">

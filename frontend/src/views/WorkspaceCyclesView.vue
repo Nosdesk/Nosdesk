@@ -22,6 +22,7 @@ import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
+import { formatDate } from '@/utils/dateUtils'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -95,7 +96,7 @@ const grouped = computed<ProjectGroup[]>(() => {
 
 function fmt(iso: string | null): string {
   if (!iso) return t('workspace-cycles-date-missing')
-  return new Date(iso).toLocaleDateString()
+  return formatDate(iso)
 }
 
 function stateLabel(state: string): string {

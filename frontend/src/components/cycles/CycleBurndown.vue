@@ -14,6 +14,7 @@ import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { cyclesService, type CycleStats } from '@/services/cyclesService'
 import type { Cycle } from '@/services/cyclesService'
+import { formatDateTime } from '@/utils/dateUtils'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -122,7 +123,7 @@ const categoryLabels = computed<Record<string, string>>(() => ({
 
       <!-- Frozen-snapshot timestamp -->
       <p v-if="isFrozen" class="text-[10px] text-tertiary italic">
-        {{ t('tickets-cycle-burndown-snapshot-frozen', { date: new Date(stats.frozen_at).toLocaleString() }) }}
+        {{ t('tickets-cycle-burndown-snapshot-frozen', { date: formatDateTime(stats.frozen_at) }) }}
       </p>
     </div>
   </div>

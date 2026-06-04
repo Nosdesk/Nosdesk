@@ -23,6 +23,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, type ComputedRef, type Ref } from 'vue'
 import type { CardData } from '@/sync/views/types'
+import { getDateConfig } from '@/utils/dateUtils'
 
 // Single shared tick: re-emits the wall clock so every consumer's
 // computed re-evaluates together. 30s is a sweet spot — fast enough
@@ -75,12 +76,14 @@ export interface SlaState {
 }
 
 function fullDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+  const { defaultLocale, defaultTimezone } = getDateConfig()
+  return new Date(iso).toLocaleString(defaultLocale, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: defaultTimezone,
   })
 }
 

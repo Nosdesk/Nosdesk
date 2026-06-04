@@ -30,6 +30,7 @@ import { deriveSlaState } from '@/composables/useSlaState'
 import {
   formatCompactRelativeTime,
   formatCompactDate,
+  formatDateTime,
 } from '@/utils/dateUtils'
 import type { ListColumn } from '@/sync/views/ticketColumns'
 import type { CardData } from '@/sync/views/types'
@@ -306,21 +307,21 @@ function recurrenceLabel(rule: string | null | undefined): string {
         <span
           class="text-[11px] tabular-nums"
           :class="card.due_date ? 'text-secondary' : 'text-tertiary'"
-          :title="card.due_date ? new Date(card.due_date).toLocaleString() : $t('views-ticket-row-no-due-date')"
+          :title="card.due_date ? formatDateTime(card.due_date) : $t('views-ticket-row-no-due-date')"
         >{{ shortDate(card.due_date) }}</span>
       </template>
 
       <template v-else-if="col.id === 'last_activity'">
         <span
           class="text-[11px] text-tertiary tabular-nums"
-          :title="new Date(card.last_activity_at).toLocaleString()"
+          :title="formatDateTime(card.last_activity_at)"
         >{{ relativeTime(card.last_activity_at) }}</span>
       </template>
 
       <template v-else-if="col.id === 'created_at'">
         <span
           class="text-[11px] text-tertiary tabular-nums"
-          :title="new Date(card.created_at).toLocaleString()"
+          :title="formatDateTime(card.created_at)"
         >{{ relativeTime(card.created_at) }}</span>
       </template>
 
