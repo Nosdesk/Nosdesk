@@ -72,10 +72,15 @@ const props = withDefaults(defineProps<{
   /** Column resize wiring from useDataTableColumns. When set,
    *  each header renders a right-edge drag handle for resize. */
   columnResize?: DataTableColumnResize
+  /** Render the leading selection (checkbox) column. Default true
+   *  so existing consumers are unchanged; set false for lists that
+   *  don't support bulk selection. */
+  selectable?: boolean
 }>(), {
   itemIdField: 'id',
   loading: false,
   gridClass: '',
+  selectable: true,
 })
 
 const emit = defineEmits<{
@@ -144,10 +149,11 @@ const getVisibleColumns = (breakpoint: 'base' | 'md' | 'lg') => {
   })
 }
 
-// Generate grid-template-columns value for inline styles
+// Generate grid-template-columns value for inline styles. The leading
+// `auto` track is the checkbox column; omit it when selection is off.
 const getGridTemplate = (columns: Column[]) => {
-  const widths = columns.map(col => col.width || '1fr')
-  return `auto ${widths.join(' ')}` // auto for checkbox column
+  const widths = columns.map(col => col.width || '1fr').join(' ')
+  return props.selectable ? `auto ${widths}` : widths
 }
 
 // Responsive grid templates
@@ -183,7 +189,7 @@ const getColumnVisibility = (column: Column) => {
         <!-- Checkbox Header. Padding + border match the data-
              column headers below so the strip reads as one
              compact band of column chrome. -->
-        <div class="px-4 py-2 flex items-center bg-surface border-b border-subtle sticky top-0 z-10">
+        <div v-if="selectable" class="px-4 py-2 flex items-center bg-surface border-b border-subtle sticky top-0 z-10">
           <Checkbox
             :model-value="allSelected && data.length > 0"
             @change="(e) => emit('toggle-all', e)"
@@ -257,6 +263,7 @@ const getColumnVisibility = (column: Column) => {
           >
             <!-- Checkbox Cell -->
             <div
+              v-if="selectable"
               class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover"
               :class="[
                 loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
@@ -335,6 +342,7 @@ const getColumnVisibility = (column: Column) => {
                 @mouseenter="emit('row-mouseenter', item)"
               >
                 <div
+                  v-if="selectable"
                   class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover"
                   :class="[
                     loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
