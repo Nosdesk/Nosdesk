@@ -11,6 +11,7 @@ import { useRouter } from 'vue-router'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
+import { useCyclesStore } from '@/stores/cycles'
 import { useAggregate } from '@/sync/composables'
 import { dependenciesService, type DependencyEdge } from '@/services/dependenciesService'
 import GanttBoard from '@/sync/views/GanttBoard.vue'
@@ -24,8 +25,13 @@ const router = useRouter()
 const projectId = computed(() => Number(props.id))
 const projectsStore = useSyncProjectsStore()
 const ticketsStore = useSyncTicketsStore()
+const cyclesStore = useCyclesStore()
 
 const project = projectsStore.byId(projectId)
+
+// Cycles render as shaded context bands behind the bars. Sourced from
+// the cycles store (cached + reactive to cycle mutations).
+const cycles = computed(() => cyclesStore.cyclesForProject(projectId.value).value)
 
 interface ProjectTicketAssoc {
   project_id: number
@@ -62,12 +68,12 @@ async function loadEdges(): Promise<void> {
 
 onMounted(async () => {
   await subscribe(`project:${projectId.value}`)
-  await loadEdges()
+  await Promise.all([loadEdges(), cyclesStore.ensureLoaded(projectId.value)])
 })
 
 watch(projectId, async () => {
   await subscribe(`project:${projectId.value}`)
-  await loadEdges()
+  await Promise.all([loadEdges(), cyclesStore.ensureLoaded(projectId.value)])
 })
 
 function openCard(cardId: number): void {
@@ -94,6 +100,7 @@ function openCard(cardId: number): void {
       class="flex-1 min-h-0"
       :cards="cards"
       :edges="edges"
+      :cycles="cycles"
       :on-card-click="openCard"
     />
   </div>

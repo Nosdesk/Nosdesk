@@ -25,6 +25,7 @@ import {
 } from 'date-fns'
 import type { CardData } from './types'
 import type { DependencyEdge } from '@/services/dependenciesService'
+import type { Cycle } from '@/services/cyclesService'
 import { TERMINAL_CATEGORIES } from '@/types/workflow'
 
 const fluent = useFluent()
@@ -33,9 +34,13 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 const props = withDefaults(defineProps<{
   cards: readonly CardData[]
   edges?: readonly DependencyEdge[]
+  /** Project cycles, rendered as shaded context bands behind the bars
+   *  (only those with both a start and end date). */
+  cycles?: readonly Cycle[]
   onCardClick?: (cardId: number) => void
 }>(), {
   edges: () => [],
+  cycles: () => [],
   onCardClick: undefined,
 })
 
@@ -258,6 +263,52 @@ const todayInRange = computed(
     today.value.getTime() <= rangeEnd.value.getTime(),
 )
 const todayX = computed(() => xOf(today.value))
+
+// ===================== Cycle bands =====================
+
+interface CycleBand {
+  key: string
+  left: number
+  width: number
+  label: string
+  state: Cycle['state']
+}
+
+/** Cycles with both dates become shaded bands spanning their range.
+ *  end_at is inclusive, so the band runs through the end of that day. */
+const cycleBands = computed<CycleBand[]>(() => {
+  const max = totalWidth.value
+  const out: CycleBand[] = []
+  for (const c of props.cycles) {
+    if (!c.start_at || !c.end_at) continue
+    const rawLeft = xOf(startOfDay(new Date(c.start_at)))
+    const rawRight = xOf(addDays(startOfDay(new Date(c.end_at)), 1))
+    if (rawRight <= 0 || rawLeft >= max) continue
+    const left = Math.max(0, rawLeft)
+    out.push({
+      key: c.uuid,
+      left,
+      width: Math.max(1, Math.min(max, rawRight) - left),
+      label: c.name,
+      state: c.state,
+    })
+  }
+  return out
+})
+
+/** Strip-label tint by cycle state: active stands out, planned is
+ *  neutral, completed is muted. */
+function cycleStripClass(state: Cycle['state']): string {
+  if (state === 'active') return 'bg-accent/15 text-accent border-accent/40'
+  if (state === 'planned') return 'bg-surface-hover text-secondary border-subtle'
+  return 'bg-surface-alt text-tertiary border-subtle'
+}
+
+/** Body shading: a faint wash so the band reads behind the bars
+ *  without competing with them. */
+function cycleBodyClass(state: Cycle['state']): string {
+  return state === 'active' ? 'bg-accent/5' : 'bg-surface-hover/30'
+}
 
 // ===================== Bars =====================
 
@@ -483,6 +534,23 @@ const zoomLabel: Record<Zoom, string> = {
             >{{ tick.label }}</div>
           </div>
 
+          <!-- Cycle bands strip: one labelled segment per cycle that
+               has a date range, aligned to the same scale as the bars. -->
+          <div
+            v-if="cycleBands.length > 0"
+            class="relative bg-app border-b border-subtle"
+            style="height: 22px"
+          >
+            <div
+              v-for="band in cycleBands"
+              :key="band.key"
+              class="absolute top-0 bottom-0 flex items-center px-2 border-l border-r text-[10px] font-medium truncate"
+              :class="cycleStripClass(band.state)"
+              :style="{ left: `${band.left}px`, width: `${band.width}px` }"
+              :title="band.label"
+            >{{ band.label }}</div>
+          </div>
+
           <!-- Timeline body -->
           <div
             class="relative"
@@ -495,6 +563,15 @@ const zoomLabel: Record<Zoom, string> = {
               :style="{
                 backgroundImage: `repeating-linear-gradient(to right, transparent 0 ${(zoom === 'week' ? 1 : 7) * pxPerDay - 1}px, var(--border-subtle, #e5e7eb33) ${(zoom === 'week' ? 1 : 7) * pxPerDay - 1}px ${(zoom === 'week' ? 1 : 7) * pxPerDay}px)`,
               }"
+            ></div>
+
+            <!-- Cycle band shading (behind bars) -->
+            <div
+              v-for="band in cycleBands"
+              :key="`shade-${band.key}`"
+              class="absolute top-0 bottom-0 border-l border-r border-dashed border-subtle/40"
+              :class="cycleBodyClass(band.state)"
+              :style="{ left: `${band.left}px`, width: `${band.width}px` }"
             ></div>
 
             <!-- Today line -->
