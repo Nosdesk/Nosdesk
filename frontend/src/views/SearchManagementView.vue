@@ -119,13 +119,14 @@
             </span>
           </div>
 
-          <div v-if="rebuildResults.success && rebuildResults.stats" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-sm">
+          <div v-if="rebuildResults.success && rebuildResults.stats" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-sm">
             <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-tickets') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.tickets.toLocaleString() }}</span></div>
             <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-comments') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.comments.toLocaleString() }}</span></div>
             <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-docs') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.documentation.toLocaleString() }}</span></div>
             <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-attachments') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.attachments.toLocaleString() }}</span></div>
             <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-devices') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.devices.toLocaleString() }}</span></div>
             <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-users') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.users.toLocaleString() }}</span></div>
+            <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-projects') }}</span> <span class="text-primary font-medium">{{ rebuildResults.stats.projects.toLocaleString() }}</span></div>
             <div><span class="text-tertiary">{{ $t('admin-search-mgmt-rebuild-stat-total') }}</span> <span class="text-accent font-bold">{{ rebuildResults.stats.total.toLocaleString() }}</span></div>
           </div>
 
@@ -224,7 +225,7 @@ const doRebuildIndex = async () => {
     rebuildResults.value = {
       success: false,
       message: t('admin-search-mgmt-rebuild-error-unexpected'),
-      stats: { tickets: 0, comments: 0, documentation: 0, attachments: 0, devices: 0, users: 0, total: 0 }
+      stats: { tickets: 0, comments: 0, documentation: 0, attachments: 0, devices: 0, users: 0, projects: 0, total: 0 }
     }
   } finally {
     isRebuilding.value = false

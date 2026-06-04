@@ -7,7 +7,8 @@ export type SearchEntityType =
   | 'documentation'
   | 'attachment'
   | 'device'
-  | 'user';
+  | 'user'
+  | 'project';
 
 /**
  * A single search result
@@ -72,6 +73,7 @@ export interface RebuildResponse {
     attachments: number;
     devices: number;
     users: number;
+    projects: number;
     total: number;
   };
 }
@@ -86,6 +88,7 @@ export interface GroupedSearchResults {
   attachments: SearchResult[];
   devices: SearchResult[];
   users: SearchResult[];
+  projects: SearchResult[];
 }
 
 import type { IconName } from '@/components/common/icons';
@@ -111,11 +114,12 @@ export const ENTITY_TYPE_CONFIG: Record<SearchEntityType, {
   attachment:    { key: 'attachments',   labelKey: 'search-entity-type-attachments',   labelFallback: 'Attachments',   icon: 'paperclip' },
   device:        { key: 'devices',       labelKey: 'search-entity-type-devices',       labelFallback: 'Devices',       icon: 'device' },
   user:          { key: 'users',         labelKey: 'search-entity-type-users',         labelFallback: 'Users',         icon: 'user' },
+  project:       { key: 'projects',      labelKey: 'search-entity-type-projects',      labelFallback: 'Projects',      icon: 'folder' },
 };
 
 /** Display order for search result groups */
 export const ENTITY_DISPLAY_ORDER: SearchEntityType[] = [
-  'ticket', 'documentation', 'device', 'user', 'comment', 'attachment',
+  'ticket', 'project', 'documentation', 'device', 'user', 'comment', 'attachment',
 ];
 
 /** Create an empty GroupedSearchResults object */
@@ -127,6 +131,7 @@ export function emptyGroupedResults(): GroupedSearchResults {
     attachments: [],
     devices: [],
     users: [],
+    projects: [],
   };
 }
 

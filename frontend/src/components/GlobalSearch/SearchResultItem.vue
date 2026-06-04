@@ -31,6 +31,7 @@ const iconClasses = computed(() => {
     attachment:    { bg: 'bg-status-warning-muted',  text: 'text-status-warning' },
     device:        { bg: 'bg-[rgba(44,128,255,0.15)]', text: 'text-brand-blue' },
     user:          { bg: 'bg-[rgba(255,102,179,0.15)]', text: 'text-brand-pink' },
+    project:       { bg: 'bg-accent-muted',          text: 'text-accent' },
   };
   return styles[props.result.entity_type] ?? { bg: 'bg-surface-alt', text: 'text-tertiary' };
 });

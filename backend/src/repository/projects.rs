@@ -76,8 +76,26 @@ pub fn get_project_with_ticket_count(
     })
 }
 
-pub fn create_project(conn: &mut DbConnection, new_project: NewProject) -> QueryResult<Project> {
-    conn.transaction(|conn| {
+/// Observer fired after a project is created or updated. The
+/// implementor re-indexes the project in search so name / description
+/// / status edits surface in global search regardless of which handler
+/// made the change.
+pub trait ProjectIndexedObserver: Send + Sync {
+    fn project_indexed(&self, project: &Project);
+}
+
+/// Observer fired after a project is deleted. The implementor removes
+/// the project from the search index so it stops appearing in results.
+pub trait ProjectDeletedObserver: Send + Sync {
+    fn project_deleted(&self, project_id: i32);
+}
+
+pub fn create_project(
+    conn: &mut DbConnection,
+    new_project: NewProject,
+    observer: Option<&dyn ProjectIndexedObserver>,
+) -> QueryResult<Project> {
+    let project = conn.transaction::<_, diesel::result::Error, _>(|conn| {
         let project: Project = diesel::insert_into(projects::table)
             .values(&new_project)
             .get_result(conn)?;
@@ -99,13 +117,18 @@ pub fn create_project(conn: &mut DbConnection, new_project: NewProject) -> Query
             },
         )?;
         Ok(project)
-    })
+    })?;
+    if let Some(obs) = observer {
+        obs.project_indexed(&project);
+    }
+    Ok(project)
 }
 
 pub fn update_project(
     conn: &mut DbConnection,
     project_id: i32,
     project_update: ProjectUpdate,
+    observer: Option<&dyn ProjectIndexedObserver>,
 ) -> QueryResult<Project> {
     // Set updated_at to current time if not provided
     let project_update = if project_update.updated_at.is_none() {
@@ -116,7 +139,7 @@ pub fn update_project(
         project_update
     };
 
-    conn.transaction(|conn| {
+    let project = conn.transaction::<_, diesel::result::Error, _>(|conn| {
         let project: Project = diesel::update(projects::table.find(project_id))
             .set(&project_update)
             .get_result(conn)?;
@@ -138,16 +161,24 @@ pub fn update_project(
             },
         )?;
         Ok(project)
-    })
+    })?;
+    if let Some(obs) = observer {
+        obs.project_indexed(&project);
+    }
+    Ok(project)
 }
 
-pub fn delete_project(conn: &mut DbConnection, project_id: i32) -> QueryResult<usize> {
+pub fn delete_project(
+    conn: &mut DbConnection,
+    project_id: i32,
+    observer: Option<&dyn ProjectDeletedObserver>,
+) -> QueryResult<usize> {
     // This will also delete all project_tickets entries due to ON DELETE CASCADE.
     // Capture the project before delete so the emit fans out to the
     // right groups (the project_tickets cascade will remove ticket
     // associations, but the deleted project itself still belongs to
     // workspace + project:<id>).
-    conn.transaction(|conn| {
+    let result = conn.transaction::<_, diesel::result::Error, _>(|conn| {
         let result = diesel::delete(projects::table.find(project_id)).execute(conn)?;
         if result > 0 {
             emit::record(
@@ -164,7 +195,13 @@ pub fn delete_project(conn: &mut DbConnection, project_id: i32) -> QueryResult<u
             )?;
         }
         Ok(result)
-    })
+    })?;
+    if result > 0 {
+        if let Some(obs) = observer {
+            obs.project_deleted(project_id);
+        }
+    }
+    Ok(result)
 }
 
 // Project-Ticket association operations
@@ -498,7 +535,7 @@ mod tests {
         let ticket = TestFixtures::create_ticket(&mut conn, "T", Some(user.uuid), None);
 
         add_ticket_to_project(&mut conn, project.id, ticket.id).unwrap();
-        delete_project(&mut conn, project.id).unwrap();
+        delete_project(&mut conn, project.id, None).unwrap();
 
         // Ticket should still exist
         assert!(crate::repository::tickets::get_ticket_by_id(&mut conn, ticket.id).is_ok());

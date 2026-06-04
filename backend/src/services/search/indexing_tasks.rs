@@ -113,3 +113,17 @@ pub fn spawn_delete_user(search_service: Arc<SearchService>, user_uuid: String) 
         svc.delete_user(&user_uuid)
     });
 }
+
+/// Index a project in the background
+pub fn spawn_index_project(search_service: Arc<SearchService>, project: models::Project) {
+    spawn_indexing_task(search_service, "index project", move |svc| {
+        svc.index_project(&project)
+    });
+}
+
+/// Delete a project from the index in the background
+pub fn spawn_delete_project(search_service: Arc<SearchService>, project_id: i32) {
+    spawn_indexing_task(search_service, "delete project", move |svc| {
+        svc.delete_project(project_id)
+    });
+}

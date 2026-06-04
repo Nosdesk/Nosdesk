@@ -217,6 +217,15 @@ impl SearchService {
         self.index_document(&doc)
     }
 
+    /// Index a project
+    pub fn index_project(
+        &self,
+        project: &models::Project,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let doc = indexer::index_document_from_project(project);
+        self.index_document(&doc)
+    }
+
     /// Delete a ticket from the index
     pub fn delete_ticket(
         &self,
@@ -255,6 +264,14 @@ impl SearchService {
         user_uuid: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.delete_by_key(EntityType::User, user_uuid)
+    }
+
+    /// Delete a project from the index
+    pub fn delete_project(
+        &self,
+        project_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.delete_by_key(EntityType::Project, &project_id.to_string())
     }
 
     /// Rebuild the entire index from the database
@@ -404,6 +421,18 @@ impl crate::repository::users::UserUpdatedObserver for Arc<SearchService> {
 impl crate::repository::users::UserDeletedObserver for Arc<SearchService> {
     fn user_deleted(&self, user_uuid: &uuid::Uuid) {
         indexing_tasks::spawn_delete_user(Arc::clone(self), user_uuid.to_string());
+    }
+}
+
+impl crate::repository::projects::ProjectIndexedObserver for Arc<SearchService> {
+    fn project_indexed(&self, project: &models::Project) {
+        indexing_tasks::spawn_index_project(Arc::clone(self), project.clone());
+    }
+}
+
+impl crate::repository::projects::ProjectDeletedObserver for Arc<SearchService> {
+    fn project_deleted(&self, project_id: i32) {
+        indexing_tasks::spawn_delete_project(Arc::clone(self), project_id);
     }
 }
 

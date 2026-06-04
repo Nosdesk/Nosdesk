@@ -12,6 +12,7 @@ pub enum EntityType {
     Attachment,
     Asset,
     User,
+    Project,
 }
 
 impl EntityType {
@@ -23,6 +24,7 @@ impl EntityType {
             EntityType::Attachment => "attachment",
             EntityType::Asset => "device",
             EntityType::User => "user",
+            EntityType::Project => "project",
         }
     }
 
@@ -34,6 +36,7 @@ impl EntityType {
             "attachment" => Some(EntityType::Attachment),
             "device" => Some(EntityType::Asset),
             "user" => Some(EntityType::User),
+            "project" => Some(EntityType::Project),
             _ => None,
         }
     }
@@ -230,6 +233,7 @@ mod tests {
             EntityType::Attachment,
             EntityType::Asset,
             EntityType::User,
+            EntityType::Project,
         ];
         for variant in &variants {
             let s = variant.as_str();

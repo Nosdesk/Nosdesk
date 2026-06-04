@@ -217,6 +217,7 @@ pub async fn rebuild_index(
                 attachments = stats.attachments,
                 devices = stats.devices,
                 users = stats.users,
+                projects = stats.projects,
                 total = stats.total(),
                 "Search index rebuilt"
             );
@@ -236,6 +237,7 @@ pub async fn rebuild_index(
                     "attachments": stats.attachments,
                     "devices": stats.devices,
                     "users": stats.users,
+                    "projects": stats.projects,
                     "total": stats.total()
                 }
             }))

@@ -8,7 +8,9 @@ use crate::handlers::errors;
 use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{NewProject, ProjectUpdate, WorkspaceRole};
 use crate::repository;
+use crate::services::search::SearchService;
 use crate::utils::rbac::require_workspace_role;
+use std::sync::Arc;
 
 #[derive(Deserialize)]
 pub struct GetProjectQuery {
@@ -70,12 +72,15 @@ pub async fn create_project(
     req: HttpRequest,
     mut tc: TenantConn,
     project: web::Json<NewProject>,
+    search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
-    match tc.run(|conn| repository::create_project(conn, project.into_inner())) {
+    match tc.run(|conn| {
+        repository::create_project(conn, project.into_inner(), Some(search_service.get_ref()))
+    }) {
         Ok(project) => HttpResponse::Created().json(project),
         Err(_) => errors::internal("Failed to create project"),
     }
@@ -87,13 +92,21 @@ pub async fn update_project(
     mut tc: TenantConn,
     path: web::Path<i32>,
     project_update: web::Json<ProjectUpdate>,
+    search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
     let project_id = path.into_inner();
-    match tc.run(|conn| repository::update_project(conn, project_id, project_update.into_inner())) {
+    match tc.run(|conn| {
+        repository::update_project(
+            conn,
+            project_id,
+            project_update.into_inner(),
+            Some(search_service.get_ref()),
+        )
+    }) {
         Ok(project) => HttpResponse::Ok().json(project),
         Err(e) => match e {
             Error::NotFound => errors::not_found_msg("Project not found"),
@@ -107,13 +120,16 @@ pub async fn delete_project(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
+    search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
     let project_id = path.into_inner();
-    match tc.run(|conn| repository::delete_project(conn, project_id)) {
+    match tc
+        .run(|conn| repository::delete_project(conn, project_id, Some(search_service.get_ref())))
+    {
         Ok(0) => errors::not_found_msg("Project not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(_) => errors::internal("Failed to delete project"),

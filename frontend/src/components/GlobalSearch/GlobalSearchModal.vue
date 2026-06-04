@@ -30,6 +30,7 @@ const filterLabels = computed<Record<string, string>>(() => ({
   ticket: t('search-global-filter-tickets'),
   device: t('search-global-filter-devices'),
   user: t('search-global-filter-users'),
+  project: t('search-global-filter-projects'),
 }));
 
 const placeholder = computed(() => {

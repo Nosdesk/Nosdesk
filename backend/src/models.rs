@@ -2221,7 +2221,7 @@ impl FromSql<crate::schema::sql_types::ProjectStatus, Pg> for ProjectStatus {
 }
 
 // Project model
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable)]
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::projects)]
 pub struct Project {
     pub id: i32,

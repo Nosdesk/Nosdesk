@@ -230,6 +230,28 @@ pub fn index_document_from_user(user: &models::User, primary_email: Option<&str>
         .updated_at(user.updated_at.and_utc().timestamp())
 }
 
+/// Create an index document from a project. Title = name, content +
+/// preview = description, metadata = lifecycle status.
+pub fn index_document_from_project(project: &models::Project) -> IndexDocument {
+    let status = match project.status {
+        models::ProjectStatus::Active => "active",
+        models::ProjectStatus::Completed => "completed",
+        models::ProjectStatus::Archived => "archived",
+    };
+    let description = project.description.clone().unwrap_or_default();
+
+    IndexDocument::new(
+        EntityType::Project,
+        project.id as i64,
+        &project.name,
+        description.clone(),
+    )
+    .metadata(status)
+    .url(format!("/projects/{}", project.id))
+    .preview(description)
+    .updated_at(project.updated_at.and_utc().timestamp())
+}
+
 /// Add a document to the index
 pub fn add_document_to_index(
     writer: &IndexWriter,
@@ -277,8 +299,8 @@ pub fn rebuild_index(
     schema: &SearchSchema,
 ) -> Result<IndexStats, Box<dyn std::error::Error + Send + Sync>> {
     use crate::schema::{
-        article_contents, assets, attachments, comments, documentation_pages, tickets, user_emails,
-        users,
+        article_contents, assets, attachments, comments, documentation_pages, projects, tickets,
+        user_emails, users,
     };
 
     info!("Starting full index rebuild");
@@ -290,6 +312,7 @@ pub fn rebuild_index(
         attachments: 0,
         devices: 0,
         users: 0,
+        projects: 0,
     };
 
     // Index all tickets with their article contents
@@ -414,6 +437,18 @@ pub fn rebuild_index(
         }
     }
 
+    // Index all projects
+    let all_projects: Vec<models::Project> = projects::table.load(conn)?;
+    info!(count = all_projects.len(), "Indexing projects");
+    for project in &all_projects {
+        let doc = index_document_from_project(project);
+        if let Err(e) = add_document_to_index(writer, schema, &doc) {
+            warn!(project_id = project.id, error = ?e, "Failed to index project");
+        } else {
+            stats.projects += 1;
+        }
+    }
+
     // Note: Caller is responsible for committing the writer
 
     info!(
@@ -423,6 +458,7 @@ pub fn rebuild_index(
         attachments = stats.attachments,
         devices = stats.devices,
         users = stats.users,
+        projects = stats.projects,
         "Index rebuild complete"
     );
 
@@ -438,6 +474,7 @@ pub struct IndexStats {
     pub attachments: usize,
     pub devices: usize,
     pub users: usize,
+    pub projects: usize,
 }
 
 impl IndexStats {
@@ -448,5 +485,6 @@ impl IndexStats {
             + self.attachments
             + self.devices
             + self.users
+            + self.projects
     }
 }

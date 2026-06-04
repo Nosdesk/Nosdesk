@@ -46,6 +46,7 @@ fn delta_returns_events_for_user_visible_groups() {
                     start_date: None,
                     end_date: None,
                 },
+                None,
             )
         })
         .unwrap();
@@ -63,6 +64,7 @@ fn delta_returns_events_for_user_visible_groups() {
                 end_date: None,
                 updated_at: None,
             },
+            None,
         )?;
         Ok(())
     })

@@ -287,13 +287,14 @@ fn apply_project(
         SyncOp::Update => {
             let patch = decode_project_patch(&tx.patch)?;
             run_with_actor(conn, actor, |conn| {
-                let _: Project = crate::repository::projects::update_project(conn, project_id, patch)?;
+                let _: Project =
+                    crate::repository::projects::update_project(conn, project_id, patch, None)?;
                 latest_sync_id(conn)
             })
             .map_err(reject_diesel)
         }
         SyncOp::Delete => run_with_actor(conn, actor, |conn| {
-            let _ = crate::repository::projects::delete_project(conn, project_id)?;
+            let _ = crate::repository::projects::delete_project(conn, project_id, None)?;
             latest_sync_id(conn)
         })
         .map_err(reject_diesel),
