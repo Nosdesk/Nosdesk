@@ -59,7 +59,7 @@ async function confirmDelete(): Promise<void> {
         ref="inputEl"
         v-model="draft"
         type="text"
-        class="w-full max-w-md text-xl font-semibold text-primary bg-surface-alt border border-default rounded px-2 py-0.5 focus:outline-none focus:border-accent"
+        class="w-full max-w-md text-xl font-semibold text-primary bg-surface-alt border border-default rounded px-2 py-0.5 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
         :aria-label="$t('project-actions-rename')"
         @keyup.enter="done"
         @keyup.esc="cancel"

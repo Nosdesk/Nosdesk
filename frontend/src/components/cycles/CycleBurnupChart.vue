@@ -50,6 +50,10 @@ function polyline(pick: (p: { scope: number; completed: number }) => number): st
 const scopeLine = computed(() => polyline((p) => p.scope))
 const completedLine = computed(() => polyline((p) => p.completed))
 
+// Faint horizontal gridlines at quarter fractions of the scale, so
+// mid-range values are readable between the 0 and final-scope labels.
+const gridYs = computed(() => [0.25, 0.5, 0.75].map((f) => yFor(maxY.value * f)))
+
 // Ideal line: a straight path from (start, 0) to (end, final_scope).
 const idealLine = computed(() => {
   const x1 = xFor(0)
@@ -123,6 +127,19 @@ const lastDay = computed(() =>
         :y2="top + plotH"
         class="stroke-subtle"
         stroke-width="1"
+      />
+
+      <!-- Faint intermediate gridlines for mid-range readability -->
+      <line
+        v-for="(gy, i) in gridYs"
+        :key="i"
+        :x1="left"
+        :y1="gy"
+        :x2="VB_W - right"
+        :y2="gy"
+        class="stroke-subtle"
+        stroke-width="1"
+        stroke-opacity="0.35"
       />
 
       <!-- Y tick labels at 0 and final_scope -->

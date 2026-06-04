@@ -50,7 +50,7 @@ const { editing, draft, inputEl, start, done, cancel } = useInlineRename((name) 
         ref="inputEl"
         v-model="draft"
         type="text"
-        class="flex-1 min-w-0 text-base font-medium text-primary bg-surface-alt border border-default rounded px-2 py-0.5 focus:outline-none focus:border-accent"
+        class="flex-1 min-w-0 text-base font-medium text-primary bg-surface-alt border border-default rounded px-2 py-0.5 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
         :aria-label="$t('project-actions-rename')"
         @click.stop
         @keyup.enter="done"

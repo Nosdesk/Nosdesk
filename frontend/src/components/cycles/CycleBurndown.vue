@@ -15,6 +15,7 @@ import { useFluent } from 'fluent-vue'
 import { cyclesService, type CycleStats, type BurnupSeries } from '@/services/cyclesService'
 import type { Cycle } from '@/services/cyclesService'
 import { formatDateTime } from '@/utils/dateUtils'
+import { WORKFLOW_CATEGORIES } from '@/types/workflow'
 import CycleBurnupChart from './CycleBurnupChart.vue'
 
 const fluent = useFluent()
@@ -64,7 +65,14 @@ const daysRemaining = computed<number | null>(() => {
 
 const sortedCategories = computed<[string, number][]>(() => {
   if (!stats.value) return []
-  return Object.entries(stats.value.by_category).sort(([a], [b]) => a.localeCompare(b))
+  // Order by the canonical workflow progression (triage → done), not
+  // alphabetically, so the breakdown reads in the order work flows.
+  const order = WORKFLOW_CATEGORIES as readonly string[]
+  const rank = (c: string) => {
+    const i = order.indexOf(c)
+    return i === -1 ? order.length : i
+  }
+  return Object.entries(stats.value.by_category).sort(([a], [b]) => rank(a) - rank(b))
 })
 
 const categoryLabels = computed<Record<string, string>>(() => ({

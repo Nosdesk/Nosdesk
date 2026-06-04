@@ -235,7 +235,7 @@ async function confirmDelete(): Promise<void> {
       <!-- Desktop: dense rows -->
       <div class="hidden md:block border border-subtle rounded-lg overflow-hidden">
         <div
-          class="flex items-center gap-3 px-3 py-2 border-b border-subtle bg-surface text-[11px] uppercase tracking-wide font-semibold text-tertiary"
+          class="flex items-center gap-3 px-3 py-2 border-b border-subtle bg-surface text-xs uppercase tracking-wide font-semibold text-tertiary"
         >
           <div class="flex items-center gap-2 min-w-0 flex-1">
             <span class="w-1.5 h-1.5 shrink-0"></span>{{ $t('projects-col-project') }}
