@@ -839,17 +839,17 @@ const isOverflowRouteActive = computed(() =>
 
 .resizer-handle:active,
 .resizer-handle.active {
-    background-color: rgba(96, 165, 250, 0.3);
+    background-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
-/* Keep the blue line indicator on hover/active, but make it more subtle */
+/* Keep the accent line indicator on hover/active, but make it more subtle */
 .resizer-handle:hover::after {
     content: "";
     position: absolute;
     left: 0;
     right: 0;
     height: 0.5px; /* Thinner line on hover */
-    background-color: rgba(96, 165, 250, 0.3); /* Much more transparent blue */
+    background-color: color-mix(in srgb, var(--color-accent) 30%, transparent); /* Much more transparent accent */
     top: 50%;
     transform: translateY(-50%);
     opacity: 0.5; /* Lower opacity */
@@ -864,7 +864,7 @@ const isOverflowRouteActive = computed(() =>
     left: 0;
     right: 0;
     height: 0.5px;
-    background-color: rgba(96, 165, 250, 0.5); /* More visible when active */
+    background-color: color-mix(in srgb, var(--color-accent) 50%, transparent); /* More visible when active */
     top: 50%;
     transform: translateY(-50%);
     opacity: 0.6;
