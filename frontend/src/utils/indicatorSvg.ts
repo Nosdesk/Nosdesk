@@ -3,7 +3,6 @@
  * Used by both Vue components and ProseMirror plugins to avoid DRY violations
  */
 
-type TicketStatus = 'open' | 'in-progress' | 'closed'
 type TicketPriority = 'low' | 'medium' | 'high'
 
 /**
@@ -11,34 +10,6 @@ type TicketPriority = 'low' | 'medium' | 'high'
  */
 function generateUniqueId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).substr(2, 9)}`
-}
-
-/**
- * Generate status indicator SVG for colorblind mode
- * - Open: hollow circle (outline only)
- * - In Progress: bullseye (ring with center dot)
- * - Closed: filled circle
- */
-export function getStatusIndicatorSvg(status: TicketStatus, colorClass?: string): string {
-  const color = colorClass || `text-status-${status}`
-
-  switch (status) {
-    case 'open':
-      return `<svg class="indicator-icon" viewBox="0 0 10 10" fill="none">
-        <circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.5" class="${color}"/>
-      </svg>`
-    case 'in-progress':
-      return `<svg class="indicator-icon" viewBox="0 0 10 10">
-        <circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.5" fill="none" class="${color}"/>
-        <circle cx="5" cy="5" r="2" fill="currentColor" class="${color}"/>
-      </svg>`
-    case 'closed':
-      return `<svg class="indicator-icon" viewBox="0 0 10 10">
-        <circle cx="5" cy="5" r="4" fill="currentColor" class="${color}"/>
-      </svg>`
-    default:
-      return ''
-  }
 }
 
 /**

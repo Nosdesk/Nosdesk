@@ -92,7 +92,6 @@ const props = defineProps<{
   ticket: {
     id: number;
     title: string;
-    status: string;
     priority: string;
     created?: string;
     modified?: string;

@@ -11,6 +11,9 @@ import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import ticketService from '@/services/ticketService'
 import type { Ticket } from '@/types/ticket'
 import { formatRelativeTime } from '@/utils/dateUtils'
+import { useWorkflowStatesStore } from '@/stores/workflowStates'
+
+const wf = useWorkflowStatesStore()
 
 const props = defineProps<{
   show: boolean
@@ -115,6 +118,7 @@ watchEffect(() => {
 // Watch modal visibility
 watch(() => props.show, (isOpen) => {
   if (isOpen) {
+    wf.load()
     searchQuery.value = ''
     tickets.value = []
     currentPage.value = 1
@@ -194,7 +198,7 @@ const getPriorityClass = (priority: TicketPriority) => {
               <div class="flex items-center gap-1 flex-nowrap">
                 <StatusBadge
                   type="status"
-                  :value="ticket.status"
+                  :workflow-state="wf.findById(ticket.workflow_state_id ?? -1) ?? null"
                   custom-classes="text-xs px-1.5 py-0.5 rounded border whitespace-nowrap"
                   :compact="true"
                 />
@@ -254,7 +258,7 @@ const getPriorityClass = (priority: TicketPriority) => {
                 <div class="flex gap-1 flex-nowrap">
                   <StatusBadge
                     type="status"
-                    :value="ticket.status"
+                    :workflow-state="wf.findById(ticket.workflow_state_id ?? -1) ?? null"
                     custom-classes="text-xs px-1.5 py-0.5 rounded border whitespace-nowrap"
                     :compact="true"
                   />

@@ -3,7 +3,7 @@
  * Type definitions for Server-Sent Events in ticket context
  */
 
-import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions'
+import type { TicketPriority } from '@/constants/ticketOptions'
 import type { UserInfo } from './user'
 import type { Attachment } from './comment'
 
@@ -20,7 +20,6 @@ interface SSEEventWrapper<T> {
 export type TicketFieldValue =
   | string
   | number
-  | TicketStatus
   | TicketPriority
   | { uuid: string; user_info?: UserInfo }
 
@@ -31,7 +30,6 @@ export interface TicketUpdatedEventData {
   ticket_id: number
   field:
     | 'title'
-    | 'status'
     | 'workflow_state_id'
     | 'priority'
     | 'modified'

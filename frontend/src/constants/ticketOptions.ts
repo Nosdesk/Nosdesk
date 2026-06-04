@@ -6,7 +6,6 @@
 // locale switch re-labels the dropdowns without re-evaluating this
 // module. The English literal stays in a sibling fallback map so
 // pre-bootstrap call sites (tests, SSR) still get readable text.
-export type TicketStatus = "open" | "in-progress" | "closed";
 export type TicketPriority = "low" | "medium" | "high";
 
 export interface SelectOption<T extends string> {
@@ -14,12 +13,6 @@ export interface SelectOption<T extends string> {
   /** Fluent key. Consumers resolve via `$t(opt.labelKey)`. */
   labelKey: string;
 }
-
-export const STATUS_OPTIONS: SelectOption<TicketStatus>[] = [
-  { value: "open", labelKey: "status-open" },
-  { value: "in-progress", labelKey: "status-in-progress" },
-  { value: "closed", labelKey: "status-closed" },
-];
 
 export const PRIORITY_OPTIONS: SelectOption<TicketPriority>[] = [
   { value: "low", labelKey: "priority-low" },

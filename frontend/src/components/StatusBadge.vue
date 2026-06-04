@@ -29,7 +29,13 @@ const priorityFullLabels: Record<string, string> = {
 
 const props = defineProps<{
   type: 'status' | 'priority'
-  value: 'open' | 'in-progress' | 'closed' | 'low' | 'medium' | 'high'
+  /**
+   * Legacy three-bucket / priority value. Optional: when a
+   * `workflowState` is supplied the badge renders from that instead and
+   * `value` is ignored, so status callers that only have a state id can
+   * omit it.
+   */
+  value?: 'open' | 'in-progress' | 'closed' | 'low' | 'medium' | 'high'
   /**
    * Joined workflow state. When provided, the badge renders the state's
    * configured name and color instead of the legacy three-bucket label.
@@ -69,9 +75,12 @@ const displayText = computed(() => {
 
   if (props.type === 'status') {
     if (props.workflowState) return props.workflowState.name
+    if (!props.value) return ''
     const key = statusLabels[props.value]
     return key ? t(key) : props.value
   }
+
+  if (!props.value) return ''
 
   // For priority type: use short form if short prop is true
   if (props.short) {
@@ -86,7 +95,7 @@ const displayText = computed(() => {
 const colorClasses = computed(() => {
   if (props.type === 'status') {
     if (props.workflowState) return paletteForColor(props.workflowState.color).badge
-    return statusConfig[props.value] ?? STATUS_FALLBACK
+    return (props.value ? statusConfig[props.value] : undefined) ?? STATUS_FALLBACK
   }
   return priorityConfig[props.value as 'low' | 'medium' | 'high']
 })

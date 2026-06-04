@@ -4,11 +4,12 @@
  */
 
 import { escapeHtml } from '@/utils/escape';
+import { coarseStatusBucket, type WorkflowStateCategory } from '@/types/workflow';
 
 export interface TicketCardData {
   id: number
   title: string
-  status?: string
+  category?: WorkflowStateCategory
   priority?: string
   requester?: string | null
   assignee?: string | null
@@ -16,8 +17,8 @@ export interface TicketCardData {
   error?: boolean
 }
 
-export function getStatusClass(status?: string, prefix = 'ticket-link'): string {
-  switch (status?.toLowerCase()) {
+export function getStatusClass(bucket?: string, prefix = 'ticket-link'): string {
+  switch (bucket?.toLowerCase()) {
     case 'open':
       return `${prefix}-status-open`
     case 'in-progress':
@@ -54,7 +55,8 @@ export function renderTicketCardHtml(data: TicketCardData, classPrefix = 'ticket
     `
   }
 
-  const statusText = data.status ? data.status.replace('-', ' ') : ''
+  const bucket = data.category ? coarseStatusBucket(data.category) : ''
+  const statusText = bucket ? bucket.replace('-', ' ') : ''
   const priorityText = data.priority
     ? data.priority.charAt(0).toUpperCase() + data.priority.slice(1)
     : ''
@@ -62,7 +64,7 @@ export function renderTicketCardHtml(data: TicketCardData, classPrefix = 'ticket
   return `
     <span class="${classPrefix}-id">#${data.id}</span>
     <span class="${classPrefix}-title">${escapeHtml(data.title)}</span>
-    ${data.status ? `<span class="${classPrefix}-status ${getStatusClass(data.status, classPrefix)}"><span class="${classPrefix}-dot"></span>${statusText}</span>` : ''}
+    ${bucket ? `<span class="${classPrefix}-status ${getStatusClass(bucket, classPrefix)}"><span class="${classPrefix}-dot"></span>${statusText}</span>` : ''}
     ${data.priority ? `<span class="${classPrefix}-priority ${getPriorityClass(data.priority, classPrefix)}"><span class="${classPrefix}-dot"></span>${priorityText}</span>` : ''}
   `
 }

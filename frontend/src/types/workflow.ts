@@ -121,19 +121,6 @@ export function isCategoryHeaderValue(value: string): boolean {
   return value.startsWith(CATEGORY_HEADER_VALUE_PREFIX)
 }
 
-/**
- * Folds the seven-category model down to the legacy three-bucket status
- * string used by older parts of the UI. Triage and Backlog are "open";
- * Active and In Review are "in-progress"; Done, Cancelled and Merged
- * are "closed". Mirrors `WorkflowStateCategory::legacy_status()` on the
- * backend.
- */
-export function legacyStatusFor(category: WorkflowStateCategory): 'open' | 'in-progress' | 'closed' {
-  if (category === 'triage' || category === 'backlog') return 'open'
-  if (category === 'active' || category === 'in_review') return 'in-progress'
-  return 'closed'
-}
-
 export type StatusBucket = 'open' | 'in-progress' | 'closed'
 /** Collapse a workflow-state category into the coarse 3-colour visual
  *  bucket used by tiny status dots and the public guest badge. This is

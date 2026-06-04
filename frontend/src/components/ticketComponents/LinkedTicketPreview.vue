@@ -8,6 +8,10 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
 import ticketService from "@/services/ticketService";
 import type { Ticket } from "@/services/ticketService";
+import { useWorkflowStatesStore } from "@/stores/workflowStates";
+import { coarseStatusBucket } from "@/types/workflow";
+
+const wf = useWorkflowStatesStore();
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -30,9 +34,15 @@ const isSameAsCurrentTicket = computed(() => {
   return props.currentTicketId && props.linkedTicketId === props.currentTicketId;
 });
 
+const printBucket = computed(() =>
+  coarseStatusBucket(
+    wf.findById(linkedTicket.value?.workflow_state_id ?? -1)?.category ?? 'backlog',
+  ),
+);
+
 const ticketBadgeColors = computed(() => {
   if (!linkedTicket.value) return 'bg-surface-alt text-secondary border-default';
-  switch (linkedTicket.value.status) {
+  switch (printBucket.value) {
     case 'open':
       return 'bg-status-warning/20 text-status-warning border-status-warning/30';
     case 'in-progress':
@@ -69,6 +79,7 @@ const viewTicket = async () => {
 };
 
 onMounted(() => {
+  wf.load();
   if (!isSameAsCurrentTicket.value) fetchLinkedTicket();
 });
 
@@ -148,7 +159,7 @@ const formattedDate = (dateString: string) => formatDate(dateString, "MMM d, yyy
 
     <template #print>
       <div class="hidden print:block print-linked-ticket">
-        <span class="print-ticket-badge" :class="`print-status-${linkedTicket.status}`">#{{ linkedTicket.id }}</span>
+        <span class="print-ticket-badge" :class="`print-status-${printBucket}`">#{{ linkedTicket.id }}</span>
         <span class="print-ticket-title">{{ linkedTicket.title }}</span>
         <span class="print-ticket-meta">
           <span class="print-priority" :class="`print-priority-${linkedTicket.priority}`">{{ linkedTicket.priority }}</span>

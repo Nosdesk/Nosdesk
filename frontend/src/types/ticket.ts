@@ -3,7 +3,7 @@
  * Canonical ticket interface matching backend contract
  */
 
-import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions'
+import type { TicketPriority } from '@/constants/ticketOptions'
 import type { Asset } from './asset'
 import type { Comment, Attachment } from './comment'
 import type { Project } from './project'
@@ -17,13 +17,6 @@ export type { Asset, Comment, Attachment, Project }
 export interface Ticket {
   id: number
   title: string
-  /**
-   * Legacy three-bucket status string derived from the workflow state's
-   * category. Continues to ship from the backend for wire-format
-   * compatibility while the UI is migrated to read `workflow_state_id`
-   * and the joined `workflow_state` directly.
-   */
-  status: TicketStatus
   /**
    * Always present on backend responses post-Phase-1; optional on the
    * type until input/create flows have been migrated to specify it
@@ -157,7 +150,6 @@ export interface MergeResponse {
 export interface RecentTicket {
   id: number
   title: string
-  status: TicketStatus
   workflow_state_id?: number
   requester: string | null
   assignee: string | null

@@ -33,7 +33,6 @@ async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
   const loadingData: TicketCardData = {
     id: ticketId,
     title: translate('editor-loading', undefined, 'Loading...'),
-    status: '',
     priority: '',
     loading: true
   }
@@ -44,7 +43,7 @@ async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
     const data: TicketCardData = {
       id: ticket.id,
       title: ticket.title,
-      status: ticket.status,
+      category: ticket.workflow_state?.category,
       priority: ticket.priority,
       requester: ticket.requester_user?.name || ticket.requester || undefined,
       assignee: ticket.assignee_user?.name || ticket.assignee || undefined,
@@ -57,7 +56,6 @@ async function fetchTicketData(ticketId: number): Promise<TicketCardData> {
     const errorData: TicketCardData = {
       id: ticketId,
       title: translate('editor-ticket-link-not-found', { id: ticketId }, `Ticket #${ticketId} not found`),
-      status: '',
       priority: '',
       error: true
     }
@@ -84,7 +82,7 @@ class TicketLinkView implements NodeView {
     this.dom.setAttribute('data-ticket-id', String(this.ticketId))
 
     // Initial loading state
-    this.render({ id: this.ticketId, title: translate('editor-loading', undefined, 'Loading...'), status: '', priority: '', loading: true })
+    this.render({ id: this.ticketId, title: translate('editor-loading', undefined, 'Loading...'), priority: '', loading: true })
 
     // Fetch ticket data and update
     this.loadTicketData()
