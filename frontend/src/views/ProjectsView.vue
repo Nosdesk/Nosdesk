@@ -119,7 +119,7 @@ function statusClass(status: string) {
             class="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 flex-shrink-0"
             :class="statusClass(project.status)"
           >
-            {{ project.status }}
+            {{ $t(`project-actions-status-${project.status}`) }}
           </span>
         </div>
         <p

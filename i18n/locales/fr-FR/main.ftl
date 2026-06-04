@@ -2199,6 +2199,16 @@ projects-create-error = Impossible de créer le projet. Veuillez réessayer.
 # with a header, status pill, ticket count, and a Group-by
 # control on the kanban toolbar.
 project-detail-loading-name = Chargement…
+# Gestion de projet : menu d'actions + suppression (machine, à relire par un locuteur natif).
+project-actions-menu-trigger = Actions du projet
+project-actions-rename = Renommer
+project-actions-status-active = Actif
+project-actions-status-completed = Terminé
+project-actions-status-archived = Archivé
+project-actions-delete = Supprimer le projet
+project-delete-confirm-title = Supprimer le projet ?
+project-delete-confirm-message = Cela supprime définitivement « { $name } » et dissocie ses tickets. Les tickets eux-mêmes sont conservés. Cette action est irréversible.
+project-delete-confirm-button = Supprimer
 project-detail-ticket-count = { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets

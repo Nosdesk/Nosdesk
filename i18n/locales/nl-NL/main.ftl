@@ -2196,6 +2196,16 @@ projects-create-error = Kan het project niet maken. Probeer het opnieuw.
 # with a header, status pill, ticket count, and a Group-by
 # control on the kanban toolbar.
 project-detail-loading-name = Laden…
+# Projectbeheer: actiemenu + verwijderen (machine, nog na te kijken door moedertaalspreker).
+project-actions-menu-trigger = Projectacties
+project-actions-rename = Hernoemen
+project-actions-status-active = Actief
+project-actions-status-completed = Voltooid
+project-actions-status-archived = Gearchiveerd
+project-actions-delete = Project verwijderen
+project-delete-confirm-title = Project verwijderen?
+project-delete-confirm-message = Hiermee wordt "{ $name }" definitief verwijderd en worden de bijbehorende tickets ontkoppeld. De tickets zelf blijven behouden. Dit kan niet ongedaan worden gemaakt.
+project-delete-confirm-button = Verwijderen
 project-detail-ticket-count = { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets

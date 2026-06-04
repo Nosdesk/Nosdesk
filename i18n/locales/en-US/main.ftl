@@ -2312,6 +2312,15 @@ projects-create-error = Couldn't create the project. Please try again.
 # with a header, status pill, ticket count, and a Group-by
 # control on the kanban toolbar.
 project-detail-loading-name = Loading…
+project-actions-menu-trigger = Project actions
+project-actions-rename = Rename
+project-actions-status-active = Active
+project-actions-status-completed = Completed
+project-actions-status-archived = Archived
+project-actions-delete = Delete project
+project-delete-confirm-title = Delete project?
+project-delete-confirm-message = This permanently deletes "{ $name }" and unlinks its tickets. The tickets themselves are kept. This can't be undone.
+project-delete-confirm-button = Delete
 project-detail-ticket-count = { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
