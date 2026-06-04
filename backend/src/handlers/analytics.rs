@@ -131,6 +131,11 @@ pub struct TimeseriesParams {
     /// window renders 24 hourly points rather than one daily dot.
     #[serde(default)]
     pub grain: Option<String>,
+    /// IANA timezone the buckets align to (the client's effective
+    /// zone). Absent / invalid falls back to UTC. Keeps the bucket
+    /// boundaries on the user's local hours / days.
+    #[serde(default)]
+    pub tz: Option<String>,
 }
 
 pub async fn get_timeseries(
@@ -151,12 +156,23 @@ pub async fn get_timeseries(
         return errors::bad_request("`from` must be earlier than `to`");
     }
 
+    // Validate the timezone against the IANA database; an unknown name
+    // (or none) falls back to UTC so a bad param can't 500 the chart or
+    // be smuggled into the SQL.
+    let tz = params
+        .tz
+        .as_deref()
+        .and_then(|s| crate::utils::locale::parse_timezone(s).ok())
+        .map(|z| z.name().to_string())
+        .unwrap_or_else(|| "UTC".to_string());
+
     let q = TimeseriesQuery {
         measure,
         time_field,
         from: params.from,
         to: params.to,
         grain: analytics::Grain::parse(params.grain.as_deref().unwrap_or("day")),
+        tz,
     };
 
     match tc.run(|conn| analytics::timeseries(conn, q)) {

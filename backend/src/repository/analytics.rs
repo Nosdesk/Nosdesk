@@ -13,7 +13,7 @@
 //! (`breakdown`, `heatmap`, `leaderboard`, `audit_annotations`) land
 //! in later waves and slot into this module alongside these helpers.
 
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::sql_types::{BigInt, Integer, Timestamptz};
@@ -108,7 +108,16 @@ pub fn kpi(conn: &mut DbConnection, q: KpiQuery) -> QueryResult<KpiResult> {
     };
 
     let sparkline = if q.include_sparkline && q.metric != KpiMetric::TicketsOpen {
-        Some(bucketed_counts(conn, q.metric, q.from, q.to, Grain::Day)?)
+        // The KPI sparkline is a tiny trend line with no time axis;
+        // daily UTC buckets are fine (tz-correct daily alignment would
+        // need the tz plumbed through the KPI endpoint too — a later
+        // follow-up). Drop the bucket timestamps, keep the values.
+        Some(
+            bucketed_counts(conn, q.metric, q.from, q.to, Grain::Day, "UTC")?
+                .into_iter()
+                .map(|(_, v)| v)
+                .collect(),
+        )
     } else {
         None
     };
@@ -146,69 +155,75 @@ fn kpi_count(
     }
 }
 
-/// Per-day counts for the metric, used both as the line-chart
-/// timeseries result and the KPI sparkline. SQL date-bucketing is
-/// done via `date_trunc('day', col)`; the result fills in missing
-/// days with zero so the chart's x-axis is continuous.
+/// One bucket of the timeseries: a UTC instant (the local bucket
+/// start, converted back from the user's zone) and its count.
+#[derive(QueryableByName)]
+struct BucketRow {
+    #[diesel(sql_type = Timestamptz)]
+    ts: DateTime<Utc>,
+    #[diesel(sql_type = BigInt)]
+    value: i64,
+}
+
+/// Counts per bucket for the metric, bucketed in the user's timezone.
+/// Buckets are `date_trunc(<grain>, col AT TIME ZONE <tz>)` and the
+/// whole window — including empty buckets — is filled by Postgres
+/// `generate_series`, so the x-axis is continuous and DST-correct
+/// (Postgres, not the application, owns the zone arithmetic). Returns
+/// each bucket's UTC start instant plus its count, ascending.
+///
+/// `tz` must be a validated IANA name (see
+/// `utils::locale::parse_timezone`) — it is bound, not interpolated.
+/// The grain unit/interval and the metric column are code-controlled
+/// literals, so the SQL is injection-safe.
 fn bucketed_counts(
     conn: &mut DbConnection,
     metric: KpiMetric,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     grain: Grain,
-) -> QueryResult<Vec<i64>> {
-    // Pre-compute the expected bucket list so missing-bucket zeros
-    // come from the application, not from a recursive CTE the
-    // Diesel typed builder can't express. We iterate while
-    // `cursor < to` (not `cursor < truncate(to)`) so the bucket
-    // containing `to` is included whenever `to` is mid-bucket —
-    // otherwise a "today" preset (to = now) would emit zero
-    // buckets and silently drop every row the SQL filter selects.
-    let buckets = grain_buckets(from, to, grain);
-    if buckets.is_empty() {
-        return Ok(Vec::new());
-    }
+    tz: &str,
+) -> QueryResult<Vec<(DateTime<Utc>, i64)>> {
+    use diesel::sql_types::Text;
 
-    // SQL: GROUP BY date_trunc(<unit>, col), filtered to the window.
-    // The unit is a code-controlled literal (Grain::trunc_unit), so
-    // interpolating it is injection-safe. Rows for empty buckets
-    // simply don't appear — the loop below fills them in with 0.
-    let unit = grain.trunc_unit();
-    let rows: Vec<(DateTime<Utc>, i64)> = match metric {
-        KpiMetric::TicketsCreated => {
-            let trunc = format!("date_trunc('{unit}', tickets.created_at)");
-            tickets::table
-                .filter(tickets::created_at.ge(from))
-                .filter(tickets::created_at.lt(to))
-                .group_by(sql::<Timestamptz>(&trunc))
-                .select((sql::<Timestamptz>(&trunc), sql::<BigInt>("COUNT(*)")))
-                .load(conn)?
-        }
-        KpiMetric::TicketsResolved => {
-            let trunc = format!("date_trunc('{unit}', tickets.closed_at)");
-            tickets::table
-                .filter(tickets::closed_at.is_not_null())
-                .filter(tickets::closed_at.ge(from))
-                .filter(tickets::closed_at.lt(to))
-                .group_by(sql::<Timestamptz>(&trunc))
-                .select((sql::<Timestamptz>(&trunc), sql::<BigInt>("COUNT(*)")))
-                .load(conn)?
-        }
-        // Snapshot metric has no time breakdown; the caller
-        // short-circuits before this is reached.
+    // Column + presence filter per metric (code-controlled literals).
+    let (col, extra_filter) = match metric {
+        KpiMetric::TicketsCreated => ("created_at", ""),
+        KpiMetric::TicketsResolved => ("closed_at", "AND t.closed_at IS NOT NULL"),
+        // Snapshot metric has no time breakdown; caller short-circuits.
         KpiMetric::TicketsOpen => return Ok(Vec::new()),
     };
+    let unit = grain.trunc_unit();
+    let step = grain.interval_literal();
 
-    let mut by_bucket: std::collections::HashMap<DateTime<Utc>, i64> =
-        std::collections::HashMap::with_capacity(rows.len());
-    for (ts, n) in rows {
-        by_bucket.insert(ts, n);
-    }
+    // generate_series walks local bucket starts (a zone-less timestamp)
+    // from the first bucket through the bucket containing `to`; each is
+    // mapped back to a UTC instant via `AT TIME ZONE`. The LEFT JOIN
+    // against the grouped counts zero-fills empty buckets.
+    let query = format!(
+        "SELECT (gs AT TIME ZONE $1) AS ts, COALESCE(c.value, 0) AS value \
+         FROM generate_series( \
+             date_trunc('{unit}', ($2 AT TIME ZONE $1)), \
+             ($3 AT TIME ZONE $1), \
+             interval '{step}' \
+         ) AS gs \
+         LEFT JOIN ( \
+             SELECT date_trunc('{unit}', (t.{col} AT TIME ZONE $1)) AS bucket, \
+                    COUNT(*)::bigint AS value \
+             FROM tickets t \
+             WHERE t.{col} >= $2 AND t.{col} < $3 {extra_filter} \
+             GROUP BY 1 \
+         ) c ON c.bucket = gs \
+         ORDER BY gs"
+    );
 
-    Ok(buckets
-        .iter()
-        .map(|b| by_bucket.get(b).copied().unwrap_or(0))
-        .collect())
+    let rows: Vec<BucketRow> = diesel::sql_query(query)
+        .bind::<Text, _>(tz)
+        .bind::<Timestamptz, _>(from)
+        .bind::<Timestamptz, _>(to)
+        .load(conn)?;
+
+    Ok(rows.into_iter().map(|r| (r.ts, r.value)).collect())
 }
 
 /// Bucket granularity for the time-series. Presets map to `Hour`
@@ -231,6 +246,14 @@ impl Grain {
         }
     }
 
+    /// The `generate_series` step interval literal (code-controlled).
+    fn interval_literal(self) -> &'static str {
+        match self {
+            Grain::Hour => "1 hour",
+            Grain::Day => "1 day",
+        }
+    }
+
     /// Parse the wire value; unknown / absent grains fall back to
     /// `Day` so an unexpected param can't break the chart.
     pub fn parse(s: &str) -> Self {
@@ -239,43 +262,6 @@ impl Grain {
             _ => Grain::Day,
         }
     }
-}
-
-/// Floor `ts` to the start of its grain bucket (UTC). Matches
-/// Postgres `date_trunc(<unit>, ts)` so the application-generated
-/// bucket list aligns with the SQL grouping. `date_naive().and_hms_opt`
-/// is total-by-construction (no Option chain, no silent fallthrough
-/// to a non-truncated value the way `with_hour(0)` could).
-fn truncate_to_grain(ts: DateTime<Utc>, grain: Grain) -> DateTime<Utc> {
-    let naive = ts.date_naive();
-    let (h, m, s) = match grain {
-        Grain::Hour => (ts.time().hour(), 0, 0),
-        Grain::Day => (0, 0, 0),
-    };
-    naive
-        .and_hms_opt(h, m, s)
-        .expect("truncated time-of-day is always valid")
-        .and_utc()
-}
-
-/// Grain-aligned buckets covering `[from, to)`. Includes the bucket
-/// containing `to` whenever `to` is strictly past the bucket start —
-/// i.e. "today" with a mid-hour `to` gets a current-hour bucket;
-/// "last 30 days ending at midnight" doesn't get a trailing empty
-/// bucket. The timeseries() result and the KPI sparkline share this
-/// so they can't drift apart on bucket-edge semantics.
-fn grain_buckets(from: DateTime<Utc>, to: DateTime<Utc>, grain: Grain) -> Vec<DateTime<Utc>> {
-    let step = match grain {
-        Grain::Hour => chrono::Duration::hours(1),
-        Grain::Day => chrono::Duration::days(1),
-    };
-    let mut out = Vec::new();
-    let mut cursor = truncate_to_grain(from, grain);
-    while cursor < to {
-        out.push(cursor);
-        cursor += step;
-    }
-    out
 }
 
 /// Time-series measure enum. v1 supports a single measure (count);
@@ -328,6 +314,10 @@ pub struct TimeseriesQuery {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
     pub grain: Grain,
+    /// Validated IANA timezone the buckets are aligned to (the user's
+    /// effective zone). "today" hourly buckets land on the user's local
+    /// hours, daily buckets on their local days.
+    pub tz: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -651,14 +641,10 @@ pub fn timeseries(conn: &mut DbConnection, q: TimeseriesQuery) -> QueryResult<Ti
         }
     };
 
-    let counts = bucketed_counts(conn, metric, q.from, q.to, q.grain)?;
-    // Both `counts` and `grain_buckets` are derived from the same
-    // (from, to, grain) so their length matches by construction; the
-    // zip here is the single source of (timestamp, value) pairs and
-    // can't drift the way two parallel cursor loops could.
-    let buckets = grain_buckets(q.from, q.to, q.grain)
+    // bucketed_counts returns the full, zero-filled, tz-aligned series
+    // (UTC instant + value per bucket) straight from Postgres.
+    let buckets = bucketed_counts(conn, metric, q.from, q.to, q.grain, &q.tz)?
         .into_iter()
-        .zip(counts)
         .map(|(ts, value)| TimeseriesBucket { ts, value })
         .collect();
 
@@ -684,55 +670,6 @@ mod tests {
             Some(KpiMetric::TicketsOpen)
         );
         assert_eq!(KpiMetric::parse("bogus"), None);
-    }
-
-    #[test]
-    fn day_buckets_includes_partial_trailing_day() {
-        // `to` is mid-day: the day containing it must appear.
-        let from = "2026-06-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
-        let to = "2026-06-03T14:30:00Z".parse::<DateTime<Utc>>().unwrap();
-        let buckets = grain_buckets(from, to, Grain::Day);
-        assert_eq!(buckets.len(), 3, "Jun 1, Jun 2, Jun 3 — three days");
-        assert_eq!(
-            buckets[2],
-            "2026-06-03T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
-        );
-    }
-
-    #[test]
-    fn day_buckets_excludes_exact_midnight_boundary() {
-        // `to` is exactly midnight: the day "at" the boundary is
-        // NOT included (half-open [from, to)).
-        let from = "2026-06-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
-        let to = "2026-06-04T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
-        let buckets = grain_buckets(from, to, Grain::Day);
-        assert_eq!(buckets.len(), 3, "Jun 1, Jun 2, Jun 3 — Jun 4 not included");
-    }
-
-    #[test]
-    fn day_buckets_single_day_window() {
-        // "today" preset: from = start_of_today, to = now (mid-day).
-        let from = "2026-06-03T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
-        let to = "2026-06-03T14:30:00Z".parse::<DateTime<Utc>>().unwrap();
-        let buckets = grain_buckets(from, to, Grain::Day);
-        assert_eq!(buckets.len(), 1, "today preset must emit today's bucket");
-        assert_eq!(buckets[0], from);
-    }
-
-    #[test]
-    fn hour_buckets_cover_partial_trailing_hour() {
-        // "today" at hourly grain: from = start_of_today, to = now
-        // mid-hour. Each hour from 00:00 through the hour containing
-        // `to` (inclusive) gets a bucket — 15 buckets for 00:00..14:30.
-        let from = "2026-06-03T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
-        let to = "2026-06-03T14:30:00Z".parse::<DateTime<Utc>>().unwrap();
-        let buckets = grain_buckets(from, to, Grain::Hour);
-        assert_eq!(buckets.len(), 15, "00:00 through 14:00 — fifteen hours");
-        assert_eq!(buckets[0], from);
-        assert_eq!(
-            buckets[14],
-            "2026-06-03T14:00:00Z".parse::<DateTime<Utc>>().unwrap(),
-        );
     }
 
     #[test]

@@ -16,6 +16,7 @@ import { useQuery } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { useTimeRange } from '@/composables/useTimeRange'
 import { useElementSize } from '@/composables/useElementSize'
+import { useDateStore } from '@/stores/dateStore'
 import {
   analyticsService,
   type TsMeasure,
@@ -51,6 +52,12 @@ const t = (k: string) => fluent.$t(k)
 const gradientId = `lc-area-${nextGradientUid()}`
 
 const { window: timeWindow, compare, priorWindow, grain } = useTimeRange()
+const dateStore = useDateStore()
+
+// The user's effective timezone. The backend aligns buckets to it and
+// the axis labels render in it, so a "today" hourly view lands on the
+// user's local hours regardless of the server's or browser's zone.
+const tz = computed(() => dateStore.effectiveTimezone)
 
 // The service supports hour | day; week/month grains (power-use
 // overrides, never produced by a preset) collapse to day.
@@ -63,6 +70,7 @@ const query = useQuery({
     props.measure,
     props.timeField,
     seriesGrain.value,
+    tz.value,
     timeWindow.value.from,
     timeWindow.value.to,
   ],
@@ -73,6 +81,7 @@ const query = useQuery({
       from: timeWindow.value.from,
       to: timeWindow.value.to,
       grain: seriesGrain.value,
+      tz: tz.value,
     }),
 })
 
@@ -87,6 +96,7 @@ const priorQuery = useQuery({
     props.measure,
     props.timeField,
     seriesGrain.value,
+    tz.value,
     priorWindow.value.from,
     priorWindow.value.to,
     compare.value,
@@ -99,6 +109,7 @@ const priorQuery = useQuery({
           from: priorWindow.value.from,
           to: priorWindow.value.to,
           grain: seriesGrain.value,
+          tz: tz.value,
         })
       : Promise.resolve({ buckets: [] }),
 })
@@ -264,12 +275,18 @@ const xLabels = computed(() => {
   return indices.map((i, k) => {
     const bucket = data[i]
     const date = new Date(bucket.ts)
-    // Hourly buckets label by time of day (e.g. "9 AM"); daily and
-    // coarser buckets label by date (e.g. "Jun 2").
+    // Format in the user's effective timezone (matching the backend
+    // bucketing) so the labels read in their local time, not the
+    // browser's. Hourly buckets show time of day (e.g. "9 AM"); daily
+    // and coarser buckets show the date (e.g. "Jun 2").
     const label =
       seriesGrain.value === 'hour'
-        ? date.toLocaleTimeString(undefined, { hour: 'numeric' })
-        : `${date.toLocaleDateString(undefined, { month: 'short' })} ${date.getDate()}`
+        ? date.toLocaleTimeString(dateStore.locale, { hour: 'numeric', timeZone: tz.value })
+        : date.toLocaleDateString(dateStore.locale, {
+            month: 'short',
+            day: 'numeric',
+            timeZone: tz.value,
+          })
     // Anchor the edge labels inward (first start, last end) so they
     // don't clip against the chart edges; interior labels centre.
     const anchor = k === 0 ? 'start' : k === indices.length - 1 ? 'end' : 'middle'

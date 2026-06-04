@@ -56,6 +56,10 @@ export interface TimeseriesParams {
   /** Bucket granularity. `hour` for the today view (24 hourly
    *  points), `day` otherwise. Omitted = day on the backend. */
   grain?: 'hour' | 'day'
+  /** IANA timezone the buckets align to (the user's effective zone).
+   *  Omitted / invalid = UTC on the backend. Keeps "today" hourly
+   *  buckets on the user's local hours. */
+  tz?: string
 }
 
 export type BreakdownGroupBy = 'priority' | 'category' | 'assignee'

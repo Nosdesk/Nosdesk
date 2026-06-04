@@ -18,6 +18,9 @@
  */
 import { computed, type ComputedRef } from 'vue'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
+import { TZDate } from '@date-fns/tz'
+import { startOfDay, endOfDay, startOfQuarter, subDays } from 'date-fns'
+import { useDateStore } from '@/stores/dateStore'
 
 /** The six preset chips + the Custom escape hatch. */
 export type TimeRangePreset =
@@ -50,52 +53,53 @@ function presetGrain(preset: TimeRangePreset): Grain {
   }
 }
 
-/** Compute the absolute (from, to) window for a preset. */
+/**
+ * Compute the absolute (from, to) window for a preset, with calendar
+ * boundaries anchored to the user's timezone `tz` (not the browser's).
+ *
+ * Calendar-edge presets (today, quarter, custom) use `TZDate` so "start
+ * of today" is midnight in the user's zone — a Sydney user at 09:00
+ * local gets a window starting at the previous UTC afternoon, matching
+ * the backend's tz-aligned buckets. Rolling presets (7d/30d/90d) are
+ * pure instants (now minus N days), so the zone doesn't affect them.
+ * Returned `Date`s carry the correct UTC instant (`toISOString()`).
+ */
 export function presetWindow(
   preset: TimeRangePreset,
+  tz: string,
   custom?: { from?: string; to?: string },
 ): { from: Date; to: Date } {
   const now = new Date()
-  const to = new Date(now)
-  const from = new Date(now)
   switch (preset) {
     case 'today':
-      from.setHours(0, 0, 0, 0)
-      return { from, to }
+      return { from: startOfDay(new TZDate(now, tz)), to: now }
     case '7d':
-      from.setDate(from.getDate() - 7)
-      return { from, to }
+      return { from: subDays(now, 7), to: now }
     case '30d':
-      from.setDate(from.getDate() - 30)
-      return { from, to }
+      return { from: subDays(now, 30), to: now }
     case '90d':
-      from.setDate(from.getDate() - 90)
-      return { from, to }
-    case 'quarter': {
-      const quarter = Math.floor(now.getMonth() / 3)
-      const start = new Date(now.getFullYear(), quarter * 3, 1)
-      return { from: start, to }
-    }
+      return { from: subDays(now, 90), to: now }
+    case 'quarter':
+      return { from: startOfQuarter(new TZDate(now, tz)), to: now }
     case 'custom': {
       // The range picker stores date-only `YYYY-MM-DD` values. Anchor
-      // `from` to the local start of its day and `to` to the local end
-      // of its day so the selected `to` date is inclusive. (Older
-      // datetime URLs degrade gracefully: only the date part is used.)
-      const f = custom?.from ? dayBoundary(custom.from, false) : from
-      const t = custom?.to ? dayBoundary(custom.to, true) : to
+      // `from` to the start of its day and `to` to the end of its day,
+      // both in the user's zone, so the selected `to` date is inclusive.
+      const f = custom?.from ? dayBoundary(custom.from, false, tz) : startOfDay(new TZDate(now, tz))
+      const t = custom?.to ? dayBoundary(custom.to, true, tz) : now
       return { from: f, to: t }
     }
   }
 }
 
-/** Parse the date part of `value` (YYYY-MM-DD or a fuller datetime)
- *  and anchor it to the local start (`end=false`) or end (`end=true`)
- *  of that calendar day. */
-function dayBoundary(value: string, end: boolean): Date {
-  const d = new Date(`${value.slice(0, 10)}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return new Date()
-  if (end) d.setHours(23, 59, 59, 999)
-  return d
+/** Parse the `YYYY-MM-DD` date part of `value` and anchor it to the
+ *  start (`end=false`) or end (`end=true`) of that calendar day in the
+ *  user's timezone `tz`. */
+function dayBoundary(value: string, end: boolean, tz: string): Date {
+  const [y, m, d] = value.slice(0, 10).split('-').map(Number)
+  if (!y || !m || !d) return new Date()
+  const day = new TZDate(y, m - 1, d, tz)
+  return end ? endOfDay(day) : startOfDay(day)
 }
 
 /** Return the matching prior window for compare-to-prior overlays. */
@@ -185,6 +189,7 @@ export interface TimeRangeHandle {
 export function useTimeRange(): TimeRangeHandle {
   const route = useRoute()
   const router = useRouter()
+  const dateStore = useDateStore()
 
   const preset = computed<TimeRangePreset>(() => parsePreset(route.query.range))
 
@@ -205,7 +210,7 @@ export function useTimeRange(): TimeRangeHandle {
   // `presetWindow` builds Date objects internally (cheaper math);
   // we stringify here so the public surface is ISO-only.
   const window = computed<TimeWindow>(() => {
-    const w = presetWindow(preset.value, {
+    const w = presetWindow(preset.value, dateStore.effectiveTimezone, {
       from: customFrom.value ?? undefined,
       to: customTo.value ?? undefined,
     })
