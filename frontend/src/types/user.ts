@@ -1,6 +1,57 @@
 // Central User Type Definitions
 
+import type { WorkspaceRole } from '@/types/workspace';
+
+/** Legacy effective-role tier, kept as the vocabulary the role-picker
+ * UI and dashboard widget system speak. It is no longer a wire field;
+ * `effectiveRole()` derives it from the W2 split when a single tier is
+ * needed for display or widget selection. */
 export type UserRole = 'admin' | 'technician' | 'user' | 'audit_reviewer';
+
+/** Platform-wide privilege role, mirrored from `users.platform_role`. */
+export type PlatformRole = 'platform_admin' | 'audit_reviewer' | 'user';
+
+/** Expand a legacy role tier (what the role-picker UI offers) back to
+ * the W2 split for local state updates. Mirrors the backend's
+ * `parse_roles`: a picked `admin` is a workspace admin (platform
+ * `user`), not an instance super-admin. */
+export function rolesFromTier(tier: UserRole): {
+  platform_role: PlatformRole;
+  workspace_role: WorkspaceRole;
+} {
+  switch (tier) {
+    case 'admin':
+      return { platform_role: 'user', workspace_role: 'admin' };
+    case 'technician':
+      return { platform_role: 'user', workspace_role: 'agent' };
+    case 'audit_reviewer':
+      return { platform_role: 'audit_reviewer', workspace_role: 'member' };
+    default:
+      return { platform_role: 'user', workspace_role: 'member' };
+  }
+}
+
+/** Collapse the W2 role split (`platform_role` + the user's
+ * `workspace_role`) back to the single legacy tier for display and the
+ * dashboard widget system. Platform admins and workspace owners/admins
+ * read as `admin`; workspace agents as `technician`; audit reviewers
+ * keep their own tier; everyone else is `user`. */
+export function effectiveRole(u: {
+  platform_role: PlatformRole;
+  workspace_role?: WorkspaceRole | null;
+}): UserRole {
+  if (u.platform_role === 'platform_admin') return 'admin';
+  if (u.platform_role === 'audit_reviewer') return 'audit_reviewer';
+  switch (u.workspace_role) {
+    case 'owner':
+    case 'admin':
+      return 'admin';
+    case 'agent':
+      return 'technician';
+    default:
+      return 'user';
+  }
+}
 
 /** Persisted shape of a user's customised dashboard. Widget order is
  * the array order; `visible: false` hides the widget without removing
@@ -40,7 +91,8 @@ export interface User {
   uuid: string;
   name: string;
   email: string;
-  role: UserRole;
+  platform_role: PlatformRole;
+  workspace_role?: WorkspaceRole | null;
   pronouns?: string | null;
   avatar_url?: string | null;
   banner_url?: string | null;
@@ -84,7 +136,8 @@ export interface UserInfo {
   uuid: string;
   name: string;
   email: string;
-  role: UserRole;
+  platform_role: PlatformRole;
+  workspace_role?: WorkspaceRole | null;
   avatar_url?: string | null;
   avatar_thumb?: string | null;
 }

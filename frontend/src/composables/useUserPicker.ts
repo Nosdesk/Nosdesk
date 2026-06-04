@@ -2,7 +2,7 @@ import { computed, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'v
 import userService from '@/services/userService'
 import * as syncPool from '@/sync/pool'
 import { useAuthStore } from '@/stores/auth'
-import type { User } from '@/types/user'
+import { effectiveRole, type User } from '@/types/user'
 import { useRecentUsersStore, type RecentScope } from '@/stores/recentUsers'
 import { useDebouncedRef } from '@/composables/useDebouncedRef'
 
@@ -114,7 +114,7 @@ export function useUserPicker(opts: Options): Result {
   /** Sync-pool peek for a uuid. Synchronous read (no fetch
    *  triggered); used inside computeds where we want the cached
    *  row if present and a graceful null otherwise. */
-  function peekPoolUser(uuid: string): Pick<User, 'uuid' | 'name' | 'email' | 'role' | 'avatar_thumb' | 'avatar_url'> | undefined {
+  function peekPoolUser(uuid: string): Pick<User, 'uuid' | 'name' | 'email' | 'platform_role' | 'workspace_role' | 'avatar_thumb' | 'avatar_url'> | undefined {
     return syncPool.get('user', uuid)
   }
 
@@ -165,7 +165,7 @@ export function useUserPicker(opts: Options): Result {
         uuid: cached.uuid,
         name: cached.name,
         email: cached.email ?? '',
-        role: cached.role,
+        role: effectiveRole(cached),
         avatar_thumb: cached.avatar_thumb,
         avatar_url: cached.avatar_url,
       }
@@ -191,7 +191,7 @@ export function useUserPicker(opts: Options): Result {
       uuid: me.uuid,
       name: me.name,
       email: me.email ?? '',
-      role: me.role,
+      role: effectiveRole(me),
       avatar_thumb: me.avatar_thumb,
       avatar_url: me.avatar_url,
     }
@@ -225,12 +225,12 @@ export function useUserPicker(opts: Options): Result {
           // Drop ineligible cached users — a recents entry from before
           // tighter role enforcement could otherwise surface a regular
           // user as an assignee option.
-          if (!isEligibleForType(opts.type, cached.role)) return null
+          if (!isEligibleForType(opts.type, effectiveRole(cached))) return null
           return {
             uuid: cached.uuid,
             name: cached.name,
             email: cached.email ?? '',
-            role: cached.role,
+            role: effectiveRole(cached),
             avatar_thumb: cached.avatar_thumb,
             avatar_url: cached.avatar_url,
           }
@@ -281,12 +281,12 @@ export function useUserPicker(opts: Options): Result {
       role: ROLE_FILTER[opts.type],
     })
     return response.data
-      .filter((u) => isEligibleForType(opts.type, u.role))
+      .filter((u) => isEligibleForType(opts.type, effectiveRole(u)))
       .map<PickerUser>((u) => ({
         uuid: u.uuid,
         name: u.name,
         email: u.email,
-        role: u.role,
+        role: effectiveRole(u),
         avatar_thumb: u.avatar_thumb,
         avatar_url: u.avatar_url,
       }))

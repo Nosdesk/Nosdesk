@@ -53,12 +53,22 @@ export const useAuthStore = defineStore('auth', () => {
   // The user data check handles the timing gap where cookies are being set but not yet in document.cookie
   // NOTE: Actual authentication is always verified by backend on every request
   const isAuthenticated = computed(() => hasCsrfToken() || !!user.value);
-  const isAdmin = computed(() => user.value?.role === 'admin');
-  const isTechnician = computed(() => user.value?.role === 'technician' || user.value?.role === 'admin');
+  // Admin tier = platform admin OR workspace owner/admin in the
+  // resolved workspace. Technician tier additionally includes
+  // workspace agents (can handle tickets). Derived from the W2 role
+  // split (platform_role + workspace_role) now that the legacy single
+  // `role` field is gone.
+  const isAdmin = computed(
+    () =>
+      user.value?.platform_role === 'platform_admin' ||
+      user.value?.workspace_role === 'owner' ||
+      user.value?.workspace_role === 'admin'
+  );
+  const isTechnician = computed(() => isAdmin.value || user.value?.workspace_role === 'agent');
   // Standalone read-only audit role (Item C/D4). Distinct from admin:
   // an audit reviewer can reach only the audit surface, not the rest
   // of the admin panel.
-  const isAuditReviewer = computed(() => user.value?.role === 'audit_reviewer');
+  const isAuditReviewer = computed(() => user.value?.platform_role === 'audit_reviewer');
   const isMicrosoftAuth = computed(() => authProvider.value === 'microsoft');
 
   // Fetch current user data from the backend

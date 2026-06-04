@@ -12,7 +12,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useUserMentionSearch } from '@/composables/useUserMentionSearch';
-import type { User } from '@/types/user';
+import { effectiveRole, type User } from '@/types/user';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);
@@ -288,10 +288,10 @@ defineExpose({
               <p v-if="user.email" class="text-xs text-tertiary truncate">{{ user.email }}</p>
             </div>
             <span
-              v-if="user.role"
+              v-if="effectiveRole(user)"
               class="text-xs px-2 py-0.5 rounded-full bg-surface-alt text-secondary"
             >
-              {{ user.role }}
+              {{ effectiveRole(user) }}
             </span>
           </button>
         </div>

@@ -234,7 +234,7 @@ const doRebuildIndex = async () => {
 
 // Check if user is admin and fetch initial data
 onMounted(async () => {
-  if (!authStore.user || authStore.user.role !== 'admin') {
+  if (!authStore.isAdmin) {
     router.push('/admin')
     return
   }

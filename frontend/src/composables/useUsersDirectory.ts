@@ -49,7 +49,14 @@ export interface UserHandle {
  */
 type PoolUser = Pick<
   User,
-  'uuid' | 'name' | 'email' | 'role' | 'pronouns' | 'avatar_url' | 'avatar_thumb'
+  | 'uuid'
+  | 'name'
+  | 'email'
+  | 'platform_role'
+  | 'workspace_role'
+  | 'pronouns'
+  | 'avatar_url'
+  | 'avatar_thumb'
 >
 
 /**
@@ -66,7 +73,8 @@ function asUser(u: PoolUser): User {
     uuid: u.uuid,
     name: u.name,
     email: u.email,
-    role: u.role,
+    platform_role: u.platform_role,
+    workspace_role: u.workspace_role ?? null,
     pronouns: u.pronouns ?? null,
     avatar_url: u.avatar_url ?? null,
     avatar_thumb: u.avatar_thumb ?? null,

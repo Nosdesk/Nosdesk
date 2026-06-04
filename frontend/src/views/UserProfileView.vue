@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDate as formatDateUtil } from '@/utils/dateUtils';
-import type { UserRole } from '@/types/user';
+import { effectiveRole, type UserRole } from '@/types/user';
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useFluent } from 'fluent-vue';
@@ -82,7 +82,7 @@ const isOwnProfile = ref(false);
 
 // Check if the profile user can have assigned tickets (technicians and admins only)
 const canHaveAssignedTickets = computed(() => {
-    const role = userProfile.value?.role;
+    const role = userProfile.value ? effectiveRole(userProfile.value) : undefined;
     return role === 'technician' || role === 'admin';
 });
 
@@ -123,9 +123,9 @@ const fetchUserData = async () => {
 
             // Set permissions for creation
             canEdit.value =
-                authStore.isAdmin || authStore.user?.role === "admin";
+                authStore.isAdmin;
             canEditRole.value =
-                authStore.isAdmin || authStore.user?.role === "admin";
+                authStore.isAdmin;
 
             if (!canEdit.value) {
                 error.value = t('user-profile-error-no-create-permission');
@@ -188,7 +188,7 @@ const fetchUserData = async () => {
         editValues.value = {
             name: user.name,
             email: user.email,
-            role: user.role,
+            role: effectiveRole(user),
             pronouns: user.pronouns || "",
         };
 
@@ -197,7 +197,7 @@ const fetchUserData = async () => {
 
         // Set permissions
         const userIsOwnProfile = authStore.user?.uuid === userUuid;
-        const isAdmin = authStore.isAdmin || authStore.user?.role === "admin";
+        const isAdmin = authStore.isAdmin;
 
         isOwnProfile.value = userIsOwnProfile;
         canEdit.value = userIsOwnProfile || isAdmin;

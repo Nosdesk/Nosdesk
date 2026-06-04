@@ -15,7 +15,7 @@ import apiTokenService from '@/services/apiTokenService';
 import userService from '@/services/userService';
 import { formatDistanceToNow } from 'date-fns';
 import type { ApiToken, ApiTokenCreated, CreateApiTokenRequest } from '@/types/apiToken';
-import type { User } from '@/types/user';
+import { effectiveRole, type User } from '@/types/user';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -364,7 +364,7 @@ onMounted(() => {
           >
             <option value="" disabled>{{ $t('admin-api-tokens-modal-user-placeholder') }}</option>
             <option v-for="user in users" :key="user.uuid" :value="user.uuid">
-              {{ user.name }} ({{ user.role }})
+              {{ user.name }} ({{ effectiveRole(user) }})
             </option>
           </select>
           <p class="text-xs text-tertiary mt-1">{{ $t('admin-api-tokens-modal-user-hint') }}</p>

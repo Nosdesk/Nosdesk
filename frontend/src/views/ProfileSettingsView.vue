@@ -28,7 +28,7 @@ import {
 import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
-import type { UserRole } from '@/types/user';
+import { effectiveRole, rolesFromTier, type UserRole } from '@/types/user';
 import { groupService } from '@/services/groupService';
 import type { Group } from '@/types/group';
 import apiClient from '@/services/apiConfig';
@@ -284,6 +284,12 @@ const renderTabIcon = (iconName: string) => {
   return icons[iconName as keyof typeof icons] || '';
 };
 
+// Effective role tier of the user being managed (for the role-grid
+// selection state), derived from the W2 split.
+const targetRole = computed<UserRole | null>(() =>
+  targetUser.value ? effectiveRole(targetUser.value) : null
+);
+
 // Update user role function
 const updateUserRole = async (newRole: UserRole) => {
   if (!targetUser.value || !isManagingOtherUser.value || !authStore.isAdmin) {
@@ -291,7 +297,7 @@ const updateUserRole = async (newRole: UserRole) => {
     return;
   }
 
-  if (targetUser.value.role === newRole) {
+  if (effectiveRole(targetUser.value) === newRole) {
     return; // No change needed
   }
 
@@ -304,14 +310,16 @@ const updateUserRole = async (newRole: UserRole) => {
     });
 
     if (updatedUser && targetUser.value) {
-      // Update the local user object
-      targetUser.value = { ...targetUser.value, role: newRole };
+      const name = targetUser.value.name;
+      // Update the local user object with the W2 split derived from
+      // the picked tier.
+      targetUser.value = { ...targetUser.value, ...rolesFromTier(newRole) };
       // Keep the cache in lockstep so a later revisit shows the
       // updated role without a refetch. The seededUuid guard means
       // the watch is a no-op here.
       queryCache.setQueryData(['user-profile', targetUserUuid.value ?? ''], targetUser.value);
 
-      handleSuccess(`Successfully updated ${targetUser.value.name}'s role to ${newRole}`);
+      handleSuccess(`Successfully updated ${name}'s role to ${newRole}`);
     }
   } catch (error) {
     console.error('Failed to update user role:', error);
@@ -634,10 +642,10 @@ const cancelDelete = () => {
                       v-for="role in availableRoles"
                       :key="role.value"
                       @click="updateUserRole(role.value)"
-                      :disabled="updatingRole || targetUser.role === role.value"
+                      :disabled="updatingRole || targetRole === role.value"
                       class="group p-4 rounded-xl border-2 transition-all text-left"
                       :class="[
-                        targetUser.role === role.value
+                        targetRole === role.value
                           ? 'border-accent bg-accent/10'
                           : 'border-transparent bg-surface-alt hover:bg-surface-hover hover:border-default',
                         updatingRole ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
@@ -652,7 +660,7 @@ const cancelDelete = () => {
                           <span class="font-semibold text-primary text-sm">{{ role.label }}</span>
                         </div>
                         <Icon
-                          v-if="targetUser.role === role.value"
+                          v-if="targetRole === role.value"
                           name="check"
                           size="md"
                           class="text-accent flex-shrink-0"

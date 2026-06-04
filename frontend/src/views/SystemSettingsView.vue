@@ -192,7 +192,7 @@ const thumbnailResults = ref<ThumbnailResults | null>(null)
 
 // Check if user is admin
 onMounted(() => {
-  if (!authStore.user || authStore.user.role !== 'admin') {
+  if (!authStore.isAdmin) {
     router.push('/admin')
     return
   }

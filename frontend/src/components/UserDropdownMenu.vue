@@ -57,7 +57,7 @@ const items = computed<MenuItem[]>(() => {
   const out: MenuItem[] = [
     { id: 'settings', label: fluent.$t('user-menu-account'), icon: ICON_REGISTRY.account.d },
   ]
-  if (authStore.user?.role === 'admin') {
+  if (authStore.isAdmin) {
     out.push({ id: 'admin', label: fluent.$t('user-menu-administration'), icon: ICON_REGISTRY.admin.d })
   }
   out.push({ id: 'report-problem', label: fluent.$t('user-menu-report-problem'), icon: ICON_REGISTRY.warning.d, divider: true })

@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import userService from '@/services/userService'
 import { useSSE } from '@/services/sseService'
-import type { DashboardLayout, UserRole } from '@/types/user'
+import { effectiveRole, type DashboardLayout, type UserRole } from '@/types/user'
 import {
   defaultLayoutFor,
   mergeWithRegistry,
@@ -51,7 +51,7 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
   const auth = useAuthStore()
 
   function currentRole(): UserRole {
-    return (auth.user?.role as UserRole) ?? 'user'
+    return auth.user ? effectiveRole(auth.user) : 'user'
   }
 
   function clone(l: DashboardLayout): DashboardLayout {

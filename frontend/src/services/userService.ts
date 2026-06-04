@@ -3,7 +3,7 @@ import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
-import type { User, UserSecurityInfo } from '@/types/user';
+import type { User, UserRole, UserSecurityInfo } from '@/types/user';
 import type { Asset } from '@/types/asset';
 import type { Group } from '@/types/group';
 import { extractErrorMessage } from '@/utils/errors';
@@ -260,7 +260,14 @@ const userService = {
   },
 
   // Update a user
-  async updateUser(uuid: string, userData: Partial<User>): Promise<User | null> {
+  async updateUser(
+    uuid: string,
+    // `role` is a write-only convenience: the backend update endpoint
+    // accepts a legacy role tier string and re-derives platform_role +
+    // workspace_role from it. It isn't a field on `User` (the response
+    // carries the split), so allow it explicitly here.
+    userData: Partial<User> & { role?: UserRole },
+  ): Promise<User | null> {
     try {
       const response = await apiClient.put(`/users/${uuid}`, userData);
       return response.data;

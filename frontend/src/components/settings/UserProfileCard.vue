@@ -11,7 +11,7 @@ import FormInput from "@/components/common/FormInput.vue";
 import FormTextarea from "@/components/common/FormTextarea.vue";
 import userService from "@/services/userService";
 import uploadService from "@/services/uploadService";
-import type { User } from "@/types/user";
+import { effectiveRole, type User } from "@/types/user";
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -641,9 +641,9 @@ const getRoleDisplayName = (role: string) => {
                     <!-- Right: Role badge -->
                     <div
                         class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap flex-shrink-0"
-                        :class="getRoleBadgeClass(displayUser?.role || 'user')"
+                        :class="getRoleBadgeClass(displayUser ? effectiveRole(displayUser) : 'user')"
                     >
-                        {{ getRoleDisplayName(displayUser?.role || "user") }}
+                        {{ getRoleDisplayName(displayUser ? effectiveRole(displayUser) : "user") }}
                     </div>
                 </div>
 
@@ -737,9 +737,9 @@ const getRoleDisplayName = (role: string) => {
                     <!-- Right: Role badge -->
                     <div
                         class="px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap flex-shrink-0"
-                        :class="getRoleBadgeClass(displayUser?.role || 'user')"
+                        :class="getRoleBadgeClass(displayUser ? effectiveRole(displayUser) : 'user')"
                     >
-                        {{ getRoleDisplayName(displayUser?.role || "user") }}
+                        {{ getRoleDisplayName(displayUser ? effectiveRole(displayUser) : "user") }}
                     </div>
                 </div>
 

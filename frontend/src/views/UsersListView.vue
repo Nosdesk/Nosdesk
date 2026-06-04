@@ -26,7 +26,7 @@ import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import userService from '@/services/userService'
 import { usersKeys } from '@/queries/users'
-import type { User } from '@/types/user'
+import { effectiveRole, type User, type UserRole } from '@/types/user'
 
 defineOptions({ name: 'UsersListView' })
 
@@ -88,7 +88,7 @@ const userFacets = computed<ChipFacetDef[]>(() => [
 // Group-by axes. Role uses severity order; status splits active
 // vs soft-deleted; joined buckets recent vs older to spot recent
 // hires during onboarding.
-const ROLE_ORDER: Array<User['role']> = ['admin', 'technician', 'audit_reviewer', 'user']
+const ROLE_ORDER: Array<UserRole> = ['admin', 'technician', 'audit_reviewer', 'user']
 const JOIN_BUCKET_ORDER = ['this-month', 'this-year', 'older'] as const
 
 function joinBucket(createdAt: string): (typeof JOIN_BUCKET_ORDER)[number] {
@@ -106,11 +106,11 @@ const groupAxes: GroupAxisDef<User>[] = [
     key: 'role',
     labelKey: 'user-mgmt-grouping-role',
     bucketFor: (user) => ({
-      key: `role:${user.role}`,
-      label: t(`user-mgmt-role-${user.role}`),
+      key: `role:${effectiveRole(user)}`,
+      label: t(`user-mgmt-role-${effectiveRole(user)}`),
     }),
     sortBy: (bucketKey) => {
-      const v = bucketKey.replace('role:', '') as User['role']
+      const v = bucketKey.replace('role:', '') as UserRole
       const idx = ROLE_ORDER.indexOf(v)
       return idx === -1 ? 999 : idx
     },
@@ -380,7 +380,7 @@ function formatPurgeAt(deletedAt: string): string {
           </template>
 
           <template #cell-role="{ item }">
-            <StatusBadgeCell type="role" :value="item.role" />
+            <StatusBadgeCell type="role" :value="effectiveRole(item)" />
           </template>
 
           <template #cell-open_ticket_count="{ item }">
@@ -418,13 +418,13 @@ function formatPurgeAt(deletedAt: string): string {
               <span
                 class="inline-flex items-center px-1.5 py-0.5 rounded font-medium capitalize"
                 :class="{
-                  'bg-status-error-muted text-status-error': item.role === 'admin',
-                  'bg-accent-muted text-accent': item.role === 'technician',
-                  'bg-purple-500/10 text-purple-700 dark:text-purple-400': item.role === 'audit_reviewer',
-                  'bg-surface-alt text-secondary': item.role === 'user',
+                  'bg-status-error-muted text-status-error': effectiveRole(item) === 'admin',
+                  'bg-accent-muted text-accent': effectiveRole(item) === 'technician',
+                  'bg-purple-500/10 text-purple-700 dark:text-purple-400': effectiveRole(item) === 'audit_reviewer',
+                  'bg-surface-alt text-secondary': effectiveRole(item) === 'user',
                 }"
               >
-                {{ item.role.replace('_', ' ') }}
+                {{ effectiveRole(item).replace('_', ' ') }}
               </span>
               <span v-if="item.open_ticket_count" class="text-secondary tabular-nums">
                 {{ $t('user-mgmt-mobile-tickets', { count: item.open_ticket_count }) }}

@@ -7,7 +7,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import userService from '@/services/userService';
-import type { UserInfo } from '@/types/user';
+import { effectiveRole, type UserInfo } from '@/types/user';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args);
@@ -81,7 +81,7 @@ const selectUser = (user: UserInfo) => {
     uuid: user.uuid,
     name: user.name,
     email: user.email,
-    role: user.role
+    role: effectiveRole(user)
   });
   emit('close');
 };
@@ -173,11 +173,11 @@ const clearUser = () => {
           <span
             class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium flex-shrink-0"
             :class="{
-              'bg-accent/20 text-accent border border-accent/30': user.role === 'admin' || user.role === 'technician',
-              'bg-surface-alt text-secondary border border-default': user.role === 'user'
+              'bg-accent/20 text-accent border border-accent/30': effectiveRole(user) === 'admin' || effectiveRole(user) === 'technician',
+              'bg-surface-alt text-secondary border border-default': effectiveRole(user) === 'user'
             }"
           >
-            {{ roleLabel(user.role) }}
+            {{ roleLabel(effectiveRole(user)) }}
           </span>
 
           <!-- Selected Indicator -->
