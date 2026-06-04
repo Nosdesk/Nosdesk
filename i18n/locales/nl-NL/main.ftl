@@ -4571,6 +4571,12 @@ tickets-cycle-burndown-carried-over =
         [one] { $count } ticket doorgeschoven
        *[other] { $count } tickets doorgeschoven
     }
+# Burnup-grafiek van de cyclus (machine, nog na te kijken door moedertaalspreker).
+cycle-burnup-title = Burnup
+cycle-burnup-legend-scope = Omvang
+cycle-burnup-legend-completed = Voltooid
+cycle-burnup-legend-ideal = Ideaal
+cycle-burnup-needs-dates = Voeg start- en einddatums toe om de burnup te zien.
 tickets-collaborative-article-title = Ticketnotities
 tickets-collaborative-article-doc-title = Documentatie: ticket #{ $id }
 tickets-collaborative-article-revision-history = Versiegeschiedenis

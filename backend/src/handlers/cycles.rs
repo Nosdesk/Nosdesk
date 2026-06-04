@@ -259,6 +259,30 @@ pub async fn stats(
     }
 }
 
+/// Count-based burnup series for a cycle: completed vs total scope
+/// over the cycle timeline, reconstructed from member add times and
+/// ticket close times. Active/planned cycles only; completed cycles
+/// keep the frozen snapshot view (no daily series is stored).
+pub async fn burnup(
+    mut tc: TenantConn,
+    path: web::Path<Uuid>,
+    _auth: AuthContext,
+) -> impl Responder {
+    let uuid = path.into_inner();
+    let result = tc.run(|conn| match repo::find_by_uuid(conn, uuid)? {
+        Some(cycle) => repo::build_burnup(conn, &cycle).map(Some),
+        None => Ok(None),
+    });
+    match result {
+        Ok(Some(series)) => HttpResponse::Ok().json(series),
+        Ok(None) => errors::not_found_msg("Cycle not found"),
+        Err(e) => {
+            error!(error = %e, %uuid, "burnup: load failed");
+            errors::internal("Failed to fetch cycle burnup")
+        }
+    }
+}
+
 /// Result variants for the cycle complete flow.
 enum CompleteOutcome {
     Completed(crate::models::Cycle),

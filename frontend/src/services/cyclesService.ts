@@ -45,6 +45,17 @@ export interface CycleStats {
   carried_over?: number
 }
 
+/** Count-based burnup series returned by GET /cycles/{uuid}/burnup.
+ * Reconstructed from member add times (scope) and ticket close times
+ * (completed); no daily-rollup table backs it. Empty points when the
+ * cycle has no start_at. */
+export interface BurnupSeries {
+  start: string | null
+  end: string | null
+  final_scope: number
+  points: { day: string; scope: number; completed: number }[]
+}
+
 export const cyclesService = {
   async list(projectId: number): Promise<Cycle[]> {
     const { data } = await apiClient.get<Cycle[]>(`/projects/${projectId}/cycles`)
@@ -86,6 +97,11 @@ export const cyclesService = {
 
   async stats(uuid: string): Promise<CycleStats> {
     const { data } = await apiClient.get<CycleStats>(`/cycles/${uuid}/stats`)
+    return data
+  },
+
+  async burnup(uuid: string): Promise<BurnupSeries> {
+    const { data } = await apiClient.get<BurnupSeries>(`/cycles/${uuid}/burnup`)
     return data
   },
 

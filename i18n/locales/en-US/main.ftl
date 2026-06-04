@@ -4785,6 +4785,11 @@ tickets-cycle-burndown-carried-over =
         [one] { $count } ticket carried over
        *[other] { $count } tickets carried over
     }
+cycle-burnup-title = Burnup
+cycle-burnup-legend-scope = Scope
+cycle-burnup-legend-completed = Completed
+cycle-burnup-legend-ideal = Ideal
+cycle-burnup-needs-dates = Add start and end dates to see the burnup.
 tickets-collaborative-article-title = Ticket Notes
 tickets-collaborative-article-doc-title = Documentation: Ticket #{ $id }
 tickets-collaborative-article-revision-history = Revision history

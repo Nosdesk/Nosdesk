@@ -12,7 +12,7 @@
 //! burndown. The `cycles_completed_snapshot` CHECK constraint
 //! mirrors that invariant in the DB.
 
-use chrono::Utc;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::Connection;
 use serde_json::json;
@@ -455,6 +455,76 @@ pub fn carry_over_incomplete(conn: &mut DbConnection, cycle: &Cycle) -> QueryRes
     Ok(incomplete.len() as i64)
 }
 
+/// Reconstruct a count-based burnup series for a cycle from member
+/// add times (scope) and ticket close times (completed). Returns JSON:
+/// { start, end, final_scope, points: [{ day: "YYYY-MM-DD", scope, completed }] }.
+/// Empty points when the cycle has no start_at (can't place a timeline).
+///
+/// Burnup (not burndown) because cycles allow mid-cycle scope changes:
+/// a separate scope line keeps "behind" distinct from "added work."
+pub fn build_burnup(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<serde_json::Value> {
+    let start_at = match cycle.start_at {
+        Some(s) => s,
+        None => {
+            return Ok(json!({
+                "start": null,
+                "end": null,
+                "final_scope": 0,
+                "points": [],
+            }))
+        }
+    };
+
+    // (added_at in UTC, closed_at as naive-UTC) for every member ticket.
+    let members: Vec<(DateTime<Utc>, Option<NaiveDateTime>)> = cycle_tickets::table
+        .inner_join(tickets::table.on(tickets::id.eq(cycle_tickets::ticket_id)))
+        .filter(cycle_tickets::cycle_id.eq(cycle.id))
+        .select((cycle_tickets::added_at, tickets::closed_at))
+        .load(conn)?;
+
+    let now = Utc::now();
+    let start_day = start_at.date_naive();
+    let raw_end = cycle.end_at.unwrap_or(now).min(now).date_naive();
+    // Cap the span to 120 days so the series stays bounded.
+    let max_end = start_day + chrono::Duration::days(120);
+    let end_day = raw_end.max(start_day).min(max_end);
+
+    let final_scope = members.len();
+    let mut points = Vec::new();
+    let mut day = start_day;
+    while day <= end_day {
+        // End-of-day boundary; added_at compares in UTC, closed_at is
+        // naive-UTC so it compares to the naive day_end.
+        let day_end = day
+            .and_hms_opt(23, 59, 59)
+            .expect("23:59:59 is a valid time");
+        let day_end_utc = DateTime::<Utc>::from_naive_utc_and_offset(day_end, Utc);
+
+        let scope = members
+            .iter()
+            .filter(|(added, _)| *added <= day_end_utc)
+            .count();
+        let completed = members
+            .iter()
+            .filter(|(_, closed)| closed.is_some_and(|c| c <= day_end))
+            .count();
+
+        points.push(json!({
+            "day": day.format("%Y-%m-%d").to_string(),
+            "scope": scope,
+            "completed": completed,
+        }));
+        day += chrono::Duration::days(1);
+    }
+
+    Ok(json!({
+        "start": start_at.to_rfc3339(),
+        "end": cycle.end_at.unwrap_or(now).to_rfc3339(),
+        "final_scope": final_scope,
+        "points": points,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -583,6 +653,81 @@ mod tests {
             ticket_ids_for_cycle(&mut conn, cycle_a.id).unwrap(),
             vec![done.id]
         );
+    }
+
+    #[test]
+    fn burnup_reconstructs_scope_and_completed_series() {
+        let mut conn = setup_test_connection();
+        let (user, pid) = _seed_user_and_project(&mut conn, "cyc_burnup");
+
+        // Cycle spans roughly 3 days ago to 3 days ahead.
+        let now = Utc::now();
+        let mut def = make_cycle(pid, "burnup", "active");
+        def.start_at = Some(now - chrono::Duration::days(3));
+        def.end_at = Some(now + chrono::Duration::days(3));
+        let cycle = create(&mut conn, def).unwrap();
+
+        // Three tickets join the cycle. Backdate their added_at so the
+        // scope ramps across the window: t1 two days ago, t2 and t3 one
+        // day ago.
+        let t1 = TestFixtures::create_ticket(&mut conn, "t1", Some(user), None);
+        let t2 = TestFixtures::create_ticket(&mut conn, "t2", Some(user), None);
+        let t3 = TestFixtures::create_ticket(&mut conn, "t3", Some(user), None);
+        for t in [&t1, &t2, &t3] {
+            add_ticket(&mut conn, cycle.id, t.id, Some(user)).unwrap();
+        }
+        diesel::update(cycle_tickets::table.filter(cycle_tickets::ticket_id.eq(t1.id)))
+            .set(cycle_tickets::added_at.eq(now - chrono::Duration::days(2)))
+            .execute(&mut conn)
+            .unwrap();
+        diesel::update(
+            cycle_tickets::table.filter(cycle_tickets::ticket_id.eq_any([t2.id, t3.id])),
+        )
+        .set(cycle_tickets::added_at.eq(now - chrono::Duration::days(1)))
+        .execute(&mut conn)
+        .unwrap();
+
+        // Close t1 now so completed picks up at least one ticket. The
+        // tickets_dates_valid check forbids closed_at < created_at, and
+        // the fixture creates tickets at "now", so close at now.
+        diesel::update(tickets::table.find(t1.id))
+            .set(tickets::closed_at.eq(Some(now.naive_utc())))
+            .execute(&mut conn)
+            .unwrap();
+
+        let series = build_burnup(&mut conn, &cycle).unwrap();
+        let points = series["points"].as_array().unwrap();
+
+        // start_day .. end_day (capped at now) inclusive: 3 days ago to
+        // today is 4 days.
+        assert_eq!(points.len(), 4, "expected 4 daily points");
+        assert_eq!(series["final_scope"], 3);
+
+        // Last point reflects full scope, and completed is monotonic
+        // non-decreasing across the series.
+        let last = points.last().unwrap();
+        assert_eq!(last["scope"], 3);
+        let mut prev = 0i64;
+        for p in points {
+            let c = p["completed"].as_i64().unwrap();
+            assert!(c >= prev, "completed must be monotonic non-decreasing");
+            prev = c;
+        }
+        assert_eq!(last["completed"], 1, "t1 closed within the window");
+    }
+
+    #[test]
+    fn burnup_empty_without_start_at() {
+        let mut conn = setup_test_connection();
+        let (_user, pid) = _seed_user_and_project(&mut conn, "cyc_burnup_nostart");
+        let mut def = make_cycle(pid, "nostart", "planned");
+        def.start_at = None;
+        let cycle = create(&mut conn, def).unwrap();
+
+        let series = build_burnup(&mut conn, &cycle).unwrap();
+        assert!(series["points"].as_array().unwrap().is_empty());
+        assert_eq!(series["final_scope"], 0);
+        assert!(series["start"].is_null());
     }
 
     #[test]

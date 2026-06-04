@@ -12,9 +12,10 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { cyclesService, type CycleStats } from '@/services/cyclesService'
+import { cyclesService, type CycleStats, type BurnupSeries } from '@/services/cyclesService'
 import type { Cycle } from '@/services/cyclesService'
 import { formatDateTime } from '@/utils/dateUtils'
+import CycleBurnupChart from './CycleBurnupChart.vue'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -22,14 +23,25 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const props = defineProps<{ cycle: Cycle }>()
 
 const stats = ref<CycleStats | null>(null)
+const burnup = ref<BurnupSeries | null>(null)
 const isLoading = ref(false)
 const error = ref<string | null>(null)
+
+const isFrozen = computed<boolean>(() => props.cycle.state === 'completed')
+
+// Burnup only makes sense for a live cycle with a placed timeline:
+// frozen cycles keep the snapshot view (no daily series is stored),
+// and without start + end dates there's nothing to plot against.
+const showBurnup = computed<boolean>(
+  () => !isFrozen.value && !!props.cycle.start_at && !!props.cycle.end_at,
+)
 
 async function load(): Promise<void> {
   isLoading.value = true
   error.value = null
   try {
     stats.value = await cyclesService.stats(props.cycle.uuid)
+    burnup.value = showBurnup.value ? await cyclesService.burnup(props.cycle.uuid) : null
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('tickets-cycle-burndown-load-error')
   } finally {
@@ -49,8 +61,6 @@ const daysRemaining = computed<number | null>(() => {
   const ms = new Date(props.cycle.end_at).getTime() - Date.now()
   return Math.max(0, Math.ceil(ms / 86_400_000))
 })
-
-const isFrozen = computed<boolean>(() => props.cycle.state === 'completed')
 
 const sortedCategories = computed<[string, number][]>(() => {
   if (!stats.value) return []
@@ -108,6 +118,9 @@ const categoryLabels = computed<Record<string, string>>(() => ({
           :style="{ width: `${completionPct}%` }"
         />
       </div>
+
+      <!-- Burnup chart (live cycles with start + end dates only) -->
+      <CycleBurnupChart v-if="showBurnup && burnup" :series="burnup" />
 
       <!-- By category -->
       <div v-if="sortedCategories.length" class="flex flex-col gap-1">

@@ -4580,6 +4580,12 @@ tickets-cycle-burndown-carried-over =
         [one] { $count } ticket reporté
        *[other] { $count } tickets reportés
     }
+# Graphique de burnup du cycle (machine, à relire par un locuteur natif).
+cycle-burnup-title = Burnup
+cycle-burnup-legend-scope = Périmètre
+cycle-burnup-legend-completed = Terminé
+cycle-burnup-legend-ideal = Idéal
+cycle-burnup-needs-dates = Ajoutez des dates de début et de fin pour voir le burnup.
 tickets-collaborative-article-title = Notes du ticket
 tickets-collaborative-article-doc-title = Documentation : Ticket n°{ $id }
 tickets-collaborative-article-revision-history = Historique des révisions
