@@ -72,15 +72,16 @@ pub async fn create_project(
     req: HttpRequest,
     mut tc: TenantConn,
     project: web::Json<NewProject>,
-    search_service: web::Data<Arc<SearchService>>,
+    search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
-    match tc.run(|conn| {
-        repository::create_project(conn, project.into_inner(), Some(search_service.get_ref()))
-    }) {
+    let observer = search_service
+        .as_ref()
+        .map(|d| d.get_ref() as &dyn repository::projects::ProjectIndexedObserver);
+    match tc.run(|conn| repository::create_project(conn, project.into_inner(), observer)) {
         Ok(project) => HttpResponse::Created().json(project),
         Err(_) => errors::internal("Failed to create project"),
     }
@@ -92,20 +93,18 @@ pub async fn update_project(
     mut tc: TenantConn,
     path: web::Path<i32>,
     project_update: web::Json<ProjectUpdate>,
-    search_service: web::Data<Arc<SearchService>>,
+    search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
+    let observer = search_service
+        .as_ref()
+        .map(|d| d.get_ref() as &dyn repository::projects::ProjectIndexedObserver);
     let project_id = path.into_inner();
     match tc.run(|conn| {
-        repository::update_project(
-            conn,
-            project_id,
-            project_update.into_inner(),
-            Some(search_service.get_ref()),
-        )
+        repository::update_project(conn, project_id, project_update.into_inner(), observer)
     }) {
         Ok(project) => HttpResponse::Ok().json(project),
         Err(e) => match e {
@@ -120,16 +119,17 @@ pub async fn delete_project(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
-    search_service: web::Data<Arc<SearchService>>,
+    search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
         return e;
     }
 
+    let observer = search_service
+        .as_ref()
+        .map(|d| d.get_ref() as &dyn repository::projects::ProjectDeletedObserver);
     let project_id = path.into_inner();
-    match tc
-        .run(|conn| repository::delete_project(conn, project_id, Some(search_service.get_ref())))
-    {
+    match tc.run(|conn| repository::delete_project(conn, project_id, observer)) {
         Ok(0) => errors::not_found_msg("Project not found"),
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(_) => errors::internal("Failed to delete project"),
