@@ -213,7 +213,6 @@ nav-group-work = Work
 nav-group-resources = Resources
 nav-dashboard = Dashboard
 nav-tickets = Tickets
-nav-cycles = Cycles
 nav-projects = Projects
 nav-assets = Assets
 nav-asset-planner = Asset Planner
@@ -2153,25 +2152,6 @@ project-cycles-state-completed = completed
 project-cycles-action-promote = Promote
 project-cycles-action-complete = Complete
 project-cycles-action-archive = Archive
-
-# Workspace cycles (WorkspaceCyclesView): cross-project overview
-# of in-flight iterations, grouped by project, with a toggle to
-# pull completed cycles back into view.
-workspace-cycles-heading = Cycles
-workspace-cycles-subheading = In-flight iterations across every project
-workspace-cycles-show-completed = Show completed
-workspace-cycles-loading = Loading cycles…
-workspace-cycles-error-fallback = Couldn't load cycles
-workspace-cycles-empty-title = No cycles yet.
-workspace-cycles-empty-hint = Pop into a project and kick one off from the Cycles drawer.
-workspace-cycles-group-count = { $count ->
-    [one] { $count } cycle
-   *[other] { $count } cycles
-   }
-workspace-cycles-project-fallback = Project #{ $id }
-workspace-cycles-date-missing = —
-workspace-cycles-state-planned = planned
-workspace-cycles-state-completed = completed
 
 # Cycle detail (CycleDetailView): Scrum board scoped to one
 # cycle, with a burndown pinned above the kanban toolbar.

@@ -200,7 +200,6 @@ nav-group-work = Werk
 nav-group-resources = Bronnen
 nav-dashboard = Dashboard
 nav-tickets = Tickets
-nav-cycles = Cycli
 nav-projects = Projecten
 nav-assets = Activa
 nav-asset-planner = Activaplanner
@@ -2264,25 +2263,6 @@ project-cycles-state-completed = afgerond
 project-cycles-action-promote = Activeren
 project-cycles-action-complete = Afronden
 project-cycles-action-archive = Archiveren
-
-# Workspace cycles (WorkspaceCyclesView): cross-project overview
-# of in-flight iterations, grouped by project, with a toggle to
-# pull completed cycles back into view.
-workspace-cycles-heading = Cycli
-workspace-cycles-subheading = Lopende iteraties over alle projecten
-workspace-cycles-show-completed = Afgeronde tonen
-workspace-cycles-loading = Cycli laden…
-workspace-cycles-error-fallback = Cycli konden niet worden geladen
-workspace-cycles-empty-title = Nog geen cycli.
-workspace-cycles-empty-hint = Open een project en start er een vanuit het Cycli-paneel.
-workspace-cycles-group-count = { $count ->
-    [one] { $count } cyclus
-   *[other] { $count } cycli
-   }
-workspace-cycles-project-fallback = Project #{ $id }
-workspace-cycles-date-missing = —
-workspace-cycles-state-planned = gepland
-workspace-cycles-state-completed = afgerond
 
 # Cycle detail (CycleDetailView): Scrum board scoped to one
 # cycle, with a burndown pinned above the kanban toolbar.

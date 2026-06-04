@@ -119,10 +119,8 @@ const props = defineProps<{
      *  handler computes the same shape on read so this sidebar
      *  can render the countdown without a second round-trip. */
     sla?: SlaPayload | null;
-    /** Cycle membership embedded by the detail handler. The chip
-     *  is clickable, navigates to /cycles/:projectId / cycle uuid
-     *  if/when that route exists; today the navigation just lands
-     *  on the project's cycles surface. */
+    /** Cycle membership embedded by the detail handler. The chip is
+     *  clickable and opens the cycle's detail board at /cycles/:uuid. */
     cycle?: {
       id: number;
       uuid: string;
@@ -450,13 +448,11 @@ const slaPillDetail = computed<string | null>(() => {
 const router = useRouter();
 
 function openCycle() {
-  // The cycles surface lives at /cycles for the workspace overview;
-  // a per-cycle detail route hasn't shipped, so the chip currently
-  // navigates to the workspace cycles board. Wired here so the
-  // chip's affordance reads as actionable today and the destination
-  // can swap to a cycle-specific URL without touching this file.
-  if (props.ticket.cycle) {
-    void router.push('/cycles');
+  // Open the cycle's shareable detail board (the scrum view scoped to
+  // that cycle).
+  const c = props.ticket.cycle;
+  if (c) {
+    void router.push(`/cycles/${c.uuid}`);
   }
 }
 
@@ -1049,10 +1045,7 @@ watchEffect(async () => {
           </div>
 
           <!-- Cycle membership chip. Only rendered when the ticket
-               belongs to one. Click navigates to the cycles surface
-               (per-cycle detail route hasn't shipped; the click
-               target stays today so the hook is in place when the
-               route lands). -->
+               belongs to one. Click opens that cycle's detail board. -->
           <div
             v-if="ticket.cycle"
             class="flex items-center justify-between gap-2 text-xs min-h-6"

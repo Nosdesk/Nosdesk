@@ -11,7 +11,6 @@ import ErrorView from '../views/ErrorView.vue'
 import TicketsListView from '@/sync/views/TicketsListView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
-import WorkspaceCyclesView from '../views/WorkspaceCyclesView.vue'
 import CycleDetailView from '../views/CycleDetailView.vue'
 import ProjectGanttView from '../views/ProjectGanttView.vue'
 import ProjectCyclesView from '../views/ProjectCyclesView.vue'
@@ -251,15 +250,9 @@ const router = createRouter({
       }
     },
     {
-      path: '/cycles',
-      name: 'workspace-cycles',
-      component: WorkspaceCyclesView,
-      meta: {
-        requiresAuth: true,
-        titleKey: 'route-title-cycles',
-      }
-    },
-    {
+      // Cycles are reached through their project (the per-project
+      // Cycles tab), not a workspace-wide rollup. This shareable
+      // detail route stays so a cycle's URL is bookmarkable.
       path: '/cycles/:uuid',
       name: 'cycle-detail',
       component: CycleDetailView,

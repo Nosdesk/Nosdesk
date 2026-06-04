@@ -8,7 +8,7 @@
  * visible while the team moves cards.
  *
  * The route is `/cycles/:uuid` so a cycle's URL is shareable; the
- * workspace overview and the per-project drawer both link here.
+ * per-project Cycles tab links here.
  *
  * Today the kanban groups by workflow_state.category; the secondary
  * axis can be flipped from the toolbar (status x assignee, etc.)
@@ -85,7 +85,11 @@ function openCard(cardId: number): void {
 }
 
 function backToCycles(): void {
-  router.push('/cycles')
+  // Cycles live under their project; return to that project's Cycles
+  // tab (fall back to history if the cycle hasn't loaded yet).
+  const projectId = cycle.value?.project_id
+  if (projectId != null) router.push(`/projects/${projectId}/cycles`)
+  else router.back()
 }
 
 const stateLabel = computed<string>(() => {

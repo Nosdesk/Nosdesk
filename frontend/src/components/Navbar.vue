@@ -159,12 +159,6 @@ const navGroups: NavGroup[] = [
                 text: "nav-tickets",
             },
             {
-                to: "/cycles",
-                // Calendar / iteration glyph: small block with a marker line.
-                icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
-                text: "nav-cycles",
-            },
-            {
                 to: "/projects",
                 icon: "M4 4h4v16H4V4zm6 0h4v12h-4V4zm6 0h4v8h-4V4z",
                 text: "nav-projects",
