@@ -2080,7 +2080,6 @@ asset-detail-unmanage-action-confirm = Unmanage
 # rendered from the sync engine pool, with status pills and a
 # short description per card.
 projects-list-heading = Projects
-projects-list-subheading = Sync-engine preview (projects_v2 flag).
 projects-list-no-description = No description
 
 # Project detail (ProjectDetailView): per-project kanban board
