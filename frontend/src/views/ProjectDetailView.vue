@@ -152,25 +152,25 @@ async function confirmDelete(): Promise<void> {
       </div>
     </header>
 
-    <ProjectTabBar :project-id="projectId" />
-
-    <!-- Kanban toolbar — view-shape controls live with the
-         surface they affect, not in the page header. Uses the
-         same BaseDropdown the rest of the app reaches for so the
-         control reads as a peer of every other dropdown. -->
-    <div class="flex items-center justify-end gap-2 px-6 py-2 border-b border-subtle bg-surface">
-      <label class="flex items-center gap-2 text-xs text-secondary">
-        <span>{{ $t('project-detail-group-by-label') }}</span>
-        <div class="w-44">
-          <BaseDropdown
-            :model-value="groupByValue"
-            :options="groupByOptions"
-            size="xs"
-            @update:model-value="onGroupByChange"
-          />
-        </div>
-      </label>
-    </div>
+    <!-- View-shape controls (Group-by) ride the tab-bar row, kept
+         close to the surface they affect rather than in the header.
+         BaseDropdown is the same control the rest of the app uses, so
+         it reads as a peer of every other dropdown. -->
+    <ProjectTabBar :project-id="projectId">
+      <template #actions>
+        <label class="flex items-center gap-2 text-xs text-secondary">
+          <span>{{ $t('project-detail-group-by-label') }}</span>
+          <div class="w-44">
+            <BaseDropdown
+              :model-value="groupByValue"
+              :options="groupByOptions"
+              size="xs"
+              @update:model-value="onGroupByChange"
+            />
+          </div>
+        </label>
+      </template>
+    </ProjectTabBar>
 
     <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary">
       {{ $t('project-detail-loading') }}

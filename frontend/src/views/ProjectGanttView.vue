@@ -13,6 +13,7 @@ import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useCyclesStore } from '@/stores/cycles'
 import { useProjectTickets } from '@/composables/useProjectTickets'
+import { useGanttViewport, GANTT_ZOOMS, ganttZoomLabel } from '@/composables/useGanttViewport'
 import { dependenciesService, type DependencyEdge } from '@/services/dependenciesService'
 import GanttBoard from '@/sync/views/GanttBoard.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
@@ -27,6 +28,10 @@ const cyclesStore = useCyclesStore()
 
 const project = projectsStore.byId(projectId)
 const { cards } = useProjectTickets(projectId)
+
+// Owned here so the viewport toolbar can live in the project tab bar;
+// GanttBoard consumes the same instance for all its geometry.
+const viewport = useGanttViewport()
 
 // Cycles render as shaded context bands behind the bars. Sourced from
 // the cycles store (cached + reactive to cycle mutations).
@@ -76,13 +81,58 @@ function reschedule(cardId: number, dueDate: string): void {
       </div>
     </header>
 
-    <ProjectTabBar :project-id="projectId" />
+    <ProjectTabBar :project-id="projectId">
+      <template #actions>
+        <!-- Zoom segmented control -->
+        <div class="flex items-center rounded-md border border-subtle overflow-hidden">
+          <button
+            v-for="z in GANTT_ZOOMS"
+            :key="z"
+            type="button"
+            class="text-xs px-2.5 py-1 transition-colors"
+            :class="viewport.zoom.value === z
+              ? 'bg-accent text-on-accent font-medium'
+              : 'text-secondary hover:bg-surface-hover'"
+            @click="viewport.setZoom(z)"
+          >{{ $t(ganttZoomLabel[z]) }}</button>
+        </div>
+
+        <button
+          type="button"
+          class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle"
+          @click="viewport.fitToProject()"
+        >{{ $t('gantt-fit') }}</button>
+        <button
+          type="button"
+          class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle"
+          @click="viewport.centerOnToday()"
+        >{{ $t('gantt-today') }}</button>
+
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
+            @click="viewport.pan(-1)"
+          >‹</button>
+          <button
+            type="button"
+            class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
+            @click="viewport.pan(1)"
+          >›</button>
+        </div>
+
+        <p class="text-[11px] text-tertiary">
+          {{ $t('gantt-tickets-of-total-in-view', { count: cards.length, visible: viewport.visibleCount.value }) }}
+        </p>
+      </template>
+    </ProjectTabBar>
 
     <GanttBoard
       class="flex-1 min-h-0"
       :cards="cards"
       :edges="edges"
       :cycles="cycles"
+      :viewport="viewport"
       :on-card-click="openCard"
       :on-reschedule="reschedule"
     />

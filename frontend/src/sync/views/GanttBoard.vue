@@ -12,7 +12,7 @@
  * with no due date land in an Unscheduled tray instead. Dragging
  * bars / tray items to reschedule is a follow-up.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watchEffect } from 'vue'
 import { useFluent } from 'fluent-vue'
 import {
   addDays,
@@ -27,6 +27,7 @@ import type { CardData } from './types'
 import type { DependencyEdge } from '@/services/dependenciesService'
 import type { Cycle } from '@/services/cyclesService'
 import { TERMINAL_CATEGORIES } from '@/types/workflow'
+import { startOfDay, type GanttViewport } from '@/composables/useGanttViewport'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
@@ -37,6 +38,10 @@ const props = withDefaults(defineProps<{
   /** Project cycles, rendered as shaded context bands behind the bars
    *  (only those with both a start and end date). */
   cycles?: readonly Cycle[]
+  /** Time-scale viewport, owned by the route shell so the toolbar can
+   *  live in the project tab bar. The renderer reads its refs for all
+   *  geometry and reports content extent / visible count back to it. */
+  viewport: GanttViewport
   onCardClick?: (cardId: number) => void
   /** Drag-the-due-handle write-back. Called with the new due date
    *  (ISO) when the user releases a bar's right handle. Only the due
@@ -51,32 +56,15 @@ const props = withDefaults(defineProps<{
 })
 
 // ===================== Time scale =====================
+// The viewport (zoom + visible window) is owned by the parent so the
+// toolbar can sit in the project tab bar. Pull its refs out by name so
+// the geometry below reads exactly as before; they stay reactive
+// because they're the same ref objects.
+const vp = props.viewport
+const { zoom, pxPerDay, rangeStart, rangeEnd, xOf, totalWidth } = vp
 
-type Zoom = 'week' | 'month' | 'quarter'
-const PX_PER_DAY: Record<Zoom, number> = { week: 26, month: 9, quarter: 3.4 }
-const zoom = ref<Zoom>('month')
-const pxPerDay = computed(() => PX_PER_DAY[zoom.value])
-
-const DAY_MS = 86_400_000
 const ROW_PX = 30
 const LEFT_PX = 240
-
-function startOfDay(d: Date): Date {
-  const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
-  return x
-}
-function daysBetween(a: Date, b: Date): number {
-  return Math.round((startOfDay(b).getTime() - startOfDay(a).getTime()) / DAY_MS)
-}
-
-const rangeStart = ref<Date>(startOfDay(new Date()))
-const rangeEnd = ref<Date>(addDays(startOfDay(new Date()), 45))
-
-function xOf(date: Date): number {
-  return daysBetween(rangeStart.value, date) * pxPerDay.value
-}
-const totalWidth = computed(() => xOf(rangeEnd.value))
 
 // ===================== Scheduled / unscheduled split =====================
 
@@ -125,20 +113,14 @@ const unscheduled = computed<CardData[]>(() =>
   props.cards.filter(isUnscheduled),
 )
 
-// ===================== Fit / pan / today =====================
-
-/** Padding around the project span, in days. Wider when zoomed out
- *  so the canvas never crowds the edges. */
-function fitPad(): number {
-  return Math.max(3, Math.round(7 / (pxPerDay.value / 9)))
-}
-
-function fitToProject(): void {
+// ===================== Viewport reporting =====================
+// Feed the renderer's content extent and visible-bar count back to the
+// shared viewport so the toolbar's Fit button and in-view label work
+// without reaching into this component.
+watchEffect(() => {
   const items = scheduled.value
   if (items.length === 0) {
-    const today = startOfDay(new Date())
-    rangeStart.value = addDays(today, -7)
-    rangeEnd.value = addDays(today, 45)
+    vp.setContentBounds(null)
     return
   }
   let min = items[0].start
@@ -147,42 +129,11 @@ function fitToProject(): void {
     if (it.start.getTime() < min.getTime()) min = it.start
     if (it.end.getTime() > max.getTime()) max = it.end
   }
-  const pad = fitPad()
-  rangeStart.value = addDays(min, -pad)
-  rangeEnd.value = addDays(max, pad)
-}
+  vp.setContentBounds({ min, max })
+})
 
-function setZoom(z: Zoom): void {
-  if (z === zoom.value) return
-  // Keep the same center across a zoom change: re-derive the window
-  // around its current midpoint so the user's focus stays put rather
-  // than snapping back to the whole project.
-  const span = daysBetween(rangeStart.value, rangeEnd.value)
-  const center = addDays(rangeStart.value, Math.round(span / 2))
-  zoom.value = z
-  // Hold the on-screen span constant in days; the new pxPerDay just
-  // changes how wide that span paints.
-  const half = Math.round(span / 2)
-  rangeStart.value = addDays(center, -half)
-  rangeEnd.value = addDays(center, span - half)
-}
-
-function centerOnToday(): void {
-  const span = daysBetween(rangeStart.value, rangeEnd.value)
-  const today = startOfDay(new Date())
-  const half = Math.round(span / 2)
-  rangeStart.value = addDays(today, -half)
-  rangeEnd.value = addDays(today, span - half)
-}
-
-function pan(dir: -1 | 1): void {
-  const span = daysBetween(rangeStart.value, rangeEnd.value)
-  const step = Math.max(1, Math.round(span * 0.4)) * dir
-  rangeStart.value = addDays(rangeStart.value, step)
-  rangeEnd.value = addDays(rangeEnd.value, step)
-}
-
-onMounted(fitToProject)
+// Frame the project once the content extent is known.
+onMounted(() => vp.fitToProject())
 
 // ===================== Axis: primary ticks + secondary band =====================
 
@@ -368,6 +319,11 @@ const bars = computed<BarRow[]>(() => {
   return out
 })
 
+// Report the in-window bar count for the toolbar's in-view label.
+watchEffect(() => {
+  vp.visibleCount.value = bars.value.length
+})
+
 /** Right-edge (due) handle drag. Only the due edge moves; the start
  *  is created_at, immutable history, so the left edge is locked. */
 function startResize(bar: BarRow, event: PointerEvent): void {
@@ -449,65 +405,13 @@ const trayOpen = ref(true)
 function open(card: CardData): void {
   props.onCardClick?.(card.id)
 }
-
-const zooms: Zoom[] = ['week', 'month', 'quarter']
-const zoomLabel: Record<Zoom, string> = {
-  week: 'gantt-zoom-week',
-  month: 'gantt-zoom-month',
-  quarter: 'gantt-zoom-quarter',
-}
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <!-- Toolbar -->
-    <header class="flex items-center gap-3 px-6 py-3 border-b border-subtle bg-app">
-      <h2 class="text-sm font-semibold text-primary">{{ t('gantt-title') }}</h2>
-
-      <!-- Zoom segmented control -->
-      <div class="flex items-center rounded-md border border-subtle overflow-hidden">
-        <button
-          v-for="z in zooms"
-          :key="z"
-          type="button"
-          class="text-xs px-2.5 py-1 transition-colors"
-          :class="zoom === z
-            ? 'bg-accent text-on-accent font-medium'
-            : 'text-secondary hover:bg-surface-hover'"
-          @click="setZoom(z)"
-        >{{ t(zoomLabel[z]) }}</button>
-      </div>
-
-      <button
-        type="button"
-        class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle"
-        @click="fitToProject"
-      >{{ t('gantt-fit') }}</button>
-      <button
-        type="button"
-        class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle"
-        @click="centerOnToday"
-      >{{ t('gantt-today') }}</button>
-
-      <div class="flex items-center gap-1">
-        <button
-          type="button"
-          class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
-          @click="pan(-1)"
-        >‹</button>
-        <button
-          type="button"
-          class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
-          @click="pan(1)"
-        >›</button>
-      </div>
-
-      <p class="text-[11px] text-tertiary ml-auto">
-        {{ t('gantt-tickets-of-total-in-view', { count: cards.length, visible: bars.length }) }}
-      </p>
-    </header>
-
-    <!-- Scroll container -->
+    <!-- Scroll container. The viewport toolbar (zoom / fit / today /
+         pan) lives in the project tab bar, rendered by the route shell
+         that owns the shared viewport. -->
     <div class="flex-1 min-h-0 overflow-auto">
       <div class="relative" :style="{ width: `${totalWidth + LEFT_PX}px` }">
         <!-- Sticky left panel: titles + tray -->
