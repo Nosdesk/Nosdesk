@@ -57,12 +57,14 @@ const { editing, draft, inputEl, start, done, cancel } = useInlineRename((name) 
         @keyup.esc="cancel"
         @blur="done"
       />
-      <span
+      <button
         v-else
-        class="text-sm font-medium text-primary truncate transition-colors group-hover:text-accent"
+        type="button"
+        class="min-w-0 truncate text-left text-sm font-medium text-primary rounded transition-colors group-hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        @click.stop="emit('open')"
       >
         {{ project.name }}
-      </span>
+      </button>
     </div>
 
     <!-- Progress -->
@@ -92,7 +94,7 @@ const { editing, draft, inputEl, start, done, cancel } = useInlineRename((name) 
     <!-- Active cycle -->
     <div class="w-48 shrink-0 min-w-0">
       <ProjectCycleGlance v-if="cycle" :summary="cycle" compact />
-      <span v-else class="text-xs text-tertiary/60">{{ $t('projects-no-active-cycle') }}</span>
+      <span v-else class="text-xs text-tertiary">{{ $t('projects-no-active-cycle') }}</span>
     </div>
 
     <!-- Quick nav -->

@@ -420,16 +420,18 @@ function open(card: CardData): void {
           :style="{ width: `${LEFT_PX}px` }"
         >
           <div class="border-b border-subtle bg-surface" style="height: 48px"></div>
-          <div
+          <button
             v-for="row in bars"
             :key="row.card.id"
-            class="flex items-center px-3 text-xs text-primary border-b border-subtle/50 cursor-pointer hover:bg-surface-hover truncate"
+            type="button"
+            class="w-full flex items-center px-3 text-xs text-left text-primary border-b border-subtle/50 hover:bg-surface-hover focus:outline-none focus-visible:bg-surface-hover truncate"
             :style="{ height: `${ROW_PX}px` }"
+            :title="row.card.title"
             @click="open(row.card)"
           >
             <span class="font-mono text-tertiary mr-2">#{{ row.card.id }}</span>
             <span class="truncate">{{ row.card.title }}</span>
-          </div>
+          </button>
 
           <!-- Unscheduled tray -->
           <div v-if="unscheduled.length > 0" class="border-t border-subtle mt-auto">
@@ -442,15 +444,17 @@ function open(card: CardData): void {
               {{ t('gantt-unscheduled', { count: unscheduled.length }) }}
             </button>
             <div v-if="trayOpen" class="max-h-48 overflow-auto">
-              <div
+              <button
                 v-for="card in unscheduled"
                 :key="card.id"
-                class="flex items-center px-3 py-1.5 text-xs text-primary border-t border-subtle/40 cursor-pointer hover:bg-surface-hover truncate"
+                type="button"
+                class="w-full flex items-center px-3 py-1.5 text-xs text-left text-primary border-t border-subtle/40 hover:bg-surface-hover focus:outline-none focus-visible:bg-surface-hover truncate"
+                :title="card.title"
                 @click="open(card)"
               >
                 <span class="font-mono text-tertiary mr-2">#{{ card.id }}</span>
                 <span class="truncate">{{ card.title }}</span>
-              </div>
+              </button>
             </div>
           </div>
         </div>

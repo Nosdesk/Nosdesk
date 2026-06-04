@@ -112,16 +112,20 @@ function reschedule(cardId: number, dueDate: string): void {
           <button
             type="button"
             class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
+            :aria-label="$t('gantt-pan-previous')"
+            :title="$t('gantt-pan-previous')"
             @click="viewport.pan(-1)"
-          >‹</button>
+          ><span aria-hidden="true">‹</span></button>
           <button
             type="button"
             class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
+            :aria-label="$t('gantt-pan-next')"
+            :title="$t('gantt-pan-next')"
             @click="viewport.pan(1)"
-          >›</button>
+          ><span aria-hidden="true">›</span></button>
         </div>
 
-        <p class="text-[11px] text-tertiary">
+        <p class="hidden sm:block text-[11px] text-tertiary">
           {{ $t('gantt-tickets-of-total-in-view', { count: cards.length, visible: viewport.visibleCount.value }) }}
         </p>
       </template>

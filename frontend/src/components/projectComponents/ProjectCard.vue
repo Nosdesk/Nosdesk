@@ -60,7 +60,7 @@ const { editing, draft, inputEl, start, done, cancel } = useInlineRename((name) 
       <button
         v-else
         type="button"
-        class="flex-1 min-w-0 text-left text-base font-medium text-primary truncate transition-colors group-hover:text-accent"
+        class="flex-1 min-w-0 text-left text-base font-medium text-primary truncate rounded transition-colors group-hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         @click.stop="emit('open')"
       >
         {{ project.name }}

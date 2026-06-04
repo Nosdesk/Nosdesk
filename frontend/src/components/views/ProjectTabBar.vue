@@ -50,7 +50,7 @@ function go(tab: Tab): void {
 </script>
 
 <template>
-  <nav class="flex items-center justify-between px-6 border-b border-subtle bg-app">
+  <nav class="flex flex-wrap items-center justify-between gap-y-1 px-3 sm:px-6 border-b border-subtle bg-app">
     <div
       class="flex items-center gap-0.5"
       role="tablist"

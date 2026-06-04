@@ -233,7 +233,7 @@ function stateLabel(state: string): string {
         <p v-if="velocity != null" class="text-[11px] text-tertiary mb-3">
           {{ $t('project-cycles-velocity-hint', { count: velocity }) }}
         </p>
-        <form class="flex items-end gap-3" @submit.prevent="createCycle">
+        <form class="flex flex-col sm:flex-row sm:items-end gap-3" @submit.prevent="createCycle">
           <label class="flex flex-col gap-1 text-[11px] text-tertiary flex-1">
             <span>{{ $t('project-cycles-field-name') }}</span>
             <input
