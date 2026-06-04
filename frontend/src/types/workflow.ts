@@ -133,3 +133,13 @@ export function legacyStatusFor(category: WorkflowStateCategory): 'open' | 'in-p
   if (category === 'active' || category === 'in_review') return 'in-progress'
   return 'closed'
 }
+
+export type StatusBucket = 'open' | 'in-progress' | 'closed'
+/** Collapse a workflow-state category into the coarse 3-colour visual
+ *  bucket used by tiny status dots and the public guest badge. This is
+ *  a presentation concern, NOT the old wire field. */
+export function coarseStatusBucket(category: WorkflowStateCategory): StatusBucket {
+  if (category === 'triage' || category === 'backlog') return 'open'
+  if (category === 'active' || category === 'in_review') return 'in-progress'
+  return 'closed'
+}

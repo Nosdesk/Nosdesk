@@ -11,11 +11,10 @@
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useThemeStore } from '@/stores/theme'
-
-type TicketStatus = 'open' | 'in-progress' | 'closed'
+import { coarseStatusBucket, type WorkflowStateCategory } from '@/types/workflow'
 
 const props = withDefaults(defineProps<{
-  status: TicketStatus
+  category: WorkflowStateCategory
   size?: 'xs' | 'sm' | 'md'
 }>(), {
   size: 'sm'
@@ -24,6 +23,8 @@ const props = withDefaults(defineProps<{
 const themeStore = useThemeStore()
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
+
+const bucket = computed(() => coarseStatusBucket(props.category))
 
 // Size classes for the indicator - larger when in color blind mode for better visibility
 const sizeClasses = computed(() => {
@@ -55,7 +56,7 @@ const sizeClasses = computed(() => {
 
 // Color classes for standard mode
 const colorClasses = computed(() => {
-  switch (props.status) {
+  switch (bucket.value) {
     case 'open':
       return 'bg-status-open'
     case 'in-progress':
@@ -69,7 +70,7 @@ const colorClasses = computed(() => {
 
 // Status labels for accessibility
 const statusLabel = computed(() => {
-  switch (props.status) {
+  switch (bucket.value) {
     case 'open':
       return t('status-open')
     case 'in-progress':
@@ -94,7 +95,7 @@ const statusLabel = computed(() => {
   >
     <!-- Open: hollow circle (ring only) -->
     <svg
-      v-if="status === 'open'"
+      v-if="bucket === 'open'"
       viewBox="0 0 10 10"
       class="w-full h-full"
       fill="none"
@@ -111,7 +112,7 @@ const statusLabel = computed(() => {
 
     <!-- In Progress: bullseye (ring with center dot) -->
     <svg
-      v-else-if="status === 'in-progress'"
+      v-else-if="bucket === 'in-progress'"
       viewBox="0 0 10 10"
       class="w-full h-full"
     >

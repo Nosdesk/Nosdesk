@@ -4,13 +4,16 @@ import { ref, onMounted, computed, onActivated } from "vue";
 import { useRouter } from "vue-router";
 import { useFluent } from 'fluent-vue';
 import { getTickets } from "@/services/ticketService";
+import { useWorkflowStatesStore } from "@/stores/workflowStates";
+import { TERMINAL_CATEGORIES } from "@/types/workflow";
 import HeatmapTooltip from "@/components/HeatmapTooltip.vue";
 import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
 
 const fluent = useFluent();
+const wf = useWorkflowStatesStore();
 
 interface Props {
-    ticketStatus?: "open" | "in-progress" | "closed";
+    mode?: "completed" | "active";
     userUuid?: string;
     title?: string;
     /** FTL key used in place of `title` so callers passing a registry
@@ -19,7 +22,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-    ticketStatus: "closed",
+    mode: "completed",
     userUuid: "",
     title: "",
     titleKey: "",
@@ -85,28 +88,23 @@ const fetchTicketData = async () => {
         });
 
         // Fetch and process tickets
+        await wf.load();
         const tickets = await getTickets();
 
         tickets.forEach((ticket) => {
-            if (ticket.status === props.ticketStatus) {
-                // Filter by user if specified (match assignee for closed tickets)
-                if (props.userUuid && ticket.assignee !== props.userUuid) {
-                    return;
-                }
-
-                const dateStr =
-                    ticket.status === "closed" && ticket.closed_at
-                        ? ticket.closed_at.split("T")[0]
-                        : ticket.modified.split("T")[0];
-
-                if (dateMap.has(dateStr)) {
-                    const dayData = dateMap.get(dateStr)!;
-                    dayData.count++;
-                    dayData.tickets.push({
-                        id: ticket.id,
-                        title: ticket.title,
-                    });
-                }
+            const cat = ticket.workflow_state_id != null ? wf.findById(ticket.workflow_state_id)?.category : undefined;
+            if (!cat) return;
+            const isTerminal = TERMINAL_CATEGORIES.has(cat);
+            const matches = props.mode === 'completed' ? isTerminal : !isTerminal;
+            if (!matches) return;
+            if (props.userUuid && ticket.assignee !== props.userUuid) return;
+            const dateStr = props.mode === 'completed' && ticket.closed_at
+                ? ticket.closed_at.split('T')[0]
+                : ticket.modified.split('T')[0];
+            if (dateMap.has(dateStr)) {
+                const dayData = dateMap.get(dateStr)!;
+                dayData.count++;
+                dayData.tickets.push({ id: ticket.id, title: ticket.title });
             }
         });
 
@@ -220,11 +218,8 @@ const weeklyData = computed(() => {
 const handleDayClick = (day: DayData) => {
     if (day.count === 0) return;
 
-    const query: Record<string, string> = {
-        status: props.ticketStatus,
-    };
-
-    if (props.ticketStatus === "closed") {
+    const query: Record<string, string> = {};
+    if (props.mode === 'completed') {
         query.closedOn = day.date;
     } else {
         query.createdOn = day.date;
@@ -254,7 +249,7 @@ onActivated(() => {
       it.
     -->
     <DashboardWidgetShell
-        :title="props.titleKey ? $t(props.titleKey) : (props.title || (props.ticketStatus === 'closed' ? $t('ticket-heatmap-title-closed') : $t('ticket-heatmap-title-activity')))"
+        :title="props.titleKey ? $t(props.titleKey) : (props.title || (props.mode === 'completed' ? $t('ticket-heatmap-title-closed') : $t('ticket-heatmap-title-activity')))"
         :error="error"
         :flush-body="false"
     >

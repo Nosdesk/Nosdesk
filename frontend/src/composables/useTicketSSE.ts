@@ -3,9 +3,10 @@ import { useSSE } from "@/services/sseService";
 import { useAuthStore } from "@/stores/auth";
 import { useTitleManager } from "@/composables/useTitleManager";
 import { useRecentTicketsStore } from "@/stores/recentTickets";
+import { useWorkflowStatesStore } from "@/stores/workflowStates";
 import { useTicketMutations } from "@/composables/useTicketMutations";
 import * as deviceService from "@/services/assetService";
-import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
+import type { TicketPriority } from "@/constants/ticketOptions";
 import type { Ticket } from "@/types/ticket";
 import type { CommentWithAttachments } from "@/types/comment";
 import {
@@ -45,7 +46,7 @@ interface TicketWithDetails extends Ticket {
 export function useTicketSSE(
   ticket: Ref<TicketWithDetails | null>,
   ticketId: Ref<number | undefined>,
-  selectedStatus: Ref<TicketStatus>,
+  selectedWorkflowStateId: Ref<number | null>,
   selectedPriority: Ref<TicketPriority>,
 ) {
   const {
@@ -134,10 +135,14 @@ export function useTicketSSE(
     if (data.field === "title" && typeof data.value === "string") {
       ticket.value.title = data.value;
       titleManager.setTicket(ticket.value);
-    } else if (data.field === "status") {
-      const statusValue = data.value as TicketStatus;
-      ticket.value.status = statusValue;
-      selectedStatus.value = statusValue;
+    } else if (data.field === "workflow_state_id") {
+      const id = Number(data.value);
+      if (Number.isFinite(id)) {
+        ticket.value.workflow_state_id = id;
+        selectedWorkflowStateId.value = id;
+        const st = useWorkflowStatesStore().findById(id);
+        if (st) ticket.value.workflow_state = st;
+      }
     } else if (data.field === "priority") {
       const priorityValue = data.value as TicketPriority;
       ticket.value.priority = priorityValue;
@@ -168,7 +173,7 @@ export function useTicketSSE(
 
     recentTicketsStore.updateTicketData(ticket.value.id, {
       title: ticket.value.title,
-      status: ticket.value.status,
+      workflow_state_id: ticket.value.workflow_state_id,
       requester: ticket.value.requester,
       assignee: ticket.value.assignee,
     });

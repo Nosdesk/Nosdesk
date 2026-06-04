@@ -18,8 +18,10 @@ import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import LinkedTicketModal from '@/components/ticketComponents/LinkedTicketModal.vue'
+import { coarseStatusBucket, type WorkflowStateCategory } from '@/types/workflow'
 
-useFluent()
+const fluent = useFluent()
+const t = (key: string) => fluent.$t(key)
 import {
   usePageTickets,
   useLinkTicketMutation,
@@ -66,18 +68,29 @@ async function onRemove(ticketId: number) {
   await unlinkMutation.mutateAsync({ pageId: props.pageId, ticketId })
 }
 
-function statusClass(status: string | null | undefined): string {
-  switch (status) {
+function categoryClass(category: WorkflowStateCategory | null | undefined): string {
+  if (!category) return 'bg-surface-alt text-tertiary'
+  switch (coarseStatusBucket(category)) {
     case 'open':
       return 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
-    case 'in_progress':
-    case 'inprogress':
+    case 'in-progress':
       return 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
     case 'closed':
-    case 'resolved':
       return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
     default:
       return 'bg-surface-alt text-tertiary'
+  }
+}
+
+function categoryLabel(category: WorkflowStateCategory | null | undefined): string {
+  if (!category) return ''
+  switch (coarseStatusBucket(category)) {
+    case 'open':
+      return t('status-open')
+    case 'in-progress':
+      return t('status-in-progress')
+    default:
+      return t('status-closed')
   }
 }
 </script>
@@ -127,11 +140,11 @@ function statusClass(status: string | null | undefined): string {
               <span class="text-tertiary flex-shrink-0">#{{ link.ticket_id }}</span>
               <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: link.ticket_id }) }}</span>
               <span
-                v-if="link.ticket_status"
+                v-if="link.ticket_category"
                 class="text-[10px] px-1.5 py-0.5 rounded-full"
-                :class="statusClass(link.ticket_status)"
+                :class="categoryClass(link.ticket_category)"
               >
-                {{ link.ticket_status }}
+                {{ categoryLabel(link.ticket_category) }}
               </span>
             </RouterLink>
             <button
@@ -161,11 +174,11 @@ function statusClass(status: string | null | undefined): string {
               <span class="text-tertiary flex-shrink-0">#{{ link.ticket_id }}</span>
               <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: link.ticket_id }) }}</span>
               <span
-                v-if="link.ticket_status"
+                v-if="link.ticket_category"
                 class="text-[10px] px-1.5 py-0.5 rounded-full"
-                :class="statusClass(link.ticket_status)"
+                :class="categoryClass(link.ticket_category)"
               >
-                {{ link.ticket_status }}
+                {{ categoryLabel(link.ticket_category) }}
               </span>
             </RouterLink>
             <button

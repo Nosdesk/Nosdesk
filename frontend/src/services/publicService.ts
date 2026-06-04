@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { WorkflowStateCategory } from '@/types/workflow';
 
 export interface PublicSiteSettings {
   app_name: string;
@@ -57,7 +58,7 @@ export interface SubmitGuestTicketResponse {
 export interface GuestTicketStatus {
   ticket_id: number;
   title: string;
-  status: string;
+  category: WorkflowStateCategory;
   priority: string;
   created_at: string;
   updated_at: string;

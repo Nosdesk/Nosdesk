@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue';
+import { computed, ref, watchEffect, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { stripHtml } from '@/composables/useSanitise';
-import type { TicketStatus, TicketPriority } from '@/constants/ticketOptions';
+import type { TicketPriority } from '@/constants/ticketOptions';
 import { useWorkflowStatesStore } from '@/stores/workflowStates';
 import {
   getCategoryLabel,
   WORKFLOW_CATEGORIES,
   categoryHeaderValue,
   isCategoryHeaderValue,
+  coarseStatusBucket,
 } from '@/types/workflow';
 import QRCode from 'qrcode';
 import UserPicker from "@/components/ticketComponents/UserPicker.vue";
@@ -152,11 +153,9 @@ const props = defineProps<{
   };
   createdDate: string;
   modifiedDate: string;
-  selectedStatus: string;
   selectedPriority: string;
   selectedCategory?: number | null;
   selectedWorkflowStateId?: number | null;
-  statusOptions: { value: string; label: string }[];
   priorityOptions: { value: string; label: string }[];
   categoryOptions?: { value: string; label: string; color?: string }[];
   /** Devices attached to the ticket. Renders as a property-row of
@@ -174,7 +173,6 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "update:selectedStatus", value: TicketStatus): void;
   (e: "update:selectedWorkflowStateId", value: number): void;
   (e: "update:selectedPriority", value: TicketPriority): void;
   (e: "update:selectedCategory", value: string): void;
@@ -213,21 +211,20 @@ const emit = defineEmits<{
 }>();
 
 const workflowStatesStore = useWorkflowStatesStore();
+onMounted(() => { void workflowStatesStore.load() });
 
 /**
  * Workflow state options for the status dropdown, grouped by category.
  * Categories are emitted as non-selectable header rows (`disabled: true`)
  * so the picker shows the structure without letting the user pick the
- * category itself. Empty categories are skipped.
- *
- * Falls back to the legacy three-bucket statusOptions when the store
- * hasn't loaded yet.
+ * category itself. Empty categories are skipped. Returns an empty list
+ * until the store has loaded (the onMounted load above populates it).
  */
 const workflowDropdownOptions = computed<
   { value: string; label: string; disabled?: boolean; color?: string }[]
 >(() => {
   if (!workflowStatesStore.loaded || workflowStatesStore.states.length === 0) {
-    return props.statusOptions;
+    return [];
   }
   const out: { value: string; label: string; disabled?: boolean; color?: string }[] = [];
   for (const cat of WORKFLOW_CATEGORIES) {
@@ -241,23 +238,14 @@ const workflowDropdownOptions = computed<
   return out;
 });
 
-const usingWorkflowDropdown = computed(
-  () => workflowStatesStore.loaded && workflowStatesStore.states.length > 0,
+const workflowDropdownValue = computed(() =>
+  props.selectedWorkflowStateId != null ? String(props.selectedWorkflowStateId) : '',
 );
-
-const workflowDropdownValue = computed(() => {
-  if (props.selectedWorkflowStateId != null) return String(props.selectedWorkflowStateId);
-  return props.selectedStatus;
-});
 
 function handleStatusDropdownChange(v: string) {
   if (isCategoryHeaderValue(v)) return; // header row; ignore
-  if (usingWorkflowDropdown.value) {
-    const id = Number(v);
-    if (Number.isFinite(id)) emit('update:selectedWorkflowStateId', id);
-    return;
-  }
-  emit('update:selectedStatus', v as TicketStatus);
+  const id = Number(v);
+  if (Number.isFinite(id)) emit('update:selectedWorkflowStateId', id);
 }
 
 // Project membership comes through as either ids (string[]) or
@@ -283,8 +271,20 @@ const selectedAssignee = computed(() =>
 
 // Print-friendly display values
 const statusLabel = computed(() => {
-  const option = props.statusOptions.find(o => o.value === props.selectedStatus);
-  return option?.label || props.selectedStatus || t('ticket-detail-print-unknown');
+  const st = props.selectedWorkflowStateId != null
+    ? workflowStatesStore.findById(props.selectedWorkflowStateId)
+    : undefined;
+  return st?.name || t('ticket-detail-print-unknown');
+});
+
+// Coarse 3-bucket key for the print badge colour class. The print
+// CSS defines print-badge-open / -in-progress / -closed; map the
+// state's category onto that bucket (fallback 'backlog' -> open).
+const printStatusBucket = computed(() => {
+  const cat = props.selectedWorkflowStateId != null
+    ? workflowStatesStore.findById(props.selectedWorkflowStateId)?.category
+    : undefined;
+  return coarseStatusBucket(cat ?? 'backlog');
 });
 
 const priorityLabel = computed(() => {
@@ -608,7 +608,7 @@ watchEffect(async () => {
         <div class="print-meta-row">
           <div class="print-meta-item">
             <span class="print-meta-label">{{ t('ticket-detail-print-status') }}</span>
-            <span class="print-badge" :class="`print-badge-${selectedStatus}`">{{ statusLabel }}</span>
+            <span class="print-badge" :class="`print-badge-${printStatusBucket}`">{{ statusLabel }}</span>
           </div>
           <div class="print-meta-item">
             <span class="print-meta-label">{{ t('ticket-detail-print-priority') }}</span>

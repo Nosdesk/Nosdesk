@@ -2,6 +2,7 @@ import { logger } from '@/utils/logger';
 import apiClient from './apiConfig';
 import { translate } from '@/i18n';
 import type { UserInfo } from '@/types/user';
+import type { WorkflowStateCategory } from '@/types/workflow';
 
 // Note: apiClient already has baseURL set to '/api', so routes need no prefix
 
@@ -51,7 +52,7 @@ export interface PageTicketLink {
   created_at: string;
   // Hydrated by the backend when listing from the doc side.
   ticket_title?: string | null;
-  ticket_status?: string | null;
+  ticket_category?: WorkflowStateCategory | null;
 }
 
 export interface TicketDocLink {

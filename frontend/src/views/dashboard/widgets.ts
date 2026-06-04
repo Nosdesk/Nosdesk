@@ -268,7 +268,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     titleKey: 'dashboard-widget-activity-heatmap-title',
     descriptionKey: 'dashboard-widget-activity-heatmap-description',
     component: TicketHeatmap,
-    props: { ticketStatus: 'closed', titleKey: 'dashboard-widget-activity-heatmap-prop-title' },
+    props: { mode: 'completed', titleKey: 'dashboard-widget-activity-heatmap-prop-title' },
     span: 3,
     roles: ['technician', 'admin'],
   },

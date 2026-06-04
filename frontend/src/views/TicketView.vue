@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
-import { STATUS_OPTIONS, PRIORITY_OPTIONS } from "@/constants/ticketOptions";
+import { PRIORITY_OPTIONS } from "@/constants/ticketOptions";
 import ticketService from "@/services/ticketService";
 import { stripHtml } from "@/composables/useSanitise";
 import { categoryService } from "@/services/categoryService";
@@ -61,9 +61,6 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 // Resolve the registry's `{ value, labelKey }` shape into the
 // `{ value, label }` shape TicketDetails expects. Computed so a
 // locale flip re-renders the dropdowns without remounting.
-const localizedStatusOptions = computed(() =>
-    STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) })),
-);
 const localizedPriorityOptions = computed(() =>
     PRIORITY_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) })),
 );
@@ -72,7 +69,6 @@ const localizedPriorityOptions = computed(() =>
 const {
     ticket,
     error,
-    selectedStatus,
     selectedPriority,
     selectedCategory,
     selectedWorkflowStateId,
@@ -82,7 +78,6 @@ const {
     devices,
     fetchTicket,
     refreshTicket,
-    updateStatus,
     updateWorkflowState,
     updatePriority,
     updateCategory,
@@ -135,7 +130,7 @@ const {
 } = useTicketSSE(
     ticket,
     ticketId,
-    selectedStatus,
+    selectedWorkflowStateId,
     selectedPriority,
 );
 
@@ -612,11 +607,9 @@ useCreateTicketAction();
                                 :ticket="ticket"
                                 :created-date="formattedCreatedDate"
                                 :modified-date="formattedModifiedDate"
-                                :selected-status="selectedStatus"
                                 :selected-priority="selectedPriority"
                                 :selected-category="selectedCategory"
                                 :selected-workflow-state-id="selectedWorkflowStateId"
-                                :status-options="localizedStatusOptions"
                                 :priority-options="localizedPriorityOptions"
                                 :category-options="categoryOptions"
                                 :devices="devices"
@@ -624,7 +617,6 @@ useCreateTicketAction();
                                 :is-link-drop-target="isLinkDropTarget"
                                 :link-drop-drag-label="dragState.ticket ? `#${dragState.ticket.id} ${dragState.ticket.title}` : null"
                                 :internal-comments="internalComments"
-                                @update:selectedStatus="updateStatus"
                                 @update:selectedWorkflowStateId="updateWorkflowState"
                                 @update:selectedPriority="updatePriority"
                                 @update:selectedCategory="updateCategory"

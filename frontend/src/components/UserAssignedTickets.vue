@@ -3,6 +3,8 @@ import { ref, computed, onMounted } from "vue";
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from "@pinia/colada";
 import { useAuthStore } from "@/stores/auth";
+import { useWorkflowStatesStore } from "@/stores/workflowStates";
+import { TERMINAL_CATEGORIES } from "@/types/workflow";
 import { useSSEListeners } from "@/composables/useSSEListeners";
 import { useWidgetConfigState } from "@/composables/useWidgetConfigState";
 import TicketRow from "@/components/TicketRow.vue";
@@ -36,6 +38,15 @@ const props = withDefaults(defineProps<{
 
 const fluent = useFluent();
 const auth = useAuthStore();
+const wf = useWorkflowStatesStore();
+
+// Client-side "is this ticket active" check. A ticket is active when
+// its workflow-state category is non-terminal (not done/cancelled/
+// merged). Relies on the workflow-states store being loaded.
+const isActiveTicket = (t: Ticket) => {
+    const c = t.workflow_state_id != null ? wf.findById(t.workflow_state_id)?.category : undefined;
+    return !!c && !TERMINAL_CATEGORIES.has(c);
+};
 
 // When this widget is rendered on the dashboard (current user's own
 // view), filter + sort choices persist to the widget's config so a
@@ -202,7 +213,10 @@ const { data, isPending, isLoading, error } = useQuery({
 
         let rows = response.data;
         if (config.status === "active") {
-            rows = rows.filter((t) => t.status === "open" || t.status === "in-progress");
+            // The "active" client filter reads workflow-state categories,
+            // so the store must be warm before we filter.
+            await wf.load();
+            rows = rows.filter(isActiveTicket);
         }
         if (config.sort === "priority-date") {
             rows = rows.slice().sort((a, b) => {
@@ -255,10 +269,10 @@ onMounted(refreshRecentViews);
 
 const { on } = useSSEListeners();
 
-function statusMatchesFilter(status: string): boolean {
+function ticketMatchesFilter(t: Ticket): boolean {
     if (!config.status) return true;
-    if (config.status === 'active') return status === 'open' || status === 'in-progress';
-    return status === config.status;
+    if (config.status === 'active') return isActiveTicket(t);
+    return true;
 }
 
 function patchCache(updater: (current: Ticket[]) => Ticket[]): void {
@@ -276,8 +290,8 @@ on('ticket-updated', (data) => {
             (ticket as unknown as Record<string, unknown>)[field] = event.value;
         }
 
-        // Status no longer matches the filter -> drop from this view.
-        if (field === 'status' && !statusMatchesFilter(String(event.value))) {
+        // Workflow state no longer matches the filter -> drop from view.
+        if (field === 'workflow_state_id' && !ticketMatchesFilter(ticket)) {
             return current.filter((_, i) => i !== idx);
         }
         // Reassigned away -> drop from the "assigned to me" view.
@@ -307,7 +321,7 @@ on('ticket-created', (data) => {
             ? ticket.assignee_uuid === targetUserUuid.value
             : ticket.requester_uuid === targetUserUuid.value;
     if (!matchesUser) return;
-    if (!statusMatchesFilter(ticket.status)) return;
+    if (!ticketMatchesFilter(ticket)) return;
     patchCache((current) => [ticket, ...current]);
 });
 

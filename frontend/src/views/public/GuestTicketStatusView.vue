@@ -42,7 +42,7 @@
             class="shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border"
             :class="statusBadge"
           >
-            {{ formatStatus(ticket.status) }}
+            {{ statusLabel }}
           </span>
         </div>
 
@@ -100,6 +100,7 @@ import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import { usePublicSettingsStore } from '@/stores/publicSettings';
 import { publicService, type GuestTicketStatus } from '@/services/publicService';
+import { coarseStatusBucket } from '@/types/workflow';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -112,19 +113,24 @@ const ticket = ref<GuestTicketStatus | null>(null);
 const enabled = computed(() => store.settings?.guest_ticket_lookup_enabled === true);
 
 const statusBadge = computed(() => {
-  const s = ticket.value?.status?.toLowerCase() ?? '';
-  if (s.includes('closed')) {
+  const c = ticket.value?.category;
+  if (!c) return 'bg-status-open-muted border-status-open/40 text-status-open';
+  const b = coarseStatusBucket(c);
+  if (b === 'closed') {
     return 'bg-status-closed-muted border-status-closed/40 text-status-closed';
   }
-  if (s.includes('progress')) {
+  if (b === 'in-progress') {
     return 'bg-status-in-progress-muted border-status-in-progress/40 text-status-in-progress';
   }
   return 'bg-status-open-muted border-status-open/40 text-status-open';
 });
 
-function formatStatus(raw: string) {
-  return raw.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
+const statusLabel = computed(() => {
+  const c = ticket.value?.category;
+  if (!c) return '';
+  const b = coarseStatusBucket(c);
+  return b === 'closed' ? t('status-closed') : b === 'in-progress' ? t('status-in-progress') : t('status-open');
+});
 
 function formatDate(iso: string) {
   try {

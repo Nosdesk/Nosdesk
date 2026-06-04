@@ -7,7 +7,7 @@ import ticketService from "@/services/ticketService";
 import { logger } from "@/utils/logger";
 import { formatDateTime, getCurrentUTCDateTime } from "@/utils/dateUtils";
 import { ticketDetailKey } from "@/loaders/ticketDetailLoader";
-import type { TicketStatus, TicketPriority } from "@/constants/ticketOptions";
+import type { TicketPriority } from "@/constants/ticketOptions";
 import type { Ticket, Asset, Project } from '@/types/ticket';
 import type { CommentWithAttachments } from '@/types/comment';
 import { translate } from '@/i18n';
@@ -38,7 +38,6 @@ export function useTicketData() {
   // that flip entirely so the skeleton never gets a frame.
   const loading = ref(false);
   const error = ref<string | null>(null);
-  const selectedStatus = ref<TicketStatus>("open");
   const selectedPriority = ref<TicketPriority>("low");
   const selectedCategory = ref<number | null>(null);
   const selectedWorkflowStateId = ref<number | null>(null);
@@ -95,7 +94,6 @@ export function useTicketData() {
       commentsAndAttachments,
     } as LocalTicket;
 
-    selectedStatus.value = ticket.value.status;
     selectedPriority.value = ticket.value.priority;
     selectedCategory.value = ticket.value.category_id || null;
     selectedWorkflowStateId.value = ticket.value.workflow_state_id ?? null;
@@ -189,11 +187,10 @@ export function useTicketData() {
       // Update UI-specific refs. Per-key narrowing is mechanical —
       // TypeScript can't narrow `value: LocalTicket[K]` from a
       // `field === "status"` guard, so we cast at the assignment.
-      if (field === "status") selectedStatus.value = value as TicketStatus;
       if (field === "priority") selectedPriority.value = value as TicketPriority;
 
       // Update stores for consistent state
-      if (["title", "status", "requester", "assignee"].includes(field)) {
+      if (["title", "requester", "assignee"].includes(field)) {
         recentTicketsStore.updateTicketData(ticket.value.id, {
           [field]: value,
         });
@@ -219,22 +216,15 @@ export function useTicketData() {
       logger.error(`Error updating ticket field: ${field}`, { error: err, field });
       // Revert optimistic update on error - also use direct mutation
       ticket.value[field] = oldValue;
-      if (field === "status") selectedStatus.value = oldValue as TicketStatus;
       if (field === "priority") selectedPriority.value = oldValue as TicketPriority;
       throw err;
     }
   }
 
-  // Update status
-  async function updateStatus(newStatus: TicketStatus): Promise<void> {
-    await updateTicketField("status", newStatus);
-  }
-
-  // Update workflow state by id. The backend recomputes the legacy
-  // status bucket from the new state's category, so the optimistic
-  // mutation here is best-effort: we set the id locally, then rely on
-  // the API response's `status` field to re-sync the legacy ref. We
-  // don't try to predict the bucket on the client.
+  // Update workflow state by id. The id is the source of truth; we
+  // set it optimistically and reconcile the embedded workflow_state
+  // object from the API response (the detail response no longer
+  // carries a legacy status field).
   async function updateWorkflowState(newId: number): Promise<void> {
     if (!ticket.value) return;
     const oldId = ticket.value.workflow_state_id ?? null;
@@ -252,15 +242,11 @@ export function useTicketData() {
       });
 
       if (response && ticket.value) {
-        if (response.status) {
-          ticket.value.status = response.status;
-          selectedStatus.value = response.status;
-        }
         if (response.workflow_state) {
           ticket.value.workflow_state = response.workflow_state;
         }
         recentTicketsStore.updateTicketData(ticket.value.id, {
-          status: ticket.value.status,
+          workflow_state_id: newId,
         });
       }
     } catch (err) {
@@ -383,7 +369,6 @@ export function useTicketData() {
     ticket,
     loading,
     error,
-    selectedStatus,
     selectedPriority,
     selectedCategory,
     selectedWorkflowStateId,
@@ -397,7 +382,6 @@ export function useTicketData() {
     // Methods
     fetchTicket,
     refreshTicket,
-    updateStatus,
     updateWorkflowState,
     updatePriority,
     updateCategory,

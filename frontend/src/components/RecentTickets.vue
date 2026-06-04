@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
+import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { ref, onMounted, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
@@ -13,6 +14,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import type { RecentTicket } from '@/types/ticket'
 
 const recentTicketsStore = useRecentTicketsStore()
+const wf = useWorkflowStatesStore()
 const fluent = useFluent()
 const {
   dragState,
@@ -79,7 +81,6 @@ const listContainerRef = ref<HTMLElement | null>(null)
 const toDraggableTicket = (ticket: RecentTicket): DraggableTicket => ({
   id: ticket.id,
   title: ticket.title,
-  status: ticket.status,
 })
 
 // `isLoading` from the store is already the first-fetch-only signal,
@@ -211,7 +212,7 @@ onMounted(async () => {
           @touchcancel="handleTouchCancel"
         >
           <!-- Status indicator -->
-          <StatusIndicator :status="ticket.status" size="xs" />
+          <StatusIndicator :category="wf.findById(ticket.workflow_state_id ?? -1)?.category ?? 'backlog'" size="xs" />
 
           <!-- ID -->
           <span class="text-xs text-secondary font-medium flex-shrink-0">#{{ ticket.id }}</span>

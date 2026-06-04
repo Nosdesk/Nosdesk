@@ -16,7 +16,6 @@
  */
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import { paletteForColor } from '@/utils/workflowColors'
@@ -50,11 +49,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:value', value: string): void
 }>()
-
-const LEGACY_STATUS_VALUES = new Set(['open', 'in-progress', 'closed'])
-function isLegacyStatusValue(v: string): boolean {
-  return LEGACY_STATUS_VALUES.has(v)
-}
 
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
@@ -120,13 +114,7 @@ function selectOption(option: DropdownOption) {
              carries the meaning. Stops the empty-row "shouting in
              primary body weight" pattern flagged in design review. -->
         <template v-if="!isEmptySelection && type === 'status'">
-          <StatusIndicator
-            v-if="isLegacyStatusValue(value)"
-            :status="value as 'open' | 'in-progress' | 'closed'"
-            size="sm"
-          />
           <span
-            v-else
             :class="['inline-block w-2.5 h-2.5 rounded-full', paletteForColor(selectedOption?.color).solid, 'bg-current']"
             aria-hidden="true"
           />
@@ -188,13 +176,7 @@ function selectOption(option: DropdownOption) {
             :class="{ 'bg-accent/10': option.value === value }"
           >
             <template v-if="type === 'status'">
-              <StatusIndicator
-                v-if="isLegacyStatusValue(option.value)"
-                :status="option.value as 'open' | 'in-progress' | 'closed'"
-                size="sm"
-              />
               <span
-                v-else
                 :class="['inline-block w-2.5 h-2.5 rounded-full bg-current', paletteForColor(option.color).solid]"
                 aria-hidden="true"
               />
