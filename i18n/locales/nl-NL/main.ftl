@@ -4368,6 +4368,10 @@ dashboard-edit-bar-done = Klaar
 dashboard-edit-bar-reset-confirm-title = Dashboardindeling herstellen?
 dashboard-edit-bar-reset-confirm-message = Je aangepaste indeling wordt vervangen door de standaardindeling voor jouw rol.
 dashboard-edit-bar-reset-confirm-label = Herstellen
+# Bevestiging bij verlaten met niet-opgeslagen wijzigingen (machinevertaling, na te lezen door moedertaalspreker).
+dashboard-leave-confirm-title = Dashboardwijzigingen verwerpen?
+dashboard-leave-confirm-message = Je hebt niet-opgeslagen wijzigingen in je dashboardindeling. Toch verlaten?
+dashboard-leave-confirm-label = Verwerpen
 
 dashboard-add-widget-title = Widget toevoegen
 dashboard-add-widget-all-added = Alle beschikbare widgets staan al op je dashboard.

@@ -4377,6 +4377,10 @@ dashboard-edit-bar-done = Terminé
 dashboard-edit-bar-reset-confirm-title = Réinitialiser la disposition du tableau de bord ?
 dashboard-edit-bar-reset-confirm-message = Votre disposition personnalisée sera remplacée par celle par défaut associée à votre rôle.
 dashboard-edit-bar-reset-confirm-label = Réinitialiser
+# Confirmation de sortie avec modifications non enregistrées (machine, à relire par un locuteur natif).
+dashboard-leave-confirm-title = Abandonner les modifications du tableau de bord ?
+dashboard-leave-confirm-message = Vous avez des modifications non enregistrées sur la disposition de votre tableau de bord. Quitter quand même ?
+dashboard-leave-confirm-label = Abandonner
 
 dashboard-add-widget-title = Ajouter un widget
 dashboard-add-widget-all-added = Tous les widgets disponibles figurent déjà sur votre tableau de bord.

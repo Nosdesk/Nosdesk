@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, watch } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { computed, onMounted, provide, ref, watch } from 'vue'
+import { onBeforeRouteLeave, type NavigationGuardNext } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardGreeting } from '@/composables/useDashboardGreeting'
@@ -16,6 +16,7 @@ import DashboardEditBar from './dashboard/DashboardEditBar.vue'
 import TimeRangeChipCluster from './dashboard/chrome/TimeRangeChipCluster.vue'
 import CompareToggle from './dashboard/chrome/CompareToggle.vue'
 import Icon from '@/components/common/Icon.vue'
+import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { useDashboardKeybindings } from '@/composables/useDashboardKeybindings'
 import { widgetById, type ChromeDependency } from './dashboard/widgets'
 
@@ -75,23 +76,35 @@ function enterEditMode() {
   dashboardLayout.beginEdit()
 }
 
-// Navigate-away guard: prompt the user to confirm if they're
-// leaving with pending edits. Discard semantics — they explicitly
-// chose to lose the changes — vs. cancel which keeps them on the
-// dashboard so they can hit Done.
+// Navigate-away guard: when leaving with pending edits, defer the
+// navigation and surface the styled ConfirmModal instead of a native
+// window.confirm. The guard stows its `next` resolver in
+// `pendingLeave`; the modal's confirm/cancel handlers resolve it.
+// Discard semantics on confirm (they chose to lose the changes);
+// cancel keeps them on the dashboard so they can hit Done.
+const pendingLeave = ref<NavigationGuardNext | null>(null)
+const showLeaveConfirm = computed(() => pendingLeave.value !== null)
+
 onBeforeRouteLeave((_to, _from, next) => {
   if (!dashboardLayout.isDirty) {
     next()
     return
   }
-  const confirmed = window.confirm(fluent.$t('dashboard-leave-confirm'))
-  if (confirmed) {
-    dashboardLayout.discard()
-    next()
-  } else {
-    next(false)
-  }
+  pendingLeave.value = next
 })
+
+function confirmLeave() {
+  dashboardLayout.discard()
+  const next = pendingLeave.value
+  pendingLeave.value = null
+  next?.()
+}
+
+function cancelLeave() {
+  const next = pendingLeave.value
+  pendingLeave.value = null
+  next?.(false)
+}
 
 useCreateTicketAction()
 
@@ -168,6 +181,16 @@ useDashboardKeybindings({
 
       <DashboardGrid v-if="authReady" />
     </div>
+
+    <ConfirmModal
+      :show="showLeaveConfirm"
+      variant="warning"
+      :title="$t('dashboard-leave-confirm-title')"
+      :message="$t('dashboard-leave-confirm-message')"
+      :confirm-label="$t('dashboard-leave-confirm-label')"
+      @confirm="confirmLeave"
+      @close="cancelLeave"
+    />
   </div>
 </template>
 
