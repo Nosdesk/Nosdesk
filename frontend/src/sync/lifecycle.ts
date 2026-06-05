@@ -16,6 +16,7 @@ import * as pool from './pool'
 import * as idb from './idb'
 import * as queue from './queue'
 import { setReferenceFetcher } from './composables'
+import { notifySyncActions } from './observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import type {
   BootstrapLine,
@@ -190,6 +191,10 @@ export async function pullDelta(): Promise<void> {
     applyActions(body.actions)
     pool.setLastSyncId(body.last_sync_id)
     if (state.handle) await idb.setLastSyncId(state.handle, body.last_sync_id)
+    // Same observer fan-out as the SSE path, so imperative consumers
+    // (useSyncActions) stay live even when SSE is wedged and this 10s
+    // poll is the delivery path.
+    notifySyncActions(body.actions)
   } catch (e) {
     logger.warn('sync delta network error', { error: e })
   }
@@ -427,6 +432,10 @@ export function applySseFrame(actions: SyncAction[], lastSyncId: number): void {
   if (state.handle) {
     void idb.setLastSyncId(state.handle, lastSyncId)
   }
+  // Notify imperative observers (useSyncActions) after the pool is
+  // updated. This is the live SSE path, so observers fire on the
+  // cross-machine sync stream; initial hydrate deliberately does not.
+  notifySyncActions(actions)
 }
 
 /** Tear-down: release the IDB handle, reset the pool, drop subs. */
