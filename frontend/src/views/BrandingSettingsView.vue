@@ -14,6 +14,8 @@ import ColorHueSlider from '@/components/common/ColorHueSlider.vue'
 import brandingService, { type BrandingConfig } from '@/services/brandingService'
 import uploadService from '@/services/uploadService'
 import { useBrandingStore } from '@/stores/branding'
+import { useToastStore } from '@/stores/toast'
+import { useUnsavedChanges } from '@/composables/useUnsavedChanges'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { extractErrorMessage } from '@/utils/errors'
 
@@ -21,6 +23,7 @@ import { extractErrorMessage } from '@/utils/errors'
 const brandingStore = useBrandingStore()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+const toast = useToastStore()
 
 // Branding config is cached by Pinia Colada so revisits render the
 // form instantly from cache and revalidate silently in the background.
@@ -42,7 +45,6 @@ const loadError = computed(() =>
 // State
 const isSaving = ref(false)
 const errorMessage = ref('')
-const successMessage = ref('')
 
 // Form state (seeded once from cache; see watch below)
 const appName = ref('Nosdesk')
@@ -65,6 +67,22 @@ watch(
   },
   { immediate: true },
 )
+
+// Only the text/colour form is dirty-tracked; image uploads persist
+// immediately so they have nothing pending to lose. Compared against
+// the saved baseline (the cached config), which updates on save.
+const dirty = computed(() => {
+  const c = brandingConfig.value
+  if (!c || !seeded.value) return false
+  return (
+    appName.value !== (c.app_name || 'Nosdesk') ||
+    primaryColor.value !== (c.primary_color || '') ||
+    signatureDefault.value !== (c.signature_default || '')
+  )
+})
+
+// Prompt before navigating away (or closing the tab) with unsaved edits.
+const { showLeaveConfirm, confirmLeave, cancelLeave } = useUnsavedChanges(dirty)
 
 // File input refs
 const logoInput = ref<HTMLInputElement | null>(null)
@@ -90,7 +108,6 @@ const isConfigured = computed(() => {
 const saveSettings = async () => {
   isSaving.value = true
   errorMessage.value = ''
-  successMessage.value = ''
 
   try {
     const config = await brandingService.updateBrandingConfig({
@@ -105,14 +122,10 @@ const saveSettings = async () => {
     // values without a network round-trip. The seeded watch is a
     // no-op now so this won't overwrite local edits either.
     queryCache.setQueryData(BRANDING_KEY, config)
-    successMessage.value = t('admin-branding-success-saved')
+    toast.success(t('admin-branding-success-saved'))
 
     // Update the branding store so changes reflect immediately across the app
     brandingStore.updateConfig(config)
-
-    setTimeout(() => {
-      successMessage.value = ''
-    }, 3000)
   } catch (error) {
     console.error('Failed to save branding settings:', error)
     errorMessage.value = extractErrorMessage(error, t('admin-branding-error-save'))
@@ -145,14 +158,10 @@ const handleLogoUpload = async (event: Event) => {
   try {
     const result = await brandingService.uploadBrandingImage(file, 'logo')
     queryCache.setQueryData(BRANDING_KEY, result.settings)
-    successMessage.value = t('admin-branding-success-logo')
+    toast.success(t('admin-branding-success-logo'))
 
     // Update the branding store so the logo reflects immediately
     brandingStore.updateConfig(result.settings)
-
-    setTimeout(() => {
-      successMessage.value = ''
-    }, 3000)
   } catch (error) {
     console.error('Failed to upload logo:', error)
     errorMessage.value = extractErrorMessage(error, t('admin-branding-error-upload-logo'))
@@ -185,14 +194,10 @@ const handleLogoLightUpload = async (event: Event) => {
   try {
     const result = await brandingService.uploadBrandingImage(file, 'logo_light')
     queryCache.setQueryData(BRANDING_KEY, result.settings)
-    successMessage.value = t('admin-branding-success-logo-light')
+    toast.success(t('admin-branding-success-logo-light'))
 
     // Update the branding store so the logo reflects immediately
     brandingStore.updateConfig(result.settings)
-
-    setTimeout(() => {
-      successMessage.value = ''
-    }, 3000)
   } catch (error) {
     console.error('Failed to upload light theme logo:', error)
     errorMessage.value = extractErrorMessage(error, t('admin-branding-error-upload-logo-light'))
@@ -225,14 +230,10 @@ const handleFaviconUpload = async (event: Event) => {
   try {
     const result = await brandingService.uploadBrandingImage(file, 'favicon')
     queryCache.setQueryData(BRANDING_KEY, result.settings)
-    successMessage.value = t('admin-branding-success-favicon')
+    toast.success(t('admin-branding-success-favicon'))
 
     // Update the branding store so the favicon reflects immediately
     brandingStore.updateConfig(result.settings)
-
-    setTimeout(() => {
-      successMessage.value = ''
-    }, 3000)
   } catch (error) {
     console.error('Failed to upload favicon:', error)
     errorMessage.value = extractErrorMessage(error, t('admin-branding-error-upload-favicon'))
@@ -270,7 +271,6 @@ async function confirmDeleteBrandingImage(): Promise<void> {
   pendingDelete.value = null
 
   errorMessage.value = ''
-  successMessage.value = ''
 
   try {
     const config = await brandingService.deleteBrandingImage(type)
@@ -279,11 +279,7 @@ async function confirmDeleteBrandingImage(): Promise<void> {
     // Update the branding store so changes reflect immediately
     brandingStore.updateConfig(config)
 
-    successMessage.value = t('admin-branding-success-removed', { asset: assetLabel(type) })
-
-    setTimeout(() => {
-      successMessage.value = ''
-    }, 3000)
+    toast.success(t('admin-branding-success-removed', { asset: assetLabel(type) }))
   } catch (error) {
     console.error(`Failed to delete ${type}:`, error)
     errorMessage.value = extractErrorMessage(error, t('admin-branding-error-delete', { asset: assetLabel(type) }))
@@ -303,7 +299,6 @@ async function confirmDeleteBrandingImage(): Promise<void> {
       </div>
 
       <!-- Success message -->
-      <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
 
       <!-- Error message (mutation failures) -->
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
@@ -576,6 +571,17 @@ async function confirmDeleteBrandingImage(): Promise<void> {
       :confirm-label="$t('admin-branding-confirm-remove')"
       @confirm="confirmDeleteBrandingImage"
       @close="pendingDelete = null"
+    />
+
+    <ConfirmModal
+      :show="showLeaveConfirm"
+      variant="warning"
+      :title="$t('settings-unsaved-leave-title')"
+      :message="$t('settings-unsaved-leave-message')"
+      :confirm-label="$t('settings-unsaved-leave-confirm')"
+      :cancel-label="$t('settings-unsaved-leave-cancel')"
+      @confirm="confirmLeave"
+      @close="cancelLeave"
     />
   </div>
 </template>

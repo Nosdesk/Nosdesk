@@ -3128,6 +3128,12 @@ settings-sessions-revoke-others-confirm = Déconnecter les autres
 settings-sessions-revoke-others-success = Toutes les autres sessions ont été déconnectées.
 settings-sessions-revoke-others-error = Impossible de déconnecter les autres sessions. Vérifiez vos identifiants et réessayez.
 
+# Paramètres : avertissement de modifications non enregistrées (partagé) (machine, à relire par un locuteur natif).
+settings-unsaved-leave-title = Abandonner les modifications non enregistrées ?
+settings-unsaved-leave-message = Vous avez des modifications non enregistrées sur cette page. Quitter sans enregistrer ?
+settings-unsaved-leave-confirm = Abandonner
+settings-unsaved-leave-cancel = Continuer la modification
+
 # Authentification : configuration de clé d'accès (PasskeySetup)
 auth-passkey-setup-unsupported-title = Clés d'accès indisponibles
 auth-passkey-setup-unsupported-insecure = Les clés d'accès nécessitent une connexion sécurisée (HTTPS). Vous êtes actuellement sur une connexion non sécurisée.

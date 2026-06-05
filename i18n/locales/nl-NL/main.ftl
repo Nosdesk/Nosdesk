@@ -3119,6 +3119,12 @@ settings-sessions-revoke-others-confirm = Andere afmelden
 settings-sessions-revoke-others-success = Alle andere sessies zijn afgemeld.
 settings-sessions-revoke-others-error = Kan de andere sessies niet afmelden. Controleer je gegevens en probeer het opnieuw.
 
+# Instellingen: waarschuwing voor niet-opgeslagen wijzigingen (gedeeld) (machinevertaling, na te lezen door moedertaalspreker).
+settings-unsaved-leave-title = Niet-opgeslagen wijzigingen verwerpen?
+settings-unsaved-leave-message = Je hebt niet-opgeslagen wijzigingen op deze pagina. Verlaten zonder opslaan?
+settings-unsaved-leave-confirm = Verwerpen
+settings-unsaved-leave-cancel = Doorgaan met bewerken
+
 # Authenticatie: passkey-instelling (PasskeySetup)
 auth-passkey-setup-unsupported-title = Passkeys niet beschikbaar
 auth-passkey-setup-unsupported-insecure = Passkeys vereisen een beveiligde verbinding (HTTPS). U bevindt zich op een onbeveiligde verbinding.

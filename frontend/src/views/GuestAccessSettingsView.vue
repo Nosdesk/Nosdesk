@@ -8,7 +8,6 @@
         </p>
       </div>
 
-      <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
       <AlertMessage v-if="loadError && !settings" type="error" :message="loadError" />
@@ -158,6 +157,17 @@
         </div>
       </div>
     </div>
+
+    <ConfirmModal
+      :show="showLeaveConfirm"
+      variant="warning"
+      :title="$t('settings-unsaved-leave-title')"
+      :message="$t('settings-unsaved-leave-message')"
+      :confirm-label="$t('settings-unsaved-leave-confirm')"
+      :cancel-label="$t('settings-unsaved-leave-cancel')"
+      @confirm="confirmLeave"
+      @close="cancelLeave"
+    />
   </div>
 </template>
 
@@ -167,9 +177,12 @@ import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
+import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
+import { useToastStore } from '@/stores/toast';
+import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
 import {
   adminGuestSettingsService,
   type AdminGuestSettings
@@ -177,6 +190,7 @@ import {
 
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
+const toast = useToastStore();
 
 type ToggleKey =
   | 'guest_tickets_enabled'
@@ -208,7 +222,6 @@ const saving = ref(false);
 const settings = ref<AdminGuestSettings | null>(null);
 const pristine = ref<AdminGuestSettings | null>(null);
 const errorMessage = ref('');
-const successMessage = ref('');
 
 const toggles = computed<Array<{ key: ToggleKey; label: string; description: string }>>(() => [
   {
@@ -273,6 +286,9 @@ const dirty = computed(() => {
   return JSON.stringify(settings.value) !== JSON.stringify(pristine.value);
 });
 
+// Prompt before navigating away (or closing the tab) with unsaved edits.
+const { showLeaveConfirm, confirmLeave, cancelLeave } = useUnsavedChanges(dirty);
+
 // Seed the editable form from the cached query. Skip while dirty so a
 // silent background revalidation never overwrites edits in progress.
 watch(
@@ -289,7 +305,6 @@ async function save() {
   if (!settings.value) return;
   saving.value = true;
   errorMessage.value = '';
-  successMessage.value = '';
   try {
     const data = await adminGuestSettingsService.update({
       guest_tickets_enabled: settings.value.guest_tickets_enabled,
@@ -309,8 +324,7 @@ async function save() {
     // Keep the cache in lockstep so a later revisit shows the saved
     // values without a network round-trip.
     queryCache.setQueryData(GUEST_SETTINGS_KEY, data);
-    successMessage.value = t('admin-guest-saved');
-    setTimeout(() => (successMessage.value = ''), 3000);
+    toast.success(t('admin-guest-saved'));
   } catch {
     errorMessage.value = t('admin-guest-error-save');
   } finally {

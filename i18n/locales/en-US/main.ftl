@@ -3238,6 +3238,12 @@ settings-sessions-revoke-others-confirm = Sign out others
 settings-sessions-revoke-others-success = Signed out all other sessions.
 settings-sessions-revoke-others-error = Couldn't sign out the other sessions. Check your credentials and try again.
 
+# Settings: unsaved-changes navigate-away guard (shared)
+settings-unsaved-leave-title = Discard unsaved changes?
+settings-unsaved-leave-message = You have unsaved changes on this page. Leave without saving?
+settings-unsaved-leave-confirm = Discard
+settings-unsaved-leave-cancel = Keep editing
+
 # Auth: passkey setup (PasskeySetup)
 auth-passkey-setup-unsupported-title = Passkeys Not Available
 auth-passkey-setup-unsupported-insecure = Passkeys require a secure connection (HTTPS). You're currently on an insecure connection.

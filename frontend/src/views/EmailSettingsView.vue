@@ -11,7 +11,9 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import { extractErrorMessage } from '@/utils/errors';
+import { useToastStore } from '@/stores/toast';
 
+const toast = useToastStore();
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
 
@@ -49,9 +51,8 @@ const loadError = computed(() =>
     : '',
 );
 
-// Test-send feedback stays in local refs.
+// Test-send error stays inline; success is a toast (transient action).
 const errorMessage = ref('');
-const successMessage = ref('');
 const sendingTest = ref(false);
 const testEmailAddress = ref('');
 
@@ -71,17 +72,14 @@ const sendTestEmail = async () => {
 
   sendingTest.value = true;
   errorMessage.value = '';
-  successMessage.value = '';
 
   try {
     const response = await axios.post('/api/admin/email/test', {
       to: testEmailAddress.value
     });
 
-    successMessage.value = response.data.message || t('admin-email-settings-test-success');
+    toast.success(response.data.message || t('admin-email-settings-test-success'));
     testEmailAddress.value = ''; // Clear the input after success
-
-    setTimeout(() => { successMessage.value = ''; }, 5000);
   } catch (error) {
     console.error('Failed to send test email:', error);
     errorMessage.value = extractErrorMessage(error, t('admin-email-settings-error-test'));
@@ -124,7 +122,6 @@ const getRequiredEnvVars = () => {
       </EnvConfigNotice>
 
       <!-- Success message -->
-      <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
 
       <!-- Error message -->
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />

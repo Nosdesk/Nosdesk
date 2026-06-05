@@ -8,7 +8,6 @@
         </p>
       </div>
 
-      <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
       <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
       <!-- Load error (initial fetch failed with no cached data) -->
@@ -341,12 +340,14 @@ import {
   type ImapRuntimeState
 } from '@/services/channelsService';
 import brandingService, { type BrandingConfig } from '@/services/brandingService';
+import { useToastStore } from '@/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
 import { formatRelativeTime } from '@/utils/dateUtils';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+const toast = useToastStore();
 
 const EMAIL_PROVIDER = 'email_imap';
 
@@ -435,7 +436,6 @@ const autoAckEnabled = ref(true);
 const autoAckTemplate = ref('');
 const testResult = ref<'idle' | 'ok' | 'failed'>('idle');
 const testErrorMessage = ref('');
-const successMessage = ref('');
 const errorMessage = ref('');
 
 // Seed the editable form once per component lifetime from the
@@ -541,17 +541,10 @@ watch(
   },
 );
 
-/**
- * Show a success message and auto-clear it after 3s. The `=== msg`
- * guard prevents a later success from being cleared by an earlier
- * timer, which would happen if two saves landed within the window.
- */
+/** Transient "saved" feedback via the toast store (the convention for
+ *  action feedback; page-level errors stay inline). */
 function flashSuccess(key: string) {
-  const msg = t(key);
-  successMessage.value = msg;
-  setTimeout(() => {
-    if (successMessage.value === msg) successMessage.value = '';
-  }, 3000);
+  toast.success(t(key));
 }
 
 const submitLabel = computed(() => {
@@ -605,7 +598,6 @@ function buildConfig(): Record<string, unknown> {
 }
 
 function clearMessages() {
-  successMessage.value = '';
   errorMessage.value = '';
 }
 
