@@ -5,6 +5,6 @@
 --
 -- ALTER TYPE ... ADD VALUE inside a transaction is fine on Postgres
 -- 12+; the new value just can't be used in the same transaction.
--- compose.yaml pins postgres:18.
+-- compose.yaml pins postgres:17.
 
 ALTER TYPE sync_aggregate ADD VALUE IF NOT EXISTS 'user';

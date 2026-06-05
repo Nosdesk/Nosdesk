@@ -18,7 +18,7 @@
 
 CREATE TABLE cycles (
     id          SERIAL PRIMARY KEY,
-    uuid        UUID NOT NULL DEFAULT uuidv7() UNIQUE,
+    uuid        UUID NOT NULL DEFAULT uuid_generate_v7() UNIQUE,
     project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name        VARCHAR(120) NOT NULL,
     -- Inclusive on start, exclusive on end (matches TSTZRANGE

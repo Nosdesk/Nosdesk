@@ -8,7 +8,7 @@
 -- block, with the single restriction that the new value cannot be
 -- USED in the same transaction. This migration only ADDs the value;
 -- the first row to use it ('plugin') comes from a later transaction
--- (the next plugin install). compose.yaml pins postgres:18, so the
+-- (the next plugin install). compose.yaml pins postgres:17, so the
 -- restriction is safely below our minimum supported version.
 
 ALTER TYPE sync_aggregate ADD VALUE IF NOT EXISTS 'plugin';

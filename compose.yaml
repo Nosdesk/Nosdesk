@@ -1,13 +1,14 @@
 name: nosdesk
 
 services:
-  # PostgreSQL Database. Postgres 18 changed `PGDATA` to
-  # `/var/lib/postgresql/18/docker` and declares `VOLUME
-  # /var/lib/postgresql` (broader than the old `.../data`). Mounting
-  # the broader path keeps the on-disk layout covered across point
-  # releases without re-rooting on every major bump.
+  # PostgreSQL Database. Pinned to 17 to match Fly Managed Postgres
+  # (the deployment target); the stack uses the custom
+  # uuid_generate_v7() function rather than the PG18 uuidv7() builtin.
+  # The data volume mounts the broad `/var/lib/postgresql` (rather than
+  # the version-specific `.../<major>/docker` subdir) so the on-disk
+  # layout survives a future major bump without re-rooting the mount.
   postgres:
-    image: postgres:18-bookworm
+    image: postgres:17-bookworm
     restart: unless-stopped
     env_file: docker.env
     volumes:
@@ -25,9 +26,9 @@ services:
       timeout: 5s
       retries: 5
       # `start_period` is a grace window: failures during it don't
-      # count toward `retries`. Postgres 18 cold-start with
-      # `initdb` + the seed script can take ~15s on slower disks;
-      # 30s covers it with margin.
+      # count toward `retries`. Postgres cold-start with `initdb` +
+      # the seed script can take ~15s on slower disks; 30s covers it
+      # with margin.
       start_period: 30s
 
   # Redis Cache

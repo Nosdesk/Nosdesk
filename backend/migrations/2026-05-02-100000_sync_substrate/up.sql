@@ -9,7 +9,9 @@
 -- follow-up.
 --
 -- UUIDv7 (time-sortable, RFC 9562) is the canonical event identifier.
--- Postgres 18 ships uuidv7() as a builtin, so no extension is needed.
+-- Generated via the custom uuid_generate_v7() function (initial-schema
+-- migration), which works on any Postgres version, so the stack runs on
+-- Fly Managed Postgres 17 without depending on the PG18 uuidv7() builtin.
 
 -- ---------------------------------------------------------------------------
 -- sync_actions
@@ -32,7 +34,7 @@ CREATE TYPE sync_aggregate AS ENUM (
 
 CREATE TABLE sync_actions (
     sync_id        BIGSERIAL,
-    event_uuid     UUID NOT NULL DEFAULT uuidv7(),
+    event_uuid     UUID NOT NULL DEFAULT uuid_generate_v7(),
     aggregate      sync_aggregate NOT NULL,
     aggregate_id   TEXT NOT NULL,
     op             sync_op NOT NULL,

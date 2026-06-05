@@ -7,7 +7,7 @@
 
 CREATE TABLE saved_views (
     id          SERIAL PRIMARY KEY,
-    uuid        UUID NOT NULL DEFAULT uuidv7() UNIQUE,
+    uuid        UUID NOT NULL DEFAULT uuid_generate_v7() UNIQUE,
     -- 'workspace' | 'project' | 'private'
     scope       VARCHAR(20) NOT NULL,
     -- For scope='project': the project id as text.
