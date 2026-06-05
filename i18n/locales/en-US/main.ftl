@@ -2839,25 +2839,6 @@ settings-auth-methods-link-success = { $provider } account linked successfully
 settings-auth-methods-link-error = Failed to link { $provider } account
 settings-auth-methods-remove-success = Authentication method removed successfully
 settings-auth-methods-remove-error = Failed to remove authentication method
-settings-auth-methods-sessions-section-title = Active Sessions
-settings-auth-methods-sessions-revoke-all = Revoke All Others
-settings-auth-methods-sessions-unknown-device = Unknown Device
-settings-auth-methods-sessions-unknown-location = Unknown location
-settings-auth-methods-sessions-current-badge = Current
-settings-auth-methods-sessions-last-active = { $location } • Last active { $date }
-settings-auth-methods-sessions-revoke = Revoke
-settings-auth-methods-sessions-revoking = Signing out…
-settings-auth-methods-sessions-revoke-aria = Sign out { $device }
-settings-auth-methods-sessions-revoke-success = Session revoked successfully
-settings-auth-methods-sessions-revoke-error = Failed to revoke session
-settings-auth-methods-sessions-revoke-all-success = All other sessions revoked successfully
-settings-auth-methods-sessions-revoke-all-error = Failed to revoke sessions
-settings-auth-methods-sessions-load-error = Failed to load active sessions
-settings-auth-methods-sessions-revoke-all-title = Sign out everywhere else?
-settings-auth-methods-sessions-revoke-all-message = This signs you out of your other sessions ({ $count }). You will need to sign in again on those devices.
-settings-auth-methods-sessions-revoke-all-confirm = Sign out other sessions
-settings-auth-methods-sessions-stepup-password = Confirm your password to continue
-settings-auth-methods-sessions-stepup-mfa = Enter a code from your authenticator app
 
 # Shared common chrome — keys used by primitive components like
 # Modal.vue. Kept under the "common-*" namespace so primitives
@@ -3233,6 +3214,29 @@ settings-passkey-delete-modal-confirm = Delete Passkey
 settings-passkey-admin-delete-modal-confirm-prefix = Are you sure you want to delete
 settings-passkey-admin-delete-modal-confirm-suffix = ? This user will no longer be able to sign in with this passkey.
 settings-passkey-admin-delete-modal-deleting = Deleting...
+
+# Settings: active sessions (SessionsSettings)
+settings-sessions-section-title = Active sessions
+settings-sessions-empty = No active sessions found.
+settings-sessions-unknown-device = Unknown device
+settings-sessions-on = on
+settings-sessions-current-badge = This session
+settings-sessions-this-device = Current device
+settings-sessions-last-active = Active { $time }
+settings-sessions-signed-in = Signed in { $date }
+settings-sessions-revoke = Sign out
+settings-sessions-revoke-aria = Sign out { $device }
+settings-sessions-revoke-success = Session signed out.
+settings-sessions-revoke-error = Couldn't sign out that session. Try again.
+settings-sessions-revoke-others-button = Sign out all other sessions
+settings-sessions-revoke-others-modal-title = Sign out all other sessions?
+settings-sessions-revoke-others-modal-description = This signs out every device except this one. Confirm your identity to continue.
+settings-sessions-revoke-others-stepup-password = Confirm your password to continue
+settings-sessions-revoke-others-stepup-mfa = Enter an authentication code to continue
+settings-sessions-modal-cancel = Cancel
+settings-sessions-revoke-others-confirm = Sign out others
+settings-sessions-revoke-others-success = Signed out all other sessions.
+settings-sessions-revoke-others-error = Couldn't sign out the other sessions. Check your credentials and try again.
 
 # Auth: passkey setup (PasskeySetup)
 auth-passkey-setup-unsupported-title = Passkeys Not Available

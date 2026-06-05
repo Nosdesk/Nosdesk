@@ -2724,18 +2724,6 @@ settings-auth-methods-link-success = { $provider }-account gekoppeld
 settings-auth-methods-link-error = Kan { $provider }-account niet koppelen
 settings-auth-methods-remove-success = Aanmeldingsmethode verwijderd
 settings-auth-methods-remove-error = Kan aanmeldingsmethode niet verwijderen
-settings-auth-methods-sessions-section-title = Actieve sessies
-settings-auth-methods-sessions-revoke-all = Alle andere intrekken
-settings-auth-methods-sessions-unknown-device = Onbekend apparaat
-settings-auth-methods-sessions-unknown-location = Onbekende locatie
-settings-auth-methods-sessions-current-badge = Huidige
-settings-auth-methods-sessions-last-active = { $location } • Laatst actief { $date }
-settings-auth-methods-sessions-revoke = Intrekken
-settings-auth-methods-sessions-revoke-success = Sessie ingetrokken
-settings-auth-methods-sessions-revoke-error = Kan sessie niet intrekken
-settings-auth-methods-sessions-revoke-all-success = Alle andere sessies zijn ingetrokken
-settings-auth-methods-sessions-revoke-all-error = Kan sessies niet intrekken
-settings-auth-methods-sessions-load-error = Kan actieve sessies niet laden
 
 # Gemeenschappelijke onderdelen.
 common-modal-close = Venster sluiten
@@ -3107,6 +3095,29 @@ settings-passkey-delete-modal-confirm = Passkey verwijderen
 settings-passkey-admin-delete-modal-confirm-prefix = Weet u zeker dat u
 settings-passkey-admin-delete-modal-confirm-suffix = wilt verwijderen? Deze gebruiker kan dan niet meer inloggen met deze passkey.
 settings-passkey-admin-delete-modal-deleting = Bezig met verwijderen...
+
+# Instellingen: actieve sessies (SessionsSettings) (machinevertaling, na te lezen door moedertaalspreker).
+settings-sessions-section-title = Actieve sessies
+settings-sessions-empty = Geen actieve sessies gevonden.
+settings-sessions-unknown-device = Onbekend apparaat
+settings-sessions-on = op
+settings-sessions-current-badge = Deze sessie
+settings-sessions-this-device = Huidig apparaat
+settings-sessions-last-active = Actief { $time }
+settings-sessions-signed-in = Aangemeld { $date }
+settings-sessions-revoke = Afmelden
+settings-sessions-revoke-aria = { $device } afmelden
+settings-sessions-revoke-success = Sessie afgemeld.
+settings-sessions-revoke-error = Kan die sessie niet afmelden. Probeer het opnieuw.
+settings-sessions-revoke-others-button = Alle andere sessies afmelden
+settings-sessions-revoke-others-modal-title = Alle andere sessies afmelden?
+settings-sessions-revoke-others-modal-description = Hiermee worden alle apparaten behalve dit apparaat afgemeld. Bevestig je identiteit om door te gaan.
+settings-sessions-revoke-others-stepup-password = Bevestig je wachtwoord om door te gaan
+settings-sessions-revoke-others-stepup-mfa = Voer een verificatiecode in om door te gaan
+settings-sessions-modal-cancel = Annuleren
+settings-sessions-revoke-others-confirm = Andere afmelden
+settings-sessions-revoke-others-success = Alle andere sessies zijn afgemeld.
+settings-sessions-revoke-others-error = Kan de andere sessies niet afmelden. Controleer je gegevens en probeer het opnieuw.
 
 # Authenticatie: passkey-instelling (PasskeySetup)
 auth-passkey-setup-unsupported-title = Passkeys niet beschikbaar

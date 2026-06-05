@@ -2733,18 +2733,6 @@ settings-auth-methods-link-success = Compte { $provider } associé avec succès
 settings-auth-methods-link-error = Échec de l'association du compte { $provider }
 settings-auth-methods-remove-success = Méthode d'authentification supprimée avec succès
 settings-auth-methods-remove-error = Échec de la suppression de la méthode d'authentification
-settings-auth-methods-sessions-section-title = Sessions actives
-settings-auth-methods-sessions-revoke-all = Révoquer toutes les autres
-settings-auth-methods-sessions-unknown-device = Appareil inconnu
-settings-auth-methods-sessions-unknown-location = Emplacement inconnu
-settings-auth-methods-sessions-current-badge = Actuelle
-settings-auth-methods-sessions-last-active = { $location } • Dernière activité { $date }
-settings-auth-methods-sessions-revoke = Révoquer
-settings-auth-methods-sessions-revoke-success = Session révoquée avec succès
-settings-auth-methods-sessions-revoke-error = Échec de la révocation de la session
-settings-auth-methods-sessions-revoke-all-success = Toutes les autres sessions ont été révoquées
-settings-auth-methods-sessions-revoke-all-error = Échec de la révocation des sessions
-settings-auth-methods-sessions-load-error = Échec du chargement des sessions actives
 
 # Habillage commun.
 common-modal-close = Fermer la fenêtre
@@ -3116,6 +3104,29 @@ settings-passkey-delete-modal-confirm = Supprimer la clé d'accès
 settings-passkey-admin-delete-modal-confirm-prefix = Voulez-vous vraiment supprimer
 settings-passkey-admin-delete-modal-confirm-suffix = ? Cet utilisateur ne pourra plus se connecter avec cette clé d'accès.
 settings-passkey-admin-delete-modal-deleting = Suppression...
+
+# Paramètres : sessions actives (SessionsSettings) (machine, à relire par un locuteur natif).
+settings-sessions-section-title = Sessions actives
+settings-sessions-empty = Aucune session active trouvée.
+settings-sessions-unknown-device = Appareil inconnu
+settings-sessions-on = sur
+settings-sessions-current-badge = Cette session
+settings-sessions-this-device = Appareil actuel
+settings-sessions-last-active = Active { $time }
+settings-sessions-signed-in = Connexion { $date }
+settings-sessions-revoke = Déconnecter
+settings-sessions-revoke-aria = Déconnecter { $device }
+settings-sessions-revoke-success = Session déconnectée.
+settings-sessions-revoke-error = Impossible de déconnecter cette session. Réessayez.
+settings-sessions-revoke-others-button = Déconnecter toutes les autres sessions
+settings-sessions-revoke-others-modal-title = Déconnecter toutes les autres sessions ?
+settings-sessions-revoke-others-modal-description = Cela déconnecte tous les appareils sauf celui-ci. Confirmez votre identité pour continuer.
+settings-sessions-revoke-others-stepup-password = Confirmez votre mot de passe pour continuer
+settings-sessions-revoke-others-stepup-mfa = Saisissez un code d'authentification pour continuer
+settings-sessions-modal-cancel = Annuler
+settings-sessions-revoke-others-confirm = Déconnecter les autres
+settings-sessions-revoke-others-success = Toutes les autres sessions ont été déconnectées.
+settings-sessions-revoke-others-error = Impossible de déconnecter les autres sessions. Vérifiez vos identifiants et réessayez.
 
 # Authentification : configuration de clé d'accès (PasskeySetup)
 auth-passkey-setup-unsupported-title = Clés d'accès indisponibles

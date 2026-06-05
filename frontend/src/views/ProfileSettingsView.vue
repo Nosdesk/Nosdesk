@@ -23,7 +23,8 @@ import {
   SecuritySettings,
   MFASettings,
   AuthMethodsSettings,
-  PasskeySettings
+  PasskeySettings,
+  SessionsSettings
 } from '@/components/settings';
 import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
@@ -780,6 +781,15 @@ const cancelDelete = () => {
             />
             <AuthMethodsSettings
               :target-user-uuid="targetUserUuid"
+              @success="handleSuccess"
+              @error="handleError"
+            />
+
+            <!-- Active sessions: self-only. The /auth/sessions
+                 endpoints resolve the user from the JWT, so this card
+                 can't show another user's sessions in admin mode. -->
+            <SessionsSettings
+              v-if="!isAdminMode"
               @success="handleSuccess"
               @error="handleError"
             />

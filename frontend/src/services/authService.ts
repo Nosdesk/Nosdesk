@@ -10,6 +10,22 @@ export interface OnboardingStatus {
   oidc_display_name?: string;
 }
 
+/// Mirrors the JSON shape returned by `GET /api/auth/sessions`
+/// (backend `handlers::auth::get_user_sessions`). `is_current` is the
+/// session backing the caller's current JWT.
+export interface SessionInfo {
+  id: number;
+  session_id: string;
+  device_name: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  location: string | null;
+  created_at: string;
+  last_active: string;
+  expires_at: string;
+  is_current: boolean;
+}
+
 export interface AdminSetupRequest {
   name: string;
   email: string;
@@ -265,7 +281,7 @@ class AuthService {
   /**
    * Get all active sessions for the current user
    */
-  async getSessions(): Promise<any[]> {
+  async getSessions(): Promise<SessionInfo[]> {
     try {
       const response = await apiClient.get('/auth/sessions');
       return response.data.sessions;
