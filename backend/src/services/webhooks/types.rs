@@ -173,9 +173,6 @@ impl WebhookEventType {
             // Internal events not exposed to webhooks
             SseEvent::CollectionUpdated { .. } => None,
             // Low-stock fires after a transactional decrement and is
-            // an in-app UX signal; webhook consumers already see
-            // the parent `asset.updated` for the quantity write.
-            SseEvent::AssetLowStock { .. } => None,
             // Usage ledger entries are an in-app reactive signal,
             // not a contract for external consumers. The parent
             // `asset.updated` covers the quantity change for
@@ -187,7 +184,6 @@ impl WebhookEventType {
             SseEvent::Heartbeat { .. } => None,
             SseEvent::ViewersChanged { .. } => None,
             SseEvent::TicketFieldPreviewed { .. } => None,
-            SseEvent::NotificationReceived { .. } => None,
             SseEvent::KnowledgeGapDetected { .. } => None,
             SseEvent::KnowledgeGapResolved { .. } => None,
             // Sync engine outbox carries a batch of sync_actions; the

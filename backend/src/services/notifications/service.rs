@@ -201,7 +201,7 @@ impl NotificationService {
     async fn persist_notification(
         &self,
         payload: &NotificationPayload,
-        _channels: &[NotificationChannel],
+        channels: &[NotificationChannel],
     ) -> Result<i32, String> {
         use crate::schema::notifications;
 
@@ -262,6 +262,15 @@ impl NotificationService {
             channels_delivered: serde_json::json!([]),
         };
 
+        // The notification sync emit IS the in-app delivery, so gate it
+        // on the in-app channel being deliverable, matching the old
+        // InAppChannel.deliver. A user with in-app disabled (but e.g.
+        // email on) gets the persisted row but no live toast / bell
+        // update, exactly as before.
+        let emit_in_app = channels
+            .iter()
+            .any(|c| matches!(c, NotificationChannel::InApp));
+
         // notifications is RLS-enabled; the service is a
         // background dispatcher with no request-bound workspace
         // pin, so wrap the insert in background_run which elevates
@@ -274,42 +283,43 @@ impl NotificationService {
                     .values(&new_notification)
                     .get_result(conn)?;
 
-                // Emit a sync_actions row in the same transaction so the
-                // notification reaches the recipient's clients on every
-                // backend machine (cross-machine via Postgres NOTIFY),
-                // not just the one that created it. Scoped to the
-                // recipient's private `user:<uuid>` group so no other
-                // user can see it. workspace_id defaults to 1 like the
-                // insert above (single-tenant); revisit for multi-tenant.
-                //
-                // The data is the full NotificationEvent (same shape the
-                // in-process broadcast sends), so the client can render the
-                // toast straight from the sync row. Mirrors
-                // `NotificationEvent::from(&DeliverableNotification)`.
-                let event = NotificationEvent {
-                    id: notification.uuid,
-                    notification_type: payload.notification_type.as_str().to_string(),
-                    title: payload.title.clone(),
-                    body: payload.body.clone(),
-                    entity_type: payload.entity.entity_type().to_string(),
-                    entity_id: payload.entity.entity_id(),
-                    ticket_id: payload.entity.ticket_id(),
-                    actor: payload.actor.clone(),
-                    metadata: payload.metadata.clone(),
-                    timestamp: payload.created_at,
-                };
-                emit::record(
-                    conn,
-                    SyncEmit {
-                        aggregate: SyncAggregate::Notification,
-                        aggregate_id: notification.id.to_string(),
-                        op: SyncOp::Insert,
-                        event_type: "notification.created",
-                        data: serde_json::to_value(&event).unwrap_or_default(),
-                        groups: vec![format!("user:{}", payload.recipient_uuid)],
-                        causation_id: None,
-                    },
-                )?;
+                if emit_in_app {
+                    // Emit a sync_actions row in the same transaction so the
+                    // notification reaches the recipient's clients on every
+                    // backend machine (cross-machine via Postgres NOTIFY),
+                    // not just the one that created it. Scoped to the
+                    // recipient's private `user:<uuid>` group so no other
+                    // user can see it. workspace_id defaults to 1 like the
+                    // insert above (single-tenant); revisit for multi-tenant.
+                    //
+                    // The data is the full NotificationEvent so the client
+                    // can render the toast straight from the sync row.
+                    // Mirrors `NotificationEvent::from(&DeliverableNotification)`.
+                    let event = NotificationEvent {
+                        id: notification.uuid,
+                        notification_type: payload.notification_type.as_str().to_string(),
+                        title: payload.title.clone(),
+                        body: payload.body.clone(),
+                        entity_type: payload.entity.entity_type().to_string(),
+                        entity_id: payload.entity.entity_id(),
+                        ticket_id: payload.entity.ticket_id(),
+                        actor: payload.actor.clone(),
+                        metadata: payload.metadata.clone(),
+                        timestamp: payload.created_at,
+                    };
+                    emit::record(
+                        conn,
+                        SyncEmit {
+                            aggregate: SyncAggregate::Notification,
+                            aggregate_id: notification.id.to_string(),
+                            op: SyncOp::Insert,
+                            event_type: "notification.created",
+                            data: serde_json::to_value(&event).unwrap_or_default(),
+                            groups: vec![format!("user:{}", payload.recipient_uuid)],
+                            causation_id: None,
+                        },
+                    )?;
+                }
 
                 Ok(notification)
             },

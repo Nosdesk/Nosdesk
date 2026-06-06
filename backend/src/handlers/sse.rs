@@ -94,19 +94,6 @@ pub enum SseEvent {
         device_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    /// Emitted after a usage decrement that drops a stock-tracked
-    /// asset's quantity to at-or-below its configured
-    /// `low_stock_threshold`, having been above it before the
-    /// decrement. Carries the new quantity + threshold + unit so
-    /// the frontend can render a toast without re-fetching.
-    AssetLowStock {
-        device_id: i32,
-        device_name: String,
-        quantity: String,
-        threshold: String,
-        unit: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     /// Audit-count event. Distinct from AssetUsageRecorded
     /// because audits replace the asset quantity rather than
     /// adjust it; the payload carries both the new (counted)
@@ -254,12 +241,6 @@ pub enum SseEvent {
     Heartbeat {
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    /// Notification received (targeted to specific user)
-    NotificationReceived {
-        recipient_uuid: String,
-        notification: serde_json::Value,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     /// Sync engine outbox: a batch of `sync_actions` rows that
     /// committed since the last frame. Carried as a JSON value to
     /// avoid pulling the strongly-typed ActionRow into this enum
@@ -305,7 +286,6 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::AssetCreated { .. } => "asset-created",
         SseEvent::AssetUpdated { .. } => "asset-updated",
         SseEvent::AssetDeleted { .. } => "asset-deleted",
-        SseEvent::AssetLowStock { .. } => "asset-low-stock",
         SseEvent::AssetUsageRecorded { .. } => "asset-usage-recorded",
         SseEvent::AssetAuditRecorded { .. } => "asset-audit-recorded",
         SseEvent::ProjectAssigned { .. } => "project-assigned",
@@ -326,7 +306,6 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::UserRestored { .. } => "user-restored",
         SseEvent::UserPurged { .. } => "user-purged",
         SseEvent::Heartbeat { .. } => "heartbeat",
-        SseEvent::NotificationReceived { .. } => "notification-received",
         SseEvent::SyncActions { .. } => "sync-actions",
         SseEvent::SlaBreached { .. } => "ticket.sla_breached",
     }
@@ -458,9 +437,6 @@ impl SseState {
     /// topics for finer-grained delivery.
     fn topic_for(event: &SseEvent) -> TopicKey {
         match event {
-            SseEvent::NotificationReceived { recipient_uuid, .. } => {
-                TopicKey::User(recipient_uuid.clone())
-            }
             SseEvent::ViewersChanged { ticket_id, .. } => TopicKey::Ticket(*ticket_id),
             SseEvent::TicketFieldPreviewed { ticket_id, .. } => TopicKey::Ticket(*ticket_id),
             _ => TopicKey::Global,
@@ -494,22 +470,6 @@ impl SseState {
                 tracing::debug!("SSE: Event recorded with no live receivers");
             }
         }
-    }
-
-    /// Broadcast a notification targeted at a specific user. Routed
-    /// via `User(recipient_uuid)` so other users' connections never
-    /// receive the payload.
-    pub async fn broadcast_notification(
-        &self,
-        recipient_uuid: String,
-        notification: crate::services::notifications::NotificationEvent,
-    ) {
-        let event = SseEvent::NotificationReceived {
-            recipient_uuid,
-            notification: serde_json::to_value(&notification).unwrap_or_default(),
-            timestamp: chrono::Utc::now(),
-        };
-        self.broadcast_event(event).await;
     }
 
     pub fn add_client(&self, client_id: String, user_id: String) {

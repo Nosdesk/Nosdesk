@@ -863,11 +863,11 @@ async fn main() -> std::io::Result<()> {
         let service =
             services::notifications::NotificationService::new(pool.clone(), type_id_cache.clone());
 
-        // Register in-app channel (SSE)
-        // web::Data<T> wraps Arc<T>, so we can get the inner Arc directly
-        let sse_state_arc: Arc<handlers::sse::SseState> = sse_state.clone().into_inner();
+        // Register in-app channel. Delivery is the notification sync emit
+        // in persist_notification; this registration keeps the in-app
+        // preference + rate limiting in channel selection.
         let in_app_channel =
-            Arc::new(services::notifications::channels::in_app::InAppChannel::new(sse_state_arc));
+            Arc::new(services::notifications::channels::in_app::InAppChannel::new());
         service.register_channel(in_app_channel);
 
         // Register email channel if email service is configured.

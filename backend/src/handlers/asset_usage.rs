@@ -172,17 +172,11 @@ pub async fn record(
                     let quantity_str = outcome.new_quantity.to_string();
                     let asset_name = outcome.asset_name.clone();
 
-                    sse_state
-                        .broadcast_event(SseEvent::AssetLowStock {
-                            device_id: asset_id,
-                            device_name: asset_name.clone(),
-                            quantity: quantity_str.clone(),
-                            threshold: threshold_str.clone(),
-                            unit: unit.clone(),
-                            timestamp: chrono::Utc::now(),
-                        })
-                        .await;
-
+                    // Low-stock alerts ride the notification system now
+                    // (persisted + delivered cross-machine via the
+                    // notification sync aggregate); the dedicated
+                    // AssetLowStock SSE toast was retired.
+                    //
                     // Fan persistent notifications out to every
                     // admin/technician who hasn't opted out. The
                     // actor is the user who recorded the usage

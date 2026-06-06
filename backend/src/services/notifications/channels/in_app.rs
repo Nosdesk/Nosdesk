@@ -1,25 +1,31 @@
-//! In-app notification channel via SSE
+//! In-app notification channel.
 //!
-//! Delivers notifications to the frontend in real-time using the existing
-//! Server-Sent Events infrastructure.
+//! Real-time in-app delivery is the `notification` sync aggregate emitted
+//! from `NotificationService::persist_notification` (cross-machine via
+//! Postgres LISTEN/NOTIFY), gated on this channel being one of the
+//! deliverable channels. This channel stays registered so the in-app
+//! preference and rate limiting still participate in channel selection;
+//! its `deliver` is a no-op because the persist-time emit is the actual
+//! delivery.
 
 use async_trait::async_trait;
-use std::sync::Arc;
 
 use super::{ChannelResult, NotificationDeliveryChannel};
-use crate::handlers::sse::SseState;
-use crate::services::notifications::types::{
-    DeliverableNotification, NotificationChannel, NotificationEvent,
-};
+use crate::services::notifications::types::{DeliverableNotification, NotificationChannel};
 
-/// In-app notification channel that broadcasts via SSE
-pub struct InAppChannel {
-    sse_state: Arc<SseState>,
-}
+/// In-app channel. Carries no state: delivery happens via the sync emit
+/// in `persist_notification`; this type exists for channel selection.
+pub struct InAppChannel;
 
 impl InAppChannel {
-    pub fn new(sse_state: Arc<SseState>) -> Self {
-        Self { sse_state }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for InAppChannel {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -29,20 +35,13 @@ impl NotificationDeliveryChannel for InAppChannel {
         NotificationChannel::InApp
     }
 
-    async fn deliver(&self, notification: &DeliverableNotification) -> ChannelResult<()> {
-        let event: NotificationEvent = notification.into();
-        let recipient_uuid = notification.payload.recipient_uuid.to_string();
-
-        // Broadcast the notification via SSE
-        // The frontend will filter to show only to the target recipient
-        self.sse_state
-            .broadcast_notification(recipient_uuid, event)
-            .await;
-
+    async fn deliver(&self, _notification: &DeliverableNotification) -> ChannelResult<()> {
+        // No-op: in-app delivery is the `notification` sync-action emit in
+        // persist_notification, gated on this channel being enabled.
         Ok(())
     }
 
     fn is_available(&self) -> bool {
-        true // SSE is always available
+        true
     }
 }
