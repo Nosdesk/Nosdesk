@@ -5,7 +5,8 @@ use dashmap::DashMap;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -469,14 +470,32 @@ pub struct SseStream {
     heartbeat_interval: tokio::time::Interval,
     client_id: String,
     state: web::Data<SseState>,
+    /// Pool for the per-subscriber documentation visibility filter on
+    /// the live `SyncActions` stream (see `filter_documentation_frame`).
+    pool: web::Data<crate::db::Pool>,
+    /// Viewer identity, captured at connect. Documentation rows are
+    /// emitted to `workspace:1`, so the live stream must drop the ones
+    /// this viewer can't see (the REST delta/bootstrap paths already do;
+    /// this closes the live-push gap). `is_admin` is cached at connect,
+    /// matching the structural-at-connect model used for topic auth.
+    viewer_uuid: Uuid,
+    viewer_is_admin: bool,
+    /// In-flight filter for a `SyncActions` batch that carries
+    /// documentation rows. Held across polls because the visibility
+    /// check is a blocking DB call run off-thread via `web::block`.
+    pending: Option<Pin<Box<dyn Future<Output = String> + Send>>>,
 }
 
 impl SseStream {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         receivers: Vec<broadcast::Receiver<Envelope>>,
         replay: Vec<Envelope>,
         client_id: String,
         state: web::Data<SseState>,
+        pool: web::Data<crate::db::Pool>,
+        viewer_uuid: Uuid,
+        viewer_is_admin: bool,
     ) -> Self {
         // 15-second heartbeat. EventSource auto-reconnects when the
         // read side dies, so this is mostly a NAT/proxy keepalive
@@ -496,8 +515,153 @@ impl SseStream {
             heartbeat_interval,
             client_id,
             state,
+            pool,
+            viewer_uuid,
+            viewer_is_admin,
+            pending: None,
         }
     }
+}
+
+/// Extract documentation page + collection ids from a `SyncActions`
+/// envelope. Returns `None` for non-`SyncActions` events or batches with
+/// no documentation rows (the common case), so the caller skips the
+/// per-subscriber visibility filter entirely.
+fn documentation_ids_in_envelope(env: &Envelope) -> Option<(Vec<i32>, Vec<i32>)> {
+    let SseEvent::SyncActions { actions, .. } = &env.event else {
+        return None;
+    };
+    let rows = actions.as_array()?;
+    let mut page_ids = Vec::new();
+    let mut collection_ids = Vec::new();
+    for row in rows {
+        let agg = row.get("aggregate").and_then(|v| v.as_str());
+        let id = row
+            .get("aggregate_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<i32>().ok());
+        match (agg, id) {
+            (Some("documentation_page"), Some(id)) => page_ids.push(id),
+            (Some("documentation_collection"), Some(id)) => collection_ids.push(id),
+            _ => {}
+        }
+    }
+    if page_ids.is_empty() && collection_ids.is_empty() {
+        None
+    } else {
+        Some((page_ids, collection_ids))
+    }
+}
+
+/// Re-frame a `SyncActions` envelope with the documentation rows this
+/// viewer may not see removed. Documentation is emitted to `workspace:1`,
+/// so without this the live push would deliver restricted page/collection
+/// metadata to everyone (the REST delta/bootstrap paths already filter;
+/// this mirrors them on the push). The visibility check is the canonical
+/// `hidden_documentation_ids`, run off-thread via `web::block`. Fails
+/// closed: on any error every documentation row is dropped rather than
+/// risk a leak. `last_sync_id` is preserved so the client's cursor still
+/// advances past the (filtered) batch.
+async fn filter_documentation_frame(
+    pool: web::Data<crate::db::Pool>,
+    viewer_uuid: Uuid,
+    viewer_is_admin: bool,
+    env: Envelope,
+    page_ids: Vec<i32>,
+    collection_ids: Vec<i32>,
+) -> String {
+    let outcome = web::block(move || -> Result<(HashSet<i32>, HashSet<i32>), ()> {
+        let mut conn = pool.get().map_err(|_| ())?;
+        crate::repository::documentation::hidden_documentation_ids(
+            &mut conn,
+            &page_ids,
+            &collection_ids,
+            &viewer_uuid,
+            viewer_is_admin,
+        )
+        .map_err(|_| ())
+    })
+    .await;
+
+    let (hidden_pages, hidden_collections, fail_closed) = match outcome {
+        Ok(Ok((hp, hc))) => (hp, hc, false),
+        _ => {
+            tracing::error!(
+                viewer = %viewer_uuid,
+                "SSE documentation visibility filter failed; dropping all doc rows (fail-closed)"
+            );
+            (HashSet::new(), HashSet::new(), true)
+        }
+    };
+
+    let Envelope {
+        id,
+        event,
+        source_client_id,
+    } = env;
+    let SseEvent::SyncActions {
+        actions,
+        last_sync_id,
+        timestamp,
+    } = event
+    else {
+        // Unreachable: the caller only routes SyncActions envelopes here.
+        return String::new();
+    };
+
+    let filtered =
+        retain_visible_doc_rows(actions, &hidden_pages, &hidden_collections, fail_closed);
+
+    frame_envelope(&Envelope {
+        id,
+        event: SseEvent::SyncActions {
+            actions: filtered,
+            last_sync_id,
+            timestamp,
+        },
+        source_client_id,
+    })
+}
+
+/// Drop the documentation rows a viewer may not see from a `SyncActions`
+/// batch, leaving every other row untouched. Pure (no I/O) so the
+/// retention logic is unit-testable; the visibility decision is made by
+/// the caller (`hidden_documentation_ids`). When `fail_closed`, every
+/// documentation row is dropped (used when the visibility lookup errored).
+fn retain_visible_doc_rows(
+    actions: serde_json::Value,
+    hidden_pages: &HashSet<i32>,
+    hidden_collections: &HashSet<i32>,
+    fail_closed: bool,
+) -> serde_json::Value {
+    let serde_json::Value::Array(rows) = actions else {
+        return actions;
+    };
+    serde_json::Value::Array(
+        rows.into_iter()
+            .filter(|row| {
+                let hidden_set = match row.get("aggregate").and_then(|v| v.as_str()) {
+                    Some("documentation_page") => hidden_pages,
+                    Some("documentation_collection") => hidden_collections,
+                    // Non-documentation rows are unaffected.
+                    _ => return true,
+                };
+                if fail_closed {
+                    return false;
+                }
+                match row
+                    .get("aggregate_id")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<i32>().ok())
+                {
+                    Some(id) => !hidden_set.contains(&id),
+                    // Unparseable id on the success path: not in any
+                    // hidden set, so keep it.
+                    None => true,
+                }
+            })
+            .collect(),
+    )
 }
 
 fn frame_envelope(env: &Envelope) -> String {
@@ -525,54 +689,81 @@ impl Stream for SseStream {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-
-        // Drain any replayed envelopes (events that arrived during the
-        // client's reconnect gap) before pulling from the live streams.
-        if let Some(env) = this.replay_queue.pop_front() {
-            return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame_envelope(&env)))));
-        }
-
         let client_id = this.client_id.clone();
 
-        // Drain live envelopes one at a time, skipping any whose id
-        // already appeared in the replay queue. The loop exits as soon
-        // as we either return an envelope or hit Pending.
         loop {
-            match Pin::new(&mut this.event_streams).poll_next(cx) {
-                Poll::Ready(Some(Ok(env))) => {
-                    if env.id <= this.replay_max_id {
-                        continue;
+            // 1. Drive an in-flight per-subscriber documentation filter,
+            //    if one is running. It produces the already-framed bytes.
+            if let Some(fut) = this.pending.as_mut() {
+                match fut.as_mut().poll(cx) {
+                    Poll::Ready(frame) => {
+                        this.pending = None;
+                        return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame))));
                     }
+                    Poll::Pending => return Poll::Pending,
+                }
+            }
+
+            // 2. Next envelope: replayed backlog (reconnect gap) first,
+            //    then live. Live envelopes whose id already appeared in
+            //    the replay queue are skipped to avoid double-delivery.
+            let env = if let Some(env) = this.replay_queue.pop_front() {
+                env
+            } else {
+                match Pin::new(&mut this.event_streams).poll_next(cx) {
+                    Poll::Ready(Some(Ok(env))) => {
+                        if env.id <= this.replay_max_id {
+                            continue;
+                        }
+                        env
+                    }
+                    Poll::Ready(Some(Err(
+                        tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(count),
+                    ))) => {
+                        tracing::warn!(
+                            "SSE: Client {} lagged by {} events, closing connection",
+                            client_id,
+                            count
+                        );
+                        return Poll::Ready(None);
+                    }
+                    Poll::Ready(None) => {
+                        tracing::info!("SSE: Channel closed for client {}", client_id);
+                        return Poll::Ready(None);
+                    }
+                    Poll::Pending => {
+                        if this.heartbeat_interval.poll_tick(cx).is_ready() {
+                            // Heartbeat is a sentinel — no `id:` so it
+                            // doesn't advance the Last-Event-ID cursor.
+                            let sse_data = "event: heartbeat\ndata: {}\n\n";
+                            return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
+                        }
+                        return Poll::Pending;
+                    }
+                }
+            };
+
+            // 3. A SyncActions batch carrying documentation rows is
+            //    filtered per subscriber off-thread; everything else
+            //    frames immediately. Looping back drives the future.
+            match documentation_ids_in_envelope(&env) {
+                Some((page_ids, collection_ids)) => {
+                    this.pending = Some(Box::pin(filter_documentation_frame(
+                        this.pool.clone(),
+                        this.viewer_uuid,
+                        this.viewer_is_admin,
+                        env,
+                        page_ids,
+                        collection_ids,
+                    )));
+                }
+                None => {
                     return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame_envelope(
                         &env,
                     )))));
                 }
-                Poll::Ready(Some(Err(
-                    tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(count),
-                ))) => {
-                    tracing::warn!(
-                        "SSE: Client {} lagged by {} events, closing connection",
-                        client_id,
-                        count
-                    );
-                    return Poll::Ready(None);
-                }
-                Poll::Ready(None) => {
-                    tracing::info!("SSE: Channel closed for client {}", client_id);
-                    return Poll::Ready(None);
-                }
-                Poll::Pending => break,
             }
         }
-
-        if this.heartbeat_interval.poll_tick(cx).is_ready() {
-            // Heartbeat is a sentinel — no `id:` so it doesn't advance
-            // the client's Last-Event-ID cursor.
-            let sse_data = "event: heartbeat\ndata: {}\n\n";
-            return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(sse_data))));
-        }
-
-        Poll::Pending
     }
 }
 
@@ -618,8 +809,7 @@ pub async fn sse_events_stream(
 
     // Validate the SSE token
     use crate::utils::jwt::JwtUtils;
-    let (user_info, _user) = match JwtUtils::validate_token_with_user_check(token, &mut conn).await
-    {
+    let (user_info, user) = match JwtUtils::validate_token_with_user_check(token, &mut conn).await {
         Ok((claims, user)) => (claims, user),
         Err(e) => {
             return Ok(e.into());
@@ -647,10 +837,24 @@ pub async fn sse_events_stream(
         );
     }
 
+    // Viewer identity for the per-subscriber documentation filter on the
+    // live SyncActions stream. Resolved once at connect (structural, like
+    // topic auth); admin status is cached for the connection's lifetime.
+    let viewer_uuid = user.uuid;
+    let viewer_is_admin = crate::repository::user_helpers::user_is_admin(&mut conn, &user);
+
     // Generate client ID and create stream
     let client_id = Uuid::now_v7().to_string();
     state.add_client(client_id.clone(), user_info.sub.clone());
-    let stream = SseStream::new(receivers, replay, client_id.clone(), state.clone());
+    let stream = SseStream::new(
+        receivers,
+        replay,
+        client_id.clone(),
+        state.clone(),
+        pool.clone(),
+        viewer_uuid,
+        viewer_is_admin,
+    );
 
     // Build initial "connected" event so the client knows its own ID
     let connected_data = json!({ "client_id": client_id }).to_string();
@@ -838,4 +1042,91 @@ pub async fn get_sse_token(
         "expires_in": 3600,
         "user_id": user_info.sub
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn sync_actions_env(actions: serde_json::Value) -> Envelope {
+        Envelope {
+            id: 1,
+            event: SseEvent::SyncActions {
+                actions,
+                last_sync_id: 1,
+                timestamp: chrono::Utc::now(),
+            },
+            source_client_id: None,
+        }
+    }
+
+    #[test]
+    fn documentation_ids_extracted_from_batch() {
+        let env = sync_actions_env(json!([
+            { "aggregate": "ticket", "aggregate_id": "5" },
+            { "aggregate": "documentation_page", "aggregate_id": "7" },
+            { "aggregate": "documentation_collection", "aggregate_id": "3" },
+            { "aggregate": "documentation_page", "aggregate_id": "9" },
+        ]));
+        let (pages, collections) =
+            documentation_ids_in_envelope(&env).expect("doc rows should be detected");
+        assert_eq!(pages, vec![7, 9]);
+        assert_eq!(collections, vec![3]);
+    }
+
+    #[test]
+    fn batch_without_documentation_skips_filtering() {
+        let env = sync_actions_env(json!([
+            { "aggregate": "ticket", "aggregate_id": "5" },
+            { "aggregate": "comment", "aggregate_id": "8" },
+        ]));
+        // None means the hot path frames immediately, no DB filter.
+        assert!(documentation_ids_in_envelope(&env).is_none());
+    }
+
+    #[test]
+    fn retain_drops_hidden_docs_keeps_visible_and_non_doc() {
+        let actions = json!([
+            { "aggregate": "ticket", "aggregate_id": "5" },
+            { "aggregate": "documentation_page", "aggregate_id": "7" },
+            { "aggregate": "documentation_page", "aggregate_id": "9" },
+            { "aggregate": "documentation_collection", "aggregate_id": "3" },
+        ]);
+        let hidden_pages: HashSet<i32> = [7].into_iter().collect();
+        let hidden_collections: HashSet<i32> = [3].into_iter().collect();
+
+        let out = retain_visible_doc_rows(actions, &hidden_pages, &hidden_collections, false);
+        let kept: Vec<(&str, &str)> = out
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    r.get("aggregate").unwrap().as_str().unwrap(),
+                    r.get("aggregate_id").unwrap().as_str().unwrap(),
+                )
+            })
+            .collect();
+        // Hidden page 7 and hidden collection 3 dropped; ticket + visible
+        // page 9 kept.
+        assert_eq!(kept, vec![("ticket", "5"), ("documentation_page", "9")]);
+    }
+
+    #[test]
+    fn retain_fail_closed_drops_all_doc_rows() {
+        let actions = json!([
+            { "aggregate": "ticket", "aggregate_id": "5" },
+            { "aggregate": "documentation_page", "aggregate_id": "9" },
+            { "aggregate": "documentation_collection", "aggregate_id": "3" },
+        ]);
+        // fail_closed: visibility lookup errored, so no doc row is trusted.
+        let out = retain_visible_doc_rows(actions, &HashSet::new(), &HashSet::new(), true);
+        let rows = out.as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].get("aggregate").unwrap().as_str().unwrap(),
+            "ticket"
+        );
+    }
 }
