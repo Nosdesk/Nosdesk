@@ -13,6 +13,8 @@ export type SyncAggregate =
   | 'ticket'
   | 'project'
   | 'project_ticket'
+  | 'ticket_asset'
+  | 'linked_ticket'
   | 'cycle_ticket'
   | 'workflow_state'
   | 'comment'

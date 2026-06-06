@@ -60,6 +60,8 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   ticket: 1,
   project: 1,
   project_ticket: 1,
+  ticket_asset: 1,
+  linked_ticket: 1,
   workflow_state: 1,
   comment: 1,
   attachment: 1,
@@ -84,6 +86,12 @@ const COMPOSITE_KEY: Partial<
 > = {
   project_ticket: (d) =>
     d.project_id != null && d.ticket_id != null ? `${d.project_id}:${d.ticket_id}` : null,
+  ticket_asset: (d) =>
+    d.ticket_id != null && d.asset_id != null ? `${d.ticket_id}:${d.asset_id}` : null,
+  linked_ticket: (d) =>
+    d.ticket_id != null && d.linked_ticket_id != null
+      ? `${d.ticket_id}:${d.linked_ticket_id}`
+      : null,
   cycle_ticket: (d) =>
     d.cycle_id != null && d.ticket_id != null ? `${d.cycle_id}:${d.ticket_id}` : null,
   // One assignment per ticket — keyed by ticket_id, not a surrogate id.
