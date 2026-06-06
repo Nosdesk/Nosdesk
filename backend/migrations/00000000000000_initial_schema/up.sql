@@ -694,7 +694,8 @@ CREATE TABLE public.article_contents (
     yjs_state_vector bytea,
     yjs_document bytea,
     yjs_client_id bigint,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    fence_token bigint
 );
 
 ALTER TABLE ONLY public.article_contents FORCE ROW LEVEL SECURITY;
@@ -1807,7 +1808,8 @@ CREATE TABLE public.documentation_collections (
     description_state_vector bytea,
     description_text text,
     hide_titles_from_non_members boolean DEFAULT false NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    fence_token bigint
 );
 
 ALTER TABLE ONLY public.documentation_collections FORCE ROW LEVEL SECURITY;
@@ -1943,7 +1945,8 @@ CREATE TABLE public.documentation_pages (
     verified_by uuid,
     verified_at timestamp with time zone,
     verify_interval_days integer,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    fence_token bigint
 );
 
 ALTER TABLE ONLY public.documentation_pages FORCE ROW LEVEL SECURITY;

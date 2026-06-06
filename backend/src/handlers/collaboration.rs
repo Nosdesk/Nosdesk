@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::panic;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Notify, RwLock};
 use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 use yrs::sync::{Awareness, DefaultProtocol, Protocol};
@@ -137,6 +137,13 @@ const MIN_SAVE_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_PENDING_DURATION: Duration = Duration::from_secs(120);
 // How long to wait before doing final save on empty room
 const EMPTY_ROOM_FINAL_SAVE_DELAY: Duration = Duration::from_secs(2);
+// How long an empty (and final-saved) room stays in memory before its
+// ownership claim is released and the doc evicted, under multi-instance
+// routing. Long enough to absorb a quick close/reopen without churning
+// the claim, short enough that an idle doc stops pinning a machine.
+// Single-instance mode never evicts (no ownership manager). See
+// `docs/realtime-collab-affinity-design.md`.
+const EMPTY_ROOM_EVICT_DELAY: Duration = Duration::from_secs(60);
 // Document type enum: distinguishes ticket articles, doc pages,
 // and collection descriptions. The collection variant binds to
 // the new `documentation_collections.description_yjs` column —
@@ -484,10 +491,17 @@ struct DocumentState {
     /// to pin the per-doc actor so RLS-enforced writes hit the
     /// correct workspace's rows.
     workspace_id: i32,
+    /// Fencing token from this machine's ownership claim on the doc
+    /// (Phase 2 affinity). Stamped on every durable snapshot write so a
+    /// stale owner (whose lease expired under a GC pause) is rejected.
+    /// `None` in single-instance mode and in the Redis-down degraded
+    /// case, where writes are unconditional (today's behaviour). See
+    /// `docs/realtime-collab-affinity-design.md`.
+    fence: Option<i64>,
 }
 
 impl DocumentState {
-    fn new(awareness: Arc<Awareness>, workspace_id: i32) -> Self {
+    fn new(awareness: Arc<Awareness>, workspace_id: i32, fence: Option<i64>) -> Self {
         Self {
             awareness,
             last_saved: Instant::now(),
@@ -501,6 +515,7 @@ impl DocumentState {
             last_snapshot_at: 0,
             contributors: std::collections::HashSet::new(),
             workspace_id,
+            fence,
         }
     }
 
@@ -632,6 +647,12 @@ struct SessionInfo {
     /// peer-side timeout (~30s on the JS client, indefinite on
     /// yrs peers), surfacing as ghost cursors for other viewers.
     yjs_client_id: Option<u64>,
+    /// Eviction signal for this session. The session_task selects on
+    /// `cancel.notified()`; when the owning machine evicts the document
+    /// (it lost the ownership lease, Phase 2 affinity), it notifies every
+    /// session in the room so they tear down and the client reconnects,
+    /// re-routing to the new owner. Unused in single-instance mode.
+    cancel: Arc<Notify>,
 }
 
 type RoomSessions = HashMap<DocumentId, HashMap<SessionId, SessionInfo>>;
@@ -657,6 +678,37 @@ pub struct YjsAppState {
     /// per-user "appear away" preference via its visibility
     /// resolver.
     presence: Arc<crate::services::presence::PresenceRegistry>,
+    /// Per-document ownership claims for multi-instance routing
+    /// (Phase 2 affinity). `None` in single-instance mode
+    /// (`NOSDESK_COLLAB_ROUTING` unset / `single`), in which case
+    /// the routing layer is inert and every doc is served locally.
+    /// See `docs/realtime-collab-affinity-design.md`.
+    ownership: Option<Arc<crate::services::collab_ownership::CollabOwnership>>,
+    /// Which routing mode this machine runs in. `Single` when
+    /// `ownership` is `None`; `FlyReplay` / `DirectAddress` when set.
+    routing_mode: CollabRoutingMode,
+}
+
+/// Routing mode lives with the ownership manager it configures; re-export
+/// it here so `route()` / `YjsAppState` and call sites that reference
+/// `handlers::collaboration::CollabRoutingMode` keep resolving.
+pub use crate::services::collab_ownership::CollabRoutingMode;
+
+/// Routing decision for an incoming WebSocket before the upgrade.
+pub enum CollabRoute {
+    /// This machine owns the document (or routing is single-instance):
+    /// proceed with the upgrade here. Carries the ownership claim's
+    /// fencing token (`None` in single-instance / Redis-down mode) to
+    /// stamp on this document's snapshot writes.
+    Local(Option<i64>),
+    /// Another machine owns the document: the caller must steer the
+    /// connection there (on fly, a `fly-replay: instance=<id>` header)
+    /// without negotiating the upgrade.
+    ReplayTo(String),
+    /// Direct-address mode: this is not the owner, so the client must
+    /// re-run the handshake to learn the owner's address. (The handshake
+    /// endpoint, not the WS handler, resolves the address.)
+    Rehandshake,
 }
 
 impl YjsAppState {
@@ -665,6 +717,8 @@ impl YjsAppState {
         redis_cache: Arc<RedisYjsCache>,
         sse_state: web::Data<crate::handlers::sse::SseState>,
         search_service: Arc<crate::services::search::SearchService>,
+        ownership: Option<Arc<crate::services::collab_ownership::CollabOwnership>>,
+        routing_mode: CollabRoutingMode,
     ) -> Self {
         let state = YjsAppState {
             documents: Arc::new(RwLock::new(HashMap::new())),
@@ -676,7 +730,16 @@ impl YjsAppState {
             presence: Arc::new(
                 crate::services::presence::PresenceRegistry::with_default_resolver(),
             ),
+            ownership,
+            routing_mode,
         };
+        // Publish this machine's address to the registry immediately
+        // (direct-address mode), so a doc owned here is reachable before
+        // the first maintenance tick. No-op in other modes.
+        if let Some(ownership) = &state.ownership {
+            let ownership = ownership.clone();
+            actix_web::rt::spawn(async move { ownership.register_self().await });
+        }
         // Start the periodic cleanup and save task. `actix_web::rt::spawn`
         // schedules onto the actix runtime, same as the old
         // `actix::spawn` did, but without the actix-actor framework
@@ -688,9 +751,118 @@ impl YjsAppState {
                 interval.tick().await;
                 state_clone.cleanup_stale_sessions().await;
                 state_clone.save_all_active_documents().await;
+                state_clone.renew_owned_documents().await;
+                // Refresh the machine-address registry TTL (direct-address
+                // mode); no-op otherwise.
+                if let Some(ownership) = &state_clone.ownership {
+                    ownership.register_self().await;
+                }
             }
         });
         state
+    }
+
+    /// Decide how to handle an incoming WebSocket for `doc_id` before
+    /// upgrading. In single-instance mode (no ownership manager) this is
+    /// always `Local`. Otherwise it resolves (and, if free, claims) the
+    /// owner: `Local` if this machine owns it, else `ReplayTo(owner)` so
+    /// the caller can route the connection to the owning machine.
+    pub async fn route(&self, doc_id: &str) -> CollabRoute {
+        let Some(ownership) = &self.ownership else {
+            return CollabRoute::Local(None);
+        };
+        let resolution = ownership.resolve_or_claim(doc_id).await;
+        if resolution.is_local {
+            return CollabRoute::Local(resolution.fence);
+        }
+        match self.routing_mode {
+            // Unreachable: Single mode has no ownership manager.
+            CollabRoutingMode::Single => CollabRoute::Local(None),
+            CollabRoutingMode::FlyReplay => CollabRoute::ReplayTo(resolution.owner),
+            // The handshake endpoint hands the client the owner's
+            // address; a WS that still lands here is stale.
+            CollabRoutingMode::DirectAddress => CollabRoute::Rehandshake,
+        }
+    }
+
+    /// Resolve the WebSocket URL a client should connect to for
+    /// `doc_id`, used by the handshake endpoint. In single / fly-replay
+    /// mode this is the relative path on the current host (fly-replay
+    /// then routes to the owner). In direct-address mode it is the
+    /// absolute URL of the owning machine (claiming it for the contacted
+    /// machine if currently unowned), so the client connects straight to
+    /// the owner and bypasses any load-balancer reshuffling. Returns
+    /// `None` only when the owner's address is unknown (owner dead /
+    /// unregistered), signalling the client to retry.
+    async fn resolve_ws_url(&self, doc_id: &str) -> Option<String> {
+        let relative = format!("/api/collaboration/ws/{doc_id}");
+        let Some(ownership) = &self.ownership else {
+            return Some(relative);
+        };
+        match self.routing_mode {
+            CollabRoutingMode::Single | CollabRoutingMode::FlyReplay => Some(relative),
+            CollabRoutingMode::DirectAddress => {
+                let resolution = ownership.resolve_or_claim(doc_id).await;
+                let base = if resolution.is_local {
+                    ownership.address().map(|s| s.to_string())
+                } else {
+                    ownership.owner_address(&resolution.owner).await
+                };
+                base.map(|b| format!("{}/api/collaboration/ws/{doc_id}", b.trim_end_matches('/')))
+            }
+        }
+    }
+
+    /// Renew the ownership claim for every document held in memory on
+    /// this machine, and evict any whose claim was lost.
+    ///
+    /// A document is in `self.documents` only because this machine
+    /// loaded it to serve a connection, so the in-memory set is exactly
+    /// the set this machine owns. If a renewal reports the claim was
+    /// lost (another machine took over after our lease expired under a
+    /// GC pause), this machine must immediately stop being an authority
+    /// for that doc: it evicts the doc and tears down its sessions so
+    /// clients reconnect and re-route to the new owner. Fencing protects
+    /// the durable snapshot during the brief overlap. No-op in
+    /// single-instance mode.
+    async fn renew_owned_documents(&self) {
+        let Some(ownership) = &self.ownership else {
+            return;
+        };
+        let doc_ids: Vec<String> = {
+            let documents = self.documents.read().await;
+            documents.keys().cloned().collect()
+        };
+        for doc_id in doc_ids {
+            if !ownership.renew(&doc_id).await {
+                warn!(doc_id = %doc_id, "Lost ownership claim; evicting document and its sessions");
+                // Claim already lost, so don't release (compare-and-del
+                // would no-op anyway); just tear down locally.
+                self.evict_document(&doc_id).await;
+            }
+        }
+    }
+
+    /// Drop a document from this machine: remove it from the in-memory
+    /// store and tear down every session in its room (signalling each
+    /// session_task to stop via its cancel `Notify`). Used by both
+    /// lost-lease eviction and idle release. After this the room is gone
+    /// from both maps; clients whose sockets close will reconnect and
+    /// re-route to the current owner.
+    async fn evict_document(&self, doc_id: &str) {
+        {
+            let mut documents = self.documents.write().await;
+            documents.remove(doc_id);
+        }
+        let room = {
+            let mut sessions = self.sessions.write().await;
+            sessions.remove(doc_id)
+        };
+        if let Some(room) = room {
+            for (_session_id, info) in room {
+                info.cancel.notify_one();
+            }
+        }
     }
 
     // Save all active documents
@@ -699,13 +871,21 @@ impl YjsAppState {
         let mut saved_count = 0;
         let mut final_saved_count = 0;
         let mut snapshot_count = 0;
+        // Idle docs to release + evict after the save pass (multi-instance
+        // only). Collected here, acted on after the documents lock drops.
+        let mut to_evict: Vec<String> = Vec::new();
 
         for (doc_id, doc_state) in documents.iter_mut() {
             let workspace_id = doc_state.workspace_id;
             // Regular saves for active documents
             if doc_state.should_save() {
                 debug!(doc_id = %doc_id, "Saving document with pending changes");
-                self.save_document_internal(doc_id, &doc_state.awareness, workspace_id);
+                self.save_document_internal(
+                    doc_id,
+                    &doc_state.awareness,
+                    workspace_id,
+                    doc_state.fence,
+                );
                 doc_state.mark_saved();
                 saved_count += 1;
             }
@@ -730,7 +910,12 @@ impl YjsAppState {
             // Final save for empty rooms
             if doc_state.should_do_final_save() {
                 debug!(doc_id = %doc_id, "Performing final save for empty room");
-                self.save_document_internal(doc_id, &doc_state.awareness, workspace_id);
+                self.save_document_internal(
+                    doc_id,
+                    &doc_state.awareness,
+                    workspace_id,
+                    doc_state.fence,
+                );
                 doc_state.mark_saved();
                 doc_state.mark_final_save_completed();
                 final_saved_count += 1;
@@ -750,11 +935,24 @@ impl YjsAppState {
                 }
             }
 
-            // YIJS BEST PRACTICE: Keep documents in memory indefinitely
-            // Never remove documents from memory - they contain the authoritative live state
-            // Database is only for cold storage (server restart recovery)
-            // This prevents race conditions where user reconnects before async save completes
+            // Single-instance: keep documents in memory indefinitely.
+            // They hold the authoritative live state; the DB is only cold
+            // storage (restart recovery). Keeping them avoids a race where
+            // a user reconnects before an async save completes.
             // See: https://discuss.yjs.dev/t/correct-way-to-implement-version-history-like-google-doc/1691
+            //
+            // Multi-instance: an empty, final-saved room that has been idle
+            // past EMPTY_ROOM_EVICT_DELAY is released so another machine can
+            // own it. We only collect candidates here; the actual release +
+            // eviction happens after the documents lock drops, and re-checks
+            // the room is still empty (a session may have rejoined).
+            if self.ownership.is_some() && doc_state.final_save_completed {
+                if let Some(empty_since) = doc_state.room_empty_since {
+                    if empty_since.elapsed() >= EMPTY_ROOM_EVICT_DELAY {
+                        to_evict.push(doc_id.clone());
+                    }
+                }
+            }
         }
 
         if saved_count > 0 || final_saved_count > 0 || snapshot_count > 0 {
@@ -765,10 +963,39 @@ impl YjsAppState {
                 "Periodic maintenance completed"
             );
         }
+
+        // Release + evict idle docs (multi-instance). Drop the documents
+        // lock first: evict_document re-acquires it.
+        drop(documents);
+        for doc_id in to_evict {
+            let still_empty = {
+                let sessions = self.sessions.read().await;
+                sessions.get(&doc_id).map(|r| r.is_empty()).unwrap_or(true)
+            };
+            if !still_empty {
+                continue;
+            }
+            if let Some(ownership) = &self.ownership {
+                ownership.release(&doc_id).await;
+            }
+            debug!(doc_id = %doc_id, "Released idle document ownership claim and evicted");
+            self.evict_document(&doc_id).await;
+        }
     }
 
     // Get or create awareness for a document
-    async fn get_or_create_awareness(&self, doc_id: &str, workspace_id: i32) -> Arc<Awareness> {
+    /// Get the in-memory awareness for `doc_id`, loading + creating it if
+    /// absent. `fence` is the ownership claim's token from the routing
+    /// step; it is applied only when this call creates the document
+    /// (recorded on `DocumentState` for snapshot-write fencing). Callers
+    /// that reach an already-loaded doc, or that aren't a fresh claim,
+    /// pass `None`.
+    async fn get_or_create_awareness(
+        &self,
+        doc_id: &str,
+        workspace_id: i32,
+        fence: Option<i64>,
+    ) -> Arc<Awareness> {
         let mut documents = self.documents.write().await;
 
         if let Some(doc_state) = documents.get_mut(doc_id) {
@@ -1060,10 +1287,23 @@ impl YjsAppState {
             }
 
             let awareness_arc = Arc::new(awareness);
-            let doc_state = DocumentState::new(Arc::clone(&awareness_arc), workspace_id);
+            let doc_state = DocumentState::new(Arc::clone(&awareness_arc), workspace_id, fence);
             documents.insert(doc_id.to_string(), doc_state);
             awareness_arc
         }
+    }
+
+    /// Non-creating lookup of an in-memory document's awareness. Used by
+    /// paths that must never bring a document back into memory: inbound
+    /// frame handling and disconnect cleanup. The document is always
+    /// created at session start (`get_or_create_awareness` in the
+    /// initial sync), so by the time these run it exists, unless it was
+    /// evicted (ownership handoff) in the meantime, in which case the
+    /// caller drops the work rather than resurrecting an unowned doc that
+    /// would then write to storage unfenced.
+    async fn get_awareness(&self, doc_id: &str) -> Option<Arc<Awareness>> {
+        let documents = self.documents.read().await;
+        documents.get(doc_id).map(|s| Arc::clone(&s.awareness))
     }
 
     // Mark document as having pending changes
@@ -1094,8 +1334,12 @@ impl YjsAppState {
             doc_state.mark_changed();
             info!(doc_id = %doc_id, "Replaced document with restored revision");
         } else {
-            // Document doesn't exist in memory, create it
-            let doc_state = DocumentState::new(Arc::clone(&awareness), workspace_id);
+            // Document doesn't exist in memory, create it. Restore runs
+            // on the owning machine but doesn't carry the claim fence
+            // here, so the snapshot writes unconditionally (None); the
+            // explicit admin restore is not the stale-owner case fencing
+            // guards against.
+            let doc_state = DocumentState::new(Arc::clone(&awareness), workspace_id, None);
             documents.insert(doc_id.to_string(), doc_state);
             info!(doc_id = %doc_id, "Created new document from restored revision");
         }
@@ -1131,6 +1375,7 @@ impl YjsAppState {
         session_id: &str,
         tx: mpsc::UnboundedSender<Bytes>,
         user_uuid: Uuid,
+        cancel: Arc<Notify>,
     ) {
         let mut sessions = self.sessions.write().await;
 
@@ -1151,6 +1396,7 @@ impl YjsAppState {
                 last_active: Instant::now(),
                 user_uuid,
                 yjs_client_id: None,
+                cancel,
             },
         );
         let room_size = room.len();
@@ -1385,7 +1631,12 @@ impl YjsAppState {
         if let Some(doc_state) = documents.get_mut(doc_id) {
             let workspace_id = doc_state.workspace_id;
             debug!(doc_id = %doc_id, "Force saving document on disconnect");
-            self.save_document_internal(doc_id, &doc_state.awareness, workspace_id);
+            self.save_document_internal(
+                doc_id,
+                &doc_state.awareness,
+                workspace_id,
+                doc_state.fence,
+            );
             doc_state.mark_saved();
 
             // Create revision at end of editing session if there were actual content changes
@@ -1444,7 +1695,13 @@ impl YjsAppState {
     }
 
     // Save document state to the database from awareness
-    fn save_document_internal(&self, doc_id: &str, awareness: &Awareness, workspace_id: i32) {
+    fn save_document_internal(
+        &self,
+        doc_id: &str,
+        awareness: &Awareness,
+        workspace_id: i32,
+        fence: Option<i64>,
+    ) {
         // Parse document type
         let doc_type = match DocumentType::from_doc_id(doc_id) {
             Some(dt) => dt,
@@ -1516,6 +1773,7 @@ impl YjsAppState {
                                     conn,
                                     ticket_id,
                                     content,
+                                    fence,
                                     Some(&search),
                                 )
                             }) {
@@ -1544,6 +1802,7 @@ impl YjsAppState {
                                     conn,
                                     doc_page_id,
                                     content,
+                                    fence,
                                     Some(&search),
                                 )
                             }) {
@@ -1573,6 +1832,7 @@ impl YjsAppState {
                                     conn,
                                     collection_id,
                                     content,
+                                    fence,
                                 )
                             }) {
                                 Ok(_) => debug!(
@@ -1912,6 +2172,33 @@ pub async fn ws_handler(
         "WebSocket authentication + workspace check successful"
     );
 
+    // Per-document affinity routing (Phase 2). In single-instance mode
+    // this is always `Local`. Under multi-instance routing, if another
+    // machine owns this doc we return a `fly-replay` response WITHOUT
+    // negotiating the upgrade, so fly-proxy replays the original request
+    // to the owning machine, which then performs the upgrade. This is
+    // the one constraint the research surfaced: the replaying instance
+    // must not handle the upgrade itself. See
+    // `docs/realtime-collab-affinity-design.md`.
+    let fence = match app_state.route(&doc_id).await {
+        CollabRoute::Local(fence) => fence,
+        CollabRoute::ReplayTo(owner) => {
+            debug!(doc_id = %doc_id, owner = %owner, "Replaying WebSocket to owning machine");
+            return Ok(HttpResponse::Ok()
+                .insert_header(("fly-replay", format!("instance={owner}")))
+                .finish());
+        }
+        CollabRoute::Rehandshake => {
+            // Direct-address mode: this machine isn't the owner. Tell the
+            // client to re-run the handshake to learn the owner's address.
+            debug!(doc_id = %doc_id, "WS landed on non-owner; instructing client to re-handshake");
+            return Ok(HttpResponse::Conflict().json(json!({
+                "error": "rehandshake_required",
+                "handshake": format!("/api/collaboration/handshake/{doc_id}"),
+            })));
+        }
+    };
+
     // Hand off to actix-ws: returns (HttpResponse, Session, MessageStream).
     // The response is returned to the framework synchronously so the
     // 101 Upgrade lands; the session_task runs detached and owns the
@@ -1938,6 +2225,7 @@ pub async fn ws_handler(
         app_state_inner,
         user_uuid,
         workspace_id,
+        fence,
         session,
         msg_stream,
     ));
@@ -1953,6 +2241,7 @@ async fn session_task(
     app_state: YjsAppState,
     user_uuid: Uuid,
     workspace_id: i32,
+    fence: Option<i64>,
     mut session: actix_ws::Session,
     mut msg_stream: actix_ws::AggregatedMessageStream,
 ) {
@@ -1978,8 +2267,12 @@ async fn session_task(
     // broadcasts, which is worse than letting one slow consumer's
     // backlog grow.
     let (tx, mut rx) = mpsc::unbounded_channel::<Bytes>();
+    // Eviction signal: the owning machine notifies this when it drops the
+    // document (lost ownership lease, Phase 2 affinity), so this task
+    // tears down and the client reconnects to the new owner.
+    let cancel = Arc::new(Notify::new());
     app_state
-        .register_session(&doc_id, &session_id, tx.clone(), user_uuid)
+        .register_session(&doc_id, &session_id, tx.clone(), user_uuid, cancel.clone())
         .await;
 
     // Per the yjs sync protocol spec, the server proactively sends
@@ -1989,7 +2282,7 @@ async fn session_task(
     // packing them would lose all but the first.
     {
         let awareness = app_state
-            .get_or_create_awareness(&doc_id, workspace_id)
+            .get_or_create_awareness(&doc_id, workspace_id, fence)
             .await;
         use yrs::sync::{Message, SyncMessage};
 
@@ -2015,8 +2308,21 @@ async fn session_task(
     // client has even drained the initial sync.
     heartbeat.tick().await;
 
+    // Set when this task exits because the document was evicted
+    // (ownership handoff), so the disconnect cleanup below skips the
+    // awareness-tombstone + final-save work that would resurrect the
+    // just-evicted doc into memory.
+    let mut evicted = false;
     let close_reason: Option<CloseReason> = loop {
         tokio::select! {
+            // Eviction: the owning machine dropped this document. Tear
+            // down without touching the (already-removed) doc state.
+            _ = cancel.notified() => {
+                debug!(session_id = %session_id, doc_id = %doc_id,
+                    "Session evicted for ownership handoff; closing");
+                evicted = true;
+                break None;
+            }
             // Outbound: broadcast payloads from `app_state.broadcast`,
             // self-generated protocol responses, awareness updates, etc.
             // `rx.recv()` returns None when every Sender clone is dropped,
@@ -2095,7 +2401,6 @@ async fn session_task(
                         doc_id_c,
                         session_id_c,
                         user_uuid,
-                        workspace_id,
                         tx_c,
                     ));
                 }
@@ -2162,38 +2467,46 @@ async fn session_task(
     // don't lodge a Bytes into a channel whose receiver is gone.
     drop(tx);
 
-    app_state.remove_session(&doc_id, &session_id).await;
+    // When the document was evicted (ownership handoff), its in-memory
+    // state and session room are already gone. Skip the normal cleanup:
+    // `get_or_create_awareness` would rehydrate (resurrect) the doc this
+    // machine no longer owns, and a final save would race the new owner
+    // (the fence protects the snapshot regardless). Just close the wire.
+    if !evicted {
+        app_state.remove_session(&doc_id, &session_id).await;
 
-    // Clean up the disconnected client's awareness state and notify
-    // remaining clients. On abrupt disconnects (refresh, network loss)
-    // the client can't send this itself, so the server must.
-    if let Some(client_id) = yjs_client_id {
-        let awareness = app_state
-            .get_or_create_awareness(&doc_id, workspace_id)
-            .await;
-        let yrs_client_id = yrs::ClientID::new(client_id);
-        awareness.remove_state(yrs_client_id);
+        // Clean up the disconnected client's awareness state and notify
+        // remaining clients. On abrupt disconnects (refresh, network loss)
+        // the client can't send this itself, so the server must. Use a
+        // non-creating lookup: if the doc was evicted concurrently there
+        // is nothing to clean up (and we must not resurrect it).
+        if let Some(client_id) = yjs_client_id {
+            if let Some(awareness) = app_state.get_awareness(&doc_id).await {
+                let yrs_client_id = yrs::ClientID::new(client_id);
+                awareness.remove_state(yrs_client_id);
 
-        if let Ok(update) = awareness.update_with_clients([yrs_client_id]) {
-            use yrs::sync::Message;
-            let msg = Message::Awareness(update).encode_v1();
-            app_state.broadcast(&doc_id, &session_id, &msg).await;
-            debug!(doc_id = %doc_id, yjs_client_id = client_id,
-                "Removed awareness state and notified remaining clients");
+                if let Ok(update) = awareness.update_with_clients([yrs_client_id]) {
+                    use yrs::sync::Message;
+                    let msg = Message::Awareness(update).encode_v1();
+                    app_state.broadcast(&doc_id, &session_id, &msg).await;
+                    debug!(doc_id = %doc_id, yjs_client_id = client_id,
+                        "Removed awareness state and notified remaining clients");
+                }
+            }
         }
-    }
 
-    // Force-save when this was the last session for the document.
-    let should_force_save = {
-        let sessions = app_state.sessions.read().await;
-        sessions
-            .get(&doc_id)
-            .map(|room| room.is_empty())
-            .unwrap_or(true)
-    };
-    if should_force_save {
-        debug!(doc_id = %doc_id, "Last session for document, performing final save");
-        app_state.force_save_document(&doc_id).await;
+        // Force-save when this was the last session for the document.
+        let should_force_save = {
+            let sessions = app_state.sessions.read().await;
+            sessions
+                .get(&doc_id)
+                .map(|room| room.is_empty())
+                .unwrap_or(true)
+        };
+        if should_force_save {
+            debug!(doc_id = %doc_id, "Last session for document, performing final save");
+            app_state.force_save_document(&doc_id).await;
+        }
     }
 
     let _ = session.close(close_reason).await;
@@ -2212,7 +2525,6 @@ async fn process_inbound_binary(
     doc_id: String,
     session_id: String,
     user_uuid: Uuid,
-    workspace_id: i32,
     tx: mpsc::UnboundedSender<Bytes>,
 ) {
     if bin.is_empty() {
@@ -2225,9 +2537,13 @@ async fn process_inbound_binary(
         .update_session_activity(&doc_id, &session_id)
         .await;
 
-    let awareness = app_state
-        .get_or_create_awareness(&doc_id, workspace_id)
-        .await;
+    // Non-creating lookup: the doc was created at session start. If it's
+    // gone (evicted for an ownership handoff), drop the frame rather than
+    // resurrecting an unowned doc that would write to storage unfenced.
+    let Some(awareness) = app_state.get_awareness(&doc_id).await else {
+        debug!(doc_id = %doc_id, "Dropping inbound frame: document no longer resident (evicted)");
+        return;
+    };
 
     // Diagnostic: check fragment text BEFORE protocol.handle so we can
     // detect "content actually changed" precisely (some sync messages
@@ -2640,6 +2956,47 @@ pub async fn restore_doc_revision(
     }))
 }
 
+/// Collab handshake: resolve the WebSocket URL a client should connect
+/// to for `doc_id` (Phase 2 affinity, direct-address mode). In single /
+/// fly-replay mode it returns the relative WS path on this host; in
+/// direct-address mode it returns the owning machine's absolute URL,
+/// claiming the doc for the contacted machine if it is currently
+/// unowned. Behind `dual_auth` + `WorkspaceContext`, with the same
+/// namespaced-doc_id + workspace guard the WS upgrade applies.
+pub async fn handshake(
+    path: web::Path<String>,
+    ws: crate::extractors::WorkspaceContext,
+    app_state: web::Data<YjsAppState>,
+) -> HttpResponse {
+    let doc_id = path.into_inner();
+
+    let parsed = match DocumentType::from_namespaced_doc_id(&doc_id) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(doc_id = %doc_id, error = ?e, "Handshake doc_id parse failed");
+            return errors::bad_request(
+                "doc_id must be in the workspace-namespaced format ws-{uuid}_{kind}-{id}",
+            );
+        }
+    };
+    if parsed.workspace_uuid != ws.workspace_uuid {
+        warn!(doc_id = %doc_id, "Handshake doc_id workspace mismatch");
+        return HttpResponse::Forbidden().json(json!({
+            "error": "doc_id workspace does not match the request workspace",
+        }));
+    }
+
+    match app_state.resolve_ws_url(&doc_id).await {
+        Some(ws_url) => HttpResponse::Ok().json(json!({ "ws_url": ws_url })),
+        None => {
+            // Direct-address mode and the owner's address is unknown
+            // (owner dead or not yet registered). Tell the client to retry.
+            warn!(doc_id = %doc_id, "Handshake could not resolve owner address");
+            HttpResponse::ServiceUnavailable().json(json!({ "error": "owner_unreachable" }))
+        }
+    }
+}
+
 /// Authenticated collaboration REST endpoints (article content + the
 /// revision history / restore actions for tickets and docs).
 ///
@@ -2650,7 +3007,8 @@ pub async fn restore_doc_revision(
 /// Keeping them in one configurer means `config` applies that auth in a
 /// single place, so a new endpoint can't accidentally land outside it.
 fn rest_routes(cfg: &mut web::ServiceConfig) {
-    cfg.route("/article/{doc_id}", web::get().to(get_article_content))
+    cfg.route("/handshake/{doc_id}", web::get().to(handshake))
+        .route("/article/{doc_id}", web::get().to(get_article_content))
         .route(
             "/tickets/{ticket_id}/revisions",
             web::get().to(get_ticket_revisions),

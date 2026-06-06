@@ -456,16 +456,50 @@ pub fn update_documentation_yjs_state(
     conn: &mut DbConnection,
     page_id: i32,
     yjs_document: Vec<u8>,
+    // Ownership-claim fencing token (Phase 2 affinity). `Some(f)` gates
+    // the write so a stale owner cannot clobber a newer owner's state;
+    // `None` (single-instance / Redis-down) writes unconditionally. See
+    // docs/realtime-collab-affinity-design.md.
+    fence: Option<i64>,
     observer: Option<&dyn DocumentationSavedObserver>,
 ) -> Result<DocumentationPage, Error> {
     use crate::schema::documentation_pages::dsl;
 
-    let result: DocumentationPage = diesel::update(dsl::documentation_pages.find(page_id))
-        .set((
-            dsl::yjs_document.eq(Some(yjs_document)),
-            dsl::updated_at.eq(diesel::dsl::now),
-        ))
-        .get_result(conn)?;
+    let result: DocumentationPage = match fence {
+        Some(f) => {
+            let updated = diesel::update(
+                dsl::documentation_pages
+                    .filter(dsl::id.eq(page_id))
+                    .filter(dsl::fence_token.is_null().or(dsl::fence_token.le(f))),
+            )
+            .set((
+                dsl::yjs_document.eq(Some(yjs_document)),
+                dsl::fence_token.eq(f),
+                dsl::updated_at.eq(diesel::dsl::now),
+            ))
+            .get_result::<DocumentationPage>(conn)
+            .optional()?;
+            match updated {
+                Some(p) => p,
+                None => {
+                    // Stale owner: leave the row unchanged and skip the
+                    // observer (nothing changed). Return the current row.
+                    tracing::warn!(
+                        page_id,
+                        fence = f,
+                        "Skipped Yjs save: stale ownership fence"
+                    );
+                    return dsl::documentation_pages.find(page_id).first(conn);
+                }
+            }
+        }
+        None => diesel::update(dsl::documentation_pages.find(page_id))
+            .set((
+                dsl::yjs_document.eq(Some(yjs_document)),
+                dsl::updated_at.eq(diesel::dsl::now),
+            ))
+            .get_result(conn)?,
+    };
 
     if let Some(observer) = observer {
         observer.documentation_saved(&result);

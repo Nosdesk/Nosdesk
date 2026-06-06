@@ -109,6 +109,7 @@ diesel::table! {
         yjs_document -> Nullable<Bytea>,
         yjs_client_id -> Nullable<Int8>,
         workspace_id -> Int4,
+        fence_token -> Nullable<Int8>,
     }
 }
 
@@ -572,6 +573,7 @@ diesel::table! {
         description_text -> Nullable<Text>,
         hide_titles_from_non_members -> Bool,
         workspace_id -> Int4,
+        fence_token -> Nullable<Int8>,
     }
 }
 
@@ -642,6 +644,7 @@ diesel::table! {
         verified_at -> Nullable<Timestamptz>,
         verify_interval_days -> Nullable<Int4>,
         workspace_id -> Int4,
+        fence_token -> Nullable<Int8>,
     }
 }
 

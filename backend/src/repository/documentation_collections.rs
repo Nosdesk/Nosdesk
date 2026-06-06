@@ -208,15 +208,39 @@ pub fn update_collection_description_yjs(
     conn: &mut DbConnection,
     collection_id: i32,
     yjs_document: Vec<u8>,
+    // Ownership-claim fencing token (Phase 2 affinity). `Some(f)` gates
+    // the write so a stale owner cannot clobber a newer owner's state;
+    // `None` (single-instance / Redis-down) writes unconditionally. A
+    // stale write affects 0 rows (the returned count reflects it). See
+    // docs/realtime-collab-affinity-design.md.
+    fence: Option<i64>,
 ) -> QueryResult<usize> {
     let now = chrono::Utc::now().naive_utc();
-    diesel::update(documentation_collections::table.find(collection_id))
-        .set(DocumentationCollectionDescriptionYjsUpdate {
-            description_yjs: Some(yjs_document),
-            description_state_vector: None,
-            updated_at: Some(now),
-        })
-        .execute(conn)
+    match fence {
+        Some(f) => diesel::update(
+            documentation_collections::table
+                .filter(documentation_collections::id.eq(collection_id))
+                .filter(
+                    documentation_collections::fence_token
+                        .is_null()
+                        .or(documentation_collections::fence_token.le(f)),
+                ),
+        )
+        .set((
+            documentation_collections::description_yjs.eq(Some(yjs_document)),
+            documentation_collections::description_state_vector.eq(None::<Vec<u8>>),
+            documentation_collections::fence_token.eq(f),
+            documentation_collections::updated_at.eq(now),
+        ))
+        .execute(conn),
+        None => diesel::update(documentation_collections::table.find(collection_id))
+            .set(DocumentationCollectionDescriptionYjsUpdate {
+                description_yjs: Some(yjs_document),
+                description_state_vector: None,
+                updated_at: Some(now),
+            })
+            .execute(conn),
+    }
 }
 
 // ============================================================================

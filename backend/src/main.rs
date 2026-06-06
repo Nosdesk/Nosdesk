@@ -943,12 +943,32 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    // Per-document affinity routing for multi-instance collab (Phase 2).
+    // Default is single-instance: no ownership manager, routing inert,
+    // behaviour identical to before. `NOSDESK_COLLAB_ROUTING` opts into
+    // `fly-replay` (fly) or `direct-address` (portable / self-host).
+    // `build` returns None (and we pin the mode to Single) on any setup
+    // error, so a misconfig degrades rather than fails. See
+    // `docs/realtime-collab-affinity-design.md`.
+    use services::collab_ownership::CollabRoutingMode;
+    let requested_mode = CollabRoutingMode::from_env_value(
+        &env::var("NOSDESK_COLLAB_ROUTING").unwrap_or_else(|_| "single".into()),
+    );
+    let collab_ownership = services::collab_ownership::build(&yjs_redis_url, requested_mode);
+    let collab_routing_mode = if collab_ownership.is_some() {
+        requested_mode
+    } else {
+        CollabRoutingMode::Single
+    };
+
     // Initialize WebSocket app state for collaborative editing (includes SseState for broadcasting)
     let yjs_app_state = web::Data::new(handlers::collaboration::YjsAppState::new(
         web::Data::new(pool.clone()),
         redis_cache,
         sse_state.clone(),
         search_service.get_ref().clone(),
+        collab_ownership,
+        collab_routing_mode,
     ));
 
     // Initialize system state for tracking uptime

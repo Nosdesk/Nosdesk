@@ -1391,6 +1391,12 @@ pub struct ArticleContent {
     pub yjs_document: Option<Vec<u8>>,
     pub yjs_client_id: Option<i64>,
     pub workspace_id: i32,
+    /// Fencing token from the per-document ownership claim (Phase 2
+    /// affinity). The owning machine stamps its claim's monotonic token
+    /// on each snapshot write; a conditional write rejects a stale owner
+    /// whose token is lower. NULL on rows written in single-instance
+    /// mode (no claim). See `docs/realtime-collab-affinity-design.md`.
+    pub fence_token: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable, AsChangeset)]
@@ -1666,6 +1672,9 @@ pub struct DocumentationPage {
     /// docs).
     pub verify_interval_days: Option<i32>,
     pub workspace_id: i32,
+    /// Fencing token from the per-document ownership claim (Phase 2
+    /// affinity); see the note on `ArticleContent::fence_token`.
+    pub fence_token: Option<i64>,
 }
 
 // Documentation Page with Children
@@ -4289,6 +4298,9 @@ pub struct DocumentationCollection {
     /// of leaking the page title.
     pub hide_titles_from_non_members: bool,
     pub workspace_id: i32,
+    /// Fencing token from the per-document ownership claim (Phase 2
+    /// affinity); see the note on `ArticleContent::fence_token`.
+    pub fence_token: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]

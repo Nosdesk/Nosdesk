@@ -99,6 +99,11 @@ pub fn update_article_yjs_state(
     conn: &mut DbConnection,
     ticket_id: i32,
     yjs_document: Vec<u8>,
+    // Ownership-claim fencing token (Phase 2 affinity). `Some(f)` gates
+    // the write so a stale owner (lower token) cannot clobber the current
+    // owner's state; `None` (single-instance / Redis-down) writes
+    // unconditionally. See docs/realtime-collab-affinity-design.md.
+    fence: Option<i64>,
     observer: Option<&dyn ArticleContentSavedObserver>,
 ) -> QueryResult<ArticleContent> {
     // First check if article content exists for this ticket
@@ -107,15 +112,46 @@ pub fn update_article_yjs_state(
         .first::<ArticleContent>(conn);
 
     let result: ArticleContent = match existing {
-        Ok(article) => {
-            // Update existing article content Yjs state
-            diesel::update(article_contents::table.find(article.id))
+        Ok(article) => match fence {
+            // Fenced write: skip (leave the row unchanged) when our token
+            // is older than what's stored, i.e. a newer owner has taken
+            // over. A no-row result is the stale-owner case, not an error.
+            Some(f) => {
+                let updated = diesel::update(
+                    article_contents::table
+                        .filter(article_contents::id.eq(article.id))
+                        .filter(
+                            article_contents::fence_token
+                                .is_null()
+                                .or(article_contents::fence_token.le(f)),
+                        ),
+                )
+                .set((
+                    article_contents::yjs_document.eq(Some(yjs_document)),
+                    article_contents::fence_token.eq(f),
+                    article_contents::updated_at.eq(diesel::dsl::now),
+                ))
+                .get_result::<ArticleContent>(conn)
+                .optional()?;
+                match updated {
+                    Some(a) => a,
+                    None => {
+                        tracing::warn!(
+                            ticket_id,
+                            fence = f,
+                            "Skipped Yjs save: stale ownership fence"
+                        );
+                        article
+                    }
+                }
+            }
+            None => diesel::update(article_contents::table.find(article.id))
                 .set((
                     article_contents::yjs_document.eq(Some(yjs_document)),
                     article_contents::updated_at.eq(diesel::dsl::now),
                 ))
-                .get_result(conn)?
-        }
+                .get_result(conn)?,
+        },
         Err(diesel::result::Error::NotFound) => {
             // Create new article content with Yjs state
             let new_content = NewArticleContent {
