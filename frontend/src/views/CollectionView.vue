@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watchEffect, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
@@ -10,7 +10,7 @@ import { docUrl } from '@/utils/docUrl'
 import { docsEmitter } from '@/services/docsEmitter'
 import { useAuthStore } from '@/stores/auth'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
-import { useSSEListeners } from '@/composables/useSSEListeners'
+import { useSyncDocsStore } from '@/sync/stores/documentation'
 import BackButton from '@/components/common/BackButton.vue'
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
@@ -31,6 +31,50 @@ const docNavStore = useDocumentationNavStore()
 const collection = ref<CollectionWithPages | null>(null)
 const loading = ref(true)
 const creating = ref(false)
+
+// Pages + page count derive from the sync pool, so add / remove / rename
+// / reorder reflect live without a refetch or discrete SSE listeners.
+// The collection's own metadata (visibility, description_doc_id) stays on
+// the REST fetch since it isn't part of the sync model.
+const docs = useSyncDocsStore()
+const collectionId = computed(() => collection.value?.id ?? null)
+// Flat CollectionPage list for this collection from the pool;
+// CollectionTreeList builds (and filters/sorts) the tree itself.
+const pages = computed<CollectionPage[]>(() => {
+  const id = collectionId.value
+  if (id == null) return []
+  return docs.allPages
+    .filter((p) => p.collection_id === id)
+    .map((p) => ({
+      id: p.id,
+      uuid: p.uuid,
+      title: p.title,
+      slug: p.slug,
+      icon: p.icon,
+      status: p.status,
+      parent_id: p.parent_id,
+      display_order: p.display_order,
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+    }))
+})
+const pageCount = computed(
+  () => pages.value.filter((p) => p.status !== 'deleted' && p.status !== 'archived').length,
+)
+
+// Keep the collection's name + icon live from the pool (the rest of its
+// metadata is REST-sourced); replaces the collection-updated listener.
+watchEffect(() => {
+  const id = collection.value?.id
+  if (id == null) return
+  const pc = docs.allCollections.find((c) => c.id === id)
+  if (!pc || !collection.value) return
+  if (pc.name !== collection.value.name) {
+    collection.value.name = pc.name
+    titleManager.setCustomTitle(pc.name)
+  }
+  if (pc.icon !== collection.value.icon) collection.value.icon = pc.icon
+})
 
 // Editor state
 const editContent = ref('')
@@ -146,63 +190,6 @@ watch(() => route.params.slug, loadCollection)
 watch(() => route.query.permissions, (val) => {
   if (val === 'true' && collection.value && authStore.isAdmin) {
     showVisibilityModal.value = true
-  }
-})
-
-// SSE integration for real-time updates
-const { on, debouncedReload } = useSSEListeners({ reload: loadCollection })
-
-/** Set of page IDs in this collection (flat lookup for SSE filtering) */
-const collectionPageIds = computed(() => {
-  if (!collection.value) return new Set<number>()
-  const ids = new Set<number>()
-  const collect = (pages: CollectionPage[]) => {
-    for (const p of pages) {
-      ids.add(p.id)
-      const children = (p as CollectionPage & { children?: CollectionPage[] }).children
-      if (children) collect(children)
-    }
-  }
-  collect(collection.value.pages)
-  return ids
-})
-
-on('collection-updated', (data) => {
-  if (!collection.value) return
-  const event = data as { collection_id: number; field: string; value: unknown }
-  if (event.collection_id !== collection.value.id) return
-  if (event.field === 'name' && typeof event.value === 'string') {
-    collection.value.name = event.value
-    titleManager.setCustomTitle(event.value)
-  } else if (event.field === 'icon' && typeof event.value === 'string') {
-    collection.value.icon = event.value
-  }
-})
-
-on('documentation-created', () => {
-  if (!collection.value) return
-  // Can't tell from the event if the page belongs to this collection
-  // (collection membership is a join table), so reload conservatively
-  debouncedReload()
-})
-
-on('documentation-updated', (data) => {
-  if (!collection.value) return
-  const event = data as { document_id: number; field: string; value: unknown }
-  // Only process events for pages that belong to this collection
-  if (!collectionPageIds.value.has(event.document_id)) return
-  if (event.field === 'status') {
-    debouncedReload()
-    return
-  }
-  // Update page fields in place (title, icon)
-  const page = collection.value.pages.find(p => p.id === event.document_id)
-  if (page) {
-    if (event.field === 'title' && typeof event.value === 'string') {
-      page.title = event.value
-    } else if (event.field === 'icon' && typeof event.value === 'string') {
-      page.icon = event.value
-    }
   }
 })
 
@@ -405,10 +392,10 @@ const deleteModalTitle = computed(() =>
               <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">{{ $t('collection-pages-heading') }}</h2>
             </div>
             <span class="text-xs text-tertiary tabular-nums">
-              {{ $t('collection-page-count', { count: collection.page_count }) }}
+              {{ $t('collection-page-count', { count: pageCount }) }}
             </span>
           </div>
-          <CollectionTreeList :pages="collection.pages" :overridePageIds="overridePageIds" />
+          <CollectionTreeList :pages="pages" :overridePageIds="overridePageIds" />
         </section>
       </div>
     </div>
