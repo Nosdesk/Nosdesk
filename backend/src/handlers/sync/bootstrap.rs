@@ -7,12 +7,14 @@
 //! object pool as they arrive — large workspaces don't block the UI
 //! waiting for the whole snapshot to land.
 //!
-//! v1 streams three aggregates: `workflow_state` (always — workspace
-//! config is small and every view needs it), `project` (subscribed
-//! groups only), and `project_ticket` (associations for those
-//! projects). Tickets, comments, and attachments stay lazy-loaded
-//! through `useReference` so the bootstrap stays under 1MB even on
-//! enterprise-scale workspaces.
+//! The bootstrap streams the bounded, every-view-needs-it aggregates
+//! up front: `workflow_state`, `user`, and `asset` (always), plus
+//! `documentation_collection` / `documentation_page` and `project` /
+//! `project_ticket` when the workspace grant is present. Documentation
+//! rows are visibility-filtered per caller (they are emitted to
+//! `workspace:1` but readable per page/collection grant). Tickets,
+//! comments, and attachments stay lazy-loaded through `useReference`
+//! so the bootstrap stays bounded even on enterprise-scale workspaces.
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use bytes::Bytes;
@@ -64,6 +66,10 @@ pub async fn bootstrap(
 
     let pool_clone = pool.clone();
     let granted_clone = granted.clone();
+    // The streamer needs the caller's identity to visibility-filter
+    // documentation rows (emitted to workspace:1 but readable per
+    // page/collection grant). Clone the User into the blocking task.
+    let user = ctx.user.clone();
     // Snapshot the actor (carries the workspace pin) so the
     // spawn_blocking worker can wrap its connection in
     // `with_actor_context` and satisfy the workspace-isolation RLS
@@ -80,7 +86,7 @@ pub async fn bootstrap(
     // bytes back through the channel so the Actix response future
     // can stay async-friendly.
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = stream_bootstrap(&pool_clone, &actor, &granted_clone, &tx) {
+        if let Err(e) = stream_bootstrap(&pool_clone, &actor, &user, &granted_clone, &tx) {
             error!(error = %e, "bootstrap streaming failed");
             // Best-effort: ship an `__error__` line so the client
             // can surface a useful message instead of just seeing
@@ -102,6 +108,7 @@ pub async fn bootstrap(
 fn stream_bootstrap(
     pool: &web::Data<Pool>,
     actor: &ActorContext,
+    user: &User,
     granted: &[String],
     tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -116,12 +123,13 @@ fn stream_bootstrap(
     session::with_actor_context::<(), Box<dyn std::error::Error + Send + Sync>>(
         &mut conn,
         actor,
-        |c| stream_bootstrap_inner(c, granted, tx),
+        |c| stream_bootstrap_inner(c, user, granted, tx),
     )
 }
 
 fn stream_bootstrap_inner(
     conn: &mut crate::db::DbConnection,
+    user: &User,
     granted: &[String],
     tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -284,6 +292,84 @@ fn stream_bootstrap_inner(
     // ever asks for both `workspace:1` and `project:7` together.
     use std::collections::HashSet;
     let want_all = granted.iter().any(|g| g == "workspace:1");
+
+    // Documentation: workspace-wide knowledge base. Stream every
+    // collection and page (all statuses, so the index / archived /
+    // drafts / trash views all derive from the same pool) when the
+    // caller has the workspace grant. Documentation rows are emitted
+    // to `workspace:1`, so without a per-row visibility filter a
+    // member would receive metadata for pages restricted away from
+    // them. This mirrors the read-side filter on /api/sync/delta;
+    // both reuse the canonical access logic so they cannot drift.
+    if want_all {
+        let is_admin = crate::repository::user_helpers::user_is_admin(conn, user);
+
+        let collections: Vec<crate::models::DocumentationCollection> =
+            crate::schema::documentation_collections::table.load(conn)?;
+        for c in collections {
+            if !is_admin
+                && !crate::repository::documentation_collections::can_user_access_collection(
+                    conn, c.id, &user.uuid, false,
+                )?
+            {
+                continue;
+            }
+            send(
+                tx,
+                json!({
+                    "__model__": "documentation_collection",
+                    "id": c.id,
+                    "uuid": c.uuid,
+                    "name": c.name,
+                    "slug": c.slug,
+                    "description": c.description,
+                    "icon": c.icon,
+                    "color": c.color,
+                    "is_system": c.is_system,
+                    "created_by": c.created_by,
+                    "display_order": c.display_order,
+                    "description_text": c.description_text,
+                    "hide_titles_from_non_members": c.hide_titles_from_non_members,
+                    "created_at": c.created_at,
+                    "updated_at": c.updated_at,
+                }),
+            )?;
+        }
+
+        let all_pages: Vec<crate::models::DocumentationPage> =
+            crate::schema::documentation_pages::table.load(conn)?;
+        let visible_pages = crate::repository::documentation::filter_pages_for_user(
+            conn, all_pages, &user.uuid, is_admin,
+        )?;
+        for p in visible_pages {
+            send(
+                tx,
+                json!({
+                    "__model__": "documentation_page",
+                    "id": p.id,
+                    "uuid": p.uuid,
+                    "title": p.title,
+                    "slug": p.slug,
+                    "icon": p.icon,
+                    "cover_image": p.cover_image,
+                    "status": p.status,
+                    "parent_id": p.parent_id,
+                    "display_order": p.display_order,
+                    "is_public": p.is_public,
+                    "is_template": p.is_template,
+                    "archived_at": p.archived_at,
+                    "deleted_at": p.deleted_at,
+                    "created_by": p.created_by,
+                    "last_edited_by": p.last_edited_by,
+                    "verified_by": p.verified_by,
+                    "verified_at": p.verified_at,
+                    "verify_interval_days": p.verify_interval_days,
+                    "created_at": p.created_at,
+                    "updated_at": p.updated_at,
+                }),
+            )?;
+        }
+    }
 
     let project_ids: Vec<i32> = if want_all {
         projects::table.select(projects::id).load::<i32>(conn)?
