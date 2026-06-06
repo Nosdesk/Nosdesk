@@ -627,6 +627,23 @@ fn process_one_breach(
                 op: crate::models::SyncOp::Update,
                 event_type: "ticket.sla_updated",
                 data: json!({ "id": ticket_id, "sla": sla }),
+                groups: groups.clone(),
+                causation_id: None,
+            },
+        )?;
+        // Dedicated breach event for webhook delivery (only fires on a
+        // real breach, unlike sla_updated which also fires on every SLA
+        // recompute). op U side event: no row `id` in data, so the
+        // object pool skips it; the webhook outbox maps it to
+        // `ticket.sla_breached`.
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: crate::models::SyncAggregate::Ticket,
+                aggregate_id: ticket_id.to_string(),
+                op: crate::models::SyncOp::Update,
+                event_type: "ticket.sla_breached",
+                data: json!({ "ticket_id": ticket_id, "timer": kind.label() }),
                 groups,
                 causation_id: None,
             },

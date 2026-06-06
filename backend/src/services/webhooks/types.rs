@@ -5,8 +5,6 @@
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::handlers::sse::SseEvent;
-
 /// Webhook event types that map to SSE events
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WebhookEventType {
@@ -138,25 +136,6 @@ impl WebhookEventType {
         ]
     }
 
-    /// Webhook events dispatched straight from SSE — only the ones that
-    /// don't yet have a `sync_actions` source. Everything else flows
-    /// through the webhook cursor dispatcher (see `from_sync_action`).
-    ///
-    /// These gap events (asset/ticket link/unlink + SLA breach) are
-    /// broadcast on the single instance that committed the mutation, so
-    /// SSE delivery stays single-fire. They move to `from_sync_action`
-    /// once their transactional sync emits land.
-    pub fn from_sse_event(event: &SseEvent) -> Option<Self> {
-        match event {
-            SseEvent::AssetLinked { .. } => Some(Self::AssetLinked),
-            SseEvent::AssetUnlinked { .. } => Some(Self::AssetUnlinked),
-            SseEvent::TicketLinked { .. } => Some(Self::TicketLinked),
-            SseEvent::TicketUnlinked { .. } => Some(Self::TicketUnlinked),
-            SseEvent::SlaBreached { .. } => Some(Self::TicketSlaBreached),
-            _ => None,
-        }
-    }
-
     /// Map a `sync_actions.event_type` string to the webhook event it
     /// drives. Covers every webhook event that has a sync_actions
     /// source; the gap events stay on `from_sse_event` for now. The
@@ -180,6 +159,11 @@ impl WebhookEventType {
             "asset.created" => Self::AssetCreated,
             "asset.updated" => Self::AssetUpdated,
             "asset.deleted" => Self::AssetDeleted,
+            "asset.linked" => Self::AssetLinked,
+            "asset.unlinked" => Self::AssetUnlinked,
+            "ticket.linked" => Self::TicketLinked,
+            "ticket.unlinked" => Self::TicketUnlinked,
+            "ticket.sla_breached" => Self::TicketSlaBreached,
             "project_ticket.added" => Self::ProjectAssigned,
             "project_ticket.removed" => Self::ProjectUnassigned,
             "documentation_page.created" => Self::DocumentationCreated,
@@ -257,37 +241,6 @@ mod tests {
     }
 
     #[test]
-    fn from_sse_heartbeat_is_none() {
-        let heartbeat = SseEvent::Heartbeat {
-            timestamp: chrono::Utc::now(),
-        };
-        assert!(WebhookEventType::from_sse_event(&heartbeat).is_none());
-    }
-
-    #[test]
-    fn from_sse_event_only_covers_gap_events() {
-        // Covered events flow through from_sync_action now; from_sse_event
-        // must return None for them so they don't double-fire.
-        let created = SseEvent::TicketCreated {
-            ticket_id: 1,
-            ticket: serde_json::json!({}),
-            timestamp: chrono::Utc::now(),
-        };
-        assert!(WebhookEventType::from_sse_event(&created).is_none());
-
-        // Gap events (no sync_actions source yet) stay on the SSE path.
-        let linked = SseEvent::AssetLinked {
-            ticket_id: 1,
-            device_id: 2,
-            timestamp: chrono::Utc::now(),
-        };
-        assert_eq!(
-            WebhookEventType::from_sse_event(&linked),
-            Some(WebhookEventType::AssetLinked)
-        );
-    }
-
-    #[test]
     fn from_sync_action_maps_covered_events() {
         use WebhookEventType::*;
         let cases = [
@@ -307,13 +260,16 @@ mod tests {
             ),
             ("documentation_page.verified", Some(DocumentationUpdated)),
             ("user.created", Some(UserCreated)),
+            // Former gap events: now have transactional sync emits.
+            ("asset.linked", Some(AssetLinked)),
+            ("asset.unlinked", Some(AssetUnlinked)),
+            ("ticket.linked", Some(TicketLinked)),
+            ("ticket.unlinked", Some(TicketUnlinked)),
+            ("ticket.sla_breached", Some(TicketSlaBreached)),
             // Not webhook events / no source.
             ("documentation_page.visibility_changed", None),
             ("workflow_state.created", None),
             ("cycle.created", None),
-            // Gap events are NOT in from_sync_action (no sync emit yet).
-            ("asset.linked", None),
-            ("ticket.sla_breached", None),
         ];
         for (event_type, expected) in cases {
             assert_eq!(

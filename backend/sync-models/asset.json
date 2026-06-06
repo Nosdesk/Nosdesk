@@ -19,7 +19,9 @@
   "events": [
     { "type": "asset.created", "op": "I" },
     { "type": "asset.updated", "op": "U" },
-    { "type": "asset.deleted", "op": "D" }
+    { "type": "asset.deleted", "op": "D" },
+    { "type": "asset.linked", "op": "U" },
+    { "type": "asset.unlinked", "op": "U" }
   ],
   "groups": [
     "workspace:1"

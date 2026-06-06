@@ -828,34 +828,64 @@ pub fn import_ticket_from_json(
 }
 
 // Ticket-Asset relationship functions
-// sync-pending-wire: needs sync aggregate wiring
 pub fn add_device_to_ticket(
     conn: &mut DbConnection,
     ticket_id: i32,
     device_id: i32,
 ) -> QueryResult<TicketAsset> {
-    let new_ticket_device = NewTicketAsset {
-        ticket_id,
-        asset_id: device_id,
-    };
-
-    diesel::insert_into(ticket_assets::table)
-        .values(&new_ticket_device)
-        .get_result(conn)
+    conn.transaction(|conn| {
+        let row: TicketAsset = diesel::insert_into(ticket_assets::table)
+            .values(&NewTicketAsset {
+                ticket_id,
+                asset_id: device_id,
+            })
+            .get_result(conn)?;
+        // Relationship event (op U side event; the object pool skips it,
+        // the webhook outbox maps `asset.linked` to its webhook).
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Asset,
+                aggregate_id: device_id.to_string(),
+                op: SyncOp::Update,
+                event_type: "asset.linked",
+                data: json!({ "asset_id": device_id, "ticket_id": ticket_id }),
+                groups: crate::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(row)
+    })
 }
 
-// sync-pending-wire: needs sync aggregate wiring
 pub fn remove_device_from_ticket(
     conn: &mut DbConnection,
     ticket_id: i32,
     device_id: i32,
 ) -> QueryResult<usize> {
-    diesel::delete(
-        ticket_assets::table
-            .filter(ticket_assets::ticket_id.eq(ticket_id))
-            .filter(ticket_assets::asset_id.eq(device_id)),
-    )
-    .execute(conn)
+    conn.transaction(|conn| {
+        let count = diesel::delete(
+            ticket_assets::table
+                .filter(ticket_assets::ticket_id.eq(ticket_id))
+                .filter(ticket_assets::asset_id.eq(device_id)),
+        )
+        .execute(conn)?;
+        if count > 0 {
+            emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::Asset,
+                    aggregate_id: device_id.to_string(),
+                    op: SyncOp::Update,
+                    event_type: "asset.unlinked",
+                    data: json!({ "asset_id": device_id, "ticket_id": ticket_id }),
+                    groups: crate::sync::groups::workspace(),
+                    causation_id: None,
+                },
+            )?;
+        }
+        Ok(count)
+    })
 }
 
 pub fn get_devices_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<Asset>> {

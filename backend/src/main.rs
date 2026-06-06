@@ -893,14 +893,7 @@ async fn main() -> std::io::Result<()> {
     let email_service_data = web::Data::new(email_service.clone());
 
     // Initialize webhook service for external integrations
-    let webhook_service = {
-        use std::sync::Arc;
-        let sse_state_arc: Arc<handlers::sse::SseState> = sse_state.clone().into_inner();
-        web::Data::new(services::webhooks::WebhookService::new(
-            pool.clone(),
-            sse_state_arc,
-        ))
-    };
+    let webhook_service = web::Data::new(services::webhooks::WebhookService::new(pool.clone()));
 
     // Initialize plugin proxy service for external requests
     let plugin_proxy_service = web::Data::new(services::plugins::PluginProxyService::new());
