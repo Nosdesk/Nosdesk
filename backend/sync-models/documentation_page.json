@@ -4,6 +4,7 @@
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
     "uuid": { "rust": "Uuid", "ts": "string" },
+    "collection_id": { "rust": "Option<i32>", "ts": "number | null" },
     "title": { "rust": "String", "ts": "string" },
     "slug": { "rust": "String", "ts": "string" },
     "icon": { "rust": "Option<String>", "ts": "string | null" },

@@ -21,10 +21,22 @@ use crate::sync::emit::{self, SyncEmit};
 /// state churned on every keystroke-batch, not metadata a sync
 /// consumer wants. The document body flows through the Yjs
 /// WebSocket channel, not the sync_actions stream.
-fn page_sync_payload(p: &DocumentationPage) -> serde_json::Value {
+/// The single collection a page belongs to, or None if uncollected.
+/// `UNIQUE(page_id)` on the junction guarantees at most one, so this
+/// is a clean denormalisation onto the page sync row.
+pub fn collection_id_for_page(conn: &mut DbConnection, page_id: i32) -> Result<Option<i32>, Error> {
+    documentation_collection_pages::table
+        .filter(documentation_collection_pages::page_id.eq(page_id))
+        .select(documentation_collection_pages::collection_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
+fn page_sync_payload(p: &DocumentationPage, collection_id: Option<i32>) -> serde_json::Value {
     json!({
         "id": p.id,
         "uuid": p.uuid,
+        "collection_id": collection_id,
         "title": p.title,
         "slug": p.slug,
         "icon": p.icon,
@@ -112,6 +124,7 @@ pub fn create_documentation_page(
         let page: DocumentationPage = diesel::insert_into(documentation_pages::table)
             .values(page)
             .get_result(conn)?;
+        let collection_id = collection_id_for_page(conn, page.id)?;
         emit::record(
             conn,
             SyncEmit {
@@ -119,7 +132,7 @@ pub fn create_documentation_page(
                 aggregate_id: page.id.to_string(),
                 op: SyncOp::Insert,
                 event_type: "documentation_page.created",
-                data: page_sync_payload(&page),
+                data: page_sync_payload(&page, collection_id),
                 groups: crate::sync::groups::workspace(),
                 causation_id: None,
             },
@@ -143,6 +156,7 @@ pub fn update_documentation_page(
         let page: DocumentationPage = diesel::update(documentation_pages::table.find(page_id))
             .set(page_update)
             .get_result(conn)?;
+        let collection_id = collection_id_for_page(conn, page.id)?;
         emit::record(
             conn,
             SyncEmit {
@@ -154,7 +168,7 @@ pub fn update_documentation_page(
                 } else {
                     "documentation_page.metadata_changed"
                 },
-                data: page_sync_payload(&page),
+                data: page_sync_payload(&page, collection_id),
                 groups: crate::sync::groups::workspace(),
                 causation_id: None,
             },
@@ -288,6 +302,7 @@ pub fn reorder_pages(
                 ))
                 .get_result::<DocumentationPage>(conn)?;
 
+            let collection_id = collection_id_for_page(conn, updated_page.id)?;
             emit::record(
                 conn,
                 SyncEmit {
@@ -295,7 +310,7 @@ pub fn reorder_pages(
                     aggregate_id: updated_page.id.to_string(),
                     op: SyncOp::Update,
                     event_type: "documentation_page.metadata_changed",
-                    data: page_sync_payload(&updated_page),
+                    data: page_sync_payload(&updated_page, collection_id),
                     groups: crate::sync::groups::workspace(),
                     causation_id: None,
                 },
@@ -371,6 +386,7 @@ pub fn move_page_to_parent(
             ))
             .get_result::<DocumentationPage>(conn)?;
 
+        let collection_id = collection_id_for_page(conn, updated_page.id)?;
         emit::record(
             conn,
             SyncEmit {
@@ -378,7 +394,7 @@ pub fn move_page_to_parent(
                 aggregate_id: updated_page.id.to_string(),
                 op: SyncOp::Update,
                 event_type: "documentation_page.metadata_changed",
-                data: page_sync_payload(&updated_page),
+                data: page_sync_payload(&updated_page, collection_id),
                 groups: crate::sync::groups::workspace(),
                 causation_id: None,
             },
@@ -397,6 +413,28 @@ pub fn move_page_to_parent(
 
         Ok(updated_page)
     })
+}
+
+/// Re-emit a page's `metadata_changed` sync event. Call after a
+/// change that alters the page's denormalised `collection_id`
+/// (collection add / remove / move) but not the page row itself, so
+/// the sync pool's page row reflects its new collection membership.
+pub fn emit_page_membership_changed(conn: &mut DbConnection, page_id: i32) -> Result<(), Error> {
+    let page: DocumentationPage = documentation_pages::table.find(page_id).first(conn)?;
+    let collection_id = collection_id_for_page(conn, page_id)?;
+    emit::record(
+        conn,
+        SyncEmit {
+            aggregate: SyncAggregate::DocumentationPage,
+            aggregate_id: page.id.to_string(),
+            op: SyncOp::Update,
+            event_type: "documentation_page.metadata_changed",
+            data: page_sync_payload(&page, collection_id),
+            groups: crate::sync::groups::workspace(),
+            causation_id: None,
+        },
+    )?;
+    Ok(())
 }
 
 // Get page with ordered children

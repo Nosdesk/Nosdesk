@@ -341,6 +341,23 @@ fn stream_bootstrap_inner(
         let visible_pages = crate::repository::documentation::filter_pages_for_user(
             conn, all_pages, &user.uuid, is_admin,
         )?;
+        // Denormalised collection membership (one collection per page,
+        // UNIQUE(page_id)) so the page row is self-contained for the
+        // pool — mirrors `page_sync_payload`'s collection_id field.
+        let visible_page_ids: Vec<i32> = visible_pages.iter().map(|p| p.id).collect();
+        let collection_by_page: std::collections::HashMap<i32, i32> =
+            crate::schema::documentation_collection_pages::table
+                .filter(
+                    crate::schema::documentation_collection_pages::page_id
+                        .eq_any(&visible_page_ids),
+                )
+                .select((
+                    crate::schema::documentation_collection_pages::page_id,
+                    crate::schema::documentation_collection_pages::collection_id,
+                ))
+                .load::<(i32, i32)>(conn)?
+                .into_iter()
+                .collect();
         for p in visible_pages {
             send(
                 tx,
@@ -348,6 +365,7 @@ fn stream_bootstrap_inner(
                     "__model__": "documentation_page",
                     "id": p.id,
                     "uuid": p.uuid,
+                    "collection_id": collection_by_page.get(&p.id),
                     "title": p.title,
                     "slug": p.slug,
                     "icon": p.icon,

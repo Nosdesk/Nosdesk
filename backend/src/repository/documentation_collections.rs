@@ -245,6 +245,9 @@ pub fn add_page_to_collection(
                 causation_id: None,
             },
         )?;
+        // Re-emit the page so the sync pool's page row picks up its
+        // new denormalised collection_id.
+        crate::repository::documentation::emit_page_membership_changed(conn, entry.page_id)?;
         Ok(entry)
     })
 }
@@ -295,6 +298,9 @@ pub fn add_page_to_collection_at_root(
                 causation_id: None,
             },
         )?;
+        // Re-emit the page (its parent_id was nulled above and its
+        // collection_id changed) so the sync pool row reflects both.
+        crate::repository::documentation::emit_page_membership_changed(tx, entry.page_id)?;
         Ok(entry)
     })
 }
@@ -367,6 +373,7 @@ pub fn cascade_collection_membership(
             causation_id: None,
         },
     )?;
+    crate::repository::documentation::emit_page_membership_changed(conn, child_page_id)?;
     Ok(())
 }
 
@@ -395,6 +402,9 @@ pub fn remove_page_from_collection(
                     causation_id: None,
                 },
             )?;
+            // Page is now uncollected; re-emit so the pool row's
+            // collection_id drops to null.
+            crate::repository::documentation::emit_page_membership_changed(conn, page_id)?;
         }
         Ok(count)
     })
