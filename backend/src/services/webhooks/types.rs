@@ -159,10 +159,13 @@ impl WebhookEventType {
             "asset.created" => Self::AssetCreated,
             "asset.updated" => Self::AssetUpdated,
             "asset.deleted" => Self::AssetDeleted,
-            "asset.linked" => Self::AssetLinked,
-            "asset.unlinked" => Self::AssetUnlinked,
-            "ticket.linked" => Self::TicketLinked,
-            "ticket.unlinked" => Self::TicketUnlinked,
+            // Ticket<->asset and ticket<->ticket links became their own
+            // sync aggregates (Phase 2); keep the external webhook event
+            // names stable by mapping the new event types here.
+            "ticket_asset.added" => Self::AssetLinked,
+            "ticket_asset.removed" => Self::AssetUnlinked,
+            "linked_ticket.added" => Self::TicketLinked,
+            "linked_ticket.removed" => Self::TicketUnlinked,
             "ticket.sla_breached" => Self::TicketSlaBreached,
             "project_ticket.added" => Self::ProjectAssigned,
             "project_ticket.removed" => Self::ProjectUnassigned,
@@ -260,12 +263,17 @@ mod tests {
             ),
             ("documentation_page.verified", Some(DocumentationUpdated)),
             ("user.created", Some(UserCreated)),
-            // Former gap events: now have transactional sync emits.
-            ("asset.linked", Some(AssetLinked)),
-            ("asset.unlinked", Some(AssetUnlinked)),
-            ("ticket.linked", Some(TicketLinked)),
-            ("ticket.unlinked", Some(TicketUnlinked)),
+            // Ticket<->asset and ticket<->ticket links are their own
+            // sync aggregates now; the external webhook names are kept
+            // stable by mapping the new event types.
+            ("ticket_asset.added", Some(AssetLinked)),
+            ("ticket_asset.removed", Some(AssetUnlinked)),
+            ("linked_ticket.added", Some(TicketLinked)),
+            ("linked_ticket.removed", Some(TicketUnlinked)),
             ("ticket.sla_breached", Some(TicketSlaBreached)),
+            // Old discrete-SSE event names no longer ride sync_actions.
+            ("asset.linked", None),
+            ("ticket.linked", None),
             // Not webhook events / no source.
             ("documentation_page.visibility_changed", None),
             ("workflow_state.created", None),

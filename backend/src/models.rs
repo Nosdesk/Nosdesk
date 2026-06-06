@@ -495,6 +495,15 @@ pub enum SyncAggregate {
     /// so they fan out cross-machine via the sync stream.
     #[serde(rename = "notification")]
     Notification,
+    /// Ticket<->asset link (junction `ticket_assets`). Composite key
+    /// `ticket_id:asset_id`. Lets the pool-native ticket detail view
+    /// derive a ticket's linked assets (Phase 2).
+    #[serde(rename = "ticket_asset")]
+    TicketAsset,
+    /// Ticket<->ticket link (junction `linked_tickets`). Composite key
+    /// `ticket_id:linked_ticket_id`, emitted in both directions.
+    #[serde(rename = "linked_ticket")]
+    LinkedTicket,
 }
 
 impl SyncAggregate {
@@ -520,6 +529,8 @@ impl SyncAggregate {
             Self::DocumentationCollection => "documentation_collection",
             Self::Data => "data",
             Self::Notification => "notification",
+            Self::TicketAsset => "ticket_asset",
+            Self::LinkedTicket => "linked_ticket",
         }
     }
 }
@@ -554,6 +565,8 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"documentation_collection" => Ok(Self::DocumentationCollection),
             b"data" => Ok(Self::Data),
             b"notification" => Ok(Self::Notification),
+            b"ticket_asset" => Ok(Self::TicketAsset),
+            b"linked_ticket" => Ok(Self::LinkedTicket),
             other => {
                 Err(format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into())
             }

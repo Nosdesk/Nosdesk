@@ -840,17 +840,22 @@ pub fn add_device_to_ticket(
                 asset_id: device_id,
             })
             .get_result(conn)?;
-        // Relationship event (op U side event; the object pool skips it,
-        // the webhook outbox maps `asset.linked` to its webhook).
+        // Junction aggregate row so the pool-native ticket detail view
+        // derives linked assets (Phase 2). Composite key ticket_id:asset_id,
+        // routed to the ticket + asset groups. The webhook outbox maps
+        // `ticket_asset.added` to the `asset.linked` webhook.
+        let parent: Ticket = tickets::table.find(ticket_id).first(conn)?;
+        let mut link_groups = crate::sync::groups::for_ticket(conn, &parent)?;
+        link_groups.push(format!("asset:{device_id}"));
         emit::record(
             conn,
             SyncEmit {
-                aggregate: SyncAggregate::Asset,
-                aggregate_id: device_id.to_string(),
-                op: SyncOp::Update,
-                event_type: "asset.linked",
-                data: json!({ "asset_id": device_id, "ticket_id": ticket_id }),
-                groups: crate::sync::groups::workspace(),
+                aggregate: SyncAggregate::TicketAsset,
+                aggregate_id: format!("{ticket_id}:{device_id}"),
+                op: SyncOp::Insert,
+                event_type: "ticket_asset.added",
+                data: json!({ "ticket_id": ticket_id, "asset_id": device_id }),
+                groups: link_groups,
                 causation_id: None,
             },
         )?;
@@ -871,15 +876,18 @@ pub fn remove_device_from_ticket(
         )
         .execute(conn)?;
         if count > 0 {
+            let parent: Ticket = tickets::table.find(ticket_id).first(conn)?;
+            let mut link_groups = crate::sync::groups::for_ticket(conn, &parent)?;
+            link_groups.push(format!("asset:{device_id}"));
             emit::record(
                 conn,
                 SyncEmit {
-                    aggregate: SyncAggregate::Asset,
-                    aggregate_id: device_id.to_string(),
-                    op: SyncOp::Update,
-                    event_type: "asset.unlinked",
-                    data: json!({ "asset_id": device_id, "ticket_id": ticket_id }),
-                    groups: crate::sync::groups::workspace(),
+                    aggregate: SyncAggregate::TicketAsset,
+                    aggregate_id: format!("{ticket_id}:{device_id}"),
+                    op: SyncOp::Delete,
+                    event_type: "ticket_asset.removed",
+                    data: json!({ "ticket_id": ticket_id, "asset_id": device_id }),
+                    groups: link_groups,
                     causation_id: None,
                 },
             )?;

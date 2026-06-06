@@ -1,0 +1,21 @@
+{
+  "name": "ticket_asset",
+  "schema_version": 1,
+  "fields": {
+    "ticket_id": { "rust": "i32", "ts": "number", "primary": true },
+    "asset_id": { "rust": "i32", "ts": "number", "primary": true }
+  },
+  "events": [
+    { "type": "ticket_asset.added", "op": "I" },
+    { "type": "ticket_asset.removed", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1",
+    "ticket:<ticket_id>",
+    "asset:<asset_id>"
+  ],
+  "references": [
+    { "field": "ticket_id", "aggregate": "ticket" },
+    { "field": "asset_id", "aggregate": "asset" }
+  ]
+}

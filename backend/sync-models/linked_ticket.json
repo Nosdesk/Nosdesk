@@ -1,0 +1,21 @@
+{
+  "name": "linked_ticket",
+  "schema_version": 1,
+  "fields": {
+    "ticket_id": { "rust": "i32", "ts": "number", "primary": true },
+    "linked_ticket_id": { "rust": "i32", "ts": "number", "primary": true }
+  },
+  "events": [
+    { "type": "linked_ticket.added", "op": "I", "note": "emitted in both directions (ticket_id:linked_ticket_id and the reverse)" },
+    { "type": "linked_ticket.removed", "op": "D", "note": "emitted in both directions" }
+  ],
+  "groups": [
+    "workspace:1",
+    "ticket:<ticket_id>",
+    "ticket:<linked_ticket_id>"
+  ],
+  "references": [
+    { "field": "ticket_id", "aggregate": "ticket" },
+    { "field": "linked_ticket_id", "aggregate": "ticket" }
+  ]
+}

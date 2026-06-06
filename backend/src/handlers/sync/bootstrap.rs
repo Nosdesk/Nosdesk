@@ -568,6 +568,13 @@ fn stream_bootstrap_inner(
                 "category_id": t.category_id,
                 "triage_state": t.triage_state,
                 "due_date": t.due_date,
+                "resolution_notes": t.resolution_notes,
+                // Merge state so the pool-native ticket detail view can
+                // render the merged-into banner + read-only composer
+                // without a REST fetch (Phase 2).
+                "merged_into_ticket_id": t.merged_into_ticket_id,
+                "merged_at": t.merged_at,
+                "merged_by_user_uuid": t.merged_by_user_uuid,
                 "kb_gap_signal": kb_gap_signal,
                 "affected_devices": affected_devices,
                 "cycle_id": cycle_membership.get(&t.id),

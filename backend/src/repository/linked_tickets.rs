@@ -139,19 +139,33 @@ pub fn link_tickets(conn: &mut DbConnection, ticket1_id: i32, ticket2_id: i32) -
             "Inserted links"
         );
 
-        // Relationship event (op U side event: carries the pair, not a
-        // ticket row, so the object pool skips it; the webhook outbox
-        // maps `ticket.linked` to the ticket.linked webhook).
+        // Junction aggregate rows so the pool-native ticket detail view
+        // derives linked tickets (Phase 2). Emit BOTH directions (the DB
+        // inserts both) so each ticket's pool sees its own edge. The
+        // webhook outbox maps `linked_ticket.added` to the ticket.linked
+        // webhook.
         let mut link_groups = crate::sync::groups::for_ticket(conn, &ticket1)?;
         link_groups.push(format!("ticket:{}", ticket2.id));
         emit::record(
             conn,
             SyncEmit {
-                aggregate: SyncAggregate::Ticket,
-                aggregate_id: ticket1.id.to_string(),
-                op: SyncOp::Update,
-                event_type: "ticket.linked",
+                aggregate: SyncAggregate::LinkedTicket,
+                aggregate_id: format!("{}:{}", ticket1.id, ticket2.id),
+                op: SyncOp::Insert,
+                event_type: "linked_ticket.added",
                 data: json!({ "ticket_id": ticket1.id, "linked_ticket_id": ticket2.id }),
+                groups: link_groups.clone(),
+                causation_id: None,
+            },
+        )?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::LinkedTicket,
+                aggregate_id: format!("{}:{}", ticket2.id, ticket1.id),
+                op: SyncOp::Insert,
+                event_type: "linked_ticket.added",
+                data: json!({ "ticket_id": ticket2.id, "linked_ticket_id": ticket1.id }),
                 groups: link_groups,
                 causation_id: None,
             },
@@ -258,17 +272,33 @@ pub fn unlink_tickets(
             "Deleted links"
         );
 
-        // Relationship event (op U side event; the object pool skips it,
-        // the webhook outbox maps `ticket.unlinked` to its webhook).
+        // Junction aggregate removals, both directions (Phase 2). The
+        // webhook outbox maps `linked_ticket.removed` to the
+        // ticket.unlinked webhook.
+        let mut link_groups = crate::sync::groups::workspace();
+        link_groups.push(format!("ticket:{ticket1_id}"));
+        link_groups.push(format!("ticket:{ticket2_id}"));
         emit::record(
             conn,
             SyncEmit {
-                aggregate: SyncAggregate::Ticket,
-                aggregate_id: ticket1_id.to_string(),
-                op: SyncOp::Update,
-                event_type: "ticket.unlinked",
+                aggregate: SyncAggregate::LinkedTicket,
+                aggregate_id: format!("{}:{}", ticket1_id, ticket2_id),
+                op: SyncOp::Delete,
+                event_type: "linked_ticket.removed",
                 data: json!({ "ticket_id": ticket1_id, "linked_ticket_id": ticket2_id }),
-                groups: crate::sync::groups::workspace(),
+                groups: link_groups.clone(),
+                causation_id: None,
+            },
+        )?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::LinkedTicket,
+                aggregate_id: format!("{}:{}", ticket2_id, ticket1_id),
+                op: SyncOp::Delete,
+                event_type: "linked_ticket.removed",
+                data: json!({ "ticket_id": ticket2_id, "linked_ticket_id": ticket1_id }),
+                groups: link_groups,
                 causation_id: None,
             },
         )?;

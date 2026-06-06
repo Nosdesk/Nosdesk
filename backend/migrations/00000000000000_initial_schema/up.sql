@@ -169,7 +169,9 @@ CREATE TYPE public.sync_aggregate AS ENUM (
     'documentation_page',
     'documentation_collection',
     'data',
-    'notification'
+    'notification',
+    'ticket_asset',
+    'linked_ticket'
 );
 
 

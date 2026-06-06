@@ -205,7 +205,9 @@ fn apply_transaction(
         | SyncAggregate::DocumentationPage
         | SyncAggregate::DocumentationCollection
         | SyncAggregate::Data
-        | SyncAggregate::Notification => Err(TxReject(
+        | SyncAggregate::Notification
+        | SyncAggregate::TicketAsset
+        | SyncAggregate::LinkedTicket => Err(TxReject(
             "unsupported_aggregate",
             format!(
                 "push for aggregate `{}` is not yet wired",

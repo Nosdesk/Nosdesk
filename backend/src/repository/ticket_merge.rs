@@ -409,7 +409,19 @@ pub fn execute_merge(
                 aggregate_id: marker_comment.id.to_string(),
                 op: SyncOp::Insert,
                 event_type: "comment.created",
-                data: json!({ "ticket_id": target_id, "kind": "merge_marker" }),
+                // Carry the render essentials (+ id) so the marker lands
+                // as a real pool comment on the destination timeline,
+                // pool-native (Phase 2), instead of a skipped side-event.
+                data: json!({
+                    "id": marker_comment.id,
+                    "ticket_id": target_id,
+                    "user_uuid": marker_comment.user_uuid,
+                    "is_internal": marker_comment.is_internal,
+                    "content_format": marker_comment.content_format,
+                    "content": marker_comment.content,
+                    "created_at": marker_comment.created_at,
+                    "kind": "merge_marker",
+                }),
                 groups: groups.clone(),
                 causation_id: None,
             },
@@ -443,6 +455,12 @@ pub fn execute_merge(
 
         for source in &sources {
             let source_groups = groups::for_ticket(conn, source)?;
+            // Re-read post-update so the emit carries the persisted merge
+            // fields and an `id` (so the pool applies it as an op-U on the
+            // source ticket row rather than skipping a pk-less side event).
+            // Drives the merged-into banner + read-only composer
+            // pool-native (Phase 2).
+            let merged = load_ticket(conn, source.id)?;
             emit::record(
                 conn,
                 SyncEmit {
@@ -451,7 +469,10 @@ pub fn execute_merge(
                     op: SyncOp::Update,
                     event_type: "ticket.merged_into",
                     data: json!({
-                        "merged_into_ticket_id": target_id,
+                        "id": source.id,
+                        "merged_into_ticket_id": merged.merged_into_ticket_id,
+                        "merged_at": merged.merged_at,
+                        "merged_by_user_uuid": merged.merged_by_user_uuid,
                         "actor_uuid": actor.uuid,
                     }),
                     groups: source_groups,

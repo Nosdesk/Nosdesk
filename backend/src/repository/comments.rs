@@ -147,6 +147,13 @@ pub fn create_comment_with_annotation(
                     "user_uuid": comment.user_uuid,
                     "is_internal": comment.is_internal,
                     "content_format": comment.content_format,
+                    // Render essentials so the detail view can show a
+                    // comment from the pool alone (Phase 2 pool-native
+                    // ticket view). Heavy email-only fields
+                    // (quoted_content, raw source, channel_metadata) stay
+                    // off the change log and are lazy-fetched on expand.
+                    "content": comment.content,
+                    "created_at": comment.created_at,
                     "created_via": created_via,
                 }),
                 groups: groups.clone(),
@@ -286,6 +293,10 @@ pub fn create_attachment(
                     "name": attachment.name,
                     "mime_type": attachment.mime_type,
                     "file_size": attachment.file_size,
+                    // url is needed to render/download the attachment from
+                    // the pool (Phase 2). thumbnail_url stays derived
+                    // client-side by convention.
+                    "url": attachment.url,
                 }),
                 groups,
                 causation_id: None,

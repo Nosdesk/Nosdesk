@@ -36,5 +36,7 @@ pub fn schema_version_for(aggregate: SyncAggregate) -> i16 {
         SyncAggregate::DocumentationCollection => 1,
         SyncAggregate::Data => 1,
         SyncAggregate::Notification => 1,
+        SyncAggregate::TicketAsset => 1,
+        SyncAggregate::LinkedTicket => 1,
     }
 }
