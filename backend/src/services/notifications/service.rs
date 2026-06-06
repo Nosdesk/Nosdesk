@@ -17,7 +17,8 @@ use crate::sync::emit::{self, SyncEmit};
 use super::channels::{ChannelError, NotificationDeliveryChannel};
 use super::preferences::PreferenceService;
 use super::types::{
-    DeliverableNotification, NotificationChannel, NotificationEntity, NotificationPayload,
+    DeliverableNotification, NotificationChannel, NotificationEntity, NotificationEvent,
+    NotificationPayload,
 };
 
 /// Central notification service that orchestrates notification creation and delivery
@@ -280,6 +281,23 @@ impl NotificationService {
                 // recipient's private `user:<uuid>` group so no other
                 // user can see it. workspace_id defaults to 1 like the
                 // insert above (single-tenant); revisit for multi-tenant.
+                //
+                // The data is the full NotificationEvent (same shape the
+                // in-process broadcast sends), so the client can render the
+                // toast straight from the sync row. Mirrors
+                // `NotificationEvent::from(&DeliverableNotification)`.
+                let event = NotificationEvent {
+                    id: notification.uuid,
+                    notification_type: payload.notification_type.as_str().to_string(),
+                    title: payload.title.clone(),
+                    body: payload.body.clone(),
+                    entity_type: payload.entity.entity_type().to_string(),
+                    entity_id: payload.entity.entity_id(),
+                    ticket_id: payload.entity.ticket_id(),
+                    actor: payload.actor.clone(),
+                    metadata: payload.metadata.clone(),
+                    timestamp: payload.created_at,
+                };
                 emit::record(
                     conn,
                     SyncEmit {
@@ -287,14 +305,7 @@ impl NotificationService {
                         aggregate_id: notification.id.to_string(),
                         op: SyncOp::Insert,
                         event_type: "notification.created",
-                        data: serde_json::json!({
-                            "id": notification.id,
-                            "uuid": notification.uuid,
-                            "type": payload.notification_type.as_str(),
-                            "title": notification.title,
-                            "body": notification.body,
-                            "metadata": notification.metadata,
-                        }),
+                        data: serde_json::to_value(&event).unwrap_or_default(),
                         groups: vec![format!("user:{}", payload.recipient_uuid)],
                         causation_id: None,
                     },

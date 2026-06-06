@@ -21,6 +21,7 @@ export type SyncAggregate =
   | 'plugin'
   | 'user'
   | 'asset'
+  | 'notification'
 
 export type SyncOp = 'I' | 'U' | 'D' | 'A'
 

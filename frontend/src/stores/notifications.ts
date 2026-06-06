@@ -41,10 +41,7 @@ import {
   markNotificationsRead,
   type Notification,
 } from '@/services/notificationService'
-import { useSSE } from '@/services/sseService'
-import type { NotificationReceivedEventData } from '@/types/sse'
-import { unwrapEventData } from '@/types/sse'
-import { useAuthStore } from './auth'
+import { onSyncActions } from '@/sync/observers'
 
 const PAGE_SIZE = 20
 
@@ -291,30 +288,34 @@ export const useNotificationsStore = defineStore('notifications', () => {
   function ensureSubscribed() {
     if (subscribed) return
     subscribed = true
-    const { addEventListener, connect, isConnected } = useSSE()
-    if (!isConnected.value) connect()
-    addEventListener('notification-received', handleSseEvent)
+    // React to `notification` sync actions (cross-machine via Postgres
+    // NOTIFY). The sync engine owns the connection; the emit is scoped
+    // to the recipient's private `user:<uuid>` group, so this client
+    // only ever receives its own notifications, no recipient filter
+    // needed. The store lives for the app lifetime, so we don't retain
+    // the unsubscribe handle.
+    onSyncActions(handleSyncActions)
   }
 
-  function handleSseEvent(rawData: unknown) {
+  function handleSyncActions(actions: { aggregate: string; data: unknown }[]) {
     try {
-      const data = unwrapEventData(rawData as NotificationReceivedEventData)
-      const auth = useAuthStore()
-      if (!auth.user?.uuid || auth.user.uuid !== data.recipient_uuid) return
-      // Refetch so the new item slots in with correct ordering
-      // and metadata. Cheaper than attempting to prepend
-      // client-side and racing the next pagination call.
+      const notes = actions.filter((a) => a.aggregate === 'notification')
+      if (notes.length === 0) return
+      // Refetch so new items slot in with correct ordering and
+      // metadata. Cheaper than prepending client-side and racing the
+      // next pagination call.
       queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.list() })
       queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.unreadCount() })
-      // Announce arrival to screen-reader users.
+      // Announce the newest arrival to screen-reader users.
       announcementSeq++
-      const title = data.notification?.title?.trim()
+      const newest = notes[notes.length - 1].data as { title?: string } | undefined
+      const title = newest?.title?.trim()
       lastAnnouncement.value = {
         title: title ? title : null,
         seq: announcementSeq,
       }
     } catch (error) {
-      console.error('Error handling notification SSE event:', error)
+      console.error('Error handling notification sync actions:', error)
     }
   }
 

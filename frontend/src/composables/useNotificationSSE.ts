@@ -1,35 +1,35 @@
 /**
- * useNotificationSSE - Composable for handling notification SSE events
+ * useNotificationSSE - toast + browser notification for the current user.
  *
- * Listens for notification-received events and shows toast notifications.
- * Only shows notifications for the current user.
+ * Reacts to `notification` sync actions (the `sync_actions` change-stream)
+ * rather than the legacy `notification-received` discrete event. The
+ * stream is delivered cross-machine via Postgres NOTIFY, and the emit is
+ * scoped to the recipient's private `user:<uuid>` group, so a client only
+ * receives its own notifications regardless of which machine created them.
+ * The action `data` is the full NotificationEvent (same shape the old
+ * event carried), so the toast renders straight from it.
  */
 
-import { onMounted, onUnmounted } from 'vue';
-import { useSSE } from '@/services/sseService';
 import { useAuthStore } from '@/stores/auth';
 import { useToastStore } from '@/stores/toast';
+import { useSyncActions } from '@/composables/useSyncActions';
 import type { NotificationReceivedEventData } from '@/types/sse';
-import { unwrapEventData } from '@/types/sse';
+
+type NotificationEventData = NotificationReceivedEventData['notification'];
 
 export function useNotificationSSE() {
-  const { addEventListener, removeEventListener } = useSSE();
   const authStore = useAuthStore();
   const toastStore = useToastStore();
 
   const handleNotification = (rawData: unknown) => {
     try {
-      const data = unwrapEventData(rawData as NotificationReceivedEventData);
-
-      // Backend routes notification events on the per-user topic, so
-      // a payload only reaches a client whose subscription includes
-      // its recipient. No client-side recipient_uuid filter is needed
-      // here, the server already guarantees isolation.
-      if (!authStore.user?.uuid) {
+      // The sync action's data IS the NotificationEvent. Group scoping
+      // already guarantees this client is the recipient; no client-side
+      // recipient filter is needed.
+      const notification = rawData as NotificationEventData;
+      if (!authStore.user?.uuid || !notification) {
         return;
       }
-
-      const { notification } = data;
 
       // Show toast notification
       toastStore.notification(
@@ -74,13 +74,15 @@ export function useNotificationSSE() {
     }
   };
 
-  onMounted(() => {
-    addEventListener('notification-received', handleNotification);
-  });
-
-  onUnmounted(() => {
-    removeEventListener('notification-received', handleNotification);
-  });
+  // One toast per notification action; no debounce (each is distinct).
+  useSyncActions(
+    (actions) => {
+      for (const action of actions) {
+        handleNotification(action.data);
+      }
+    },
+    { aggregates: ['notification'] },
+  );
 
   return {
     // Expose for testing
