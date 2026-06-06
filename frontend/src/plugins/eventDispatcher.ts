@@ -1,11 +1,15 @@
 /**
  * Plugin Event Dispatcher
  *
- * Bridges SSE events to plugin event handlers.
- * Maps backend event types to plugin event format.
+ * Bridges the sync change-stream to plugin event handlers. Subscribes
+ * to the object pool's `onSyncActions` observer (the same stream that
+ * drives the pool) rather than discrete SSE events, so the plugin
+ * surface rides one canonical event source. Maps each sync action's
+ * `event_type` to the plugin event format.
  */
 
-import { useSSE, type SSEEventType } from '@/services/sseService';
+import { onSyncActions } from '@/sync/observers';
+import type { SyncAction } from '@/sync/types';
 import { getLoadedPlugins } from './loader';
 import { getHostApiForPlugin } from './api';
 import { logger } from '@/utils/logger';
@@ -16,27 +20,40 @@ import type { PluginEvent } from '@/types/plugin';
 // =============================================================================
 
 /**
- * Map SSE event types to plugin event types
+ * Map a sync action's `event_type` to the plugin event(s) it fires.
+ * State/assignee changes fire both their specialized event and the
+ * generic `ticket:updated`, preserving the pre-sync dispatcher's
+ * dual-fire behaviour.
  */
-const SSE_TO_PLUGIN_EVENT: Partial<Record<SSEEventType, PluginEvent>> = {
-  'ticket-created': 'ticket:created',
-  'ticket-updated': 'ticket:updated',
-  'comment-added': 'ticket:comment_added',
-  'asset-created': 'asset:created',
-  'asset-updated': 'asset:updated',
-  'documentation-created': 'document:created',
-  'documentation-updated': 'document:updated',
-};
-
-/**
- * Map ticket update fields to specialized plugin events
- * These are derived from ticket-updated events based on the field changed
- */
-const TICKET_FIELD_TO_EVENT: Record<string, PluginEvent> = {
-  'status': 'ticket:status_changed',
-  'assignee': 'ticket:assigned',
-  'assigned_to': 'ticket:assigned',
-};
+function pluginEventsFor(eventType: string): PluginEvent[] {
+  switch (eventType) {
+    case 'ticket.created':
+      return ['ticket:created'];
+    case 'ticket.workflow_state_changed':
+      return ['ticket:status_changed', 'ticket:updated'];
+    case 'ticket.assignee_changed':
+      return ['ticket:assigned', 'ticket:updated'];
+    case 'ticket.updated':
+    case 'ticket.priority_changed':
+    case 'ticket.title_changed':
+    case 'ticket.category_changed':
+    case 'ticket.verification_changed':
+      return ['ticket:updated'];
+    case 'comment.created':
+      return ['ticket:comment_added'];
+    case 'asset.created':
+      return ['asset:created'];
+    case 'asset.updated':
+      return ['asset:updated'];
+    case 'documentation_page.created':
+      return ['document:created'];
+    case 'documentation_page.metadata_changed':
+    case 'documentation_page.verified':
+      return ['document:updated'];
+    default:
+      return [];
+  }
+}
 
 /**
  * Plugin events restricted from community plugins
@@ -69,8 +86,6 @@ export function initializeEventDispatcher(): () => void {
     return cleanupFn;
   }
 
-  const { addEventListener, removeEventListener } = useSSE();
-
   // Build plugin API cache
   pluginApis.clear();
   for (const { plugin } of getLoadedPlugins()) {
@@ -82,33 +97,19 @@ export function initializeEventDispatcher(): () => void {
     plugins: Array.from(pluginApis.keys()),
   });
 
-  // Create handlers for each mapped event type
-  const handlers = new Map<SSEEventType, (data: unknown) => void>();
-
-  for (const [sseEvent, pluginEvent] of Object.entries(SSE_TO_PLUGIN_EVENT)) {
-    const handler = (data: unknown) => {
-      dispatchToPlugins(pluginEvent as PluginEvent, data);
-
-      // For ticket-updated, also check if we need to dispatch specialized events
-      if (sseEvent === 'ticket-updated' && data && typeof data === 'object') {
-        const eventData = data as { data?: { field?: string } };
-        const field = eventData.data?.field;
-        if (field && TICKET_FIELD_TO_EVENT[field]) {
-          dispatchToPlugins(TICKET_FIELD_TO_EVENT[field], data);
-        }
+  // Subscribe to the sync change-stream. Each action maps to zero or
+  // more plugin events; the action itself is the payload so handlers
+  // get event_type + aggregate_id + the entity projection in `data`.
+  const unsubscribe = onSyncActions((actions: SyncAction[]) => {
+    for (const action of actions) {
+      for (const pluginEvent of pluginEventsFor(action.event_type)) {
+        dispatchToPlugins(pluginEvent, action);
       }
-    };
-
-    handlers.set(sseEvent as SSEEventType, handler);
-    addEventListener(sseEvent as SSEEventType, handler);
-  }
-
-  // Return cleanup function
-  cleanupFn = () => {
-    for (const [sseEvent, handler] of handlers) {
-      removeEventListener(sseEvent, handler);
     }
-    handlers.clear();
+  });
+
+  cleanupFn = () => {
+    unsubscribe();
     pluginApis.clear();
     cleanupFn = null;
     logger.debug('Event dispatcher cleaned up');
