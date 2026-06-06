@@ -138,64 +138,59 @@ impl WebhookEventType {
         ]
     }
 
-    /// Map from SSE SseEvent to WebhookEventType
+    /// Webhook events dispatched straight from SSE — only the ones that
+    /// don't yet have a `sync_actions` source. Everything else flows
+    /// through the webhook cursor dispatcher (see `from_sync_action`).
+    ///
+    /// These gap events (asset/ticket link/unlink + SLA breach) are
+    /// broadcast on the single instance that committed the mutation, so
+    /// SSE delivery stays single-fire. They move to `from_sync_action`
+    /// once their transactional sync emits land.
     pub fn from_sse_event(event: &SseEvent) -> Option<Self> {
         match event {
-            SseEvent::TicketCreated { .. } => Some(Self::TicketCreated),
-            SseEvent::TicketUpdated { .. } => Some(Self::TicketUpdated),
-            SseEvent::TicketDeleted { .. } => Some(Self::TicketDeleted),
-            SseEvent::CommentAdded { .. } => Some(Self::CommentAdded),
-            SseEvent::CommentDeleted { .. } => Some(Self::CommentDeleted),
-            SseEvent::AttachmentAdded { .. } => Some(Self::AttachmentAdded),
-            SseEvent::AttachmentDeleted { .. } => Some(Self::AttachmentDeleted),
-            SseEvent::AssetCreated { .. } => Some(Self::AssetCreated),
-            SseEvent::AssetUpdated { .. } => Some(Self::AssetUpdated),
-            SseEvent::AssetDeleted { .. } => Some(Self::AssetDeleted),
             SseEvent::AssetLinked { .. } => Some(Self::AssetLinked),
             SseEvent::AssetUnlinked { .. } => Some(Self::AssetUnlinked),
-            SseEvent::ProjectAssigned { .. } => Some(Self::ProjectAssigned),
-            SseEvent::ProjectUnassigned { .. } => Some(Self::ProjectUnassigned),
             SseEvent::TicketLinked { .. } => Some(Self::TicketLinked),
             SseEvent::TicketUnlinked { .. } => Some(Self::TicketUnlinked),
-            SseEvent::DocumentationCreated { .. } => Some(Self::DocumentationCreated),
-            SseEvent::DocumentationUpdated { .. } => Some(Self::DocumentationUpdated),
-            SseEvent::UserCreated { .. } => Some(Self::UserCreated),
-            SseEvent::UserUpdated { .. } => Some(Self::UserUpdated),
-            SseEvent::UserDeleted { .. } => Some(Self::UserDeleted),
-            // Soft-delete is the customer-facing "user is gone"
-            // signal subscribers should react to. Purge fires
-            // ~30 days later as a no-op for webhook consumers
-            // (the user is already gone from their perspective).
-            // Restore is rare and has no webhook contract yet.
-            SseEvent::UserSoftDeleted { .. } => Some(Self::UserDeleted),
-            SseEvent::UserPurged { .. } => None,
-            SseEvent::UserRestored { .. } => None,
-            // Internal events not exposed to webhooks
-            SseEvent::CollectionUpdated { .. } => None,
-            // Low-stock fires after a transactional decrement and is
-            // Usage ledger entries are an in-app reactive signal,
-            // not a contract for external consumers. The parent
-            // `asset.updated` covers the quantity change for
-            // downstream integrations.
-            SseEvent::AssetUsageRecorded { .. } => None,
-            // Same reasoning for audit events: webhook consumers
-            // see the corrected quantity via asset.updated.
-            SseEvent::AssetAuditRecorded { .. } => None,
-            SseEvent::Heartbeat { .. } => None,
-            SseEvent::ViewersChanged { .. } => None,
-            SseEvent::TicketFieldPreviewed { .. } => None,
-            SseEvent::KnowledgeGapDetected { .. } => None,
-            SseEvent::KnowledgeGapResolved { .. } => None,
-            // Sync engine outbox carries a batch of sync_actions; the
-            // webhook recipient surface doesn't fan these out (consumers
-            // hit /api/sync/delta directly), so no resource_type to
-            // report.
-            SseEvent::SyncActions { .. } => None,
-            // No dedicated merge webhook contract in v1; the per-source
-            // ticket.updated events already fire for the state change.
-            SseEvent::TicketMerged { .. } => None,
             SseEvent::SlaBreached { .. } => Some(Self::TicketSlaBreached),
+            _ => None,
         }
+    }
+
+    /// Map a `sync_actions.event_type` string to the webhook event it
+    /// drives. Covers every webhook event that has a sync_actions
+    /// source; the gap events stay on `from_sse_event` for now. The
+    /// several specific ticket-change event_types all collapse to
+    /// `ticket.updated` (one webhook per change).
+    pub fn from_sync_action(event_type: &str) -> Option<Self> {
+        Some(match event_type {
+            "ticket.created" => Self::TicketCreated,
+            "ticket.updated"
+            | "ticket.workflow_state_changed"
+            | "ticket.assignee_changed"
+            | "ticket.priority_changed"
+            | "ticket.title_changed"
+            | "ticket.category_changed"
+            | "ticket.verification_changed" => Self::TicketUpdated,
+            "ticket.deleted" => Self::TicketDeleted,
+            "comment.created" => Self::CommentAdded,
+            "comment.deleted" => Self::CommentDeleted,
+            "attachment.created" => Self::AttachmentAdded,
+            "attachment.deleted" => Self::AttachmentDeleted,
+            "asset.created" => Self::AssetCreated,
+            "asset.updated" => Self::AssetUpdated,
+            "asset.deleted" => Self::AssetDeleted,
+            "project_ticket.added" => Self::ProjectAssigned,
+            "project_ticket.removed" => Self::ProjectUnassigned,
+            "documentation_page.created" => Self::DocumentationCreated,
+            "documentation_page.metadata_changed" | "documentation_page.verified" => {
+                Self::DocumentationUpdated
+            }
+            "user.created" => Self::UserCreated,
+            "user.updated" => Self::UserUpdated,
+            "user.deleted" => Self::UserDeleted,
+            _ => return None,
+        })
     }
 }
 
@@ -267,5 +262,65 @@ mod tests {
             timestamp: chrono::Utc::now(),
         };
         assert!(WebhookEventType::from_sse_event(&heartbeat).is_none());
+    }
+
+    #[test]
+    fn from_sse_event_only_covers_gap_events() {
+        // Covered events flow through from_sync_action now; from_sse_event
+        // must return None for them so they don't double-fire.
+        let created = SseEvent::TicketCreated {
+            ticket_id: 1,
+            ticket: serde_json::json!({}),
+            timestamp: chrono::Utc::now(),
+        };
+        assert!(WebhookEventType::from_sse_event(&created).is_none());
+
+        // Gap events (no sync_actions source yet) stay on the SSE path.
+        let linked = SseEvent::AssetLinked {
+            ticket_id: 1,
+            device_id: 2,
+            timestamp: chrono::Utc::now(),
+        };
+        assert_eq!(
+            WebhookEventType::from_sse_event(&linked),
+            Some(WebhookEventType::AssetLinked)
+        );
+    }
+
+    #[test]
+    fn from_sync_action_maps_covered_events() {
+        use WebhookEventType::*;
+        let cases = [
+            ("ticket.created", Some(TicketCreated)),
+            ("ticket.workflow_state_changed", Some(TicketUpdated)),
+            ("ticket.assignee_changed", Some(TicketUpdated)),
+            ("ticket.deleted", Some(TicketDeleted)),
+            ("comment.created", Some(CommentAdded)),
+            ("attachment.created", Some(AttachmentAdded)),
+            ("asset.created", Some(AssetCreated)),
+            ("project_ticket.added", Some(ProjectAssigned)),
+            ("project_ticket.removed", Some(ProjectUnassigned)),
+            ("documentation_page.created", Some(DocumentationCreated)),
+            (
+                "documentation_page.metadata_changed",
+                Some(DocumentationUpdated),
+            ),
+            ("documentation_page.verified", Some(DocumentationUpdated)),
+            ("user.created", Some(UserCreated)),
+            // Not webhook events / no source.
+            ("documentation_page.visibility_changed", None),
+            ("workflow_state.created", None),
+            ("cycle.created", None),
+            // Gap events are NOT in from_sync_action (no sync emit yet).
+            ("asset.linked", None),
+            ("ticket.sla_breached", None),
+        ];
+        for (event_type, expected) in cases {
+            assert_eq!(
+                WebhookEventType::from_sync_action(event_type),
+                expected,
+                "from_sync_action({event_type})"
+            );
+        }
     }
 }

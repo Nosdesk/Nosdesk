@@ -1680,6 +1680,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    webhook_outbox (sync_id) {
+        sync_id -> Int8,
+        enqueued_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     webhooks (id) {
         id -> Int4,
         uuid -> Uuid,
@@ -2089,6 +2096,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     user_ticket_views,
     users,
     webhook_deliveries,
+    webhook_outbox,
     webhooks,
     workflow_states,
     working_calendar_holidays,

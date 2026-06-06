@@ -45,6 +45,19 @@ impl WebhookService {
             Self::event_listener(listener_pool, receiver, listener_tx).await;
         });
 
+        // Start the webhook outbox dispatcher. This is the primary path:
+        // it drains the transactional `webhook_outbox` (populated by a
+        // trigger atomically with each sync_action) with a FOR UPDATE
+        // SKIP LOCKED claim, so each event delivers exactly once across
+        // instances with no skipped events. The SSE event_listener above
+        // now only carries the gap events that lack a sync_actions source
+        // (link/unlink, SLA breach) — see WebhookEventType::from_sse_event.
+        let outbox_pool = pool.clone();
+        let outbox_tx = delivery_tx.clone();
+        tokio::spawn(async move {
+            Self::outbox_dispatcher(outbox_pool, outbox_tx).await;
+        });
+
         // Start retry worker (checks for failed deliveries needing retry)
         let retry_pool = pool.clone();
         let retry_tx = delivery_tx.clone();
@@ -151,6 +164,144 @@ impl WebhookService {
         }
 
         Ok(())
+    }
+
+    /// Single-consumer dispatcher that drains the `webhook_outbox` and
+    /// turns each enqueued sync_action into webhook deliveries exactly
+    /// once across instances. Polls on a short interval; the FOR UPDATE
+    /// SKIP LOCKED claim means concurrent instances never process the
+    /// same rows.
+    async fn outbox_dispatcher(pool: Pool, delivery_tx: mpsc::Sender<DeliveryTask>) {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+        tracing::info!("Webhook outbox dispatcher started");
+
+        loop {
+            interval.tick().await;
+            // Drain while batches keep coming full so a backlog catches
+            // up without waiting a tick per batch.
+            loop {
+                match Self::dispatch_outbox_batch(&pool, &delivery_tx).await {
+                    Ok(true) => continue,
+                    Ok(false) => break,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Webhook outbox dispatch failed");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Claim a batch of outbox rows, queue the matching webhook
+    /// deliveries, and delete the claimed rows — all in one transaction
+    /// so a row is removed only once its deliveries are committed-queued.
+    /// Non-webhook events are deleted too (a no-op delivery-wise) so the
+    /// outbox drains. Returns whether the batch was full (more remain).
+    async fn dispatch_outbox_batch(
+        pool: &Pool,
+        delivery_tx: &mpsc::Sender<DeliveryTask>,
+    ) -> Result<bool, String> {
+        use crate::schema::{sync_actions, webhook_outbox};
+        use diesel::prelude::*;
+
+        const OUTBOX_BATCH: i64 = 500;
+
+        let (tasks, more): (Vec<DeliveryTask>, bool) = crate::sync::session::background_run(
+            pool,
+            "background:webhook_outbox_dispatch",
+            |conn| {
+                conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                    // Claim the oldest outbox rows, skipping any another
+                    // instance is already processing.
+                    let claimed: Vec<i64> = webhook_outbox::table
+                        .select(webhook_outbox::sync_id)
+                        .order(webhook_outbox::sync_id.asc())
+                        .limit(OUTBOX_BATCH)
+                        .for_update()
+                        .skip_locked()
+                        .load(conn)?;
+                    if claimed.is_empty() {
+                        return Ok((Vec::new(), false));
+                    }
+                    let full = claimed.len() as i64 == OUTBOX_BATCH;
+
+                    // Resolve the source rows for event_type + data.
+                    let rows: Vec<(i64, String, serde_json::Value)> = sync_actions::table
+                        .filter(sync_actions::sync_id.eq_any(&claimed))
+                        .select((
+                            sync_actions::sync_id,
+                            sync_actions::event_type,
+                            sync_actions::data,
+                        ))
+                        .load(conn)?;
+
+                    // Cache the subscriber lookup per event type so a
+                    // batch of N same-type rows is one query, not N.
+                    let mut subscriber_cache: std::collections::HashMap<
+                        &'static str,
+                        Vec<crate::models::Webhook>,
+                    > = std::collections::HashMap::new();
+                    let mut tasks: Vec<DeliveryTask> = Vec::new();
+
+                    for (_sync_id, event_type, data) in &rows {
+                        let Some(webhook_type) = WebhookEventType::from_sync_action(event_type)
+                        else {
+                            continue;
+                        };
+                        let event_type_str = webhook_type.as_str();
+                        if !subscriber_cache.contains_key(event_type_str) {
+                            let subs = webhook_repo::get_webhooks_for_event(conn, event_type_str)
+                                .map_err(|e| {
+                                diesel::result::Error::QueryBuilderError(e.into())
+                            })?;
+                            subscriber_cache.insert(event_type_str, subs);
+                        }
+                        let subscribers = &subscriber_cache[event_type_str];
+                        if subscribers.is_empty() {
+                            continue;
+                        }
+                        let payload = WebhookPayload {
+                            id: Uuid::now_v7(),
+                            event_type: event_type_str.to_string(),
+                            timestamp: Utc::now(),
+                            data: data.clone(),
+                        };
+                        for webhook in subscribers {
+                            tasks.push(DeliveryTask {
+                                webhook_id: webhook.id,
+                                webhook_url: webhook.url.clone(),
+                                webhook_secret: webhook.secret.clone(),
+                                webhook_headers: webhook.headers.clone(),
+                                payload: payload.clone(),
+                                attempt: 1,
+                            });
+                        }
+                    }
+
+                    // Delete every claimed row (webhook or not) so the
+                    // outbox drains. They're locked by this transaction,
+                    // so no other instance can re-claim them.
+                    diesel::delete(
+                        webhook_outbox::table.filter(webhook_outbox::sync_id.eq_any(&claimed)),
+                    )
+                    .execute(conn)?;
+
+                    Ok((tasks, full))
+                })
+            },
+        )
+        .map_err(|e| format!("DB error: {e}"))?;
+
+        // Enqueue outside the claim transaction so the row locks release
+        // promptly; HTTP delivery + retry durability is handled by the
+        // delivery worker exactly as for the SSE gap path.
+        for task in tasks {
+            if let Err(e) = delivery_tx.send(task).await {
+                tracing::error!(error = %e, "Failed to queue webhook delivery from outbox");
+            }
+        }
+
+        Ok(more)
     }
 
     /// Background worker that retries failed deliveries
