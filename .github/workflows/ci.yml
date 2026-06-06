@@ -63,7 +63,7 @@ jobs:
           - 3993:3993  # IMAPS (adapter poll)
           - 8080:8080  # API   (per-test mailbox purge + readiness probe)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -147,9 +147,9 @@ jobs:
     name: Frontend (Vue)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
