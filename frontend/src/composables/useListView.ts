@@ -51,6 +51,7 @@ import {
   type DataTableColumnLike,
 } from '@/composables/useDataTableColumns'
 import { useSavedListViews } from '@/composables/useSavedListViews'
+import type { SyncAggregate } from '@/sync/types'
 import type { ListKeys } from '@/queries/listKeys'
 import type { SavedView, SavedViewDataset } from '@/services/savedViewsService'
 import { useToastStore } from '@/stores/toast'
@@ -91,7 +92,7 @@ export interface UseListViewOptions<T extends object, C extends DataTableColumnL
   defaultPageSize?: number
   pageKeys: ListKeys<string>
   fetchPage: (params: ListPageFetchParams) => Promise<ListPage<T>>
-  sseEvents?: readonly string[]
+  syncAggregates?: readonly SyncAggregate[]
   mobileSearch?: MobileSearchConfig
   urlSyncParamKeys?: readonly string[]
   /** Scroll container ref from the layout — usually
@@ -159,7 +160,7 @@ export function useListView<
     defaultPageSize = 0,
     pageKeys,
     fetchPage,
-    sseEvents,
+    syncAggregates,
     mobileSearch,
     urlSyncParamKeys,
     scrollContainerRef,
@@ -187,7 +188,7 @@ export function useListView<
     keys: pageKeys,
     fetchPage,
     scrollContainerRef,
-    sseEvents,
+    syncAggregates,
     mobileSearch,
     urlSync: urlSyncParamKeys ? { paramKeys: urlSyncParamKeys } : undefined,
   })

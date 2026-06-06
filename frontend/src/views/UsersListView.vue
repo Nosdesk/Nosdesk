@@ -178,16 +178,10 @@ const listView = useListView({
           ? 'deleted'
           : 'active',
     }),
-  // Soft-delete lifecycle events keep both active and deleted
-  // views in sync without manual cache busts.
-  sseEvents: [
-    'user-updated',
-    'user-created',
-    'user-deleted',
-    'user-soft-deleted',
-    'user-restored',
-    'user-purged',
-  ],
+  // Any user change (create / update / soft-delete / restore / purge)
+  // arrives as a `user`-aggregate sync action and invalidates both the
+  // active and deleted lists without manual cache busts.
+  syncAggregates: ['user'],
   mobileSearch: {
     placeholder: t('user-mgmt-search-placeholder'),
     createIcon: 'user',

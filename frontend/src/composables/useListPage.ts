@@ -24,7 +24,6 @@
 import {
   computed,
   nextTick,
-  onBeforeUnmount,
   onMounted,
   onUnmounted,
   watch,
@@ -37,7 +36,8 @@ import { useInfiniteQuery, useQueryCache } from '@pinia/colada'
 import type { useListControls } from '@/composables/useListControls'
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useMobileSearch, type CreateButtonIcon } from '@/composables/useMobileSearch'
-import { useSSE } from '@/services/sseService'
+import { useSyncActions } from '@/composables/useSyncActions'
+import type { SyncAggregate } from '@/sync/types'
 import type { ListKeys } from '@/queries/listKeys'
 
 /**
@@ -92,8 +92,10 @@ export interface UseListPageOptions<T, R extends string> {
   /** Scroll container that drives infinite scroll. Pass
    *  `pageScrollRef.value?.scrollContainerRef` from the layout. */
   scrollContainerRef: Ref<HTMLElement | null> | ComputedRef<HTMLElement | null>
-  /** SSE event names that should invalidate this list's cache. */
-  sseEvents?: readonly string[]
+  /** Sync aggregates whose changes invalidate this list's cache.
+   *  Driven off the sync_actions change-stream, so it stays live
+   *  across backend machines. */
+  syncAggregates?: readonly SyncAggregate[]
   /** Mobile search bar registration. Omit to skip. */
   mobileSearch?: MobileSearchConfig
   /** URL synchronisation of filters/sort/search/page. Omit for
@@ -198,22 +200,14 @@ export function useListPage<T, R extends string>(
     else paginatedList.refetch()
   }
 
-  // ---- SSE-driven cache invalidation -----------------------------
-  if (options.sseEvents && options.sseEvents.length > 0) {
-    const sse = useSSE()
-    const invalidate = () => queryCache.invalidateQueries({ key: keys.root })
-    const handlers = options.sseEvents.map((type) => ({ type, handler: invalidate }))
-
-    onMounted(() => {
-      if (!sse.isConnected.value) sse.connect()
-      for (const { type, handler } of handlers) {
-        sse.addEventListener(type as never, handler)
-      }
-    })
-    onBeforeUnmount(() => {
-      for (const { type, handler } of handlers) {
-        sse.removeEventListener(type as never, handler)
-      }
+  // ---- Sync-stream cache invalidation ----------------------------
+  // Invalidate the list when any configured aggregate changes. Rides
+  // the sync_actions stream (Postgres NOTIFY), so it's correct across
+  // backend machines; debounced so a burst is a single refetch.
+  if (options.syncAggregates && options.syncAggregates.length > 0) {
+    useSyncActions(() => queryCache.invalidateQueries({ key: keys.root }), {
+      aggregates: [...options.syncAggregates],
+      debounceMs: 200,
     })
   }
 

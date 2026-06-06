@@ -169,7 +169,7 @@ const listView = useListView({
   defaultSortField: 'name',
   pageKeys: assetsKeys,
   fetchPage: (params) => getPaginatedAssets(params, `assets-page-${params.page}`),
-  sseEvents: ['asset-updated', 'asset-created', 'asset-deleted'],
+  syncAggregates: ['asset'],
   mobileSearch: {
     placeholder: t('assets-list-search-placeholder'),
     createIcon: 'device',
