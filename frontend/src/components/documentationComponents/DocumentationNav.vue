@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, reactive, computed, nextTick } from 'vue'
+import { ref, watch, watchEffect, onMounted, onUnmounted, reactive, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import documentationService, { getStarredPages, createArticle } from '@/services/documentationService'
@@ -18,22 +18,20 @@ import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { storeToRefs } from 'pinia'
-import { useSSE } from '@/services/sseService'
-import { getCollections, getCollection, updateCollection, deleteCollection } from '@/services/collectionService'
+import { updateCollection, deleteCollection } from '@/services/collectionService'
 import type { CollectionWithDetails } from '@/services/collectionService'
-import { buildTreeFromFlat, findInTree } from '@/utils/treeUtils'
+import { findInTree } from '@/utils/treeUtils'
 import { docUrl } from '@/utils/docUrl'
 import { useClipboard } from '@/composables/useClipboard'
 import { docsEmitter } from '@/services/docsEmitter'
 import type { NavPage } from '@/stores/documentationNav'
-
-/** SSE payload for documentation-updated events */
-interface DocumentationUpdateEvent {
-  document_id: string | number;
-  field: string;
-  value: unknown;
-  updated_by?: string;
-}
+import {
+  useSyncDocsStore,
+  buildPageTree,
+  isActivePage,
+  type DocCollectionRow,
+} from '@/sync/stores/documentation'
+import { nodeToPage } from '@/composables/useDocPages'
 
 const route = useRoute()
 const router = useRouter()
@@ -42,36 +40,10 @@ const docPanel = useDocumentPanelState()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-// SSE for real-time updates
-const { addEventListener, removeEventListener } = useSSE()
-
-// Handle SSE documentation updates - update sidebar reactively
-const handleDocumentationUpdate = (event: unknown) => {
-  const data = ((event as { data?: DocumentationUpdateEvent })?.data ?? event) as DocumentationUpdateEvent;
-  const { field } = data;
-  if (field !== 'title' && field !== 'icon') return;
-
-  const value = data.value as string;
-  docNavStore.updatePageField(data.document_id, field, value);
-
-  // Also update in our collection page caches
-  for (const [, pages] of Object.entries(collectionPages)) {
-    const page = findInTree(pages, data.document_id);
-    if (page) page[field] = value;
-  }
-  // Update starred pages if title/icon changed
-  const starred = starredPages.value.find(p => p.page_id === data.document_id);
-  if (starred) starred[field] = value;
-};
-
-// Handle SSE collection updates - update sidebar reactively
-const handleCollectionUpdate = (event: any) => {
-  const data = event.data || event;
-  const col = collections.value.find(c => c.id === data.collection_id);
-  if (col && data.field && data.value !== undefined) {
-    (col as any)[data.field] = data.value;
-  }
-};
+// Collections + per-collection page trees are sourced from the sync
+// pool (see the watchEffect below), so there are no discrete
+// documentation-updated / collection-updated listeners here: live
+// edits flow in through the pool.
 
 // Use store's reactive loading state
 const { starredPages, isStarredExpanded } = storeToRefs(docNavStore)
@@ -716,7 +688,9 @@ async function createChildOfPage(parentPage: NavPage) {
   }
 }
 
-// Collections data
+// Collections data — populated from the sync pool (see the watchEffect
+// in "Collection loading" below), not a REST load.
+const docs = useSyncDocsStore()
 const collections = ref<CollectionWithDetails[]>([])
 
 function visiblePagesIn(collectionId: number): Page[] {
@@ -764,15 +738,91 @@ const initialLoading = ref(true)
 // Collection loading
 // ============================================================================
 
-const loadCollections = async () => {
-  collections.value = await getCollections()
-
-  // Restore expansion state from localStorage
-  for (const c of collections.value) {
-    const stored = localStorage.getItem(`docNavCollectionExpanded_${c.id}`)
-    collectionExpanded[c.id] = stored === 'true'
+/** Adapt a pool collection row to the richer CollectionWithDetails the
+ *  sidebar + modals are typed against. The visibility fields and the
+ *  Yjs description_doc_id are not in the sync projection; the nav never
+ *  reads them (the edit modal edits text only, the visibility modal
+ *  self-fetches), so empty placeholders are safe. page_count derives
+ *  from the pool. */
+function toCollectionWithDetails(c: DocCollectionRow, pageCount: number): CollectionWithDetails {
+  return {
+    id: c.id,
+    uuid: c.uuid,
+    name: c.name,
+    slug: c.slug,
+    description: c.description,
+    description_text: c.description_text,
+    description_doc_id: '',
+    hide_titles_from_non_members: c.hide_titles_from_non_members,
+    icon: c.icon,
+    color: c.color,
+    is_system: c.is_system,
+    created_by: c.created_by,
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+    visible_to_groups: [],
+    visible_to_users: [],
+    is_public: false,
+    page_count: pageCount,
   }
 }
+
+const buildParentMapInto = (
+  tree: Page[],
+  parentId: string | null,
+  target: Record<string, string | null>,
+) => {
+  for (const page of tree) {
+    target[String(page.id)] = parentId
+    if (page.children && page.children.length > 0) {
+      buildParentMapInto(page.children, String(page.id), target)
+    }
+  }
+}
+
+// Collections whose persisted expand state has already been restored.
+// Non-reactive so reading/writing it inside the watchEffect doesn't make
+// it a dependency (which would rebuild every tree on each expand toggle).
+const expandRestored = new Set<number>()
+
+// Single source of truth: rebuild the collection list, per-collection
+// active page trees, and the lookup maps from the sync pool whenever it
+// changes (bootstrap, SSE, delta). Replaces the REST loads and the
+// discrete documentation-updated / collection-updated listeners — live
+// edits flow in through the pool.
+watchEffect(() => {
+  const cols = docs.collectionsSorted
+  const pages = docs.allPages
+
+  const newPageToCollection: Record<string, number> = {}
+  const newParent: Record<string, string | null> = {}
+  const allTreePages: Page[] = []
+
+  collections.value = cols.map((c) => {
+    // Restore persisted expand state the first time a collection appears
+    // (collections stream in from the pool, possibly after mount).
+    if (!expandRestored.has(c.id)) {
+      expandRestored.add(c.id)
+      const stored = localStorage.getItem(`docNavCollectionExpanded_${c.id}`)
+      if (stored != null) collectionExpanded[c.id] = stored === 'true'
+    }
+    const rows = pages.filter((p) => p.collection_id === c.id)
+    const activeRows = rows.filter(isActivePage)
+    const tree = buildPageTree(activeRows).map(nodeToPage)
+    collectionPages[c.id] = tree
+    collectionLoaded[c.id] = true
+    collectionLoading[c.id] = false
+    for (const r of rows) newPageToCollection[String(r.id)] = c.id
+    buildParentMapInto(tree, null, newParent)
+    allTreePages.push(...tree)
+    return toCollectionWithDetails(c, activeRows.length)
+  })
+
+  pageToCollectionMap.value = newPageToCollection
+  pageParentMap.value = newParent
+  docNavStore.setPages(allTreePages)
+})
+
 
 const toggleCollectionExpanded = async (collectionId: number) => {
   const newState = !collectionExpanded[collectionId]
@@ -803,59 +853,11 @@ const handleCollectionClick = async (collection: CollectionWithDetails) => {
 // Page loading per collection
 // ============================================================================
 
-// sortByOrder and buildTreeFromFlat imported from @/utils/treeUtils
-
-const buildParentMapFromTree = (tree: Page[], parentId: string | null = null) => {
-  for (const page of tree) {
-    pageParentMap.value[String(page.id)] = parentId;
-    if (page.children && page.children.length > 0) {
-      buildParentMapFromTree(page.children, String(page.id));
-    }
-  }
-};
-
-const loadCollectionPages = async (collectionId: number) => {
-  // Only show skeleton on first load — subsequent reloads keep showing
-  // existing data (stale-while-revalidate) and update reactively when done
-  const isFirstLoad = !collectionLoaded[collectionId];
-  if (isFirstLoad) {
-    collectionLoading[collectionId] = true;
-  }
-  try {
-    const data = await getCollection(collectionId);
-    if (data && data.pages) {
-      const tree = buildTreeFromFlat(data.pages);
-      collectionPages[collectionId] = tree;
-      collectionLoaded[collectionId] = true;
-
-      // Update page -> collection map
-      for (const p of data.pages) {
-        pageToCollectionMap.value[String(p.id)] = collectionId;
-      }
-
-      // Build parent map for these pages
-      buildParentMapFromTree(tree);
-
-      // Update the store pages for SSE reactivity
-      updateStorePages();
-    }
-  } catch (error) {
-    console.error(`Error loading pages for collection ${collectionId}:`, error);
-  } finally {
-    if (isFirstLoad) {
-      collectionLoading[collectionId] = false;
-    }
-  }
-};
-
-// Sync all collection page trees into the docNavStore for SSE field updates
-const updateStorePages = () => {
-  const allPages: Page[] = [];
-  for (const pages of Object.values(collectionPages)) {
-    allPages.push(...pages);
-  }
-  docNavStore.setPages(allPages);
-};
+// Collection page trees are derived from the sync pool by the
+// watchEffect above; there is nothing to fetch. Kept as an async no-op
+// so existing call sites (lazy-expand, auto-expand, drag commit) need
+// no changes — the pool already holds every page.
+const loadCollectionPages = async (_collectionId: number) => {}
 
 // ============================================================================
 // Page navigation and interaction
@@ -1140,18 +1142,9 @@ const handleResize = () => {
 onMounted(async () => {
   docNavStore.setLoading(true);
   try {
-    // Load starred pages in parallel with collections
+    // Collections + pages come from the sync pool (watchEffect above);
+    // only the starred list needs an explicit fetch.
     getStarredPages().then(pages => docNavStore.setStarredPages(pages));
-    await loadCollections()
-
-    // Auto-expand collections that were previously expanded and load their pages
-    const expandedCollectionLoads: Promise<void>[] = [];
-    for (const c of collections.value) {
-      if (collectionExpanded[c.id]) {
-        expandedCollectionLoads.push(loadCollectionPages(c.id));
-      }
-    }
-    await Promise.all(expandedCollectionLoads);
 
     // Auto-expand for current page
     const currentPath = route.path;
@@ -1174,38 +1167,19 @@ onMounted(async () => {
 
   docNavStore.updateSidebarForScreenSize()
   window.addEventListener('resize', handleResize)
-  addEventListener('documentation-updated' as any, handleDocumentationUpdate);
-  addEventListener('collection-updated' as any, handleCollectionUpdate);
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
-  removeEventListener('documentation-updated' as any, handleDocumentationUpdate);
-  removeEventListener('collection-updated' as any, handleCollectionUpdate);
 })
 
-// Create a method to reload the sidebar
+// Collections and pages re-derive from the pool automatically; only the
+// starred list (not a pool aggregate) needs an explicit refresh.
 const reloadSidebar = async () => {
   getStarredPages().then(pages => docNavStore.setStarredPages(pages));
-  await loadCollections();
-  // Reload all expanded or previously loaded collections
-  const reloads: Promise<void>[] = [];
-  for (const c of collections.value) {
-    if (collectionLoaded[c.id] || collectionExpanded[c.id]) {
-      reloads.push(loadCollectionPages(c.id));
-    }
-  }
-  await Promise.all(reloads);
 };
 
 defineExpose({ reloadSidebar });
-
-// Watch for refresh requests from the store (counter-based, always fires on increment)
-watch(() => docNavStore.needsRefresh, (newVal, oldVal) => {
-  if (newVal > 0 && newVal !== oldVal) {
-    reloadSidebar();
-  }
-});
 </script>
 
 <template>
