@@ -9,8 +9,16 @@ services:
     ports:
       - "127.0.0.1:54329:5432"
 
-  # Redis is reachable only on the internal Compose network.
-  # Use `docker compose exec redis redis-cli ...` for shell access.
+  # Redis — dev override publishes the port on host loopback so
+  # `cargo test` can reach it for redis-backed integration tests (the
+  # collab ownership-claim suite), mirroring the postgres override
+  # above. Bound to 127.0.0.1, non-standard host port; the container
+  # port stays 6379 for sibling services. Tests use the dev-default
+  # REDIS_PASSWORD and an isolated db index (see TEST_REDIS_URL in
+  # backend/.cargo/config.toml).
+  redis:
+    ports:
+      - "127.0.0.1:63799:6379"
 
   # Backend - Development override.
   #

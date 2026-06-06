@@ -28,7 +28,7 @@ use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 
 use backend::extractors::WorkspaceContext;
-use backend::handlers::collaboration::{ws_handler, YjsAppState};
+use backend::handlers::collaboration::{ws_handler, CollabRoutingMode, YjsAppState};
 use backend::handlers::sse::SseState;
 use backend::services::search::SearchService;
 use backend::utils::cookies::ACCESS_TOKEN_COOKIE;
@@ -72,7 +72,16 @@ fn build_app_state(pool_inner: &backend::db::Pool) -> (YjsAppState, tempfile::Te
     let tmp_search = tempfile::tempdir().expect("temp dir for search index");
     let search =
         Arc::new(SearchService::new(tmp_search.path(), pool_inner).expect("init search service"));
-    let state = YjsAppState::new(pool_data, redis_cache, sse_state, search);
+    // Single-instance: this is the transport-layer test, so no ownership
+    // manager and routing is inert (every doc served locally).
+    let state = YjsAppState::new(
+        pool_data,
+        redis_cache,
+        sse_state,
+        search,
+        None,
+        CollabRoutingMode::Single,
+    );
     (state, tmp_search)
 }
 
