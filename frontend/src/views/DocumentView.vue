@@ -6,6 +6,7 @@ import { formatDate } from '@/utils/dateUtils'
 import { docUrl, slugify } from '@/utils/docUrl'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
+import { useSyncDocsStore, type DocPageRow } from '@/sync/stores/documentation'
 import { useClipboard } from '@/composables/useClipboard'
 import { useDocumentPanelState } from '@/composables/useDocumentPanelState'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
@@ -43,11 +44,11 @@ const { copied: copiedLink, copy: copyToClipboard } = useClipboard()
 // Use shared documentation composable
 const {
   deletePage,
-  setupSSE,
   documentationNavStore,
   isConnected,
   isConnecting,
 } = useDocumentation()
+const docs = useSyncDocsStore()
 
 // Document state — use preloaded data from route guard when available
 const preloaded = route.meta.preloadedDocument as Page | undefined
@@ -525,32 +526,43 @@ const handleUnstar = async () => {
   }
 }
 
-// SSE handler for real-time updates
-const handleSSEUpdate = (data: { document_id?: number; field?: string; value?: string }) => {
-  if (data.document_id === currentPageId.value) {
-    if (data.field === 'title' && data.value) {
-      if (document.value) document.value.title = data.value
-      editTitle.value = data.value
-      titleManager.setCustomTitle(data.value)
-      emit('update:title', data.value)
-
-      if (titleElementRef.value && titleElementRef.value.textContent !== data.value) {
-        titleElementRef.value.textContent = data.value
+// Live metadata sync from the sync pool. When another client edits the
+// current page's title / slug / icon, the metadata_changed event lands
+// in the pool and this watch mirrors it into local state. Replaces the
+// discrete documentation-updated SSE listener. The body itself flows
+// through the Yjs collaboration channel, not here. Guards on value
+// changes so the user's own in-progress title edit isn't clobbered.
+const poolPage = docs.pageById(() => {
+  const id = document.value?.id
+  return id == null ? null : Number(id)
+})
+watch(
+  (): Pick<DocPageRow, 'title' | 'slug' | 'icon'> | null => {
+    const p = poolPage.value
+    return p ? { title: p.title, slug: p.slug, icon: p.icon } : null
+  },
+  (meta) => {
+    if (!meta) return
+    if (document.value) {
+      document.value.title = meta.title
+      document.value.slug = meta.slug
+      if (meta.icon != null) document.value.icon = meta.icon
+    }
+    if (editTitle.value !== meta.title) {
+      editTitle.value = meta.title
+      titleManager.setCustomTitle(meta.title)
+      emit('update:title', meta.title)
+      if (titleElementRef.value && titleElementRef.value.textContent !== meta.title) {
+        titleElementRef.value.textContent = meta.title
       }
     }
-    if (data.field === 'slug' && data.value) {
-      if (document.value) document.value.slug = data.value
+    if (meta.icon != null && documentIcon.value !== meta.icon) {
+      documentIcon.value = meta.icon
     }
-    if (data.field === 'icon' && data.value) {
-      if (document.value) document.value.icon = data.value
-      documentIcon.value = data.value
-    }
-  }
-}
+  },
+)
 
 // Lifecycle
-let cleanupSSE: (() => void) | null = null
-
 // Print is a one-shot side effect, not panel state, so it stays
 // as a query param. Consume + strip so a refresh doesn't re-fire.
 function consumePrintQuery() {
@@ -563,7 +575,6 @@ function consumePrintQuery() {
 watch(() => route.query.print, consumePrintQuery)
 
 onMounted(() => {
-  cleanupSSE = setupSSE(handleSSEUpdate)
   fetchContent()
   consumePrintQuery()
 
@@ -585,9 +596,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (cleanupSSE) {
-    cleanupSSE()
-  }
   titleManager.onDocumentTitleSave(null)
   titleManager.onDocumentIconSave(null)
   if (titleUpdateTimeout) {
