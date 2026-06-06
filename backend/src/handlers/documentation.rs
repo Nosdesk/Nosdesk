@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;

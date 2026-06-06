@@ -1,5 +1,0 @@
-DROP TRIGGER IF EXISTS tr_audit_plugins ON plugins;
-DROP TRIGGER IF EXISTS tr_audit_plugin_trusted_publishers_ins ON plugin_trusted_publishers;
-DROP TRIGGER IF EXISTS tr_audit_plugin_trusted_publishers_upd ON plugin_trusted_publishers;
-DROP TRIGGER IF EXISTS tr_audit_plugin_trusted_publishers_del ON plugin_trusted_publishers;
-DROP TRIGGER IF EXISTS tr_audit_plugin_local_signing_key ON plugin_local_signing_key;

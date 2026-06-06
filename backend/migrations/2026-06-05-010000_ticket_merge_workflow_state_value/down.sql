@@ -1,6 +1,0 @@
--- Intentionally irreversible. Postgres has no DROP VALUE for enum
--- labels; removing `merged` would mean dropping and recreating the
--- whole workflow_state_category type along with every column that
--- references it. An unused label is inert, so a rollback leaves it in
--- place. The dependent workflow_states row is removed by the down
--- migration of 2026-06-05-020000_ticket_merge_workflow_state_row.
