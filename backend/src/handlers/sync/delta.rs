@@ -124,7 +124,64 @@ pub async fn delta(
         actions.truncate(limit as usize);
     }
 
+    // `last_sync_id` is taken from the fetched page BEFORE the documentation
+    // visibility filter below. Dropped rows must still advance the client's
+    // cursor, otherwise it would re-request them every poll forever.
     let last_sync_id = actions.last().map(|a| a.sync_id).unwrap_or(query.from);
+
+    // Read-side documentation visibility. Documentation page/collection rows
+    // are emitted to `workspace:1` (no per-row group scoping), so the group
+    // overlap above lets every workspace member see them. Filter out any the
+    // caller is not actually permitted to read, reusing the canonical access
+    // logic. Most deltas carry no documentation rows, so this is a no-op for
+    // the common case.
+    use crate::models::SyncAggregate;
+    let page_ids: Vec<i32> = actions
+        .iter()
+        .filter(|a| a.aggregate == SyncAggregate::DocumentationPage)
+        .filter_map(|a| a.aggregate_id.parse::<i32>().ok())
+        .collect();
+    let collection_ids: Vec<i32> = actions
+        .iter()
+        .filter(|a| a.aggregate == SyncAggregate::DocumentationCollection)
+        .filter_map(|a| a.aggregate_id.parse::<i32>().ok())
+        .collect();
+    if !page_ids.is_empty() || !collection_ids.is_empty() {
+        let user = ctx.user.clone();
+        let hidden = tc.run(move |conn| {
+            let is_admin = crate::repository::user_helpers::user_is_admin(conn, &user);
+            crate::repository::documentation::hidden_documentation_ids(
+                conn,
+                &page_ids,
+                &collection_ids,
+                &user.uuid,
+                is_admin,
+            )
+        });
+        match hidden {
+            Ok((hidden_pages, hidden_collections)) => {
+                if !hidden_pages.is_empty() || !hidden_collections.is_empty() {
+                    actions.retain(|a| match a.aggregate {
+                        SyncAggregate::DocumentationPage => a
+                            .aggregate_id
+                            .parse::<i32>()
+                            .ok()
+                            .is_none_or(|id| !hidden_pages.contains(&id)),
+                        SyncAggregate::DocumentationCollection => a
+                            .aggregate_id
+                            .parse::<i32>()
+                            .ok()
+                            .is_none_or(|id| !hidden_collections.contains(&id)),
+                        _ => true,
+                    });
+                }
+            }
+            Err(e) => {
+                error!(error = %e, "documentation visibility filter failed");
+                return errors::internal("Failed to load sync delta");
+            }
+        }
+    }
 
     HttpResponse::Ok().json(DeltaResponse {
         actions,

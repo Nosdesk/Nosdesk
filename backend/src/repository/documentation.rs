@@ -682,7 +682,7 @@ use crate::models::{
     DocumentationPageVisibility, Group, NewDocumentationPageVisibility, UserInfoWithAvatar,
 };
 use crate::schema::{
-    documentation_collection_pages, documentation_collection_visibility,
+    documentation_collection_pages, documentation_collection_visibility, documentation_collections,
     documentation_page_visibility, groups,
 };
 
@@ -1110,6 +1110,65 @@ pub fn filter_pages_for_user(
     Ok(filtered)
 }
 
+/// For a batch of documentation sync rows, return the page and collection
+/// ids the user may NOT see, so the sync read path can drop those rows.
+/// Reuses the canonical access logic (`filter_pages_for_user` +
+/// `can_user_access_collection`) so visibility can't drift from the REST
+/// path. Admins hide nothing. Ids not found (already-deleted rows) are
+/// never hidden: a delete of an item the user could not see is harmless
+/// and cannot be visibility-evaluated anyway.
+pub fn hidden_documentation_ids(
+    conn: &mut DbConnection,
+    page_ids: &[i32],
+    collection_ids: &[i32],
+    user_uuid: &uuid::Uuid,
+    is_admin: bool,
+) -> Result<
+    (
+        std::collections::HashSet<i32>,
+        std::collections::HashSet<i32>,
+    ),
+    Error,
+> {
+    use std::collections::HashSet;
+
+    if is_admin {
+        return Ok((HashSet::new(), HashSet::new()));
+    }
+
+    let mut hidden_pages: HashSet<i32> = HashSet::new();
+    if !page_ids.is_empty() {
+        let pages: Vec<DocumentationPage> = documentation_pages::table
+            .filter(documentation_pages::id.eq_any(page_ids))
+            .load(conn)?;
+        let loaded: HashSet<i32> = pages.iter().map(|p| p.id).collect();
+        let visible: HashSet<i32> = filter_pages_for_user(conn, pages, user_uuid, false)?
+            .iter()
+            .map(|p| p.id)
+            .collect();
+        hidden_pages = loaded.difference(&visible).copied().collect();
+    }
+
+    let mut hidden_collections: HashSet<i32> = HashSet::new();
+    for &cid in collection_ids {
+        let exists: i64 = documentation_collections::table
+            .filter(documentation_collections::id.eq(cid))
+            .count()
+            .get_result(conn)?;
+        if exists == 0 {
+            // Deleted collection → cannot evaluate, not hidden.
+            continue;
+        }
+        if !crate::repository::documentation_collections::can_user_access_collection(
+            conn, cid, user_uuid, false,
+        )? {
+            hidden_collections.insert(cid);
+        }
+    }
+
+    Ok((hidden_pages, hidden_collections))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1217,5 +1276,63 @@ mod tests {
         let top = get_top_level_pages(&mut conn).unwrap();
         assert!(top.iter().all(|p| p.parent_id.is_none()));
         assert!(top.iter().any(|p| p.id == parent.id));
+    }
+
+    #[test]
+    fn hidden_documentation_ids_respects_page_visibility() {
+        let mut conn = setup_test_connection();
+        let grantee = TestFixtures::create_user(&mut conn, "doc_grantee", "user");
+        let outsider = TestFixtures::create_user(&mut conn, "doc_outsider", "user");
+
+        // A page with no override is public: hidden for nobody.
+        let public_page = create_documentation_page(make_page(grantee.uuid), &mut conn).unwrap();
+        let (hidden, _) =
+            hidden_documentation_ids(&mut conn, &[public_page.id], &[], &outsider.uuid, false)
+                .unwrap();
+        assert!(
+            hidden.is_empty(),
+            "page with no visibility override should be public"
+        );
+
+        // Restrict the page to the grantee only.
+        set_page_visibility(
+            &mut conn,
+            public_page.id,
+            vec![],
+            vec![grantee.uuid],
+            Some(grantee.uuid),
+        )
+        .unwrap();
+        let page_id = public_page.id;
+
+        // Outsider can no longer see it -> reported hidden.
+        let (hidden, _) =
+            hidden_documentation_ids(&mut conn, &[page_id], &[], &outsider.uuid, false).unwrap();
+        assert!(
+            hidden.contains(&page_id),
+            "restricted page must be hidden from an outsider"
+        );
+
+        // The grantee still sees it -> not hidden.
+        let (hidden, _) =
+            hidden_documentation_ids(&mut conn, &[page_id], &[], &grantee.uuid, false).unwrap();
+        assert!(
+            !hidden.contains(&page_id),
+            "granted user must still see the page"
+        );
+
+        // Admins hide nothing.
+        let (hidden, _) =
+            hidden_documentation_ids(&mut conn, &[page_id], &[], &outsider.uuid, true).unwrap();
+        assert!(hidden.is_empty(), "admin must see all documentation");
+
+        // An unknown (already-deleted) id is never hidden.
+        let (hidden, _) =
+            hidden_documentation_ids(&mut conn, &[page_id + 99999], &[], &outsider.uuid, false)
+                .unwrap();
+        assert!(
+            hidden.is_empty(),
+            "a delete of an unseen page must not be filtered"
+        );
     }
 }
