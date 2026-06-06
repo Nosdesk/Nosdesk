@@ -1,17 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated } from 'vue'
+import { computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
+import { useDocPages } from '@/composables/useDocPages'
+import { useSyncDocsStore } from '@/sync/stores/documentation'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import DocumentationCardGrid from '@/components/documentationComponents/DocumentationCardGrid.vue'
-import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue'
 import CollectionBrowser from '@/components/documentationComponents/CollectionBrowser.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
-import { getArchivedPages, getTrashedPages } from '@/services/documentationService'
-import { getUncollectedPages } from '@/services/collectionService'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { docUrl } from '@/utils/docUrl'
 import { formatRelativeTime } from '@/utils/dateUtils'
@@ -24,32 +23,20 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 const titleManager = useTitleManager()
 
-const {
-  pages,
-  showSkeleton,
-  loadAllPages,
-  createNewPage,
-} = useDocumentation()
+// Pages + counts derive from the sync pool; only the create action
+// (a mutation) comes from useDocumentation.
+const { createNewPage } = useDocumentation()
+const { allTree: pages } = useDocPages()
+const docs = useSyncDocsStore()
 
 const docNavStore = useDocumentationNavStore()
 const { starredPages } = storeToRefs(docNavStore)
 
-const draftCount = ref(0)
-const archivedCount = ref(0)
-const trashCount = ref(0)
-
-const loadDraftCount = async () => {
-  const drafts = await getUncollectedPages()
-  draftCount.value = drafts.length
-}
-const loadArchivedCount = async () => {
-  const archived = await getArchivedPages()
-  archivedCount.value = archived.length
-}
-const loadTrashCount = async () => {
-  const trashed = await getTrashedPages()
-  trashCount.value = trashed.length
-}
+const draftCount = computed(() => docs.uncollectedPages.length)
+const archivedCount = computed(
+  () => docs.allPages.filter((p) => p.status === 'archived').length,
+)
+const trashCount = computed(() => docs.allPages.filter((p) => p.status === 'deleted').length)
 
 const handleCreatePage = async () => {
   try {
@@ -84,16 +71,8 @@ const hasStatusChips = computed(
   () => draftCount.value > 0 || archivedCount.value > 0 || trashCount.value > 0,
 )
 
-onMounted(async () => {
+onMounted(() => {
   titleManager.setCustomTitle(t('docs-index-title'))
-  await Promise.all([loadAllPages(), loadDraftCount(), loadArchivedCount(), loadTrashCount()])
-})
-
-onActivated(() => {
-  loadAllPages()
-  loadDraftCount()
-  loadArchivedCount()
-  loadTrashCount()
 })
 
 usePageCreateAction(handleCreatePage)
@@ -113,7 +92,7 @@ usePageCreateAction(handleCreatePage)
           can set up collections before drafting.
         -->
         <EmptyState
-          v-if="!showSkeleton && totalPages === 0"
+          v-if="totalPages === 0"
           icon="document"
           :title="$t('empty-documentation-index-title')"
           :description="$t('empty-documentation-index-description')"
@@ -130,20 +109,12 @@ usePageCreateAction(handleCreatePage)
                 <Icon name="history" class="text-accent" />
                 <h2 class="text-sm font-semibold text-primary">{{ $t('docs-index-recently-updated') }}</h2>
               </div>
-              <span v-if="!showSkeleton && recentlyUpdated.length > 0" class="text-[11px] text-tertiary">
+              <span v-if="recentlyUpdated.length > 0" class="text-[11px] text-tertiary">
                 {{ $t('docs-index-recently-updated-count', { count: recentlyUpdated.length }) }}
               </span>
             </header>
 
-            <div v-if="showSkeleton" class="flex flex-col gap-1">
-              <div v-for="i in 5" :key="i" class="flex items-center gap-2 py-1.5">
-                <div class="w-4 h-4 rounded bg-surface-hover/60 animate-pulse" />
-                <div class="flex-1 h-3 rounded bg-surface-hover/50 animate-pulse" :style="{ maxWidth: `${50 + (i % 3) * 12}%` }" />
-                <div class="h-3 w-16 rounded bg-surface-hover/40 animate-pulse" />
-              </div>
-            </div>
-
-            <ul v-else-if="recentlyUpdated.length > 0" class="flex flex-col">
+            <ul v-if="recentlyUpdated.length > 0" class="flex flex-col">
               <li v-for="page in recentlyUpdated" :key="page.id">
                 <RouterLink
                   :to="docUrl(page)"
@@ -239,7 +210,7 @@ usePageCreateAction(handleCreatePage)
           collapsible — useful when you genuinely want to scan the full
           set, hidden by default since the hub above covers most landings.
         -->
-        <details v-if="!showSkeleton && totalPages > 0" class="docs-browse-all group">
+        <details v-if="totalPages > 0" class="docs-browse-all group">
           <summary class="flex items-center gap-2 py-2 cursor-pointer text-sm text-secondary hover:text-primary select-none">
             <Icon name="chevronRight" size="xs" class="text-tertiary transition-transform duration-200 group-open:rotate-90" />
             <span>{{ $t('docs-index-browse-all') }}</span>
@@ -249,8 +220,6 @@ usePageCreateAction(handleCreatePage)
             <DocumentationCardGrid :pages="pages" @create="handleCreatePage" />
           </div>
         </details>
-
-        <DocumentationCardSkeleton v-else-if="showSkeleton" :count="6" />
       </div>
     </div>
   </div>

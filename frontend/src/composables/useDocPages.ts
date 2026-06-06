@@ -105,6 +105,12 @@ export function useDocPages() {
     docs.allPages.filter((p) => p.status === 'deleted').map((p) => toPage(p)),
   )
 
+  // The full active documentation tree (parent_id hierarchy across all
+  // collections) — what the index "browse all" / recently-updated use.
+  const allTree = computed<Page[]>(() =>
+    buildPageTree(docs.allPages.filter(isActivePage)).map(nodeToPage),
+  )
+
   /** Active page tree for a collection, as `Page` nodes. */
   function collectionTree(collectionId: MaybeRefOrGetter<number | null>): ComputedRef<Page[]> {
     return computed(() => {
@@ -115,5 +121,5 @@ export function useDocPages() {
     })
   }
 
-  return { drafts, archived, trashed, collectionTree }
+  return { drafts, archived, trashed, allTree, collectionTree }
 }
