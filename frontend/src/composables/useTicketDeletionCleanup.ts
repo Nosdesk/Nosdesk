@@ -1,10 +1,14 @@
 /**
  * Ticket-deletion cleanup.
  *
- * Server-authoritative SSE: when the server announces
- * `ticket-deleted`, wipe every local artefact for that ticket so
- * a future open or refresh doesn't surface stale data the user
- * shouldn't see again. Artefacts:
+ * Server-authoritative: when a ticket delete lands on the
+ * `sync_actions` change-stream (aggregate `ticket`, op `D`), wipe
+ * every local artefact for that ticket so a future open or refresh
+ * doesn't surface stale data the user shouldn't see again. Driving
+ * this off the sync stream (rather than the old discrete
+ * `ticket-deleted` event) makes it correct across backend machines,
+ * since the stream is delivered everywhere via Postgres NOTIFY.
+ * Artefacts:
  *
  *   - Yjs collab session (if active in this tab) and its on-disk
  *     IndexedDB cache, via `useCollabSessionStore.purgeData`.
@@ -26,12 +30,10 @@
  * lives for the entire session, regardless of which view is
  * currently mounted.
  */
-import { onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQueryCache } from '@pinia/colada'
 
-import { useSSE } from '@/services/sseService'
-import { unwrapEventData, type TicketDeletedEventData } from '@/types/sse'
+import { useSyncActions } from '@/composables/useSyncActions'
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { useTicketDraftsStore } from '@/stores/ticketDrafts'
 import { useTicketUiStore } from '@/stores/ticketUi'
@@ -41,7 +43,6 @@ import { ticketDetailKey } from '@/loaders/ticketDetailLoader'
 import { buildCollabDocId } from '@/utils/collabDocId'
 
 export function useTicketDeletionCleanup(): void {
-  const sse = useSSE()
   const collab = useCollabSessionStore()
   const drafts = useTicketDraftsStore()
   const ui = useTicketUiStore()
@@ -50,11 +51,7 @@ export function useTicketDeletionCleanup(): void {
   const route = useRoute()
   const workspaces = useMyWorkspacesStore()
 
-  const handler = (raw: unknown) => {
-    const data = unwrapEventData(raw as TicketDeletedEventData)
-    const id = data?.ticket_id
-    if (typeof id !== 'number') return
-
+  const cleanupTicket = (id: number) => {
     // Fire-and-forget; purgeData awaits IDB but we don't gate
     // anything on it. Errors are logged inside the store. The
     // docId is workspace-namespaced (see utils/collabDocId.ts)
@@ -83,11 +80,17 @@ export function useTicketDeletionCleanup(): void {
     }
   }
 
-  onMounted(() => {
-    if (!sse.isConnected.value) sse.connect()
-    sse.addEventListener('ticket-deleted', handler)
-  })
-  onBeforeUnmount(() => {
-    sse.removeEventListener('ticket-deleted', handler)
-  })
+  // React to ticket hard-deletes on the sync stream (aggregate
+  // 'ticket', op 'D'). A single batch can carry several deletes; clean
+  // up each. Ticket-aggregate rows carry the numeric id as aggregate_id.
+  useSyncActions(
+    (actions) => {
+      for (const action of actions) {
+        if (action.op !== 'D') continue
+        const id = Number(action.aggregate_id)
+        if (Number.isFinite(id)) cleanupTicket(id)
+      }
+    },
+    { aggregates: ['ticket'] },
+  )
 }
