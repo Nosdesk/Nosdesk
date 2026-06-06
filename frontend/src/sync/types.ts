@@ -22,6 +22,8 @@ export type SyncAggregate =
   | 'user'
   | 'asset'
   | 'notification'
+  | 'documentation_page'
+  | 'documentation_collection'
 
 export type SyncOp = 'I' | 'U' | 'D' | 'A'
 

@@ -68,6 +68,8 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   plugin: 1,
   user: 1,
   asset: 1,
+  documentation_page: 1,
+  documentation_collection: 1,
 }
 
 /** Warm the engine for an authenticated user. Idempotent —
@@ -294,18 +296,29 @@ async function runBootstrap(groups: string[]): Promise<void> {
 
 function applyActions(actions: SyncAction[]): void {
   for (const action of actions) {
-    const id = (action.data.id ?? action.data.uuid ?? action.aggregate_id) as
-      | string
-      | number
-      | undefined
-    if (id == null) continue
     if (action.op === 'D') {
+      // Deletes may carry only the key, so fall back to aggregate_id.
+      const id = (action.data.id ?? action.data.uuid ?? action.aggregate_id) as
+        | string
+        | number
+        | undefined
+      if (id == null) continue
       pool.remove(action.aggregate, id)
       if (state.handle) {
         void idb.deleteModel(state.handle, action.aggregate, String(id))
       }
       continue
     }
+    // Upsert only when the event carries a full row snapshot (its own
+    // primary key in `data`). Events that reference a row by
+    // aggregate_id without carrying it — documentation
+    // visibility_changed / page_added / page_removed, knowledge_gap
+    // signals, the synthetic `data` audit events — are side events:
+    // upserting them would write a partial row over the cached one (or
+    // mint a phantom). Observers still receive them via
+    // notifySyncActions for consumers that care.
+    const id = (action.data.id ?? action.data.uuid) as string | number | undefined
+    if (id == null) continue
     pool.upsert(action.aggregate, id, action.data)
     if (state.handle && SCHEMA_VERSIONS[action.aggregate] != null) {
       void idb.putModels(state.handle, [
