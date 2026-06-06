@@ -1,45 +1,27 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
-import { getTrashedPages, restorePage, permanentlyDeletePage } from '@/services/documentationService'
-import type { Page } from '@/services/documentationService'
-import { useSSEListeners } from '@/composables/useSSEListeners'
+import { restorePage, permanentlyDeletePage } from '@/services/documentationService'
+import { useDocPages } from '@/composables/useDocPages'
 import BackButton from '@/components/common/BackButton.vue'
-import DocumentationRowSkeleton from '@/components/documentationComponents/DocumentationRowSkeleton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
-import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { formatDate } from '@/utils/dateUtils'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const titleManager = useTitleManager()
-const docNavStore = useDocumentationNavStore()
 
-// See the matching comment in DocumentationArchivedView — skeleton is
-// first-paint only, SSE-driven refetches do not blank the list.
-const initialLoading = ref(true)
-const pages = ref<Page[]>([])
+// Trashed pages (status = deleted) derive from the sync pool. Restore
+// flips the status and permanent-delete removes the row, both of which
+// flow in as sync events, so the list reconciles itself.
+const { trashed: pages } = useDocPages()
 const confirmingDeleteId = ref<string | number | null>(null)
 
-const showSkeleton = computed(() => initialLoading.value && pages.value.length === 0)
-
-const loadTrashedPages = async () => {
-  try {
-    pages.value = await getTrashedPages()
-  } finally {
-    initialLoading.value = false
-  }
-}
-
 const handleRestore = async (pageId: string | number) => {
-  const success = await restorePage(pageId)
-  if (success) {
-    pages.value = pages.value.filter(p => String(p.id) !== String(pageId))
-    docNavStore.refreshPages()
-  }
+  await restorePage(pageId)
 }
 
 const handlePermanentDelete = async (pageId: string | number) => {
@@ -47,30 +29,12 @@ const handlePermanentDelete = async (pageId: string | number) => {
     confirmingDeleteId.value = pageId
     return
   }
-  const success = await permanentlyDeletePage(pageId)
-  if (success) {
-    pages.value = pages.value.filter(p => String(p.id) !== String(pageId))
-    confirmingDeleteId.value = null
-  }
+  await permanentlyDeletePage(pageId)
+  confirmingDeleteId.value = null
 }
-
-// SSE integration for real-time updates
-const { on, debouncedReload } = useSSEListeners({ reload: loadTrashedPages })
-
-on('documentation-updated', (data) => {
-  const event = data as { document_id: number; field: string; value: unknown }
-  if (event.field !== 'status') return
-  const statusVal = typeof event.value === 'string' ? event.value : String(event.value)
-  if (statusVal === 'deleted') {
-    debouncedReload()
-  } else {
-    pages.value = pages.value.filter(p => p.id !== event.document_id)
-  }
-})
 
 onMounted(() => {
   titleManager.setCustomTitle(t('docs-trash-title'))
-  loadTrashedPages()
 })
 </script>
 
@@ -98,25 +62,14 @@ onMounted(() => {
               <p class="text-sm text-tertiary mt-0.5">{{ $t('docs-trash-description') }}</p>
             </div>
           </div>
-          <span
-            v-if="!showSkeleton"
-            class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary"
-          >
+          <span class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary">
             {{ $t('docs-trash-count', { count: pages.length }) }}
           </span>
         </div>
 
-        <!-- Loading -->
-        <DocumentationRowSkeleton
-          v-if="showSkeleton"
-          :count="4"
-          :actions-per-row="2"
-          :label="$t('docs-trash-loading')"
-        />
-
         <!-- Empty state -->
         <EmptyState
-          v-else-if="pages.length === 0"
+          v-if="pages.length === 0"
           icon="trash"
           :title="$t('empty-documentation-trash-title')"
           :description="$t('empty-documentation-trash-description')"

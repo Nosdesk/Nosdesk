@@ -1,64 +1,23 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { onMounted } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
-import { getUncollectedPages } from '@/services/collectionService'
-import type { CollectionPage } from '@/services/collectionService'
-import { useSSEListeners } from '@/composables/useSSEListeners'
+import { useDocPages } from '@/composables/useDocPages'
 import BackButton from '@/components/common/BackButton.vue'
 import DocumentationCardGrid from '@/components/documentationComponents/DocumentationCardGrid.vue'
-import DocumentationCardSkeleton from '@/components/documentationComponents/DocumentationCardSkeleton.vue'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const titleManager = useTitleManager()
 
-// Skeleton only on the first paint; SSE refetches keep the current
-// cards on screen to avoid flicker. Matches the Archived / Trash
-// views' stale-while-revalidate treatment.
-const initialLoading = ref(true)
-const pagesForGrid = ref<any[]>([])
-
-const showSkeleton = computed(() => initialLoading.value && pagesForGrid.value.length === 0)
-
-const loadDrafts = async () => {
-  try {
-    const drafts = await getUncollectedPages()
-    pagesForGrid.value = drafts.map((p: CollectionPage) => ({
-      ...p,
-      children: [],
-      author: '',
-      content: '',
-      description: null,
-    }))
-  } finally {
-    initialLoading.value = false
-  }
-}
-
-// SSE integration for real-time updates
-const { on, debouncedReload } = useSSEListeners({ reload: loadDrafts })
-
-on('documentation-updated', (data) => {
-  const event = data as { document_id: number; field: string; value: unknown }
-  if (event.field !== 'status') return
-  const statusVal = typeof event.value === 'string' ? event.value : String(event.value)
-  const idx = pagesForGrid.value.findIndex(p => p.id === event.document_id)
-  if (statusVal === 'draft' && idx === -1) {
-    debouncedReload()
-  } else if (statusVal !== 'draft' && idx !== -1) {
-    pagesForGrid.value.splice(idx, 1)
-  }
-})
-
-on('documentation-created', () => {
-  debouncedReload()
-})
+// Drafts are the workspace's uncollected pages. Derived from the sync
+// pool, so bootstrap and live SSE / delta updates flow through without
+// a fetch or a discrete-event listener.
+const { drafts } = useDocPages()
 
 onMounted(() => {
   titleManager.setCustomTitle(t('docs-drafts-title'))
-  loadDrafts()
 })
 </script>
 
@@ -84,17 +43,13 @@ onMounted(() => {
               <p class="text-sm text-tertiary mt-0.5">{{ $t('docs-drafts-description') }}</p>
             </div>
           </div>
-          <span
-            v-if="!showSkeleton"
-            class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary"
-          >
-            {{ $t('docs-drafts-count', { count: pagesForGrid.length }) }}
+          <span class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary">
+            {{ $t('docs-drafts-count', { count: drafts.length }) }}
           </span>
         </div>
 
         <!-- Pages -->
-        <DocumentationCardSkeleton v-if="showSkeleton" :count="6" />
-        <DocumentationCardGrid v-else :pages="pagesForGrid" />
+        <DocumentationCardGrid :pages="drafts" />
       </div>
     </div>
   </div>

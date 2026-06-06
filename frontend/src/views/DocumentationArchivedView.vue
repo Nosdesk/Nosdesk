@@ -1,15 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { onMounted } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
-import { getArchivedPages, restorePage } from '@/services/documentationService'
-import type { Page } from '@/services/documentationService'
-import { useSSEListeners } from '@/composables/useSSEListeners'
+import { restorePage } from '@/services/documentationService'
+import { useDocPages } from '@/composables/useDocPages'
 import BackButton from '@/components/common/BackButton.vue'
-import DocumentationRowSkeleton from '@/components/documentationComponents/DocumentationRowSkeleton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
-import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { formatDate } from '@/utils/dateUtils'
 import { docUrl } from '@/utils/docUrl'
 
@@ -17,49 +14,20 @@ const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const titleManager = useTitleManager()
-const docNavStore = useDocumentationNavStore()
 
-// `initialLoading` gates the skeleton — only true on the first paint
-// when we have no data at all. Background refetches triggered by SSE
-// events leave the existing rows on screen so there's no flicker.
-const initialLoading = ref(true)
-const pages = ref<Page[]>([])
-
-const showSkeleton = computed(() => initialLoading.value && pages.value.length === 0)
-
-const loadArchivedPages = async () => {
-  try {
-    pages.value = await getArchivedPages()
-  } finally {
-    initialLoading.value = false
-  }
-}
+// Archived pages derive from the sync pool, so the list updates itself
+// when a page is archived or restored (its status change flows in as a
+// metadata_changed sync event) — no fetch, no discrete listener.
+const { archived: pages } = useDocPages()
 
 const handleRestore = async (pageId: string | number) => {
-  const success = await restorePage(pageId)
-  if (success) {
-    pages.value = pages.value.filter(p => String(p.id) !== String(pageId))
-    docNavStore.refreshPages()
-  }
+  // Restore flips the page's status; the pool reflects the change and
+  // this list drops the row on its own.
+  await restorePage(pageId)
 }
-
-// SSE integration for real-time updates
-const { on, debouncedReload } = useSSEListeners({ reload: loadArchivedPages })
-
-on('documentation-updated', (data) => {
-  const event = data as { document_id: number; field: string; value: unknown }
-  if (event.field !== 'status') return
-  const statusVal = typeof event.value === 'string' ? event.value : String(event.value)
-  if (statusVal === 'archived') {
-    debouncedReload()
-  } else {
-    pages.value = pages.value.filter(p => p.id !== event.document_id)
-  }
-})
 
 onMounted(() => {
   titleManager.setCustomTitle(t('docs-archived-title'))
-  loadArchivedPages()
 })
 </script>
 
@@ -87,20 +55,14 @@ onMounted(() => {
               <p class="text-sm text-tertiary mt-0.5">{{ $t('docs-archived-description') }}</p>
             </div>
           </div>
-          <span
-            v-if="!showSkeleton"
-            class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary"
-          >
+          <span class="text-xs bg-surface-alt px-2 py-1 rounded-full text-tertiary">
             {{ $t('docs-archived-count', { count: pages.length }) }}
           </span>
         </div>
 
-        <!-- Loading -->
-        <DocumentationRowSkeleton v-if="showSkeleton" :count="4" :label="$t('docs-archived-loading')" />
-
         <!-- Empty state -->
         <EmptyState
-          v-else-if="pages.length === 0"
+          v-if="pages.length === 0"
           icon="inbox"
           :title="$t('empty-documentation-archived-title')"
           :description="$t('empty-documentation-archived-description')"
