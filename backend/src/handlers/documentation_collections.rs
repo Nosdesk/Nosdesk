@@ -8,7 +8,6 @@ use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn, WorkspaceContext};
 use crate::handlers::errors;
-use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{
     DocumentationCollectionUpdate, NewDocumentationCollection, NewDocumentationCollectionPage,
 };
@@ -270,7 +269,6 @@ pub async fn update_collection(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateCollectionRequest>,
-    sse_state: web::Data<SseState>,
     auth: AuthContext,
 ) -> impl Responder {
     if !auth.can_handle_tickets() {
@@ -279,10 +277,6 @@ pub async fn update_collection(
 
     let collection_id = path.into_inner();
     let body = body.into_inner();
-
-    let body_name = body.name.clone();
-    let body_icon = body.icon.clone();
-    let body_description = body.description.clone();
 
     let outcome = tc.run(|conn| {
         let collection =
@@ -320,27 +314,9 @@ pub async fn update_collection(
 
     match outcome {
         Ok(UpdateCollectionOutcome::Ok(updated)) => {
-            // Broadcast SSE events for each updated field. One event
-            // per field so the frontend can apply the change at field
-            // granularity.
-            let updates: [(&str, Option<serde_json::Value>); 3] = [
-                ("name", body_name.as_ref().map(|v| serde_json::json!(v))),
-                ("icon", body_icon.as_ref().map(|v| serde_json::json!(v))),
-                (
-                    "description",
-                    body_description.as_ref().map(|v| serde_json::json!(v)),
-                ),
-            ];
-            for (field, value) in updates.into_iter().filter_map(|(f, v)| v.map(|v| (f, v))) {
-                sse_state
-                    .broadcast_event(SseEvent::CollectionUpdated {
-                        collection_id,
-                        field: field.to_string(),
-                        value,
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
-            }
+            // Name / icon / description changes reach clients through the
+            // documentation_collection sync aggregate (the repository
+            // emit); no discrete SSE broadcast is needed.
             HttpResponse::Ok().json(updated)
         }
         Ok(UpdateCollectionOutcome::NotFound) => errors::not_found_msg("Collection not found"),

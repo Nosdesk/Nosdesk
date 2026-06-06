@@ -556,7 +556,6 @@ pub struct SyncEmbeddingsRequest {
 pub async fn create_documentation_page(
     mut tc: TenantConn,
     page_request: web::Json<CreateDocumentationPageRequest>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -658,15 +657,9 @@ pub async fn create_documentation_page(
                 created_page.clone(),
             );
 
-            // Broadcast SSE event for documentation creation
-            sse_state
-                .broadcast_event(crate::handlers::sse::SseEvent::DocumentationCreated {
-                    document_id: created_page.id,
-                    document: serde_json::to_value(&response).unwrap_or_default(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
-
+            // Creation reaches clients through the documentation_page
+            // sync aggregate (repository emit); webhooks + plugins ride
+            // the same stream, so no discrete SSE here.
             HttpResponse::Created().json(response)
         }
         Err(_) => errors::internal("Failed to create page"),
@@ -704,7 +697,6 @@ enum UpdatePageOutcome {
 pub async fn update_documentation_page(
     mut tc: TenantConn,
     pool: web::Data<Pool>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
     notification_service: web::Data<NotificationService>,
     path: web::Path<i32>,
@@ -721,7 +713,6 @@ pub async fn update_documentation_page(
 
     let user_uuid = auth.user_uuid;
     let actor_name = auth.name.clone();
-    let actor_sub = user_uuid.to_string();
     let update_req = page.into_inner();
     let now = chrono::Utc::now().naive_utc();
 
@@ -734,11 +725,6 @@ pub async fn update_documentation_page(
         }
         None => (None, None),
     };
-
-    let request_title = update_req.title.clone();
-    let request_slug = update_req.slug.clone();
-    let request_icon = update_req.icon.clone();
-    let request_status = update_req.status;
 
     let outcome = tc.run(|conn| {
         // Check if the page exists
@@ -818,32 +804,9 @@ pub async fn update_documentation_page(
         updated_page.clone(),
     );
 
-    // Broadcast SSE events for each updated field. One event per
-    // field so the frontend can apply the change at field
-    // granularity rather than re-fetching the whole page.
-    let updates: [(&str, Option<serde_json::Value>); 4] = [
-        (
-            "title",
-            request_title.as_ref().map(|v| serde_json::json!(v)),
-        ),
-        ("slug", request_slug.as_ref().map(|v| serde_json::json!(v))),
-        ("icon", request_icon.as_ref().map(|v| serde_json::json!(v))),
-        (
-            "status",
-            request_status.as_ref().map(|v| serde_json::json!(v)),
-        ),
-    ];
-    for (field, value) in updates.into_iter().filter_map(|(f, v)| v.map(|v| (f, v))) {
-        sse_state
-            .broadcast_event(crate::handlers::sse::SseEvent::DocumentationUpdated {
-                document_id: page_id,
-                field: field.to_string(),
-                value,
-                updated_by: actor_sub.clone(),
-                timestamp: chrono::Utc::now(),
-            })
-            .await;
-    }
+    // Field changes reach clients through the documentation_page sync
+    // aggregate (the repository emit in update_documentation_page);
+    // webhooks + plugins ride the same stream.
 
     // Notify subscribers about the page update. The spawned task
     // checks out its own pool connection on the legacy (non-TenantConn)
@@ -901,10 +864,8 @@ enum DeletePageOutcome {
 
 // Delete a documentation page (soft delete — moves to trash)
 pub async fn delete_documentation_page(
-    req: HttpRequest,
     mut tc: TenantConn,
     search_service: web::Data<Arc<SearchService>>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -916,7 +877,6 @@ pub async fn delete_documentation_page(
         );
     }
 
-    let actor_sub = auth.user_uuid.to_string();
     let actor_name = auth.name.clone();
 
     let outcome = tc.run(|conn| {
@@ -947,25 +907,8 @@ pub async fn delete_documentation_page(
             // Remove documentation from search index (trashed pages shouldn't appear in search)
             indexing_tasks::spawn_delete_documentation(search_service.get_ref().clone(), page_id);
 
-            // Broadcast SSE event for status change to deleted
-            let source_client_id = req
-                .headers()
-                .get("X-SSE-Client-Id")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string());
-            sse_state
-                .broadcast_event_from(
-                    crate::handlers::sse::SseEvent::DocumentationUpdated {
-                        document_id: page_id,
-                        field: "status".to_string(),
-                        value: serde_json::json!("deleted"),
-                        updated_by: actor_sub,
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id,
-                )
-                .await;
-
+            // The status change to "deleted" reaches clients through the
+            // documentation_page sync aggregate (metadata_changed emit).
             info!(page_id = page_id, deleted_by = %actor_name, "Documentation page moved to trash");
             HttpResponse::NoContent().finish()
         }
@@ -1461,7 +1404,6 @@ pub async fn create_documentation_page_from_ticket(
     mut tc: TenantConn,
     path: web::Path<i32>,
     page_data: web::Json<CreateDocPageFromTicket>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     auth: AuthContext,
 ) -> impl Responder {
     let ticket_id = path.into_inner();
@@ -1560,13 +1502,7 @@ pub async fn create_documentation_page_from_ticket(
     match outcome {
         Ok(CreateFromTicketOutcome::Existing(p)) => HttpResponse::Ok().json(p),
         Ok(CreateFromTicketOutcome::Created(page)) => {
-            sse_state
-                .broadcast_event(crate::handlers::sse::SseEvent::DocumentationCreated {
-                    document_id: page.id,
-                    document: serde_json::to_value(&page).unwrap_or_default(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
+            // Reaches clients via the documentation_page sync aggregate.
             HttpResponse::Created().json(page)
         }
         Ok(CreateFromTicketOutcome::CreateFailed) => {
@@ -1688,10 +1624,8 @@ enum RestorePageOutcome {
 
 // Restore a page from archive or trash back to draft
 pub async fn restore_page(
-    req: HttpRequest,
     mut tc: TenantConn,
     search_service: web::Data<Arc<SearchService>>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -1703,7 +1637,6 @@ pub async fn restore_page(
         );
     }
 
-    let actor_sub = auth.user_uuid.to_string();
     let actor_name = auth.name.clone();
 
     let outcome = tc.run(|conn| {
@@ -1740,24 +1673,8 @@ pub async fn restore_page(
                 restored_page.clone(),
             );
 
-            let source_client_id = req
-                .headers()
-                .get("X-SSE-Client-Id")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string());
-            sse_state
-                .broadcast_event_from(
-                    crate::handlers::sse::SseEvent::DocumentationUpdated {
-                        document_id: page_id,
-                        field: "status".to_string(),
-                        value: serde_json::json!("draft"),
-                        updated_by: actor_sub,
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id,
-                )
-                .await;
-
+            // The restored status reaches clients through the
+            // documentation_page sync aggregate (metadata_changed emit).
             info!(page_id = page_id, restored_by = %actor_name, "Documentation page restored");
             HttpResponse::Ok().json(response)
         }
@@ -2248,7 +2165,6 @@ enum VerifyPageOutcome {
 /// POST /api/documentation/pages/{id}/verification
 pub async fn verify_page(
     mut tc: TenantConn,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
     body: web::Json<VerifyPageRequest>,
     auth: AuthContext,
@@ -2295,20 +2211,9 @@ pub async fn verify_page(
     });
 
     match outcome {
-        Ok(VerifyPageOutcome::Ok(updated, response)) => {
-            sse_state
-                .broadcast_event(crate::handlers::sse::SseEvent::DocumentationUpdated {
-                    document_id: updated.id,
-                    field: "verification".to_string(),
-                    value: serde_json::json!({
-                        "verified_by": updated.verified_by,
-                        "verified_at": updated.verified_at,
-                        "verify_interval_days": updated.verify_interval_days,
-                    }),
-                    updated_by: user_uuid.to_string(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
+        Ok(VerifyPageOutcome::Ok(_updated, response)) => {
+            // The verified state reaches clients through the
+            // documentation_page sync aggregate (the .verified emit).
             HttpResponse::Ok().json(response)
         }
         Ok(VerifyPageOutcome::UpdateFailed) => errors::internal("Failed to verify page"),
@@ -2322,7 +2227,6 @@ pub async fn verify_page(
 /// DELETE /api/documentation/pages/{id}/verification
 pub async fn unverify_page(
     mut tc: TenantConn,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
@@ -2330,7 +2234,6 @@ pub async fn unverify_page(
         return errors::forbidden("Forbidden");
     }
     let page_id = path.into_inner();
-    let user_uuid = auth.user_uuid;
     let now = chrono::Utc::now().naive_utc();
 
     let outcome = tc.run(|conn| {
@@ -2356,16 +2259,9 @@ pub async fn unverify_page(
     });
 
     match outcome {
-        Ok(VerifyPageOutcome::Ok(updated, response)) => {
-            sse_state
-                .broadcast_event(crate::handlers::sse::SseEvent::DocumentationUpdated {
-                    document_id: updated.id,
-                    field: "verification".to_string(),
-                    value: serde_json::Value::Null,
-                    updated_by: user_uuid.to_string(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
+        Ok(VerifyPageOutcome::Ok(_updated, response)) => {
+            // The cleared verification reaches clients through the
+            // documentation_page sync aggregate (metadata_changed emit).
             HttpResponse::Ok().json(response)
         }
         Ok(VerifyPageOutcome::UpdateFailed) => errors::internal("Failed to clear verification"),
