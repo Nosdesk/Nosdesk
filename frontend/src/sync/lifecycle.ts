@@ -72,6 +72,42 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   documentation_collection: 1,
 }
 
+/**
+ * Junction aggregates whose pool key is a composite of their fields
+ * rather than a standalone `id`/`uuid`. Their sync rows ARE full rows
+ * (the payload carries every field); they just key on the composite.
+ * `project_ticket` is the canonical example — a project<->ticket
+ * association with no surrogate key.
+ */
+const COMPOSITE_KEY: Partial<
+  Record<SyncAggregate, (d: Record<string, unknown>) => string | null>
+> = {
+  project_ticket: (d) =>
+    d.project_id != null && d.ticket_id != null ? `${d.project_id}:${d.ticket_id}` : null,
+  cycle_ticket: (d) =>
+    d.cycle_id != null && d.ticket_id != null ? `${d.cycle_id}:${d.ticket_id}` : null,
+  // One assignment per ticket — keyed by ticket_id, not a surrogate id.
+  assignment: (d) => (d.ticket_id != null ? String(d.ticket_id) : null),
+}
+
+/**
+ * The pool key for a sync row. Junction aggregates derive it from
+ * their fields (see COMPOSITE_KEY). Every other aggregate keys on its
+ * own primary key carried in the payload — and for those, a payload
+ * lacking both `id` and `uuid` is a *side event* (e.g. documentation
+ * `visibility_changed`, knowledge_gap signals, the synthetic `data`
+ * audit events): it references a row by aggregate_id without carrying
+ * the row, so it returns null and the caller skips the pool write
+ * rather than minting a partial/phantom row. Used by both the
+ * bootstrap snapshot loader and the live delta/SSE applier so the two
+ * paths key rows identically.
+ */
+function rowKey(aggregate: SyncAggregate, data: Record<string, unknown>): string | number | null {
+  const composite = COMPOSITE_KEY[aggregate]
+  if (composite) return composite(data)
+  return ((data.id ?? data.uuid) as string | number | undefined) ?? null
+}
+
 /** Warm the engine for an authenticated user. Idempotent —
  * subsequent calls are no-ops while the handle is live (or while
  * memory-only mode is active). */
@@ -263,9 +299,9 @@ async function runBootstrap(groups: string[]): Promise<void> {
         applyWorkspaceCapabilities(meta)
       } else if ('__model__' in line) {
         const { __model__: aggregate, ...payload } = line
-        const id = (payload.id ?? payload.uuid) as string | number | undefined
+        const id = rowKey(aggregate, payload as Record<string, unknown>)
         if (id == null) {
-          logger.warn('bootstrap row missing id; dropping', { aggregate, payload })
+          logger.warn('bootstrap row missing key; dropping', { aggregate, payload })
           continue
         }
         pool.upsert(aggregate, id, payload as Record<string, unknown>)
@@ -297,11 +333,9 @@ async function runBootstrap(groups: string[]): Promise<void> {
 function applyActions(actions: SyncAction[]): void {
   for (const action of actions) {
     if (action.op === 'D') {
-      // Deletes may carry only the key, so fall back to aggregate_id.
-      const id = (action.data.id ?? action.data.uuid ?? action.aggregate_id) as
-        | string
-        | number
-        | undefined
+      // Deletes may carry only the key; fall back to aggregate_id for
+      // own-pk aggregates whose delete payload is otherwise empty.
+      const id = rowKey(action.aggregate, action.data) ?? action.aggregate_id
       if (id == null) continue
       pool.remove(action.aggregate, id)
       if (state.handle) {
@@ -309,15 +343,12 @@ function applyActions(actions: SyncAction[]): void {
       }
       continue
     }
-    // Upsert only when the event carries a full row snapshot (its own
-    // primary key in `data`). Events that reference a row by
-    // aggregate_id without carrying it — documentation
-    // visibility_changed / page_added / page_removed, knowledge_gap
-    // signals, the synthetic `data` audit events — are side events:
-    // upserting them would write a partial row over the cached one (or
-    // mint a phantom). Observers still receive them via
+    // `rowKey` returns null for side events (an own-pk aggregate whose
+    // payload carries no primary key — e.g. documentation
+    // visibility_changed). Skipping those avoids writing a partial row
+    // over the cached one; observers still receive them via
     // notifySyncActions for consumers that care.
-    const id = (action.data.id ?? action.data.uuid) as string | number | undefined
+    const id = rowKey(action.aggregate, action.data)
     if (id == null) continue
     pool.upsert(action.aggregate, id, action.data)
     if (state.handle && SCHEMA_VERSIONS[action.aggregate] != null) {
