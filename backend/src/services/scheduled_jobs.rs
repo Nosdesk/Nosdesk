@@ -296,11 +296,7 @@ pub async fn sweep_outbound_email_leases(pool: Pool) -> Result<()> {
 /// `UserDeletedObserver` the admin-initiated purge uses, so a row
 /// purged by the worker disappears from search at the same moment
 /// it disappears from the table.
-pub async fn purge_soft_deleted_users(
-    pool: Pool,
-    search: Arc<SearchService>,
-    sse_state: Arc<crate::handlers::sse::SseState>,
-) -> Result<()> {
+pub async fn purge_soft_deleted_users(pool: Pool, search: Arc<SearchService>) -> Result<()> {
     let mut conn = pool.get().context("db pool")?;
     let grace = crate::repository::users::purge_grace_window();
     let cutoff = chrono::Utc::now().naive_utc() - grace;
@@ -337,12 +333,6 @@ pub async fn purge_soft_deleted_users(
                     deleted_at = ?user.deleted_at,
                     "scheduler:user_purge: purged"
                 );
-                sse_state
-                    .broadcast_event(crate::handlers::sse::SseEvent::UserPurged {
-                        user_uuid: user.uuid.to_string(),
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
             }
             Err(e) => {
                 failed += 1;
@@ -477,7 +467,6 @@ enum SlaBreachKind {
 pub async fn detect_sla_breaches(
     pool: Pool,
     notification_service: Arc<crate::services::notifications::NotificationService>,
-    sse_state: Arc<crate::handlers::sse::SseState>,
 ) -> Result<()> {
     let mut conn = pool.get().context("db pool")?;
     let candidates = scan_breach_candidates(&mut conn).context("scan SLA breach candidates")?;
@@ -497,7 +486,7 @@ pub async fn detect_sla_breaches(
                 // so the webhook listener can fire `ticket.sla_breached`
                 // deliveries. The pill repaint already flowed through
                 // the sync_action emit inside process_one_breach.
-                fanout_breach(&notification_service, &sse_state, &ctx).await;
+                fanout_breach(&notification_service, &ctx).await;
             }
             Ok(None) => {} // lost the idempotency race — normal no-op
             Err(e) => {
@@ -568,7 +557,6 @@ struct BreachContext {
     ticket_id: i32,
     ticket_title: String,
     kind: SlaBreachKind,
-    target_at: chrono::DateTime<chrono::Utc>,
     breached_at: chrono::DateTime<chrono::Utc>,
     assignee_uuid: Option<uuid::Uuid>,
     watcher_uuids: Vec<uuid::Uuid>,
@@ -650,19 +638,12 @@ fn process_one_breach(
         )?;
         let watcher_uuids =
             crate::repository::ticket_watchers::watcher_uuids(conn, ticket_id).unwrap_or_default();
-        let (target_at, breached_at) = match kind {
-            SlaBreachKind::Response => (
-                ticket.sla_response_target_at,
-                ticket.sla_response_breached_at,
-            ),
-            SlaBreachKind::Resolution => (
-                ticket.sla_resolution_target_at,
-                ticket.sla_resolution_breached_at,
-            ),
+        let breached_at = match kind {
+            SlaBreachKind::Response => ticket.sla_response_breached_at,
+            SlaBreachKind::Resolution => ticket.sla_resolution_breached_at,
         };
-        // The stamp above guarantees breached_at is now Some;
-        // target_at is non-null because the scan predicate required
-        // it. Both should resolve, but degrade gracefully if not.
+        // The stamp above guarantees breached_at is now Some; degrade
+        // gracefully if not.
         let now = Utc::now();
         let to_utc = |opt: Option<chrono::NaiveDateTime>| -> DateTime<Utc> {
             opt.map(|t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc))
@@ -672,7 +653,6 @@ fn process_one_breach(
             ticket_id,
             ticket_title: ticket.title.clone(),
             kind,
-            target_at: to_utc(target_at),
             breached_at: to_utc(breached_at),
             assignee_uuid: ticket.assignee_uuid,
             watcher_uuids,
@@ -687,7 +667,6 @@ fn process_one_breach(
 /// the webhook listener can fire `ticket.sla_breached` deliveries.
 async fn fanout_breach(
     notification_service: &crate::services::notifications::NotificationService,
-    sse_state: &crate::handlers::sse::SseState,
     ctx: &BreachContext,
 ) {
     use crate::services::notifications::types::{
@@ -743,22 +722,9 @@ async fn fanout_breach(
             );
         }
     }
-
-    // Broadcast on global topic for webhook fanout. The pill repaint
-    // already flowed through the sync_action emit inside
-    // process_one_breach, so connected clients don't need this event
-    // to update their UI — it exists purely as the
-    // `ticket.sla_breached` channel for configured webhooks.
-    sse_state
-        .broadcast_event(crate::handlers::sse::SseEvent::SlaBreached {
-            ticket_id: ctx.ticket_id,
-            ticket_title: ctx.ticket_title.clone(),
-            timer: timer_label,
-            target_at: ctx.target_at,
-            breached_at: ctx.breached_at,
-            timestamp: chrono::Utc::now(),
-        })
-        .await;
+    // The breach webhook is delivered from the webhook_outbox via the
+    // ticket.sla_breached sync_action emitted in process_one_breach; no
+    // SSE broadcast needed here.
 }
 
 impl SlaBreachKind {

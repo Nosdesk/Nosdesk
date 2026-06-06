@@ -23,7 +23,6 @@ use crate::db::DbConnection;
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::handlers::helpers;
-use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{KnowledgeGap, KnowledgeGapSignal, UserInfoWithAvatar};
 use crate::repository::{self, knowledge_gaps};
 
@@ -119,7 +118,6 @@ enum FlagOutcome {
 pub async fn flag_ticket_as_gap(
     mut tc: TenantConn,
     auth: AuthContext,
-    sse_state: web::Data<SseState>,
     path: web::Path<i32>,
     body: web::Json<FlagTicketBody>,
 ) -> impl Responder {
@@ -153,13 +151,6 @@ pub async fn flag_ticket_as_gap(
 
     match outcome {
         Ok(FlagOutcome::Created(gap)) => {
-            sse_state
-                .broadcast_event(SseEvent::KnowledgeGapDetected {
-                    gap_id: gap.id,
-                    signal_type: knowledge_gaps::SIGNAL_MANUAL_FLAG.to_string(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
             HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None })
         }
         Ok(FlagOutcome::Updated(gap)) => {
@@ -302,7 +293,6 @@ pub async fn get_knowledge_gap(
 pub async fn dismiss_knowledge_gap(
     mut tc: TenantConn,
     auth: AuthContext,
-    sse_state: web::Data<SseState>,
     path: web::Path<i64>,
 ) -> impl Responder {
     if !auth.can_handle_tickets() {
@@ -312,16 +302,7 @@ pub async fn dismiss_knowledge_gap(
     let user_uuid = auth.user_uuid;
 
     match tc.run(|conn| knowledge_gaps::dismiss_gap(conn, gap_id, user_uuid)) {
-        Ok(gap) => {
-            sse_state
-                .broadcast_event(SseEvent::KnowledgeGapResolved {
-                    gap_id: gap.id,
-                    resolved_page_id: None,
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
-            HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None })
-        }
+        Ok(gap) => HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None }),
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to dismiss gap");
             errors::internal("Failed to dismiss gap")
@@ -351,7 +332,6 @@ pub struct DetectClustersResponse {
 pub async fn detect_clusters(
     mut tc: TenantConn,
     auth: AuthContext,
-    sse_state: web::Data<SseState>,
     body: web::Json<DetectClustersBody>,
 ) -> impl Responder {
     if !auth.can_handle_tickets() {
@@ -365,22 +345,11 @@ pub async fn detect_clusters(
     match tc
         .run(|conn| knowledge_gaps::run_cluster_detection(conn, Some(user_uuid), days, min_size))
     {
-        Ok(stats) => {
-            for gap_id in &stats.new_gap_ids {
-                sse_state
-                    .broadcast_event(SseEvent::KnowledgeGapDetected {
-                        gap_id: *gap_id,
-                        signal_type: knowledge_gaps::SIGNAL_TICKET_CLUSTER.to_string(),
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
-            }
-            HttpResponse::Ok().json(DetectClustersResponse {
-                clusters_detected: stats.clusters_detected,
-                gaps_created: stats.gaps_created,
-                gaps_updated: stats.gaps_updated,
-            })
-        }
+        Ok(stats) => HttpResponse::Ok().json(DetectClustersResponse {
+            clusters_detected: stats.clusters_detected,
+            gaps_created: stats.gaps_created,
+            gaps_updated: stats.gaps_updated,
+        }),
         Err(e) => {
             error!(error = ?e, "Cluster detection failed");
             errors::internal("Cluster detection failed")
@@ -401,7 +370,6 @@ pub struct DetectFailedSearchesBody {
 pub async fn detect_failed_searches(
     mut tc: TenantConn,
     auth: AuthContext,
-    sse_state: web::Data<SseState>,
     body: web::Json<DetectFailedSearchesBody>,
 ) -> impl Responder {
     if !auth.can_handle_tickets() {
@@ -415,22 +383,11 @@ pub async fn detect_failed_searches(
     match tc.run(|conn| {
         knowledge_gaps::run_failed_search_detection(conn, Some(user_uuid), days, min_count)
     }) {
-        Ok(stats) => {
-            for gap_id in &stats.new_gap_ids {
-                sse_state
-                    .broadcast_event(SseEvent::KnowledgeGapDetected {
-                        gap_id: *gap_id,
-                        signal_type: knowledge_gaps::SIGNAL_FAILED_SEARCH.to_string(),
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
-            }
-            HttpResponse::Ok().json(DetectClustersResponse {
-                clusters_detected: stats.clusters_detected,
-                gaps_created: stats.gaps_created,
-                gaps_updated: stats.gaps_updated,
-            })
-        }
+        Ok(stats) => HttpResponse::Ok().json(DetectClustersResponse {
+            clusters_detected: stats.clusters_detected,
+            gaps_created: stats.gaps_created,
+            gaps_updated: stats.gaps_updated,
+        }),
         Err(e) => {
             error!(error = ?e, "Failed-search detection failed");
             errors::internal("Failed-search detection failed")
@@ -455,7 +412,6 @@ pub struct DetectStaleDocsBody {
 pub async fn detect_stale_docs(
     mut tc: TenantConn,
     auth: AuthContext,
-    sse_state: web::Data<SseState>,
     body: web::Json<DetectStaleDocsBody>,
 ) -> impl Responder {
     if !auth.can_handle_tickets() {
@@ -474,22 +430,11 @@ pub async fn detect_stale_docs(
             min_recent_tickets,
         )
     }) {
-        Ok(stats) => {
-            for gap_id in &stats.new_gap_ids {
-                sse_state
-                    .broadcast_event(SseEvent::KnowledgeGapDetected {
-                        gap_id: *gap_id,
-                        signal_type: knowledge_gaps::SIGNAL_STALE_DOC.to_string(),
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
-            }
-            HttpResponse::Ok().json(DetectClustersResponse {
-                clusters_detected: stats.clusters_detected,
-                gaps_created: stats.gaps_created,
-                gaps_updated: stats.gaps_updated,
-            })
-        }
+        Ok(stats) => HttpResponse::Ok().json(DetectClustersResponse {
+            clusters_detected: stats.clusters_detected,
+            gaps_created: stats.gaps_created,
+            gaps_updated: stats.gaps_updated,
+        }),
         Err(e) => {
             error!(error = ?e, "Stale-doc detection failed");
             errors::internal("Stale-doc detection failed")
@@ -509,7 +454,6 @@ pub struct ResolveGapBody {
 pub async fn resolve_knowledge_gap(
     mut tc: TenantConn,
     auth: AuthContext,
-    sse_state: web::Data<SseState>,
     path: web::Path<i64>,
     body: web::Json<ResolveGapBody>,
 ) -> impl Responder {
@@ -522,16 +466,7 @@ pub async fn resolve_knowledge_gap(
     let page_id = req_body.page_id;
 
     match tc.run(|conn| knowledge_gaps::resolve_gap(conn, gap_id, page_id, user_uuid)) {
-        Ok(gap) => {
-            sse_state
-                .broadcast_event(SseEvent::KnowledgeGapResolved {
-                    gap_id: gap.id,
-                    resolved_page_id: Some(page_id),
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
-            HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None })
-        }
+        Ok(gap) => HttpResponse::Ok().json(KnowledgeGapResponse { gap, signals: None }),
         Err(e) => {
             error!(error = ?e, gap_id, "Failed to resolve gap");
             errors::internal("Failed to resolve gap")

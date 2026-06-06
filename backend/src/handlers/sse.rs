@@ -56,18 +56,6 @@ pub enum SseEvent {
         comment_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    AttachmentAdded {
-        ticket_id: i32,
-        comment_id: i32,
-        attachment: serde_json::Value,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    AttachmentDeleted {
-        ticket_id: i32,
-        comment_id: i32,
-        attachment_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     AssetLinked {
         ticket_id: i32,
         device_id: i32,
@@ -148,16 +136,6 @@ pub enum SseEvent {
         linked_ticket_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    KnowledgeGapDetected {
-        gap_id: i64,
-        signal_type: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    KnowledgeGapResolved {
-        gap_id: i64,
-        resolved_page_id: Option<i32>,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     /// Per-user presence on a ticket. Replaces the v0
     /// `ViewerCountChanged` event: instead of a bare count, ships
     /// the deduplicated viewer set so the frontend can render
@@ -199,27 +177,6 @@ pub enum SseEvent {
         user_uuid: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    /// User row stamped with `deleted_at`. Active surfaces drop
-    /// them; the row stays in the table for the retention window.
-    UserSoftDeleted {
-        user_uuid: String,
-        deleted_at: chrono::NaiveDateTime,
-        purge_at: chrono::NaiveDateTime,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    /// Admin restored a soft-deleted user. Active surfaces start
-    /// rendering them again on the next sync delta.
-    UserRestored {
-        user_uuid: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    /// Retention worker (or admin permanent-delete) hard-deleted
-    /// the row. Frontends drop the row from caches; this is the
-    /// "really gone" signal, distinct from soft-delete.
-    UserPurged {
-        user_uuid: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     Heartbeat {
         timestamp: chrono::DateTime<chrono::Utc>,
     },
@@ -235,22 +192,6 @@ pub enum SseEvent {
         last_sync_id: i64,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    /// SLA breach fired by the scheduled detection sweep. The pill
-    /// repaint flows through `ticket.sla_updated` sync_actions
-    /// already (see `services::scheduled_jobs::detect_sla_breaches`);
-    /// this event is the webhook-fanout channel so subscribers
-    /// listening on the global SSE topic can pick up
-    /// `ticket.sla_breached` deliveries. Carries the timer kind so
-    /// downstream consumers can route response vs resolution breaches
-    /// separately without resolving the ticket payload themselves.
-    SlaBreached {
-        ticket_id: i32,
-        ticket_title: String,
-        timer: &'static str,
-        target_at: chrono::DateTime<chrono::Utc>,
-        breached_at: chrono::DateTime<chrono::Utc>,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
 }
 
 fn event_type_str(event: &SseEvent) -> &'static str {
@@ -261,8 +202,6 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::TicketMerged { .. } => "ticket-merged",
         SseEvent::CommentAdded { .. } => "comment-added",
         SseEvent::CommentDeleted { .. } => "comment-deleted",
-        SseEvent::AttachmentAdded { .. } => "attachment-added",
-        SseEvent::AttachmentDeleted { .. } => "attachment-deleted",
         SseEvent::AssetLinked { .. } => "asset-linked",
         SseEvent::AssetUnlinked { .. } => "asset-unlinked",
         SseEvent::AssetCreated { .. } => "asset-created",
@@ -274,19 +213,13 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::ProjectUnassigned { .. } => "project-unassigned",
         SseEvent::TicketLinked { .. } => "ticket-linked",
         SseEvent::TicketUnlinked { .. } => "ticket-unlinked",
-        SseEvent::KnowledgeGapDetected { .. } => "knowledge-gap-detected",
-        SseEvent::KnowledgeGapResolved { .. } => "knowledge-gap-resolved",
         SseEvent::ViewersChanged { .. } => "viewers-changed",
         SseEvent::TicketFieldPreviewed { .. } => "ticket-field-previewed",
         SseEvent::UserUpdated { .. } => "user-updated",
         SseEvent::UserCreated { .. } => "user-created",
         SseEvent::UserDeleted { .. } => "user-deleted",
-        SseEvent::UserSoftDeleted { .. } => "user-soft-deleted",
-        SseEvent::UserRestored { .. } => "user-restored",
-        SseEvent::UserPurged { .. } => "user-purged",
         SseEvent::Heartbeat { .. } => "heartbeat",
         SseEvent::SyncActions { .. } => "sync-actions",
-        SseEvent::SlaBreached { .. } => "ticket.sla_breached",
     }
 }
 
@@ -486,10 +419,10 @@ impl SseState {
         self.clients.lock().unwrap().len()
     }
 
-    /// Subscribe to the Global topic. Used by integrations like the
-    /// webhook listener that need to observe every cross-resource
-    /// event without seeing per-user notifications. Returns a live
-    /// broadcast receiver scoped to that one topic.
+    /// Subscribe to the Global topic — a live broadcast receiver scoped
+    /// to that one topic. Used by integration tests to observe
+    /// cross-resource broadcasts (e.g. asserting a merge emits its SSE
+    /// events) without standing up a full SSE client.
     pub fn subscribe_global(&self) -> broadcast::Receiver<Envelope> {
         self.topic(TopicKey::Global).sender.subscribe()
     }

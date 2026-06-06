@@ -898,7 +898,6 @@ fn require_admin_target(
 pub async fn delete_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
@@ -953,17 +952,6 @@ pub async fn delete_user(
         "User soft-deleted"
     );
 
-    if let (Some(deleted_at), Some(purge_at)) = (soft_deleted.deleted_at, purge_at) {
-        sse_state
-            .broadcast_event(crate::handlers::sse::SseEvent::UserSoftDeleted {
-                user_uuid: user_uuid_parsed.to_string(),
-                deleted_at,
-                purge_at,
-                timestamp: chrono::Utc::now(),
-            })
-            .await;
-    }
-
     HttpResponse::Ok().json(json!({
         "uuid": soft_deleted.uuid,
         "deleted_at": soft_deleted.deleted_at,
@@ -979,7 +967,6 @@ pub async fn delete_user(
 pub async fn restore_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     req: HttpRequest,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
@@ -1010,12 +997,6 @@ pub async fn restore_user(
     };
 
     info!(user_uuid = %restored.uuid, name = %restored.name, "User restored");
-    sse_state
-        .broadcast_event(crate::handlers::sse::SseEvent::UserRestored {
-            user_uuid: restored.uuid.to_string(),
-            timestamp: chrono::Utc::now(),
-        })
-        .await;
 
     HttpResponse::Ok().json(json!({
         "uuid": restored.uuid,
@@ -1035,7 +1016,6 @@ pub async fn restore_user(
 pub async fn purge_user_now(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
 ) -> impl Responder {
@@ -1085,12 +1065,6 @@ pub async fn purge_user_now(
                 user_uuid = %target.uuid,
                 "User permanently deleted by admin (skipped retention window)"
             );
-            sse_state
-                .broadcast_event(crate::handlers::sse::SseEvent::UserPurged {
-                    user_uuid: user_uuid_parsed.to_string(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
             HttpResponse::NoContent().finish()
         }
         Ok(_) => errors::not_found_msg("User not found"),
@@ -2703,7 +2677,6 @@ pub async fn bulk_users(
             // Bulk soft-delete shares the same primitive as the
             // single-delete handler so the two flows can't drift.
             let actor = helpers::actor_for(&req, "users_admin");
-            let grace = repository::users::purge_grace_window();
             let mut deleted = 0;
             let mut skipped_admin = 0;
             for id in ids {
@@ -2729,18 +2702,8 @@ pub async fn bulk_users(
                     |conn| repository::users::soft_delete_user(&uuid, conn),
                 );
                 match result {
-                    Ok(row) => {
+                    Ok(_row) => {
                         deleted += 1;
-                        if let Some(deleted_at) = row.deleted_at {
-                            sse_state
-                                .broadcast_event(crate::handlers::sse::SseEvent::UserSoftDeleted {
-                                    user_uuid: id.to_string(),
-                                    deleted_at,
-                                    purge_at: deleted_at + grace,
-                                    timestamp: chrono::Utc::now(),
-                                })
-                                .await;
-                        }
                     }
                     Err(e) => {
                         error!(user_id = %id, error = ?e, "Error soft-deleting user");
