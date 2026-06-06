@@ -490,6 +490,11 @@ pub enum SyncAggregate {
     /// when the audit surface is read or exported (Item C/W5, D5).
     #[serde(rename = "data")]
     Data,
+    /// Per-recipient notification events. Emitted on notification
+    /// creation, scoped to the recipient's private `user:<uuid>` group,
+    /// so they fan out cross-machine via the sync stream.
+    #[serde(rename = "notification")]
+    Notification,
 }
 
 impl SyncAggregate {
@@ -514,6 +519,7 @@ impl SyncAggregate {
             Self::DocumentationPage => "documentation_page",
             Self::DocumentationCollection => "documentation_collection",
             Self::Data => "data",
+            Self::Notification => "notification",
         }
     }
 }
@@ -547,6 +553,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"documentation_page" => Ok(Self::DocumentationPage),
             b"documentation_collection" => Ok(Self::DocumentationCollection),
             b"data" => Ok(Self::Data),
+            b"notification" => Ok(Self::Notification),
             other => {
                 Err(format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into())
             }

@@ -11,7 +11,8 @@ use tokio::sync::RwLock as TokioRwLock;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::models::{NewNotification, Notification, NotificationResponse};
+use crate::models::{NewNotification, Notification, NotificationResponse, SyncAggregate, SyncOp};
+use crate::sync::emit::{self, SyncEmit};
 
 use super::channels::{ChannelError, NotificationDeliveryChannel};
 use super::preferences::PreferenceService;
@@ -268,9 +269,38 @@ impl NotificationService {
             &self.pool,
             "background:notification_persist",
             |conn| {
-                diesel::insert_into(notifications::table)
+                let notification: Notification = diesel::insert_into(notifications::table)
                     .values(&new_notification)
-                    .get_result(conn)
+                    .get_result(conn)?;
+
+                // Emit a sync_actions row in the same transaction so the
+                // notification reaches the recipient's clients on every
+                // backend machine (cross-machine via Postgres NOTIFY),
+                // not just the one that created it. Scoped to the
+                // recipient's private `user:<uuid>` group so no other
+                // user can see it. workspace_id defaults to 1 like the
+                // insert above (single-tenant); revisit for multi-tenant.
+                emit::record(
+                    conn,
+                    SyncEmit {
+                        aggregate: SyncAggregate::Notification,
+                        aggregate_id: notification.id.to_string(),
+                        op: SyncOp::Insert,
+                        event_type: "notification.created",
+                        data: serde_json::json!({
+                            "id": notification.id,
+                            "uuid": notification.uuid,
+                            "type": payload.notification_type.as_str(),
+                            "title": notification.title,
+                            "body": notification.body,
+                            "metadata": notification.metadata,
+                        }),
+                        groups: vec![format!("user:{}", payload.recipient_uuid)],
+                        causation_id: None,
+                    },
+                )?;
+
+                Ok(notification)
             },
         )
         .map_err(|e| format!("Failed to persist notification: {e}"))?;

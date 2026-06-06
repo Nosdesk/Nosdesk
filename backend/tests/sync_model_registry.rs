@@ -65,6 +65,7 @@ fn all_aggregates() -> Vec<SyncAggregate> {
         DocumentationPage,
         DocumentationCollection,
         Data,
+        Notification,
     ]
 }
 
