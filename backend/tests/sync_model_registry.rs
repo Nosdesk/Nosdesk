@@ -68,6 +68,8 @@ fn all_aggregates() -> Vec<SyncAggregate> {
         Notification,
         TicketAsset,
         LinkedTicket,
+        AssetUsage,
+        AssetAudit,
     ]
 }
 

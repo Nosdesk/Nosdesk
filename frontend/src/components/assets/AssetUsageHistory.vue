@@ -23,11 +23,11 @@
  * on `asset.quantity != null`); non-tracked assets don't
  * generate ledger rows so the panel would always be empty.
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { assetUsageService, type AssetUsage } from '@/services/assetUsageService';
 import { assetAuditService, type AssetAudit } from '@/services/assetAuditService';
-import { useSSE } from '@/services/sseService';
+import { useSyncActions } from '@/composables/useSyncActions';
 import { RouterLink } from 'vue-router';
 import { formatDateTime } from '@/utils/dateUtils';
 
@@ -164,7 +164,7 @@ async function submitAudit() {
 // ---- SSE live updates ----------------------------------------------
 
 interface AssetUsageRecordedEvent {
-  usage_id: number;
+  id: number;
   asset_id: number;
   asset_name: string;
   ticket_id: number | null;
@@ -176,7 +176,7 @@ interface AssetUsageRecordedEvent {
 }
 
 interface AssetAuditRecordedEvent {
-  audit_id: number;
+  id: number;
   asset_id: number;
   asset_name: string;
   counted_quantity: string;
@@ -187,57 +187,59 @@ interface AssetAuditRecordedEvent {
   recorded_at: string;
 }
 
-const { addEventListener, removeEventListener } = useSSE();
+// Live ledger updates via the sync stream (cross-machine). The
+// asset_usage / asset_audit aggregates aren't pool-materialised; we
+// read the row off each recorded event and prepend it, deduping by id.
+useSyncActions(
+  (actions) => {
+    for (const a of actions) {
+      const data = a.data as unknown as AssetUsageRecordedEvent;
+      if (data.asset_id !== props.assetId) continue;
+      if (usageRows.value.some((r) => r.id === data.id)) continue;
+      usageRows.value = [
+        {
+          id: data.id,
+          asset_id: data.asset_id,
+          ticket_id: data.ticket_id,
+          quantity_used: data.quantity_used,
+          unit: data.unit,
+          recorded_by: null,
+          recorded_at: data.recorded_at,
+          notes: data.notes,
+          event_kind: data.event_kind,
+        },
+        ...usageRows.value,
+      ];
+    }
+  },
+  { aggregates: ['asset_usage'] },
+);
 
-function handleUsageRecorded(raw: unknown) {
-  const data = raw as AssetUsageRecordedEvent;
-  if (!data || data.asset_id !== props.assetId) return;
-  if (usageRows.value.some((r) => r.id === data.usage_id)) return;
-  usageRows.value = [
-    {
-      id: data.usage_id,
-      asset_id: data.asset_id,
-      ticket_id: data.ticket_id,
-      quantity_used: data.quantity_used,
-      unit: data.unit,
-      recorded_by: null,
-      recorded_at: data.recorded_at,
-      notes: data.notes,
-      event_kind: data.event_kind,
-    },
-    ...usageRows.value,
-  ];
-}
+useSyncActions(
+  (actions) => {
+    for (const a of actions) {
+      const data = a.data as unknown as AssetAuditRecordedEvent;
+      if (data.asset_id !== props.assetId) continue;
+      if (auditRows.value.some((r) => r.id === data.id)) continue;
+      auditRows.value = [
+        {
+          id: data.id,
+          asset_id: data.asset_id,
+          counted_quantity: data.counted_quantity,
+          previous_quantity: data.previous_quantity,
+          delta: data.delta,
+          notes: data.notes,
+          recorded_by: null,
+          recorded_at: data.recorded_at,
+        },
+        ...auditRows.value,
+      ];
+    }
+  },
+  { aggregates: ['asset_audit'] },
+);
 
-function handleAuditRecorded(raw: unknown) {
-  const data = raw as AssetAuditRecordedEvent;
-  if (!data || data.asset_id !== props.assetId) return;
-  if (auditRows.value.some((r) => r.id === data.audit_id)) return;
-  auditRows.value = [
-    {
-      id: data.audit_id,
-      asset_id: data.asset_id,
-      counted_quantity: data.counted_quantity,
-      previous_quantity: data.previous_quantity,
-      delta: data.delta,
-      notes: data.notes,
-      recorded_by: null,
-      recorded_at: data.recorded_at,
-    },
-    ...auditRows.value,
-  ];
-}
-
-onMounted(() => {
-  loadInitial();
-  addEventListener('asset-usage-recorded', handleUsageRecorded);
-  addEventListener('asset-audit-recorded', handleAuditRecorded);
-});
-
-onUnmounted(() => {
-  removeEventListener('asset-usage-recorded', handleUsageRecorded);
-  removeEventListener('asset-audit-recorded', handleAuditRecorded);
-});
+onMounted(loadInitial);
 
 function formatDate(iso: string): string {
   return formatDateTime(iso);

@@ -12,8 +12,10 @@ use diesel::prelude::*;
 use diesel::result::Error;
 
 use crate::db::DbConnection;
-use crate::models::{AssetAudit, NewAssetAudit};
+use crate::models::{AssetAudit, NewAssetAudit, SyncAggregate, SyncOp};
 use crate::schema::{asset_audits, assets};
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 
 /// Outcome of a successful audit insert. Carries the inserted
 /// row plus the post-correction quantity so the handler can
@@ -41,7 +43,6 @@ pub struct AuditOutcome {
 /// The asset must be stock-tracked (`quantity IS NOT NULL`).
 /// Caller is responsible for enforcing that gate; this fn
 /// returns NotFound if the row isn't there at all.
-// sync-audit-only: append-only audit event, broadcast via SseEvent::AssetAuditRecorded from handlers::asset_audits::record rather than the sync_actions aggregate stream
 pub fn record_audit(
     conn: &mut DbConnection,
     asset_id: i32,
@@ -83,6 +84,33 @@ pub fn record_audit(
         diesel::update(assets::table.find(asset_id))
             .set(assets::quantity.eq(&counted_quantity))
             .execute(conn)?;
+
+        // Append-only audit event on the sync stream so the usage
+        // history panels see the count land cross-machine.
+        let mut event_groups = groups::workspace();
+        event_groups.push(format!("asset:{asset_id}"));
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::AssetAudit,
+                aggregate_id: row.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "asset_audit.recorded",
+                data: serde_json::json!({
+                    "id": row.id,
+                    "asset_id": row.asset_id,
+                    "asset_name": name.clone(),
+                    "counted_quantity": row.counted_quantity.to_string(),
+                    "previous_quantity": row.previous_quantity.to_string(),
+                    "delta": row.delta.to_string(),
+                    "unit": unit.clone().unwrap_or_default(),
+                    "notes": row.notes.clone(),
+                    "recorded_at": row.recorded_at,
+                }),
+                groups: event_groups,
+                causation_id: None,
+            },
+        )?;
 
         let crossed = match threshold.as_ref() {
             Some(t) => &previous > t && &counted_quantity <= t,

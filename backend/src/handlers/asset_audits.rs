@@ -15,7 +15,6 @@ use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::handlers::sse::{SseEvent, SseState};
 use crate::repository::asset_audits as repo;
 use crate::services::notifications::types::{
     NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
@@ -46,7 +45,6 @@ pub async fn record(
     auth: AuthContext,
     path: web::Path<i32>,
     body: web::Json<RecordAuditBody>,
-    sse_state: web::Data<SseState>,
     notification_service: web::Data<NotificationService>,
 ) -> impl Responder {
     if !auth.can_handle_tickets() {
@@ -107,20 +105,9 @@ pub async fn record(
 
     match tc.run(|conn| repo::record_audit(conn, asset_id, counted, notes, recorded_by)) {
         Ok(outcome) => {
-            sse_state
-                .broadcast_event(SseEvent::AssetAuditRecorded {
-                    audit_id: outcome.row.id,
-                    asset_id,
-                    asset_name: outcome.asset_name.clone(),
-                    counted_quantity: outcome.row.counted_quantity.to_string(),
-                    previous_quantity: outcome.row.previous_quantity.to_string(),
-                    delta: outcome.row.delta.to_string(),
-                    unit: outcome.asset_unit.clone(),
-                    notes: outcome.row.notes.clone(),
-                    recorded_at: outcome.row.recorded_at,
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
+            // The audit row reaches the usage-history panels through the
+            // sync stream (record_audit emits `asset_audit.recorded`),
+            // cross-machine; no discrete SSE broadcast.
 
             if outcome.crossed_low_stock {
                 if let Some(threshold) = outcome.threshold.as_ref() {

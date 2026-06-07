@@ -504,6 +504,16 @@ pub enum SyncAggregate {
     /// `ticket_id:linked_ticket_id`, emitted in both directions.
     #[serde(rename = "linked_ticket")]
     LinkedTicket,
+    /// Append-only asset usage ledger event (`asset_usage_log`). Op
+    /// Insert; not pool-materialised — the usage-history panels react to
+    /// it via `useSyncActions`. Cross-machine replacement for the old
+    /// instance-local `SseEvent::AssetUsageRecorded`.
+    #[serde(rename = "asset_usage")]
+    AssetUsage,
+    /// Append-only asset physical-count audit event (`asset_audits`).
+    /// Same shape/intent as `asset_usage`.
+    #[serde(rename = "asset_audit")]
+    AssetAudit,
 }
 
 impl SyncAggregate {
@@ -531,6 +541,8 @@ impl SyncAggregate {
             Self::Notification => "notification",
             Self::TicketAsset => "ticket_asset",
             Self::LinkedTicket => "linked_ticket",
+            Self::AssetUsage => "asset_usage",
+            Self::AssetAudit => "asset_audit",
         }
     }
 }
@@ -567,6 +579,8 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"notification" => Ok(Self::Notification),
             b"ticket_asset" => Ok(Self::TicketAsset),
             b"linked_ticket" => Ok(Self::LinkedTicket),
+            b"asset_usage" => Ok(Self::AssetUsage),
+            b"asset_audit" => Ok(Self::AssetAudit),
             other => {
                 Err(format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into())
             }

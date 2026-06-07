@@ -21,40 +21,6 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum SseEvent {
-    /// Audit-count event. Distinct from AssetUsageRecorded
-    /// because audits replace the asset quantity rather than
-    /// adjust it; the payload carries both the new (counted)
-    /// quantity and the previous so the frontend can render
-    /// "Counted 42, was 50 (-8)" without re-fetching.
-    AssetAuditRecorded {
-        audit_id: i64,
-        asset_id: i32,
-        asset_name: String,
-        counted_quantity: String,
-        previous_quantity: String,
-        delta: String,
-        unit: String,
-        notes: Option<String>,
-        recorded_at: chrono::DateTime<chrono::Utc>,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    /// Append-only ledger row that just landed. Lets the usage
-    /// history panels on both the asset detail and the ticket
-    /// detail refresh reactively without a refetch. The payload
-    /// is the full ledger row plus the asset's display name so
-    /// the frontend can render the line without a join.
-    AssetUsageRecorded {
-        usage_id: i64,
-        asset_id: i32,
-        asset_name: String,
-        ticket_id: Option<i32>,
-        quantity_used: String,
-        unit: String,
-        event_kind: String,
-        notes: Option<String>,
-        recorded_at: chrono::DateTime<chrono::Utc>,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     /// Per-user presence on a ticket. Replaces the v0
     /// `ViewerCountChanged` event: instead of a bare count, ships
     /// the deduplicated viewer set so the frontend can render
@@ -99,8 +65,6 @@ pub enum SseEvent {
 
 fn event_type_str(event: &SseEvent) -> &'static str {
     match event {
-        SseEvent::AssetUsageRecorded { .. } => "asset-usage-recorded",
-        SseEvent::AssetAuditRecorded { .. } => "asset-audit-recorded",
         SseEvent::ViewersChanged { .. } => "viewers-changed",
         SseEvent::TicketFieldPreviewed { .. } => "ticket-field-previewed",
         SseEvent::Heartbeat { .. } => "heartbeat",

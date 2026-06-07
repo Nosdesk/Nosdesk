@@ -13,8 +13,10 @@ use diesel::prelude::*;
 use diesel::result::Error;
 
 use crate::db::DbConnection;
-use crate::models::{AssetUsage, NewAssetUsage};
+use crate::models::{AssetUsage, NewAssetUsage, SyncAggregate, SyncOp};
 use crate::schema::{asset_usage_log, assets};
+use crate::sync::emit::{self, SyncEmit};
+use crate::sync::groups;
 
 /// Outcome of a successful ledger event. Carries the inserted
 /// row plus enough post-write context for the handler to decide
@@ -45,7 +47,6 @@ pub struct RecordUsageOutcome {
 /// tracked. The usage decrement is allowed to drive `quantity`
 /// below zero (we don't refuse on overdraw, the admin needs to
 /// see the negative to know they have an inventory discrepancy).
-// sync-audit-only: ledger rows are append-only events, not entities with identity, so they ride the SseEvent::AssetUsageRecorded channel from the handler (see handlers::asset_usage::record) rather than the sync_actions stream that's for cache-pool-tracked aggregates.
 pub fn record_event(
     conn: &mut DbConnection,
     new_usage: NewAssetUsage,
@@ -80,6 +81,38 @@ pub fn record_event(
         diesel::update(assets::table.find(asset_id))
             .set(assets::quantity.eq(&new_qty))
             .execute(conn)?;
+
+        // Append-only ledger event on the sync stream so the usage
+        // history panels (asset detail + ticket detail) see the row land
+        // cross-machine. Routed to the asset + (when present) ticket
+        // groups plus workspace.
+        let mut event_groups = groups::workspace();
+        event_groups.push(format!("asset:{asset_id}"));
+        if let Some(tid) = row.ticket_id {
+            event_groups.push(format!("ticket:{tid}"));
+        }
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::AssetUsage,
+                aggregate_id: row.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "asset_usage.recorded",
+                data: serde_json::json!({
+                    "id": row.id,
+                    "asset_id": row.asset_id,
+                    "asset_name": name.clone(),
+                    "ticket_id": row.ticket_id,
+                    "quantity_used": row.quantity_used.to_string(),
+                    "unit": row.unit.clone(),
+                    "event_kind": row.event_kind.clone(),
+                    "notes": row.notes.clone(),
+                    "recorded_at": row.recorded_at,
+                }),
+                groups: event_groups,
+                causation_id: None,
+            },
+        )?;
 
         // Edge-detect crossing only on the usage path. Restock
         // never trips the low-stock alert downward; a "stock

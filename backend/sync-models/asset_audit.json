@@ -1,0 +1,25 @@
+{
+  "name": "asset_audit",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "asset_id": { "rust": "i32", "ts": "number" },
+    "asset_name": { "rust": "String", "ts": "string" },
+    "counted_quantity": { "rust": "String", "ts": "string", "note": "decimal serialized as string" },
+    "previous_quantity": { "rust": "String", "ts": "string", "note": "decimal serialized as string" },
+    "delta": { "rust": "String", "ts": "string", "note": "decimal serialized as string" },
+    "unit": { "rust": "String", "ts": "string" },
+    "notes": { "rust": "Option<String>", "ts": "string | null" },
+    "recorded_at": { "rust": "NaiveDateTime", "ts": "string" }
+  },
+  "events": [
+    { "type": "asset_audit.recorded", "op": "I", "note": "append-only physical-count event; not pool-materialised, consumed via useSyncActions by the usage-history panels" }
+  ],
+  "groups": [
+    "workspace:1",
+    "asset:<asset_id>"
+  ],
+  "references": [
+    { "field": "asset_id", "aggregate": "asset" }
+  ]
+}

@@ -24,6 +24,8 @@ export type SyncAggregate =
   | 'plugin'
   | 'user'
   | 'asset'
+  | 'asset_usage'
+  | 'asset_audit'
   | 'cycle'
   | 'notification'
   | 'documentation_page'
