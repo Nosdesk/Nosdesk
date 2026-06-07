@@ -291,7 +291,6 @@ pub async fn get_public_settings(pool: web::Data<Pool>, ws: WorkspaceContext) ->
 /// POST /api/public/tickets
 pub async fn submit_guest_ticket(
     pool: web::Data<Pool>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
     storage: web::Data<Arc<dyn Storage>>,
     req: HttpRequest,
@@ -610,17 +609,11 @@ pub async fn submit_guest_ticket(
     };
 
     // Only surface the ticket to techs once it's actually verified. Pending
-    // tickets skip SSE + search indexing entirely — accept_invitation picks
-    // them up at verification time and fires these broadcasts then.
+    // tickets skip search indexing entirely — accept_invitation picks them
+    // up at verification time. The verified ticket reaches clients through
+    // the sync pool (the repository write emits `ticket.created`).
     if !verification_required {
         indexing_tasks::spawn_index_ticket(search_service.get_ref().clone(), ticket.clone(), None);
-        sse_state
-            .broadcast_event(crate::handlers::sse::SseEvent::TicketCreated {
-                ticket_id: ticket.id,
-                ticket: serde_json::to_value(&ticket).unwrap_or_default(),
-                timestamp: chrono::Utc::now(),
-            })
-            .await;
     }
 
     info!(

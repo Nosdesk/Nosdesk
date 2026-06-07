@@ -7,7 +7,6 @@ use tracing::{error, info, warn};
 use crate::db::DbConnection;
 use crate::handlers::errors;
 use crate::handlers::helpers;
-use crate::handlers::sse::SseState;
 use crate::models::{
     AcceptInvitationRequest, AcceptInvitationResponse, ValidateInvitationRequest,
     ValidateInvitationResponse,
@@ -123,7 +122,6 @@ pub async fn validate_invitation(
 /// Accept an invitation and set the user's password
 pub async fn accept_invitation(
     db_pool: web::Data<crate::db::Pool>,
-    sse_state: web::Data<SseState>,
     search_service: web::Data<Arc<SearchService>>,
     request_data: web::Json<AcceptInvitationRequest>,
     http_request: HttpRequest,
@@ -301,13 +299,8 @@ pub async fn accept_invitation(
                     ticket.clone(),
                     None,
                 );
-                sse_state
-                    .broadcast_event(crate::handlers::sse::SseEvent::TicketCreated {
-                        ticket_id: ticket.id,
-                        ticket: serde_json::to_value(&ticket).unwrap_or_default(),
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
+                // Released tickets reach clients through the sync pool;
+                // no discrete SSE (the event has no consumer).
             }
         }
         Ok(_) => {}

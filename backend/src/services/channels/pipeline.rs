@@ -37,7 +37,7 @@ use serde_json::json;
 use tracing::{debug, info, warn};
 
 use crate::db::DbConnection;
-use crate::handlers::sse::{SseEvent, SseState};
+use crate::handlers::sse::SseState;
 use crate::models::{
     Channel, Comment, NewAttachment, NewChannelMessage, NewComment, NewTicket, Ticket,
     CHANNEL_DIRECTION_INBOUND,
@@ -444,21 +444,9 @@ pub async fn process_event(
     // lock for seconds at a time.
     persist_attachments(conn, ctx, comment.id, sender_uuid, &msg.attachments).await;
 
-    // Side effects (optional).
-    if let Some(sse) = &ctx.sse {
-        // New tickets still announce via the discrete SSE (TicketCreated
-        // is consumed by surfaces not yet pool-native). Comments on an
-        // existing ticket reach clients through the sync pool (the
-        // repository write emits `comment.created`).
-        if is_new_ticket {
-            sse.broadcast_event(SseEvent::TicketCreated {
-                ticket_id: ticket.id,
-                ticket: serde_json::to_value(&ticket).unwrap_or_default(),
-                timestamp: chrono::Utc::now(),
-            })
-            .await;
-        }
-    }
+    // New tickets + comments both reach clients through the sync pool
+    // (the repository writes emit `ticket.created` / `comment.created`);
+    // no discrete SSE side effects here.
     if let Some(search) = &ctx.search {
         if is_new_ticket {
             crate::services::search::indexing_tasks::spawn_index_ticket(

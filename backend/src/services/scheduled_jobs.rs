@@ -479,13 +479,12 @@ pub async fn detect_sla_breaches(
         match process_one_breach(&mut conn, ticket_id, kind, workspace_id) {
             Ok(Some(ctx)) => {
                 processed += 1;
-                // Async fanout outside the DB workspace context:
-                // notify the assignee + watchers via NotificationService
-                // (in-app + email through the existing channels), and
-                // broadcast SseEvent::SlaBreached on the global topic
-                // so the webhook listener can fire `ticket.sla_breached`
-                // deliveries. The pill repaint already flowed through
-                // the sync_action emit inside process_one_breach.
+                // Async fanout outside the DB workspace context: notify
+                // the assignee + watchers via NotificationService (in-app
+                // + email). The pill repaint and webhook deliveries both
+                // flow from the `ticket.sla_breached` sync_action emitted
+                // inside process_one_breach (pool + webhook outbox); no
+                // discrete SSE is involved.
                 fanout_breach(&notification_service, &ctx).await;
             }
             Ok(None) => {} // lost the idempotency race — normal no-op
@@ -661,10 +660,10 @@ fn process_one_breach(
 }
 
 /// Async fanout for one detected breach. The DB work already
-/// committed in `process_one_breach`; this does the user-visible
-/// surfaces: in-app + email notification to the assignee and every
-/// watcher (deduped), plus an SSE broadcast on the global topic so
-/// the webhook listener can fire `ticket.sla_breached` deliveries.
+/// committed in `process_one_breach` (incl. the `ticket.sla_breached`
+/// sync_action that drives the pool pill repaint + the webhook outbox);
+/// this only does the notification surfaces: in-app + email to the
+/// assignee and every watcher (deduped).
 async fn fanout_breach(
     notification_service: &crate::services::notifications::NotificationService,
     ctx: &BreachContext,

@@ -21,15 +21,6 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum SseEvent {
-    TicketCreated {
-        ticket_id: i32,
-        ticket: serde_json::Value,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    TicketDeleted {
-        ticket_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     /// Audit-count event. Distinct from AssetUsageRecorded
     /// because audits replace the asset quantity rather than
     /// adjust it; the payload carries both the new (counted)
@@ -108,8 +99,6 @@ pub enum SseEvent {
 
 fn event_type_str(event: &SseEvent) -> &'static str {
     match event {
-        SseEvent::TicketCreated { .. } => "ticket-created",
-        SseEvent::TicketDeleted { .. } => "ticket-deleted",
         SseEvent::AssetUsageRecorded { .. } => "asset-usage-recorded",
         SseEvent::AssetAuditRecorded { .. } => "asset-audit-recorded",
         SseEvent::ViewersChanged { .. } => "viewers-changed",

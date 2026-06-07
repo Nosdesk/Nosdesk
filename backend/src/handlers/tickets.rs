@@ -431,7 +431,6 @@ pub async fn get_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Respon
 // Create a new ticket
 pub async fn create_ticket(
     mut tc: TenantConn,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     auth: AuthContext,
@@ -551,14 +550,8 @@ pub async fn create_ticket(
                 None,
             );
 
-            // Broadcast ticket creation via SSE
-            sse_state
-                .broadcast_event(crate::handlers::sse::SseEvent::TicketCreated {
-                    ticket_id: ticket.id,
-                    ticket: serde_json::to_value(&ticket).unwrap_or_default(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
+            // The new ticket reaches clients through the sync pool (the
+            // repository write emits `ticket.created`); no discrete SSE.
 
             HttpResponse::Created().json(ticket)
         }
@@ -595,16 +588,12 @@ pub async fn update_ticket(
 
 // Delete a ticket with comprehensive cleanup
 pub async fn delete_ticket(
-    req: HttpRequest,
     auth: AuthContext,
     mut tc: TenantConn,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     search_service: web::Data<Arc<SearchService>>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
 ) -> impl Responder {
-    let source_client_id = extract_sse_client_id(&req);
-
     if !auth.is_workspace_admin() {
         return errors::forbidden("Forbidden: Only administrators can delete tickets");
     }
@@ -628,16 +617,8 @@ pub async fn delete_ticket(
                 // Remove ticket from search index
                 indexing_tasks::spawn_delete_ticket(search_service.get_ref().clone(), ticket_id);
 
-                // Broadcast ticket deletion via SSE
-                sse_state
-                    .broadcast_event_from(
-                        crate::handlers::sse::SseEvent::TicketDeleted {
-                            ticket_id,
-                            timestamp: chrono::Utc::now(),
-                        },
-                        source_client_id,
-                    )
-                    .await;
+                // The deletion reaches clients through the sync pool (the
+                // repository write emits `ticket.deleted`); no discrete SSE.
 
                 HttpResponse::NoContent().finish()
             } else {
@@ -1554,7 +1535,6 @@ pub async fn bulk_tickets(
     auth: AuthContext,
     mut tc: TenantConn,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
     body: web::Json<BulkActionRequest>,
 ) -> impl Responder {
@@ -1562,8 +1542,6 @@ pub async fn bulk_tickets(
     if req.extensions().get::<Claims>().is_none() {
         return errors::unauthorized("Unauthorized: Authentication required");
     }
-    // Still needed for the kept TicketDeleted broadcast in the delete arm.
-    let source_client_id = extract_sse_client_id(&req);
 
     // Bulk mutations are a staff-only affordance. The end-user surface
     // doesn't expose multi-select; gating here keeps Users out of a
@@ -1604,16 +1582,8 @@ pub async fn bulk_tickets(
                                 search_service.get_ref().clone(),
                                 *id,
                             );
-                            // Broadcast ticket deletion via SSE
-                            sse_state
-                                .broadcast_event_from(
-                                    crate::handlers::sse::SseEvent::TicketDeleted {
-                                        ticket_id: *id,
-                                        timestamp: chrono::Utc::now(),
-                                    },
-                                    source_client_id.clone(),
-                                )
-                                .await;
+                            // Deletion reaches clients via the sync pool
+                            // (`ticket.deleted`); no discrete SSE.
                         }
                     }
                     Err(e) => {
