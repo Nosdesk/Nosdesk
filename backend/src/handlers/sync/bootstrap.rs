@@ -29,9 +29,12 @@ use tracing::error;
 use crate::db::Pool;
 use crate::extractors::SyncContext;
 use crate::middleware::RequestContext;
-use crate::models::{Asset, Project, ProjectTicket, Ticket, User, WorkflowState};
+use crate::models::{
+    Asset, Attachment, Comment, Project, ProjectTicket, Ticket, TicketAsset, User, WorkflowState,
+};
 use crate::schema::{
-    assets, project_tickets, projects, tickets, user_emails, users, workflow_states,
+    assets, attachments, comments, linked_tickets, project_tickets, projects, ticket_assets,
+    tickets, user_emails, users, workflow_states,
 };
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
@@ -66,6 +69,10 @@ pub async fn bootstrap(
 
     let pool_clone = pool.clone();
     let granted_clone = granted.clone();
+    // Raw requested CSV: the streamer admits `ticket:<id>` groups
+    // dynamically (per-ticket `can_view_ticket`, like the SSE topic
+    // path) since they aren't in the static `allowed_groups` set.
+    let requested_groups = query.groups.clone();
     // The streamer needs the caller's identity to visibility-filter
     // documentation rows (emitted to workspace:1 but readable per
     // page/collection grant). Clone the User into the blocking task.
@@ -86,7 +93,14 @@ pub async fn bootstrap(
     // bytes back through the channel so the Actix response future
     // can stay async-friendly.
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = stream_bootstrap(&pool_clone, &actor, &user, &granted_clone, &tx) {
+        if let Err(e) = stream_bootstrap(
+            &pool_clone,
+            &actor,
+            &user,
+            &granted_clone,
+            &requested_groups,
+            &tx,
+        ) {
             error!(error = %e, "bootstrap streaming failed");
             // Best-effort: ship an `__error__` line so the client
             // can surface a useful message instead of just seeing
@@ -110,6 +124,7 @@ fn stream_bootstrap(
     actor: &ActorContext,
     user: &User,
     granted: &[String],
+    requested_groups: &str,
     tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut conn = pool.get()?;
@@ -123,16 +138,33 @@ fn stream_bootstrap(
     session::with_actor_context::<(), Box<dyn std::error::Error + Send + Sync>>(
         &mut conn,
         actor,
-        |c| stream_bootstrap_inner(c, user, granted, tx),
+        |c| stream_bootstrap_inner(c, user, granted, requested_groups, tx),
     )
 }
 
 fn stream_bootstrap_inner(
     conn: &mut crate::db::DbConnection,
     user: &User,
-    granted: &[String],
+    granted_static: &[String],
+    requested_groups: &str,
     tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Admit `ticket:<id>` groups the caller can read on top of the
+    // statically-granted set. They aren't in `allowed_for_user`
+    // (a user can reach many tickets; enumerating them per request
+    // is wasteful), so they're authorized dynamically per-ticket via
+    // `can_view_ticket` — the same gate the SSE ticket topic uses.
+    // Runs inside the actor/workspace context so the visibility query
+    // sees the right RLS scope.
+    let vis = crate::repository::ticket_visibility::VisibilityContext::new(
+        user.uuid,
+        crate::models::PlatformRole::from_db(&user.platform_role),
+        crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid),
+    );
+    let mut granted: Vec<String> = granted_static.to_vec();
+    crate::sync::groups::admit_ticket_groups(conn, requested_groups, &vis, &mut granted);
+    let granted: &[String] = &granted;
+
     let last_sync_id: Option<i64> = crate::schema::sync_actions::table
         .select(diesel::dsl::max(crate::schema::sync_actions::sync_id))
         .first(conn)?;
@@ -452,23 +484,39 @@ fn stream_bootstrap_inner(
     // The two paths produce the same denormalised ticket shape; we
     // load whichever set the granted groups call for, deduping
     // implicitly through eq_any-on-id.
+    // Tickets explicitly subscribed by id (the pool-native detail
+    // view's `ticket:<id>` group). Streamed with the same denormalised
+    // payload as the list/board sets, plus their related rows below.
+    let detail_ticket_ids: Vec<i32> = granted
+        .iter()
+        .filter_map(|g| {
+            g.strip_prefix("ticket:")
+                .and_then(|s| s.parse::<i32>().ok())
+        })
+        .collect();
+
     let ticket_query = if want_all {
         tickets::table.into_boxed()
-    } else if !project_ids.is_empty() {
-        // Use the project_tickets join to scope tickets to granted
-        // projects. Loading via project_id eq_any is a single index
-        // scan; the per-row workflow_state lookup stays O(1) below.
-        let scoped_ids: Vec<i32> = project_tickets::table
-            .filter(project_tickets::project_id.eq_any(&project_ids))
-            .select(project_tickets::ticket_id)
-            .load(conn)?;
+    } else {
+        // Project-scoped tickets (kanban) unioned with any tickets
+        // subscribed by id (detail view). Empty in both means the
+        // caller asked for neither a workspace/project nor a ticket
+        // group, so there's nothing to stream.
+        let mut scoped_ids: Vec<i32> = if project_ids.is_empty() {
+            Vec::new()
+        } else {
+            project_tickets::table
+                .filter(project_tickets::project_id.eq_any(&project_ids))
+                .select(project_tickets::ticket_id)
+                .load(conn)?
+        };
+        scoped_ids.extend(detail_ticket_ids.iter().copied());
+        if scoped_ids.is_empty() {
+            return finish(tx, last_sync_id);
+        }
         tickets::table
             .filter(tickets::id.eq_any(scoped_ids))
             .into_boxed()
-    } else {
-        // No projects in the granted set and no workspace grant —
-        // skip the ticket loader entirely.
-        return finish(tx, last_sync_id);
     };
 
     let ticket_rows: Vec<Ticket> = ticket_query.load(conn)?;
@@ -599,7 +647,144 @@ fn stream_bootstrap_inner(
         )?;
     }
 
+    // Pool-native ticket detail: stream the open ticket's related
+    // rows (comments, attachments, device + ticket links, project
+    // memberships). The global / project bootstraps deliberately omit
+    // these, so they only ship for an explicit `ticket:<id>` group.
+    if !detail_ticket_ids.is_empty() {
+        stream_ticket_detail_extras(conn, &detail_ticket_ids, tx)?;
+    }
+
     finish(tx, last_sync_id)
+}
+
+/// Stream the related rows the pool-native ticket detail view reads
+/// for the given tickets: comments, their attachments, device links
+/// (`ticket_asset`), ticket links (`linked_ticket`, directional rows
+/// where the ticket is the subject), and project memberships plus the
+/// referenced project rows (for the project chips). Referenced users /
+/// assets / cycles aren't streamed here — the user + asset rosters
+/// already shipped earlier in the bootstrap, and the cycle chip
+/// resolves via the lazy `cycle` reference fetcher.
+fn stream_ticket_detail_extras(
+    conn: &mut crate::db::DbConnection,
+    ticket_ids: &[i32],
+    tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let comment_rows: Vec<Comment> = comments::table
+        .filter(comments::ticket_id.eq_any(ticket_ids))
+        .order(comments::created_at.asc())
+        .load(conn)?;
+    let comment_ids: Vec<i32> = comment_rows.iter().map(|c| c.id).collect();
+    for c in &comment_rows {
+        // Render essentials only (mirrors the `comment.created` emit):
+        // heavy email-only fields stay a lazy REST fetch on expand.
+        send(
+            tx,
+            json!({
+                "__model__": "comment",
+                "id": c.id,
+                "ticket_id": c.ticket_id,
+                "user_uuid": c.user_uuid,
+                "content": c.content,
+                "is_internal": c.is_internal,
+                "content_format": c.content_format,
+                "created_at": c.created_at,
+            }),
+        )?;
+    }
+
+    if !comment_ids.is_empty() {
+        let attachment_rows: Vec<Attachment> = attachments::table
+            .filter(attachments::comment_id.eq_any(&comment_ids))
+            .load(conn)?;
+        for a in attachment_rows {
+            send(
+                tx,
+                json!({
+                    "__model__": "attachment",
+                    "id": a.id,
+                    "comment_id": a.comment_id,
+                    "name": a.name,
+                    "url": a.url,
+                    "mime_type": a.mime_type,
+                    "file_size": a.file_size,
+                }),
+            )?;
+        }
+    }
+
+    let asset_links: Vec<TicketAsset> = ticket_assets::table
+        .filter(ticket_assets::ticket_id.eq_any(ticket_ids))
+        .load(conn)?;
+    for ta in asset_links {
+        send(
+            tx,
+            json!({
+                "__model__": "ticket_asset",
+                "ticket_id": ta.ticket_id,
+                "asset_id": ta.asset_id,
+            }),
+        )?;
+    }
+
+    // Directional rows where the subscribed ticket is the subject —
+    // matches the two-directional rows `link_tickets` writes, so the
+    // client filter (`ticket_id === id`) lands every link.
+    let links: Vec<(i32, i32)> = linked_tickets::table
+        .filter(linked_tickets::ticket_id.eq_any(ticket_ids))
+        .select((linked_tickets::ticket_id, linked_tickets::linked_ticket_id))
+        .load(conn)?;
+    for (tid, lid) in links {
+        send(
+            tx,
+            json!({
+                "__model__": "linked_ticket",
+                "ticket_id": tid,
+                "linked_ticket_id": lid,
+            }),
+        )?;
+    }
+
+    let memberships: Vec<ProjectTicket> = project_tickets::table
+        .filter(project_tickets::ticket_id.eq_any(ticket_ids))
+        .load(conn)?;
+    let mut member_project_ids: Vec<i32> = memberships.iter().map(|m| m.project_id).collect();
+    member_project_ids.sort_unstable();
+    member_project_ids.dedup();
+    for m in &memberships {
+        send(
+            tx,
+            json!({
+                "__model__": "project_ticket",
+                "project_id": m.project_id,
+                "ticket_id": m.ticket_id,
+                "display_order": m.display_order,
+            }),
+        )?;
+    }
+    if !member_project_ids.is_empty() {
+        let project_rows: Vec<Project> = projects::table
+            .filter(projects::id.eq_any(&member_project_ids))
+            .load(conn)?;
+        for p in project_rows {
+            send(
+                tx,
+                json!({
+                    "__model__": "project",
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description,
+                    "status": p.status,
+                    "created_at": p.created_at,
+                    "updated_at": p.updated_at,
+                    "created_by": p.created_by,
+                }),
+            )?;
+        }
+    }
+
+    Ok(())
 }
 
 fn finish(

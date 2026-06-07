@@ -68,7 +68,32 @@ pub async fn delta(
     query: web::Query<DeltaQuery>,
     ctx: SyncContext,
 ) -> impl Responder {
-    let granted = intersect_groups(&query.groups, &ctx.allowed_groups);
+    let mut granted = intersect_groups(&query.groups, &ctx.allowed_groups);
+    // Admit `ticket:<id>` groups the caller can read on top of the
+    // static set, so a pool-native ticket subscription's live pull
+    // matches its bootstrap. Authorized per-ticket via
+    // `can_view_ticket` (same gate as bootstrap + the SSE topic).
+    {
+        let requested = query.groups.clone();
+        let user = ctx.user.clone();
+        let admitted = tc.run(move |conn| {
+            let vis = crate::repository::ticket_visibility::VisibilityContext::new(
+                user.uuid,
+                crate::models::PlatformRole::from_db(&user.platform_role),
+                crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid),
+            );
+            let mut g: Vec<String> = Vec::new();
+            crate::sync::groups::admit_ticket_groups(conn, &requested, &vis, &mut g);
+            Ok::<Vec<String>, diesel::result::Error>(g)
+        });
+        if let Ok(extra) = admitted {
+            for g in extra {
+                if !granted.contains(&g) {
+                    granted.push(g);
+                }
+            }
+        }
+    }
     if granted.is_empty() {
         // No groups in common between request and permission set;
         // return an empty delta rather than an error so clients can

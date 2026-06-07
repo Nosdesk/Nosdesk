@@ -89,3 +89,44 @@ pub fn allowed_for_user(conn: &mut DbConnection, user: &User) -> QueryResult<Vec
 
     Ok(allowed)
 }
+
+/// Admit the `ticket:<id>` groups in `requested_csv` that `vis` can
+/// read, appending them to `granted`. Ticket groups are deliberately
+/// absent from [`allowed_for_user`] — a user can reach an unbounded
+/// number of tickets, so enumerating them per request is wasteful.
+/// Instead they're authorized dynamically per-ticket via
+/// [`ticket_visibility::can_view_ticket`], mirroring the SSE ticket
+/// topic gate. Tickets the caller can't read are silently skipped (a
+/// 403 would leak existence). Idempotent against groups already in
+/// `granted`.
+///
+/// Shared by the bootstrap and delta paths so a client's ticket
+/// subscription resolves identically for the snapshot and the live
+/// pull.
+pub fn admit_ticket_groups(
+    conn: &mut DbConnection,
+    requested_csv: &str,
+    vis: &crate::repository::ticket_visibility::VisibilityContext,
+    granted: &mut Vec<String>,
+) {
+    use std::collections::HashSet;
+    let mut seen: HashSet<String> = granted.iter().cloned().collect();
+    for raw in requested_csv.split(',') {
+        let g = raw.trim();
+        let Some(suffix) = g.strip_prefix("ticket:") else {
+            continue;
+        };
+        if seen.contains(g) {
+            continue;
+        }
+        let Ok(ticket_id) = suffix.parse::<i32>() else {
+            continue;
+        };
+        if crate::repository::ticket_visibility::can_view_ticket(conn, vis, ticket_id)
+            .unwrap_or(false)
+        {
+            seen.insert(g.to_string());
+            granted.push(g.to_string());
+        }
+    }
+}
