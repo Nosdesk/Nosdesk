@@ -2546,6 +2546,8 @@ CREATE TABLE public.outbound_emails (
     bounce_diagnostic text,
     idempotency_key text,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    delivered_at timestamp with time zone,
+    provider_message_id text,
     CONSTRAINT outbound_emails_status_chk CHECK ((status = ANY (ARRAY['pending'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'dead'::text, 'suppressed'::text])))
 );
 

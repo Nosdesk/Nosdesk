@@ -6719,6 +6719,15 @@ pub struct OutboundEmail {
     /// the handler layer via stable Message-ID.
     pub idempotency_key: Option<String>,
     pub workspace_id: i32,
+    /// `sent` means the transport accepted handoff; `delivered_at` is
+    /// stamped only when a provider confirms actual delivery (e.g. the
+    /// Resend `email.delivered` webhook). NULL for SMTP, which has no
+    /// delivery signal.
+    pub delivered_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The sending provider's own message id (e.g. Resend `email_id`),
+    /// used to correlate delivery/bounce/complaint webhooks back to this
+    /// row. NULL for SMTP, where the RFC `message_id` is the only identity.
+    pub provider_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable)]
