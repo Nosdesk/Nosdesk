@@ -70,6 +70,7 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   plugin: 1,
   user: 1,
   asset: 1,
+  cycle: 1,
   documentation_page: 1,
   documentation_collection: 1,
 }
@@ -392,6 +393,10 @@ async function referenceFetcher(aggregate: SyncAggregate, ids: string[]): Promis
     await fetchMissingAssets(ids)
     return
   }
+  if (aggregate === 'cycle') {
+    await fetchMissingCycles(ids)
+    return
+  }
   logger.debug('useReference fetch (stub)', { aggregate, ids })
 }
 
@@ -474,6 +479,43 @@ async function fetchMissingAssets(ids: string[]): Promise<void> {
     } catch (err) {
       logger.warn('Lazy asset fetch failed', { id, error: err })
     }
+  }
+}
+
+/**
+ * Lazy reference fetcher for the `cycle` aggregate. Bootstrap does
+ * not ship cycle rows (only `cycle_id` denormalised onto tickets),
+ * so the pool-native ticket detail view resolves the cycle chip
+ * (name + state) through this. The workspace cycle set is small and
+ * bounded, so one `listWorkspace` call covers every missing id at
+ * once; we ask for all states explicitly because the default list
+ * elides completed/planned cycles, and a ticket can sit in any of
+ * them. Cache row mirrors the chip's needs only (id/uuid/project_id/
+ * name/state); the full Cycle DTO carries snapshot/burnup fields the
+ * pool deliberately drops.
+ */
+function toCycleCacheRow(
+  c: import('@/services/cyclesService').Cycle,
+): Record<string, unknown> {
+  return {
+    id: c.id,
+    uuid: c.uuid,
+    project_id: c.project_id,
+    name: c.name,
+    state: c.state,
+  }
+}
+
+async function fetchMissingCycles(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const { cyclesService } = await import('@/services/cyclesService')
+  try {
+    const cycles = await cyclesService.listWorkspace(['planned', 'active', 'completed'])
+    for (const c of cycles) {
+      pool.upsert('cycle', c.id, toCycleCacheRow(c))
+    }
+  } catch (err) {
+    logger.warn('Lazy cycle fetch failed', { ids, error: err })
   }
 }
 

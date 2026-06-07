@@ -358,6 +358,17 @@ pub fn update_ticket_partial(
             "verification_state": result.verification_state,
             "due_date": result.due_date,
             "resolution_notes": result.resolution_notes,
+            // Detail-view scalars carried so the pool-native ticket
+            // detail surface stays complete after a live update (the
+            // pool shallow-merges, so closing the ticket elsewhere
+            // flips the audit byline without a refetch). created_by /
+            // submitted_via / origin_channel_id are immutable but kept
+            // here too so a partial-row warm-start can't drop them.
+            "created_by": result.created_by,
+            "closed_by": result.closed_by,
+            "closed_at": result.closed_at,
+            "submitted_via": result.submitted_via,
+            "origin_channel_id": result.origin_channel_id,
         });
         if pill_affecting {
             if let Some(obj) = data.as_object_mut() {

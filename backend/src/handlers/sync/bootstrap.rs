@@ -569,6 +569,15 @@ fn stream_bootstrap_inner(
                 "triage_state": t.triage_state,
                 "due_date": t.due_date,
                 "resolution_notes": t.resolution_notes,
+                // Detail-view scalars (source row + audit bylines) so
+                // the pool-native ticket detail view renders them with
+                // no REST fetch. Immutable / rarely-changing, so list
+                // views carry them harmlessly and ignore them.
+                "created_by": t.created_by,
+                "closed_by": t.closed_by,
+                "closed_at": t.closed_at,
+                "submitted_via": t.submitted_via,
+                "origin_channel_id": t.origin_channel_id,
                 // Merge state so the pool-native ticket detail view can
                 // render the merged-into banner + read-only composer
                 // without a REST fetch (Phase 2).
