@@ -119,6 +119,10 @@ ipnetwork = { version = "0.21.1", features = ["serde"] }  # IP network types for
 anyhow = "1.0"             # Error handling for applications
 thiserror = "2"            # Derive macros for explicit error enums
 async-trait = "0.1.83"     # Async traits for storage abstraction
+# S3-compatible object storage (STORAGE_TYPE=s3), targeting fly.io Tigris.
+# Custom endpoint + static creds from env; the byte-oriented Storage trait
+# only needs put/get/delete/head/copy.
+aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
 
 # Email dependencies
 lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder", "hostname"] }

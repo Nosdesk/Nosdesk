@@ -9,15 +9,27 @@ use uuid::Uuid;
 
 /// Storage configuration for different backends.
 ///
-/// Only `Local` exists today. An S3 variant lived here as a stub
-/// for several months and was removed because every operation
-/// returned "S3 storage not implemented yet" — a footgun for any
-/// self-hoster who configured `STORAGE_TYPE=s3` and watched their
-/// uploads silently fail. When S3 is implemented for real, it
-/// returns as a new variant on a dedicated branch with tests.
+/// `Local` writes to the filesystem; `S3` targets any S3-compatible
+/// object store (fly.io Tigris is the deployed target). The app proxies
+/// every file through `serve_file_from_storage`, so even the S3 backend
+/// uses a private bucket and app-relative public URLs, access control
+/// stays in the handlers and no presigned/public bucket URLs are needed.
 #[derive(Debug, Clone)]
 pub enum StorageConfig {
-    Local { base_path: String },
+    Local {
+        base_path: String,
+    },
+    S3 {
+        bucket: String,
+        region: String,
+        endpoint: String,
+        access_key_id: String,
+        secret_access_key: String,
+        /// Tigris serves both virtual-hosted and path-style; default
+        /// virtual-hosted (false). Toggle via STORAGE_S3_FORCE_PATH_STYLE
+        /// for stores that only do path-style.
+        force_path_style: bool,
+    },
 }
 
 /// File metadata returned after upload
@@ -44,6 +56,10 @@ pub enum StorageError {
     UploadFailed(String),
     #[allow(dead_code)]
     ConfigError(String),
+    /// A backend (S3/network) operation failed for a reason other than
+    /// a missing object.
+    #[allow(dead_code)]
+    Backend(String),
 }
 
 impl From<io::Error> for StorageError {
@@ -188,6 +204,174 @@ impl Storage for LocalStorage {
     }
 }
 
+/// S3-compatible object storage (fly.io Tigris is the deployed target).
+///
+/// Keys mirror the local layout (`{folder}/{uuid}_{filename}`). Because
+/// the app proxies serving via `serve_file_from_storage`, `get_public_url`
+/// returns the same app-relative `/uploads/...` path the local backend
+/// does, the bucket can stay private and access control stays in the
+/// handlers. No streaming: the `Storage` trait is byte-oriented, so each
+/// op buffers a whole object (matches the existing local behaviour).
+pub struct S3Storage {
+    client: aws_sdk_s3::Client,
+    bucket: String,
+    public_url_base: String,
+}
+
+impl S3Storage {
+    pub fn new(
+        bucket: String,
+        region: String,
+        endpoint: String,
+        access_key_id: String,
+        secret_access_key: String,
+        force_path_style: bool,
+        public_url_base: String,
+    ) -> Self {
+        use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
+        let creds = Credentials::new(
+            access_key_id,
+            secret_access_key,
+            None,
+            None,
+            "nosdesk-storage",
+        );
+        let conf = aws_sdk_s3::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new(region))
+            .endpoint_url(endpoint)
+            .credentials_provider(creds)
+            .force_path_style(force_path_style)
+            .build();
+        Self {
+            client: aws_sdk_s3::Client::from_conf(conf),
+            bucket,
+            public_url_base,
+        }
+    }
+}
+
+#[async_trait]
+impl Storage for S3Storage {
+    async fn store_file(
+        &self,
+        data: &[u8],
+        filename: &str,
+        content_type: &str,
+        folder: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let unique_filename = format!("{}_{}", Uuid::now_v7(), filename);
+        let key = format!("{}/{}", folder.trim_end_matches('/'), unique_filename);
+
+        self.client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(&key)
+            .body(aws_sdk_s3::primitives::ByteStream::from(data.to_vec()))
+            .content_type(content_type)
+            .send()
+            .await
+            .map_err(|e| StorageError::UploadFailed(format!("S3 put_object failed: {e}")))?;
+
+        let url = self.get_public_url(&key);
+        Ok(StoredFile {
+            id: unique_filename,
+            url,
+            path: key,
+            size: data.len() as u64,
+            content_type: content_type.to_string(),
+        })
+    }
+
+    async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
+        use aws_sdk_s3::operation::get_object::GetObjectError;
+        let out = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(path)
+            .send()
+            .await
+            .map_err(|e| match &e {
+                aws_sdk_s3::error::SdkError::ServiceError(se)
+                    if matches!(se.err(), GetObjectError::NoSuchKey(_)) =>
+                {
+                    StorageError::NotFound(format!("File not found: {path}"))
+                }
+                _ => StorageError::Backend(format!("S3 get_object failed: {e}")),
+            })?;
+
+        let bytes = out
+            .body
+            .collect()
+            .await
+            .map_err(|e| StorageError::Backend(format!("S3 body read failed: {e}")))?
+            .into_bytes();
+        Ok(bytes.to_vec())
+    }
+
+    async fn delete_file(&self, path: &str) -> Result<(), StorageError> {
+        // S3 delete is idempotent: deleting a missing key succeeds, so a
+        // double-delete is a no-op just like the local backend.
+        self.client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(path)
+            .send()
+            .await
+            .map_err(|e| StorageError::Backend(format!("S3 delete_object failed: {e}")))?;
+        Ok(())
+    }
+
+    async fn file_exists(&self, path: &str) -> Result<bool, StorageError> {
+        use aws_sdk_s3::operation::head_object::HeadObjectError;
+        match self
+            .client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(path)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(aws_sdk_s3::error::SdkError::ServiceError(se))
+                if matches!(se.err(), HeadObjectError::NotFound(_)) =>
+            {
+                Ok(false)
+            }
+            Err(e) => Err(StorageError::Backend(format!("S3 head_object failed: {e}"))),
+        }
+    }
+
+    fn get_public_url(&self, path: &str) -> String {
+        // App-relative proxy path (same as local). Serving goes through
+        // serve_file_from_storage, so the bucket stays private.
+        format!(
+            "{}/{}",
+            self.public_url_base.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
+    }
+
+    async fn move_file(&self, from_path: &str, to_path: &str) -> Result<(), StorageError> {
+        // S3 has no rename: copy then delete. The copy source is
+        // `{bucket}/{key}` and must be URL-encoded per the S3 API (the
+        // SDK does not encode it for us).
+        let encoded_key = urlencoding::encode(from_path.trim_start_matches('/'));
+        let copy_source = format!("{}/{}", self.bucket, encoded_key);
+        self.client
+            .copy_object()
+            .bucket(&self.bucket)
+            .key(to_path)
+            .copy_source(&copy_source)
+            .send()
+            .await
+            .map_err(|e| StorageError::Backend(format!("S3 copy_object failed: {e}")))?;
+        self.delete_file(from_path).await?;
+        Ok(())
+    }
+}
+
 /// Storage factory to create storage instances based on configuration
 pub fn create_storage(config: StorageConfig) -> Arc<dyn Storage> {
     match config {
@@ -196,24 +380,68 @@ pub fn create_storage(config: StorageConfig) -> Arc<dyn Storage> {
             // The public_url_base should match the route pattern used in main.rs: /uploads/users/{path:.*}
             Arc::new(LocalStorage::new(base_path, "/uploads".to_string()))
         }
+        StorageConfig::S3 {
+            bucket,
+            region,
+            endpoint,
+            access_key_id,
+            secret_access_key,
+            force_path_style,
+        } => Arc::new(S3Storage::new(
+            bucket,
+            region,
+            endpoint,
+            access_key_id,
+            secret_access_key,
+            force_path_style,
+            // Same app-relative base as local so the serve routes + frontend
+            // URLs are identical regardless of backend.
+            "/uploads".to_string(),
+        )),
     }
 }
 
 /// Get storage configuration from environment variables.
 ///
-/// Today only `local` is supported. We refuse to boot if the
-/// caller asked for anything else — a misconfigured `STORAGE_TYPE`
-/// should fail loudly at startup, not silently swallow uploads
-/// later.
+/// `local` (default) writes to `/app/uploads`. `s3` reads the env that
+/// fly.io `fly storage create` (Tigris) sets, `BUCKET_NAME`,
+/// `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`,
+/// `AWS_REGION`, with `STORAGE_S3_*` overrides for other S3-compatible
+/// stores. A misconfigured `STORAGE_TYPE` (or `s3` missing required env)
+/// fails loudly at startup rather than silently swallowing uploads later.
 pub fn get_storage_config() -> StorageConfig {
     match std::env::var("STORAGE_TYPE").as_deref() {
         Ok("local") | Err(_) => StorageConfig::Local {
             base_path: "/app/uploads".to_string(),
         },
-        Ok(other) => panic!(
-            "STORAGE_TYPE='{other}' is not supported. Only 'local' is implemented. \
-             Set STORAGE_TYPE=local or unset it.",
-        ),
+        Ok("s3") => {
+            // Prefer the AWS_* / BUCKET_NAME names fly's Tigris integration
+            // sets so the bucket "just works" on fly; fall back to
+            // STORAGE_S3_* for self-hosters pointing at another S3 store.
+            fn require(primary: &str, fallback: &str) -> String {
+                std::env::var(primary)
+                    .or_else(|_| std::env::var(fallback))
+                    .unwrap_or_else(|_| {
+                        panic!("STORAGE_TYPE=s3 requires {primary} (or {fallback}) to be set")
+                    })
+            }
+            StorageConfig::S3 {
+                bucket: require("BUCKET_NAME", "STORAGE_S3_BUCKET"),
+                access_key_id: require("AWS_ACCESS_KEY_ID", "STORAGE_S3_ACCESS_KEY_ID"),
+                secret_access_key: require("AWS_SECRET_ACCESS_KEY", "STORAGE_S3_SECRET_ACCESS_KEY"),
+                endpoint: std::env::var("AWS_ENDPOINT_URL_S3")
+                    .or_else(|_| std::env::var("STORAGE_S3_ENDPOINT"))
+                    .unwrap_or_else(|_| "https://fly.storage.tigris.dev".to_string()),
+                region: std::env::var("AWS_REGION")
+                    .or_else(|_| std::env::var("STORAGE_S3_REGION"))
+                    .unwrap_or_else(|_| "auto".to_string()),
+                force_path_style: matches!(
+                    std::env::var("STORAGE_S3_FORCE_PATH_STYLE").as_deref(),
+                    Ok("1" | "true" | "yes")
+                ),
+            }
+        }
+        Ok(other) => panic!("STORAGE_TYPE='{other}' is not supported. Use 'local' or 's3'.",),
     }
 }
 
@@ -386,6 +614,33 @@ mod tests {
         assert_eq!(
             storage.get_public_url("/tickets/file.pdf"),
             "/uploads/tickets/file.pdf"
+        );
+    }
+
+    // ── S3Storage URL invariant ──────────────────────────────────
+    // The S3 backend must produce the SAME app-relative public URLs as
+    // local, that is what keeps the serve routes + frontend URLs identical
+    // regardless of backend (the app proxies serving via get_file). new()
+    // only builds an aws client config; no network call happens here.
+
+    #[test]
+    fn s3_public_url_matches_local_proxy_path() {
+        let s3 = S3Storage::new(
+            "bucket".into(),
+            "auto".into(),
+            "https://fly.storage.tigris.dev".into(),
+            "ak".into(),
+            "sk".into(),
+            false,
+            "/uploads".into(),
+        );
+        let local = LocalStorage::new("/app/uploads".into(), "/uploads".into());
+        for key in ["users/avatars/x.png", "/tickets/file.pdf"] {
+            assert_eq!(s3.get_public_url(key), local.get_public_url(key));
+        }
+        assert_eq!(
+            s3.get_public_url("users/avatars/x.png"),
+            "/uploads/users/avatars/x.png"
         );
     }
 }
