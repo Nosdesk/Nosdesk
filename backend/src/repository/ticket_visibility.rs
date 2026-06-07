@@ -102,8 +102,10 @@ impl VisibilityContext {
         }
     }
 
-    /// True when the user is unrestricted (sees every ticket).
-    fn sees_all(&self) -> bool {
+    /// True when the user is unrestricted (sees every ticket). Public so
+    /// the sync visibility layer can short-circuit ticket-family filtering
+    /// for staff without re-deriving the role split.
+    pub fn sees_all(&self) -> bool {
         self.sees_all
     }
 }

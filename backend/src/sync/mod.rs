@@ -20,6 +20,7 @@ pub mod partitions;
 pub mod registry;
 pub mod session;
 pub mod system_meta;
+pub mod visibility;
 
 #[cfg(test)]
 mod tests;

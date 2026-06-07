@@ -48,6 +48,28 @@ pub fn get_public_comments_by_ticket_id(
         .load(conn)
 }
 
+/// Batch-resolve comment ids to `(ticket_id, is_internal)`. The sync
+/// visibility layer uses this to gate `attachment.created` actions —
+/// which carry only `comment_id` — by their parent comment's ticket and
+/// internal flag. Comment ids not present in the map (deleted/unknown)
+/// are treated as not-visible by the caller.
+pub fn ticket_and_internal_for_comments(
+    conn: &mut DbConnection,
+    comment_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, (i32, bool)>> {
+    if comment_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows: Vec<(i32, i32, bool)> = comments::table
+        .filter(comments::id.eq_any(comment_ids))
+        .select((comments::id, comments::ticket_id, comments::is_internal))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, ticket_id, is_internal)| (id, (ticket_id, is_internal)))
+        .collect())
+}
+
 /// Typed annotation describing where a comment originated, attached
 /// to the `comment.created` sync_actions row so the activity feed
 /// can render richer phrasing than "System commented on this
