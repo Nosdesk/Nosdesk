@@ -237,14 +237,14 @@ fn member_attachment_resolves_through_comment() {
         attach(public_own, false),   // 0 keep (public comment on own ticket)
         attach(internal_own, false), // 1 drop (internal comment)
         attach(public_other, false), // 2 drop (other's ticket)
-        attach(0, true),             // 3 drop (attachment.delete: {id} only)
+        attach(0, true),             // 3 keep (attachment.delete: bare-id prune)
     ];
     let viewer = member_viewer(alice);
     let mask = run(&mut conn, &viewer, &items);
     assert_eq!(
         mask,
-        vec![true, false, false, false],
-        "attachment.created gated via comment->ticket; delete fail-closed"
+        vec![true, false, false, true],
+        "attachment.created gated via comment->ticket; delete passes as bare-id prune"
     );
 }
 

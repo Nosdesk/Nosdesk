@@ -11,7 +11,7 @@ use crate::extractors::AuthContext;
 use crate::models::{
     Ticket, TicketListItem, TicketPriority, UserInfoWithAvatar, WorkflowStateCategory,
 };
-use crate::schema::{tickets, workflow_states};
+use crate::schema::{ticket_watchers, tickets, workflow_states};
 
 /// Parse comma-separated legacy status filter ("open" / "in-progress" /
 /// "closed") into the workflow state categories that map to those buckets.
@@ -335,12 +335,22 @@ impl TicketQuery {
 
         // Visibility filter - user sees own tickets + tickets in visible categories
         if let Some(user_uuid) = self.visible_to_user {
+            // Tickets the user watches are explicitly granted visibility
+            // (the same mechanism `ticket_visibility::can_view_ticket` and
+            // the sync read paths honour). Without this, a watcher-granted
+            // ticket showed in the detail view and the sync pool but was
+            // absent from this REST list -> the two surfaces disagreed.
+            let watched = ticket_watchers::table
+                .filter(ticket_watchers::user_uuid.eq(user_uuid))
+                .select(ticket_watchers::ticket_id);
             if let Some(ref visible_cats) = self.visible_category_ids {
-                // User can see: their own tickets OR tickets in visible categories OR uncategorized tickets
+                // User can see: their own tickets OR watched tickets OR
+                // tickets in visible categories OR uncategorized tickets
                 query = query.filter(
                     tickets::requester_uuid
                         .eq(Some(user_uuid))
                         .or(tickets::assignee_uuid.eq(Some(user_uuid)))
+                        .or(tickets::id.eq_any(watched))
                         .or(tickets::category_id.is_null())
                         .or(tickets::category_id.eq_any(
                             visible_cats
@@ -350,11 +360,13 @@ impl TicketQuery {
                         )),
                 );
             } else {
-                // No visibility resolved (shouldn't happen), fall back to own tickets only
+                // No visibility resolved (shouldn't happen), fall back to own
+                // + watched tickets only
                 query = query.filter(
                     tickets::requester_uuid
                         .eq(Some(user_uuid))
-                        .or(tickets::assignee_uuid.eq(Some(user_uuid))),
+                        .or(tickets::assignee_uuid.eq(Some(user_uuid)))
+                        .or(tickets::id.eq_any(watched)),
                 );
             }
         }

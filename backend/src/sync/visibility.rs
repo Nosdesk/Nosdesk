@@ -93,7 +93,17 @@ fn is_ticket_family(agg: SyncAggregate) -> bool {
             | SyncAggregate::TicketAsset
             | SyncAggregate::LinkedTicket
             | SyncAggregate::ProjectTicket
+            | SyncAggregate::CycleTicket
     )
+}
+
+/// True when this aggregate carries a ticket id and so needs the
+/// visible-ticket set resolved, even though it isn't strictly part of
+/// the ticket family. `asset_usage` is an inventory ledger row that may
+/// reference a ticket; a restricted viewer should only learn of usage
+/// recorded against a ticket they can see.
+fn needs_ticket_resolution(agg: SyncAggregate) -> bool {
+    is_ticket_family(agg) || matches!(agg, SyncAggregate::AssetUsage)
 }
 
 /// Pure keep/drop decision for one action. All inputs pre-resolved so
@@ -139,6 +149,18 @@ fn action_is_visible(
             let Some(visible) = visible_tickets else {
                 return true; // sees_all
             };
+            // Bare-id prune signals (`{id}` only) carry no information about
+            // a ticket the viewer can't see, and MUST reach a member even
+            // when the underlying row is already gone — a hard-deleted
+            // ticket/attachment can't be confirmed against the live tables,
+            // so a visibility check would wrongly drop the prune and the row
+            // would ghost in the member's pool forever. Let them through
+            // (a prune of an id the member never had is a harmless no-op),
+            // ahead of the fail-closed gate so a transient lookup failure
+            // can't reintroduce the ghost.
+            if v.is_delete && matches!(agg, SyncAggregate::Ticket | SyncAggregate::Attachment) {
+                return true;
+            }
             if ticket_fail {
                 return false;
             }
@@ -149,19 +171,28 @@ fn action_is_visible(
                 }
                 SyncAggregate::TicketAsset
                 | SyncAggregate::LinkedTicket
-                | SyncAggregate::ProjectTicket => v.ticket_id.is_some_and(|t| visible.contains(&t)),
+                | SyncAggregate::ProjectTicket
+                | SyncAggregate::CycleTicket => v.ticket_id.is_some_and(|t| visible.contains(&t)),
                 SyncAggregate::Attachment => {
-                    // attachment.deleted carries only `{id}` — unresolvable
-                    // parent, so fail-closed drop for restricted viewers.
-                    if v.is_delete {
-                        return false;
-                    }
+                    // Non-delete: gate by the parent comment's visibility.
+                    // (Delete is handled by the bare-id prune branch above.)
                     v.comment_id
                         .is_some_and(|c| visible_comment_ids.contains(&c))
                 }
                 _ => unreachable!("is_ticket_family covers these"),
             }
         }
+        // Inventory usage ledger: staff see all; a restricted viewer only
+        // learns of usage recorded against a ticket they can see. Ad-hoc
+        // events (restock / write-off, `ticket_id` null) are inventory ops
+        // with no ticket tie-in -> dropped for restricted viewers.
+        SyncAggregate::AssetUsage => match visible_tickets {
+            None => true, // sees_all
+            Some(visible) => !ticket_fail && v.ticket_id.is_some_and(|t| visible.contains(&t)),
+        },
+        // Inventory audit trail: workspace-wide staff data, no ticket tie-in.
+        // Staff only; never delivered to restricted viewers.
+        SyncAggregate::AssetAudit => visible_tickets.is_none(),
         // Reference data + everything else: allow. Future aggregates that
         // need gating must add an arm above (conscious opt-in).
         _ => true,
@@ -220,13 +251,17 @@ pub fn filter_actions<T>(
         }
     };
 
-    // --- Ticket family (only for restricted viewers) ---
-    let has_ticket_family = views
+    // --- Ticket-gated families (only for restricted viewers) ---
+    // Covers the ticket family plus `asset_usage` (carries a ticket id).
+    // `asset_audit` needs no resolution: it's dropped purely on the
+    // `visible_tickets.is_some()` (restricted) signal below.
+    let needs_resolution = views
         .iter()
-        .any(|v| v.aggregate.is_some_and(is_ticket_family));
-    let (visible_tickets, visible_comment_ids, ticket_fail) = if sees_all || !has_ticket_family {
-        // sees_all => None (keep all). No ticket family => an empty
-        // visible set is unused (no ticket rows to check).
+        .any(|v| v.aggregate.is_some_and(needs_ticket_resolution));
+    let (visible_tickets, visible_comment_ids, ticket_fail) = if sees_all || !needs_resolution {
+        // sees_all => None (keep all). Nothing to resolve => an empty
+        // visible set; note it stays `Some` for restricted viewers so the
+        // asset_usage / asset_audit arms still drop correctly.
         let vt = if sees_all { None } else { Some(HashSet::new()) };
         (vt, HashSet::new(), false)
     } else {
@@ -257,7 +292,9 @@ pub fn filter_actions<T>(
                         Some(SyncAggregate::Comment)
                         | Some(SyncAggregate::TicketAsset)
                         | Some(SyncAggregate::LinkedTicket)
-                        | Some(SyncAggregate::ProjectTicket) => {
+                        | Some(SyncAggregate::ProjectTicket)
+                        | Some(SyncAggregate::CycleTicket)
+                        | Some(SyncAggregate::AssetUsage) => {
                             if let Some(t) = v.ticket_id {
                                 candidates.push(t);
                             }
@@ -321,8 +358,10 @@ pub fn bootstrap_ticket_query<'a>(viewer: &SyncViewer) -> tickets::BoxedQuery<'a
 pub fn wire_aggregate_is_gated(wire: &str, viewer: &SyncViewer) -> bool {
     match wire {
         "documentation_page" | "documentation_collection" => true,
+        // Ticket family + ticket-tied / staff-only inventory aggregates are
+        // only gated for restricted viewers; staff (`sees_all`) see them all.
         "ticket" | "comment" | "attachment" | "ticket_asset" | "linked_ticket"
-        | "project_ticket" => !viewer.sees_all(),
+        | "project_ticket" | "cycle_ticket" | "asset_usage" | "asset_audit" => !viewer.sees_all(),
         _ => false,
     }
 }
@@ -491,12 +530,70 @@ mod tests {
     }
 
     #[test]
-    fn member_attachment_delete_fail_closed() {
+    fn member_bare_id_deletes_pass_as_prune() {
+        // ticket.deleted / attachment.deleted carry only `{id}` — the row
+        // is gone, so they pass through as harmless prune signals (else a
+        // hard-deleted ticket ghosts in the member's pool forever).
         let vt = restricted();
         let empty = HashSet::new();
-        // attachment.deleted: {id} only, no comment_id -> dropped.
-        let del = view(SyncAggregate::Attachment, true);
-        assert!(!check(&del, vt.as_ref(), &empty));
+        let mut ticket_del = view(SyncAggregate::Ticket, true);
+        ticket_del.aggregate_id = Some(999); // not in visible set
+        let att_del = view(SyncAggregate::Attachment, true);
+        assert!(
+            check(&ticket_del, vt.as_ref(), &empty),
+            "ticket delete prunes"
+        );
+        assert!(
+            check(&att_del, vt.as_ref(), &empty),
+            "attachment delete prunes"
+        );
+    }
+
+    #[test]
+    fn member_cycle_ticket_follows_ticket() {
+        let vt = restricted();
+        let empty = HashSet::new();
+        let mut own = view(SyncAggregate::CycleTicket, false);
+        own.ticket_id = Some(1);
+        let mut other = view(SyncAggregate::CycleTicket, false);
+        other.ticket_id = Some(2);
+        assert!(check(&own, vt.as_ref(), &empty), "cycle_ticket own");
+        assert!(!check(&other, vt.as_ref(), &empty), "cycle_ticket other");
+    }
+
+    #[test]
+    fn member_asset_usage_gated_by_ticket() {
+        let vt = restricted();
+        let empty = HashSet::new();
+        let mut on_visible = view(SyncAggregate::AssetUsage, false);
+        on_visible.ticket_id = Some(1);
+        let mut on_hidden = view(SyncAggregate::AssetUsage, false);
+        on_hidden.ticket_id = Some(2);
+        let adhoc = view(SyncAggregate::AssetUsage, false); // ticket_id None
+        assert!(
+            check(&on_visible, vt.as_ref(), &empty),
+            "usage on own ticket"
+        );
+        assert!(
+            !check(&on_hidden, vt.as_ref(), &empty),
+            "usage on other ticket"
+        );
+        assert!(!check(&adhoc, vt.as_ref(), &empty), "ad-hoc usage dropped");
+        // Staff see all usage, ad-hoc included.
+        assert!(check(&on_hidden, None, &empty), "staff usage");
+        assert!(check(&adhoc, None, &empty), "staff ad-hoc usage");
+    }
+
+    #[test]
+    fn member_asset_audit_staff_only() {
+        let vt = restricted();
+        let empty = HashSet::new();
+        let audit = view(SyncAggregate::AssetAudit, false);
+        assert!(
+            !check(&audit, vt.as_ref(), &empty),
+            "audit hidden from member"
+        );
+        assert!(check(&audit, None, &empty), "audit visible to staff");
     }
 
     #[test]
