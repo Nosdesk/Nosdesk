@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use lettre::{
     message::{
         header::{ContentType, Header, HeaderName, HeaderValue, InReplyTo, MessageId, References},
@@ -6,6 +7,7 @@ use lettre::{
     transport::smtp::authentication::Credentials,
     Message, SmtpTransport, Transport,
 };
+use std::sync::Arc;
 
 /// `Auto-Submitted` header (RFC 3834 §5). Set on any system-authored
 /// reply we send (currently just the auto-acknowledgement on new
@@ -514,15 +516,147 @@ impl EmailConfig {
     }
 }
 
+/// Build a lettre SMTP mailer from config. Shared by the SMTP transport
+/// and the legacy direct-send methods so the connection/security wiring
+/// lives in one place.
+fn build_smtp_mailer(config: &EmailConfig) -> Result<SmtpTransport, String> {
+    let creds = Credentials::new(config.smtp_username.clone(), config.smtp_password.clone());
+
+    let builder = match config.security {
+        SmtpSecurity::Tls => SmtpTransport::relay(&config.smtp_host)
+            .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
+        SmtpSecurity::StartTls => SmtpTransport::starttls_relay(&config.smtp_host)
+            .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
+        // Plain transport for local test servers — no TLS, no auth
+        // negotiation. Credentials still ride but the connection is
+        // cleartext, so `SmtpSecurity::Plaintext`'s doc flags it.
+        SmtpSecurity::Plaintext => SmtpTransport::builder_dangerous(&config.smtp_host),
+    };
+
+    Ok(builder.port(config.smtp_port).credentials(creds).build())
+}
+
+/// Build the lettre `Message` for an outbound queue message. Shared by
+/// the SMTP transport and `EmailService::build_ticket_reply_message`
+/// (the latter kept so unit tests can inspect the serialized form).
+fn build_outbound_message(
+    config: &EmailConfig,
+    outbound: &OutboundEmailMessage<'_>,
+) -> Result<Message, String> {
+    let to_mailbox: Mailbox = outbound
+        .to
+        .parse()
+        .map_err(|e| format!("Invalid recipient email: {e}"))?;
+
+    let mut builder = Message::builder()
+        .from(config.from_mailbox()?)
+        .to(to_mailbox)
+        .subject(outbound.subject)
+        .header(MessageId::from(format!("<{}>", outbound.message_id)));
+
+    if let Some(parent) = outbound.in_reply_to {
+        builder = builder.header(InReplyTo::from(parent.to_string()));
+    }
+    if !outbound.references.is_empty() {
+        builder = builder.header(References::from(outbound.references.join(" ")));
+    }
+    // RFC 3834 + Exchange loop-prevention headers for auto-replies.
+    if outbound.auto_submitted {
+        builder = builder
+            .header(AutoSubmitted("auto-replied".to_string()))
+            .header(XAutoResponseSuppress("All".to_string()));
+    }
+
+    // Prefer multipart/alternative when both text + html are given so
+    // clients can pick; text-only falls back to a single part. Both
+    // declare `format=flowed` so clients don't soft-wrap our `> ` quote
+    // prefixes or `-- ` signature separator.
+    let message = if let Some(html) = outbound.body_html {
+        builder
+            .multipart(
+                MultiPart::alternative()
+                    .singlepart(plaintext_flowed_part(outbound.body_text.to_string()))
+                    .singlepart(
+                        SinglePart::builder()
+                            .header(ContentType::TEXT_HTML)
+                            .body(html.to_string()),
+                    ),
+            )
+            .map_err(|e| format!("Failed to build ticket reply: {e}"))?
+    } else {
+        builder
+            .singlepart(plaintext_flowed_part(outbound.body_text.to_string()))
+            .map_err(|e| format!("Failed to build ticket reply: {e}"))?
+    };
+
+    Ok(message)
+}
+
+/// Outcome of a transport send. Carries the provider message id when the
+/// backend returns one (e.g. Resend's `email_id`); `None` for SMTP, where
+/// the RFC Message-ID is the only identity.
+#[allow(dead_code)]
+pub struct SendOutcome {
+    pub provider_message_id: Option<String>,
+}
+
+/// Pluggable email transport. SMTP (the default, works with any standard
+/// relay and needs no third-party service) and, later, Resend implement
+/// this; `EmailService` composes a message then hands it to whichever
+/// transport is configured.
+#[async_trait]
+pub trait EmailTransport: Send + Sync {
+    async fn send(&self, msg: &OutboundEmailMessage<'_>) -> Result<SendOutcome, String>;
+    fn is_configured(&self) -> bool;
+}
+
+/// SMTP transport via lettre. The default provider.
+pub struct SmtpEmailTransport {
+    config: EmailConfig,
+}
+
+impl SmtpEmailTransport {
+    pub fn new(config: EmailConfig) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait]
+impl EmailTransport for SmtpEmailTransport {
+    async fn send(&self, msg: &OutboundEmailMessage<'_>) -> Result<SendOutcome, String> {
+        if !self.config.is_configured() {
+            return Err("Email is not configured".to_string());
+        }
+        let message = build_outbound_message(&self.config, msg)?;
+        let mailer = build_smtp_mailer(&self.config)?;
+        mailer
+            .send(&message)
+            .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+        Ok(SendOutcome {
+            provider_message_id: None,
+        })
+    }
+
+    fn is_configured(&self) -> bool {
+        self.config.is_configured()
+    }
+}
+
 /// Email service for sending emails
 pub struct EmailService {
     config: EmailConfig,
+    /// The configured transport (SMTP by default). Composition stays in
+    /// `EmailService`; the transport only performs the provider hand-off.
+    transport: Arc<dyn EmailTransport>,
 }
 
 impl EmailService {
     /// Create a new email service with the given configuration
     pub fn new(config: EmailConfig) -> Self {
-        Self { config }
+        // SMTP is the default transport and the self-host standard.
+        // Provider selection (e.g. Resend) is added here in a later stage.
+        let transport: Arc<dyn EmailTransport> = Arc::new(SmtpEmailTransport::new(config.clone()));
+        Self { config, transport }
     }
 
     /// Create email service from environment variables
@@ -531,29 +665,10 @@ impl EmailService {
         Ok(Self::new(config))
     }
 
-    /// Build SMTP transport from configuration
+    /// Build SMTP transport from configuration. Used by the legacy
+    /// direct-send methods; the queue path goes through `self.transport`.
     fn build_transport(&self) -> Result<SmtpTransport, String> {
-        let creds = Credentials::new(
-            self.config.smtp_username.clone(),
-            self.config.smtp_password.clone(),
-        );
-
-        let builder = match self.config.security {
-            SmtpSecurity::Tls => SmtpTransport::relay(&self.config.smtp_host)
-                .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
-            SmtpSecurity::StartTls => SmtpTransport::starttls_relay(&self.config.smtp_host)
-                .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
-            // Plain transport for local test servers — no TLS, no auth
-            // negotiation. Credentials still ride but the connection
-            // is cleartext, so we warn loudly in the doc comment on
-            // `SmtpSecurity::Plaintext`.
-            SmtpSecurity::Plaintext => SmtpTransport::builder_dangerous(&self.config.smtp_host),
-        };
-
-        Ok(builder
-            .port(self.config.smtp_port)
-            .credentials(creds)
-            .build())
+        build_smtp_mailer(&self.config)
     }
 
     /// Send a simple text email
@@ -951,74 +1066,18 @@ impl EmailService {
         &self,
         outbound: OutboundEmailMessage<'_>,
     ) -> Result<(), String> {
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
-        let message = self.build_ticket_reply_message(&outbound)?;
-        let mailer = self.build_transport()?;
-        mailer
-            .send(&message)
-            .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
-        Ok(())
+        self.transport.send(&outbound).await.map(|_| ())
     }
 
-    /// Separated from [`Self::send_ticket_reply`] so unit tests can
-    /// inspect the serialized form (headers, body parts) without a live
-    /// SMTP transport.
+    /// Test-only: lets unit tests inspect the serialized form (headers,
+    /// body parts) without a live transport. The production path builds
+    /// the message inside the transport via `build_outbound_message`.
+    #[cfg(test)]
     pub(crate) fn build_ticket_reply_message(
         &self,
         outbound: &OutboundEmailMessage<'_>,
     ) -> Result<Message, String> {
-        let to_mailbox: Mailbox = outbound
-            .to
-            .parse()
-            .map_err(|e| format!("Invalid recipient email: {e}"))?;
-
-        let mut builder = Message::builder()
-            .from(self.config.from_mailbox()?)
-            .to(to_mailbox)
-            .subject(outbound.subject)
-            .header(MessageId::from(format!("<{}>", outbound.message_id)));
-
-        if let Some(parent) = outbound.in_reply_to {
-            builder = builder.header(InReplyTo::from(parent.to_string()));
-        }
-        if !outbound.references.is_empty() {
-            builder = builder.header(References::from(outbound.references.join(" ")));
-        }
-        // RFC 3834 + Exchange loop-prevention headers for auto-replies.
-        // Emitted only for system-authored messages (auto-ack); tech
-        // replies are human and don't carry this.
-        if outbound.auto_submitted {
-            builder = builder
-                .header(AutoSubmitted("auto-replied".to_string()))
-                .header(XAutoResponseSuppress("All".to_string()));
-        }
-
-        // Prefer multipart/alternative when both text + html are given so
-        // clients can pick. Text-only falls back to a single part.
-        // Both paths declare `format=flowed` on the text part so mail
-        // clients don't aggressively soft-wrap our `> ` quote prefixes
-        // or `-- ` signature separator on narrow viewports.
-        let message = if let Some(html) = outbound.body_html {
-            builder
-                .multipart(
-                    MultiPart::alternative()
-                        .singlepart(plaintext_flowed_part(outbound.body_text.to_string()))
-                        .singlepart(
-                            SinglePart::builder()
-                                .header(ContentType::TEXT_HTML)
-                                .body(html.to_string()),
-                        ),
-                )
-                .map_err(|e| format!("Failed to build ticket reply: {e}"))?
-        } else {
-            builder
-                .singlepart(plaintext_flowed_part(outbound.body_text.to_string()))
-                .map_err(|e| format!("Failed to build ticket reply: {e}"))?
-        };
-
-        Ok(message)
+        build_outbound_message(&self.config, outbound)
     }
 
     /// Send a notification email using the branded `EmailTemplate` shell.
