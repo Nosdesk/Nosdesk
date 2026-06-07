@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::utils::email::{EmailConfig, EmailService};
+use crate::utils::email::EmailService;
 use crate::utils::email_branding::get_email_branding;
 
 /// Test email request
@@ -25,19 +25,24 @@ pub async fn get_email_config(_tc: TenantConn, req: HttpRequest) -> impl Respond
         return errors::forbidden("Only administrators can view email configuration");
     }
 
-    // Load email configuration from environment
-    match EmailConfig::from_env() {
-        Ok(config) => {
-            // Return configuration (without password)
+    // Provider-aware: SMTP (default) or Resend. EmailService::from_env
+    // selects the transport and reports is_configured for the active
+    // provider, so the page is correct under either.
+    match EmailService::from_env() {
+        Ok(service) => {
+            let config = service.config();
+            // Return configuration (without secrets). The smtp_* fields
+            // are empty under Resend; the frontend keys off `provider`.
             HttpResponse::Ok().json(json!({
+                "provider": service.provider_name(),
+                "from_name": config.from_name,
+                "from_email": config.from_email,
+                "enabled": config.enabled,
+                "is_configured": service.is_configured(),
                 "smtp_host": config.smtp_host,
                 "smtp_port": config.smtp_port,
                 "smtp_username": config.smtp_username,
                 "smtp_password_configured": !config.smtp_password.is_empty(),
-                "from_name": config.from_name,
-                "from_email": config.from_email,
-                "enabled": config.enabled,
-                "is_configured": config.is_configured()
             }))
         }
         Err(e) => HttpResponse::Ok().json(json!({

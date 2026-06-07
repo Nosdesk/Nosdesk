@@ -19,6 +19,9 @@ const t = (key: string) => fluent.$t(key);
 
 // Define types for our data structures
 interface EmailConfig {
+  /** Active transport. 'smtp' (default) or 'resend'. Older backends omit
+   *  it; treat absent as 'smtp'. */
+  provider?: 'smtp' | 'resend';
   smtp_host: string;
   smtp_port: number;
   smtp_username: string;
@@ -89,8 +92,11 @@ const sendTestEmail = async () => {
   }
 };
 
-// Helper to get required environment variables
+// Helper to get required environment variables, per active provider.
 const getRequiredEnvVars = () => {
+  if (emailConfig.value?.provider === 'resend') {
+    return ['EMAIL_PROVIDER', 'RESEND_API_KEY', 'RESEND_FROM_EMAIL'];
+  }
   return [
     'SMTP_ENABLED',
     'SMTP_HOST',
@@ -175,6 +181,12 @@ const getRequiredEnvVars = () => {
                 >
                   {{ $t('admin-email-settings-enabled') }}
                 </span>
+                <span
+                  v-if="emailConfig?.provider"
+                  class="px-1.5 py-0.5 text-xs rounded-full border bg-surface-alt text-secondary border-default uppercase"
+                >
+                  {{ emailConfig.provider }}
+                </span>
               </div>
             </div>
 
@@ -182,21 +194,23 @@ const getRequiredEnvVars = () => {
             <div v-if="emailConfig?.is_configured" class="flex flex-col md:flex-row gap-4 text-sm">
               <!-- Left: Server, Username, From details -->
               <div class="flex-1 flex flex-col gap-2">
-                <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">{{ $t('admin-email-settings-server') }}</span>
-                  <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all">{{ emailConfig.smtp_host }}:{{ emailConfig.smtp_port }}</span>
-                </div>
-                <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">{{ $t('admin-email-settings-username') }}</span>
-                  <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ emailConfig.smtp_username }}</span>
-                </div>
+                <template v-if="emailConfig.provider !== 'resend'">
+                  <div class="flex flex-col gap-0.5">
+                    <span class="text-tertiary text-xs">{{ $t('admin-email-settings-server') }}</span>
+                    <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all">{{ emailConfig.smtp_host }}:{{ emailConfig.smtp_port }}</span>
+                  </div>
+                  <div class="flex flex-col gap-0.5">
+                    <span class="text-tertiary text-xs">{{ $t('admin-email-settings-username') }}</span>
+                    <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ emailConfig.smtp_username }}</span>
+                  </div>
+                </template>
                 <div class="flex flex-col gap-0.5">
                   <span class="text-tertiary text-xs">{{ $t('admin-email-settings-from-address') }}</span>
                   <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ emailConfig.from_name }} &lt;{{ emailConfig.from_email }}&gt;</span>
                 </div>
               </div>
-              <!-- Right: Password status -->
-              <div class="flex flex-row md:flex-col gap-4 md:gap-2 md:w-28 md:flex-shrink-0">
+              <!-- Right: Password status (SMTP only; Resend auths by API key) -->
+              <div v-if="emailConfig.provider !== 'resend'" class="flex flex-row md:flex-col gap-4 md:gap-2 md:w-28 md:flex-shrink-0">
                 <div class="flex flex-col gap-0.5">
                   <span class="text-tertiary text-xs">{{ $t('admin-email-settings-password') }}</span>
                   <span :class="emailConfig.smtp_password_configured ? 'text-status-success' : 'text-status-error'" class="font-medium bg-surface-alt px-2 py-1.5 rounded text-xs">{{ emailConfig.smtp_password_configured ? $t('admin-email-settings-configured') : $t('admin-email-settings-password-not-set') }}</span>

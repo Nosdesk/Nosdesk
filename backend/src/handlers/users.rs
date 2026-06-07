@@ -586,11 +586,11 @@ pub async fn create_user(
         })
         .unwrap_or_else(|| "An administrator".to_string());
 
-    // Check email configuration
-    let email_config = crate::utils::email::EmailConfig::from_env().ok();
-    let smtp_configured = email_config
-        .as_ref()
-        .map(|c| c.is_configured())
+    // Check email configuration. Provider-aware (SMTP or Resend):
+    // EmailService::from_env selects the active transport and reports
+    // is_configured for it.
+    let smtp_configured = crate::utils::email::EmailService::from_env()
+        .map(|s| s.is_configured())
         .unwrap_or(false);
 
     // Comprehensive input validation using our validation utilities
@@ -2314,11 +2314,11 @@ pub async fn resend_invitation(
         return errors::forbidden("Only administrators can resend invitations");
     }
 
-    // Check email configuration
-    let email_config = crate::utils::email::EmailConfig::from_env().ok();
-    let smtp_configured = email_config
-        .as_ref()
-        .map(|c| c.is_configured())
+    // Check email configuration. Provider-aware (SMTP or Resend):
+    // EmailService::from_env selects the active transport and reports
+    // is_configured for it.
+    let smtp_configured = crate::utils::email::EmailService::from_env()
+        .map(|s| s.is_configured())
         .unwrap_or(false);
 
     if !smtp_configured {

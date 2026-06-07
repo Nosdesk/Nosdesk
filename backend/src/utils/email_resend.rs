@@ -84,4 +84,8 @@ impl EmailTransport for ResendEmailTransport {
     fn is_configured(&self) -> bool {
         self.enabled
     }
+
+    fn provider_name(&self) -> &'static str {
+        "resend"
+    }
 }

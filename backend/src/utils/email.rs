@@ -608,6 +608,8 @@ pub struct SendOutcome {
 pub trait EmailTransport: Send + Sync {
     async fn send(&self, msg: &OutboundEmailMessage<'_>) -> Result<SendOutcome, String>;
     fn is_configured(&self) -> bool;
+    /// Stable identifier for status reporting (`"smtp"` | `"resend"`).
+    fn provider_name(&self) -> &'static str;
 }
 
 /// SMTP transport via lettre. The default provider.
@@ -639,6 +641,10 @@ impl EmailTransport for SmtpEmailTransport {
 
     fn is_configured(&self) -> bool {
         self.config.is_configured()
+    }
+
+    fn provider_name(&self) -> &'static str {
+        "smtp"
     }
 }
 
@@ -710,6 +716,12 @@ impl EmailService {
     /// SMTP-centric `EmailConfig::is_configured`.
     pub fn is_configured(&self) -> bool {
         self.transport.is_configured()
+    }
+
+    /// Active provider identifier for admin status reporting
+    /// (`"smtp"` | `"resend"`).
+    pub fn provider_name(&self) -> &'static str {
+        self.transport.provider_name()
     }
 
     /// Generate a unique RFC Message-ID for a direct (non-queued) send.
