@@ -8,7 +8,7 @@ use crate::db::DbConnection;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{LoginRequest, PasswordChangeRequest, UserRegistration};
-use crate::repository;
+use crate::repository::{self, user_auth_identities::get_local_password_hash};
 use crate::utils::auth::{hash_password, validate_password};
 use crate::utils::mfa;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
@@ -16,23 +16,6 @@ use crate::utils::{self, parse_uuid, ValidationError};
 
 // Import JWT utilities
 use crate::utils::jwt::{helpers as jwt_helpers, JwtUtils};
-
-/// Helper function to get password hash from user_auth_identities for local auth
-fn get_local_password_hash(user_uuid: &Uuid, conn: &mut DbConnection) -> Result<String, String> {
-    use crate::schema::user_auth_identities;
-    use diesel::prelude::*;
-
-    let password_hash: Option<String> = user_auth_identities::table
-        .filter(user_auth_identities::user_uuid.eq(user_uuid))
-        .filter(user_auth_identities::provider_type.eq("local"))
-        .select(user_auth_identities::password_hash)
-        .first::<Option<String>>(conn)
-        .optional()
-        .map_err(|e| format!("Database error: {e}"))?
-        .flatten();
-
-    password_hash.ok_or_else(|| "No local password found for this user".to_string())
-}
 
 /// Helper function to update password hash in user_auth_identities for local auth
 fn update_local_password_hash(

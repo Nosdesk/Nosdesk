@@ -13,7 +13,7 @@ use crate::db::Pool;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::Claims;
-use crate::repository;
+use crate::repository::{self, user_auth_identities::get_local_password_hash};
 use crate::utils::i18n;
 use crate::utils::jwt::helpers as jwt_helpers;
 use crate::utils::locale::request_locale;
@@ -857,26 +857,6 @@ pub async fn delete_passkey(
     HttpResponse::Ok().json(json!({
         "success": true
     }))
-}
-
-/// Helper function to get password hash from user_auth_identities for local auth
-fn get_local_password_hash(
-    user_uuid: &Uuid,
-    conn: &mut crate::db::DbConnection,
-) -> Result<String, String> {
-    use crate::schema::user_auth_identities;
-    use diesel::prelude::*;
-
-    let password_hash: Option<String> = user_auth_identities::table
-        .filter(user_auth_identities::user_uuid.eq(user_uuid))
-        .filter(user_auth_identities::provider_type.eq("local"))
-        .select(user_auth_identities::password_hash)
-        .first::<Option<String>>(conn)
-        .optional()
-        .map_err(|e| format!("Database error: {e}"))?
-        .flatten();
-
-    password_hash.ok_or_else(|| "No local password found for this user".to_string())
 }
 
 // =============================================================================

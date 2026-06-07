@@ -110,6 +110,30 @@ pub fn update_local_password_hash(
     .execute(conn)
 }
 
+/// Get the local-auth password hash for a user, if they have a local
+/// identity with a password set.
+///
+/// Returns the collapsed `Result<String, String>` shape the auth and
+/// passkey handlers consume: a DB failure and a missing local password
+/// both surface as `Err`, and callers only ever distinguish "got a
+/// hash" from "didn't". Previously duplicated verbatim in
+/// `handlers/auth.rs` and `handlers/passkeys.rs`.
+pub fn get_local_password_hash(
+    user_uuid: &Uuid,
+    conn: &mut DbConnection,
+) -> Result<String, String> {
+    let password_hash: Option<String> = user_auth_identities::table
+        .filter(user_auth_identities::user_uuid.eq(user_uuid))
+        .filter(user_auth_identities::provider_type.eq("local"))
+        .select(user_auth_identities::password_hash)
+        .first::<Option<String>>(conn)
+        .optional()
+        .map_err(|e| format!("Database error: {e}"))?
+        .flatten();
+
+    password_hash.ok_or_else(|| "No local password found for this user".to_string())
+}
+
 /// Get multiple user UUIDs by their external IDs (batch lookup for efficiency)
 pub fn get_user_uuids_by_external_ids(
     external_ids: &[&str],
