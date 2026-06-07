@@ -122,7 +122,19 @@ async-trait = "0.1.83"     # Async traits for storage abstraction
 # S3-compatible object storage (STORAGE_TYPE=s3), targeting fly.io Tigris.
 # Custom endpoint + static creds from env; the byte-oriented Storage trait
 # only needs put/get/delete/head/copy.
-aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
+#
+# default-features off to drop the SDK's default `rustls` feature, which
+# pulls the legacy rustls 0.21 stack (rustls-webpki 0.101.7, vulnerable per
+# RUSTSEC-2026-0098/0099/0104). `default-https-client` already supplies the
+# modern rustls-aws-lc (rustls 0.23) connector; the rest are the SDK's other
+# defaults minus that legacy TLS.
+aws-sdk-s3 = { version = "1", default-features = false, features = [
+    "behavior-version-latest",
+    "sigv4a",
+    "http-1x",
+    "default-https-client",
+    "rt-tokio",
+] }
 
 # Email dependencies
 lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder", "hostname"] }
