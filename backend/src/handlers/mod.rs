@@ -583,21 +583,10 @@ pub async fn add_comment_to_ticket(
             // Small delay to ensure stream stability after file operations
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-            debug!(ticket_id, "SSE: About to broadcast comment-added event");
-
-            // Broadcast with source_client_id for echo suppression
-            sse_state
-                .broadcast_event_from(
-                    crate::handlers::sse::SseEvent::CommentAdded {
-                        ticket_id,
-                        comment: response.clone(),
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id.clone(),
-                )
-                .await;
-
-            // Also broadcast the ticket modified date update
+            // The comment itself reaches clients through the sync pool
+            // (the repository write emits `comment.created`); only the
+            // ticket's modified-date bump still rides the discrete SSE
+            // (TicketUpdated is consumed by surfaces not yet pool-native).
             sse_state
                 .broadcast_event_from(
                     crate::handlers::sse::SseEvent::TicketUpdated {
@@ -843,29 +832,23 @@ pub async fn delete_comment(
     req: actix_web::HttpRequest,
     path: web::Path<i32>,
     mut tc: crate::extractors::TenantConn,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     let comment_id = path.into_inner();
-    let source_client_id = req
-        .headers()
-        .get("X-SSE-Client-Id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
     debug!(comment_id, "Deleting comment");
 
-    // Get the comment first to find the ticket_id for SSE broadcasting
-    let ticket_id =
-        match tc.run(|conn| crate::repository::comments::get_comment_by_id(conn, comment_id)) {
-            Ok(comment) => comment.ticket_id,
-            Err(_) => {
-                return json_error(
-                    &request_locale(&req),
-                    "backend-error-comment-not-found",
-                    StatusCode::NOT_FOUND,
-                );
-            }
-        };
+    // Existence guard so a missing comment returns a localized 404
+    // before we attempt the delete.
+    if tc
+        .run(|conn| crate::repository::comments::get_comment_by_id(conn, comment_id))
+        .is_err()
+    {
+        return json_error(
+            &request_locale(&req),
+            "backend-error-comment-not-found",
+            StatusCode::NOT_FOUND,
+        );
+    }
 
     let delete_result = tc.run(|conn| {
         crate::repository::comments::delete_comment(
@@ -878,19 +861,9 @@ pub async fn delete_comment(
         Ok(deleted) => {
             if deleted > 0 {
                 // Search index removal is fired by the
-                // CommentDeletedObserver inside `delete_comment`.
-
-                // Broadcast SSE event for the deleted comment
-                sse_state
-                    .broadcast_event_from(
-                        crate::handlers::sse::SseEvent::CommentDeleted {
-                            ticket_id,
-                            comment_id,
-                            timestamp: chrono::Utc::now(),
-                        },
-                        source_client_id,
-                    )
-                    .await;
+                // CommentDeletedObserver inside `delete_comment`. The
+                // deletion reaches clients via the sync pool (the
+                // repository write emits `comment.deleted`).
 
                 info!(comment_id, "Successfully deleted comment");
                 HttpResponse::Ok().json(json!({"success": true, "message": "Comment deleted"}))

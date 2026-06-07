@@ -102,20 +102,13 @@ pub async fn merge_tickets(
         indexing_tasks::spawn_index_ticket(search_service.get_ref().clone(), source.clone(), None);
     }
 
-    // Broadcast so open viewers react without a reload: the destination
-    // refetches, each source shows the merged-into banner.
+    // The merge reaches open viewers through the sync pool: each source
+    // ticket's `ticket.merged_into` emit flips its merged-into banner +
+    // read-only composer, and the merge-marker comment lands on the
+    // destination's timeline. The per-source workflow_state change below
+    // still rides the discrete SSE for surfaces not yet pool-native.
     let actor_uuid = actor.uuid.map(|u| u.to_string()).unwrap_or_default();
     let now = chrono::Utc::now();
-    let source_ids: Vec<i32> = outcome.merged_sources.iter().map(|t| t.id).collect();
-    sse_state
-        .broadcast_event(SseEvent::TicketMerged {
-            target_ticket_id: outcome.destination.id,
-            source_ticket_ids: source_ids,
-            actor_uuid: actor_uuid.clone(),
-            merge_event_id: outcome.merge_event_id,
-            timestamp: now,
-        })
-        .await;
     for source in &outcome.merged_sources {
         sse_state
             .broadcast_event(SseEvent::TicketUpdated {

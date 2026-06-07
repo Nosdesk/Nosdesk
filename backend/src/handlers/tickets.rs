@@ -116,40 +116,6 @@ async fn broadcast_sse_simple(
                     _ => None,
                 }
             }
-            "ticket_linked" => {
-                data.get("linked_ticket_id")
-                    .and_then(|v| v.as_u64())
-                    .map(|linked_id| SseEvent::TicketLinked {
-                        ticket_id,
-                        linked_ticket_id: linked_id as i32,
-                        timestamp: chrono::Utc::now(),
-                    })
-            }
-            "ticket_unlinked" => {
-                data.get("linked_ticket_id")
-                    .and_then(|v| v.as_u64())
-                    .map(|linked_id| SseEvent::TicketUnlinked {
-                        ticket_id,
-                        linked_ticket_id: linked_id as i32,
-                        timestamp: chrono::Utc::now(),
-                    })
-            }
-            "device_linked" => data
-                .get("device_id")
-                .and_then(|v| v.as_u64())
-                .map(|device_id| SseEvent::AssetLinked {
-                    ticket_id,
-                    device_id: device_id as i32,
-                    timestamp: chrono::Utc::now(),
-                }),
-            "device_unlinked" => data
-                .get("device_id")
-                .and_then(|v| v.as_u64())
-                .map(|device_id| SseEvent::AssetUnlinked {
-                    ticket_id,
-                    device_id: device_id as i32,
-                    timestamp: chrono::Utc::now(),
-                }),
             _ => {
                 warn!(event_type = %event_type, "Unknown SSE event type");
                 None
@@ -1466,16 +1432,14 @@ pub async fn update_ticket_partial(
     }
 }
 
-// Link tickets
+// Link tickets. The repository write emits the `linked_ticket.added`
+// sync action (Stage 2); clients pick the link up through the pool, so
+// no discrete SSE broadcast is needed.
 pub async fn link_tickets(
-    req: HttpRequest,
     auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
-    let source_client_id = extract_sse_client_id(&req);
-
     if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can link tickets",
@@ -1485,27 +1449,7 @@ pub async fn link_tickets(
     let (ticket_id, linked_ticket_id) = path.into_inner();
 
     match tc.run(|conn| repository::link_tickets(conn, ticket_id, linked_ticket_id)) {
-        Ok(_) => {
-            debug!(
-                ticket_id = ticket_id,
-                linked_ticket_id = linked_ticket_id,
-                "Broadcasting SSE event for ticket linking"
-            );
-
-            // Broadcast SSE event for ticket linking
-            broadcast_sse_simple(
-                sse_state.clone(),
-                ticket_id,
-                "ticket_linked".to_string(),
-                json!({
-                    "linked_ticket_id": linked_ticket_id
-                }),
-                source_client_id,
-            )
-            .await;
-
-            HttpResponse::Ok().json(json!({"success": true}))
-        }
+        Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
             error!(error = ?e, "Failed to link tickets");
             errors::internal("Failed to link tickets")
@@ -1513,16 +1457,13 @@ pub async fn link_tickets(
     }
 }
 
-// Unlink tickets
+// Unlink tickets. Repository write emits `linked_ticket.removed`; the
+// pool delivers the removal, so no discrete SSE broadcast.
 pub async fn unlink_tickets(
-    req: HttpRequest,
     auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
-    let source_client_id = extract_sse_client_id(&req);
-
     if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can unlink tickets",
@@ -1532,27 +1473,7 @@ pub async fn unlink_tickets(
     let (ticket_id, linked_ticket_id) = path.into_inner();
 
     match tc.run(|conn| repository::unlink_tickets(conn, ticket_id, linked_ticket_id)) {
-        Ok(_) => {
-            debug!(
-                ticket_id = ticket_id,
-                linked_ticket_id = linked_ticket_id,
-                "Broadcasting SSE event for ticket unlinking"
-            );
-
-            // Broadcast SSE event for ticket unlinking
-            broadcast_sse_simple(
-                sse_state.clone(),
-                ticket_id,
-                "ticket_unlinked".to_string(),
-                json!({
-                    "linked_ticket_id": linked_ticket_id
-                }),
-                source_client_id,
-            )
-            .await;
-
-            HttpResponse::Ok().json(json!({"success": true}))
-        }
+        Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
             error!(error = ?e, "Failed to unlink tickets");
             errors::internal("Failed to unlink tickets")
@@ -1560,16 +1481,13 @@ pub async fn unlink_tickets(
     }
 }
 
-// Add device to ticket
+// Add device to ticket. Repository write emits `ticket_asset.added`;
+// the pool delivers the link, so no discrete SSE broadcast.
 pub async fn add_device_to_ticket(
-    req: HttpRequest,
     auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
-    let source_client_id = extract_sse_client_id(&req);
-
     if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can add devices to tickets",
@@ -1579,27 +1497,7 @@ pub async fn add_device_to_ticket(
     let (ticket_id, device_id) = path.into_inner();
 
     match tc.run(|conn| repository::add_device_to_ticket(conn, ticket_id, device_id)) {
-        Ok(_) => {
-            debug!(
-                ticket_id = ticket_id,
-                device_id = device_id,
-                "Broadcasting SSE event for device linking"
-            );
-
-            // Broadcast SSE event for device linking
-            broadcast_sse_simple(
-                sse_state.clone(),
-                ticket_id,
-                "device_linked".to_string(),
-                json!({
-                    "device_id": device_id
-                }),
-                source_client_id,
-            )
-            .await;
-
-            HttpResponse::Ok().json(json!({"success": true}))
-        }
+        Ok(_) => HttpResponse::Ok().json(json!({"success": true})),
         Err(e) => {
             error!(ticket_id = ticket_id, device_id = device_id, error = ?e, "Failed to add device to ticket");
             errors::internal("Failed to add device to ticket")
@@ -1607,16 +1505,14 @@ pub async fn add_device_to_ticket(
     }
 }
 
-// Remove device from ticket
+// Remove device from ticket. Repository write emits
+// `ticket_asset.removed`; the pool delivers the removal, so no
+// discrete SSE broadcast.
 pub async fn remove_device_from_ticket(
-    req: HttpRequest,
     auth: AuthContext,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
-    let source_client_id = extract_sse_client_id(&req);
-
     if !auth.can_handle_tickets() {
         return errors::forbidden(
             "Forbidden: Only technicians and administrators can remove devices from tickets",
@@ -1628,24 +1524,6 @@ pub async fn remove_device_from_ticket(
     match tc.run(|conn| repository::remove_device_from_ticket(conn, ticket_id, device_id)) {
         Ok(rows_affected) => {
             if rows_affected > 0 {
-                debug!(
-                    ticket_id = ticket_id,
-                    device_id = device_id,
-                    "Broadcasting SSE event for device unlinking"
-                );
-
-                // Broadcast SSE event for device unlinking
-                broadcast_sse_simple(
-                    sse_state.clone(),
-                    ticket_id,
-                    "device_unlinked".to_string(),
-                    json!({
-                        "device_id": device_id
-                    }),
-                    source_client_id,
-                )
-                .await;
-
                 HttpResponse::Ok().json(json!({"success": true}))
             } else {
                 errors::not_found_msg("Asset not associated with ticket")

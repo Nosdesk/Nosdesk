@@ -37,41 +37,6 @@ pub enum SseEvent {
         ticket_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    /// A merge committed. Open viewers of a source ticket show the
-    /// "merged into #N" banner; the destination's viewers refetch to
-    /// pick up the marker comment and the merged-in sidebar.
-    TicketMerged {
-        target_ticket_id: i32,
-        source_ticket_ids: Vec<i32>,
-        actor_uuid: String,
-        merge_event_id: i64,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    CommentAdded {
-        ticket_id: i32,
-        comment: serde_json::Value,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    CommentDeleted {
-        ticket_id: i32,
-        comment_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    AssetLinked {
-        ticket_id: i32,
-        device_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    AssetUnlinked {
-        ticket_id: i32,
-        device_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    AssetCreated {
-        device_id: i32,
-        device: serde_json::Value,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     AssetUpdated {
         device_id: i32,
         field: String,
@@ -117,26 +82,6 @@ pub enum SseEvent {
         recorded_at: chrono::DateTime<chrono::Utc>,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    ProjectAssigned {
-        ticket_id: i32,
-        project_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    ProjectUnassigned {
-        ticket_id: i32,
-        project_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    TicketLinked {
-        ticket_id: i32,
-        linked_ticket_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    TicketUnlinked {
-        ticket_id: i32,
-        linked_ticket_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     /// Per-user presence on a ticket. Replaces the v0
     /// `ViewerCountChanged` event: instead of a bare count, ships
     /// the deduplicated viewer set so the frontend can render
@@ -169,15 +114,6 @@ pub enum SseEvent {
         updated_by: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    UserCreated {
-        user_uuid: String,
-        user: serde_json::Value,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    UserDeleted {
-        user_uuid: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     Heartbeat {
         timestamp: chrono::DateTime<chrono::Utc>,
     },
@@ -200,25 +136,13 @@ fn event_type_str(event: &SseEvent) -> &'static str {
         SseEvent::TicketUpdated { .. } => "ticket-updated",
         SseEvent::TicketCreated { .. } => "ticket-created",
         SseEvent::TicketDeleted { .. } => "ticket-deleted",
-        SseEvent::TicketMerged { .. } => "ticket-merged",
-        SseEvent::CommentAdded { .. } => "comment-added",
-        SseEvent::CommentDeleted { .. } => "comment-deleted",
-        SseEvent::AssetLinked { .. } => "asset-linked",
-        SseEvent::AssetUnlinked { .. } => "asset-unlinked",
-        SseEvent::AssetCreated { .. } => "asset-created",
         SseEvent::AssetUpdated { .. } => "asset-updated",
         SseEvent::AssetDeleted { .. } => "asset-deleted",
         SseEvent::AssetUsageRecorded { .. } => "asset-usage-recorded",
         SseEvent::AssetAuditRecorded { .. } => "asset-audit-recorded",
-        SseEvent::ProjectAssigned { .. } => "project-assigned",
-        SseEvent::ProjectUnassigned { .. } => "project-unassigned",
-        SseEvent::TicketLinked { .. } => "ticket-linked",
-        SseEvent::TicketUnlinked { .. } => "ticket-unlinked",
         SseEvent::ViewersChanged { .. } => "viewers-changed",
         SseEvent::TicketFieldPreviewed { .. } => "ticket-field-previewed",
         SseEvent::UserUpdated { .. } => "user-updated",
-        SseEvent::UserCreated { .. } => "user-created",
-        SseEvent::UserDeleted { .. } => "user-deleted",
         SseEvent::Heartbeat { .. } => "heartbeat",
         SseEvent::SyncActions { .. } => "sync-actions",
     }

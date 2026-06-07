@@ -5,7 +5,6 @@
 
 import type { TicketPriority } from '@/constants/ticketOptions'
 import type { UserInfo } from './user'
-import type { Attachment } from './comment'
 
 /**
  * Base wrapper for SSE events that may have nested data
@@ -40,59 +39,12 @@ export interface TicketUpdatedEventData {
 }
 
 /**
- * Comment data from SSE events
- */
-export interface SSECommentData {
-  id: number
-  content: string
-  user_uuid?: string
-  user_id?: string
-  createdAt?: string
-  created_at?: string
-  ticket_id: number
-  attachments?: Attachment[]
-  user?: UserInfo
-}
-
-/**
- * comment-added event data
- */
-export interface CommentAddedEventData {
-  ticket_id: number
-  comment: SSECommentData
-}
-
-/**
- * comment-deleted event data
- */
-export interface CommentDeletedEventData {
-  ticket_id: number
-  comment_id: number
-}
-
-/**
- * device-linked / device-unlinked event data
- */
-export interface DeviceLinkEventData {
-  ticket_id: number
-  device_id: number
-}
-
-/**
  * device-updated event data
  */
 export interface DeviceUpdatedEventData {
   device_id: number
   field: string
   value: unknown
-}
-
-/**
- * device-created event data
- */
-export interface DeviceCreatedEventData {
-  device_id: number
-  device: Record<string, unknown>
 }
 
 /**
@@ -103,38 +55,10 @@ export interface DeviceDeletedEventData {
 }
 
 /**
- * ticket-linked / ticket-unlinked event data
- */
-export interface TicketLinkEventData {
-  ticket_id: number
-  linked_ticket_id: number
-}
-
-/**
  * ticket-deleted event data
  */
 export interface TicketDeletedEventData {
   ticket_id: number
-}
-
-/**
- * ticket-merged event data. Broadcast when a merge commits so open
- * viewers react: source viewers show the merged-into banner, the
- * destination refetches.
- */
-export interface TicketMergedEventData {
-  target_ticket_id: number
-  source_ticket_ids: number[]
-  actor_uuid: string
-  merge_event_id: number
-}
-
-/**
- * project-assigned / project-unassigned event data
- */
-export interface ProjectEventData {
-  ticket_id: number
-  project_id: number
 }
 
 /**
@@ -212,14 +136,8 @@ export interface NotificationReceivedEventData {
 export type SSEEventData =
   | TicketUpdatedEventData
   | TicketDeletedEventData
-  | CommentAddedEventData
-  | CommentDeletedEventData
-  | DeviceLinkEventData
   | DeviceUpdatedEventData
-  | DeviceCreatedEventData
   | DeviceDeletedEventData
-  | TicketLinkEventData
-  | ProjectEventData
   | ViewersChangedEventData
   | TicketFieldPreviewedEventData
   | NotificationReceivedEventData

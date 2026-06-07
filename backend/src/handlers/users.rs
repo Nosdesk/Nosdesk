@@ -565,7 +565,6 @@ pub struct CreateUserRequest {
 
 pub async fn create_user(
     db_pool: web::Data<crate::db::Pool>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
     user_data: web::Json<CreateUserRequest>,
     req: HttpRequest,
@@ -798,7 +797,6 @@ pub async fn create_user(
                     } else {
                         info!(user_name = %user.name, "New user created (password set)");
                     }
-                    let user_uuid_str = user.uuid.to_string();
                     let response = repository::user_helpers::get_user_with_primary_email(
                         user.clone(),
                         &mut conn,
@@ -806,16 +804,9 @@ pub async fn create_user(
 
                     // Search index update is fired by the
                     // UserCreatedObserver inside create_user_with_email
-                    // above, so no manual spawn is needed here.
-
-                    // Broadcast user creation via SSE
-                    sse_state
-                        .broadcast_event(crate::handlers::sse::SseEvent::UserCreated {
-                            user_uuid: user_uuid_str.clone(),
-                            user: serde_json::to_value(&response).unwrap_or_default(),
-                            timestamp: chrono::Utc::now(),
-                        })
-                        .await;
+                    // above. The new user reaches clients through the
+                    // sync pool (the repository write emits
+                    // `user.created`), so no discrete SSE broadcast.
 
                     // Add invitation_sent flag to response
                     if let serde_json::Value::Object(mut map) =

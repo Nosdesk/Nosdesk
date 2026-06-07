@@ -181,27 +181,33 @@ async fn merge_happy_path_returns_200() {
     assert_eq!(body["merged_sources"].as_array().unwrap().len(), 1);
     assert_eq!(body["merged_sources"][0]["id"], src.id);
 
-    // The merge broadcasts a TicketMerged event to connected clients.
-    let mut saw_merged = false;
+    // The discrete TicketMerged SSE event was retired: the merge now
+    // reaches open viewers through the sync pool (each source's
+    // `ticket.merged_into` emit + the destination's marker comment).
+    // The source's workflow_state change still rides the discrete
+    // TicketUpdated SSE for surfaces not yet pool-native, so assert on
+    // that as the observable broadcast.
+    let mut saw_source_update = false;
     for _ in 0..5 {
         match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
             Ok(Ok(env)) => {
-                if let SseEvent::TicketMerged {
-                    target_ticket_id,
-                    source_ticket_ids,
-                    ..
+                if let SseEvent::TicketUpdated {
+                    ticket_id, field, ..
                 } = env.event
                 {
-                    assert_eq!(target_ticket_id, dest.id);
-                    assert_eq!(source_ticket_ids, vec![src.id]);
-                    saw_merged = true;
-                    break;
+                    if ticket_id == src.id && field == "workflow_state_id" {
+                        saw_source_update = true;
+                        break;
+                    }
                 }
             }
             _ => break,
         }
     }
-    assert!(saw_merged, "expected a TicketMerged SSE event");
+    assert!(
+        saw_source_update,
+        "expected a TicketUpdated SSE event for the merged source"
+    );
 }
 
 #[actix_web::test]

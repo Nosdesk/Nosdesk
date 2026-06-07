@@ -5,7 +5,6 @@ use tracing::debug;
 
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::handlers::sse::{SseEvent, SseState};
 use crate::models::{NewProject, ProjectUpdate, WorkspaceRole};
 use crate::repository;
 use crate::services::search::SearchService;
@@ -18,14 +17,6 @@ pub struct GetProjectQuery {
     /// Currently only `tickets` is recognised, more can join as
     /// they're identified. Omit for the legacy lean response.
     pub embed: Option<String>,
-}
-
-/// Extract the SSE client ID from the request header (for echo suppression).
-fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
-    req.headers()
-        .get("X-SSE-Client-Id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
 }
 
 // Get all projects with ticket counts
@@ -170,40 +161,22 @@ pub async fn get_project_dependencies(mut tc: TenantConn, path: web::Path<i32>) 
     }
 }
 
-// Add a ticket to a project (technician or admin only)
+// Add a ticket to a project (technician or admin only). The repository
+// write emits `project_ticket.added`; clients pick the membership up
+// through the sync pool, so no discrete SSE broadcast.
 pub async fn add_ticket_to_project(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-    sse_state: web::Data<SseState>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
-    let source_client_id = extract_sse_client_id(&req);
     let (project_id, ticket_id) = path.into_inner();
 
     match tc.run(|conn| repository::add_ticket_to_project(conn, project_id, ticket_id)) {
-        Ok(association) => {
-            debug!(
-                ticket_id = ticket_id,
-                project_id = project_id,
-                "Broadcasting SSE event: Ticket assigned to project"
-            );
-            sse_state
-                .broadcast_event_from(
-                    SseEvent::ProjectAssigned {
-                        ticket_id,
-                        project_id,
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id,
-                )
-                .await;
-
-            HttpResponse::Created().json(association)
-        }
+        Ok(association) => HttpResponse::Created().json(association),
         Err(_) => errors::internal("Failed to add ticket to project"),
     }
 }
@@ -256,41 +229,23 @@ pub async fn create_ticket_in_project(
     }
 }
 
-// Remove a ticket from a project (technician or admin only)
+// Remove a ticket from a project (technician or admin only). The
+// repository write emits `project_ticket.removed`; the pool delivers
+// the removal, so no discrete SSE broadcast.
 pub async fn remove_ticket_from_project(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-    sse_state: web::Data<SseState>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
     }
 
-    let source_client_id = extract_sse_client_id(&req);
     let (project_id, ticket_id) = path.into_inner();
 
     match tc.run(|conn| repository::remove_ticket_from_project(conn, project_id, ticket_id)) {
         Ok(0) => errors::not_found_msg("Association not found"),
-        Ok(_) => {
-            debug!(
-                ticket_id = ticket_id,
-                project_id = project_id,
-                "Broadcasting SSE event: Ticket unassigned from project"
-            );
-            sse_state
-                .broadcast_event_from(
-                    SseEvent::ProjectUnassigned {
-                        ticket_id,
-                        project_id,
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id,
-                )
-                .await;
-
-            HttpResponse::NoContent().finish()
-        }
+        Ok(_) => HttpResponse::NoContent().finish(),
         Err(_) => errors::internal("Failed to remove ticket from project"),
     }
 }

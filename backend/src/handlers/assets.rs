@@ -597,11 +597,9 @@ pub async fn get_user_devices(
 
 /// Create a new device (technician or admin only)
 pub async fn create_device(
-    req: HttpRequest,
     mut tc: TenantConn,
     auth: AuthContext,
     device: web::Json<NewAsset>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if !auth.can_handle_tickets() {
@@ -639,24 +637,11 @@ pub async fn create_device(
 
     match result {
         Ok((device, device_response)) => {
-            let device_id = device.id;
-
             // Index the new device in search
             indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
 
-            // Broadcast SSE event for device creation (with echo suppression)
-            let source_client_id = extract_sse_client_id(&req);
-            sse_state
-                .broadcast_event_from(
-                    crate::handlers::sse::SseEvent::AssetCreated {
-                        device_id,
-                        device: serde_json::to_value(&device_response).unwrap_or_default(),
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id,
-                )
-                .await;
-
+            // The new asset reaches clients through the sync pool (the
+            // repository write emits `asset.created`); no discrete SSE.
             HttpResponse::Created().json(device_response)
         }
         Err(e) => {

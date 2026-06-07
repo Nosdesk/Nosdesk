@@ -446,17 +446,14 @@ pub async fn process_event(
 
     // Side effects (optional).
     if let Some(sse) = &ctx.sse {
+        // New tickets still announce via the discrete SSE (TicketCreated
+        // is consumed by surfaces not yet pool-native). Comments on an
+        // existing ticket reach clients through the sync pool (the
+        // repository write emits `comment.created`).
         if is_new_ticket {
             sse.broadcast_event(SseEvent::TicketCreated {
                 ticket_id: ticket.id,
                 ticket: serde_json::to_value(&ticket).unwrap_or_default(),
-                timestamp: chrono::Utc::now(),
-            })
-            .await;
-        } else {
-            sse.broadcast_event(SseEvent::CommentAdded {
-                ticket_id: ticket.id,
-                comment: serde_json::to_value(&comment).unwrap_or_default(),
                 timestamp: chrono::Utc::now(),
             })
             .await;
