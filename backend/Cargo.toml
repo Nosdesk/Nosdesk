@@ -184,6 +184,7 @@ metrics = "0.24"
 # across the Fluent ecosystem.
 fluent-bundle = "0.16"
 unic-langid = "0.9"
+resend-rs = "0.25.1"
 
 # For testing only
 [dev-dependencies]

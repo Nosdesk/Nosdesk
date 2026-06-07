@@ -181,7 +181,11 @@ pub fn claim_batch(
 
 // sync-audit-only: worker terminal state transition on the outbound queue
 /// Mark a successful send. Terminal state.
-pub fn mark_sent(conn: &mut DbConnection, id: i64) -> Result<usize, DieselError> {
+pub fn mark_sent(
+    conn: &mut DbConnection,
+    id: i64,
+    provider_message_id: Option<&str>,
+) -> Result<usize, DieselError> {
     diesel::sql_query(
         r#"
         UPDATE outbound_emails
@@ -190,11 +194,13 @@ pub fn mark_sent(conn: &mut DbConnection, id: i64) -> Result<usize, DieselError>
             lease_token = NULL,
             lease_expires_at = NULL,
             last_error = NULL,
-            last_smtp_code = NULL
+            last_smtp_code = NULL,
+            provider_message_id = COALESCE($2, provider_message_id)
         WHERE id = $1
         "#,
     )
     .bind::<BigInt, _>(id)
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(provider_message_id)
     .execute(conn)
 }
 
@@ -602,7 +608,7 @@ mod tests {
         let ch = seed_channel(&mut conn);
         let r = enqueue(&mut conn, fresh_row(ch, "sent")).unwrap();
         let _ = claim_batch(&mut conn, 5, 300).unwrap();
-        mark_sent(&mut conn, r.id).expect("mark_sent");
+        mark_sent(&mut conn, r.id, None).expect("mark_sent");
         let fetched = get(&mut conn, r.id).unwrap();
         assert_eq!(fetched.status, outbound_email_status::SENT);
         assert!(fetched.sent_at.is_some());
@@ -699,7 +705,7 @@ mod tests {
         let _ = enqueue(&mut conn, fresh_row(ch, "p2")).unwrap();
         let r3 = enqueue(&mut conn, fresh_row(ch, "p3")).unwrap();
         let _ = claim_batch(&mut conn, 5, 300).unwrap();
-        mark_sent(&mut conn, r3.id).unwrap();
+        mark_sent(&mut conn, r3.id, None).unwrap();
 
         let page = list(
             &mut conn,

@@ -161,13 +161,15 @@ async fn dispatch(
         auto_submitted,
     };
 
-    match email.send_ticket_reply(message).await {
-        Ok(()) => {
+    match email.send_outbound(&message).await {
+        Ok(outcome) => {
             breaker.record_success().await;
-            DispatchOutcome::Sent
+            DispatchOutcome::Sent {
+                provider_message_id: outcome.provider_message_id,
+            }
         }
         Err(err) => {
-            // EmailService::send_ticket_reply returns a String today.
+            // EmailService::send_outbound returns a String today.
             // We can't recover an SMTP code from it without surgery on
             // lettre's error type; do a coarse classification by
             // looking for a numeric code at the start of the message
@@ -183,7 +185,7 @@ async fn dispatch(
 
 #[derive(Debug)]
 enum DispatchOutcome {
-    Sent,
+    Sent { provider_message_id: Option<String> },
     Failed { error: String, code: Option<u16> },
     CircuitSkip,
 }
@@ -195,14 +197,18 @@ fn terminate_row(
     stats: &mut WorkerStats,
 ) {
     match outcome {
-        DispatchOutcome::Sent => {
+        DispatchOutcome::Sent {
+            provider_message_id,
+        } => {
             // Two writes on success:
-            //   1. Flip the queue row to `sent` (terminal).
+            //   1. Flip the queue row to `sent` (terminal), persisting the
+            //      provider message id (Resend `email_id`; None for SMTP)
+            //      so the delivery/bounce webhook can correlate back.
             //   2. Record an outbound `channel_messages` row so later
             //      inbound replies thread back via the existing
             //      external_id lookup. The Message-ID we stamped at
             //      enqueue is the external_id consumers will see.
-            if let Err(e) = repo::mark_sent(conn, row.id) {
+            if let Err(e) = repo::mark_sent(conn, row.id, provider_message_id.as_deref()) {
                 warn!(error = %e, queue_id = row.id, "mark_sent failed");
                 return;
             }

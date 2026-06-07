@@ -659,75 +659,112 @@ impl EmailService {
         Self { config, transport }
     }
 
-    /// Create email service from environment variables
+    /// Create email service from environment variables, selecting the
+    /// transport. SMTP is the default and the self-host standard; Resend
+    /// is used when `EMAIL_PROVIDER=resend` (or, as a convenience, when
+    /// `RESEND_API_KEY` is set and no provider is named).
     pub fn from_env() -> Result<Self, String> {
+        let provider = env::var("EMAIL_PROVIDER")
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase();
+        let use_resend =
+            provider == "resend" || (provider.is_empty() && env::var("RESEND_API_KEY").is_ok());
+
+        if use_resend {
+            let api_key = env::var("RESEND_API_KEY")
+                .map_err(|_| "RESEND_API_KEY is required when EMAIL_PROVIDER=resend".to_string())?;
+            let from_name = env::var("SMTP_FROM_NAME")
+                .or_else(|_| env::var("RESEND_FROM_NAME"))
+                .unwrap_or_else(|_| "Nosdesk".to_string());
+            let from_email = env::var("RESEND_FROM_EMAIL")
+                .or_else(|_| env::var("SMTP_FROM_EMAIL"))
+                .map_err(|_| {
+                    "RESEND_FROM_EMAIL or SMTP_FROM_EMAIL is required for Resend".to_string()
+                })?;
+            // The config carries the shared sender + enabled flag; the
+            // SMTP-specific fields stay empty under the Resend transport.
+            let config = EmailConfig {
+                smtp_host: String::new(),
+                smtp_port: 0,
+                smtp_username: String::new(),
+                smtp_password: String::new(),
+                from_name: from_name.clone(),
+                from_email: from_email.clone(),
+                enabled: true,
+                security: SmtpSecurity::Tls,
+            };
+            let transport: Arc<dyn EmailTransport> =
+                Arc::new(crate::utils::email_resend::ResendEmailTransport::new(
+                    api_key, from_name, from_email,
+                ));
+            return Ok(Self { config, transport });
+        }
+
         let config = EmailConfig::from_env()?;
         Ok(Self::new(config))
     }
 
-    /// Build SMTP transport from configuration. Used by the legacy
-    /// direct-send methods; the queue path goes through `self.transport`.
-    fn build_transport(&self) -> Result<SmtpTransport, String> {
-        build_smtp_mailer(&self.config)
+    /// True when the active transport can send (SMTP credentials present,
+    /// or a Resend API key configured). Provider-aware, unlike the raw
+    /// SMTP-centric `EmailConfig::is_configured`.
+    pub fn is_configured(&self) -> bool {
+        self.transport.is_configured()
     }
 
-    /// Send a simple text email
+    /// Generate a unique RFC Message-ID for a direct (non-queued) send.
+    /// Queue rows carry their own stable id; direct sends (test email,
+    /// guest confirmation) mint one here so the header is always present.
+    fn generate_message_id(&self) -> String {
+        let domain = self
+            .config
+            .from_email
+            .rsplit('@')
+            .next()
+            .filter(|d| !d.is_empty())
+            .unwrap_or("nosdesk.local");
+        format!("{}@{}", uuid::Uuid::now_v7(), domain)
+    }
+
+    /// Send a simple text email through the configured transport (SMTP or
+    /// Resend), so direct sends are provider-agnostic like the queue path.
     pub async fn send_text_email(&self, to: &str, subject: &str, body: &str) -> Result<(), String> {
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
-
-        let to_mailbox: Mailbox = to
-            .parse()
-            .map_err(|e| format!("Invalid recipient email: {e}"))?;
-
-        let email = Message::builder()
-            .from(self.config.from_mailbox()?)
-            .to(to_mailbox)
-            .subject(subject)
-            .header(ContentType::TEXT_PLAIN)
-            .body(body.to_string())
-            .map_err(|e| format!("Failed to build email: {e}"))?;
-
-        let mailer = self.build_transport()?;
-
-        mailer
-            .send(&email)
-            .map_err(|e| format!("Failed to send email: {e}"))?;
-
-        Ok(())
+        let message_id = self.generate_message_id();
+        let outbound = OutboundEmailMessage {
+            to,
+            subject,
+            body_text: body,
+            body_html: None,
+            message_id: &message_id,
+            in_reply_to: None,
+            references: &[],
+            auto_submitted: false,
+        };
+        self.send_outbound(&outbound).await.map(|_| ())
     }
 
-    /// Send an HTML email
+    /// Send an HTML email through the configured transport. A plaintext
+    /// alternative is derived from the HTML so the message is a proper
+    /// multipart/alternative rather than HTML-only.
     pub async fn send_html_email(
         &self,
         to: &str,
         subject: &str,
         html_body: &str,
     ) -> Result<(), String> {
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
-
-        let to_mailbox: Mailbox = to
-            .parse()
-            .map_err(|e| format!("Invalid recipient email: {e}"))?;
-
-        let email = Message::builder()
-            .from(self.config.from_mailbox()?)
-            .to(to_mailbox)
-            .subject(subject)
-            .header(ContentType::TEXT_HTML)
-            .body(html_body.to_string())
-            .map_err(|e| format!("Failed to build email: {e}"))?;
-
-        let mailer = self.build_transport()?;
-
-        mailer
-            .send(&email)
-            .map_err(|e| format!("Failed to send email: {e}"))?;
-
-        Ok(())
+        let text = crate::utils::content::html_to_plaintext(html_body);
+        let message_id = self.generate_message_id();
+        let outbound = OutboundEmailMessage {
+            to,
+            subject,
+            body_text: &text,
+            body_html: Some(html_body),
+            message_id: &message_id,
+            in_reply_to: None,
+            references: &[],
+            auto_submitted: false,
+        };
+        self.send_outbound(&outbound).await.map(|_| ())
     }
 
     /// Send a test email to verify configuration
@@ -845,43 +882,6 @@ impl EmailService {
         );
 
         (subject, html_body, body_text)
-    }
-
-    /// Send a password reset email with branding
-    pub async fn send_password_reset_email(
-        &self,
-        to: &str,
-        user_name: &str,
-        reset_token: &str,
-        branding: &EmailBranding,
-        locale: &unic_langid::LanguageIdentifier,
-    ) -> Result<(), String> {
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
-
-        let (subject, html_body, _text_body) =
-            self.compose_password_reset(user_name, reset_token, branding, locale);
-        self.send_html_email(to, &subject, &html_body).await
-    }
-
-    /// Send a user invitation email with branding
-    pub async fn send_invitation_email(
-        &self,
-        to: &str,
-        user_name: &str,
-        invitation_token: &str,
-        branding: &EmailBranding,
-        invited_by: &str,
-        locale: &unic_langid::LanguageIdentifier,
-    ) -> Result<(), String> {
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
-
-        let (subject, html_body, _text_body) =
-            self.compose_invitation(user_name, invitation_token, branding, invited_by, locale);
-        self.send_html_email(to, &subject, &html_body).await
     }
 
     /// Render the invitation email without sending. See
@@ -1066,7 +1066,18 @@ impl EmailService {
         &self,
         outbound: OutboundEmailMessage<'_>,
     ) -> Result<(), String> {
-        self.transport.send(&outbound).await.map(|_| ())
+        self.send_outbound(&outbound).await.map(|_| ())
+    }
+
+    /// Send and return the transport outcome (the provider message id for
+    /// Resend, `None` for SMTP). The queue worker uses this to persist the
+    /// provider id for webhook correlation; `send_ticket_reply` is the
+    /// thin wrapper for callers that don't need the id (auto-ack, IMAP).
+    pub async fn send_outbound(
+        &self,
+        outbound: &OutboundEmailMessage<'_>,
+    ) -> Result<SendOutcome, String> {
+        self.transport.send(outbound).await
     }
 
     /// Test-only: lets unit tests inspect the serialized form (headers,
@@ -1078,29 +1089,6 @@ impl EmailService {
         outbound: &OutboundEmailMessage<'_>,
     ) -> Result<Message, String> {
         build_outbound_message(&self.config, outbound)
-    }
-
-    /// Send a notification email using the branded `EmailTemplate` shell.
-    /// Used by the in-app notification delivery channel so notification
-    /// emails carry the workspace logo and primary color rather than the
-    /// hardcoded blue/white from the legacy inline template.
-    pub async fn send_notification_email(
-        &self,
-        to: &str,
-        subject: &str,
-        title: &str,
-        body: &str,
-        actor_name: &str,
-        cta_url: &str,
-        branding: &EmailBranding,
-        locale: &unic_langid::LanguageIdentifier,
-    ) -> Result<(), String> {
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
-        let (html_body, _text_body) =
-            self.compose_notification(title, body, actor_name, cta_url, branding, locale);
-        self.send_html_email(to, subject, &html_body).await
     }
 
     /// Render the notification email without sending. Returns

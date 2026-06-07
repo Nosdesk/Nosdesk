@@ -7,6 +7,7 @@ pub mod cors_allowlist;
 pub mod csrf;
 pub mod email;
 pub mod email_branding;
+pub mod email_resend;
 pub mod encryption;
 pub mod error_response;
 pub mod file_validation;
