@@ -1409,6 +1409,12 @@ async fn main() -> std::io::Result<()> {
             // Main event stream for all real-time updates (tickets, documentation, devices, etc.)
             .route("/api/events/stream", web::get().to(handlers::sse::sse_events_stream))
             .route("/api/events/status", web::get().to(handlers::sse::sse_status))
+            // Resend delivery webhook (public; authenticated by Svix
+            // signature against RESEND_WEBHOOK_SECRET, not session auth).
+            .route(
+                "/api/webhooks/resend",
+                web::post().to(handlers::resend_webhook::resend_webhook),
+            )
 
             // Authentication routes (public by design)
             .service(

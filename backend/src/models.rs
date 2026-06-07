@@ -6803,6 +6803,9 @@ pub struct NewEmailSuppression {
 pub mod email_suppression_reason {
     pub const HARD_BOUNCE: &str = "hard_bounce";
     pub const MANUAL: &str = "manual";
+    /// Recipient marked a message as spam (Resend `email.complained`).
+    /// Continuing to send to a complainer wrecks sender reputation.
+    pub const COMPLAINT: &str = "complaint";
 }
 
 // =====================================================================
