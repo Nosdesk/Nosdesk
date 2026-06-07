@@ -124,7 +124,7 @@ const anchorDescriptor = computed(() => ({
     placement="bottom-end"
     role="dialog"
     :aria-label="t('sla-explain-aria')"
-    popover-class="w-80 rounded-lg border border-default bg-surface shadow-lg p-3 text-xs flex flex-col gap-3"
+    popover-class="w-[calc(100vw-1rem)] sm:w-80 rounded-lg border border-default bg-surface shadow-lg p-3 text-xs flex flex-col gap-3"
     :offset="6"
     @close="emit('close')"
   >

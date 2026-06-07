@@ -493,11 +493,14 @@ function affectedDevicesTooltip(card: CardData): string {
 <template>
   <div class="flex h-full">
     <!-- Lanes -->
-    <div class="kanban-board flex gap-4 p-4 h-full overflow-x-auto" @click="clearSelection">
+    <!-- max-md scroll-snap so lanes swipe one-at-a-time on phones; snap
+         is gated to mobile so it can't fight pointer drag-and-drop on
+         desktop. scroll-px-4 keeps the snapped lane clear of the p-4 edge. -->
+    <div class="kanban-board flex gap-4 p-4 h-full overflow-x-auto max-md:snap-x max-md:snap-mandatory max-md:scroll-px-4" @click="clearSelection">
       <div
         v-for="lane in lanes"
         :key="lane.id"
-        class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-lg border border-default h-full min-h-[300px] overflow-y-auto overflow-x-hidden"
+        class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-lg border border-default h-full min-h-[300px] overflow-y-auto overflow-x-hidden max-md:snap-start"
         @click.stop
       >
         <!-- Column header, built as stacked sections so it collapses on

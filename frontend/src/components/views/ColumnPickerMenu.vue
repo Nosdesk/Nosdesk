@@ -70,7 +70,7 @@ const hiddenCount = computed<number>(
       :offset="4"
       role="menu"
       :auto-focus="false"
-      popover-class="bg-surface border border-default rounded-lg shadow-xl overflow-hidden min-w-[14rem] max-w-[20rem]"
+      popover-class="bg-surface border border-default rounded-lg shadow-xl overflow-hidden min-w-[14rem] max-w-[calc(100vw-1rem)] sm:max-w-[20rem]"
       @close="open = false"
     >
       <div class="py-1 max-h-[20rem] overflow-y-auto">

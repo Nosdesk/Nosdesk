@@ -215,7 +215,7 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
       :offset="4"
       role="menu"
       :auto-focus="false"
-      popover-class="bg-surface border border-default rounded-lg shadow-xl overflow-hidden min-w-[15rem] max-w-[22rem]"
+      popover-class="bg-surface border border-default rounded-lg shadow-xl overflow-hidden min-w-[15rem] max-w-[calc(100vw-1rem)] sm:max-w-[22rem]"
       @close="onClose"
     >
       <!-- Stage container — the relative + overflow-hidden wrap

@@ -206,8 +206,9 @@ const selectProject = (project: Project) => {
         class="max-h-[500px] overflow-y-auto"
       >
         <div class="bg-surface-alt rounded-lg border border-default overflow-hidden">
-          <!-- Table header -->
-          <div class="bg-surface-alt px-4 py-3 border-b border-default sticky top-0 z-10">
+          <!-- Table header. Hidden below md: rows render as stacked
+               cards there, so a column header would be meaningless. -->
+          <div class="hidden md:block bg-surface-alt px-4 py-3 border-b border-default sticky top-0 z-10">
             <div class="grid grid-cols-12 gap-3 text-xs font-medium text-secondary uppercase tracking-wide">
               <div class="col-span-4">{{ t('project-modal-col-name') }}</div>
               <div class="col-span-4">{{ t('project-modal-col-description') }}</div>
@@ -234,7 +235,9 @@ const selectProject = (project: Project) => {
               </div>
 
               <div class="px-4 py-3">
-                <div class="grid grid-cols-12 gap-3 items-center">
+                <!-- Stacked card below md (scan/tap one record at a time);
+                     the 12-col table layout returns at md+. -->
+                <div class="flex flex-col gap-1.5 md:grid md:grid-cols-12 md:gap-3 md:items-center">
                   <!-- Project Name -->
                   <div class="col-span-4 min-w-0">
                     <div class="flex flex-col gap-1">
@@ -264,9 +267,13 @@ const selectProject = (project: Project) => {
                     </span>
                   </div>
 
-                  <!-- Ticket Count -->
+                  <!-- Ticket Count. The bare number needs a label on
+                       mobile where the column header is hidden. -->
                   <div class="col-span-1 min-w-0">
                     <span class="text-sm text-secondary font-mono">{{ project.ticket_count }}</span>
+                    <span class="md:hidden text-xs text-tertiary">
+                      {{ ' ' }}{{ t('project-modal-col-tickets').toLowerCase() }}
+                    </span>
                   </div>
 
                   <!-- Action Button -->

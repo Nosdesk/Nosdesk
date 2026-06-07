@@ -194,6 +194,21 @@ function cardsFor(cell: DayCell): CardData[] {
   return cardsByDay.value.get(isoDay(cell.date)) ?? []
 }
 
+// ---------------------------------------------------------------
+// Mobile agenda. Below md the 7x6 month grid is unreadable, so the
+// dated cards render as a chronological list grouped by day (the
+// calendar-on-mobile convergence: agenda over grid). Reuses the
+// same day buckets as the grid; only days in the visible month that
+// actually carry cards appear.
+// ---------------------------------------------------------------
+const agendaDays = computed<DayCell[]>(() =>
+  grid.value.filter((c) => c.inMonth && cardsFor(c).length > 0),
+)
+
+function agendaDayLabel(d: Date): string {
+  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
 function open(cardId: number): void {
   props.onCardClick?.(cardId)
 }
@@ -254,8 +269,10 @@ watch(grid, (cells) => {
       </div>
     </header>
 
-    <!-- Grid + undated rail -->
-    <div class="flex-1 min-h-0 grid" style="grid-template-columns: 1fr 12rem">
+    <!-- md+: the month grid + 12rem undated rail. The 7x6 grid only
+         earns its space on a wide viewport, so it is hidden below md
+         in favour of the agenda list below. -->
+    <div class="flex-1 min-h-0 hidden md:grid" style="grid-template-columns: 1fr 12rem">
       <section class="min-h-0 flex flex-col">
         <!-- Weekday header -->
         <div class="grid grid-cols-7 text-[10px] uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle">
@@ -356,6 +373,62 @@ watch(grid, (cells) => {
           >Every ticket has a date.</p>
         </div>
       </aside>
+    </div>
+
+    <!-- Below md: agenda list. Dated cards grouped by day (sticky day
+         headers), undated bucket last. Reuses the same day buckets as
+         the grid; the whole region scrolls vertically. -->
+    <div class="flex-1 min-h-0 md:hidden overflow-y-auto flex flex-col">
+      <section v-for="day in agendaDays" :key="day.date.toISOString()" class="flex flex-col">
+        <h3
+          class="sticky top-0 z-10 bg-app px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide border-b border-subtle"
+          :class="day.isToday ? 'text-accent' : 'text-tertiary'"
+        >{{ agendaDayLabel(day.date) }}</h3>
+        <div class="flex flex-col gap-1.5 px-3 py-2">
+          <article
+            v-for="card in cardsFor(day)"
+            :key="card.id"
+            class="bg-surface rounded border border-default hover:border-strong p-2 cursor-pointer text-sm flex items-center gap-2"
+            @click="open(card.id)"
+          >
+            <PriorityIndicator
+              v-if="priorityForBadge(card.priority)"
+              :priority="priorityForBadge(card.priority)!"
+              size="xs"
+            />
+            <span class="text-primary truncate flex-1">{{ card.title }}</span>
+            <span class="text-[10px] text-tertiary tabular-nums shrink-0">#{{ card.id }}</span>
+          </article>
+        </div>
+      </section>
+
+      <!-- Undated bucket -->
+      <section v-if="undatedCards.length > 0" class="flex flex-col">
+        <h3 class="sticky top-0 z-10 bg-app px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-tertiary border-b border-subtle">
+          No date ({{ undatedCards.length }})
+        </h3>
+        <div class="flex flex-col gap-1.5 px-3 py-2">
+          <article
+            v-for="card in undatedCards"
+            :key="card.id"
+            class="bg-surface rounded border border-default hover:border-strong p-2 cursor-pointer text-sm flex items-center gap-2"
+            @click="open(card.id)"
+          >
+            <PriorityIndicator
+              v-if="priorityForBadge(card.priority)"
+              :priority="priorityForBadge(card.priority)!"
+              size="xs"
+            />
+            <span class="text-primary truncate flex-1">{{ card.title }}</span>
+            <span class="text-[10px] text-tertiary tabular-nums shrink-0">#{{ card.id }}</span>
+          </article>
+        </div>
+      </section>
+
+      <p
+        v-if="agendaDays.length === 0 && undatedCards.length === 0"
+        class="text-xs text-tertiary italic text-center mt-8 px-4"
+      >Nothing scheduled this month.</p>
     </div>
   </div>
 </template>

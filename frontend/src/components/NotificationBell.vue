@@ -241,7 +241,7 @@ onMounted(() => {
       :auto-focus="false"
       role="dialog"
       :aria-label="t('notifications-bell-aria-trigger')"
-      popover-class="flex w-[380px] max-h-[520px] flex-col overflow-hidden rounded-xl border border-default bg-surface shadow-xl"
+      popover-class="flex w-[calc(100vw-1rem)] sm:w-[380px] max-h-[520px] flex-col overflow-hidden rounded-xl border border-default bg-surface shadow-xl"
       @close="close"
     >
       <!-- Header. "Open inbox" is given primary placement
