@@ -45,12 +45,11 @@ pub fn list_all_webhooks(conn: &mut DbConnection) -> Result<Vec<Webhook>, diesel
 pub fn get_webhooks_for_event(
     conn: &mut DbConnection,
     event_type: &str,
-) -> Result<Vec<Webhook>, String> {
+) -> Result<Vec<Webhook>, diesel::result::Error> {
     webhooks::table
         .filter(webhooks::enabled.eq(true))
         .filter(webhooks::events.contains(vec![Some(event_type.to_string())]))
         .load::<Webhook>(conn)
-        .map_err(|e| format!("Database error: {e}"))
 }
 
 /// Create a new webhook
@@ -94,11 +93,13 @@ pub fn create_webhook(
 }
 
 /// Get a webhook by ID
-pub fn get_webhook_by_id(conn: &mut DbConnection, webhook_id: i32) -> Result<Webhook, String> {
+pub fn get_webhook_by_id(
+    conn: &mut DbConnection,
+    webhook_id: i32,
+) -> Result<Webhook, diesel::result::Error> {
     webhooks::table
         .filter(webhooks::id.eq(webhook_id))
         .first::<Webhook>(conn)
-        .map_err(|e| format!("Database error: {e}"))
 }
 
 /// Get a webhook by UUID
@@ -116,7 +117,7 @@ pub fn update_webhook(
     conn: &mut DbConnection,
     webhook_id: i32,
     update: WebhookUpdate,
-) -> Result<Webhook, String> {
+) -> Result<Webhook, diesel::result::Error> {
     conn.transaction(|conn| {
         let webhook: Webhook = diesel::update(webhooks::table.filter(webhooks::id.eq(webhook_id)))
             .set(&update)
@@ -135,7 +136,6 @@ pub fn update_webhook(
         )?;
         Ok(webhook)
     })
-    .map_err(|e: diesel::result::Error| format!("Database error: {e}"))
 }
 
 /// Update a webhook by UUID
@@ -206,11 +206,10 @@ pub fn delete_webhook_by_uuid(
 pub fn create_delivery(
     conn: &mut DbConnection,
     new_delivery: NewWebhookDelivery,
-) -> Result<WebhookDelivery, String> {
+) -> Result<WebhookDelivery, diesel::result::Error> {
     diesel::insert_into(webhook_deliveries::table)
         .values(&new_delivery)
         .get_result(conn)
-        .map_err(|e| format!("Database error: {e}"))
 }
 
 // sync-audit-only: delivery status transitions (pending -> success/failed, retry counts) are operational state on a high-volume table, not a tier-1 aggregate; covered by the webhook_deliveries audit trigger.
@@ -219,11 +218,10 @@ pub fn update_delivery(
     conn: &mut DbConnection,
     delivery_id: i32,
     update: WebhookDeliveryUpdate,
-) -> Result<WebhookDelivery, String> {
+) -> Result<WebhookDelivery, diesel::result::Error> {
     diesel::update(webhook_deliveries::table.filter(webhook_deliveries::id.eq(delivery_id)))
         .set(&update)
         .get_result(conn)
-        .map_err(|e| format!("Database error: {e}"))
 }
 
 /// Get deliveries for a specific webhook (paginated)
@@ -242,7 +240,9 @@ pub fn get_deliveries_for_webhook(
 }
 
 /// Get pending retries (deliveries with next_retry_at in the past and not yet delivered)
-pub fn get_pending_retries(conn: &mut DbConnection) -> Result<Vec<WebhookDelivery>, String> {
+pub fn get_pending_retries(
+    conn: &mut DbConnection,
+) -> Result<Vec<WebhookDelivery>, diesel::result::Error> {
     let now = Utc::now().naive_utc();
 
     webhook_deliveries::table
@@ -252,7 +252,6 @@ pub fn get_pending_retries(conn: &mut DbConnection) -> Result<Vec<WebhookDeliver
         .order(webhook_deliveries::next_retry_at.asc())
         .limit(100) // Process up to 100 retries at a time
         .load::<WebhookDelivery>(conn)
-        .map_err(|e| format!("Database error: {e}"))
 }
 
 // sync-audit-only: delivery log retention sweep

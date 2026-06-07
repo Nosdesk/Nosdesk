@@ -12,7 +12,7 @@ use crate::db::Pool;
 use crate::models::{NewWebhookDelivery, WebhookDeliveryUpdate, WebhookUpdate};
 use crate::repository::webhooks as webhook_repo;
 use crate::sync::actor::ActorContext;
-use crate::sync::session::with_actor_context_str;
+use crate::sync::session::with_actor_context;
 
 use super::signature::sign_payload;
 use super::types::WebhookPayload;
@@ -116,10 +116,11 @@ impl WebhookDeliveryWorker {
         // workspace pin the audit trigger requires. The worker runs
         // outside any request, so the actor is a workspace-scoped
         // system actor.
-        let webhook = webhook_repo::get_webhook_by_id(&mut conn, task.webhook_id)?;
+        let webhook = webhook_repo::get_webhook_by_id(&mut conn, task.webhook_id)
+            .map_err(|e| format!("DB error: {e}"))?;
         let actor = ActorContext::system("webhook_delivery").with_workspace(webhook.workspace_id);
 
-        let delivery = with_actor_context_str(&mut conn, &actor, |c| {
+        let delivery = with_actor_context(&mut conn, &actor, |c| {
             webhook_repo::create_delivery(
                 c,
                 NewWebhookDelivery {
@@ -134,7 +135,8 @@ impl WebhookDeliveryWorker {
                     attempt_number: task.attempt,
                 },
             )
-        })?;
+        })
+        .map_err(|e| format!("DB error: {e}"))?;
 
         // IP-literal guard. The resolver in the safe_http client
         // refuses to hand back internal IPs for hostnames, but
@@ -229,7 +231,7 @@ impl WebhookDeliveryWorker {
     ) -> Result<(), String> {
         // Both audited writes in one actor-scoped transaction so the
         // webhook_deliveries + webhooks audit rows carry the workspace.
-        with_actor_context_str(conn, actor, |c| {
+        with_actor_context(conn, actor, |c| {
             // Update delivery record
             webhook_repo::update_delivery(
                 c,
@@ -256,7 +258,8 @@ impl WebhookDeliveryWorker {
                 },
             )?;
             Ok(())
-        })?;
+        })
+        .map_err(|e: diesel::result::Error| format!("DB error: {e}"))?;
 
         tracing::debug!(
             webhook_id = task.webhook_id,
@@ -293,7 +296,7 @@ impl WebhookDeliveryWorker {
 
         // The delivery-record update and the failure-count bump are
         // both audited; run them in one actor-scoped transaction.
-        with_actor_context_str(conn, actor, |c| {
+        with_actor_context(conn, actor, |c| {
             // Update delivery record
             webhook_repo::update_delivery(
                 c,
@@ -332,7 +335,8 @@ impl WebhookDeliveryWorker {
 
             webhook_repo::update_webhook(c, task.webhook_id, update)?;
             Ok(())
-        })?;
+        })
+        .map_err(|e: diesel::result::Error| format!("DB error: {e}"))?;
 
         tracing::warn!(
             webhook_id = task.webhook_id,

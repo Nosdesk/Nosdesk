@@ -141,10 +141,7 @@ impl WebhookService {
                         };
                         let event_type_str = webhook_type.as_str();
                         if !subscriber_cache.contains_key(event_type_str) {
-                            let subs = webhook_repo::get_webhooks_for_event(conn, event_type_str)
-                                .map_err(|e| {
-                                diesel::result::Error::QueryBuilderError(e.into())
-                            })?;
+                            let subs = webhook_repo::get_webhooks_for_event(conn, event_type_str)?;
                             subscriber_cache.insert(event_type_str, subs);
                         }
                         let subscribers = &subscriber_cache[event_type_str];
@@ -222,8 +219,7 @@ impl WebhookService {
             pool,
             "background:webhook_process_retries",
             |conn| {
-                let pending = webhook_repo::get_pending_retries(conn)
-                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.into()))?;
+                let pending = webhook_repo::get_pending_retries(conn)?;
                 let mut out = Vec::with_capacity(pending.len());
                 for delivery in pending {
                     match webhook_repo::get_webhook_by_id(conn, delivery.webhook_id) {
@@ -285,10 +281,7 @@ impl WebhookService {
         let webhook = crate::sync::session::background_run(
             &self.pool,
             "background:webhook_test_event_lookup",
-            |conn| {
-                webhook_repo::get_webhook_by_id(conn, webhook_id)
-                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.into()))
-            },
+            |conn| webhook_repo::get_webhook_by_id(conn, webhook_id),
         )
         .map_err(|e| format!("DB error: {e}"))?;
 
