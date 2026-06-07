@@ -324,7 +324,9 @@ const updateUserRole = async (newRole: UserRole) => {
     }
   } catch (error) {
     console.error('Failed to update user role:', error);
-    handleError(`Failed to update user role. Please try again.`);
+    // Surface the server's reason (e.g. "role does not exist", "user has
+    // active tickets") so the operator can act, not retry the same action.
+    handleError(extractErrorMessage(error, 'Failed to update user role. Please try again.'));
   } finally {
     updatingRole.value = false;
   }
