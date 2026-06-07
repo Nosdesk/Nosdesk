@@ -156,13 +156,12 @@ fn stream_bootstrap_inner(
     // `can_view_ticket` — the same gate the SSE ticket topic uses.
     // Runs inside the actor/workspace context so the visibility query
     // sees the right RLS scope.
-    let vis = crate::repository::ticket_visibility::VisibilityContext::new(
-        user.uuid,
-        crate::models::PlatformRole::from_db(&user.platform_role),
-        crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid),
-    );
+    // Per-viewer visibility identity, resolved once and reused for ticket
+    // admission, the documentation filter, and the ticket-set scoping
+    // below (restricted members must not snapshot tickets they can't see).
+    let viewer = crate::sync::visibility::SyncViewer::resolve(conn, user);
     let mut granted: Vec<String> = granted_static.to_vec();
-    crate::sync::groups::admit_ticket_groups(conn, requested_groups, &vis, &mut granted);
+    crate::sync::groups::admit_ticket_groups(conn, requested_groups, &viewer.ctx, &mut granted);
     let granted: &[String] = &granted;
 
     let last_sync_id: Option<i64> = crate::schema::sync_actions::table
@@ -345,7 +344,7 @@ fn stream_bootstrap_inner(
     // them. This mirrors the read-side filter on /api/sync/delta;
     // both reuse the canonical access logic so they cannot drift.
     if want_all {
-        let is_admin = crate::repository::user_helpers::user_is_admin(conn, user);
+        let is_admin = viewer.is_doc_admin;
 
         let collections: Vec<crate::models::DocumentationCollection> =
             crate::schema::documentation_collections::table.load(conn)?;
@@ -507,7 +506,9 @@ fn stream_bootstrap_inner(
         .collect();
 
     let ticket_query = if want_all {
-        tickets::table.into_boxed()
+        // Restricted members see only their requester/watcher set; staff
+        // see every ticket (the query all-passes for sees_all).
+        crate::sync::visibility::bootstrap_ticket_query(&viewer)
     } else {
         // Project-scoped tickets (kanban) unioned with any tickets
         // subscribed by id (detail view). Empty in both means the
@@ -525,8 +526,22 @@ fn stream_bootstrap_inner(
         if scoped_ids.is_empty() {
             return finish(tx, last_sync_id);
         }
+        // Restrict to tickets this viewer can actually read (staff
+        // all-pass; a member with a project grant still only sees their
+        // own tickets within it). detail_ticket_ids are already
+        // can_view-gated via admit_ticket_groups, so they survive.
+        let visible: Vec<i32> = crate::repository::ticket_visibility::visible_ticket_ids(
+            conn,
+            &viewer.ctx,
+            &scoped_ids,
+        )?
+        .into_iter()
+        .collect();
+        if visible.is_empty() {
+            return finish(tx, last_sync_id);
+        }
         tickets::table
-            .filter(tickets::id.eq_any(scoped_ids))
+            .filter(tickets::id.eq_any(visible))
             .into_boxed()
     };
 
@@ -663,7 +678,7 @@ fn stream_bootstrap_inner(
     // memberships). The global / project bootstraps deliberately omit
     // these, so they only ship for an explicit `ticket:<id>` group.
     if !detail_ticket_ids.is_empty() {
-        stream_ticket_detail_extras(conn, &detail_ticket_ids, tx)?;
+        stream_ticket_detail_extras(conn, &detail_ticket_ids, viewer.ctx.sees_all(), tx)?;
     }
 
     finish(tx, last_sync_id)
@@ -680,12 +695,19 @@ fn stream_bootstrap_inner(
 fn stream_ticket_detail_extras(
     conn: &mut crate::db::DbConnection,
     ticket_ids: &[i32],
+    sees_all: bool,
     tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let comment_rows: Vec<Comment> = comments::table
+    // Restricted viewers see only public comments on their visible
+    // tickets (mirrors `get_public_comments_by_ticket_id`); their
+    // attachments then scope to the surviving comment ids automatically.
+    let mut comment_query = comments::table
         .filter(comments::ticket_id.eq_any(ticket_ids))
-        .order(comments::created_at.asc())
-        .load(conn)?;
+        .into_boxed();
+    if !sees_all {
+        comment_query = comment_query.filter(comments::is_internal.eq(false));
+    }
+    let comment_rows: Vec<Comment> = comment_query.order(comments::created_at.asc()).load(conn)?;
     let comment_ids: Vec<i32> = comment_rows.iter().map(|c| c.id).collect();
     for c in &comment_rows {
         // Render essentials only (mirrors the `comment.created` emit):

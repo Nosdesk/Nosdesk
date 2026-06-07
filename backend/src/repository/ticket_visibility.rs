@@ -50,7 +50,10 @@ use crate::schema::{ticket_watchers, tickets};
 
 /// Lightweight projection of `Claims` carrying only the visibility-
 /// relevant fields. Letting handlers pass a `&Claims` directly keeps
-/// the call sites short.
+/// the call sites short. `Copy` (two scalar fields) so the sync read
+/// paths can stash it in a `SyncViewer` and move copies into blocking
+/// closures without re-deriving the role split.
+#[derive(Clone, Copy)]
 pub struct VisibilityContext {
     pub user_uuid: Uuid,
     /// True when the user sees every ticket (staff: platform admin or

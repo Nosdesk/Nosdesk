@@ -69,21 +69,35 @@ pub async fn delta(
     ctx: SyncContext,
 ) -> impl Responder {
     let mut granted = intersect_groups(&query.groups, &ctx.allowed_groups);
+
+    // Per-viewer visibility identity (ticket tier + doc tier), resolved
+    // once and reused for ticket-group admission and the read-side
+    // visibility filter below.
+    let viewer = {
+        let user = ctx.user.clone();
+        match tc.run(move |conn| {
+            Ok::<_, diesel::result::Error>(crate::sync::visibility::SyncViewer::resolve(
+                conn, &user,
+            ))
+        }) {
+            Ok(v) => v,
+            Err(e) => {
+                error!(error = %e, "delta: failed to resolve viewer");
+                return errors::internal("Failed to load sync delta");
+            }
+        }
+    };
+
     // Admit `ticket:<id>` groups the caller can read on top of the
     // static set, so a pool-native ticket subscription's live pull
     // matches its bootstrap. Authorized per-ticket via
     // `can_view_ticket` (same gate as bootstrap + the SSE topic).
     {
         let requested = query.groups.clone();
-        let user = ctx.user.clone();
+        let ctx_copy = viewer.ctx;
         let admitted = tc.run(move |conn| {
-            let vis = crate::repository::ticket_visibility::VisibilityContext::new(
-                user.uuid,
-                crate::models::PlatformRole::from_db(&user.platform_role),
-                crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid),
-            );
             let mut g: Vec<String> = Vec::new();
-            crate::sync::groups::admit_ticket_groups(conn, &requested, &vis, &mut g);
+            crate::sync::groups::admit_ticket_groups(conn, &requested, &ctx_copy, &mut g);
             Ok::<Vec<String>, diesel::result::Error>(g)
         });
         if let Ok(extra) = admitted {
@@ -149,70 +163,56 @@ pub async fn delta(
         actions.truncate(limit as usize);
     }
 
-    // `last_sync_id` is taken from the fetched page BEFORE the documentation
-    // visibility filter below. Dropped rows must still advance the client's
-    // cursor, otherwise it would re-request them every poll forever.
+    // `last_sync_id` is taken from the fetched page BEFORE the visibility
+    // filter below. Dropped rows must still advance the client's cursor,
+    // otherwise it would re-request them every poll forever.
     let last_sync_id = actions.last().map(|a| a.sync_id).unwrap_or(query.from);
 
-    // Read-side documentation visibility. Documentation page/collection rows
-    // are emitted to `workspace:1` (no per-row group scoping), so the group
-    // overlap above lets every workspace member see them. Filter out any the
-    // caller is not actually permitted to read, reusing the canonical access
-    // logic. Most deltas carry no documentation rows, so this is a no-op for
-    // the common case.
-    use crate::models::SyncAggregate;
-    let page_ids: Vec<i32> = actions
-        .iter()
-        .filter(|a| a.aggregate == SyncAggregate::DocumentationPage)
-        .filter_map(|a| a.aggregate_id.parse::<i32>().ok())
-        .collect();
-    let collection_ids: Vec<i32> = actions
-        .iter()
-        .filter(|a| a.aggregate == SyncAggregate::DocumentationCollection)
-        .filter_map(|a| a.aggregate_id.parse::<i32>().ok())
-        .collect();
-    if !page_ids.is_empty() || !collection_ids.is_empty() {
-        let user = ctx.user.clone();
-        let hidden = tc.run(move |conn| {
-            let is_admin = crate::repository::user_helpers::user_is_admin(conn, &user);
-            crate::repository::documentation::hidden_documentation_ids(
-                conn,
-                &page_ids,
-                &collection_ids,
-                &user.uuid,
-                is_admin,
-            )
-        });
-        match hidden {
-            Ok((hidden_pages, hidden_collections)) => {
-                if !hidden_pages.is_empty() || !hidden_collections.is_empty() {
-                    actions.retain(|a| match a.aggregate {
-                        SyncAggregate::DocumentationPage => a
-                            .aggregate_id
-                            .parse::<i32>()
-                            .ok()
-                            .is_none_or(|id| !hidden_pages.contains(&id)),
-                        SyncAggregate::DocumentationCollection => a
-                            .aggregate_id
-                            .parse::<i32>()
-                            .ok()
-                            .is_none_or(|id| !hidden_collections.contains(&id)),
-                        _ => true,
-                    });
-                }
-            }
-            Err(e) => {
-                error!(error = %e, "documentation visibility filter failed");
-                return errors::internal("Failed to load sync delta");
-            }
+    // Read-side visibility, via the shared sync-visibility layer:
+    // documentation (every viewer) + the ticket family (restricted
+    // members only). `filter_actions` returns a keep-mask and never
+    // errors — a visibility-lookup failure fails closed (drops the
+    // affected family) rather than 500'ing the poll.
+    let (actions, keep) = match tc.run(move |conn| {
+        let keep =
+            crate::sync::visibility::filter_actions(conn, &viewer, &actions, action_row_to_view);
+        Ok::<(Vec<ActionRow>, Vec<bool>), diesel::result::Error>((actions, keep))
+    }) {
+        Ok(x) => x,
+        Err(e) => {
+            error!(error = %e, "delta visibility filter failed");
+            return errors::internal("Failed to load sync delta");
         }
-    }
+    };
+    let mut actions = actions;
+    let mut keep_iter = keep.into_iter();
+    actions.retain(|_| keep_iter.next().unwrap_or(false));
 
     HttpResponse::Ok().json(DeltaResponse {
         actions,
         last_sync_id,
         has_more,
     })
+}
+
+/// Lower an `ActionRow` into the visibility layer's `ActionView`.
+fn action_row_to_view(row: &ActionRow) -> crate::sync::visibility::ActionView {
+    crate::sync::visibility::ActionView {
+        aggregate: Some(row.aggregate),
+        is_delete: matches!(row.op, crate::models::SyncOp::Delete),
+        aggregate_id: row.aggregate_id.parse().ok(),
+        ticket_id: row
+            .data
+            .get("ticket_id")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32),
+        is_internal: row.data.get("is_internal").and_then(|v| v.as_bool()),
+        comment_id: row
+            .data
+            .get("comment_id")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32),
+    }
 }
 
 /// Intersect the comma-separated client-requested groups with the

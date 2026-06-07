@@ -34,7 +34,9 @@ use crate::repository::{comments, documentation, user_helpers};
 use crate::schema::tickets;
 
 /// Per-viewer visibility identity, built once per request (delta /
-/// bootstrap) or per connection (SSE).
+/// bootstrap) or per connection (SSE). `Copy` so it can be moved into
+/// blocking filter closures (delta `tc.run`, SSE `web::block`).
+#[derive(Clone, Copy)]
 pub struct SyncViewer {
     /// Ticket-family visibility context (carries `sees_all`).
     pub ctx: VisibilityContext,
@@ -63,6 +65,7 @@ impl SyncViewer {
 /// Minimal projection of one sync action needed for a visibility
 /// decision. Both delta's `ActionRow` and an SSE `serde_json` row lower
 /// into this via the `extract` closure passed to [`filter_actions`].
+#[derive(Clone)]
 pub struct ActionView {
     /// `None` when the wire aggregate name didn't parse (treated as a
     /// non-gated/reference row — allow).
@@ -308,6 +311,52 @@ pub fn filter_actions<T>(
 /// the viewer.
 pub fn bootstrap_ticket_query<'a>(viewer: &SyncViewer) -> tickets::BoxedQuery<'a, Pg> {
     ticket_visibility::visible_tickets_query(&viewer.ctx)
+}
+
+/// Cheap, I/O-free gate: does an action with this wire aggregate name
+/// need a per-viewer visibility check? Documentation always (it has
+/// per-row ACLs even among staff); the ticket family only for restricted
+/// viewers. The SSE path uses this to skip the async DB hop for batches
+/// that don't need filtering for this viewer.
+pub fn wire_aggregate_is_gated(wire: &str, viewer: &SyncViewer) -> bool {
+    match wire {
+        "documentation_page" | "documentation_collection" => true,
+        "ticket" | "comment" | "attachment" | "ticket_asset" | "linked_ticket"
+        | "project_ticket" => !viewer.sees_all(),
+        _ => false,
+    }
+}
+
+/// Fail-closed keep-mask computed with no DB access: drops every gated
+/// family (documentation for all viewers; the ticket family for
+/// restricted viewers) and keeps reference data. Used by the SSE path
+/// when the off-thread visibility lookup can't run (e.g. pool
+/// exhaustion) so a transient failure can never leak.
+pub fn fail_closed_mask<T>(
+    viewer: &SyncViewer,
+    items: &[T],
+    extract: impl Fn(&T) -> ActionView,
+) -> Vec<bool> {
+    let empty: HashSet<i32> = HashSet::new();
+    let visible_tickets = if viewer.sees_all() {
+        None
+    } else {
+        Some(&empty)
+    };
+    items
+        .iter()
+        .map(|it| {
+            action_is_visible(
+                &extract(it),
+                visible_tickets,
+                &empty,
+                &empty,
+                &empty,
+                true, // doc_fail
+                true, // ticket_fail
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

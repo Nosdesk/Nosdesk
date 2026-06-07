@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -365,18 +365,18 @@ pub struct SseStream {
     heartbeat_interval: tokio::time::Interval,
     client_id: String,
     state: web::Data<SseState>,
-    /// Pool for the per-subscriber documentation visibility filter on
-    /// the live `SyncActions` stream (see `filter_documentation_frame`).
+    /// Pool for the per-subscriber visibility filter on the live
+    /// `SyncActions` stream (see `filter_sync_actions_frame`).
     pool: web::Data<crate::db::Pool>,
-    /// Viewer identity, captured at connect. Documentation rows are
-    /// emitted to `workspace:1`, so the live stream must drop the ones
-    /// this viewer can't see (the REST delta/bootstrap paths already do;
-    /// this closes the live-push gap). `is_admin` is cached at connect,
-    /// matching the structural-at-connect model used for topic auth.
-    viewer_uuid: Uuid,
-    viewer_is_admin: bool,
-    /// In-flight filter for a `SyncActions` batch that carries
-    /// documentation rows. Held across polls because the visibility
+    /// Viewer visibility identity, captured at connect. The live stream
+    /// drops rows this viewer can't see (documentation for everyone;
+    /// the ticket family for restricted members), mirroring the REST
+    /// delta/bootstrap paths so the live push doesn't leak. Resolved
+    /// once at connect, matching the structural-at-connect topic-auth
+    /// model.
+    viewer: crate::sync::visibility::SyncViewer,
+    /// In-flight filter for a `SyncActions` batch that needs per-viewer
+    /// visibility filtering. Held across polls because the visibility
     /// check is a blocking DB call run off-thread via `web::block`.
     pending: Option<Pin<Box<dyn Future<Output = String> + Send>>>,
 }
@@ -389,8 +389,7 @@ impl SseStream {
         client_id: String,
         state: web::Data<SseState>,
         pool: web::Data<crate::db::Pool>,
-        viewer_uuid: Uuid,
-        viewer_is_admin: bool,
+        viewer: crate::sync::visibility::SyncViewer,
     ) -> Self {
         // 15-second heartbeat. EventSource auto-reconnects when the
         // read side dies, so this is mostly a NAT/proxy keepalive
@@ -411,81 +410,98 @@ impl SseStream {
             client_id,
             state,
             pool,
-            viewer_uuid,
-            viewer_is_admin,
+            viewer,
             pending: None,
         }
     }
 }
 
-/// Extract documentation page + collection ids from a `SyncActions`
-/// envelope. Returns `None` for non-`SyncActions` events or batches with
-/// no documentation rows (the common case), so the caller skips the
-/// per-subscriber visibility filter entirely.
-fn documentation_ids_in_envelope(env: &Envelope) -> Option<(Vec<i32>, Vec<i32>)> {
+/// Does this `SyncActions` envelope contain any row that needs a
+/// per-viewer visibility check (documentation for everyone; the ticket
+/// family for restricted viewers)? Cheap, I/O-free gate so the common
+/// case (staff, or a batch of only reference/ungated rows) frames
+/// immediately without the off-thread DB hop.
+fn batch_needs_filtering(env: &Envelope, viewer: &crate::sync::visibility::SyncViewer) -> bool {
     let SseEvent::SyncActions { actions, .. } = &env.event else {
-        return None;
+        return false;
     };
-    let rows = actions.as_array()?;
-    let mut page_ids = Vec::new();
-    let mut collection_ids = Vec::new();
-    for row in rows {
-        let agg = row.get("aggregate").and_then(|v| v.as_str());
-        let id = row
+    let Some(rows) = actions.as_array() else {
+        return false;
+    };
+    rows.iter().any(|row| {
+        row.get("aggregate")
+            .and_then(|v| v.as_str())
+            .is_some_and(|wire| crate::sync::visibility::wire_aggregate_is_gated(wire, viewer))
+    })
+}
+
+/// Lower one serialized-`ActionRow` JSON row into the visibility layer's
+/// `ActionView`.
+fn json_row_to_view(row: &serde_json::Value) -> crate::sync::visibility::ActionView {
+    let aggregate = row
+        .get("aggregate")
+        .cloned()
+        .and_then(|v| serde_json::from_value::<crate::models::SyncAggregate>(v).ok());
+    let data = row.get("data");
+    crate::sync::visibility::ActionView {
+        aggregate,
+        is_delete: row.get("op").and_then(|v| v.as_str()) == Some("D"),
+        aggregate_id: row
             .get("aggregate_id")
             .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<i32>().ok());
-        match (agg, id) {
-            (Some("documentation_page"), Some(id)) => page_ids.push(id),
-            (Some("documentation_collection"), Some(id)) => collection_ids.push(id),
-            _ => {}
-        }
-    }
-    if page_ids.is_empty() && collection_ids.is_empty() {
-        None
-    } else {
-        Some((page_ids, collection_ids))
+            .and_then(|s| s.parse().ok()),
+        ticket_id: data
+            .and_then(|d| d.get("ticket_id"))
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32),
+        is_internal: data
+            .and_then(|d| d.get("is_internal"))
+            .and_then(|v| v.as_bool()),
+        comment_id: data
+            .and_then(|d| d.get("comment_id"))
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32),
     }
 }
 
-/// Re-frame a `SyncActions` envelope with the documentation rows this
-/// viewer may not see removed. Documentation is emitted to `workspace:1`,
-/// so without this the live push would deliver restricted page/collection
-/// metadata to everyone (the REST delta/bootstrap paths already filter;
-/// this mirrors them on the push). The visibility check is the canonical
-/// `hidden_documentation_ids`, run off-thread via `web::block`. Fails
-/// closed: on any error every documentation row is dropped rather than
-/// risk a leak. `last_sync_id` is preserved so the client's cursor still
-/// advances past the (filtered) batch.
-async fn filter_documentation_frame(
+/// Re-frame a `SyncActions` envelope with the rows this viewer may not
+/// see removed, via the shared `sync::visibility::filter_actions` (the
+/// same brain the REST delta/bootstrap paths use). Documentation rows
+/// are dropped for everyone who can't see them; ticket-family rows are
+/// dropped for restricted members. The lookup runs off-thread via
+/// `web::block`; on failure it fails closed (drops every gated family,
+/// keeps reference data). `last_sync_id` is preserved so the client's
+/// cursor still advances past the (filtered) batch.
+async fn filter_sync_actions_frame(
     pool: web::Data<crate::db::Pool>,
-    viewer_uuid: Uuid,
-    viewer_is_admin: bool,
+    viewer: crate::sync::visibility::SyncViewer,
     env: Envelope,
-    page_ids: Vec<i32>,
-    collection_ids: Vec<i32>,
 ) -> String {
-    let outcome = web::block(move || -> Result<(HashSet<i32>, HashSet<i32>), ()> {
-        let mut conn = pool.get().map_err(|_| ())?;
-        crate::repository::documentation::hidden_documentation_ids(
-            &mut conn,
-            &page_ids,
-            &collection_ids,
-            &viewer_uuid,
-            viewer_is_admin,
-        )
-        .map_err(|_| ())
-    })
-    .await;
+    let rows: Vec<serde_json::Value> = match &env.event {
+        SseEvent::SyncActions { actions, .. } => match actions.as_array() {
+            Some(a) => a.clone(),
+            None => return frame_envelope(&env),
+        },
+        // Unreachable: the caller only routes SyncActions envelopes here.
+        _ => return frame_envelope(&env),
+    };
 
-    let (hidden_pages, hidden_collections, fail_closed) = match outcome {
-        Ok(Ok((hp, hc))) => (hp, hc, false),
+    let rows_for_block = rows.clone();
+    let mask = match web::block(move || {
+        let mut conn = pool.get().map_err(|_| ())?;
+        Ok::<Vec<bool>, ()>(crate::sync::visibility::filter_actions(
+            &mut conn,
+            &viewer,
+            &rows_for_block,
+            json_row_to_view,
+        ))
+    })
+    .await
+    {
+        Ok(Ok(m)) => m,
         _ => {
-            tracing::error!(
-                viewer = %viewer_uuid,
-                "SSE documentation visibility filter failed; dropping all doc rows (fail-closed)"
-            );
-            (HashSet::new(), HashSet::new(), true)
+            tracing::error!("SSE sync visibility filter failed; failing closed");
+            crate::sync::visibility::fail_closed_mask(&viewer, &rows, json_row_to_view)
         }
     };
 
@@ -495,68 +511,28 @@ async fn filter_documentation_frame(
         source_client_id,
     } = env;
     let SseEvent::SyncActions {
-        actions,
         last_sync_id,
         timestamp,
+        ..
     } = event
     else {
-        // Unreachable: the caller only routes SyncActions envelopes here.
         return String::new();
     };
-
-    let filtered =
-        retain_visible_doc_rows(actions, &hidden_pages, &hidden_collections, fail_closed);
+    let kept: Vec<serde_json::Value> = rows
+        .into_iter()
+        .zip(mask)
+        .filter_map(|(row, keep)| keep.then_some(row))
+        .collect();
 
     frame_envelope(&Envelope {
         id,
         event: SseEvent::SyncActions {
-            actions: filtered,
+            actions: serde_json::Value::Array(kept),
             last_sync_id,
             timestamp,
         },
         source_client_id,
     })
-}
-
-/// Drop the documentation rows a viewer may not see from a `SyncActions`
-/// batch, leaving every other row untouched. Pure (no I/O) so the
-/// retention logic is unit-testable; the visibility decision is made by
-/// the caller (`hidden_documentation_ids`). When `fail_closed`, every
-/// documentation row is dropped (used when the visibility lookup errored).
-fn retain_visible_doc_rows(
-    actions: serde_json::Value,
-    hidden_pages: &HashSet<i32>,
-    hidden_collections: &HashSet<i32>,
-    fail_closed: bool,
-) -> serde_json::Value {
-    let serde_json::Value::Array(rows) = actions else {
-        return actions;
-    };
-    serde_json::Value::Array(
-        rows.into_iter()
-            .filter(|row| {
-                let hidden_set = match row.get("aggregate").and_then(|v| v.as_str()) {
-                    Some("documentation_page") => hidden_pages,
-                    Some("documentation_collection") => hidden_collections,
-                    // Non-documentation rows are unaffected.
-                    _ => return true,
-                };
-                if fail_closed {
-                    return false;
-                }
-                match row
-                    .get("aggregate_id")
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| s.parse::<i32>().ok())
-                {
-                    Some(id) => !hidden_set.contains(&id),
-                    // Unparseable id on the success path: not in any
-                    // hidden set, so keep it.
-                    None => true,
-                }
-            })
-            .collect(),
-    )
 }
 
 fn frame_envelope(env: &Envelope) -> String {
@@ -638,25 +614,18 @@ impl Stream for SseStream {
                 }
             };
 
-            // 3. A SyncActions batch carrying documentation rows is
-            //    filtered per subscriber off-thread; everything else
-            //    frames immediately. Looping back drives the future.
-            match documentation_ids_in_envelope(&env) {
-                Some((page_ids, collection_ids)) => {
-                    this.pending = Some(Box::pin(filter_documentation_frame(
-                        this.pool.clone(),
-                        this.viewer_uuid,
-                        this.viewer_is_admin,
-                        env,
-                        page_ids,
-                        collection_ids,
-                    )));
-                }
-                None => {
-                    return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame_envelope(
-                        &env,
-                    )))));
-                }
+            // 3. A SyncActions batch with rows this viewer needs
+            //    visibility-checked is filtered per subscriber off-thread;
+            //    everything else frames immediately. Looping back drives
+            //    the future.
+            if batch_needs_filtering(&env, &this.viewer) {
+                this.pending = Some(Box::pin(filter_sync_actions_frame(
+                    this.pool.clone(),
+                    this.viewer,
+                    env,
+                )));
+            } else {
+                return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame_envelope(&env)))));
             }
         }
     }
@@ -732,11 +701,10 @@ pub async fn sse_events_stream(
         );
     }
 
-    // Viewer identity for the per-subscriber documentation filter on the
+    // Viewer visibility identity for the per-subscriber filter on the
     // live SyncActions stream. Resolved once at connect (structural, like
-    // topic auth); admin status is cached for the connection's lifetime.
-    let viewer_uuid = user.uuid;
-    let viewer_is_admin = crate::repository::user_helpers::user_is_admin(&mut conn, &user);
+    // topic auth); cached for the connection's lifetime.
+    let viewer = crate::sync::visibility::SyncViewer::resolve(&mut conn, &user);
 
     // Generate client ID and create stream
     let client_id = Uuid::now_v7().to_string();
@@ -747,8 +715,7 @@ pub async fn sse_events_stream(
         client_id.clone(),
         state.clone(),
         pool.clone(),
-        viewer_uuid,
-        viewer_is_admin,
+        viewer,
     );
 
     // Build initial "connected" event so the client knows its own ID
@@ -956,72 +923,75 @@ mod tests {
         }
     }
 
-    #[test]
-    fn documentation_ids_extracted_from_batch() {
-        let env = sync_actions_env(json!([
-            { "aggregate": "ticket", "aggregate_id": "5" },
-            { "aggregate": "documentation_page", "aggregate_id": "7" },
-            { "aggregate": "documentation_collection", "aggregate_id": "3" },
-            { "aggregate": "documentation_page", "aggregate_id": "9" },
-        ]));
-        let (pages, collections) =
-            documentation_ids_in_envelope(&env).expect("doc rows should be detected");
-        assert_eq!(pages, vec![7, 9]);
-        assert_eq!(collections, vec![3]);
+    fn viewer(sees_all: bool) -> crate::sync::visibility::SyncViewer {
+        use crate::models::{PlatformRole, WorkspaceRole};
+        use crate::repository::ticket_visibility::VisibilityContext;
+        let role = if sees_all {
+            WorkspaceRole::Agent
+        } else {
+            WorkspaceRole::Member
+        };
+        crate::sync::visibility::SyncViewer {
+            ctx: VisibilityContext::new(
+                uuid::Uuid::nil(),
+                PlatformRole::from_db("user"),
+                Some(role),
+            ),
+            is_doc_admin: false,
+        }
     }
 
     #[test]
-    fn batch_without_documentation_skips_filtering() {
+    fn needs_filtering_documentation_gates_everyone() {
+        let env = sync_actions_env(json!([
+            { "aggregate": "user", "aggregate_id": "x" },
+            { "aggregate": "documentation_page", "aggregate_id": "7" },
+        ]));
+        // Docs need a visibility check even for staff.
+        assert!(batch_needs_filtering(&env, &viewer(true)));
+        assert!(batch_needs_filtering(&env, &viewer(false)));
+    }
+
+    #[test]
+    fn needs_filtering_ticket_family_only_for_restricted() {
         let env = sync_actions_env(json!([
             { "aggregate": "ticket", "aggregate_id": "5" },
             { "aggregate": "comment", "aggregate_id": "8" },
         ]));
-        // None means the hot path frames immediately, no DB filter.
-        assert!(documentation_ids_in_envelope(&env).is_none());
+        // Staff see all tickets -> no filter; members must be filtered.
+        assert!(!batch_needs_filtering(&env, &viewer(true)));
+        assert!(batch_needs_filtering(&env, &viewer(false)));
     }
 
     #[test]
-    fn retain_drops_hidden_docs_keeps_visible_and_non_doc() {
-        let actions = json!([
-            { "aggregate": "ticket", "aggregate_id": "5" },
-            { "aggregate": "documentation_page", "aggregate_id": "7" },
-            { "aggregate": "documentation_page", "aggregate_id": "9" },
-            { "aggregate": "documentation_collection", "aggregate_id": "3" },
-        ]);
-        let hidden_pages: HashSet<i32> = [7].into_iter().collect();
-        let hidden_collections: HashSet<i32> = [3].into_iter().collect();
-
-        let out = retain_visible_doc_rows(actions, &hidden_pages, &hidden_collections, false);
-        let kept: Vec<(&str, &str)> = out
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| {
-                (
-                    r.get("aggregate").unwrap().as_str().unwrap(),
-                    r.get("aggregate_id").unwrap().as_str().unwrap(),
-                )
-            })
-            .collect();
-        // Hidden page 7 and hidden collection 3 dropped; ticket + visible
-        // page 9 kept.
-        assert_eq!(kept, vec![("ticket", "5"), ("documentation_page", "9")]);
+    fn needs_filtering_reference_only_skips() {
+        let env = sync_actions_env(json!([
+            { "aggregate": "user", "aggregate_id": "x" },
+            { "aggregate": "asset", "aggregate_id": "1" },
+        ]));
+        assert!(!batch_needs_filtering(&env, &viewer(true)));
+        assert!(!batch_needs_filtering(&env, &viewer(false)));
     }
 
     #[test]
-    fn retain_fail_closed_drops_all_doc_rows() {
-        let actions = json!([
-            { "aggregate": "ticket", "aggregate_id": "5" },
-            { "aggregate": "documentation_page", "aggregate_id": "9" },
-            { "aggregate": "documentation_collection", "aggregate_id": "3" },
-        ]);
-        // fail_closed: visibility lookup errored, so no doc row is trusted.
-        let out = retain_visible_doc_rows(actions, &HashSet::new(), &HashSet::new(), true);
-        let rows = out.as_array().unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(
-            rows[0].get("aggregate").unwrap().as_str().unwrap(),
-            "ticket"
-        );
+    fn json_row_to_view_extracts_fields() {
+        let row = json!({
+            "aggregate": "comment",
+            "op": "I",
+            "aggregate_id": "42",
+            "data": { "ticket_id": 7, "is_internal": true, "comment_id": 9 }
+        });
+        let v = json_row_to_view(&row);
+        assert_eq!(v.aggregate, Some(crate::models::SyncAggregate::Comment));
+        assert!(!v.is_delete);
+        assert_eq!(v.aggregate_id, Some(42));
+        assert_eq!(v.ticket_id, Some(7));
+        assert_eq!(v.is_internal, Some(true));
+        assert_eq!(v.comment_id, Some(9));
+
+        let del = json!({ "aggregate": "attachment", "op": "D", "aggregate_id": "3", "data": { "id": 3 } });
+        let dv = json_row_to_view(&del);
+        assert!(dv.is_delete);
+        assert_eq!(dv.comment_id, None);
     }
 }
