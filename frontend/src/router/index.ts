@@ -23,7 +23,6 @@ import PDFViewerView from '@/views/PDFViewerView.vue'
 import authService from '@/services/authService'
 import { useInboxLoader } from '@/loaders/inboxLoader'
 import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
-import { useTicketDetailLoader } from '@/loaders/ticketDetailLoader'
 import { translate } from '@/i18n'
 import { useBrandingStore } from '@/stores/branding'
 import type { Page, Article } from '@/services/documentationService'
@@ -187,10 +186,9 @@ const router = createRouter({
         titleKey: 'route-title-ticket-view',
         createButtonTextKey: 'header-create-ticket',
         createButtonIcon: 'ticket',
-        // Pre-fetches the ticket payload during navigation so the
-        // view mounts with data already in the Pinia Colada cache;
-        // useTicketData reads through the same cache key on mount.
-        loaders: [useTicketDetailLoader],
+        // No REST prefetch: TicketView is pool-native and bootstraps
+        // the ticket's sync group (`ticket:<id>`) on entry, reading
+        // everything from the object pool.
       },
       beforeEnter: (to) => {
         to.meta.key = to.params.id

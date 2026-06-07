@@ -5,19 +5,15 @@ import { useRoute, useRouter } from "vue-router";
 import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
 import { PRIORITY_OPTIONS } from "@/constants/ticketOptions";
-import ticketService from "@/services/ticketService";
-import { stripHtml } from "@/composables/useSanitise";
 import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
 import type { Ticket } from "@/types/ticket";
 
 // Composables
-import { useTicketData } from "@/composables/useTicketData";
+import { useTicketDetail } from "@/sync/stores/ticketDetail";
+import { subscribe } from "@/sync/lifecycle";
 import { useTicketUiStore } from "@/stores/ticketUi";
 import { useTicketSSE } from "@/composables/useTicketSSE";
-import { useTicketDevices } from "@/composables/useTicketAssets";
-import { useTicketRelationships } from "@/composables/useTicketRelationships";
-import { useTicketComments } from "@/composables/useTicketComments";
 import { useTitleManager } from "@/composables/useTitleManager";
 import { useTicketDrag } from "@/composables/useTicketDrag";
 import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
@@ -65,42 +61,11 @@ const localizedPriorityOptions = computed(() =>
     PRIORITY_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) })),
 );
 
-// Ticket data management
-const {
-    ticket,
-    error,
-    selectedPriority,
-    selectedCategory,
-    selectedWorkflowStateId,
-    formattedCreatedDate,
-    formattedModifiedDate,
-    comments,
-    devices,
-    fetchTicket,
-    refreshTicket,
-    updateWorkflowState,
-    updatePriority,
-    updateCategory,
-    updateRequester,
-    updateAssignee,
-    updateDueDate,
-    updateRecurrenceRule,
-    updateResolutionNotes,
-    updateTags,
-    toggleWatch,
-    deleteTicket,
-} = useTicketData();
+const ticketId = computed(() =>
+    route.params.id ? Number(route.params.id) : undefined,
+);
 
-// Sidebar's bell toggle emits without arguments — the composable
-// needs the current user uuid to know whose watch flag to flip.
-// Wrapping here keeps that lookup out of the child component.
-function handleToggleWatch() {
-    const uuid = authStore.user?.uuid;
-    if (!uuid) return;
-    void toggleWatch(uuid);
-}
-
-// Categories
+// Categories (reference data; resolves the category chip + dropdown).
 const categories = ref<TicketCategory[]>([]);
 const categoryOptions = computed(() => [
     { value: '', label: t('tickets-category-none') },
@@ -119,34 +84,66 @@ const loadCategories = async () => {
     }
 };
 
-// SSE real-time updates
-const ticketId = computed(() =>
-    route.params.id ? Number(route.params.id) : undefined,
-);
+// Pool-native ticket detail view-model: reads + optimistic writes all
+// flow through the sync object pool (fed by the `ticket:<id>`
+// bootstrap + live stream), replacing the REST-fetch + discrete-SSE
+// composables (useTicketData / Comments / Relationships / Assets).
 const {
-    isConnected,
-    recentlyAddedCommentIds,
-    otherViewers,
-} = useTicketSSE(
     ticket,
-    ticketId,
-    selectedWorkflowStateId,
+    comments,
+    devices,
     selectedPriority,
-);
-
-// Asset management - uses centralized mutations with optimistic updates
-const { showDeviceModal, addDevice, removeDevice } =
-    useTicketDevices(ticket);
-
-// Relationships (linked tickets & projects) - SSE handles state updates
-const {
+    selectedCategory,
+    selectedWorkflowStateId,
+    formattedCreatedDate,
+    formattedModifiedDate,
+    recentlyAddedCommentIds,
+    updateWorkflowState,
+    updatePriority,
+    updateCategory,
+    updateRequester,
+    updateAssignee,
+    updateTitle,
+    updateDueDate,
+    updateRecurrenceRule,
+    updateResolutionNotes,
+    updateTags,
+    toggleWatch,
+    deleteTicket,
+    addComment,
+    deleteComment,
+    deleteAttachment,
     showLinkedTicketModal,
     showProjectModal,
     linkTicket,
     unlinkTicket,
     addToProject,
     removeFromProject,
-} = useTicketRelationships(ticket);
+    showDeviceModal,
+    addDevice,
+    removeDevice,
+    recordView,
+} = useTicketDetail(ticketId, categories);
+
+// `error` is set when a subscribed ticket never lands in the pool
+// (deleted, or no read access — the bootstrap silently streams
+// nothing). Drives the not-found illustration.
+const error = ref<string | null>(null);
+
+// Sidebar's bell toggle emits without arguments — the facade needs the
+// current user uuid to know whose watch flag to flip. Wrapping here
+// keeps that lookup out of the child component.
+function handleToggleWatch() {
+    const uuid = authStore.user?.uuid;
+    if (!uuid) return;
+    void toggleWatch(uuid);
+}
+
+// Presence + live field preview over the per-ticket SSE topic.
+const {
+    isConnected,
+    otherViewers,
+} = useTicketSSE(ticketId);
 
 // Drag-to-link state
 const { dragState } = useTicketDrag();
@@ -170,6 +167,13 @@ const pluginActionActivatedMap = computed(() =>
         ? ticketUi.getPluginActivations(ticketId.value)
         : new Map<string, number>()
 );
+
+// Plugins consume the canonical `Ticket` shape. The pool-derived
+// view-model is structurally narrower (denormalised workflow_state,
+// no heavy email fields), so cast at the slot boundary — plugins read
+// the common fields (id, title, status, assignee, ...) which the
+// assembled object carries.
+const pluginTicket = computed(() => ticket.value as unknown as Ticket);
 
 // Overflow menu state: trigger sits in the page header next to
 // the connection-status indicator. Hosts ticket-level actions
@@ -288,17 +292,12 @@ const hasCommentsWithContent = computed(() => {
     );
 });
 
-// Print visibility for the ticket article. Tickets routinely have no
-// running notes — printing the empty article card just steals space
-// from the comment timeline. We use the shared `stripHtml` helper
-// (DOMPurify-backed, decodes entities, handles malformed markup
-// gracefully) so an editor "empty" representation like `<p></p>` or
-// `<p>&nbsp;</p>` correctly reads as empty.
-const hasArticleContent = computed(() => {
-    const raw = ticket.value?.article_content;
-    if (!raw) return false;
-    return stripHtml(raw).trim().length > 0;
-});
+// Print visibility for the ticket article. The article body lives in
+// the collaborative editor (Yjs over WebSocket), not the sync pool, so
+// the detail view no longer has a cheap "is it empty?" signal to gate
+// the print card on. Always render it; an empty article card on print
+// is a minor cost versus pulling the doc body onto the change log.
+const hasArticleContent = computed(() => true);
 
 const setDropTargetActive = () => {
     isLinkDropTarget.value = true;
@@ -363,11 +362,10 @@ const handleDocumentDragEnd = () => {
 onMounted(() => {
     document.addEventListener('dragend', handleDocumentDragEnd);
 
-    // Register save handler for SiteHeader title edits
+    // Register save handler for SiteHeader title edits. Optimistic
+    // through the pool's push queue (same path as every other field).
     titleManager.onTicketTitleSave(async (title: string) => {
-        if (ticket.value) {
-            await ticketService.updateTicket(ticket.value.id, { title });
-        }
+        await updateTitle(title);
     });
 });
 
@@ -378,12 +376,6 @@ onUnmounted(() => {
         clearTimeout(inactiveTimeout);
     }
 });
-
-// Comments
-const { addComment, deleteAttachment, deleteComment } = useTicketComments(
-    ticket,
-    refreshTicket,
-);
 
 // Title editing pipeline. Two channels:
 //   - preview: broadcast every typing pause to other viewers via
@@ -408,27 +400,43 @@ watch(
         // Only emit when valid ticket data exists - prevents title flash during loading
         // Clearing is handled by App.vue on route leave
         if (newTicket) {
-            emit("update:ticket", newTicket);
+            emit("update:ticket", newTicket as unknown as Ticket);
         }
     },
     { immediate: true, deep: true }, // deep: true to watch nested property changes
 );
 
 // Load ticket on mount and route change
+// Subscribe to the ticket's sync group so the pool bootstraps the
+// ticket + its comments / attachments / device + ticket links /
+// project memberships, then resolve the not-found case (the bootstrap
+// silently streams nothing for a ticket the caller can't read or that
+// doesn't exist). Reads come from the pool reactively; live changes
+// arrive on the sync stream.
+const loadTicket = async (id: number) => {
+    error.value = null;
+    await subscribe(`ticket:${id}`);
+    if (!ticket.value) {
+        error.value = t('ticket-data-load-failed');
+        return;
+    }
+    recordView();
+};
+
 onMounted(async () => {
-    // Load categories in parallel with ticket
+    // Reference data loads in parallel with the ticket subscription.
     loadCategories();
 
-    if (route.params.id) {
-        await fetchTicket(route.params.id);
+    if (ticketId.value !== undefined) {
+        await loadTicket(ticketId.value);
     }
 });
 
 watch(
-    () => route.params.id,
+    () => ticketId.value,
     async (newId) => {
-        if (newId) {
-            await fetchTicket(newId);
+        if (newId !== undefined) {
+            await loadTicket(newId);
         }
     },
 );
@@ -644,7 +652,7 @@ useCreateTicketAction();
                         <template v-if="ticket">
                             <TicketGapFlag :ticket-id="ticket.id" />
 
-                            <PluginSlot slot-name="ticket-sidebar" :ticket="ticket" :actionActivatedMap="pluginActionActivatedMap" />
+                            <PluginSlot slot-name="ticket-sidebar" :ticket="pluginTicket" :actionActivatedMap="pluginActionActivatedMap" />
                         </template>
                         </div>
                     </div>
@@ -689,7 +697,7 @@ useCreateTicketAction();
                         >
                             <CollaborativeTicketArticle
                                 :key="`article-${ticket.id}`"
-                                :initial-content="ticket.article_content || ''"
+                                :initial-content="''"
                                 :ticket-id="ticket.id"
                             />
                         </div>
